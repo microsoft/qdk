@@ -989,7 +989,6 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                @empty_tag = internal constant [1 x i8] c"\00"
                 @0 = internal constant [4 x i8] c"0_r\00"
 
                 define i64 @ENTRYPOINT__main() #0 {
@@ -1054,7 +1053,6 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                @empty_tag = internal constant [1 x i8] c"\00"
                 @0 = internal constant [4 x i8] c"0_r\00"
 
                 define i64 @ENTRYPOINT__main() #0 {
@@ -1116,10 +1114,11 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                @empty_tag = internal constant [1 x i8] c"\00"
-                @0 = internal constant [6 x i8] c"0_t0r\00"
-                @1 = internal constant [8 x i8] c"1_t1t0b\00"
-                @2 = internal constant [8 x i8] c"2_t1t1b\00"
+                @0 = internal constant [4 x i8] c"0_t\00"
+                @1 = internal constant [6 x i8] c"1_t0r\00"
+                @2 = internal constant [6 x i8] c"2_t1t\00"
+                @3 = internal constant [8 x i8] c"3_t1t0b\00"
+                @4 = internal constant [8 x i8] c"4_t1t1b\00"
 
                 define i64 @ENTRYPOINT__main() #0 {
                 block_0:
@@ -1128,11 +1127,11 @@ mod given_interpreter {
                   %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
                   %var_2 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
                   %var_3 = icmp eq i1 %var_2, false
-                  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
-                  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-                  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @1, i64 0, i64 0))
-                  call void @__quantum__rt__bool_record_output(i1 %var_3, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @2, i64 0, i64 0))
+                  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+                  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+                  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @3, i64 0, i64 0))
+                  call void @__quantum__rt__bool_record_output(i1 %var_3, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @4, i64 0, i64 0))
                   ret i64 0
                 }
 
@@ -1201,7 +1200,6 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                @empty_tag = internal constant [1 x i8] c"\00"
                 @0 = internal constant [4 x i8] c"0_r\00"
 
                 define i64 @ENTRYPOINT__main() #0 {
@@ -1251,7 +1249,6 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                @empty_tag = internal constant [1 x i8] c"\00"
                 @0 = internal constant [4 x i8] c"0_r\00"
 
                 define i64 @ENTRYPOINT__main() #0 {
@@ -1331,7 +1328,6 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                @empty_tag = internal constant [1 x i8] c"\00"
                 @0 = internal constant [4 x i8] c"0_r\00"
 
                 define i64 @ENTRYPOINT__main() #0 {
@@ -1391,7 +1387,6 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                @empty_tag = internal constant [1 x i8] c"\00"
                 @0 = internal constant [4 x i8] c"0_r\00"
 
                 define i64 @ENTRYPOINT__main() #0 {
@@ -1451,7 +1446,6 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                @empty_tag = internal constant [1 x i8] c"\00"
                 @0 = internal constant [4 x i8] c"0_b\00"
 
                 define i64 @ENTRYPOINT__main() #0 {

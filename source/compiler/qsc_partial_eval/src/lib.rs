@@ -1735,7 +1735,9 @@ impl<'a> PartialEvaluator<'a> {
         // There are a few special cases regarding intrinsic callables. Identify them and handle them properly.
         match callable_decl.name.name.as_ref() {
             // Qubit allocations and measurements have special handling.
-            "__quantum__rt__qubit_allocate" => Ok(self.allocate_qubit()),
+            "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
+                Ok(self.allocate_qubit())
+            }
             "__quantum__rt__qubit_release" => Ok(self.release_qubit(args_value)),
             "PermuteLabels" => {
                 if self.eval_context.is_currently_evaluating_any_branch() {
@@ -3489,6 +3491,10 @@ impl<'a> PartialEvaluator<'a> {
             panic!("expected tuple type for tuple value");
         };
         let new_tag_root = format!("{tag_root}t");
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{new_tag_root}");
+        let len = tag.len();
+        self.program.tags.push(tag);
         let tuple_record_callable_id = self.get_tuple_record_callable();
         instrs.push(InstructionKind::Call(
             tuple_record_callable_id,
@@ -3498,7 +3504,7 @@ impl<'a> PartialEvaluator<'a> {
                         .try_into()
                         .expect("tuple length should fit into u32"),
                 )),
-                Operand::Literal(Literal::EmptyTag),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
         ));
@@ -3525,10 +3531,10 @@ impl<'a> PartialEvaluator<'a> {
             panic!("expected array type for array value");
         };
         let new_tag_root = format!("{tag_root}a");
-        // let idx = self.program.tags.len();
-        // let tag = format!("{idx}_{new_tag_root}");
-        // let len = tag.len();
-        // self.program.tags.push(tag);
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{new_tag_root}");
+        let len = tag.len();
+        self.program.tags.push(tag);
         let array_record_callable_id = self.get_array_record_callable();
         instrs.push(InstructionKind::Call(
             array_record_callable_id,
@@ -3538,7 +3544,7 @@ impl<'a> PartialEvaluator<'a> {
                         .try_into()
                         .expect("array length should fit into u32"),
                 )),
-                Operand::Literal(Literal::EmptyTag),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
         ));

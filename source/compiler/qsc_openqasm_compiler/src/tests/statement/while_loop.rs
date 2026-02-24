@@ -25,7 +25,7 @@ fn can_iterate_over_mutable_var_cmp_expr() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         mutable result = Zero;
         mutable i = 0;
         while i < 10 {

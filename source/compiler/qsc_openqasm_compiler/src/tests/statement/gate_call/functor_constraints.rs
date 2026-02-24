@@ -21,7 +21,7 @@ fn gate_def_with_intrinsic_call_in_body_compiles() {
             operation test_gate(q : Qubit) : Unit {
                 intrinsic ();
             }
-            let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+            borrow q = Qubit();
             test_gate(q);
         "#]],
     );
@@ -70,7 +70,7 @@ fn non_modified_gate_doesnt_implement_functors() {
         &expect![[r#"
             import Std.OpenQASM.Intrinsic.*;
             operation test_gate(q : Qubit) : Unit {}
-            let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+            borrow q = Qubit();
             test_gate(q);
         "#]],
     );
@@ -88,7 +88,7 @@ fn controlled_gate_implements_ctrl_functor() {
         &expect![[r#"
             import Std.OpenQASM.Intrinsic.*;
             operation test_gate(q : Qubit) : Unit is Ctl {}
-            let q = QIR.Runtime.AllocateQubitArray(2);
+            borrow q = Qubit[2];
             Controlled test_gate([q[0]], q[1]);
         "#]],
     );
@@ -106,7 +106,7 @@ fn inverted_gate_implements_adj_functor() {
         &expect![[r#"
             import Std.OpenQASM.Intrinsic.*;
             operation test_gate(q : Qubit) : Unit is Adj {}
-            let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+            borrow q = Qubit();
             Adjoint test_gate(q);
         "#]],
     );
@@ -128,7 +128,7 @@ fn pow_on_gate_implements_adj_functor() {
         &expect![[r#"
             import Std.OpenQASM.Intrinsic.*;
             operation test_gate(q : Qubit) : Unit is Adj {}
-            let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+            borrow q = Qubit();
             ApplyOperationPowerA(2, test_gate, (q));
         "#]],
     );
@@ -159,7 +159,7 @@ fn functor_constraints_propagate() {
             operation test_gate_3(q : Qubit) : Unit is Adj {
                 test_gate_2(q);
             }
-            let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+            borrow q = Qubit();
             Adjoint test_gate_3(q);
         "#]],
     );
@@ -192,7 +192,7 @@ fn gates_dont_implement_unnecessary_functors() {
             operation test_gate_3(q : Qubit) : Unit {
                 test_gate_2(q);
             }
-            let q = QIR.Runtime.AllocateQubitArray(2);
+            borrow q = Qubit[2];
             Controlled test_gate_1([q[0]], q[1]);
             Adjoint test_gate_2(q[0]);
             test_gate_3(q[0]);

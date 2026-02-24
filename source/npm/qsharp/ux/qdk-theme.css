@@ -102,6 +102,12 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   --qdk-menu-fill-hover: #9cf;
   --qdk-menu-fill-selected: #7af;
 
+  /* Use for focus outlines in interactive widgets */
+  --qdk-focus-border: var(--vscode-focusBorder, var(--qdk-atom-fill));
+
+  /* Use for subdued explanatory text */
+  --qdk-description-foreground: var(--vscode-descriptionForeground, #666);
+
   /* Used for shapes in charts, etc. that may have overlapping text (which should contrast) */
   --qdk-shape-fill: #8ab8ff;
   --qdk-shape-fill-selected: #b5c5f2;
@@ -143,6 +149,15 @@ body[data-vscode-theme-kind="vscode-high-contrast"] {
   --qdk-menu-fill: #444;
   --qdk-menu-fill-hover: #468;
   --qdk-menu-fill-selected: #47a;
+
+  /* Use for focus outlines in interactive widgets */
+  --qdk-focus-border: var(--vscode-focusBorder, var(--qdk-atom-fill));
+
+  /* Use for subdued explanatory text */
+  --qdk-description-foreground: var(
+    --vscode-descriptionForeground,
+    var(--qdk-foreground-muted)
+  );
 
   /* Used for shapes in charts, etc. that may have overlapping text (which should contrast) */
   --qdk-shape-fill: #4aa3ff;

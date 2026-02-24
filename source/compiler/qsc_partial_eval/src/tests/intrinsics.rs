@@ -147,7 +147,7 @@ fn call_to_intrinsic_h_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -168,7 +168,7 @@ fn call_to_intrinsic_s_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -189,7 +189,7 @@ fn call_to_intrinsic_adjoint_s_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -210,7 +210,7 @@ fn call_to_intrinsic_sx_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -231,7 +231,7 @@ fn call_to_intrinsic_t_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -252,7 +252,7 @@ fn call_to_intrinsic_adjoint_t_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -273,7 +273,7 @@ fn call_to_intrinsic_x_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -294,7 +294,7 @@ fn call_to_intrinsic_y_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -315,7 +315,7 @@ fn call_to_intrinsic_z_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -336,7 +336,7 @@ fn call_to_intrinsic_swap_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Qubit(1), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -357,7 +357,7 @@ fn call_to_intrinsic_cx_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Qubit(1), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -378,7 +378,7 @@ fn call_to_intrinsic_cy_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Qubit(1), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -399,7 +399,7 @@ fn call_to_intrinsic_cz_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Qubit(1), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -420,7 +420,7 @@ fn call_to_intrinsic_ccx_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Qubit(1), Qubit(2), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -441,7 +441,7 @@ fn call_to_intrinsic_rx_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Double(0), Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -462,7 +462,7 @@ fn call_to_intrinsic_rxx_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Double(0), Qubit(0), Qubit(1), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -483,7 +483,7 @@ fn call_to_intrinsic_ry_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Double(0), Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -504,7 +504,7 @@ fn call_to_intrinsic_ryy_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Double(0), Qubit(0), Qubit(1), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -525,7 +525,7 @@ fn call_to_intrinsic_rz_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Double(0), Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -546,7 +546,7 @@ fn call_to_intrinsic_rzz_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Double(0), Qubit(0), Qubit(1), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -584,7 +584,7 @@ fn check_partial_eval_for_call_to_reset() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -622,7 +622,7 @@ fn call_to_intrinsic_m_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Result(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -660,7 +660,7 @@ fn call_to_intrinsic_mresetz_adds_callable_and_generates_instruction() {
             Block:
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Result(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -706,7 +706,7 @@ fn calls_to_intrinsic_begin_estimate_caching_with_classical_values_always_yield_
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), )
                 Call id(2), args( Qubit(0), )
-                Call id(3), args( Integer(0), EmptyTag, )
+                Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -796,7 +796,7 @@ fn call_to_intrinsic_begin_estimate_caching_with_dynamic_values_yields_true() {
             Block 1:Block:
                 Variable(3, Integer) = Store Variable(2, Integer)
                 Call id(4), args( Qubit(0), )
-                Call id(5), args( Integer(0), EmptyTag, )
+                Call id(5), args( Integer(0), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(2, Integer) = Store Integer(0)
@@ -826,7 +826,7 @@ fn call_to_intrinsic_end_estimate_caching_does_not_generate_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(2), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -851,7 +851,7 @@ fn call_to_account_for_estimates_does_not_generate_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(2), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -876,7 +876,7 @@ fn call_to_begin_repeat_estimates_does_not_generate_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(2), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -901,7 +901,7 @@ fn call_to_end_repeat_estimates_does_not_generate_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(2), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -925,7 +925,7 @@ fn call_to_dump_machine_does_not_generate_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(2), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -950,7 +950,7 @@ fn call_to_dump_register_does_not_generate_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(2), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -976,7 +976,7 @@ fn use_of_noise_does_not_generate_instructions() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(2), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -1125,7 +1125,7 @@ fn call_to_pauli_i_rotation_for_global_phase_is_noop() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
-                Call id(2), args( Integer(0), EmptyTag, )
+                Call id(2), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }
@@ -1187,7 +1187,7 @@ fn call_to_operation_with_codegen_intrinsic_override_should_skip_impl() {
                 Call id(2), args( )
                 Call id(3), args( )
                 Call id(2), args( )
-                Call id(4), args( Integer(0), EmptyTag, )
+                Call id(4), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
 }

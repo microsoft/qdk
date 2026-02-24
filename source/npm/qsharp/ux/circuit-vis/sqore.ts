@@ -25,6 +25,8 @@ import { createDropzones } from "./draggable.js";
 import { enableEvents } from "./events.js";
 import { createPanel, enableRunButton } from "./panel.js";
 import { getMinMaxRegIdx } from "./utils.js";
+import type { StateColumn } from "./state-viz/stateViz.js";
+import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
 
 /**
  * Contains render data for visualization.
@@ -46,12 +48,25 @@ type GateRegistry = {
   [location: string]: Operation;
 };
 
+export type EditorHandlers = {
+  editCallback: (circuitGroup: CircuitGroup) => void;
+  // When provided, enables the Run button in the toolbox.
+  runCallback?: () => void;
+  // Optional callback to offload state visualization computation.
+  // When provided (e.g., by the VS Code webview), the state visualizer can
+  // compute state in a Web Worker without relying on globals.
+  computeStateVizColumnsForCircuitModel?: (
+    model: Circuit,
+    opts?: PrepareStateVizOptions,
+  ) => Promise<StateColumn[]>;
+};
+
 export type DrawOptions = {
   renderDepth?: number;
-  isEditable?: boolean;
-  editCallback?: (circuitGroup: CircuitGroup) => void;
-  runCallback?: () => void;
   renderLocations?: (l: SourceLocation[]) => { title: string; href: string };
+  // When provided, enables editing behaviors (dropzones, run button, etc.) and
+  // requires the callbacks necessary to support those behaviors.
+  editor?: EditorHandlers;
 };
 
 /**
@@ -65,9 +80,7 @@ export class Sqore {
    * Initializes Sqore object.
    *
    * @param circuitGroup Group of circuits to be visualized.
-   * @param isEditable Whether the circuit is editable.
-   * @param editCallback Callback function to be called when the circuit is edited.
-   * @param runCallback Callback function to be called when the circuit is run.
+   * @param options Optional rendering/interaction options.
    */
   constructor(
     public circuitGroup: CircuitGroup,
@@ -139,17 +152,16 @@ export class Sqore {
     }
     this.addGateClickHandlers(container, _circuit);
 
-    if (this.options.isEditable) {
+    const editor = this.options.editor;
+    const isEditable = editor != null;
+    if (isEditable) {
       createDropzones(container, this);
-      createPanel(container);
-      if (this.options.runCallback != undefined) {
-        const callback = this.options.runCallback;
-        enableRunButton(container, callback);
+      createPanel(container, editor.computeStateVizColumnsForCircuitModel);
+      if (editor.runCallback) {
+        enableRunButton(container, editor.runCallback);
       }
       enableEvents(container, this, () => this.renderCircuit(container));
-      if (this.options.editCallback != undefined) {
-        this.options.editCallback(this.minimizeCircuits(this.circuitGroup));
-      }
+      editor.editCallback(this.minimizeCircuits(this.circuitGroup));
     }
   }
 
@@ -241,12 +253,14 @@ export class Sqore {
     // expanded group borders need to fit between qubit wires.
     const rowHeights = getRowHeights(qubits, componentGrid);
 
+    const isEditable = this.options.editor != null;
+
     // Draw the qubit labels.
     // Also calculate other register render data to be used later in the rendering.
     const { qubitLabels, registers, svgHeight } = formatInputs(
       qubits,
       rowHeights,
-      this.options.isEditable ? undefined : this.options.renderLocations,
+      isEditable ? undefined : this.options.renderLocations,
     );
 
     // Calculate the render data for the operations.
@@ -259,7 +273,7 @@ export class Sqore {
       topY,
       bottomY,
       registers,
-      this.options.isEditable ? undefined : this.options.renderLocations,
+      isEditable ? undefined : this.options.renderLocations,
     );
 
     // Draw the operations.
