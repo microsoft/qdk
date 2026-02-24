@@ -54,6 +54,7 @@ where
         None,
     );
     Stmt {
+        span: stmt_span,
         kind: Box::new(qubit_kind),
         ..Default::default()
     }
