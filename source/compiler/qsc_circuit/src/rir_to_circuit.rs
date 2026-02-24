@@ -13,9 +13,7 @@ use qsc_partial_eval::{
     VariableId,
     rir::{Block, BlockId, Instruction, Program, Ty, Variable},
 };
-use qsc_rir::debug::{
-    DbgInfo, DbgLocationId, DbgMetadataScope, DbgScopeId, InstructionDbgMetadata,
-};
+use qsc_rir::debug::{DbgInfo, DbgLocationId, DbgScope, DbgScopeId, InstructionDbgMetadata};
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
 use std::{collections::VecDeque, iter::Peekable, mem::take};
@@ -605,7 +603,7 @@ impl DbgStuff<'_> {
             let scope_id = self.lexical_scope(location_idx);
             let package_offset = self.source_location(location_idx);
             match &self.dbg_info.get_scope(scope_id) {
-                DbgMetadataScope::SubProgram { name, location } => {
+                DbgScope::SubProgram { name, location } => {
                     let scope = Scope::Callable(CallableId::Source(
                         PackageOffset {
                             package_id: location.package_id.into(),
@@ -615,7 +613,7 @@ impl DbgStuff<'_> {
                     ));
                     location_stack.push(LogicalStackEntry::new_call_site(package_offset, scope));
                 }
-                DbgMetadataScope::LexicalBlockFile {
+                DbgScope::LexicalBlockFile {
                     discriminator,
                     location: scope_location,
                 } => {

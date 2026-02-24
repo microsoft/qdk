@@ -1007,6 +1007,7 @@ impl<'a> PartialEvaluator<'a> {
             (rhs_eval_block_id, continuation_block_id)
         };
 
+        let rhs_expr_dbg_location = self.assign_current_dbg_location(rhs_expr_id);
         let branch_ins = Instruction {
             kind: InstructionKind::Branch(lhs_rir_var, true_block_id, false_block_id),
             metadata: self.metadata_from_current_debug_location(),

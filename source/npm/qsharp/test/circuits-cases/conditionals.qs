@@ -1,5 +1,5 @@
 operation Main() : Unit {
-    use qs = Qubit[32];
+    use qs = Qubit[34];
 
     ResultComparisonToLiteral(qs[0]);
     ResultComparisonToLiteralZero(qs[1]);
@@ -17,6 +17,7 @@ operation Main() : Unit {
     ConditionalInLoop(qs[24], qs[25]);
     NestedConditionalsInCallable(qs[26], qs[27], qs[28]);
     MeasurementInConditional(qs[29], qs[30], qs[31]);
+    BranchDueToBinOpShortCircuit(qs[32], qs[33]);
 
     ResetAll(qs);
 }
@@ -237,9 +238,7 @@ operation Quux(q : Qubit, r0 : Result, r1 : Result) : Unit {
     }
 }
 
-operation MeasurementInConditional(q0 : Qubit, q1 : Qubit, q2: Qubit) : Unit {
-    H(q1);
-    H(q1);
+operation MeasurementInConditional(q0 : Qubit, q1 : Qubit, q2 : Qubit) : Unit {
     H(q1);
     let r1 = M(q1);
 
@@ -247,4 +246,11 @@ operation MeasurementInConditional(q0 : Qubit, q1 : Qubit, q2: Qubit) : Unit {
         H(q0);
         let r0 = M(q2);
     }
+}
+
+operation BranchDueToBinOpShortCircuit(q0 : Qubit, q1 : Qubit) : Unit {
+    H(q0);
+    H(q1);
+    let r = { M(q0) == Zero } and { M(q1) == Zero };
+    let r1 = { M(q0) == Zero } or { M(q1) == Zero };
 }
