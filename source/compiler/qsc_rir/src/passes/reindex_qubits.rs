@@ -165,12 +165,9 @@ impl ReindexQubitPass {
                         *call_id
                     };
 
-                    block.0.push(Instruction::Call(
-                        call_id,
-                        new_args,
-                        None,
-                        metadata.clone(),
-                    ));
+                    block
+                        .0
+                        .push(Instruction::Call(call_id, new_args, None, metadata.clone()));
                     if program.get_callable(call_id).call_type == CallableType::Measurement {
                         // Generate any new qubit ids after a measurement.
                         for arg in args {

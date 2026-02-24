@@ -52,8 +52,8 @@ pub use qsc_rir::{
         DbgLocation, DbgLocationId, DbgPackageOffset, DbgScope, DbgScopeId, InstructionDbgMetadata,
     },
     rir::{
-        self, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode,
-        Instruction, Literal, Operand, Program, VariableId,
+        self, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode, Instruction,
+        Literal, Operand, Program, VariableId,
     },
 };
 use rustc_hash::FxHashMap;
@@ -754,7 +754,6 @@ impl<'a> PartialEvaluator<'a> {
             // Both operators are non-literals so we need the comparison instruction.
             _ => Instruction::Icmp(condition_code, lhs_operand, rhs_operand, rir_variable),
         };
-
         self.get_current_rir_block_mut().0.push(instruction);
 
         // Return the variable as a value.
@@ -910,7 +909,6 @@ impl<'a> PartialEvaluator<'a> {
                 };
                 let cmp_inst =
                     Instruction::Icmp(condition_code, lhs_operand, rhs_operand, rir_variable);
-
                 self.get_current_rir_block_mut().0.push(cmp_inst);
                 map_rir_var_to_eval_var(rir_variable).map_err(|()| {
                     Error::Unexpected(
@@ -987,14 +985,11 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         let branch_metadata = self.metadata_from_expr(rhs_expr_id);
+        let branch_ins =
+            Instruction::Branch(lhs_rir_var, true_block_id, false_block_id, branch_metadata);
         self.get_program_block_mut(current_block_node.id)
             .0
-            .push(Instruction::Branch(
-                lhs_rir_var,
-                true_block_id,
-                false_block_id,
-                branch_metadata,
-            ));
+            .push(branch_ins);
         let result_eval_var = map_rir_var_to_eval_var(result_rir_var).map_err(|()| {
             Error::Unexpected(
                 format!("{} type in logical binop", result_rir_var.ty),
@@ -1813,13 +1808,9 @@ impl<'a> PartialEvaluator<'a> {
 
         // Current debug location should be set to the call expression currently being evaluated.
         let metadata = self.metadata_from_current_dbg_location();
+        let instruction = Instruction::Call(callable_id, args_operands, output_var, metadata);
         let current_block = self.get_current_rir_block_mut();
-        current_block.0.push(Instruction::Call(
-            callable_id,
-            args_operands,
-            output_var,
-            metadata,
-        ));
+        current_block.0.push(instruction);
         let ret_val = match output_var {
             None => Value::unit(),
             Some(output_var) => {
@@ -1951,14 +1942,15 @@ impl<'a> PartialEvaluator<'a> {
         let condition_value_var = condition_value.unwrap_var();
         let condition_rir_var = map_eval_var_to_rir_var(condition_value_var);
         let metadata = self.metadata_from_expr(if_expr_id);
+        let branch_ins = Instruction::Branch(
+            condition_rir_var,
+            if_true_block_id,
+            if_false_block_id,
+            metadata,
+        );
         self.get_program_block_mut(current_block_node.id)
             .0
-            .push(Instruction::Branch(
-                condition_rir_var,
-                if_true_block_id,
-                if_false_block_id,
-                metadata,
-            ));
+            .push(branch_ins);
 
         // Return the value of the if expression.
         let if_expr_value = if let Some(if_expr_var) = maybe_if_expr_var {
@@ -2375,12 +2367,13 @@ impl<'a> PartialEvaluator<'a> {
                 // Current debug location should be set to the call expression currently being evaluated.
                 let metadata = self.metadata_from_current_dbg_location();
                 let current_block = self.get_current_rir_block_mut();
-                current_block.0.push(Instruction::Call(
+                let instruction = Instruction::Call(
                     read_result_callable_id,
                     vec![result_operand],
                     Some(variable),
                     metadata,
-                ));
+                );
+                current_block.0.push(instruction);
                 Operand::Variable(variable)
             }
             val::Result::Val(bool) => Operand::Literal(Literal::Bool(bool)),
@@ -2533,10 +2526,8 @@ impl<'a> PartialEvaluator<'a> {
                 // Generate a series of multiplication instructions that represent the exponentiation.
                 let mut current_rir_variable =
                     rir::Variable::new_integer(self.resource_manager.next_var());
-                let init_ins = Instruction::Store(
-                    Operand::Literal(Literal::Integer(1)),
-                    current_rir_variable,
-                );
+                let init_ins =
+                    Instruction::Store(Operand::Literal(Literal::Integer(1)), current_rir_variable);
                 self.get_current_rir_block_mut().0.push(init_ins);
                 for _ in 0..exponent {
                     let mult_variable =
@@ -2919,13 +2910,9 @@ impl<'a> PartialEvaluator<'a> {
         let measure_callable_id = self.get_or_insert_callable(measurement_callable);
         // Current debug location should be set to the call expression currently being evaluated.
         let metadata = self.metadata_from_current_dbg_location();
+        let instruction = Instruction::Call(measure_callable_id, operands, None, metadata);
         let current_block = self.get_current_rir_block_mut();
-        current_block.0.push(Instruction::Call(
-            measure_callable_id,
-            operands,
-            None,
-            metadata,
-        ));
+        current_block.0.push(instruction);
 
         match results_values.len() {
             0 => panic!("unexpected unitary measurement"),
@@ -2948,12 +2935,8 @@ impl<'a> PartialEvaluator<'a> {
         // Current debug location should be set to the call expression currently being evaluated.
         let metadata = self.metadata_from_current_dbg_location();
         let current_block = self.get_current_rir_block_mut();
-        current_block.0.push(Instruction::Call(
-            measure_callable_id,
-            args,
-            None,
-            metadata,
-        ));
+        let instruction = Instruction::Call(measure_callable_id, args, None, metadata);
+        current_block.0.push(instruction);
 
         // Return the result value.
         result_value
@@ -3199,7 +3182,6 @@ impl<'a> PartialEvaluator<'a> {
             let rhs_operand = self.map_eval_value_to_rir_operand(&value);
             let rir_var = map_eval_var_to_rir_var(*var);
             let store_ins = Instruction::Store(rhs_operand, rir_var);
-
             self.get_current_rir_block_mut().0.push(store_ins);
 
             // If this is a mutable variable, make sure to update whether it is static or dynamic.
@@ -3374,12 +3356,7 @@ impl<'a> PartialEvaluator<'a> {
         ));
     }
 
-    fn record_result(
-        &mut self,
-        instrs: &mut Vec<Instruction>,
-        res: val::Result,
-        tag_root: &str,
-    ) {
+    fn record_result(&mut self, instrs: &mut Vec<Instruction>, res: val::Result, tag_root: &str) {
         let idx = self.program.tags.len();
         let result_record_callable_id = self.get_result_record_callable();
         let tag = format!("{idx}_{tag_root}r");

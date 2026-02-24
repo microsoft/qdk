@@ -502,4 +502,3 @@ fn qubit_reindexed_across_branches() {
     // After
     reindex_qubits(&mut program);
 }
-

@@ -7,8 +7,8 @@ use crate::{
     builder::{bell_program, new_program, teleport_program},
     passes::{build_dominator_graph, remap_block_ids},
     rir::{
-        Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand,
-        Program, Ty, Variable, VariableId,
+        Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program,
+        Ty, Variable, VariableId,
     },
     utils::build_predecessors_map,
 };
@@ -283,10 +283,9 @@ fn ssa_check_passes_for_variable_that_dominates_usage() {
         ]),
     );
 
-    program.blocks.insert(
-        BlockId(3),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(3), Block(vec![Instruction::Return]));
 
     perform_ssa_check(&mut program);
 }
@@ -572,10 +571,9 @@ fn ssa_check_succeeds_when_phi_handles_value_from_dominator_of_predecessor() {
         ]),
     );
 
-    program.blocks.insert(
-        BlockId(4),
-        Block(vec![Instruction::Jump(BlockId(3))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(3))]));
 
     program.blocks.insert(
         BlockId(3),
@@ -702,10 +700,9 @@ fn ssa_check_fails_when_phi_handles_value_from_non_dominator_of_predecessor() {
         ]),
     );
 
-    program.blocks.insert(
-        BlockId(4),
-        Block(vec![Instruction::Jump(BlockId(6))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(6))]));
 
     program.blocks.insert(
         BlockId(5),
@@ -724,10 +721,9 @@ fn ssa_check_fails_when_phi_handles_value_from_non_dominator_of_predecessor() {
         ]),
     );
 
-    program.blocks.insert(
-        BlockId(6),
-        Block(vec![Instruction::Jump(BlockId(3))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(6), Block(vec![Instruction::Jump(BlockId(3))]));
 
     program.blocks.insert(
         BlockId(3),
@@ -1105,4 +1101,3 @@ fn ssa_check_fails_when_phi_blocks_have_different_predecessors() {
 
     perform_ssa_check(&mut program);
 }
-

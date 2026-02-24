@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 use crate::rir::{
-    Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program,
-    Ty, Variable, VariableId,
+    Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program, Ty,
+    Variable, VariableId,
 };
 
 use super::{check_unreachable_blocks, check_unreachable_callable, check_unreachable_instrs};
@@ -28,10 +28,9 @@ fn test_check_unreachable_instrs_panics_on_missing_terminator() {
 #[test]
 fn test_check_unreachable_instrs_succeeds_on_terminator() {
     let mut program = Program::new();
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Return]));
     check_unreachable_instrs(&program);
 }
 
@@ -87,10 +86,9 @@ fn test_check_unreachable_blocks_succeeds_on_no_unreachable_blocks() {
             call_type: CallableType::Regular,
         },
     );
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Return]));
     check_unreachable_blocks(&program);
 }
 
@@ -108,14 +106,12 @@ fn test_check_unreachable_blocks_panics_on_unreachable_block() {
             call_type: CallableType::Regular,
         },
     );
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Return]),
-    );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Return]));
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Return]));
     check_unreachable_blocks(&program);
 }
 
@@ -144,14 +140,12 @@ fn test_check_unreachable_blocks_succeeds_on_no_unreachable_blocks_with_branch()
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Return]),
-    );
-    program.blocks.insert(
-        BlockId(2),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Return]));
+    program
+        .blocks
+        .insert(BlockId(2), Block(vec![Instruction::Return]));
     check_unreachable_blocks(&program);
 }
 
@@ -168,14 +162,12 @@ fn test_check_unreachable_blocks_succeeds_on_no_unreachable_blocks_with_jump() {
             call_type: CallableType::Regular,
         },
     );
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Jump(BlockId(1))]),
-    );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Jump(BlockId(1))]));
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Return]));
     check_unreachable_blocks(&program);
 }
 
@@ -205,14 +197,12 @@ fn test_check_unreachable_blocks_panics_on_unreachable_block_with_branch() {
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Return]),
-    );
-    program.blocks.insert(
-        BlockId(2),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Return]));
+    program
+        .blocks
+        .insert(BlockId(2), Block(vec![Instruction::Return]));
     check_unreachable_blocks(&program);
 }
 
@@ -230,10 +220,9 @@ fn test_check_unreachable_callable_succeeds_on_no_unreachable_callables() {
             call_type: CallableType::Regular,
         },
     );
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Return]));
     check_unreachable_callable(&program);
 }
 
@@ -262,14 +251,12 @@ fn test_check_unreachable_callable_panics_on_unreachable_callable() {
             call_type: CallableType::Regular,
         },
     );
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Return]),
-    );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Return]));
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Return]));
     check_unreachable_callable(&program);
 }
 
@@ -306,10 +293,9 @@ fn test_check_unreachable_callable_succeeds_on_no_unreachable_callables_with_cal
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Return]));
     check_unreachable_callable(&program);
 }
 
@@ -412,10 +398,9 @@ fn test_check_unreachable_callable_panics_on_unreachable_callable_with_nested_ca
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Return]));
     check_unreachable_callable(&program);
 }
 
@@ -444,10 +429,9 @@ fn test_check_unreachable_callable_succeeds_on_no_unreachable_callables_with_cal
             call_type: CallableType::Regular,
         },
     );
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Jump(BlockId(1))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Jump(BlockId(1))]));
     program.blocks.insert(
         BlockId(1),
         Block(vec![Instruction::Call(
@@ -459,4 +443,3 @@ fn test_check_unreachable_callable_succeeds_on_no_unreachable_callables_with_cal
     );
     check_unreachable_callable(&program);
 }
-

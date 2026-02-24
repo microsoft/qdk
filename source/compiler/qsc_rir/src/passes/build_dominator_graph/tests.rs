@@ -36,10 +36,9 @@ fn build_doms(program: &mut Program) -> IndexMap<BlockId, BlockId> {
 #[test]
 fn dominator_graph_single_block_dominates_itself() {
     let mut program = new_program();
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Return]));
 
     let doms = build_doms(&mut program);
 
@@ -52,18 +51,15 @@ fn dominator_graph_single_block_dominates_itself() {
 #[test]
 fn dominator_graph_sequential_blocks_dominated_by_predecessor() {
     let mut program = new_program();
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Jump(BlockId(1))]),
-    );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Jump(BlockId(2))]),
-    );
-    program.blocks.insert(
-        BlockId(2),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Jump(BlockId(1))]));
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(2))]));
+    program
+        .blocks
+        .insert(BlockId(2), Block(vec![Instruction::Return]));
 
     let doms = build_doms(&mut program);
 
@@ -116,14 +112,12 @@ fn dominator_graph_branching_blocks_dominated_by_common_predecessor() {
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(2),
-        Block(vec![Instruction::Return]),
-    );
-    program.blocks.insert(
-        BlockId(3),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(2), Block(vec![Instruction::Return]));
+    program
+        .blocks
+        .insert(BlockId(3), Block(vec![Instruction::Return]));
 
     let doms = build_doms(&mut program);
 
@@ -139,14 +133,12 @@ fn dominator_graph_branching_blocks_dominated_by_common_predecessor() {
 #[test]
 fn dominator_graph_infinite_loop() {
     let mut program = new_program();
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Jump(BlockId(1))]),
-    );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Jump(BlockId(1))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Jump(BlockId(1))]));
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(1))]));
 
     let doms = build_doms(&mut program);
 
@@ -197,18 +189,15 @@ fn dominator_graph_branch_and_loop() {
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(2),
-        Block(vec![Instruction::Jump(BlockId(4))]),
-    );
-    program.blocks.insert(
-        BlockId(3),
-        Block(vec![Instruction::Jump(BlockId(1))]),
-    );
-    program.blocks.insert(
-        BlockId(4),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(2), Block(vec![Instruction::Jump(BlockId(4))]));
+    program
+        .blocks
+        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(1))]));
+    program
+        .blocks
+        .insert(BlockId(4), Block(vec![Instruction::Return]));
 
     let doms = build_doms(&mut program);
 
@@ -267,10 +256,9 @@ fn dominator_graph_complex_structure_only_dominated_by_entry() {
             ),
         ]),
     );
-    program.blocks.insert(
-        BlockId(5),
-        Block(vec![Instruction::Jump(BlockId(1))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(1))]));
     program.blocks.insert(
         BlockId(4),
         Block(vec![Instruction::Branch(
@@ -283,10 +271,9 @@ fn dominator_graph_complex_structure_only_dominated_by_entry() {
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Jump(BlockId(2))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(2))]));
     program.blocks.insert(
         BlockId(2),
         Block(vec![Instruction::Branch(
@@ -299,10 +286,9 @@ fn dominator_graph_complex_structure_only_dominated_by_entry() {
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(3),
-        Block(vec![Instruction::Jump(BlockId(2))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(2))]));
 
     let doms = build_doms(&mut program);
 
@@ -378,26 +364,21 @@ fn dominator_graph_with_node_having_many_predicates() {
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(3),
-        Block(vec![Instruction::Jump(BlockId(7))]),
-    );
-    program.blocks.insert(
-        BlockId(4),
-        Block(vec![Instruction::Jump(BlockId(7))]),
-    );
-    program.blocks.insert(
-        BlockId(5),
-        Block(vec![Instruction::Jump(BlockId(7))]),
-    );
-    program.blocks.insert(
-        BlockId(6),
-        Block(vec![Instruction::Jump(BlockId(7))]),
-    );
-    program.blocks.insert(
-        BlockId(7),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(7))]));
+    program
+        .blocks
+        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(7))]));
+    program
+        .blocks
+        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(7))]));
+    program
+        .blocks
+        .insert(BlockId(6), Block(vec![Instruction::Jump(BlockId(7))]));
+    program
+        .blocks
+        .insert(BlockId(7), Block(vec![Instruction::Return]));
 
     let doms = build_doms(&mut program);
 
@@ -413,4 +394,3 @@ fn dominator_graph_with_node_having_many_predicates() {
     "#]]
     .assert_eq(&display_dominator_graph(&doms));
 }
-

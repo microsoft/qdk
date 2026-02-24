@@ -221,4 +221,3 @@ fn add_branching_measurement_block(program: &mut Program) {
         ]),
     );
 }
-

@@ -25,18 +25,15 @@ fn remap_block_ids_no_changes() {
             call_type: CallableType::Regular,
         },
     );
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Jump(BlockId(1))]),
-    );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Jump(BlockId(2))]),
-    );
-    program.blocks.insert(
-        BlockId(2),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Jump(BlockId(1))]));
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(2))]));
+    program
+        .blocks
+        .insert(BlockId(2), Block(vec![Instruction::Return]));
 
     // Before
     expect![[r#"
@@ -104,18 +101,15 @@ fn remap_block_ids_out_of_order_no_branches() {
             call_type: CallableType::Regular,
         },
     );
-    program.blocks.insert(
-        BlockId(5),
-        Block(vec![Instruction::Jump(BlockId(3))]),
-    );
-    program.blocks.insert(
-        BlockId(3),
-        Block(vec![Instruction::Jump(BlockId(7))]),
-    );
-    program.blocks.insert(
-        BlockId(7),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(3))]));
+    program
+        .blocks
+        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(7))]));
+    program
+        .blocks
+        .insert(BlockId(7), Block(vec![Instruction::Return]));
 
     // Before
     expect![[r#"
@@ -195,18 +189,15 @@ fn remap_block_ids_out_of_order_with_one_branch() {
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Jump(BlockId(0))]),
-    );
-    program.blocks.insert(
-        BlockId(3),
-        Block(vec![Instruction::Jump(BlockId(1))]),
-    );
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(0))]));
+    program
+        .blocks
+        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(1))]));
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Return]));
 
     // Before
     expect![[r#"
@@ -291,14 +282,12 @@ fn remap_block_ids_simple_loop() {
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(6),
-        Block(vec![Instruction::Jump(BlockId(4))]),
-    );
-    program.blocks.insert(
-        BlockId(2),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(6), Block(vec![Instruction::Jump(BlockId(4))]));
+    program
+        .blocks
+        .insert(BlockId(2), Block(vec![Instruction::Return]));
 
     // Before
     expect![[r#"
@@ -367,14 +356,12 @@ fn remap_block_ids_infinite_loop() {
             call_type: CallableType::Regular,
         },
     );
-    program.blocks.insert(
-        BlockId(4),
-        Block(vec![Instruction::Jump(BlockId(0))]),
-    );
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Jump(BlockId(4))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(0))]));
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Jump(BlockId(4))]));
 
     // Before
     expect![[r#"
@@ -463,10 +450,9 @@ fn remap_block_ids_nested_branching_loops() {
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(2),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(2), Block(vec![Instruction::Return]));
 
     // Before
     expect![[r#"
@@ -548,10 +534,9 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(6),
-        Block(vec![Instruction::Jump(BlockId(2))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(6), Block(vec![Instruction::Jump(BlockId(2))]));
     program.blocks.insert(
         BlockId(2),
         Block(vec![Instruction::Branch(
@@ -564,10 +549,9 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Jump(BlockId(7))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(7))]));
     program.blocks.insert(
         BlockId(3),
         Block(vec![Instruction::Branch(
@@ -580,22 +564,18 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             None,
         )]),
     );
-    program.blocks.insert(
-        BlockId(5),
-        Block(vec![Instruction::Jump(BlockId(8))]),
-    );
-    program.blocks.insert(
-        BlockId(0),
-        Block(vec![Instruction::Jump(BlockId(8))]),
-    );
-    program.blocks.insert(
-        BlockId(8),
-        Block(vec![Instruction::Jump(BlockId(7))]),
-    );
-    program.blocks.insert(
-        BlockId(7),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(8))]));
+    program
+        .blocks
+        .insert(BlockId(0), Block(vec![Instruction::Jump(BlockId(8))]));
+    program
+        .blocks
+        .insert(BlockId(8), Block(vec![Instruction::Jump(BlockId(7))]));
+    program
+        .blocks
+        .insert(BlockId(7), Block(vec![Instruction::Return]));
 
     // Before
     expect![[r#"
@@ -674,4 +654,3 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
     "#]]
     .assert_eq(&program.to_string());
 }
-

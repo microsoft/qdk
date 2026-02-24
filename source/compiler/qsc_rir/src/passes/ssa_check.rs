@@ -167,23 +167,11 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
                 | Instruction::Fdiv(Operand::Variable(var1), Operand::Variable(var2), _)
                 | Instruction::Fcmp(_, Operand::Variable(var1), Operand::Variable(var2), _)
                 | Instruction::Icmp(_, Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::LogicalAnd(
-                    Operand::Variable(var1),
-                    Operand::Variable(var2),
-                    _,
-                )
+                | Instruction::LogicalAnd(Operand::Variable(var1), Operand::Variable(var2), _)
                 | Instruction::LogicalOr(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::BitwiseAnd(
-                    Operand::Variable(var1),
-                    Operand::Variable(var2),
-                    _,
-                )
+                | Instruction::BitwiseAnd(Operand::Variable(var1), Operand::Variable(var2), _)
                 | Instruction::BitwiseOr(Operand::Variable(var1), Operand::Variable(var2), _)
-                | Instruction::BitwiseXor(
-                    Operand::Variable(var1),
-                    Operand::Variable(var2),
-                    _,
-                ) => {
+                | Instruction::BitwiseXor(Operand::Variable(var1), Operand::Variable(var2), _) => {
                     add_use(var1.variable_id, block_id, idx);
                     add_use(var2.variable_id, block_id, idx);
                 }

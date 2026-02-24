@@ -10,8 +10,8 @@ use crate::{
     builder::{bell_program, new_program, teleport_program},
     passes::check_and_transform,
     rir::{
-        Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand,
-        Program, Ty, Variable, VariableId,
+        Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program,
+        Ty, Variable, VariableId,
     },
 };
 fn transform_program(program: &mut Program) {
@@ -534,14 +534,12 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
             ),
         ]),
     );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Jump(BlockId(3))]),
-    );
-    program.blocks.insert(
-        BlockId(2),
-        Block(vec![Instruction::Jump(BlockId(3))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(3))]));
+    program
+        .blocks
+        .insert(BlockId(2), Block(vec![Instruction::Jump(BlockId(3))]));
     program.blocks.insert(
         BlockId(3),
         Block(vec![
@@ -904,10 +902,9 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
             Instruction::Jump(BlockId(3)),
         ]),
     );
-    program.blocks.insert(
-        BlockId(2),
-        Block(vec![Instruction::Jump(BlockId(3))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(2), Block(vec![Instruction::Jump(BlockId(3))]));
     program.blocks.insert(
         BlockId(3),
         Block(vec![
@@ -1118,18 +1115,15 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
             ),
         ]),
     );
-    program.blocks.insert(
-        BlockId(3),
-        Block(vec![Instruction::Jump(BlockId(7))]),
-    );
-    program.blocks.insert(
-        BlockId(4),
-        Block(vec![Instruction::Jump(BlockId(7))]),
-    );
-    program.blocks.insert(
-        BlockId(5),
-        Block(vec![Instruction::Jump(BlockId(7))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(7))]));
+    program
+        .blocks
+        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(7))]));
+    program
+        .blocks
+        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(7))]));
     program.blocks.insert(
         BlockId(6),
         Block(vec![
@@ -2176,10 +2170,9 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
             ),
         ]),
     );
-    program.blocks.insert(
-        BlockId(1),
-        Block(vec![Instruction::Jump(BlockId(2))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(1), Block(vec![Instruction::Jump(BlockId(2))]));
     program.blocks.insert(
         BlockId(2),
         Block(vec![
@@ -2213,14 +2206,12 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
             ),
         ]),
     );
-    program.blocks.insert(
-        BlockId(3),
-        Block(vec![Instruction::Jump(BlockId(4))]),
-    );
-    program.blocks.insert(
-        BlockId(4),
-        Block(vec![Instruction::Return]),
-    );
+    program
+        .blocks
+        .insert(BlockId(3), Block(vec![Instruction::Jump(BlockId(4))]));
+    program
+        .blocks
+        .insert(BlockId(4), Block(vec![Instruction::Return]));
 
     // Before
     expect![[r#"
@@ -2860,14 +2851,12 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
             Instruction::Return,
         ]),
     );
-    program.blocks.insert(
-        BlockId(4),
-        Block(vec![Instruction::Jump(BlockId(3))]),
-    );
-    program.blocks.insert(
-        BlockId(5),
-        Block(vec![Instruction::Jump(BlockId(3))]),
-    );
+    program
+        .blocks
+        .insert(BlockId(4), Block(vec![Instruction::Jump(BlockId(3))]));
+    program
+        .blocks
+        .insert(BlockId(5), Block(vec![Instruction::Jump(BlockId(3))]));
 
     // Before
     expect![[r#"
@@ -2970,4 +2959,3 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
     "#]]
     .assert_eq(&program.to_string());
 }
-

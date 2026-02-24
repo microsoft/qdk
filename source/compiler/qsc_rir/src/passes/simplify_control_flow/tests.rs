@@ -490,4 +490,3 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
     "#]]
     .assert_eq(&program.to_string());
 }
-
