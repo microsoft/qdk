@@ -504,3 +504,70 @@ fn if_else() {
                 [24]: scope=5 location=(1-55512) inlined_at=23"#]],
     );
 }
+
+#[test]
+fn branch_due_to_binop_short_circuit() {
+    let program = get_rir_program_with_dbg_metadata(indoc! {r#"
+        operation Main() : Unit {
+            use q0 = Qubit();
+            use q1 = Qubit();
+            H(q0);
+            H(q1);
+            let r = { M(q0) == Zero } and { M(q1) == Zero };
+        }
+    "#});
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), ) !dbg dbg_location=3
+                Call id(2), args( Qubit(1), ) !dbg dbg_location=5
+                Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=11
+                Variable(0, Boolean) = Call id(4), args( Result(0), ) !dbg dbg_location=6
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                Variable(2, Boolean) = Store Bool(false)
+                Branch Variable(1, Boolean), 2, 1 !dbg dbg_location=14
+            Block 1:Block:
+                Variable(5, Boolean) = Store Variable(2, Boolean)
+                Call id(5), args( Integer(0), EmptyTag, )
+                Return
+            Block 2:Block:
+                Call id(3), args( Qubit(1), Result(1), ) !dbg dbg_location=19
+                Variable(3, Boolean) = Call id(4), args( Result(1), ) !dbg dbg_location=14
+                Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
+                Variable(2, Boolean) = Store Variable(4, Boolean)
+                Jump(1)
+
+            dbg_scopes:
+                0 = SubProgram name=Main location=(2-1)
+                1 = SubProgram name=H location=(1-110222)
+                2 = SubProgram name=M location=(1-111931)
+                3 = SubProgram name=Measure location=(1-112847)
+                4 = SubProgram name=MapPauliAxis location=(1-55426)
+                5 = SubProgram name=MapPauliAxis' location=(1-55426)
+            dbg_locations:
+                [2]: scope=0 location=(2-75)
+                [3]: scope=1 location=(1-110294) inlined_at=2
+                [4]: scope=0 location=(2-86)
+                [5]: scope=1 location=(1-110294) inlined_at=4
+                [6]: scope=0 location=(2-107)
+                [7]: scope=2 location=(1-111973) inlined_at=6
+                [8]: scope=3 location=(1-113034) inlined_at=7
+                [9]: scope=3 location=(1-113087) inlined_at=7
+                [10]: scope=4 location=(1-55512) inlined_at=9
+                [11]: scope=3 location=(1-113160) inlined_at=7
+                [12]: scope=3 location=(1-113087) inlined_at=7
+                [13]: scope=5 location=(1-55512) inlined_at=12
+                [14]: scope=0 location=(2-129)
+                [15]: scope=2 location=(1-111973) inlined_at=14
+                [16]: scope=3 location=(1-113034) inlined_at=15
+                [17]: scope=3 location=(1-113087) inlined_at=15
+                [18]: scope=4 location=(1-55512) inlined_at=17
+                [19]: scope=3 location=(1-113160) inlined_at=15
+                [20]: scope=3 location=(1-113087) inlined_at=15
+                [21]: scope=5 location=(1-55512) inlined_at=20"#]],
+    );
+}
