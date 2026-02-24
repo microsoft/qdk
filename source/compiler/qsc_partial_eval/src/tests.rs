@@ -18,7 +18,7 @@ mod qubits;
 mod results;
 mod returns;
 
-use crate::{Error, ProgramEntry, partially_evaluate};
+use crate::{Error, PartialEvalConfig, ProgramEntry, partially_evaluate};
 use expect_test::Expect;
 use qsc::{PackageType, incremental::Compiler};
 use qsc_data_structures::{
@@ -65,7 +65,13 @@ pub fn assert_error(error: &Error, expected_error: &Expect) {
 
 #[must_use]
 pub fn get_partial_evaluation_error(source: &str) -> Error {
-    let maybe_program = compile_and_partially_evaluate(source, TargetCapabilityFlags::all(), false);
+    let maybe_program = compile_and_partially_evaluate(
+        source,
+        TargetCapabilityFlags::all(),
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    );
     match maybe_program {
         Ok(_) => panic!("partial evaluation succeeded"),
         Err(error) => error,
@@ -77,7 +83,13 @@ pub fn get_partial_evaluation_error_with_capabilities(
     source: &str,
     capabilities: TargetCapabilityFlags,
 ) -> Error {
-    let maybe_program = compile_and_partially_evaluate(source, capabilities, false);
+    let maybe_program = compile_and_partially_evaluate(
+        source,
+        capabilities,
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    );
     match maybe_program {
         Ok(_) => panic!("partial evaluation succeeded"),
         Err(error) => error,
@@ -86,7 +98,13 @@ pub fn get_partial_evaluation_error_with_capabilities(
 
 #[must_use]
 pub fn get_rir_program(source: &str) -> Program {
-    let maybe_program = compile_and_partially_evaluate(source, TargetCapabilityFlags::all(), false);
+    let maybe_program = compile_and_partially_evaluate(
+        source,
+        TargetCapabilityFlags::all(),
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    );
     match maybe_program {
         Ok(program) => {
             // Verify the program can go through transformations.
@@ -99,7 +117,13 @@ pub fn get_rir_program(source: &str) -> Program {
 
 #[must_use]
 pub fn get_rir_program_with_dbg_metadata(source: &str) -> Program {
-    let maybe_program = compile_and_partially_evaluate(source, TargetCapabilityFlags::all(), true);
+    let maybe_program = compile_and_partially_evaluate(
+        source,
+        TargetCapabilityFlags::all(),
+        PartialEvalConfig {
+            generate_debug_metadata: true,
+        },
+    );
     match maybe_program {
         Ok(program) => {
             // Verify the program can go through transformations.
@@ -115,7 +139,13 @@ pub fn get_rir_program_with_capabilities(
     source: &str,
     capabilities: TargetCapabilityFlags,
 ) -> Program {
-    let maybe_program = compile_and_partially_evaluate(source, capabilities, false);
+    let maybe_program = compile_and_partially_evaluate(
+        source,
+        capabilities,
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    );
     match maybe_program {
         Ok(program) => program,
         Err(error) => panic!("partial evaluation failed: {error:?}"),
@@ -125,7 +155,7 @@ pub fn get_rir_program_with_capabilities(
 fn compile_and_partially_evaluate(
     source: &str,
     capabilities: TargetCapabilityFlags,
-    generate_debug_metadata: bool,
+    config: PartialEvalConfig,
 ) -> Result<Program, Error> {
     let compilation_context = CompilationContext::new(source, capabilities);
     partially_evaluate(
@@ -133,7 +163,7 @@ fn compile_and_partially_evaluate(
         &compilation_context.compute_properties,
         &compilation_context.entry,
         capabilities,
-        generate_debug_metadata,
+        config,
     )
 }
 

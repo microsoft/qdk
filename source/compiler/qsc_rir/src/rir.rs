@@ -41,20 +41,8 @@ impl Display for Program {
         write!(indent, "\nconfig: {}", self.config)?;
         write!(indent, "\nnum_qubits: {}", self.num_qubits)?;
         write!(indent, "\nnum_results: {}", self.num_results)?;
-        if !self.dbg_info.dbg_metadata_scopes.is_empty() || !self.dbg_info.dbg_locations.is_empty()
-        {
-            write!(indent, "\ndbg_metadata_scopes:")?;
-            indent = set_indentation(indent, 2);
-            for (index, scope) in self.dbg_info.dbg_metadata_scopes.iter().enumerate() {
-                write!(indent, "\n{index} = {scope}")?;
-            }
-            indent = set_indentation(indent, 1);
-            write!(indent, "\ndbg_locations:")?;
-            indent = set_indentation(indent, 2);
-            for (index, location) in self.dbg_info.dbg_locations.iter().enumerate() {
-                write!(indent, "\n[{index}]: {location}")?;
-            }
-            indent = set_indentation(indent, 1);
+        if !self.dbg_info.dbg_scopes.is_empty() || !self.dbg_info.dbg_locations.is_empty() {
+            write!(indent, "\n{}", self.dbg_info)?;
         }
         writeln!(indent, "\ntags:")?;
         indent = set_indentation(indent, 2);
