@@ -476,9 +476,51 @@ pub(crate) use qir;
 /// }
 /// ```
 macro_rules! check_sim {
+    // Multi-simulator entry: runs the same test on each listed simulator
+    (
+        simulators: [ $($sim:ident),+ $(,)? ],
+        $($rest:tt)*
+    ) => {{
+        check_sim!(@multi_sim [ $($sim),+ ] $($rest)*)
+    }};
+
+    // Internal: process first simulator and recurse for the rest
+    (@multi_sim [ $first:ident, $($remaining:ident),+ ] $($body:tt)*) => {{
+        check_sim! {
+            simulator: $first,
+            $($body)*
+        }
+        check_sim!(@multi_sim [ $($remaining),+ ] $($body)*)
+    }};
+
+    // Internal: base case — process the last simulator
+    (@multi_sim [ $last:ident ] $($body:tt)*) => {{
+        check_sim! {
+            simulator: $last,
+            $($body)*
+        }
+    }};
+
+    // GPU simulator entry: wraps in require_gpu! for safe skipping
+    (
+        simulator: GpuSimulator,
+        $($fields:tt)*
+    ) => {{
+        require_gpu! {
+            check_sim!(@run_all GpuSimulator, $($fields)*)
+        }
+    }};
+
     // Main entry with all fields
     (
         simulator: $sim:ident,
+        $($fields:tt)*
+    ) => {{
+        check_sim!(@run_all $sim, $($fields)*)
+    }};
+
+    // Internal: shared logic for all simulators
+    (@run_all $sim:ident,
         program: $program:expr,
         num_qubits: $num_qubits:expr,
         num_results: $num_results:expr,
@@ -556,7 +598,6 @@ macro_rules! check_sim {
 
     // Run with GPU simulator
     (@run GpuSimulator, $instructions:expr, $num_qubits:expr, $num_results:expr, $shots:expr, $seed:expr, $noise:expr) => {{
-        require_gpu!();
         run_on_gpu($instructions, $num_qubits, $num_results, $shots, $seed, $noise)
     }};
 }
@@ -720,6 +761,31 @@ pub fn check_programs_are_eq_gpu(
 /// }
 /// ```
 macro_rules! check_programs_are_eq {
+    // Multi-simulator entry: runs the same test on each listed simulator
+    (
+        simulators: [ $($sim:ident),+ $(,)? ],
+        $($rest:tt)*
+    ) => {{
+        check_programs_are_eq!(@multi_sim [ $($sim),+ ] $($rest)*)
+    }};
+
+    // Internal: process first simulator and recurse for the rest
+    (@multi_sim [ $first:ident, $($remaining:ident),+ ] $($body:tt)*) => {{
+        check_programs_are_eq! {
+            simulator: $first,
+            $($body)*
+        }
+        check_programs_are_eq!(@multi_sim [ $($remaining),+ ] $($body)*)
+    }};
+
+    // Internal: base case — process the last simulator
+    (@multi_sim [ $last:ident ] $($body:tt)*) => {{
+        check_programs_are_eq! {
+            simulator: $last,
+            $($body)*
+        }
+    }};
+
     // GPU simulator: pattern without num_results - defaults to 0
     (
         simulator: GpuSimulator,
@@ -741,9 +807,10 @@ macro_rules! check_programs_are_eq {
         num_qubits: $num_qubits:expr,
         num_results: $num_results:expr $(,)?
     ) => {{
-        require_gpu!();
-        let programs: Vec<Vec<_>> = vec![ $( $program ),+ ];
-        $crate::qir_simulation::tests::test_utils::check_programs_are_eq_gpu(&programs, $num_qubits, $num_results);
+        require_gpu! {
+            let programs: Vec<Vec<_>> = vec![ $( $program ),+ ];
+            $crate::qir_simulation::tests::test_utils::check_programs_are_eq_gpu(&programs, $num_qubits, $num_results);
+        }
     }};
 
     // CPU simulators: pattern without num_results - defaults to 0
@@ -926,6 +993,31 @@ pub fn check_basis_table_gpu(num_qubits: u32, table: &[(Vec<QirInstruction>, u32
 /// }
 /// ```
 macro_rules! check_basis_table {
+    // Multi-simulator entry: runs the same test on each listed simulator
+    (
+        simulators: [ $($sim:ident),+ $(,)? ],
+        $($rest:tt)*
+    ) => {{
+        check_basis_table!(@multi_sim [ $($sim),+ ] $($rest)*)
+    }};
+
+    // Internal: process first simulator and recurse for the rest
+    (@multi_sim [ $first:ident, $($remaining:ident),+ ] $($body:tt)*) => {{
+        check_basis_table! {
+            simulator: $first,
+            $($body)*
+        }
+        check_basis_table!(@multi_sim [ $($remaining),+ ] $($body)*)
+    }};
+
+    // Internal: base case — process the last simulator
+    (@multi_sim [ $last:ident ] $($body:tt)*) => {{
+        check_basis_table! {
+            simulator: $last,
+            $($body)*
+        }
+    }};
+
     // GPU simulator: uses measurement-based comparison via run_on_gpu
     (
         simulator: GpuSimulator,
@@ -935,11 +1027,12 @@ macro_rules! check_basis_table {
             $(,)?
         ] $(,)?
     ) => {{
-        require_gpu!();
-        let table: Vec<(Vec<_>, u32, u32)> = vec![
-            $( ($gate, $input, $output) ),*
-        ];
-        $crate::qir_simulation::tests::test_utils::check_basis_table_gpu($nq, &table);
+        require_gpu! {
+            let table: Vec<(Vec<_>, u32, u32)> = vec![
+                $( ($gate, $input, $output) ),*
+            ];
+            $crate::qir_simulation::tests::test_utils::check_basis_table_gpu($nq, &table);
+        }
     }};
 
     // CPU simulators: uses state-level comparison via Simulator trait
@@ -1000,19 +1093,24 @@ pub fn histogram(output: &[String]) -> String {
 /// Useful for verifying probability distributions with percentages.
 /// Example: "001: 25.00%\n010: 50.00%\n110: 25.00%"
 #[allow(clippy::cast_precision_loss)]
-pub fn histogram_percent(output: &[String]) -> String {
+pub fn histogram_probability(significant_digits: usize) -> impl Fn(&[String]) -> String {
     use std::collections::BTreeMap;
-    let output = normalize_output(output);
-    let total = output.len() as f64;
-    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for result in &output {
-        *counts.entry(result.as_str()).or_insert(0) += 1;
+    move |output: &[String]| -> String {
+        let output = normalize_output(output);
+        let total = output.len() as f64;
+        let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+        for result in &output {
+            *counts.entry(result.as_str()).or_insert(0) += 1;
+        }
+        counts
+            .into_iter()
+            .map(|(k, v)| {
+                let probability = v as f64 / total;
+                format!("{k}: {probability:.significant_digits$}")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
-    counts
-        .into_iter()
-        .map(|(k, v)| format!("{k}: {:.2}%", (v as f64 / total) * 100.0))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 /// Top N histogram: shows only the top N results by count, sorted by frequency (descending).
@@ -1203,13 +1301,19 @@ pub fn gpu_is_available() -> bool {
 
 /// Macro to skip a test if no compatible GPU adapter is available.
 ///
-/// Place at the beginning of any GPU test function. If no GPU is found,
-/// the test will print a message and return early (passing).
+/// Usage example:
+/// ```ignore
+/// require_gpu! {
+///     conditional_gpu_code_here();
+///     conditional_gpu_code_here();
+/// }
+/// ```
 macro_rules! require_gpu {
-    () => {
-        if !gpu_is_available() {
+    ($($body:tt)*) => {
+        if gpu_is_available() {
+            $($body)*
+        } else {
             eprintln!("Skipping GPU test: no compatible GPU adapter found");
-            return;
         }
     };
 }

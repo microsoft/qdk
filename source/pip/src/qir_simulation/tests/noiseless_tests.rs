@@ -1,83 +1,20 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Tests for the noiseless GPU full-state simulator.
-//!
-//! The GPU full-state simulator runs quantum circuits on the GPU using
-//! WebGPU compute shaders. This module verifies that the GPU simulator
-//! produces correct measurement results for noiseless circuits.
-//!
-//! # Notes
-//!
-//! - All tests require a compatible GPU adapter; they are skipped otherwise.
-//! - The GPU simulator does not expose internal state, so only measurement-based
-//!   tests (`check_sim!`) are used. State-equivalence tests (`check_programs_are_eq!`)
-//!   are not applicable.
-//! - The GPU has a minimum of 8 qubits internally, but this is transparent to tests.
-//! - Rotation gates on the GPU use f32 precision, so minor numerical differences
-//!   compared to the f64 CPU simulator are expected.
+//! Noiseless tests for the CPU full-state, GPU full-state, and Clifford simulators.
 //!
 //! # Equivalence
 //!
-//! The `~` symbol means: for every computational basis state |b⟩, the two
-//! programs produce the same output state up to a global phase (which may
-//! differ per basis state). This is verified by `check_programs_are_eq!`.
+//! For every computational basis state |b⟩, we check that the programs produce the
+//! same output state up to a global phase (which may differ per basis state).
+//! This is verified by `check_programs_are_eq!`.
 //!
-//! # Supported Gates
-//!
-//! ```text
-//! | Category          | Gates                                      |
-//! |-------------------|--------------------------------------------|
-//! | Single-qubit      | I, X, Y, Z, H, S, S_ADJ, SX, SX_ADJ, T, T_ADJ |
-//! | Two-qubit         | CX, CY, CZ, SWAP                           |
-//! | Rotation          | Rx, Ry, Rz, Rxx, Ryy, Rzz                  |
-//! | Measurement       | MRESETZ                                    |
-//! | Other             | MOV                                        |
-//! ```
-//!
-//! # Gate Properties
-//!
-//! ```text
-//! | Gate    | Properties                                        |
-//! |---------|---------------------------------------------------|
-//! | I       | I ~ {} (identity does nothing)                    |
-//! | X       | X flips qubit, X X ~ I                            |
-//! | Y       | Y flips qubit, Y ~ X Z ~ Z X, Y Y ~ I             |
-//! | Z       | Z|0⟩ = |0⟩, Z|1⟩ = |1⟩, H Z H ~ X                 |
-//! | H       | H^2 ~ I, H X H ~ Z, creates superposition         |
-//! | S       | S^2 ~ Z, S preserves computational basis          |
-//! | S_ADJ   | S S_ADJ ~ I, S_ADJ^2 ~ Z                          |
-//! | SX      | SX^2 ~ X                                          |
-//! | SX_ADJ  | SX SX_ADJ ~ I, SX_ADJ^2 ~ X                       |
-//! | T       | T^4 ~ Z                                           |
-//! | T_ADJ   | T T_ADJ ~ I, T_ADJ^4 ~ Z                          |
-//! | CX      | CX on |0⟩ control ~ I, CX on |1⟩ control ~ X      |
-//! | CZ      | CZ on |0⟩ control ~ I, CZ(a,b) = CZ(b,a)          |
-//! | SWAP    | Exchanges states, SWAP SWAP ~ I                   |
-//! | Rx      | Rx(0) ~ I, Rx(π) ~ X, Rx(π/2) ~ SX                |
-//! | Ry      | Ry(0) ~ I, Ry(π) ~ Y                              |
-//! | Rz      | Rz(0) ~ I, Rz(π) ~ Z, Rz(π/2) ~ S, Rz(π/4) ~ T    |
-//! | Rxx     | Rxx(0) ~ I, Rxx(π) ~ X ⊗ X                        |
-//! | Ryy     | Ryy(0) ~ I, Ryy(π) ~ Y ⊗ Y                        |
-//! | Rzz     | Rzz(0) ~ I, Rzz(π) ~ Z ⊗ Z                        |
-//! | M       | M ~ M M (idempotent, does not reset)              |
-//! | MZ      | MZ ~ MZ MZ (idempotent, does not reset)           |
-//! | RESET   | OP RESET ~ |0⟩ (resets to |0⟩)                      |
-//! | MRESETZ | OP MRESETZ ~ |0⟩ (measures and resets)              |
-//! | MOV     | MOV ~ I (no-op in noiseless simulation)           |
-//! ```
-//!
-//! # Multi-Qubit States
-//!
-//! ```text
-//! | State | Preparation                | Expected Outcomes   |
-//! |-------|----------------------------|---------------------|
-//! | Bell  | H(0); CX(0,1)              | 00 or 11 (50/50)    |
-//! | GHZ   | H(0); CX(0,1); CX(1,2)     | 000 or 111 (50/50)  |
-//! ```
+//! (The GPU simulator doesn't expose its internal state, so we just check the outputs are the same.)
 
 use super::{SEED, test_utils::*};
 use expect_test::expect;
+use qdk_simulators::cpu_full_state_simulator::{NoiselessSimulator, NoisySimulator};
+use qdk_simulators::stabilizer_simulator::StabilizerSimulator;
 use std::f64::consts::PI;
 
 // ==================== Generic Simulator Tests ====================
@@ -85,7 +22,7 @@ use std::f64::consts::PI;
 #[test]
 fn simulator_completes_all_shots() {
     check_sim! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         program: qir! {
             x(0);
             mresetz(0, 0);
@@ -109,7 +46,7 @@ fn simulator_completes_all_shots() {
 #[test]
 fn single_qubit_gate_truth_tables() {
     check_basis_table! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         num_qubits: 1,
         table: [
             // I gate: identity
@@ -133,6 +70,13 @@ fn single_qubit_gate_truth_tables() {
             // S_ADJ gate: phase only
             (qir! { s_adj(0) }, 0 => 0),
             (qir! { s_adj(0) }, 1 => 1),
+        ],
+    }
+
+    check_basis_table! {
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
+        num_qubits: 1,
+        table: [
             // T gate: phase only
             (qir! { t(0) }, 0 => 0),
             (qir! { t(0) }, 1 => 1),
@@ -146,7 +90,7 @@ fn single_qubit_gate_truth_tables() {
 #[test]
 fn two_qubit_gate_truth_tables() {
     check_basis_table! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         num_qubits: 2,
         table: [
             // CX(control=q0, target=q1): flips q1 when q0=|1⟩
@@ -184,7 +128,7 @@ fn two_qubit_gate_truth_tables() {
 #[test]
 fn x_is_self_adjoint() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { x(0); x(0) }
@@ -196,7 +140,7 @@ fn x_is_self_adjoint() {
 #[test]
 fn x_eq_h_z_h() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { x(0) },
             qir! { within { h(0) } apply { z(0) } }
@@ -209,7 +153,7 @@ fn x_eq_h_z_h() {
 #[test]
 fn y_is_self_adjoint() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { y(0); y(0) }
@@ -221,7 +165,7 @@ fn y_is_self_adjoint() {
 #[test]
 fn y_gate_eq_x_z_and_z_x() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { y(0) },
             qir! { x(0); z(0) },
@@ -235,7 +179,7 @@ fn y_gate_eq_x_z_and_z_x() {
 #[test]
 fn z_is_self_adjoint() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { within { h(0) } apply { z(0); z(0) } }
@@ -247,7 +191,7 @@ fn z_is_self_adjoint() {
 #[test]
 fn z_eq_h_x_h() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { z(0) },
             qir! { within { h(0) } apply { x(0) } }
@@ -261,7 +205,7 @@ fn z_eq_h_x_h() {
 fn h_gate_creates_superposition() {
     // H creates equal superposition - should see both 0 and 1
     check_sim! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         program: qir! {
             h(0);
             mresetz(0, 0);
@@ -280,7 +224,7 @@ fn h_gate_creates_superposition() {
 #[test]
 fn h_is_self_adjoint() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { h(0); h(0) }
@@ -293,7 +237,7 @@ fn h_is_self_adjoint() {
 #[test]
 fn s_squared_eq_z() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { z(0) },
             qir! { s(0); s(0) }
@@ -305,7 +249,7 @@ fn s_squared_eq_z() {
 #[test]
 fn s_and_s_adj_cancel() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { s(0); s_adj(0) },
@@ -318,7 +262,7 @@ fn s_and_s_adj_cancel() {
 #[test]
 fn s_adj_squared_eq_z() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { z(0) },
             qir! { s_adj(0); s_adj(0) }
@@ -331,7 +275,7 @@ fn s_adj_squared_eq_z() {
 #[test]
 fn sx_squared_eq_x() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { x(0) },
             qir! { sx(0); sx(0) }
@@ -343,7 +287,7 @@ fn sx_squared_eq_x() {
 #[test]
 fn sx_and_sx_adj_cancel() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { sx(0); sx_adj(0) },
@@ -356,7 +300,7 @@ fn sx_and_sx_adj_cancel() {
 #[test]
 fn sx_adj_squared_eq_x() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { x(0) },
             qir! { sx_adj(0); sx_adj(0) }
@@ -369,7 +313,7 @@ fn sx_adj_squared_eq_x() {
 #[test]
 fn t_fourth_eq_z() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { z(0) },
             qir! { t(0); t(0); t(0); t(0); }
@@ -382,7 +326,7 @@ fn t_fourth_eq_z() {
 #[test]
 fn t_and_t_adj_cancel() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { t(0); t_adj(0); },
@@ -395,7 +339,7 @@ fn t_and_t_adj_cancel() {
 #[test]
 fn t_adj_fourth_eq_z() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { z(0) },
             qir! { t_adj(0); t_adj(0); t_adj(0); t_adj(0); }
@@ -406,11 +350,12 @@ fn t_adj_fourth_eq_z() {
 
 // ==================== Two-Qubit Gate Tests ====================
 
+// CZ gate tests
 #[test]
 fn cz_symmetric() {
     // CZ is symmetric: CZ(a,b) = CZ(b,a)
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { within { x(0); h(1) } apply { cz(0, 1) } },
             qir! { within { x(0); h(1) } apply { cz(1, 0) } }
@@ -425,7 +370,7 @@ fn swap_commutes_operands() {
     // SWAP · (A⊗B) = (B⊗A) · SWAP for any single-qubit gates A, B.
     // Test with A=X, B=H: SWAP·(X⊗H)·SWAP = H⊗X
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { h(0); x(1) },
             qir! { within { swap(0, 1) } apply { x(0); h(1) } }
@@ -437,7 +382,7 @@ fn swap_commutes_operands() {
 #[test]
 fn swap_exchanges_qubit_states() {
     check_sim! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         program: qir! {
             x(0);
             swap(0, 1);
@@ -453,7 +398,7 @@ fn swap_exchanges_qubit_states() {
 #[test]
 fn swap_twice_eq_identity() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! { x(0) },
             qir! { x(0); swap(0, 1); swap(0, 1) }
@@ -468,7 +413,7 @@ fn swap_twice_eq_identity() {
 #[test]
 fn rx_zero_eq_identity() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { rx(0.0, 0) }
@@ -480,7 +425,7 @@ fn rx_zero_eq_identity() {
 #[test]
 fn rx_two_pi_eq_identity() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { rx(2.0 * PI, 0) }
@@ -492,7 +437,7 @@ fn rx_two_pi_eq_identity() {
 #[test]
 fn rx_pi_eq_x() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { x(0) },
             qir! { rx(PI, 0) }
@@ -504,7 +449,7 @@ fn rx_pi_eq_x() {
 #[test]
 fn rx_half_pi_eq_sx() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { sx(0) },
             qir! { rx(PI / 2.0, 0) }
@@ -516,7 +461,7 @@ fn rx_half_pi_eq_sx() {
 #[test]
 fn rx_neg_half_pi_eq_sx_adj() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { sx_adj(0) },
             qir! { rx(-PI / 2.0, 0) }
@@ -529,7 +474,7 @@ fn rx_neg_half_pi_eq_sx_adj() {
 #[test]
 fn ry_zero_eq_identity() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { ry(0.0, 0) }
@@ -541,7 +486,7 @@ fn ry_zero_eq_identity() {
 #[test]
 fn ry_two_pi_eq_identity() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { ry(2.0 * PI, 0) }
@@ -553,7 +498,7 @@ fn ry_two_pi_eq_identity() {
 #[test]
 fn ry_pi_eq_y() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { y(0) },
             qir! { ry(PI, 0) }
@@ -566,7 +511,7 @@ fn ry_pi_eq_y() {
 #[test]
 fn rz_zero_eq_identity() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { rz(0.0, 0) }
@@ -578,7 +523,7 @@ fn rz_zero_eq_identity() {
 #[test]
 fn rz_two_pi_eq_identity() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { i(0) },
             qir! { rz(2.0 * PI, 0) }
@@ -590,7 +535,7 @@ fn rz_two_pi_eq_identity() {
 #[test]
 fn rz_pi_eq_z() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { z(0) },
             qir! { rz(PI, 0) }
@@ -602,7 +547,7 @@ fn rz_pi_eq_z() {
 #[test]
 fn rz_half_pi_eq_s() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { s(0) },
             qir! { rz(PI / 2.0, 0) }
@@ -614,7 +559,7 @@ fn rz_half_pi_eq_s() {
 #[test]
 fn rz_neg_half_pi_eq_s_adj() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { s_adj(0) },
             qir! { rz(-PI / 2.0, 0) }
@@ -626,7 +571,7 @@ fn rz_neg_half_pi_eq_s_adj() {
 #[test]
 fn rz_quarter_pi_eq_t() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { t(0) },
             qir! { rz(PI / 4.0, 0) }
@@ -638,7 +583,7 @@ fn rz_quarter_pi_eq_t() {
 #[test]
 fn rz_neg_quarter_pi_eq_t_adj() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { t_adj(0) },
             qir! { rz(-PI / 4.0, 0) }
@@ -653,7 +598,7 @@ fn rz_neg_quarter_pi_eq_t_adj() {
 #[test]
 fn rxx_zero_eq_identity() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { i(0); i(1) },
             qir! { rxx(0.0, 0, 1) }
@@ -665,7 +610,7 @@ fn rxx_zero_eq_identity() {
 #[test]
 fn rxx_pi_eq_x_tensor_x() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { x(0); x(1) },
             qir! { rxx(PI, 0, 1) }
@@ -678,7 +623,7 @@ fn rxx_pi_eq_x_tensor_x() {
 #[test]
 fn ryy_zero_eq_identity() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { i(0); i(1) },
             qir! { ryy(0.0, 0, 1) }
@@ -690,7 +635,7 @@ fn ryy_zero_eq_identity() {
 #[test]
 fn ryy_pi_eq_y_tensor_y() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { y(0); y(1) },
             qir! { ryy(PI, 0, 1) }
@@ -703,7 +648,7 @@ fn ryy_pi_eq_y_tensor_y() {
 #[test]
 fn rzz_zero_eq_identity() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { i(0); i(1) },
             qir! { rzz(0.0, 0, 1) }
@@ -712,7 +657,7 @@ fn rzz_zero_eq_identity() {
     }
 
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { within { h(0); h(1) } apply { i(0); i(1) } },
             qir! { within { h(0); h(1) } apply { rzz(0.0, 0, 1) } }
@@ -726,7 +671,7 @@ fn rzz_pi_eq_z_tensor_z() {
     // Z⊗Z on |00⟩ gives |00⟩ (both have eigenvalue +1)
     // This is equivalent to identity on computational basis states
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { z(0); z(1) },
             qir! { rzz(PI, 0, 1) }
@@ -735,7 +680,7 @@ fn rzz_pi_eq_z_tensor_z() {
     }
 
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, GpuSimulator],
         programs: [
             qir! { within { h(0); h(1) } apply { z(0); z(1) } },
             qir! { within { h(0); h(1) } apply { rzz(PI, 0, 1) } }
@@ -749,7 +694,7 @@ fn rzz_pi_eq_z_tensor_z() {
 #[test]
 fn reset_takes_qubit_back_to_zero() {
     check_sim! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         program: qir! {
             x(0);
             reset(0);  // Resets to 0
@@ -764,7 +709,7 @@ fn reset_takes_qubit_back_to_zero() {
 #[test]
 fn mresetz_resets_after_measurement() {
     check_sim! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         program: qir! {
             x(0);
             mresetz(0, 0);  // Measures 1, resets to 0
@@ -779,7 +724,7 @@ fn mresetz_resets_after_measurement() {
 #[test]
 fn mz_does_not_reset() {
     check_sim! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         program: qir! {
             x(0);
             mz(0, 0);  // Measures 1, does not reset
@@ -796,7 +741,7 @@ fn mz_does_not_reset() {
 #[test]
 fn mov_is_noop_without_noise() {
     check_programs_are_eq! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         programs: [
             qir! {},
             qir! { mov(0) }
@@ -811,7 +756,7 @@ fn mov_is_noop_without_noise() {
 fn bell_state_produces_correlated_measurements() {
     // Bell state produces only correlated outcomes: 00 or 11
     check_sim! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         program: qir! {
             h(0);
             cx(0, 1);
@@ -832,7 +777,7 @@ fn bell_state_produces_correlated_measurements() {
 fn ghz_state_three_qubits() {
     // GHZ state produces only 000 or 111
     check_sim! {
-        simulator: GpuSimulator,
+        simulators: [NoiselessSimulator, NoisySimulator, StabilizerSimulator, GpuSimulator],
         program: qir! {
             h(0);
             cx(0, 1);
