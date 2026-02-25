@@ -384,8 +384,11 @@ def test_translation_invariant_ising_model_term_grouping():
     geometry = make_chain_with_vertices(4)
     model = translation_invariant_ising_model(geometry, h=1.0, J=1.0)
 
-    # Number of terms should be ncolors + 1
-    assert len(model.terms()) == geometry.ncolors + 1
+    # Terms are grouped by edge arity: single-vertex field terms and
+    # two-body interaction terms.
+    assert len(model.terms()) == 2
+    assert all(len(edge.vertices) == 1 for edge in model.terms()[0])
+    assert all(len(edge.vertices) == 2 for edge in model.terms()[1])
 
 
 def test_translation_invariant_ising_model_pauli_strings():

@@ -3,9 +3,12 @@
 
 """Unit tests for hypergraph data structures."""
 
+import pytest
+
 from qsharp.magnets.utilities import (
     Hyperedge,
     Hypergraph,
+    HypergraphEdgeColoring,
     greedy_edge_coloring,
 )
 
@@ -114,12 +117,68 @@ def test_hypergraph_edges_iterator():
 
 
 def test_hypergraph_edges_of_color():
-    """Test edges_of_color returns edges with a specific color."""
-    edges = [Hyperedge([0, 1]), Hyperedge([1, 2])]
+    """Test HypergraphEdgeColoring returns edges with a specific color."""
+    edges = [Hyperedge([0, 1]), Hyperedge([2, 3])]
     graph = Hypergraph(edges)
-    # Default: all edges have color 0
-    edge_list = list(graph.edges_of_color(0))
+    coloring = HypergraphEdgeColoring(graph)
+    coloring.add_edge(edges[0], 0)
+    coloring.add_edge(edges[1], 0)
+    edge_list = list(coloring.edges_of_color(0))
     assert len(edge_list) == 2
+
+
+def test_hypergraph_edge_coloring_stores_supporting_hypergraph():
+    """Test HypergraphEdgeColoring keeps a reference to its Hypergraph."""
+    graph = Hypergraph([Hyperedge([0, 1])])
+    coloring = HypergraphEdgeColoring(graph)
+    assert coloring.hypergraph is graph
+
+
+def test_hypergraph_edge_coloring_rejects_non_hyperedge():
+    """Test add_edge rejects non-Hyperedge values."""
+    graph = Hypergraph([Hyperedge([0, 1])])
+    coloring = HypergraphEdgeColoring(graph)
+
+    with pytest.raises(TypeError, match="edge must be Hyperedge"):
+        coloring.add_edge((0, 1), 0)
+
+
+def test_hypergraph_edge_coloring_rejects_edge_not_in_hypergraph():
+    """Test add_edge rejects Hyperedge values not in the supporting Hypergraph."""
+    graph = Hypergraph([Hyperedge([0, 1])])
+    coloring = HypergraphEdgeColoring(graph)
+
+    with pytest.raises(
+        ValueError, match="edge must belong to the supporting Hypergraph"
+    ):
+        coloring.add_edge(Hyperedge([1, 2]), 0)
+
+
+def test_hypergraph_edge_coloring_rejects_negative_color_for_nontrivial_edge():
+    """Test add_edge raises ValueError for negative color on nontrivial edges."""
+    edge = Hyperedge([0, 1])
+    graph = Hypergraph([edge])
+    coloring = HypergraphEdgeColoring(graph)
+
+    with pytest.raises(
+        ValueError, match="Color index must be nonnegative for multi-vertex edges"
+    ):
+        coloring.add_edge(edge, -1)
+
+
+def test_hypergraph_edge_coloring_rejects_conflicting_edge():
+    """Test add_edge raises RuntimeError when same-color edges share a vertex."""
+    edge1 = Hyperedge([0, 1])
+    edge2 = Hyperedge([1, 2])
+    graph = Hypergraph([edge1, edge2])
+    coloring = HypergraphEdgeColoring(graph)
+
+    coloring.add_edge(edge1, 0)
+
+    with pytest.raises(
+        RuntimeError, match="Edge conflicts with existing edge of same color"
+    ):
+        coloring.add_edge(edge2, 0)
 
 
 def test_hypergraph_add_edge():
@@ -131,21 +190,20 @@ def test_hypergraph_add_edge():
 
 
 def test_hypergraph_add_edge_with_color():
-    """Test adding edges with different colors."""
+    """Test assigning colors via HypergraphEdgeColoring."""
     graph = Hypergraph([Hyperedge([0, 1])])
-    graph.add_edge(Hyperedge([2, 3]), color=1)
+    edge = Hyperedge([2, 3])
+    graph.add_edge(edge)
+    coloring = HypergraphEdgeColoring(graph)
+    coloring.add_edge(edge, color=1)
     assert graph.nedges == 2
-    assert graph.color[(0, 1)] == 0
-    assert graph.color[(2, 3)] == 1
+    assert coloring.color(edge) == 1
 
 
 def test_hypergraph_color_default():
-    """Test that default colors are all 0."""
-    edges = [Hyperedge([0, 1]), Hyperedge([1, 2]), Hyperedge([2, 3])]
-    graph = Hypergraph(edges)
-    assert graph.color[(0, 1)] == 0
-    assert graph.color[(1, 2)] == 0
-    assert graph.color[(2, 3)] == 0
+    """Test that Hypergraph has no built-in color mapping."""
+    graph = Hypergraph([Hyperedge([0, 1]), Hyperedge([1, 2]), Hyperedge([2, 3])])
+    assert not hasattr(graph, "color")
 
 
 def test_hypergraph_str():
@@ -201,15 +259,17 @@ def test_greedy_edge_coloring_empty():
     """Test greedy edge coloring on empty hypergraph."""
     graph = Hypergraph([])
     colored = greedy_edge_coloring(graph)
-    assert colored.nedges == 0
+    assert isinstance(colored, HypergraphEdgeColoring)
+    assert len(list(colored.colors())) == 0
     assert colored.ncolors == 0
 
 
 def test_greedy_edge_coloring_single_edge():
     """Test greedy edge coloring with a single edge."""
-    graph = Hypergraph([Hyperedge([0, 1])])
+    edge = Hyperedge([0, 1])
+    graph = Hypergraph([edge])
     colored = greedy_edge_coloring(graph, seed=42)
-    assert colored.nedges == 1
+    assert colored.color(edge) == 0
     assert colored.ncolors == 1
 
 
@@ -219,7 +279,8 @@ def test_greedy_edge_coloring_non_overlapping():
     graph = Hypergraph(edges)
     colored = greedy_edge_coloring(graph, seed=42)
     # Non-overlapping edges can be in the same color
-    assert colored.nedges == 2
+    assert colored.color(edges[0]) is not None
+    assert colored.color(edges[1]) is not None
     assert colored.ncolors == 1
 
 
@@ -229,7 +290,8 @@ def test_greedy_edge_coloring_overlapping():
     graph = Hypergraph(edges)
     colored = greedy_edge_coloring(graph, seed=42)
     # Overlapping edges need different colors
-    assert colored.nedges == 2
+    assert colored.color(edges[0]) is not None
+    assert colored.color(edges[1]) is not None
     assert colored.ncolors == 2
 
 
@@ -239,7 +301,9 @@ def test_greedy_edge_coloring_triangle():
     graph = Hypergraph(edges)
     colored = greedy_edge_coloring(graph, seed=42)
     # All edges share vertices pairwise, so need 3 colors
-    assert colored.nedges == 3
+    assert colored.color(edges[0]) is not None
+    assert colored.color(edges[1]) is not None
+    assert colored.color(edges[2]) is not None
     assert colored.ncolors == 3
 
 
@@ -257,10 +321,12 @@ def test_greedy_edge_coloring_validity():
 
     # Group edges by color
     colors = {}
-    for edge_vertices, color in colored.color.items():
+    for edge in edges:
+        color = colored.color(edge)
+        assert color is not None
         if color not in colors:
             colors[color] = []
-        colors[color].append(edge_vertices)
+        colors[color].append(edge.vertices)
 
     # Verify each color group has no overlapping edges
     for color, edge_list in colors.items():
@@ -278,10 +344,9 @@ def test_greedy_edge_coloring_all_edges_colored():
     colored = greedy_edge_coloring(graph, seed=42)
 
     # All edges should have a color assigned
-    assert len(colored.color) == 3
-    assert (0, 1) in colored.color
-    assert (1, 2) in colored.color
-    assert (2, 3) in colored.color
+    assert colored.color(edges[0]) is not None
+    assert colored.color(edges[1]) is not None
+    assert colored.color(edges[2]) is not None
 
 
 def test_greedy_edge_coloring_reproducible_with_seed():
@@ -292,7 +357,9 @@ def test_greedy_edge_coloring_reproducible_with_seed():
     colored1 = greedy_edge_coloring(graph, seed=123)
     colored2 = greedy_edge_coloring(graph, seed=123)
 
-    assert colored1.color == colored2.color
+    color_map_1 = {edge.vertices: colored1.color(edge) for edge in edges}
+    color_map_2 = {edge.vertices: colored2.color(edge) for edge in edges}
+    assert color_map_1 == color_map_2
 
 
 def test_greedy_edge_coloring_multiple_trials():
@@ -320,7 +387,9 @@ def test_greedy_edge_coloring_hyperedges():
     colored = greedy_edge_coloring(graph, seed=42)
 
     # First two share vertex 2, third is independent
-    assert colored.nedges == 3
+    assert colored.color(edges[0]) is not None
+    assert colored.color(edges[1]) is not None
+    assert colored.color(edges[2]) is not None
     assert colored.ncolors >= 2
 
 
@@ -330,6 +399,8 @@ def test_greedy_edge_coloring_self_loops():
     graph = Hypergraph(edges)
     colored = greedy_edge_coloring(graph, seed=42)
 
-    # Self-loops don't share vertices, can all be same color
-    assert colored.nedges == 3
-    assert colored.ncolors == 1
+    # Self-loops use the special -1 color and do not contribute to ncolors.
+    assert colored.color(edges[0]) == -1
+    assert colored.color(edges[1]) == -1
+    assert colored.color(edges[2]) == -1
+    assert colored.ncolors == 0

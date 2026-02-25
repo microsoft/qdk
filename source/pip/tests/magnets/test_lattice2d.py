@@ -3,7 +3,13 @@
 
 """Unit tests for 2D lattice data structures."""
 
-from qsharp.magnets.geometry.lattice2d import Patch2D, Torus2D
+from qsharp.magnets.geometry.lattice2d import Patch2D, Torus2D, edge_coloring
+from qsharp.magnets.utilities import HypergraphEdgeColoring
+
+
+def _vertex_color_map(graph) -> dict[tuple[int, ...], int | None]:
+    coloring = edge_coloring(graph)
+    return {edge.vertices: coloring.color(edge) for edge in graph.edges()}
 
 
 # Patch2D tests
@@ -84,34 +90,36 @@ def test_patch2d_with_self_loops():
 def test_patch2d_self_loops_edges():
     """Test that self-loop edges are created correctly."""
     patch = Patch2D(2, 2, self_loops=True)
-    edges = list(patch.edges())
-    # First 4 edges should be self-loops
-    assert edges[0].vertices == (0,)
-    assert edges[1].vertices == (1,)
-    assert edges[2].vertices == (2,)
-    assert edges[3].vertices == (3,)
+    edge_vertices = {edge.vertices for edge in patch.edges()}
+    assert {(0,), (1,), (2,), (3,)}.issubset(edge_vertices)
 
 
 def test_patch2d_coloring_without_self_loops():
     """Test edge coloring without self-loops."""
     patch = Patch2D(4, 4)
+    coloring = edge_coloring(patch)
     # Should have 4 colors: horizontal even/odd (0,1), vertical even/odd (2,3)
-    assert patch.ncolors == 4
+    assert coloring.ncolors == 4
 
 
 def test_patch2d_coloring_with_self_loops():
     """Test edge coloring with self-loops."""
     patch = Patch2D(3, 3, self_loops=True)
-    # Should have 5 colors: self-loops (-1) + 4 edge groups (0-3)
-    assert patch.ncolors == 5
+    coloring = edge_coloring(patch)
+    # Self-loops are -1 and do not contribute to ncolors.
+    assert coloring.ncolors == 4
 
 
 def test_patch2d_coloring_non_overlapping():
     """Test that edges with the same color don't share vertices."""
     patch = Patch2D(4, 4)
+    coloring = edge_coloring(patch)
     # Group edges by color
     colors = {}
-    for edge_vertices, color in patch.color.items():
+    for edge in patch.edges():
+        color = coloring.color(edge)
+        assert color is not None
+        edge_vertices = edge.vertices
         if color not in colors:
             colors[color] = []
         colors[color].append(edge_vertices)
@@ -208,34 +216,36 @@ def test_torus2d_with_self_loops():
 def test_torus2d_self_loops_edges():
     """Test that self-loop edges are created correctly."""
     torus = Torus2D(2, 2, self_loops=True)
-    edges = list(torus.edges())
-    # First 4 edges should be self-loops
-    assert edges[0].vertices == (0,)
-    assert edges[1].vertices == (1,)
-    assert edges[2].vertices == (2,)
-    assert edges[3].vertices == (3,)
+    edge_vertices = {edge.vertices for edge in torus.edges()}
+    assert {(0,), (1,), (2,), (3,)}.issubset(edge_vertices)
 
 
 def test_torus2d_coloring_without_self_loops():
     """Test edge coloring without self-loops."""
     torus = Torus2D(4, 4)
+    coloring = edge_coloring(torus)
     # Should have 4 colors: horizontal even/odd (0,1), vertical even/odd (2,3)
-    assert torus.ncolors == 4
+    assert coloring.ncolors == 4
 
 
 def test_torus2d_coloring_with_self_loops():
     """Test edge coloring with self-loops."""
     torus = Torus2D(3, 3, self_loops=True)
-    # Should have 5 colors: self-loops (-1) + 4 edge groups (0-3)
-    assert torus.ncolors == 5
+    coloring = edge_coloring(torus)
+    # Odd periodic dimensions require dedicated wrap colors.
+    assert coloring.ncolors == 6
 
 
 def test_torus2d_coloring_non_overlapping():
     """Test that edges with the same color don't share vertices."""
     torus = Torus2D(4, 4)
+    coloring = edge_coloring(torus)
     # Group edges by color
     colors = {}
-    for edge_vertices, color in torus.color.items():
+    for edge in torus.edges():
+        color = coloring.color(edge)
+        assert color is not None
+        edge_vertices = edge.vertices
         if color not in colors:
             colors[color] = []
         colors[color].append(edge_vertices)
@@ -272,7 +282,9 @@ def test_patch2d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(patch, "edges")
     assert hasattr(patch, "vertices")
-    assert hasattr(patch, "edges_of_color")
+    coloring = edge_coloring(patch)
+    assert isinstance(coloring, HypergraphEdgeColoring)
+    assert hasattr(coloring, "edges_of_color")
 
 
 def test_torus2d_inherits_hypergraph():
@@ -284,4 +296,6 @@ def test_torus2d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(torus, "edges")
     assert hasattr(torus, "vertices")
-    assert hasattr(torus, "edges_of_color")
+    coloring = edge_coloring(torus)
+    assert isinstance(coloring, HypergraphEdgeColoring)
+    assert hasattr(coloring, "edges_of_color")

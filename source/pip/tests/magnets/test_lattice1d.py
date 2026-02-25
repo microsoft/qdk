@@ -3,7 +3,13 @@
 
 """Unit tests for 1D lattice data structures."""
 
-from qsharp.magnets.geometry.lattice1d import Chain1D, Ring1D
+from qsharp.magnets.geometry.lattice1d import Chain1D, Ring1D, edge_coloring
+from qsharp.magnets.utilities import Hyperedge, HypergraphEdgeColoring
+
+
+def _vertex_color_map(graph) -> dict[tuple[int, ...], int | None]:
+    coloring = edge_coloring(graph)
+    return {edge.vertices: coloring.color(edge) for edge in graph.edges()}
 
 
 # Chain1D tests
@@ -35,12 +41,8 @@ def test_chain1d_two_vertices():
 def test_chain1d_edges():
     """Test that Chain1D creates correct nearest-neighbor edges."""
     chain = Chain1D(4)
-    edges = list(chain.edges())
-    assert len(edges) == 3
-    # Check edges are (0,1), (1,2), (2,3)
-    assert edges[0].vertices == (0, 1)
-    assert edges[1].vertices == (1, 2)
-    assert edges[2].vertices == (2, 3)
+    edge_vertices = {edge.vertices for edge in chain.edges()}
+    assert edge_vertices == {(0, 1), (1, 2), (2, 3)}
 
 
 def test_chain1d_vertices():
@@ -61,47 +63,47 @@ def test_chain1d_with_self_loops():
 def test_chain1d_self_loops_edges():
     """Test that self-loop edges are created correctly."""
     chain = Chain1D(3, self_loops=True)
-    edges = list(chain.edges())
-    # First 3 edges should be self-loops
-    assert edges[0].vertices == (0,)
-    assert edges[1].vertices == (1,)
-    assert edges[2].vertices == (2,)
-    # Next 2 edges should be nearest-neighbor
-    assert edges[3].vertices == (0, 1)
-    assert edges[4].vertices == (1, 2)
+    edge_vertices = {edge.vertices for edge in chain.edges()}
+    assert edge_vertices == {(0,), (1,), (2,), (0, 1), (1, 2)}
 
 
 def test_chain1d_coloring_without_self_loops():
     """Test edge coloring without self-loops."""
     chain = Chain1D(5)
+    color = _vertex_color_map(chain)
     # Even edges (0-1, 2-3) should have color 0
-    assert chain.color[(0, 1)] == 0
-    assert chain.color[(2, 3)] == 0
+    assert color[(0, 1)] == 0
+    assert color[(2, 3)] == 0
     # Odd edges (1-2, 3-4) should have color 1
-    assert chain.color[(1, 2)] == 1
-    assert chain.color[(3, 4)] == 1
+    assert color[(1, 2)] == 1
+    assert color[(3, 4)] == 1
 
 
 def test_chain1d_coloring_with_self_loops():
     """Test edge coloring with self-loops."""
     chain = Chain1D(4, self_loops=True)
+    color = _vertex_color_map(chain)
     # Self-loops should have color -1
-    assert chain.color[(0,)] == -1
-    assert chain.color[(1,)] == -1
-    assert chain.color[(2,)] == -1
-    assert chain.color[(3,)] == -1
+    assert color[(0,)] == -1
+    assert color[(1,)] == -1
+    assert color[(2,)] == -1
+    assert color[(3,)] == -1
     # Even edges should have color 0, odd edges color 1
-    assert chain.color[(0, 1)] == 0
-    assert chain.color[(1, 2)] == 1
-    assert chain.color[(2, 3)] == 0
+    assert color[(0, 1)] == 0
+    assert color[(1, 2)] == 1
+    assert color[(2, 3)] == 0
 
 
 def test_chain1d_coloring_non_overlapping():
     """Test that edges with the same color don't share vertices."""
     chain = Chain1D(6)
+    coloring = edge_coloring(chain)
     # Group edges by color
     colors = {}
-    for edge_vertices, color in chain.color.items():
+    for edge in chain.edges():
+        color = coloring.color(edge)
+        assert color is not None
+        edge_vertices = edge.vertices
         if color not in colors:
             colors[color] = []
         colors[color].append(edge_vertices)
@@ -149,13 +151,8 @@ def test_ring1d_three_vertices():
 def test_ring1d_edges():
     """Test that Ring1D creates correct edges including wrap-around."""
     ring = Ring1D(4)
-    edges = list(ring.edges())
-    assert len(edges) == 4
-    # Check edges are (0,1), (1,2), (2,3), (0,3) (sorted)
-    assert edges[0].vertices == (0, 1)
-    assert edges[1].vertices == (1, 2)
-    assert edges[2].vertices == (2, 3)
-    assert edges[3].vertices == (0, 3)  # Wrap-around edge
+    edge_vertices = {edge.vertices for edge in ring.edges()}
+    assert edge_vertices == {(0, 1), (1, 2), (2, 3), (0, 3)}
 
 
 def test_ring1d_vertices():
@@ -176,48 +173,47 @@ def test_ring1d_with_self_loops():
 def test_ring1d_self_loops_edges():
     """Test that self-loop edges are created correctly."""
     ring = Ring1D(3, self_loops=True)
-    edges = list(ring.edges())
-    # First 3 edges should be self-loops
-    assert edges[0].vertices == (0,)
-    assert edges[1].vertices == (1,)
-    assert edges[2].vertices == (2,)
-    # Next 3 edges should be nearest-neighbor (including wrap)
-    assert edges[3].vertices == (0, 1)
-    assert edges[4].vertices == (1, 2)
-    assert edges[5].vertices == (0, 2)  # Wrap-around
+    edge_vertices = {edge.vertices for edge in ring.edges()}
+    assert edge_vertices == {(0,), (1,), (2,), (0, 1), (1, 2), (0, 2)}
 
 
 def test_ring1d_coloring_without_self_loops():
     """Test edge coloring without self-loops."""
     ring = Ring1D(4)
+    color = _vertex_color_map(ring)
     # Even edges should have color 0, odd edges color 1
-    assert ring.color[(0, 1)] == 0
-    assert ring.color[(1, 2)] == 1
-    assert ring.color[(2, 3)] == 0
-    assert ring.color[(0, 3)] == 1  # Wrap-around edge (index 3)
+    assert color[(0, 1)] == 0
+    assert color[(1, 2)] == 1
+    assert color[(2, 3)] == 0
+    assert color[(0, 3)] == 1  # Wrap-around edge
 
 
 def test_ring1d_coloring_with_self_loops():
     """Test edge coloring with self-loops."""
     ring = Ring1D(4, self_loops=True)
+    color = _vertex_color_map(ring)
     # Self-loops should have color -1
-    assert ring.color[(0,)] == -1
-    assert ring.color[(1,)] == -1
-    assert ring.color[(2,)] == -1
-    assert ring.color[(3,)] == -1
+    assert color[(0,)] == -1
+    assert color[(1,)] == -1
+    assert color[(2,)] == -1
+    assert color[(3,)] == -1
     # Even edges should have color 0, odd edges color 1
-    assert ring.color[(0, 1)] == 0
-    assert ring.color[(1, 2)] == 1
-    assert ring.color[(2, 3)] == 0
-    assert ring.color[(0, 3)] == 1
+    assert color[(0, 1)] == 0
+    assert color[(1, 2)] == 1
+    assert color[(2, 3)] == 0
+    assert color[(0, 3)] == 1
 
 
 def test_ring1d_coloring_non_overlapping():
     """Test that edges with the same color don't share vertices."""
     ring = Ring1D(6)
+    coloring = edge_coloring(ring)
     # Group edges by color
     colors = {}
-    for edge_vertices, color in ring.color.items():
+    for edge in ring.edges():
+        color = coloring.color(edge)
+        assert color is not None
+        edge_vertices = edge.vertices
         if color not in colors:
             colors[color] = []
         colors[color].append(edge_vertices)
@@ -253,7 +249,9 @@ def test_chain1d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(chain, "edges")
     assert hasattr(chain, "vertices")
-    assert hasattr(chain, "edges_of_color")
+    coloring = edge_coloring(chain)
+    assert isinstance(coloring, HypergraphEdgeColoring)
+    assert hasattr(coloring, "edges_of_color")
 
 
 def test_ring1d_inherits_hypergraph():
@@ -265,4 +263,6 @@ def test_ring1d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(ring, "edges")
     assert hasattr(ring, "vertices")
-    assert hasattr(ring, "edges_of_color")
+    coloring = edge_coloring(ring)
+    assert isinstance(coloring, HypergraphEdgeColoring)
+    assert hasattr(coloring, "edges_of_color")
