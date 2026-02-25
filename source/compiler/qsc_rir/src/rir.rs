@@ -349,6 +349,16 @@ pub enum Instruction {
     Return,
 }
 
+impl Instruction {
+    #[must_use]
+    pub fn metadata(&self) -> Option<&InstructionDbgMetadata> {
+        match self {
+            Self::Call(_, _, _, metadata) | Self::Branch(_, _, _, metadata) => metadata.as_deref(),
+            _ => None,
+        }
+    }
+}
+
 impl Display for Instruction {
     #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {

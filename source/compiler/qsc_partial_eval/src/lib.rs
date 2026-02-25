@@ -3672,16 +3672,15 @@ impl<'a> PartialEvaluator<'a> {
             if let Some(s) = s {
                 Some(s)
             } else {
-                let (name, span) = match &self.package_store.get_item(item_id).kind {
-                    fir::ItemKind::Callable(callable_decl) => {
-                        let name = if functor_app.adjoint {
-                            format!("{}'", callable_decl.name.name).into()
-                        } else {
-                            callable_decl.name.name.clone()
-                        };
-                        (name, callable_decl.span)
-                    }
-                    _ => panic!("expected callable"),
+                let fir::ItemKind::Callable(callable_decl) =
+                    &self.package_store.get_item(item_id).kind
+                else {
+                    panic!("expected callable");
+                };
+                let name = if functor_app.adjoint {
+                    format!("{}'", callable_decl.name.name).into()
+                } else {
+                    callable_decl.name.name.clone()
                 };
                 let current_package_id = self.get_current_package_id();
                 let package_id = current_package_id.into();
@@ -3689,7 +3688,7 @@ impl<'a> PartialEvaluator<'a> {
                     name,
                     location: DbgPackageOffset {
                         package_id,
-                        offset: span.lo,
+                        offset: callable_decl.span.lo,
                     },
                 };
                 let i = self.program.dbg_info.add_scope(scope);

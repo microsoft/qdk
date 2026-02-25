@@ -174,11 +174,6 @@ impl PackageStore {
             open: id,
         }
     }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.units.is_empty()
-    }
 }
 
 impl<'a> IntoIterator for &'a PackageStore {

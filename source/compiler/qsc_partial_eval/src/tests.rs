@@ -128,10 +128,62 @@ pub fn get_rir_program_with_dbg_metadata(source: &str) -> Program {
         Ok(program) => {
             // Verify the program can go through transformations.
             check_and_transform(&mut program.clone());
+            validate(&program);
             program
         }
         Err(error) => panic!("partial evaluation failed: {error:?}"),
     }
+}
+
+fn validate(program: &Program) {
+    let mut dbg_scopes = program.dbg_info.dbg_scopes.clone();
+    let mut dbg_locations = program.dbg_info.dbg_locations.clone();
+
+    // All scope and inlined_at references should be to existing dbg scopes and locations.
+    for (dbg_location, _) in dbg_locations.values() {
+        assert!(dbg_scopes.contains_key(dbg_location.scope));
+        if let Some(inlined_at) = dbg_location.inlined_at {
+            assert!(dbg_locations.contains_key(inlined_at));
+        }
+    }
+
+    // All dbg location references in instructions should be to existing dbg locations.
+    for instruction in program.blocks.iter().flat_map(|(_, block)| &block.0) {
+        if let Some(dbg_location) = instruction.metadata().map(|metadata| metadata.dbg_location) {
+            assert!(dbg_locations.contains_key(dbg_location));
+        }
+    }
+
+    // Ensure all entries are referenced by removing referenced scopes/locations from the lists and then checking if any remain at the end.
+    for instruction in program.blocks.iter().flat_map(|(_, block)| &block.0) {
+        if let Some(dbg_location) = instruction.metadata().map(|metadata| metadata.dbg_location) {
+            let mut to_remove = vec![dbg_location];
+            let mut next = dbg_locations.get(dbg_location);
+
+            while let Some(entry) = next {
+                // remove referenced scope
+                dbg_scopes.remove(entry.0.scope);
+
+                if let Some(inlined_at) = entry.0.inlined_at {
+                    // collect referenced dbg locations
+                    next = dbg_locations.get(inlined_at);
+                    to_remove.push(inlined_at);
+                } else {
+                    break;
+                }
+            }
+            for id in to_remove {
+                dbg_locations.remove(id);
+            }
+        }
+    }
+
+    assert!(
+        dbg_locations.is_empty(),
+        "unreferenced entry in dbg locations"
+    );
+
+    assert!(dbg_scopes.is_empty(), "unreferenced entry in dbg scopes");
 }
 
 #[must_use]
