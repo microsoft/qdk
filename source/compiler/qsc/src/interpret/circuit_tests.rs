@@ -604,6 +604,79 @@ fn loop_vertical_is_not_grouped() {
 }
 
 #[test]
+fn for_loop_nested() {
+    let circ = circuit_with_options(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use qs = Qubit[3];
+                    for j in 0..2 {
+                        for i in 0..2 {
+                            Foo(qs[i]);
+                        }
+                    }
+                }
+
+                operation Foo(q: Qubit) : Unit {
+                    X(q);
+                }
+            }
+        ",
+        Profile::Unrestricted,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: true,
+            group_by_scope: true,
+            prune_classical_qubits: false,
+        },
+    )
+    .expect("circuit generation should succeed");
+
+    let circ = circ.display_with_groups().to_string();
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ Main[1] ─
+                              ┆
+        q_1@test.qs:4:20 ─ Main[1] ─
+                              ┆
+        q_2@test.qs:4:20 ─ Main[1] ─
+
+        [1] Main:
+            q_0@test.qs:4:20 ─ loop: 0..2@test.qs:5:20[2] ──
+                                            ┆
+            q_1@test.qs:4:20 ─ loop: 0..2@test.qs:5:20[2] ──
+                                            ┆
+            q_2@test.qs:4:20 ─ loop: 0..2@test.qs:5:20[2] ──
+
+        [2] loop: 0..2:
+            q_0@test.qs:4:20 ─ (1)@test.qs:5:34[3] ── (2)@test.qs:5:34[4] ── (3)@test.qs:5:34[5] ─
+                                        ┆                      ┆                      ┆
+            q_1@test.qs:4:20 ─ (1)@test.qs:5:34[3] ── (2)@test.qs:5:34[4] ── (3)@test.qs:5:34[5] ─
+                                        ┆                      ┆                      ┆
+            q_2@test.qs:4:20 ─ (1)@test.qs:5:34[3] ── (2)@test.qs:5:34[4] ── (3)@test.qs:5:34[5] ─
+
+        [3] (1):
+            q_0@test.qs:4:20 ─ [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──
+            q_1@test.qs:4:20 ─ [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──
+            q_2@test.qs:4:20 ─ [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──
+
+        [4] (2):
+            q_0@test.qs:4:20 ─ [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──
+            q_1@test.qs:4:20 ─ [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──
+            q_2@test.qs:4:20 ─ [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──
+
+        [5] (3):
+            q_0@test.qs:4:20 ─ [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──
+            q_1@test.qs:4:20 ─ [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──
+            q_2@test.qs:4:20 ─ [ [Foo@test.qs:7:28] ─── X@test.qs:13:20 ─── ] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
 fn m_base_profile() {
     let circ = circuit_with_profile_both_ways(
         r"
