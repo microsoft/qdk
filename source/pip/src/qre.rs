@@ -7,7 +7,7 @@ use pyo3::{
     IntoPyObjectExt,
     exceptions::{PyException, PyKeyError, PyTypeError},
     prelude::*,
-    types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple},
+    types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple, PyType},
 };
 use qre::TraceTransform;
 use serde::{Deserialize, Serialize};
@@ -305,6 +305,19 @@ impl Instruction {
     }
 }
 
+impl qre::ParetoItem2D for Instruction {
+    type Objective1 = u64;
+    type Objective2 = u64;
+
+    fn objective1(&self) -> Self::Objective1 {
+        self.0.expect_space(None)
+    }
+
+    fn objective2(&self) -> Self::Objective2 {
+        self.0.expect_time(None)
+    }
+}
+
 impl qre::ParetoItem3D for Instruction {
     type Objective1 = u64;
     type Objective2 = u64;
@@ -577,9 +590,24 @@ pub struct EstimationResult(qre::EstimationResult);
 
 #[pymethods]
 impl EstimationResult {
+    #[new]
+    #[pyo3(signature = (*, qubits = 0, runtime = 0, error = 0.0))]
+    pub fn new(qubits: u64, runtime: u64, error: f64) -> Self {
+        let mut result = qre::EstimationResult::new();
+        result.add_qubits(qubits);
+        result.add_runtime(runtime);
+        result.add_error(error);
+
+        EstimationResult(result)
+    }
+
     #[getter]
     pub fn qubits(&self) -> u64 {
         self.0.qubits()
+    }
+
+    pub fn add_qubits(&mut self, amount: u64) {
+        self.0.add_qubits(amount);
     }
 
     #[getter]
@@ -587,9 +615,17 @@ impl EstimationResult {
         self.0.runtime()
     }
 
+    pub fn add_runtime(&mut self, amount: u64) {
+        self.0.add_runtime(amount);
+    }
+
     #[getter]
     pub fn error(&self) -> f64 {
         self.0.error()
+    }
+
+    pub fn add_error(&mut self, amount: f64) {
+        self.0.add_error(amount);
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -670,6 +706,21 @@ impl Trace {
     #[pyo3(signature = (compute_qubits = None))]
     pub fn clone_empty(&self, compute_qubits: Option<u64>) -> Self {
         Trace(self.0.clone_empty(compute_qubits))
+    }
+
+    #[classmethod]
+    pub fn from_json(_cls: &Bound<'_, PyType>, json: &str) -> PyResult<Self> {
+        let trace: qre::Trace = serde_json::from_str(json).map_err(|e| {
+            EstimationError::new_err(format!("Failed to parse trace from JSON: {e}"))
+        })?;
+
+        Ok(Self(trace))
+    }
+
+    pub fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.0).map_err(|e| {
+            EstimationError::new_err(format!("Failed to serialize trace to JSON: {e}"))
+        })
     }
 
     #[getter]
@@ -863,55 +914,103 @@ impl LatticeSurgery {
     }
 }
 
+/// Dispatches a method call to the inner frontier variant, avoiding
+/// repetitive match arms.  Use as:
+///
+/// ```ignore
+/// dispatch_frontier!(self, f => f.len())
+/// dispatch_frontier!(mut self, f => f.insert(point.clone()))
+/// ```
+macro_rules! dispatch_frontier {
+    ($self:ident, $f:ident => $body:expr) => {
+        match &$self.0 {
+            InstructionFrontierInner::Frontier2D($f) => $body,
+            InstructionFrontierInner::Frontier3D($f) => $body,
+        }
+    };
+    (mut $self:ident, $f:ident => $body:expr) => {
+        match &mut $self.0 {
+            InstructionFrontierInner::Frontier2D($f) => $body,
+            InstructionFrontierInner::Frontier3D($f) => $body,
+        }
+    };
+}
+
+#[derive(Clone)]
+enum InstructionFrontierInner {
+    Frontier2D(qre::ParetoFrontier2D<Instruction>),
+    Frontier3D(qre::ParetoFrontier3D<Instruction>),
+}
+
 #[pyclass]
-pub struct InstructionFrontier(qre::ParetoFrontier3D<Instruction>);
+pub struct InstructionFrontier(InstructionFrontierInner);
 
 impl Default for InstructionFrontier {
     fn default() -> Self {
-        InstructionFrontier(qre::ParetoFrontier3D::new())
+        Self(InstructionFrontierInner::Frontier3D(
+            qre::ParetoFrontier3D::new(),
+        ))
     }
 }
 
 #[pymethods]
 impl InstructionFrontier {
     #[new]
-    pub fn new() -> Self {
-        Self::default()
+    #[pyo3(signature = (*, with_error_objective = true))]
+    pub fn new(with_error_objective: bool) -> Self {
+        if with_error_objective {
+            Self(InstructionFrontierInner::Frontier3D(
+                qre::ParetoFrontier3D::new(),
+            ))
+        } else {
+            Self(InstructionFrontierInner::Frontier2D(
+                qre::ParetoFrontier2D::new(),
+            ))
+        }
     }
 
     pub fn insert(&mut self, point: &Instruction) {
-        self.0.insert(point.clone());
+        dispatch_frontier!(mut self, f => f.insert(point.clone()));
     }
 
     #[allow(clippy::needless_pass_by_value)]
     pub fn extend(&mut self, points: Vec<PyRef<'_, Instruction>>) {
-        self.0
-            .extend(points.iter().map(|p| Instruction(p.0.clone())));
+        dispatch_frontier!(mut self, f => f.extend(points.iter().map(|p| Instruction(p.0.clone()))));
     }
 
     pub fn __len__(&self) -> usize {
-        self.0.len()
+        dispatch_frontier!(self, f => f.len())
     }
 
     #[allow(clippy::needless_pass_by_value)]
     pub fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<InstructionFrontierIterator>> {
-        let iter = InstructionFrontierIterator {
-            iter: slf.0.iter().cloned().collect::<Vec<_>>().into_iter(),
-        };
-        Py::new(slf.py(), iter)
+        let items: Vec<Instruction> = dispatch_frontier!(slf, f => f.iter().cloned().collect());
+        Py::new(
+            slf.py(),
+            InstructionFrontierIterator {
+                iter: items.into_iter(),
+            },
+        )
     }
 
     #[staticmethod]
-    pub fn load(filename: &str) -> PyResult<Self> {
+    #[pyo3(signature = (filename, *, with_error_objective = true))]
+    pub fn load(filename: &str, with_error_objective: bool) -> PyResult<Self> {
         let content = std::fs::read_to_string(filename)?;
-        let frontier =
-            serde_json::from_str(&content).map_err(|e| EstimationError::new_err(format!("{e}")))?;
-        Ok(InstructionFrontier(frontier))
+        let err = |e: serde_json::Error| EstimationError::new_err(format!("{e}"));
+
+        let inner = if with_error_objective {
+            InstructionFrontierInner::Frontier3D(serde_json::from_str(&content).map_err(err)?)
+        } else {
+            InstructionFrontierInner::Frontier2D(serde_json::from_str(&content).map_err(err)?)
+        };
+        Ok(InstructionFrontier(inner))
     }
 
     pub fn dump(&self, filename: &str) -> PyResult<()> {
-        let content =
-            serde_json::to_string(&self.0).map_err(|e| EstimationError::new_err(format!("{e}")))?;
+        let content = dispatch_frontier!(self, f =>
+            serde_json::to_string(f).map_err(|e| EstimationError::new_err(format!("{e}")))?
+        );
         Ok(std::fs::write(filename, content)?)
     }
 }

@@ -4,6 +4,7 @@
 use std::fmt::{Display, Formatter};
 
 use rustc_hash::{FxHashMap, FxHashSet};
+use serde::{Deserialize, Serialize};
 
 use crate::{Error, EstimationCollection, EstimationResult, FactoryResult, ISA, Instruction};
 
@@ -15,7 +16,7 @@ mod tests;
 mod transforms;
 pub use transforms::{LatticeSurgery, PSSPC, TraceTransform};
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Trace {
     block: Block,
     base_error: f64,
@@ -311,20 +312,20 @@ impl Display for Trace {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Operation {
     GateOperation(Gate),
     BlockOperation(Block),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Gate {
     id: u64,
     qubits: Vec<u64>,
     params: Vec<f64>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Block {
     operations: Vec<Operation>,
     repetitions: u64,
@@ -493,7 +494,7 @@ impl<'a> Iterator for TraceIterator<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Property {
     Bool(bool),
     Int(i64),

@@ -1,11 +1,13 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import types
 from typing import (
     Generator,
     Type,
     TypeVar,
     Literal,
+    Union,
     get_args,
     get_origin,
     get_type_hints,
@@ -106,6 +108,23 @@ def _enumerate_instances(cls: Type[T], **kwargs) -> Generator[T, None, None]:
 
         if get_origin(current_type) is Literal:
             values.append(list(get_args(current_type)))
+            continue
+
+        # Union types (e.g., OptionA | OptionB or Union[OptionA, OptionB])
+        if get_origin(current_type) is Union or isinstance(
+            current_type, types.UnionType
+        ):
+            union_domain = []
+            for member_type in get_args(current_type):
+                union_domain.extend(_enumerate_instances(member_type))
+            values.append(union_domain)
+            continue
+
+        # Nested dataclass types
+        if isinstance(current_type, type) and hasattr(
+            current_type, "__dataclass_fields__"
+        ):
+            values.append(list(_enumerate_instances(current_type)))
             continue
 
         if field.default is not MISSING:

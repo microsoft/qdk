@@ -1,2 +1,3 @@
 pytest
 pyqir<0.12
+cirq==1.6.1

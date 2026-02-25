@@ -32,13 +32,7 @@ from qsharp.qre._architecture import _Context
 from qsharp.qre._isa_enumeration import (
     ISARefNode,
 )
-from qsharp.qre.instruction_ids import (
-    CCX,
-    CCZ,
-    GENERIC,
-    LATTICE_SURGERY,
-    T,
-)
+from qsharp.qre.instruction_ids import CCX, CCZ, LATTICE_SURGERY, T, RZ
 
 # NOTE These classes will be generalized as part of the QRE API in the following
 # pull requests and then moved out of the tests.
@@ -69,7 +63,7 @@ class ExampleLogicalFactory(ISATransform):
     @staticmethod
     def required_isa() -> ISARequirements:
         return ISARequirements(
-            constraint(GENERIC, encoding=LOGICAL),
+            constraint(LATTICE_SURGERY, encoding=LOGICAL),
             constraint(T, encoding=LOGICAL),
         )
 
@@ -206,9 +200,9 @@ def test_isa_from_architecture():
     # Generate logical ISAs
     isas = list(code.provided_isa(arch.provided_isa, arch.context()))
 
-    # There is one ISA with two instructions
+    # There is one ISA with one instructions
     assert len(isas) == 1
-    assert len(isas[0]) == 2
+    assert len(isas[0]) == 1
 
 
 def test_enumerate_instances():
@@ -312,6 +306,51 @@ def test_enumerate_instances_literal():
     assert instances[1].mode == "slow"
 
 
+def test_enumerate_instances_nested():
+    from qsharp.qre._enumeration import _enumerate_instances
+
+    @dataclass
+    class InnerConfig:
+        _: KW_ONLY
+        option: bool
+
+    @dataclass
+    class OuterConfig:
+        _: KW_ONLY
+        inner: InnerConfig
+
+    instances = list(_enumerate_instances(OuterConfig))
+    assert len(instances) == 2
+    assert instances[0].inner.option is True
+    assert instances[1].inner.option is False
+
+
+def test_enumerate_instances_union():
+    from qsharp.qre._enumeration import _enumerate_instances
+
+    @dataclass
+    class OptionA:
+        _: KW_ONLY
+        value: bool
+
+    @dataclass
+    class OptionB:
+        _: KW_ONLY
+        number: int = field(default=1, metadata={"domain": [1, 2, 3]})
+
+    @dataclass
+    class UnionConfig:
+        _: KW_ONLY
+        option: OptionA | OptionB
+
+    instances = list(_enumerate_instances(UnionConfig))
+    assert len(instances) == 5
+    assert isinstance(instances[0].option, OptionA)
+    assert instances[0].option.value is True
+    assert isinstance(instances[2].option, OptionB)
+    assert instances[2].option.number == 1
+
+
 def test_enumerate_isas():
     ctx = AQREGateBased().context()
 
@@ -385,8 +424,8 @@ def test_binding_node():
     # Verify the binding works: with binding, both should use same params
     for isa in SurfaceCode.bind("c", ISARefNode("c") * ISARefNode("c")).enumerate(ctx):
         logical_gates = [g for g in isa if g.encoding == LOGICAL]
-        # Should have 2 logical gates (GENERIC and LATTICE_SURGERY)
-        assert len(logical_gates) == 2
+        # Should have 1 logical gate (LATTICE_SURGERY)
+        assert len(logical_gates) == 1
 
     # Test binding with factories (nested bindings)
     count_without = sum(
@@ -451,7 +490,7 @@ def test_binding_node():
         .enumerate(ctx)
     ):
         logical_gates = [g for g in isa if g.encoding == LOGICAL]
-        assert all(g.space(1) == 50 for g in logical_gates)
+        assert all(g.space(1) == 49 for g in logical_gates)
 
     # Test multiple independent bindings (nested)
     count = sum(
@@ -639,7 +678,7 @@ def test_qsharp_application():
         result = trace2.estimate(isa, max_error=float("inf"))
         assert result is not None
         _assert_estimation_result(trace2, result, isa)
-    assert counter == 40
+    assert counter == 32
 
 
 def test_trace_enumeration():
@@ -660,12 +699,30 @@ def test_trace_enumeration():
     root = RootNode()
     assert sum(1 for _ in root.enumerate(ctx)) == 1
 
-    assert sum(1 for _ in PSSPC.q().enumerate(ctx)) == 40
+    assert sum(1 for _ in PSSPC.q().enumerate(ctx)) == 32
 
     assert sum(1 for _ in LatticeSurgery.q().enumerate(ctx)) == 1
 
     q = PSSPC.q() * LatticeSurgery.q()
-    assert sum(1 for _ in q.enumerate(ctx)) == 40
+    assert sum(1 for _ in q.enumerate(ctx)) == 32
+
+
+def test_rotation_error_psspc():
+    from qsharp.qre._enumeration import _enumerate_instances
+
+    # This test helps to bound the variables for the number of rotations in PSSPC
+
+    # Create a trace with a single rotation gate and ensure that the base error
+    # after PSSPC transformation is less than 1.
+    trace = Trace(1)
+    trace.add_operation(RZ, [0])
+
+    for psspc in _enumerate_instances(PSSPC, ccx_magic_states=False):
+        transformed = psspc.transform(trace)
+        assert transformed is not None
+        assert (
+            transformed.base_error < 1.0
+        ), f"Base error too high: {transformed.base_error} for {psspc.num_ts_per_rotation} T states per rotation"
 
 
 def test_estimation_max_error():

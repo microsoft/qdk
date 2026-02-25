@@ -671,6 +671,22 @@ class EstimationResult:
     Represents the result of a resource estimation.
     """
 
+    def __new__(
+        cls, *, qubits: int = 0, runtime: int = 0, error: float = 0.0
+    ) -> EstimationResult:
+        """
+        Creates a new estimation result.
+
+        Args:
+            qubits (int): The number of logical qubits.
+            runtime (int): The runtime in nanoseconds.
+            error (float): The error probability of the computation.
+
+        Returns:
+            EstimationResult: The estimation result.
+        """
+        ...
+
     @property
     def qubits(self) -> int:
         """
@@ -678,6 +694,15 @@ class EstimationResult:
 
         Returns:
             int: The number of logical qubits.
+        """
+        ...
+
+    def add_qubits(self, qubits: int) -> None:
+        """
+        Adds to the number of logical qubits.
+
+        Args:
+            qubits (int): The number of logical qubits to add.
         """
         ...
 
@@ -691,6 +716,15 @@ class EstimationResult:
         """
         ...
 
+    def add_runtime(self, runtime: int) -> None:
+        """
+        Adds to the runtime.
+
+        Args:
+            runtime (int): The amount of runtime in nanoseconds to add.
+        """
+        ...
+
     @property
     def error(self) -> float:
         """
@@ -698,6 +732,15 @@ class EstimationResult:
 
         Returns:
             float: The error probability of the computation.
+        """
+        ...
+
+    def add_error(self, error: float) -> None:
+        """
+        Adds to the error probability.
+
+        Args:
+            error (float): The amount to add to the error probability.
         """
         ...
 
@@ -854,6 +897,28 @@ class Trace:
 
         Returns:
             Trace: The new trace.
+        """
+        ...
+
+    @classmethod
+    def from_json(cls, json: str) -> Trace:
+        """
+        Creates a trace from a JSON string.
+
+        Args:
+            json (str): The JSON string.
+
+        Returns:
+            Trace: The trace.
+        """
+        ...
+
+    def to_json(self) -> str:
+        """
+        Serializes the trace to a JSON string.
+
+        Returns:
+            str: The JSON string representation of the trace.
         """
         ...
 
@@ -1098,9 +1163,14 @@ class InstructionFrontier:
     rates as objectives.
     """
 
-    def __new__(cls) -> InstructionFrontier:
+    def __new__(cls, *, with_error_objective: bool = True) -> InstructionFrontier:
         """
         Creates a new instruction frontier.
+
+        Args:
+            with_error_objective (bool): If True (default), the frontier uses
+                three objectives (space, time, error rate). If False, it uses
+                two objectives (space, time).
         """
         ...
 
@@ -1141,12 +1211,17 @@ class InstructionFrontier:
         ...
 
     @staticmethod
-    def load(filename: str) -> InstructionFrontier:
+    def load(
+        filename: str, *, with_error_objective: bool = True
+    ) -> InstructionFrontier:
         """
         Loads an instruction frontier from a file.
 
         Args:
             filename (str): The file name.
+            with_error_objective (bool): If True (default), the frontier uses
+                three objectives (space, time, error rate). If False, it uses
+                two objectives (space, time).
 
         Returns:
             InstructionFrontier: The loaded instruction frontier.

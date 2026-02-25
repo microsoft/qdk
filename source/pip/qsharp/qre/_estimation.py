@@ -95,7 +95,7 @@ class EstimationTable(list["EstimationTableEntry"]):
             [
                 {
                     "qubits": entry.qubits,
-                    "runtime": entry.runtime,
+                    "runtime": pd.Timedelta(entry.runtime, unit="ns"),
                     "error": entry.error,
                 }
                 for entry in self

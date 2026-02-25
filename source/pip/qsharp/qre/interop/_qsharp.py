@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import time
-from typing import Callable
+from typing import Callable, Optional
 
 from ..._qsharp import logical_counts
 from ...estimator import LogicalCounts
@@ -75,4 +76,19 @@ def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts) -> Trace:
             block.add_operation(WRITE_TO_MEMORY, [0, compute_qubits])
 
     trace.set_property("evaluation_time", evaluation_time)
+    return trace
+
+
+def trace_from_entry_expr_cached(
+    entry_expr: str | Callable | LogicalCounts, cache_path: Optional[Path]
+) -> Trace:
+    if cache_path and cache_path.exists():
+        return Trace.from_json(cache_path.read_text())
+
+    trace = trace_from_entry_expr(entry_expr)
+
+    if cache_path:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(trace.to_json())
+
     return trace
