@@ -109,7 +109,7 @@ impl Tracer for CircuitTracer {
                 "MResetZ",
                 q,
                 r,
-                called_at.clone(),
+                called_at,
             );
         } else {
             self.circuit_builder
@@ -643,7 +643,6 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
         }
     }
 
-    #[allow(clippy::too_many_lines)]
     fn resolve_scope(&self, scope_id: &Scope, loop_id_cache: &mut LoopIdCache) -> LexicalScope {
         match scope_id {
             Scope::Callable(CallableId::Id(store_item_id, functor_app)) => {
@@ -653,34 +652,16 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                     panic!("only callables should be in the stack")
                 };
 
-                let scope_offset = match &callable_decl.implementation {
-                    fir::CallableImpl::Intrinsic => callable_decl.span.lo,
-                    fir::CallableImpl::Spec(spec_impl) => {
-                        if functor_app.adjoint && functor_app.controlled > 0 {
-                            spec_impl.ctl_adj.as_ref().unwrap_or(&spec_impl.body)
-                        } else if functor_app.adjoint {
-                            spec_impl.adj.as_ref().unwrap_or(&spec_impl.body)
-                        } else if functor_app.controlled > 0 {
-                            spec_impl.ctl.as_ref().unwrap_or(&spec_impl.body)
-                        } else {
-                            &spec_impl.body
-                        }
-                        .span
-                        .lo
-                    }
-                    fir::CallableImpl::SimulatableIntrinsic(spec_decl) => spec_decl.span.lo,
-                };
-
-                let scope_name = callable_decl.name.name.clone();
+                let scope_offset = callable_scope_offset(callable_decl, *functor_app);
 
                 LexicalScope {
                     location: Some(PackageOffset {
                         package_id: store_item_id.package,
                         offset: scope_offset,
                     }),
-                    name: scope_name,
+                    name: callable_decl.name.name.clone(),
                     is_adjoint: functor_app.adjoint,
-                    is_conditional: false,
+                    is_classically_controlled: false,
                 }
             }
             Scope::Callable(CallableId::Source(package_offset, name)) => {
@@ -698,7 +679,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                     location: Some(*package_offset),
                     name,
                     is_adjoint,
-                    is_conditional: false,
+                    is_classically_controlled: false,
                 }
             }
             Scope::Loop(loop_id) => {
@@ -721,14 +702,14 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                         name: format!("loop: {}", expr_contents.unwrap_or_default()).into(),
                         location: Some(package_offset),
                         is_adjoint: false,
-                        is_conditional: false,
+                        is_classically_controlled: false,
                     }
                 } else {
                     LexicalScope {
                         name: "loop".into(),
                         location: Some(found_loop_expr.1),
                         is_adjoint: false,
-                        is_conditional: false,
+                        is_classically_controlled: false,
                     }
                 }
             }
@@ -749,14 +730,14 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                     name: format!("({i})").into(),
                     location: Some(package_offset),
                     is_adjoint: false,
-                    is_conditional: false,
+                    is_classically_controlled: false,
                 }
             }
             Scope::Top => LexicalScope {
                 name: "top".into(),
                 location: None,
                 is_adjoint: false,
-                is_conditional: false,
+                is_classically_controlled: false,
             },
             Scope::ClassicallyControlled {
                 label,
@@ -765,7 +746,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                 location: None,
                 name: label.clone().into(),
                 is_adjoint: false,
-                is_conditional: true,
+                is_classically_controlled: true,
             },
         }
     }
@@ -828,6 +809,26 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                 }
             }
         }
+    }
+}
+
+fn callable_scope_offset(callable_decl: &fir::CallableDecl, functor_app: FunctorApp) -> u32 {
+    match &callable_decl.implementation {
+        fir::CallableImpl::Intrinsic => callable_decl.span.lo,
+        fir::CallableImpl::Spec(spec_impl) => {
+            if functor_app.adjoint && functor_app.controlled > 0 {
+                spec_impl.ctl_adj.as_ref().unwrap_or(&spec_impl.body)
+            } else if functor_app.adjoint {
+                spec_impl.adj.as_ref().unwrap_or(&spec_impl.body)
+            } else if functor_app.controlled > 0 {
+                spec_impl.ctl.as_ref().unwrap_or(&spec_impl.body)
+            } else {
+                &spec_impl.body
+            }
+            .span
+            .lo
+        }
+        fir::CallableImpl::SimulatableIntrinsic(spec_decl) => spec_decl.span.lo,
     }
 }
 
@@ -924,14 +925,14 @@ pub(crate) struct WireMap {
 }
 
 impl WireMap {
-    pub fn qubit_wire(&self, qubit_id: usize) -> QubitWire {
+    pub(crate) fn qubit_wire(&self, qubit_id: usize) -> QubitWire {
         self.qubits
             .get(qubit_id)
             .unwrap_or_else(|| panic!("qubit {qubit_id} should already be mapped"))
             .to_owned()
     }
 
-    pub fn result_wire(&self, result_id: usize) -> ResultWire {
+    pub(crate) fn result_wire(&self, result_id: usize) -> ResultWire {
         self.qubit_wires
             .iter()
             .find_map(|(QubitWire(qubit_wire), (_, results))| {
@@ -1061,29 +1062,24 @@ impl WireMapBuilder {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct OperationOrGroup {
     kind: OperationOrGroupKind,
     location: Option<LogicalStackEntryLocation>,
     op: Operation,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 enum OperationOrGroupKind {
     Single,
     Group {
         scope_stack: ScopeStack,
         children: Vec<OperationOrGroup>,
     },
-    // ConditionalGroup {
-    //     label: String,
-    //     children: Vec<OperationOrGroup>,
-    //     scope_location: Option<PackageOffset>,
-    // },
 }
 
 impl OperationOrGroup {
-    pub(crate) fn new_single(op: Operation) -> Self {
+    fn new_single(op: Operation) -> Self {
         Self {
             kind: OperationOrGroupKind::Single,
             op,
@@ -1091,7 +1087,7 @@ impl OperationOrGroup {
         }
     }
 
-    pub(crate) fn new_unitary(
+    fn new_unitary(
         name: &str,
         is_adjoint: bool,
         targets: &[QubitWire],
@@ -1122,7 +1118,7 @@ impl OperationOrGroup {
         }))
     }
 
-    pub(crate) fn new_measurement(label: &str, qubit: QubitWire, result: ResultWire) -> Self {
+    fn new_measurement(label: &str, qubit: QubitWire, result: ResultWire) -> Self {
         Self::new_single(Operation::Measurement(Measurement {
             gate: label.to_string(),
             args: vec![],
@@ -1139,7 +1135,7 @@ impl OperationOrGroup {
         }))
     }
 
-    pub(crate) fn new_reset(qubit: QubitWire) -> Self {
+    fn new_reset(qubit: QubitWire) -> Self {
         Self::new_single(Operation::Ket(Ket {
             gate: "0".to_string(),
             args: vec![],
@@ -1152,7 +1148,7 @@ impl OperationOrGroup {
         }))
     }
 
-    pub(crate) fn all_qubits(&self) -> Vec<QubitWire> {
+    fn all_qubits(&self) -> Vec<QubitWire> {
         let qubits: FxHashSet<QubitWire> = match &self.op {
             Operation::Measurement(measurement) => measurement.qubits.clone(),
             Operation::Unitary(unitary) => unitary
@@ -1170,7 +1166,7 @@ impl OperationOrGroup {
         qubits.into_iter().collect()
     }
 
-    pub(crate) fn target_results(&self) -> Vec<ResultWire> {
+    fn target_results(&self) -> Vec<ResultWire> {
         let results: FxHashSet<ResultWire> = match &self.op {
             Operation::Measurement(measurement) => measurement
                 .results
@@ -1189,7 +1185,7 @@ impl OperationOrGroup {
         results.into_iter().collect()
     }
 
-    pub(crate) fn control_results(&self) -> Vec<ResultWire> {
+    fn control_results(&self) -> Vec<ResultWire> {
         let results: FxHashSet<ResultWire> = match &self.op {
             Operation::Unitary(unitary) => unitary
                 .controls
@@ -1225,7 +1221,7 @@ impl OperationOrGroup {
         }
     }
 
-    pub(crate) fn new_group(scope_stack: ScopeStack, wire_map: &WireMap) -> Self {
+    fn new_group(scope_stack: ScopeStack, wire_map: &WireMap) -> Self {
         let mut control_result_ids_map = vec![];
         let mut control_result_registers = vec![];
         let mut metadata = None;
@@ -1326,30 +1322,7 @@ impl OperationOrGroup {
         }
     }
 
-    // fn extend_control_results(&mut self, control_results: &[ResultWire]) {
-    //     match &mut self.op {
-    //         Operation::Measurement(_) => {
-    //             panic!("control results for measurement operations not supported");
-    //         }
-    //         Operation::Unitary(unitary) => {
-    //             unitary
-    //                 .controls
-    //                 .extend(control_results.iter().map(|r| Register {
-    //                     qubit: r.0,
-    //                     result: Some(r.1),
-    //                 }));
-    //             unitary
-    //                 .controls
-    //                 .sort_unstable_by_key(|r| (r.qubit, r.result));
-    //             unitary.controls.dedup();
-    //         }
-    //         Operation::Ket(_) => {
-    //             panic!("control results for ket operations not supported");
-    //         }
-    //     }
-    // }
-
-    pub(crate) fn scope_stack_if_group(&self) -> Option<&ScopeStack> {
+    fn scope_stack_if_group(&self) -> Option<&ScopeStack> {
         if let OperationOrGroupKind::Group { scope_stack, .. } = &self.kind {
             Some(scope_stack)
         } else {
@@ -1357,7 +1330,7 @@ impl OperationOrGroup {
         }
     }
 
-    pub(crate) fn into_operation(
+    fn into_operation(
         mut self,
         source_lookup: &impl SourceLookup,
         loop_id_cache: &mut LoopIdCache,
@@ -1381,14 +1354,15 @@ impl OperationOrGroup {
                 let Operation::Unitary(u) = &mut self.op else {
                     panic!("group operation should be a unitary")
                 };
-                let scope = scope_stack.resolve_scope(source_lookup, loop_id_cache);
+
+                let scope = source_lookup.resolve_scope(&scope_stack.scope, loop_id_cache);
                 u.gate = scope.name.to_string();
                 u.is_adjoint = scope.is_adjoint;
                 let scope_location = scope
                     .location
                     .map(|loc| source_lookup.resolve_package_offset(&loc));
 
-                u.is_conditional = scope.is_conditional;
+                u.is_conditional = scope.is_classically_controlled;
 
                 if u.metadata.is_none() {
                     u.metadata = Some(Metadata::default());
@@ -1426,15 +1400,15 @@ impl OperationOrGroup {
 pub(crate) struct OperationListBuilder {
     max_ops: usize,
     max_ops_exceeded: bool,
-    operations_container: OperationOrGroup, // TODO: weird
+    top: OperationOrGroup,
     user_package_ids: Vec<PackageId>,
     grouping_config: GroupingConfig,
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct GroupingConfig {
-    pub(crate) source_locations: bool,
-    pub(crate) group_by_scope: bool,
+struct GroupingConfig {
+    source_locations: bool,
+    group_by_scope: bool,
 }
 
 impl OperationListBuilder {
@@ -1447,10 +1421,7 @@ impl OperationListBuilder {
         Self {
             max_ops: max_operations,
             max_ops_exceeded: false,
-            operations_container: OperationOrGroup::new_group(
-                ScopeStack::top(),
-                &WireMap::default(),
-            ),
+            top: OperationOrGroup::new_group(ScopeStack::top(), &WireMap::default()),
             grouping_config: GroupingConfig {
                 source_locations,
                 group_by_scope,
@@ -1467,7 +1438,7 @@ impl OperationListBuilder {
     ) {
         if self.max_ops_exceeded
             || self
-                .operations_container
+                .top
                 .children()
                 .expect("container should be a group")
                 .len()
@@ -1486,7 +1457,7 @@ impl OperationListBuilder {
             };
 
         add_scoped_op(
-            &mut self.operations_container,
+            &mut self.top,
             &ScopeStack::top(),
             op,
             &op_call_stack,
@@ -1497,13 +1468,11 @@ impl OperationListBuilder {
     }
 
     fn operations(&self) -> &Vec<OperationOrGroup> {
-        self.operations_container
-            .children()
-            .expect("container should be a group")
+        self.top.children().expect("container should be a group")
     }
 
     pub(crate) fn into_operations(self) -> Vec<OperationOrGroup> {
-        let OperationOrGroupKind::Group { children, .. } = self.operations_container.kind else {
+        let OperationOrGroupKind::Group { children, .. } = self.top.kind else {
             panic!("container should be a group");
         };
         children
@@ -1599,7 +1568,8 @@ impl OperationReceiver for OperationListBuilder {
     }
 }
 
-// TODO: this should be renamed to clarify purpose
+/// Represents a scope with name and location information all resolved.
+/// Ultimately corresponds to a group in the circuit diagram.
 pub struct LexicalScope {
     /// The start offset of the scope, used for navigation.
     pub(crate) location: Option<PackageOffset>,
@@ -1608,8 +1578,9 @@ pub struct LexicalScope {
     /// Whether the scope represents an adjoint operation,
     /// used for display purposes.
     pub(crate) is_adjoint: bool,
-    /// Whether the scope is conditionally applied. TODO: clarify wording
-    pub(crate) is_conditional: bool,
+    /// Whether the scope is classically controlled, or contains any operations or parameters
+    /// that are classically controlled.
+    pub(crate) is_classically_controlled: bool,
 }
 
 pub(crate) fn add_scoped_op(
@@ -1633,9 +1604,7 @@ pub(crate) fn add_scoped_op(
     };
 
     let Some(relative_stack) = strip_scope_stack_prefix(op_call_stack, current_scope_stack) else {
-        panic!(
-            "op_call_stack should be a child of current_scope_stack\n  {op_call_stack:?}\n  {current_scope_stack:?}",
-        );
+        panic!("op_call_stack should be a child of current_scope_stack",);
     };
 
     if !relative_stack.0.is_empty() {
@@ -1726,7 +1695,7 @@ pub(crate) fn retain_user_frames(
 }
 
 /// Represents a scope in the call stack, tracking the caller chain and current scope identifier.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct ScopeStack {
     caller: LogicalStack,
     scope: Scope,
@@ -1755,12 +1724,13 @@ impl ScopeStack {
         }
     }
 
-    fn resolve_scope(
-        &self,
-        source_lookup: &impl SourceLookup,
-        loop_id_cache: &mut LoopIdCache,
-    ) -> LexicalScope {
-        source_lookup.resolve_scope(&self.scope, loop_id_cache)
+    pub(crate) fn extend(&self, location: LogicalStackEntryLocation) -> LogicalStack {
+        let mut new_stack = self.caller.0.clone();
+        new_stack.push(LogicalStackEntry {
+            location,
+            scope: self.scope.clone(),
+        });
+        LogicalStack(new_stack)
     }
 }
 
@@ -1774,7 +1744,7 @@ impl ScopeStack {
 /// If it is a prefix, this function returns the remainder of `full_call_stack` after removing
 /// the prefix, starting from the first location in the call stack that is in the scope of
 /// `prefix_scope_stack.scope`.
-pub(crate) fn strip_scope_stack_prefix(
+fn strip_scope_stack_prefix(
     full_call_stack: &LogicalStack,
     prefix_scope_stack: &ScopeStack,
 ) -> Option<LogicalStack> {
@@ -1794,7 +1764,7 @@ pub(crate) fn strip_scope_stack_prefix(
     None
 }
 
-pub(crate) fn scope_stack(instruction_stack: &LogicalStack) -> ScopeStack {
+fn scope_stack(instruction_stack: &LogicalStack) -> ScopeStack {
     instruction_stack
         .0
         .split_last()
@@ -1804,7 +1774,7 @@ pub(crate) fn scope_stack(instruction_stack: &LogicalStack) -> ScopeStack {
         })
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 /// A "logical" stack trace. This is a processed version of a raw stack trace
 /// captured from the evaluator.
 /// This stack trace doesn't only contain calls to callables, but also entries into scopes
@@ -1863,7 +1833,7 @@ impl LogicalStack {
 }
 
 /// An entry in a logical stack trace.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct LogicalStackEntry {
     /// Location of the "call" into the next entry.
     /// The location type should correspond to the next entry's scope, e.g. a `LogicalStackEntryLocation::Call`

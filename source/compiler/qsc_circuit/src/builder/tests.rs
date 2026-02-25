@@ -50,7 +50,7 @@ impl SourceLookup for FakeCompilation {
                         offset: 0,
                     }),
                     is_adjoint: functor_app.adjoint,
-                    is_conditional: false,
+                    is_classically_controlled: false,
                 }
             }
             s => panic!("unexpected scope id {s:?}"),

@@ -1,11 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+mod control_flow;
 #[cfg(test)]
 mod tests;
 
 use core::panic;
-use log::debug;
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::fir::PackageId;
 use qsc_partial_eval::{
@@ -13,11 +13,9 @@ use qsc_partial_eval::{
     VariableId,
     rir::{Block, BlockId, Instruction, Program, Ty, Variable},
 };
-use qsc_rir::debug::{DbgInfo, DbgLocationId, DbgScope, DbgScopeId, InstructionDbgMetadata};
-use rustc_hash::FxHashMap;
-use rustc_hash::FxHashSet;
-use std::{collections::VecDeque, iter::Peekable, mem::take};
+use qsc_rir::debug::{DbgInfo, DbgLocationId, DbgScope, DbgScopeId};
 use std::{fmt::Display, vec};
+use std::{iter::Peekable, mem::take};
 
 use crate::{
     Circuit, Error, TracerConfig,
@@ -26,354 +24,8 @@ use crate::{
         OperationListBuilder, OperationReceiver, PackageOffset, Scope, ScopeStack, SourceLookup,
         WireMap, WireMapBuilder, finish_circuit,
     },
+    rir_to_circuit::control_flow::{StructuredControlFlow, reconstruct_control_flow},
 };
-
-#[derive(Clone, Debug)]
-struct Branch {
-    condition: Variable,
-    true_block: BlockId,
-    false_block: BlockId,
-    instruction_metadata: Option<Box<InstructionDbgMetadata>>,
-}
-
-#[derive(Debug, Clone)]
-enum Terminator {
-    Unconditional(BlockId),
-    Conditional(Branch),
-    Return,
-}
-
-#[must_use]
-fn terminator(block: &Block) -> Terminator {
-    // Assume that the block is well-formed and that terminators only appear as the last instruction.
-    match &block
-        .0
-        .last()
-        .expect("block should have at least one instruction")
-    {
-        Instruction {
-            kind: InstructionKind::Branch(condition, target1, target2),
-            metadata,
-        } => Terminator::Conditional(Branch {
-            condition: *condition,
-            true_block: *target1,
-            false_block: *target2,
-            instruction_metadata: metadata.clone(),
-        }),
-        Instruction {
-            kind: InstructionKind::Jump(target),
-            ..
-        } => Terminator::Unconditional(*target),
-        Instruction {
-            kind: InstructionKind::Return,
-            ..
-        } => Terminator::Return,
-        _ => panic!("unexpected terminator kind"),
-    }
-}
-
-/// A structured AST you can pretty-print back to if/else.
-#[derive(Debug, Clone)]
-enum StructuredControlFlow {
-    Seq(Vec<StructuredControlFlow>),
-    /// A single basic block's "payload" (you can expand to instructions later).
-    BasicBlock(BlockId),
-    If {
-        cond: Variable,
-        then_br: Box<StructuredControlFlow>,
-        else_br: Box<StructuredControlFlow>,
-        branch_instruction_metadata: Option<Box<InstructionDbgMetadata>>,
-    },
-    Return,
-}
-
-/// ---- Graph helpers ----
-/// A block either:
-/// - jumps to one next block,
-/// - splits into two paths (if/else),
-/// - or finishes (return).
-fn next_blocks(block: &Block) -> Vec<BlockId> {
-    match terminator(block) {
-        Terminator::Unconditional(t) => vec![t],
-        Terminator::Conditional(br) => vec![br.true_block, br.false_block],
-        Terminator::Return => vec![],
-    }
-}
-
-/// Find the one final "finish" block (Return).
-fn find_return_block(blocks: &IndexMap<BlockId, Block>) -> BlockId {
-    let mut returns = blocks
-        .iter()
-        .filter_map(|(id, b)| matches!(terminator(b), Terminator::Return).then_some(id))
-        .collect::<Vec<_>>();
-
-    assert_eq!(returns.len(), 1, "expected exactly 1 Return block");
-    returns.pop().expect("just checked non-empty")
-}
-
-/// Produce an order where every block appears before anything it can jump to.
-/// (This works because you said there are no cycles.)
-fn execution_order(blocks: &IndexMap<BlockId, Block>) -> Vec<BlockId> {
-    // Count how many incoming edges each block has.
-    let mut incoming_count: FxHashMap<BlockId, usize> = FxHashMap::default();
-    for id in blocks.iter().map(|(k, _)| k) {
-        incoming_count.insert(id, 0);
-    }
-
-    for (id, b) in blocks.iter() {
-        for nxt in next_blocks(b) {
-            *incoming_count.get_mut(&nxt).expect("missing successor") += 1;
-        }
-        let _ = id;
-    }
-
-    // Start with blocks that have no incoming edges.
-    let mut ready: VecDeque<BlockId> = incoming_count
-        .iter()
-        .filter_map(|(id, n)| (*n == 0).then_some(*id))
-        .collect();
-
-    // Optional: keep deterministic ordering.
-    {
-        let mut v: Vec<_> = ready.drain(..).collect();
-        v.sort();
-        ready.extend(v);
-    }
-
-    let mut ordered = Vec::with_capacity(blocks.iter().count());
-
-    while let Some(bid) = ready.pop_front() {
-        ordered.push(bid);
-
-        let b = blocks.get(bid).expect("missing block");
-        for nxt in next_blocks(b) {
-            let n = incoming_count.get_mut(&nxt).expect("missing successor");
-            *n -= 1;
-            if *n == 0 {
-                ready.push_back(nxt);
-            }
-        }
-
-        // Optional: keep deterministic ordering.
-        if ready.len() > 1 {
-            let mut v: Vec<_> = ready.drain(..).collect();
-            v.sort();
-            ready.extend(v);
-        }
-    }
-
-    assert_eq!(
-        ordered.len(),
-        blocks.iter().count(),
-        "graph has a cycle or inconsistent edges"
-    );
-
-    ordered
-}
-
-/// ---- "Must reach" sets (used to find merge points) ----
-///
-/// For each block b, compute the set of blocks that are guaranteed to happen
-/// after b on the way to the final return.
-///
-/// This is the key trick for turning a split (if/else) into a clean structured
-/// region with a well-defined merge point.
-///
-/// Rules:
-/// - The return block must reach itself.
-/// - If b unconditionally jumps to n, then b must reach everything n must reach.
-/// - If b conditionally jumps to t/f, then b must reach only what BOTH branches
-///   must reach (intersection).
-fn compute_must_reach_sets(
-    blocks: &IndexMap<BlockId, Block>,
-    return_block: BlockId,
-    ordered: &[BlockId],
-) -> FxHashMap<BlockId, FxHashSet<BlockId>> {
-    // Walk backwards so successors are already computed.
-    let mut must_reach: FxHashMap<BlockId, FxHashSet<BlockId>> = FxHashMap::default();
-
-    for &b in ordered.iter().rev() {
-        if b == return_block {
-            let mut s = FxHashSet::default();
-            s.insert(return_block);
-            must_reach.insert(b, s);
-            continue;
-        }
-
-        let succs = next_blocks(blocks.get(b).expect("block should exist"));
-        assert!(
-            !succs.is_empty(),
-            "non-return block must have a next step under your assumptions"
-        );
-
-        // Start with the first successor's must_reach set...
-        let mut guaranteed = must_reach
-            .get(&succs[0])
-            .expect("in a DAG, successors appear later in reverse order walk")
-            .clone();
-
-        // ...and if there are multiple successors, keep only what's in ALL of them.
-        for s in succs.iter().skip(1) {
-            let ss = must_reach
-                .get(s)
-                .expect("in a DAG, successors appear later in reverse order walk");
-            guaranteed.retain(|x| ss.contains(x));
-        }
-
-        // A block trivially "must reaches" itself (we include it to simplify joins).
-        guaranteed.insert(b);
-        must_reach.insert(b, guaranteed);
-    }
-
-    must_reach
-}
-
-/// Pick the earliest merge point for two paths a and b:
-/// - find blocks that both paths are guaranteed to reach
-/// - choose the one that happens earliest in the overall forward order
-fn earliest_merge_point(
-    must_reach: &FxHashMap<BlockId, FxHashSet<BlockId>>,
-    order_index: &FxHashMap<BlockId, usize>,
-    a: BlockId,
-    b: BlockId,
-) -> BlockId {
-    let sa = must_reach.get(&a).expect("must reach set should exist");
-    let sb = must_reach.get(&b).expect("must reach set should exist");
-
-    let mut shared: Vec<BlockId> = sa.intersection(sb).copied().collect();
-    assert!(
-        !shared.is_empty(),
-        "paths should reconverge under your assumptions"
-    );
-
-    shared.sort_by_key(|id| order_index[id]);
-    shared[0]
-}
-
-/// Collect blocks reachable from `start` without stepping through `stop`.
-/// Useful if you want to validate that a branch arm is a clean, contained region.
-fn reachable_until(
-    blocks: &IndexMap<BlockId, Block>,
-    start: BlockId,
-    stop: BlockId,
-) -> FxHashSet<BlockId> {
-    let mut seen = FxHashSet::default();
-    let mut stack = vec![start];
-
-    while let Some(n) = stack.pop() {
-        if n == stop || seen.contains(&n) {
-            continue;
-        }
-        seen.insert(n);
-
-        for nxt in next_blocks(blocks.get(n).expect("block should exist")) {
-            if nxt != stop {
-                stack.push(nxt);
-            }
-        }
-    }
-
-    seen
-}
-
-/// ---- Build structured if/else ----
-///
-/// `build_structured(entry, stop_at)` produces a structured AST by:
-/// - walking forward normally for straight-line jumps
-/// - when it hits a split (conditional), it:
-///     1) finds the merge point
-///     2) recursively builds the "then" path until the merge
-///     3) recursively builds the "else" path until the merge
-///     4) continues after the merge
-///
-/// `stop_at` means "stop before entering this block" (don't include it).
-fn build_structured(
-    blocks: &IndexMap<BlockId, Block>,
-    must_reach: &FxHashMap<BlockId, FxHashSet<BlockId>>,
-    order_index: &FxHashMap<BlockId, usize>,
-    entry: BlockId,
-    stop_at: Option<BlockId>,
-) -> StructuredControlFlow {
-    let mut statements: Vec<StructuredControlFlow> = Vec::new();
-    let mut cur = entry;
-
-    // Safety belt: if something is malformed, don't spin.
-    let mut visited_here: FxHashSet<BlockId> = FxHashSet::default();
-
-    loop {
-        if let Some(stop) = stop_at
-            && cur == stop
-        {
-            break;
-        }
-        if !visited_here.insert(cur) {
-            // In a clean DAG region we shouldn't re-visit blocks.
-            break;
-        }
-
-        let blk = blocks.get(cur).expect("block should exist");
-
-        // "Do this block's work"
-        statements.push(StructuredControlFlow::BasicBlock(cur));
-
-        match terminator(blk) {
-            Terminator::Return => {
-                statements.push(StructuredControlFlow::Return);
-                break;
-            }
-
-            Terminator::Unconditional(next) => {
-                cur = next;
-            }
-
-            Terminator::Conditional(br) => {
-                let merge =
-                    earliest_merge_point(must_reach, order_index, br.true_block, br.false_block);
-
-                // Optional: region sanity checks / debugging
-                let _then_region = reachable_until(blocks, br.true_block, merge);
-                let _else_region = reachable_until(blocks, br.false_block, merge);
-
-                let then_ast =
-                    build_structured(blocks, must_reach, order_index, br.true_block, Some(merge));
-                let else_ast =
-                    build_structured(blocks, must_reach, order_index, br.false_block, Some(merge));
-
-                statements.push(StructuredControlFlow::If {
-                    cond: br.condition,
-                    then_br: Box::new(then_ast),
-                    else_br: Box::new(else_ast),
-                    branch_instruction_metadata: br.instruction_metadata.clone(),
-                });
-
-                // After both paths, continue from the merge point.
-                cur = merge;
-            }
-        }
-    }
-
-    if statements.len() == 1 {
-        statements.pop().expect("just checked non-empty")
-    } else {
-        StructuredControlFlow::Seq(statements)
-    }
-}
-
-/// RIR blocks -> Structured Control Flow
-/// TODO: other naming suggestions: decompile, build postdominator tree, etc
-fn reconstruct_control_flow(
-    blocks: &IndexMap<BlockId, Block>,
-    entry: BlockId,
-) -> StructuredControlFlow {
-    let return_block = find_return_block(blocks);
-    let ordered = execution_order(blocks);
-
-    let topo_index: FxHashMap<BlockId, usize> =
-        ordered.iter().enumerate().map(|(i, id)| (*id, i)).collect();
-    let must_reach = compute_must_reach_sets(blocks, return_block, &ordered);
-
-    build_structured(blocks, &must_reach, &topo_index, entry, None)
-}
 
 pub fn rir_to_circuit(
     program_rir: &Program,
@@ -387,28 +39,33 @@ pub fn rir_to_circuit(
         .expect("entry callable should exist")
         .body
         .expect("entry callable should have a body");
-    let structured_control_flow = reconstruct_control_flow(&program_rir.blocks, entry_block_id);
 
     let num_qubits = program_rir
         .num_qubits
         .try_into()
         .expect("number of qubits should fit into usize");
-    let mut wire_map_builder = FixedQubitRegisterMapBuilder::new(num_qubits);
 
+    // Initialize the wire map with the known number of qubits.
+    let mut wire_map_builder = WireMapBuilder::default();
+    for id in 0..num_qubits {
+        wire_map_builder.map_qubit(id, None);
+    }
+
+    // Initialize the operation list builder with the configuration.
     let mut builder = OperationListBuilder::new(
-        100,
+        config.max_operations,
         user_package_ids.to_vec(),
         config.group_by_scope,
         config.source_locations,
     );
 
-    let mut program_map = ProgramMap {
-        variables: IndexMap::default(),
-        blocks_to_control_results: IndexMap::default(),
-    };
+    // First, get a structured control flow so we can traverse the program in proper execution order,
+    // following any branches.
+    let structured_control_flow = reconstruct_control_flow(&program_rir.blocks, entry_block_id);
 
+    // Then we traverse the structured control flow, pushing operations to the builder as we go.
     build_operation_list(
-        &mut program_map,
+        &mut VariableTracker::default(),
         program_rir,
         &mut wire_map_builder,
         &mut builder,
@@ -417,6 +74,7 @@ pub fn rir_to_circuit(
         &ScopeStack::top(),
     )?;
 
+    // All operations from the program collected, finalize the circuit.
     let qubits = wire_map_builder.into_wire_map().to_qubits(source_lookup);
     let operations = builder.into_operations();
     let circuit = finish_circuit(source_lookup, operations, qubits, config.group_by_scope);
@@ -424,20 +82,22 @@ pub fn rir_to_circuit(
     Ok(circuit)
 }
 
+/// Recursively traverses the structured control flow, pushing operations and measurement results
+/// to the builder as it goes.
 fn build_operation_list(
-    program_map: &mut ProgramMap,
+    variable_tracker: &mut VariableTracker,
     program_rir: &Program,
-    wire_map_builder: &mut FixedQubitRegisterMapBuilder,
+    wire_map_builder: &mut WireMapBuilder,
     op_list_builder: &mut impl OperationReceiver,
-    ast: &StructuredControlFlow,
+    scf: &StructuredControlFlow,
     control_results: &[usize],
     current_stack: &ScopeStack,
 ) -> Result<(), Error> {
-    match ast {
+    match scf {
         StructuredControlFlow::Seq(items) => {
             for item in items {
                 build_operation_list(
-                    program_map,
+                    variable_tracker,
                     program_rir,
                     wire_map_builder,
                     op_list_builder,
@@ -451,16 +111,16 @@ fn build_operation_list(
             let block = program_rir.blocks.get(*id).expect("block should exist");
 
             assert!(
-                !program_map.blocks_to_control_results.contains_key(*id),
+                !variable_tracker.blocks_to_control_results.contains_key(*id),
                 "block should only be processed once"
             );
-            program_map
+            variable_tracker
                 .blocks_to_control_results
                 .insert(*id, control_results.to_vec());
 
             push_operations_in_block(
                 op_list_builder,
-                program_map,
+                variable_tracker,
                 wire_map_builder,
                 &program_rir.dbg_info,
                 &program_rir.callables,
@@ -474,11 +134,11 @@ fn build_operation_list(
             else_br,
             branch_instruction_metadata,
         } => {
-            let dbg_stuff = DbgStuff {
+            let dbg_lookup = DbgLookup {
                 dbg_info: &program_rir.dbg_info,
             };
 
-            let expr = expr_for_variable(&program_map.variables, cond.variable_id)?;
+            let expr = expr_for_variable(&variable_tracker.variables, cond.variable_id)?;
 
             let mut control_results = control_results.to_vec();
             for r in expr.linked_results() {
@@ -490,26 +150,30 @@ fn build_operation_list(
             let cond_expr_true = format!("if: {expr}");
             let cond_expr_false = format!("if: {}", expr.negate());
 
-            let caller =
-                dbg_stuff.map_instruction_logical_stack(branch_instruction_metadata.as_deref());
+            let branch_instruction_stack = branch_instruction_metadata
+                .as_deref()
+                .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location))
+                .unwrap_or_default();
 
-            let new_stack_true = combine_branch_instr_stack_with_current_stack(
-                current_stack,
-                &caller,
+            let full_stack =
+                combine_instr_stack_with_current_stack(current_stack, &branch_instruction_stack);
+
+            let new_stack_true = extend_with_branch_scope(
+                &full_stack,
                 cond_expr_true,
                 true,
                 control_results.clone(),
             );
-            let new_stack_false = combine_branch_instr_stack_with_current_stack(
-                current_stack,
-                &caller,
+
+            let new_stack_false = extend_with_branch_scope(
+                &full_stack,
                 cond_expr_false,
                 false,
                 control_results.clone(),
             );
 
             build_operation_list(
-                program_map,
+                variable_tracker,
                 program_rir,
                 wire_map_builder,
                 op_list_builder,
@@ -519,7 +183,7 @@ fn build_operation_list(
             )?;
 
             build_operation_list(
-                program_map,
+                variable_tracker,
                 program_rir,
                 wire_map_builder,
                 op_list_builder,
@@ -533,67 +197,55 @@ fn build_operation_list(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn push_operations_in_block(
     builder: &mut impl OperationReceiver,
-    state: &mut ProgramMap,
-    wire_map_builder: &mut FixedQubitRegisterMapBuilder,
+    state: &mut VariableTracker,
+    wire_map_builder: &mut WireMapBuilder,
     dbg_info: &DbgInfo,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &Block,
     current_stack: &ScopeStack,
 ) -> Result<(), Error> {
-    let mut terminator = None;
-    let dbg_stuff = DbgStuff { dbg_info };
+    let dbg_lookup = DbgLookup { dbg_info };
 
     for instruction in &block.0 {
-        get_operations_for_instruction_vars_only(
-            &mut state.variables,
-            wire_map_builder,
-            callables,
-            &state.blocks_to_control_results,
-            instruction,
-        )?;
+        // First, we update the variable tracker according to this instruction,
+        // so that when we later trace the instruction, we have the correct relationships
+        // between variables and measurement results.
+        process_variables(state, wire_map_builder, callables, instruction)?;
 
-        let new_terminator = push_operations_for_instruction(
-            state,
-            BuilderWithRegisterMap {
-                builder,
-                wire_map: wire_map_builder.wire_map(),
-            },
-            &dbg_stuff,
-            callables,
-            instruction,
-            current_stack,
-        )?;
+        // Then we push operations to the builder.
+        if let InstructionKind::Call(callable_id, operands, _) = &instruction.kind {
+            let call_instruction_stack = instruction
+                .metadata
+                .as_deref()
+                .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location))
+                .unwrap_or_default();
 
-        if let Some(new_terminator) = new_terminator {
-            let old = terminator.replace(new_terminator);
-            assert!(
-                old.is_none(),
-                "did not expect more than one unconditional successor for block, old: {old:?} new: {terminator:?}"
-            );
+            let full_stack =
+                combine_instr_stack_with_current_stack(current_stack, &call_instruction_stack);
+
+            trace_call(
+                &state.variables,
+                &mut BuilderWithRegisterMap {
+                    builder,
+                    wire_map: wire_map_builder.current(),
+                },
+                callables.get(*callable_id).expect("callable should exist"),
+                operands,
+                full_stack,
+            )?;
         }
     }
 
     Ok(())
 }
 
-pub(crate) struct DbgStuff<'a> {
+pub(crate) struct DbgLookup<'a> {
     dbg_info: &'a DbgInfo,
 }
 
-impl DbgStuff<'_> {
-    fn map_instruction_logical_stack(
-        &self,
-        metadata: Option<&InstructionDbgMetadata>,
-    ) -> LogicalStack {
-        metadata
-            .map(|md| md.dbg_location)
-            .map(|dbg_location| self.instruction_logical_stack(dbg_location))
-            .unwrap_or_default()
-    }
-
+impl DbgLookup<'_> {
     /// Returns oldest->newest
     fn instruction_logical_stack(&self, dbg_location_idx: DbgLocationId) -> LogicalStack {
         let mut location_stack = vec![];
@@ -637,9 +289,7 @@ impl DbgStuff<'_> {
         location_stack.reverse();
         LogicalStack(location_stack)
     }
-}
 
-impl DbgStuff<'_> {
     fn lexical_scope(&self, location: DbgLocationId) -> DbgScopeId {
         self.dbg_info.get_location(location).scope
     }
@@ -653,115 +303,24 @@ impl DbgStuff<'_> {
     }
 }
 
-fn get_operations_for_instruction_vars_only(
-    variables: &mut IndexMap<VariableId, Expr>,
-    register_map: &mut FixedQubitRegisterMapBuilder,
+fn process_variables(
+    state: &mut VariableTracker,
+    wire_map_builder: &mut WireMapBuilder,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
-    blocks_to_control_results: &IndexMap<BlockId, Vec<usize>>,
     instruction: &Instruction,
 ) -> Result<(), Error> {
     match &instruction.kind {
         InstructionKind::Call(callable_id, operands, var) => {
-            process_callable_variables(
-                variables,
-                register_map,
+            process_call_variables(
+                &mut state.variables,
+                wire_map_builder,
                 callables.get(*callable_id).expect("callable should exist"),
                 operands,
                 *var,
             )?;
         }
         InstructionKind::Fcmp(condition_code, operand, operand1, variable) => {
-            extend_block_with_fcmp_instruction(
-                variables,
-                *condition_code,
-                operand,
-                operand1,
-                *variable,
-            )?;
-        }
-        InstructionKind::Icmp(condition_code, operand, operand1, variable) => {
-            extend_block_with_icmp_instruction(
-                variables,
-                *condition_code,
-                operand,
-                operand1,
-                *variable,
-            )?;
-        }
-        InstructionKind::Phi(pres, variable) => {
-            extend_block_with_phi_instruction(
-                blocks_to_control_results,
-                variables,
-                pres,
-                *variable,
-            )?;
-        }
-        InstructionKind::Return | InstructionKind::Branch(..) | InstructionKind::Jump(..) => {
-            // do nothing for terminators
-        }
-        InstructionKind::Add(operand, operand1, variable)
-        | InstructionKind::Sub(operand, operand1, variable)
-        | InstructionKind::Mul(operand, operand1, variable)
-        | InstructionKind::Sdiv(operand, operand1, variable)
-        | InstructionKind::Srem(operand, operand1, variable)
-        | InstructionKind::Shl(operand, operand1, variable)
-        | InstructionKind::Ashr(operand, operand1, variable)
-        | InstructionKind::Fadd(operand, operand1, variable)
-        | InstructionKind::Fsub(operand, operand1, variable)
-        | InstructionKind::Fmul(operand, operand1, variable)
-        | InstructionKind::Fdiv(operand, operand1, variable)
-        | InstructionKind::LogicalAnd(operand, operand1, variable)
-        | InstructionKind::LogicalOr(operand, operand1, variable)
-        | InstructionKind::BitwiseAnd(operand, operand1, variable)
-        | InstructionKind::BitwiseOr(operand, operand1, variable)
-        | InstructionKind::BitwiseXor(operand, operand1, variable) => {
-            extend_block_with_binop_instruction(variables, operand, operand1, *variable)?;
-        }
-        instruction @ (InstructionKind::LogicalNot(..) | InstructionKind::BitwiseNot(..)) => {
-            // TODO: I'm guessing we need to handle these?
-            // Leave the variable unassigned, if it's used in anything that's going to be shown in the circuit, we'll raise an error then
-            debug!("ignoring not instruction: {instruction:?}");
-        }
-        instruction @ InstructionKind::Store(..) => {
-            // TODO: who generates these?
-            return Err(Error::UnsupportedFeature(format!(
-                "unsupported instruction in block: {instruction:?}"
-            )));
-        }
-    }
-
-    Ok(())
-}
-
-struct BuilderWithRegisterMap<'a, T: OperationReceiver> {
-    builder: &'a mut T,
-    wire_map: &'a WireMap,
-}
-
-#[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_lines)]
-fn push_operations_for_instruction(
-    state: &mut ProgramMap,
-    mut builder_ctx: BuilderWithRegisterMap<impl OperationReceiver>,
-    dbg_stuff: &DbgStuff,
-    callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
-    instruction: &Instruction,
-    current_stack: &ScopeStack,
-) -> Result<Option<Terminator>, Error> {
-    let mut terminator = None;
-    match &instruction.kind {
-        InstructionKind::Call(callable_id, operands, _) => {
-            let stack = combine_stacks(dbg_stuff, current_stack, instruction.metadata.as_deref());
-            trace_call(
-                &state.variables,
-                &mut builder_ctx,
-                callables.get(*callable_id).expect("callable should exist"),
-                operands,
-                stack,
-            )?;
-        }
-        InstructionKind::Fcmp(condition_code, operand, operand1, variable) => {
-            extend_block_with_fcmp_instruction(
+            process_fcmp_variables(
                 &mut state.variables,
                 *condition_code,
                 operand,
@@ -770,7 +329,7 @@ fn push_operations_for_instruction(
             )?;
         }
         InstructionKind::Icmp(condition_code, operand, operand1, variable) => {
-            extend_block_with_icmp_instruction(
+            process_icmp_variables(
                 &mut state.variables,
                 *condition_code,
                 operand,
@@ -778,26 +337,8 @@ fn push_operations_for_instruction(
                 *variable,
             )?;
         }
-        InstructionKind::Return => {
-            // do nothing for terminators
-        }
-        InstructionKind::Branch(variable, block_id_1, block_id_2) => {
-            // this only touches the terminator
-            extend_block_with_branch_instruction(
-                dbg_stuff.dbg_info,
-                &mut terminator,
-                instruction,
-                *variable,
-                *block_id_1,
-                *block_id_2,
-            )?;
-        }
-        InstructionKind::Jump(block_id) => {
-            // this only touches the terminator
-            extend_block_with_jump_instruction(&mut terminator, *block_id)?;
-        }
         InstructionKind::Phi(pres, variable) => {
-            extend_block_with_phi_instruction(
+            process_phi_variables(
                 &state.blocks_to_control_results,
                 &mut state.variables,
                 pres,
@@ -820,172 +361,128 @@ fn push_operations_for_instruction(
         | InstructionKind::BitwiseAnd(operand, operand1, variable)
         | InstructionKind::BitwiseOr(operand, operand1, variable)
         | InstructionKind::BitwiseXor(operand, operand1, variable) => {
-            extend_block_with_binop_instruction(
-                &mut state.variables,
-                operand,
-                operand1,
-                *variable,
-            )?;
+            process_binop_variables(&mut state.variables, operand, operand1, *variable)?;
         }
         InstructionKind::LogicalNot(operand, variable) => {
-            extend_block_with_logical_not_instruction(&mut state.variables, operand, *variable)?;
+            process_logical_not_variables(&mut state.variables, operand, *variable)?;
         }
         instruction @ (InstructionKind::Store(..) | InstructionKind::BitwiseNot(..)) => {
-            // TODO: what generates this? what should we do?
             return Err(Error::UnsupportedFeature(format!(
                 "unsupported instruction in block: {instruction:?}"
             )));
         }
+        InstructionKind::Return | InstructionKind::Branch(..) | InstructionKind::Jump(..) => {
+            // do nothing for terminators
+        }
     }
 
-    Ok(terminator)
+    Ok(())
 }
 
-fn combine_stacks(
-    dbg_stuff: &DbgStuff<'_>,
-    current_incl_branches: &ScopeStack,
-    instruction_metadata: Option<&InstructionDbgMetadata>,
-) -> LogicalStack {
-    let stack = instruction_metadata
-        .map(|md| md.dbg_location)
-        .map(|dbg_location| dbg_stuff.instruction_logical_stack(dbg_location))
-        .unwrap_or_default();
+struct BuilderWithRegisterMap<'a, T: OperationReceiver> {
+    builder: &'a mut T,
+    wire_map: &'a WireMap,
+}
 
-    if current_incl_branches.is_top() {
-        // no current stack, just use the instruction metadata stack
-        return stack;
+/// Combines the current stack, which DOES include classically controlled scopes, with the stack obtained
+/// from instruction metadata, which does NOT include classically controlled scopes.
+///
+/// Produces a new stack for the instruction that includes the classically controlled scopes
+/// as well as any frames from the instruction metadata stack that are not already included in the current stack.
+///
+/// e.g.
+/// current stack: [call A -> branch on r1 -> call B]
+/// instruction metadata stack: [call A -> call B -> call C]
+/// resulting stack: [call A -> branch on r1 -> call B -> call C]
+fn combine_instr_stack_with_current_stack(
+    current_stack: &ScopeStack,
+    instruction_stack: &LogicalStack,
+) -> LogicalStack {
+    if current_stack.is_top() {
+        // no current stack, just use the instruction metadata stack directly
+        return instruction_stack.clone();
     }
 
-    let mut current_iter = current_incl_branches.caller().0.iter().peekable();
-    let mut instr_stack_iter = stack.0.iter();
-    let mut instr_stack_entry_next = instr_stack_iter.next();
+    // If non-empty, current stack always ends with a classical scope
+    assert!(
+        matches!(
+            current_stack.current_lexical_scope(),
+            Scope::ClassicallyControlled { .. }
+        ),
+        "current scope must be a branch scope"
+    );
 
-    while let Some(instr_stack_entry) = instr_stack_entry_next
-        && let Some(current_entry) = next_real(
-            &mut current_iter,
-            current_incl_branches.current_lexical_scope(),
-        )
+    let mut current_iter = current_stack.caller().0.iter().peekable();
+    let mut instruction_stack_iter = instruction_stack.0.iter();
+    let mut instruction_stack_entry_next = instruction_stack_iter.next();
+
+    // Skip over any frames that are already in the current stack
+    while let Some(instruction_stack_entry) = instruction_stack_entry_next
+        && let Some(current_entry) = next_non_classical_control_entry(&mut current_iter)
     {
         assert!(
-            !(current_entry != *instr_stack_entry),
-            "instruction stack should match current stack, current_entry: {current_entry:?}, instr_stack_entry: {instr_stack_entry:?}"
+            current_entry == *instruction_stack_entry,
+            "instruction stack should match current stack"
         );
 
-        instr_stack_entry_next = instr_stack_iter.next();
+        instruction_stack_entry_next = instruction_stack_iter.next();
     }
 
-    // current stack should have been fully consumed
-    // TODO: not sure why this failed - bring it bacK?
-    // assert!(
-    //     next_real(
-    //         &mut current_iter,
-    //         current_incl_branches.current_lexical_scope()
-    //     )
-    //     .is_none(),
-    //     "current stack should be fully consumed"
-    // );
-
-    // collect the current stack + the rest of instr_stack_iter (could be empty)
-    let mut new_stack: Vec<LogicalStackEntry> = vec![];
-
-    new_stack.extend(current_incl_branches.caller().0.iter().cloned());
-
-    new_stack.push(LogicalStackEntry::new(
-        LogicalStackEntryLocation::Unknown,
-        current_incl_branches.current_lexical_scope().clone(),
-    ));
-
-    if let Some(instr_stack_entry) = instr_stack_entry_next {
-        // new_stack.push(instr_stack_entry.clone());
-        new_stack.last_mut().expect("we just pushed it").location = instr_stack_entry.location;
+    let next_location = if let Some(instr_stack_entry) = instruction_stack_entry_next {
+        instr_stack_entry.location
     } else {
-        // panic!("I don't think this can happen?");
-        new_stack.last_mut().expect("we just pushed it").location =
-            LogicalStackEntryLocation::Unknown;
-    }
+        LogicalStackEntryLocation::Unknown
+    };
 
-    for entry in instr_stack_iter {
+    let mut new_stack = current_stack.extend(next_location).0;
+
+    for entry in instruction_stack_iter {
         new_stack.push(entry.clone());
     }
 
     LogicalStack(new_stack)
 }
 
-fn combine_branch_instr_stack_with_current_stack(
-    current_incl_branches: &ScopeStack,
-    stack_from_br_instr_md: &LogicalStack,
-    scope_label: String,
+fn next_non_classical_control_entry<'a>(
+    stack_iter: &mut Peekable<impl Iterator<Item = &'a LogicalStackEntry>>,
+) -> Option<LogicalStackEntry> {
+    if let Some(entry) = stack_iter.next() {
+        let mut entry = entry.clone();
+        while let Some(peek) = stack_iter.peek() {
+            if let LogicalStackEntry {
+                location,
+                scope: Scope::ClassicallyControlled { .. },
+            } = peek
+            {
+                stack_iter.next();
+                entry.location = *location;
+            } else {
+                break;
+            }
+        }
+
+        match stack_iter.peek() {
+            None => {
+                // we are at the end
+                return None;
+            }
+            Some(_) => {
+                // there are more entries, so we can return this one
+                return Some(entry);
+            }
+        }
+    }
+    None
+}
+
+fn extend_with_branch_scope(
+    stack: &LogicalStack,
+    label: String,
     branch: bool,
-    control_results: Vec<usize>,
+    control_result_ids: Vec<usize>,
 ) -> ScopeStack {
-    let mut new_stack = if current_incl_branches.is_top() {
-        // we just take the stack from the branch instruction,
-        stack_from_br_instr_md.0.clone()
-    } else {
-        // if there's anything in the current stack, we must be in a branch.
-
-        assert!(
-            matches!(
-                current_incl_branches.current_lexical_scope(),
-                Scope::ClassicallyControlled { .. }
-            ),
-            "current scope must be a branch scope"
-        );
-
-        let mut current_iter = current_incl_branches.caller().0.iter().peekable();
-        let mut br_stack_iter = stack_from_br_instr_md.0.iter();
-        let mut branch_instr_stack_entry_next = br_stack_iter.next();
-
-        while let Some(branch_instr_stack_entry) = branch_instr_stack_entry_next
-            && let Some(current_entry) = next_real(
-                &mut current_iter,
-                current_incl_branches.current_lexical_scope(),
-            )
-        {
-            assert!(
-                !(current_entry != *branch_instr_stack_entry),
-                "branch instruction stack should match current stack"
-            );
-
-            branch_instr_stack_entry_next = br_stack_iter.next();
-        }
-
-        // current stack should have been fully consumed
-        assert!(
-            next_real(
-                &mut current_iter,
-                current_incl_branches.current_lexical_scope()
-            )
-            .is_none(),
-            "current stack should be fully consumed"
-        );
-
-        // collect the current stack + the rest of br_stack_iter (could be empty)
-        let mut new_stack: Vec<LogicalStackEntry> = vec![];
-
-        new_stack.extend(current_incl_branches.caller().0.iter().cloned());
-
-        new_stack.push(LogicalStackEntry::new(
-            LogicalStackEntryLocation::Unknown,
-            current_incl_branches.current_lexical_scope().clone(),
-        ));
-
-        if let Some(branch_instr_stack_entry) = branch_instr_stack_entry_next {
-            // new_stack.push(instr_stack_entry.clone());
-            new_stack.last_mut().expect("we just pushed it").location =
-                branch_instr_stack_entry.location;
-        } else {
-            new_stack.last_mut().expect("we just pushed it").location =
-                LogicalStackEntryLocation::Unknown;
-        }
-
-        for entry in br_stack_iter {
-            new_stack.push(entry.clone());
-        }
-        new_stack
-    };
-
-    if let Some(last_mut) = new_stack.last_mut() {
+    let mut base = stack.clone();
+    if let Some(last_mut) = base.0.last_mut() {
         match &mut last_mut.location {
             LogicalStackEntryLocation::Source(package_offset) => {
                 last_mut.location =
@@ -1001,57 +498,15 @@ fn combine_branch_instr_stack_with_current_stack(
     }
 
     ScopeStack::new(
-        LogicalStack(new_stack),
+        base,
         Scope::ClassicallyControlled {
-            label: scope_label,
-            control_result_ids: control_results,
+            label,
+            control_result_ids,
         },
     )
 }
 
-fn next_real<'a>(
-    stack_iter: &mut Peekable<impl Iterator<Item = &'a LogicalStackEntry>>,
-    final_scope: &Scope,
-) -> Option<LogicalStackEntry> {
-    if let Some(entry) = stack_iter.next() {
-        let mut entry = entry.clone();
-        while let Some(peek) = stack_iter.peek() {
-            if let LogicalStackEntry {
-                location,
-                scope: Scope::ClassicallyControlled { .. },
-            } = peek
-            {
-                // that means the current entry's location is the branch expression.
-                // we don't want that. we will adopt *its* location. and keep our scope.
-
-                // consume the conditional scope entry
-                stack_iter.next();
-
-                entry.location = *location;
-            } else {
-                // next entry is not a ConditionalBranch sentinel; stop adjusting
-                break;
-            }
-        }
-
-        match stack_iter.peek() {
-            None => {
-                if matches!(final_scope, Scope::ClassicallyControlled { .. }) {
-                    // we are at the end, and the final scope is a branch scope,
-                    // so we don't want to return this entry
-                    return None;
-                }
-            }
-            Some(_) => {
-                // there are more entries, so we can return this one
-                return Some(entry);
-            }
-        }
-    }
-    None
-}
-
-fn extend_block_with_binop_instruction(
+fn process_binop_variables(
     variables: &mut IndexMap<VariableId, Expr>,
     operand: &Operand,
     operand1: &Operand,
@@ -1069,7 +524,7 @@ fn extend_block_with_binop_instruction(
     Ok(())
 }
 
-fn extend_block_with_logical_not_instruction(
+fn process_logical_not_variables(
     variables: &mut IndexMap<VariableId, Expr>,
     operand: &Operand,
     variable: Variable,
@@ -1080,7 +535,7 @@ fn extend_block_with_logical_not_instruction(
     Ok(())
 }
 
-fn extend_block_with_phi_instruction(
+fn process_phi_variables(
     blocks_to_control_results: &IndexMap<BlockId, Vec<usize>>,
     variables: &mut IndexMap<VariableId, Expr>,
     pres: &Vec<(Operand, BlockId)>,
@@ -1110,46 +565,7 @@ fn extend_block_with_phi_instruction(
     Ok(())
 }
 
-fn extend_block_with_jump_instruction(
-    terminator: &mut Option<Terminator>,
-    block_id: BlockId,
-) -> Result<(), Error> {
-    let old = terminator.replace(Terminator::Unconditional(block_id));
-    let r = if old.is_some() {
-        Err(Error::UnsupportedFeature(
-            "block contains more than one terminator".to_owned(),
-        ))
-    } else {
-        Ok(())
-    };
-    r?;
-    Ok(())
-}
-
-fn extend_block_with_branch_instruction(
-    _dbg_info: &DbgInfo,
-    terminator: &mut Option<Terminator>,
-    instruction: &Instruction,
-    variable: Variable,
-    block_id_1: BlockId,
-    block_id_2: BlockId,
-) -> Result<(), Error> {
-    let branch = Branch {
-        condition: variable,
-        true_block: block_id_1,
-        false_block: block_id_2,
-        instruction_metadata: instruction.metadata.clone(), // cond_expr_instruction_metadata: instruction_metadata,
-    };
-    let old = terminator.replace(Terminator::Conditional(branch));
-    if old.is_some() {
-        return Err(Error::UnsupportedFeature(
-            "block contains more than one branch".to_owned(),
-        ));
-    }
-    Ok(())
-}
-
-fn extend_block_with_icmp_instruction(
+fn process_icmp_variables(
     variables: &mut IndexMap<VariableId, Expr>,
     condition_code: ConditionCode,
     operand: &Operand,
@@ -1168,7 +584,7 @@ fn extend_block_with_icmp_instruction(
     }
 }
 
-fn extend_block_with_fcmp_instruction(
+fn process_fcmp_variables(
     variables: &mut IndexMap<VariableId, Expr>,
     condition_code: FcmpConditionCode,
     operand: &Operand,
@@ -1229,7 +645,12 @@ fn expr_from_operand(
     }
 }
 
-struct ProgramMap {
+#[derive(Default)]
+/// Keeps track of the relationships between variables and measurement results,
+/// so that when we later trace instructions that use those variables,
+/// we can determine which control results they depend on and thus which operations
+/// should be classically controlled by those results.
+struct VariableTracker {
     variables: IndexMap<VariableId, Expr>,
     blocks_to_control_results: IndexMap<BlockId, Vec<usize>>,
 }
@@ -1401,7 +822,6 @@ fn store_expr_in_variable(
     if let Some(old_value) = variables.get(variable_id)
         && old_value != &expr
     {
-        // TODO: do we ever get here now where we store the same variable twice?
         panic!("variable {variable_id:?} already stored {old_value:?}, cannot store {expr:?}");
     }
     if let Expr::Bool(condition_expr) = &expr {
@@ -1418,9 +838,9 @@ fn store_expr_in_variable(
     Ok(())
 }
 
-fn process_callable_variables(
+fn process_call_variables(
     variables: &mut IndexMap<VariableId, Expr>,
-    register_map: &mut FixedQubitRegisterMapBuilder,
+    wire_map_builder: &mut WireMapBuilder,
     callable: &Callable,
     operands: &Vec<Operand>,
     var: Option<Variable>,
@@ -1451,7 +871,7 @@ fn process_callable_variables(
             }
             let qubit = control_qubits[0];
             let result = target_results[0];
-            register_map.link_result_to_qubit(qubit, result);
+            wire_map_builder.link_result_to_qubit(qubit, result);
         }
         CallableType::Readout => match callable.name.as_str() {
             "__quantum__rt__read_result" => {
@@ -1950,30 +1370,4 @@ struct Operands<'a> {
     target_results: Vec<usize>,
     control_results: Vec<usize>,
     args: Vec<String>,
-}
-
-pub(crate) struct FixedQubitRegisterMapBuilder {
-    remapper: WireMapBuilder,
-}
-impl FixedQubitRegisterMapBuilder {
-    pub(crate) fn new(num_qubits: usize) -> Self {
-        let mut remapper = WireMapBuilder::default();
-
-        for id in 0..num_qubits {
-            remapper.map_qubit(id, None); // TODO: source location
-        }
-        Self { remapper }
-    }
-
-    pub(crate) fn link_result_to_qubit(&mut self, q: usize, r: usize) {
-        self.remapper.link_result_to_qubit(q, r);
-    }
-
-    pub(crate) fn wire_map(&self) -> &WireMap {
-        self.remapper.current()
-    }
-
-    pub(crate) fn into_wire_map(self) -> WireMap {
-        self.remapper.into_wire_map()
-    }
 }

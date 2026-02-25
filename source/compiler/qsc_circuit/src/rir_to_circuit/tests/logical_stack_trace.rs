@@ -1,13 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::builder::WireMapBuilder;
 use crate::rir_to_circuit::build_operation_list;
 use crate::{
     builder::{
         GateInputs, LogicalStack, LogicalStackWithSourceLookup, OperationReceiver, ScopeStack,
         WireMap,
     },
-    rir_to_circuit::{FixedQubitRegisterMapBuilder, ProgramMap, reconstruct_control_flow},
+    rir_to_circuit::{VariableTracker, reconstruct_control_flow},
 };
 use expect_test::Expect;
 use expect_test::expect;
@@ -161,7 +162,7 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
     )
     .expect("RIR lowering should succeed");
 
-    let mut program_map = ProgramMap {
+    let mut program_map = VariableTracker {
         variables: IndexMap::default(),
         blocks_to_control_results: IndexMap::default(),
     };
@@ -178,12 +179,16 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         trace: String::new(),
         source_lookup: &(&store, &fir_store),
     };
+    let num_qubits = rir.num_qubits.try_into().expect("num qubits fits in usize");
+    let mut wire_map_builder = WireMapBuilder::default();
+    for id in 0..num_qubits {
+        wire_map_builder.map_qubit(id, None);
+    }
+
     if let Err(err) = build_operation_list(
         &mut program_map,
         &rir,
-        &mut FixedQubitRegisterMapBuilder::new(
-            rir.num_qubits.try_into().expect("num qubits fits in usize"),
-        ),
+        &mut wire_map_builder,
         &mut builder,
         &structured_control_flow,
         &[],
@@ -907,6 +912,31 @@ fn dynamic_double_arg() {
             Main@A.qs:4:12 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_0)
             Main@A.qs:14:4 -> Rx@qsharp-library-source:Std/Intrinsic.qs:510:8 -> using: c_0@qsharp-library-source:Std/Intrinsic.qs:510:8 -> gate(Rx, targets=(q_1), controls=())
             Main@A.qs:15:13 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_1, c_1)
+        "#]],
+    );
+}
+
+#[test]
+fn binop_short_circuit() {
+    check_trace(
+        indoc! {"
+            operation Main() : Unit {
+                use q0 = Qubit();
+                use q1 = Qubit();
+                H(q0);
+                H(q1);
+                let r = { M(q0) == Zero } and { M(q1) == Zero };
+                let r1 = { M(q0) == Zero } or { M(q1) == Zero };
+            }
+        "},
+        "A.Main()",
+        &expect![[r#"
+            Main@A.qs:3:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+            Main@A.qs:4:4 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_1), controls=())
+            Main@A.qs:5:14 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_0)
+            Main@A.qs:5:34[true] -> if: c_0 = |0〉@A.qs:5:36 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_1, c_1)
+            Main@A.qs:6:15 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_2)
+            Main@A.qs:6:34[false] -> if: c_2 = |1〉@A.qs:6:36 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_1, c_3)
         "#]],
     );
 }
