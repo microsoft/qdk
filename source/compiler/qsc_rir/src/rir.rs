@@ -140,40 +140,9 @@ impl BlockId {
     }
 }
 
-#[derive(Clone)]
-pub struct Instruction {
-    pub kind: InstructionKind,
-    pub metadata: Option<Box<InstructionDbgMetadata>>,
-}
-
-impl Display for Instruction {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}", self.kind)?;
-        if let Some(metadata) = &self.metadata {
-            write!(f, " {metadata}")?;
-        }
-        Ok(())
-    }
-}
-
 /// A block is a collection of instructions.
 #[derive(Default, Clone)]
 pub struct Block(pub Vec<Instruction>);
-
-impl Block {
-    #[must_use]
-    pub fn from_instruction_kinds(instructions: Vec<InstructionKind>) -> Self {
-        Self(
-            instructions
-                .into_iter()
-                .map(|instruction| Instruction {
-                    kind: instruction,
-                    metadata: None,
-                })
-                .collect(),
-        )
-    }
-}
 
 /// A unique identifier for a callable in a RIR program.
 #[derive(Clone, Copy, Debug, Default, Hash, Eq, PartialEq, PartialOrd, Ord)]
@@ -340,12 +309,22 @@ impl Display for FcmpConditionCode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum InstructionKind {
+#[derive(Clone, Debug)]
+pub enum Instruction {
     Store(Operand, Variable),
-    Call(CallableId, Vec<Operand>, Option<Variable>),
+    Call(
+        CallableId,
+        Vec<Operand>,
+        Option<Variable>,
+        Option<Box<InstructionDbgMetadata>>,
+    ),
     Jump(BlockId),
-    Branch(Variable, BlockId, BlockId),
+    Branch(
+        Variable,
+        BlockId,
+        BlockId,
+        Option<Box<InstructionDbgMetadata>>,
+    ),
     Add(Operand, Operand, Variable),
     Sub(Operand, Operand, Variable),
     Mul(Operand, Operand, Variable),
@@ -370,7 +349,17 @@ pub enum InstructionKind {
     Return,
 }
 
-impl Display for InstructionKind {
+impl Instruction {
+    #[must_use]
+    pub fn metadata(&self) -> Option<&InstructionDbgMetadata> {
+        match self {
+            Self::Call(_, _, _, metadata) | Self::Branch(_, _, _, metadata) => metadata.as_deref(),
+            _ => None,
+        }
+    }
+}
+
+impl Display for Instruction {
     #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         fn write_binary_instruction(
@@ -390,9 +379,13 @@ impl Display for InstructionKind {
             condition: Variable,
             if_true: BlockId,
             if_false: BlockId,
+            metadata: Option<&InstructionDbgMetadata>,
         ) -> fmt::Result {
             let mut indent = set_indentation(indented(f), 0);
             write!(indent, "Branch {condition}, {}, {}", if_true.0, if_false.0)?;
+            if let Some(metadata) = metadata {
+                write!(f, " {metadata}")?;
+            }
             Ok(())
         }
 
@@ -401,6 +394,7 @@ impl Display for InstructionKind {
             callable_id: CallableId,
             args: &[Operand],
             variable: Option<Variable>,
+            metadata: Option<&InstructionDbgMetadata>,
         ) -> fmt::Result {
             let mut indent = set_indentation(indented(f), 0);
             if let Some(variable) = variable {
@@ -411,6 +405,9 @@ impl Display for InstructionKind {
                 write!(indent, "{arg}, ")?;
             }
             write!(indent, ")")?;
+            if let Some(metadata) = metadata {
+                write!(f, " {metadata}")?;
+            }
             Ok(())
         }
 
@@ -466,11 +463,11 @@ impl Display for InstructionKind {
         match &self {
             Self::Store(value, variable) => write_unary_instruction(f, "Store", value, *variable)?,
             Self::Jump(block_id) => write!(f, "Jump({})", block_id.0)?,
-            Self::Call(callable_id, args, variable) => {
-                write_call(f, *callable_id, args, *variable)?;
+            Self::Call(callable_id, args, variable, metadata) => {
+                write_call(f, *callable_id, args, *variable, metadata.as_deref())?;
             }
-            Self::Branch(condition, if_true, if_false) => {
-                write_branch(f, *condition, *if_true, *if_false)?;
+            Self::Branch(condition, if_true, if_false, metadata) => {
+                write_branch(f, *condition, *if_true, *if_false, metadata.as_deref())?;
             }
             Self::Add(lhs, rhs, variable) => {
                 write_binary_instruction(f, "Add", lhs, rhs, *variable)?;

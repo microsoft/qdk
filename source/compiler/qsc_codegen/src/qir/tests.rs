@@ -54,9 +54,10 @@ fn single_qubit_call() {
     program
         .callables
         .insert(rir::CallableId(0), builder::x_decl());
-    let call = rir::InstructionKind::Call(
+    let call = rir::Instruction::Call(
         rir::CallableId(0),
         vec![rir::Operand::Literal(rir::Literal::Qubit(0))],
+        None,
         None,
     );
     expect!["  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))"]
@@ -69,12 +70,13 @@ fn qubit_rotation_call() {
     program
         .callables
         .insert(rir::CallableId(0), builder::rx_decl());
-    let call = rir::InstructionKind::Call(
+    let call = rir::Instruction::Call(
         rir::CallableId(0),
         vec![
             rir::Operand::Literal(rir::Literal::Double(std::f64::consts::PI)),
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],
+        None,
         None,
     );
     expect!["  call void @__quantum__qis__rx__body(double 3.141592653589793, %Qubit* inttoptr (i64 0 to %Qubit*))"]
@@ -87,12 +89,13 @@ fn qubit_rotation_round_number_call() {
     program
         .callables
         .insert(rir::CallableId(0), builder::rx_decl());
-    let call = rir::InstructionKind::Call(
+    let call = rir::Instruction::Call(
         rir::CallableId(0),
         vec![
             rir::Operand::Literal(rir::Literal::Double(3.0)),
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],
+        None,
         None,
     );
     expect![
@@ -107,7 +110,7 @@ fn qubit_rotation_variable_angle_call() {
     program
         .callables
         .insert(rir::CallableId(0), builder::rx_decl());
-    let call = rir::InstructionKind::Call(
+    let call = rir::Instruction::Call(
         rir::CallableId(0),
         vec![
             rir::Operand::Variable(rir::Variable {
@@ -116,6 +119,7 @@ fn qubit_rotation_variable_angle_call() {
             }),
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],
+        None,
         None,
     );
     expect![

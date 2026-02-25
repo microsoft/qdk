@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir::{Callable, InstructionKind, Operand, Program, Ty, Variable};
+use crate::rir::{Callable, Instruction, Operand, Program, Ty, Variable};
 
 #[cfg(test)]
 mod tests;
@@ -9,57 +9,57 @@ mod tests;
 pub fn check_types(program: &Program) {
     for (_, block) in program.blocks.iter() {
         for instr in &block.0 {
-            check_instr_types(program, &instr.kind);
+            check_instr_types(program, instr);
         }
     }
 }
 
-fn check_instr_types(program: &Program, instr: &InstructionKind) {
+fn check_instr_types(program: &Program, instr: &Instruction) {
     match instr {
-        InstructionKind::Call(id, args, var) => {
+        Instruction::Call(id, args, var, _) => {
             check_call_types(program.get_callable(*id), args, *var);
         }
 
-        InstructionKind::Branch(var, _, _) => assert_eq!(var.ty, Ty::Boolean),
+        Instruction::Branch(var, _, _, _) => assert_eq!(var.ty, Ty::Boolean),
 
-        InstructionKind::Add(opr1, opr2, var)
-        | InstructionKind::Sub(opr1, opr2, var)
-        | InstructionKind::Mul(opr1, opr2, var)
-        | InstructionKind::Sdiv(opr1, opr2, var)
-        | InstructionKind::Srem(opr1, opr2, var)
-        | InstructionKind::Shl(opr1, opr2, var)
-        | InstructionKind::Ashr(opr1, opr2, var)
-        | InstructionKind::Fadd(opr1, opr2, var)
-        | InstructionKind::Fsub(opr1, opr2, var)
-        | InstructionKind::Fmul(opr1, opr2, var)
-        | InstructionKind::Fdiv(opr1, opr2, var)
-        | InstructionKind::LogicalAnd(opr1, opr2, var)
-        | InstructionKind::LogicalOr(opr1, opr2, var)
-        | InstructionKind::BitwiseAnd(opr1, opr2, var)
-        | InstructionKind::BitwiseOr(opr1, opr2, var)
-        | InstructionKind::BitwiseXor(opr1, opr2, var) => {
+        Instruction::Add(opr1, opr2, var)
+        | Instruction::Sub(opr1, opr2, var)
+        | Instruction::Mul(opr1, opr2, var)
+        | Instruction::Sdiv(opr1, opr2, var)
+        | Instruction::Srem(opr1, opr2, var)
+        | Instruction::Shl(opr1, opr2, var)
+        | Instruction::Ashr(opr1, opr2, var)
+        | Instruction::Fadd(opr1, opr2, var)
+        | Instruction::Fsub(opr1, opr2, var)
+        | Instruction::Fmul(opr1, opr2, var)
+        | Instruction::Fdiv(opr1, opr2, var)
+        | Instruction::LogicalAnd(opr1, opr2, var)
+        | Instruction::LogicalOr(opr1, opr2, var)
+        | Instruction::BitwiseAnd(opr1, opr2, var)
+        | Instruction::BitwiseOr(opr1, opr2, var)
+        | Instruction::BitwiseXor(opr1, opr2, var) => {
             assert_eq!(opr1.get_type(), opr2.get_type());
             assert_eq!(opr1.get_type(), var.ty);
         }
 
-        InstructionKind::Fcmp(_, opr1, opr2, var) | InstructionKind::Icmp(_, opr1, opr2, var) => {
+        Instruction::Fcmp(_, opr1, opr2, var) | Instruction::Icmp(_, opr1, opr2, var) => {
             assert_eq!(opr1.get_type(), opr2.get_type());
             assert_eq!(Ty::Boolean, var.ty);
         }
 
-        InstructionKind::Store(opr, var)
-        | InstructionKind::LogicalNot(opr, var)
-        | InstructionKind::BitwiseNot(opr, var) => {
+        Instruction::Store(opr, var)
+        | Instruction::LogicalNot(opr, var)
+        | Instruction::BitwiseNot(opr, var) => {
             assert_eq!(opr.get_type(), var.ty);
         }
 
-        InstructionKind::Phi(args, var) => {
+        Instruction::Phi(args, var) => {
             for (opr, _) in args {
                 assert_eq!(opr.get_type(), var.ty);
             }
         }
 
-        InstructionKind::Jump(_) | InstructionKind::Return => {}
+        Instruction::Jump(_) | Instruction::Return => {}
     }
 }
 

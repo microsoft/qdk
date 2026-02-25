@@ -4,8 +4,8 @@
 use qsc_data_structures::target::TargetCapabilityFlags;
 
 use crate::rir::{
-    Block, BlockId, Callable, CallableId, CallableType, InstructionKind, Literal, Operand, Program,
-    Ty, Variable, VariableId,
+    Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program, Ty,
+    Variable, VariableId,
 };
 
 #[must_use]
@@ -226,61 +226,68 @@ pub fn bell_program() -> Program {
     program.entry = CallableId(5);
     program.blocks.insert(
         BlockId(0),
-        Block::from_instruction_kinds(vec![
-            InstructionKind::Call(
+        Block(vec![
+            Instruction::Call(
                 CallableId(0),
                 vec![Operand::Literal(Literal::Qubit(0))],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(1),
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Qubit(1)),
                 ],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(2),
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Result(0)),
                 ],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(2),
                 vec![
                     Operand::Literal(Literal::Qubit(1)),
                     Operand::Literal(Literal::Result(1)),
                 ],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(3),
                 vec![
                     Operand::Literal(Literal::Integer(2)),
                     Operand::Literal(Literal::Tag(0, 3)),
                 ],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Result(0)),
                     Operand::Literal(Literal::Tag(1, 5)),
                 ],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Result(1)),
                     Operand::Literal(Literal::Tag(2, 5)),
                 ],
                 None,
+                None,
             ),
-            InstructionKind::Return,
+            Instruction::Return,
         ]),
     );
     program.num_qubits = 2;
@@ -316,135 +323,150 @@ pub fn teleport_program() -> Program {
     program.entry = CallableId(7);
     program.blocks.insert(
         BlockId(0),
-        Block::from_instruction_kinds(vec![
-            InstructionKind::Call(
+        Block(vec![
+            Instruction::Call(
                 CallableId(2),
                 vec![Operand::Literal(Literal::Qubit(0))],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(0),
                 vec![Operand::Literal(Literal::Qubit(2))],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(3),
                 vec![
                     Operand::Literal(Literal::Qubit(2)),
                     Operand::Literal(Literal::Qubit(1)),
                 ],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(3),
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Qubit(2)),
                 ],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(0),
                 vec![Operand::Literal(Literal::Qubit(0))],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Result(0)),
                 ],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(5),
                 vec![Operand::Literal(Literal::Result(0))],
                 Some(Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
-            InstructionKind::Branch(
+            Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
     program.blocks.insert(
         BlockId(1),
-        Block::from_instruction_kinds(vec![
-            InstructionKind::Call(
+        Block(vec![
+            Instruction::Call(
                 CallableId(1),
                 vec![Operand::Literal(Literal::Qubit(1))],
                 None,
+                None,
             ),
-            InstructionKind::Jump(BlockId(2)),
+            Instruction::Jump(BlockId(2)),
         ]),
     );
     program.blocks.insert(
         BlockId(2),
-        Block::from_instruction_kinds(vec![
-            InstructionKind::Call(
+        Block(vec![
+            Instruction::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Qubit(2)),
                     Operand::Literal(Literal::Result(1)),
                 ],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(5),
                 vec![Operand::Literal(Literal::Result(1))],
                 Some(Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
-            InstructionKind::Branch(
+            Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
                 },
                 BlockId(3),
                 BlockId(4),
+                None,
             ),
         ]),
     );
     program.blocks.insert(
         BlockId(3),
-        Block::from_instruction_kinds(vec![
-            InstructionKind::Call(
+        Block(vec![
+            Instruction::Call(
                 CallableId(2),
                 vec![Operand::Literal(Literal::Qubit(1))],
                 None,
+                None,
             ),
-            InstructionKind::Jump(BlockId(4)),
+            Instruction::Jump(BlockId(4)),
         ]),
     );
     program.blocks.insert(
         BlockId(4),
-        Block::from_instruction_kinds(vec![
-            InstructionKind::Call(
+        Block(vec![
+            Instruction::Call(
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Qubit(1)),
                     Operand::Literal(Literal::Result(2)),
                 ],
                 None,
+                None,
             ),
-            InstructionKind::Call(
+            Instruction::Call(
                 CallableId(6),
                 vec![
                     Operand::Literal(Literal::Result(2)),
                     Operand::Literal(Literal::Tag(0, 3)),
                 ],
                 None,
+                None,
             ),
-            InstructionKind::Return,
+            Instruction::Return,
         ]),
     );
     program.num_qubits = 3;
