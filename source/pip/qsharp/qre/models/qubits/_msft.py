@@ -20,7 +20,7 @@ from ..._instruction import ISA, instruction
 class Majorana(Architecture):
     """
     This class models physical instructions that may be relevant for future
-    Majorana qubits [71, 74, 117]. For these qubits, we assume that measurements
+    Majorana qubits. For these qubits, we assume that measurements
     and the physical T gate each take 1 µs. Owing to topological protection in
     the hardware, we assume single and two-qubit measurement error rates
     (Clifford error rates) in $10^{-4}$, $10^{-5}$, and $10^{-6}$ as a range
