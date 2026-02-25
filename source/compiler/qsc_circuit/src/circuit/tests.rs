@@ -114,35 +114,6 @@ fn ctl_unitary_with_children(
     })
 }
 
-fn unitary_with_children(gate: &str, targets: Vec<Register>, children: ComponentGrid) -> Operation {
-    Operation::Unitary(Unitary {
-        gate: gate.to_string(),
-        args: vec![],
-        is_adjoint: false,
-        controls: vec![],
-        targets,
-        children,
-        metadata: None,
-    })
-}
-
-fn ctl_unitary_with_children(
-    gate: &str,
-    targets: Vec<Register>,
-    controls: Vec<Register>,
-    children: ComponentGrid,
-) -> Operation {
-    Operation::Unitary(Unitary {
-        gate: gate.to_string(),
-        args: vec![],
-        is_adjoint: false,
-        controls,
-        targets,
-        children,
-        metadata: None,
-    })
-}
-
 #[test]
 fn deserialize_circuit() {
     let contents = r#"
