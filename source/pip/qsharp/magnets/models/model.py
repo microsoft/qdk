@@ -192,6 +192,16 @@ class Model:
         """
         return self._terms
 
+    @property
+    def nqubits(self) -> int:
+        """Return the number of qubits in the model."""
+        return len(self._qubits)
+
+    @property
+    def nterms(self) -> int:
+        """Return the number of term groupings in the model."""
+        return len(self._terms)
+
     def __str__(self) -> str:
         """String representation of the model."""
         return "Generic model with {} terms on {} qubits.".format(
@@ -226,16 +236,15 @@ def translation_invariant_ising_model(
         A Model instance representing the Ising Hamiltonian.
     """
     model = Model(geometry)
-    model._terms = [
-        [] for _ in range(geometry.ncolors + 1)
-    ]  # Initialize term groupings based on edge colors
+    model._terms = [[], []]
+    # Initialize term groupings based on edge colors
     for edge in geometry.edges():
         vertices = edge.vertices
         if len(vertices) == 1:
             model.set_operator(vertices, -h, PauliString.from_qubits(vertices, "X"))
+            model._terms[0].append(edge)  # Group single-vertex edges in term 1
         elif len(vertices) == 2:
             model.set_operator(vertices, -J, PauliString.from_qubits(vertices, "ZZ"))
-        color = geometry.color[vertices]
-        model._terms[color].append(edge)  # Group edges by color for parallel execution
+            model._terms[1].append(edge)  # Group two-body edges in term 0
 
     return model

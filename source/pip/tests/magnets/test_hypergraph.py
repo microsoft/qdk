@@ -113,12 +113,12 @@ def test_hypergraph_edges_iterator():
     assert len(edge_list) == 2
 
 
-def test_hypergraph_edges_by_color():
-    """Test edges_by_color returns edges with a specific color."""
+def test_hypergraph_edges_of_color():
+    """Test edges_of_color returns edges with a specific color."""
     edges = [Hyperedge([0, 1]), Hyperedge([1, 2])]
     graph = Hypergraph(edges)
     # Default: all edges have color 0
-    edge_list = list(graph.edges_by_color(0))
+    edge_list = list(graph.edges_of_color(0))
     assert len(edge_list) == 2
 
 

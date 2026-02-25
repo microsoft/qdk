@@ -126,8 +126,7 @@ def test_patch2d_coloring_non_overlapping():
 def test_patch2d_str():
     """Test string representation."""
     patch = Patch2D(3, 2)
-    assert "6 vertices" in str(patch)
-    assert "7 edges" in str(patch)
+    assert str(patch) == "3x2 lattice patch with 6 vertices and 7 edges"
 
 
 # Torus2D tests
@@ -251,8 +250,7 @@ def test_torus2d_coloring_non_overlapping():
 def test_torus2d_str():
     """Test string representation."""
     torus = Torus2D(3, 2)
-    assert "6 vertices" in str(torus)
-    assert "12 edges" in str(torus)
+    assert str(torus) == "3x2 lattice torus with 6 vertices and 12 edges"
 
 
 def test_torus2d_vs_patch2d_edge_count():
@@ -274,7 +272,7 @@ def test_patch2d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(patch, "edges")
     assert hasattr(patch, "vertices")
-    assert hasattr(patch, "edges_by_color")
+    assert hasattr(patch, "edges_of_color")
 
 
 def test_torus2d_inherits_hypergraph():
@@ -286,4 +284,4 @@ def test_torus2d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(torus, "edges")
     assert hasattr(torus, "vertices")
-    assert hasattr(torus, "edges_by_color")
+    assert hasattr(torus, "edges_of_color")

@@ -247,4 +247,4 @@ def test_complete_bipartite_graph_inherits_hypergraph():
     assert isinstance(graph, Hypergraph)
     assert hasattr(graph, "edges")
     assert hasattr(graph, "vertices")
-    assert hasattr(graph, "edges_by_color")
+    assert hasattr(graph, "edges_of_color")

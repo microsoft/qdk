@@ -45,6 +45,9 @@ class Hyperedge:
         """
         self.vertices: tuple[int, ...] = tuple(sorted(set(vertices)))
 
+    def __str__(self) -> str:
+        return str(self.vertices)
+
     def __repr__(self) -> str:
         return f"Hyperedge({list(self.vertices)})"
 
@@ -88,19 +91,30 @@ class Hypergraph:
             self.color[edge.vertices] = 0
 
     @property
-    def ncolors(self) -> int:
-        """Return the number of distinct colors used in the edge coloring."""
-        return len(set(self.color.values()))
+    def nvertices(self) -> int:
+        """Return the number of vertices in the hypergraph."""
+        return len(self._vertex_set)
+
+    def vertices(self) -> Iterator[int]:
+        """Iterate over all vertex indices in the hypergraph.
+
+        Returns:
+            Iterator of vertex indices in ascending order.
+        """
+        return iter(sorted(self._vertex_set))
 
     @property
     def nedges(self) -> int:
         """Return the number of hyperedges in the hypergraph."""
         return len(self._edge_list)
 
-    @property
-    def nvertices(self) -> int:
-        """Return the number of vertices in the hypergraph."""
-        return len(self._vertex_set)
+    def edges(self) -> Iterator[Hyperedge]:
+        """Iterate over all hyperedges in the hypergraph.
+
+        Returns:
+            Iterator of all hyperedges in the hypergraph.
+        """
+        return iter(self._edge_list)
 
     def add_edge(self, edge: Hyperedge, color: int = 0) -> None:
         """Add a hyperedge to the hypergraph.
@@ -115,23 +129,23 @@ class Hypergraph:
         self._vertex_set.update(edge.vertices)
         self.color[edge.vertices] = color
 
-    def vertices(self) -> Iterator[int]:
-        """Iterate over all vertex indices in the hypergraph.
+    @property
+    def ncolors(self) -> int:
+        """Return the number of distinct colors used in the edge coloring.
+        Note that only colors with nonnegative values are counted.
+        """
+        return len(set(filter(lambda x: x >= 0, self.color.values())))
+
+    def colors(self) -> Iterator[int]:
+        """Iterate over the distinct colors used in the edge coloring.
+        Note that only colors with nonnegative values are returned.
 
         Returns:
-            Iterator of vertex indices in ascending order.
+            Iterator of distinct nonnegative colors used in the hypergraph.
         """
-        return iter(sorted(self._vertex_set))
+        return iter(set(filter(lambda x: x >= 0, self.color.values())))
 
-    def edges(self) -> Iterator[Hyperedge]:
-        """Iterate over all hyperedges in the hypergraph.
-
-        Returns:
-            Iterator of all hyperedges in the hypergraph.
-        """
-        return iter(self._edge_list)
-
-    def edges_by_color(self, color: int) -> Iterator[Hyperedge]:
+    def edges_of_color(self, color: int) -> Iterator[Hyperedge]:
         """Iterate over hyperedges with a specific color.
 
         Args:
@@ -183,20 +197,24 @@ def greedy_edge_coloring(
 
     for i in range(len(edge_indexes)):
         edge = hypergraph._edge_list[edge_indexes[i]]
-        for j in range(num_colors + 1):
+        if len(edge.vertices) == 1:
+            # We color single-vertex edges with color -1, since they don't conflict with any other edges
+            best.color[edge.vertices] = -1
+        else:
+            for j in range(num_colors + 1):
 
-            # If we've reached a new color, add it
-            if j == num_colors:
-                used_vertices.append(set())
-                num_colors += 1
+                # If we've reached a new color, add it
+                if j == num_colors:
+                    used_vertices.append(set())
+                    num_colors += 1
 
-            # Check if this edge can be added to color j
-            # Note that we always match on the last color if it was added
-            # if so, add it and break
-            if not any(v in used_vertices[j] for v in edge.vertices):
-                best.color[edge.vertices] = j
-                used_vertices[j].update(edge.vertices)
-                break
+                # Check if this edge can be added to color j
+                # Note that we always match on the last color if it was added
+                # if so, add it and break
+                if not any(v in used_vertices[j] for v in edge.vertices):
+                    best.color[edge.vertices] = j
+                    used_vertices[j].update(edge.vertices)
+                    break
 
     least_colors = num_colors
 
@@ -218,19 +236,23 @@ def greedy_edge_coloring(
 
         for i in range(len(edge_indexes)):
             edge = hypergraph._edge_list[edge_indexes[i]]
-            for j in range(num_colors + 1):
+            if len(edge.vertices) == 1:
+                # We color single-vertex edges with color -1, since they don't conflict with any other edges
+                edge_colors[edge.vertices] = -1
+            else:
+                for j in range(num_colors + 1):
 
-                # If we've reached a new color, add it
-                if j == num_colors:
-                    used_vertices.append(set())
-                    num_colors += 1
+                    # If we've reached a new color, add it
+                    if j == num_colors:
+                        used_vertices.append(set())
+                        num_colors += 1
 
-                # Check if this edge can be added to color j
-                # if so, add it and break
-                if not any(v in used_vertices[j] for v in edge.vertices):
-                    edge_colors[edge.vertices] = j
-                    used_vertices[j].update(edge.vertices)
-                    break
+                    # Check if this edge can be added to color j
+                    # if so, add it and break
+                    if not any(v in used_vertices[j] for v in edge.vertices):
+                        edge_colors[edge.vertices] = j
+                        used_vertices[j].update(edge.vertices)
+                        break
 
         # If this trial used fewer colors, update best
         if num_colors < least_colors:

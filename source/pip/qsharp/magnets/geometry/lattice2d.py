@@ -34,10 +34,8 @@ class Patch2D(Hypergraph):
 
     .. code-block:: python
         >>> patch = Patch2D(3, 2)
-        >>> patch.nvertices
-        6
-        >>> patch.nedges
-        7
+        >>> str(patch)
+        '3x2 lattice patch with 6 vertices and 7 edges'
     """
 
     def __init__(self, width: int, height: int, self_loops: bool = False) -> None:
@@ -91,6 +89,14 @@ class Patch2D(Hypergraph):
         """Convert (x, y) coordinates to vertex index."""
         return y * self.width + x
 
+    def __str__(self) -> str:
+        """Return the summary string ``"{width}x{height} lattice patch with {nvertices} vertices and {nedges} edges"``."""
+        return f"{self.width}x{self.height} lattice patch with {self.nvertices} vertices and {self.nedges} edges"
+
+    def __repr__(self) -> str:
+        """Return a string representation of the Patch2D geometry."""
+        return f"Patch2D(width={self.width}, height={self.height})"
+
 
 class Torus2D(Hypergraph):
     """A two-dimensional toroidal (periodic) lattice.
@@ -116,10 +122,8 @@ class Torus2D(Hypergraph):
 
     .. code-block:: python
         >>> torus = Torus2D(3, 2)
-        >>> torus.nvertices
-        6
-        >>> torus.nedges
-        12
+        >>> str(torus)
+        '3x2 lattice torus with 6 vertices and 12 edges'
     """
 
     def __init__(self, width: int, height: int, self_loops: bool = False) -> None:
@@ -177,3 +181,11 @@ class Torus2D(Hypergraph):
     def _index(self, x: int, y: int) -> int:
         """Convert (x, y) coordinates to vertex index."""
         return y * self.width + x
+
+    def __str__(self) -> str:
+        """Return the summary string ``"{width}x{height} lattice torus with {nvertices} vertices and {nedges} edges"``."""
+        return f"{self.width}x{self.height} lattice torus with {self.nvertices} vertices and {self.nedges} edges"
+
+    def __repr__(self) -> str:
+        """Return a string representation of the Torus2D geometry."""
+        return f"Torus2D(width={self.width}, height={self.height})"
