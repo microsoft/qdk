@@ -111,10 +111,16 @@ fn circuit_trims_unused_qubit_with_grouping() {
     let circuit = builder.finish(&c);
 
     expect![[r#"
-        q_0    ─ [ [Main] ──── H ──── ● ──── M ──── |0〉 ──── ] ──
-                     [                │      ╘══════════════ ] ══
-        q_2    ───── [ ────────────── X ──── M ──── |0〉 ──── ] ──
-                     [                       ╘══════════════ ] ══
+        q_0    ─ Main[1] ─
+                    ╘═════
+        q_2    ─ Main[1] ─
+                    ╘═════
+
+        [1] Main:
+            q_0    ── H ──── ● ──── M ──── |0〉 ──
+                             │      ╘════════════
+            q_2    ───────── X ──── M ──── |0〉 ──
+                                    ╘════════════
     "#]]
     .assert_eq(&circuit.display_with_groups().to_string());
 }
@@ -369,8 +375,18 @@ fn ccx_becomes_cx_when_one_control_is_known_classical_one_with_grouping() {
     let circuit = builder.finish(&c);
 
     expect![[r#"
-        q_1    ─ [ [Main] ─── [ [Foo] ─── H ──── ● ──── ] ──── ] ──
-        q_2    ───── [ ───────── [ ────── H ──── X ──── ] ──── ] ──
+        q_1    ─ Main[1] ─
+                    ┆
+        q_2    ─ Main[1] ─
+
+        [1] Main:
+            q_1    ─ Foo[2] ──
+                        ┆
+            q_2    ─ Foo[2] ──
+
+        [2] Foo:
+            q_1    ── H ──── ● ──
+            q_2    ── H ──── X ──
     "#]]
     .assert_eq(&circuit.display_with_groups().to_string());
 }
@@ -434,8 +450,18 @@ fn group_with_no_remaining_operations_is_pruned() {
     let circuit = builder.finish(&c);
 
     expect![[r#"
-        q_1    ─ [ [Main] ─── [ [Foo] ─── H ──── ● ──── ] ──── ] ──
-        q_2    ───── [ ───────── [ ────── H ──── X ──── ] ──── ] ──
+        q_1    ─ Main[1] ─
+                    ┆
+        q_2    ─ Main[1] ─
+
+        [1] Main:
+            q_1    ─ Foo[2] ──
+                        ┆
+            q_2    ─ Foo[2] ──
+
+        [2] Foo:
+            q_1    ── H ──── ● ──
+            q_2    ── H ──── X ──
     "#]]
     .assert_eq(&circuit.display_with_groups().to_string());
 }
