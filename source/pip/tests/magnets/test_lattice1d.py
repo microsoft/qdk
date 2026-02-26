@@ -3,12 +3,12 @@
 
 """Unit tests for 1D lattice data structures."""
 
-from qsharp.magnets.geometry.lattice1d import Chain1D, Ring1D, edge_coloring
+from qsharp.magnets.geometry.lattice1d import Chain1D, Ring1D
 from qsharp.magnets.utilities import Hyperedge, HypergraphEdgeColoring
 
 
 def _vertex_color_map(graph) -> dict[tuple[int, ...], int | None]:
-    coloring = edge_coloring(graph)
+    coloring = graph.edge_coloring()
     return {edge.vertices: coloring.color(edge) for edge in graph.edges()}
 
 
@@ -97,7 +97,7 @@ def test_chain1d_coloring_with_self_loops():
 def test_chain1d_coloring_non_overlapping():
     """Test that edges with the same color don't share vertices."""
     chain = Chain1D(6)
-    coloring = edge_coloring(chain)
+    coloring = chain.edge_coloring()
     # Group edges by color
     colors = {}
     for edge in chain.edges():
@@ -207,7 +207,7 @@ def test_ring1d_coloring_with_self_loops():
 def test_ring1d_coloring_non_overlapping():
     """Test that edges with the same color don't share vertices."""
     ring = Ring1D(6)
-    coloring = edge_coloring(ring)
+    coloring = ring.edge_coloring()
     # Group edges by color
     colors = {}
     for edge in ring.edges():
@@ -249,7 +249,7 @@ def test_chain1d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(chain, "edges")
     assert hasattr(chain, "vertices")
-    coloring = edge_coloring(chain)
+    coloring = chain.edge_coloring()
     assert isinstance(coloring, HypergraphEdgeColoring)
     assert hasattr(coloring, "edges_of_color")
 
@@ -263,6 +263,6 @@ def test_ring1d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(ring, "edges")
     assert hasattr(ring, "vertices")
-    coloring = edge_coloring(ring)
+    coloring = ring.edge_coloring()
     assert isinstance(coloring, HypergraphEdgeColoring)
     assert hasattr(coloring, "edges_of_color")

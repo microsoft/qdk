@@ -64,6 +64,7 @@ class Hypergraph:
 
     Note:
         Edge colors are managed separately by :class:`HypergraphEdgeColoring`.
+        Use :meth:`edge_coloring` to generate a coloring for this hypergraph.
 
     Example:
 
@@ -122,6 +123,67 @@ class Hypergraph:
         self._edge_set.add(edge)
         self._vertex_set.update(edge.vertices)
 
+    def edge_coloring(
+        self, seed: Optional[int] = None, trials: int = 1
+    ) -> "HypergraphEdgeColoring":
+        """Compute a (nondeterministic) greedy edge coloring of this hypergraph.
+
+        Args:
+            seed: Optional random seed for reproducibility.
+            trials: Number of randomized trials to attempt. The best coloring
+                (fewest colors) is returned.
+
+        Returns:
+            A :class:`HypergraphEdgeColoring` for this hypergraph.
+        """
+        all_edges = sorted(self.edges(), key=lambda edge: edge.vertices)
+
+        if not all_edges:
+            return HypergraphEdgeColoring(self)
+
+        num_trials = max(trials, 1)
+        best_coloring: Optional[HypergraphEdgeColoring] = None
+        least_colors: Optional[int] = None
+
+        for trial in range(num_trials):
+            trial_seed = None if seed is None else seed + trial
+            rng = random.Random(trial_seed)
+
+            edge_order = list(all_edges)
+            rng.shuffle(edge_order)
+
+            coloring = HypergraphEdgeColoring(self)
+            num_colors = 0
+
+            for edge in edge_order:
+                if len(edge.vertices) == 1:
+                    coloring.add_edge(edge, -1)
+                    continue
+
+                assigned = False
+                for color in range(num_colors):
+                    used_vertices = set().union(
+                        *(
+                            candidate.vertices
+                            for candidate in coloring.edges_of_color(color)
+                        )
+                    )
+                    if not any(vertex in used_vertices for vertex in edge.vertices):
+                        coloring.add_edge(edge, color)
+                        assigned = True
+                        break
+
+                if not assigned:
+                    coloring.add_edge(edge, num_colors)
+                    num_colors += 1
+
+            if least_colors is None or coloring.ncolors < least_colors:
+                least_colors = coloring.ncolors
+                best_coloring = coloring
+
+        assert best_coloring is not None
+        return best_coloring
+
     def __str__(self) -> str:
         return f"Hypergraph with {self.nvertices} vertices and {self.nedges} edges."
 
@@ -142,8 +204,10 @@ class HypergraphEdgeColoring:
     - Only nonnegative colors contribute to :attr:`ncolors`.
 
     Note:
-        Colors are keyed by ``Hyperedge`` objects. Querying with
-        :meth:`color` should use the same edge instances that were added.
+        Colors are keyed by edge vertex tuples (``edge.vertices``), not by
+        ``Hyperedge`` object identity. As a result, :meth:`color` accepts any
+        ``Hyperedge`` with matching vertices, while :meth:`add_edge` still
+        requires an edge instance that belongs to :attr:`hypergraph`.
 
     Attributes:
         hypergraph: The supporting :class:`Hypergraph` whose edges can be
@@ -152,7 +216,7 @@ class HypergraphEdgeColoring:
 
     def __init__(self, hypergraph: Hypergraph) -> None:
         self.hypergraph = hypergraph
-        self._color: dict[Hyperedge, int] = {}  # Edge to color mapping
+        self._colors: dict[tuple[int, ...], int] = {}  # Vertices-to-color mapping
         self._used_vertices: dict[int, set[int]] = (
             {}
         )  # Set of vertices used by each color
@@ -166,15 +230,16 @@ class HypergraphEdgeColoring:
         """Return the color assigned to a specific edge.
 
         Args:
-            edge: The Hyperedge instance for which to retrieve the color.
+            edge: Hyperedge to query. Any ``Hyperedge`` with the same
+                ``vertices`` tuple resolves to the same stored color.
 
         Returns:
             The color assigned to ``edge``, or ``None`` if the edge has not
             been added to this coloring.
         """
-        if edge not in self._color:
-            return None
-        return self._color.get(edge)
+        if not isinstance(edge, Hyperedge):
+            raise TypeError(f"edge must be Hyperedge, got {type(edge).__name__}")
+        return self._colors.get(edge.vertices)
 
     def colors(self) -> Iterator[int]:
         """Iterate over distinct nonnegative colors present in the coloring.
@@ -191,7 +256,9 @@ class HypergraphEdgeColoring:
         with the same color shares a vertex with ``edge``.
 
         Args:
-            edge: The Hyperedge instance to add.
+            edge: The Hyperedge instance to add. This must be an edge present
+                in :attr:`hypergraph` (typically one returned by
+                ``hypergraph.edges()``).
             color: Color index for the edge.
 
         Raises:
@@ -204,29 +271,31 @@ class HypergraphEdgeColoring:
         if not isinstance(edge, Hyperedge):
             raise TypeError(f"edge must be Hyperedge, got {type(edge).__name__}")
 
-        if edge not in self.hypergraph._edge_set:
+        if edge not in self.hypergraph.edges():
             raise ValueError("edge must belong to the supporting Hypergraph")
 
-        if len(edge.vertices) == 1:
+        vertices = edge.vertices
+
+        if len(vertices) == 1:
             # Single-vertex edges can be colored with a special color (e.g., -1)
-            self._color[edge] = color
+            self._colors[vertices] = color
         else:
             if color < 0:
                 raise ValueError(
                     "Color index must be nonnegative for multi-vertex edges."
                 )
             if color not in self._used_vertices:
-                self._color[edge] = color
-                self._used_vertices[color] = set(edge.vertices)
+                self._colors[vertices] = color
+                self._used_vertices[color] = set(vertices)
             else:
-                if any(v in self._used_vertices[color] for v in edge.vertices):
+                if any(v in self._used_vertices[color] for v in vertices):
                     raise RuntimeError(
                         "Edge conflicts with existing edge of same color."
                     )
-                self._color[edge] = color
-                self._used_vertices[color].update(edge.vertices)
+                self._colors[vertices] = color
+                self._used_vertices[color].update(vertices)
 
-        self._color[edge] = color
+        self._colors[vertices] = color
 
     def edges_of_color(self, color: int) -> Iterator[Hyperedge]:
         """Iterate over hyperedges with a specific color.
@@ -237,74 +306,10 @@ class HypergraphEdgeColoring:
         Returns:
             Iterator of edges currently assigned to ``color``.
         """
-        return iter([edge for edge in self._color if self._color[edge] == color])
-
-
-def edge_coloring(hypergraph: Hypergraph) -> HypergraphEdgeColoring:
-    """Get edge coloring for a Hypergraph."""
-    return greedy_edge_coloring(hypergraph)
-
-
-def greedy_edge_coloring(
-    hypergraph: Hypergraph,  # The hypergraph to color.
-    seed: Optional[int] = None,  # Random seed for reproducibility.
-    trials: int = 1,  # Number of trials to perform.
-) -> HypergraphEdgeColoring:
-    """Perform a (nondeterministic) greedy edge coloring of the hypergraph.
-    Args:
-        hypergraph: The Hypergraph instance to color.
-        seed: Optional random seed for reproducibility.
-        trials: Number of trials to perform. The coloring with the fewest colors
-            will be returned. Default is 1.
-
-    Returns:
-        A HypergraphEdgeColoring where each (hyper)edge is assigned a color
-        such that no two (hyper)edges sharing a vertex have the same color.
-    """
-    all_edges = sorted(hypergraph.edges(), key=lambda edge: edge.vertices)
-
-    if not all_edges:
-        return HypergraphEdgeColoring(hypergraph)
-
-    num_trials = max(trials, 1)
-    best_coloring: Optional[HypergraphEdgeColoring] = None
-    least_colors: Optional[int] = None
-
-    for trial in range(num_trials):
-        trial_seed = None if seed is None else seed + trial
-        rng = random.Random(trial_seed)
-
-        edge_order = list(all_edges)
-        rng.shuffle(edge_order)
-
-        coloring = HypergraphEdgeColoring(hypergraph)
-        num_colors = 0
-
-        for edge in edge_order:
-            if len(edge.vertices) == 1:
-                coloring.add_edge(edge, -1)
-                continue
-
-            assigned = False
-            for color in range(num_colors):
-                used_vertices = set().union(
-                    *(
-                        candidate.vertices
-                        for candidate in coloring.edges_of_color(color)
-                    )
-                )
-                if not any(vertex in used_vertices for vertex in edge.vertices):
-                    coloring.add_edge(edge, color)
-                    assigned = True
-                    break
-
-            if not assigned:
-                coloring.add_edge(edge, num_colors)
-                num_colors += 1
-
-        if least_colors is None or coloring.ncolors < least_colors:
-            least_colors = coloring.ncolors
-            best_coloring = coloring
-
-    assert best_coloring is not None
-    return best_coloring
+        return iter(
+            [
+                edge
+                for edge in self.hypergraph.edges()
+                if self._colors.get(edge.vertices) == color
+            ]
+        )

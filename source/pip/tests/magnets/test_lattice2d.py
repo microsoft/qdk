@@ -3,12 +3,12 @@
 
 """Unit tests for 2D lattice data structures."""
 
-from qsharp.magnets.geometry.lattice2d import Patch2D, Torus2D, edge_coloring
+from qsharp.magnets.geometry.lattice2d import Patch2D, Torus2D
 from qsharp.magnets.utilities import HypergraphEdgeColoring
 
 
 def _vertex_color_map(graph) -> dict[tuple[int, ...], int | None]:
-    coloring = edge_coloring(graph)
+    coloring = graph.edge_coloring()
     return {edge.vertices: coloring.color(edge) for edge in graph.edges()}
 
 
@@ -97,7 +97,7 @@ def test_patch2d_self_loops_edges():
 def test_patch2d_coloring_without_self_loops():
     """Test edge coloring without self-loops."""
     patch = Patch2D(4, 4)
-    coloring = edge_coloring(patch)
+    coloring = patch.edge_coloring()
     # Should have 4 colors: horizontal even/odd (0,1), vertical even/odd (2,3)
     assert coloring.ncolors == 4
 
@@ -105,7 +105,7 @@ def test_patch2d_coloring_without_self_loops():
 def test_patch2d_coloring_with_self_loops():
     """Test edge coloring with self-loops."""
     patch = Patch2D(3, 3, self_loops=True)
-    coloring = edge_coloring(patch)
+    coloring = patch.edge_coloring()
     # Self-loops are -1 and do not contribute to ncolors.
     assert coloring.ncolors == 4
 
@@ -113,7 +113,7 @@ def test_patch2d_coloring_with_self_loops():
 def test_patch2d_coloring_non_overlapping():
     """Test that edges with the same color don't share vertices."""
     patch = Patch2D(4, 4)
-    coloring = edge_coloring(patch)
+    coloring = patch.edge_coloring()
     # Group edges by color
     colors = {}
     for edge in patch.edges():
@@ -223,7 +223,7 @@ def test_torus2d_self_loops_edges():
 def test_torus2d_coloring_without_self_loops():
     """Test edge coloring without self-loops."""
     torus = Torus2D(4, 4)
-    coloring = edge_coloring(torus)
+    coloring = torus.edge_coloring()
     # Should have 4 colors: horizontal even/odd (0,1), vertical even/odd (2,3)
     assert coloring.ncolors == 4
 
@@ -231,7 +231,7 @@ def test_torus2d_coloring_without_self_loops():
 def test_torus2d_coloring_with_self_loops():
     """Test edge coloring with self-loops."""
     torus = Torus2D(3, 3, self_loops=True)
-    coloring = edge_coloring(torus)
+    coloring = torus.edge_coloring()
     # Odd periodic dimensions require dedicated wrap colors.
     assert coloring.ncolors == 6
 
@@ -239,7 +239,7 @@ def test_torus2d_coloring_with_self_loops():
 def test_torus2d_coloring_non_overlapping():
     """Test that edges with the same color don't share vertices."""
     torus = Torus2D(4, 4)
-    coloring = edge_coloring(torus)
+    coloring = torus.edge_coloring()
     # Group edges by color
     colors = {}
     for edge in torus.edges():
@@ -282,7 +282,7 @@ def test_patch2d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(patch, "edges")
     assert hasattr(patch, "vertices")
-    coloring = edge_coloring(patch)
+    coloring = patch.edge_coloring()
     assert isinstance(coloring, HypergraphEdgeColoring)
     assert hasattr(coloring, "edges_of_color")
 
@@ -296,6 +296,6 @@ def test_torus2d_inherits_hypergraph():
     # Test inherited methods work
     assert hasattr(torus, "edges")
     assert hasattr(torus, "vertices")
-    coloring = edge_coloring(torus)
+    coloring = torus.edge_coloring()
     assert isinstance(coloring, HypergraphEdgeColoring)
     assert hasattr(coloring, "edges_of_color")

@@ -12,7 +12,6 @@ from qsharp.magnets.utilities import (
     Hyperedge,
     Hypergraph,
     HypergraphEdgeColoring,
-    edge_coloring as default_edge_coloring,
 )
 
 
@@ -55,6 +54,31 @@ class CompleteGraph(Hypergraph):
         super().__init__(_edges)
 
         self.n = n
+
+    def edge_coloring(self) -> HypergraphEdgeColoring:
+        """Compute edge coloring for this complete graph."""
+        coloring = HypergraphEdgeColoring(self)
+        for edge in self.edges():
+            if len(edge.vertices) == 1:
+                coloring.add_edge(edge, -1)
+            else:
+                if self.n % 2 == 0:
+                    i, j = edge.vertices
+                    m = self.n - 1
+                    if j == m:
+                        coloring.add_edge(edge, i)
+                    elif (j - i) % 2 == 0:
+                        coloring.add_edge(edge, (j - i) // 2)
+                    else:
+                        coloring.add_edge(edge, (j - i + m) // 2)
+                else:
+                    m = self.n
+                    i, j = edge.vertices
+                    if (j - i) % 2 == 0:
+                        coloring.add_edge(edge, (j - i) // 2)
+                    else:
+                        coloring.add_edge(edge, (j - i + m) // 2)
+        return coloring
 
 
 class CompleteBipartiteGraph(Hypergraph):
@@ -112,77 +136,18 @@ class CompleteBipartiteGraph(Hypergraph):
         self.m = m
         self.n = n
 
-
-def edge_coloring(hypergraph: Hypergraph) -> HypergraphEdgeColoring:
-    """Compute edge coloring for complete graph geometries.
-
-    This function specializes coloring for :class:`CompleteGraph` and
-    :class:`CompleteBipartiteGraph`.
-
-    Behavior:
-
-    - ``CompleteGraph``:
-      - Self-loops (single-vertex edges) are assigned color ``-1``.
-      - For even ``n``, uses an ``n-1`` color construction.
-      - For odd ``n``, uses an ``n`` color construction.
-    - ``CompleteBipartiteGraph``:
-      - Self-loops are assigned color ``-1``.
-      - Bipartite edges are assigned ``(i + j - m) % n`` where ``i`` is from
-        the first partition and ``j`` is from the second.
-
-    Args:
-        hypergraph: Complete-geometry hypergraph instance to color.
-
-    Returns:
-        A :class:`HypergraphEdgeColoring` for ``hypergraph``.
-
-    Example:
-
-    .. code-block:: python
-        >>> graph = CompleteGraph(4)
-        >>> coloring = edge_coloring(graph)
-        >>> sorted(coloring.colors())
-        [0, 1, 2]
-    """
-
-    if isinstance(hypergraph, CompleteGraph):
-        coloring = HypergraphEdgeColoring(hypergraph)
-        for edge in hypergraph.edges():
+    def edge_coloring(self) -> HypergraphEdgeColoring:
+        """Compute edge coloring for this complete bipartite graph."""
+        coloring = HypergraphEdgeColoring(self)
+        m = self.m
+        n = self.n
+        for edge in self.edges():
             if len(edge.vertices) == 1:
-                coloring.add_edge(edge, -1)  # Self-loop edges get color -1
-            else:
-                if hypergraph.n % 2 == 0:
-                    # Even case: n-1 colors needed
-                    i, j = edge.vertices
-                    m = hypergraph.n - 1
-                    if j == m:
-                        coloring.add_edge(edge, i)
-                    elif (j - i) % 2 == 0:
-                        coloring.add_edge(edge, (j - i) // 2)
-                    else:
-                        coloring.add_edge(edge, (j - i + m) // 2)
-                else:
-                    m = hypergraph.n
-                    i, j = edge.vertices
-                    if (j - i) % 2 == 0:
-                        coloring.add_edge(edge, (j - i) // 2)
-                    else:
-                        coloring.add_edge(edge, (j - i + m) // 2)
-        return coloring
-
-    if isinstance(hypergraph, CompleteBipartiteGraph):
-        coloring = HypergraphEdgeColoring(hypergraph)
-        m = hypergraph.m
-        n = hypergraph.n
-        for edge in hypergraph.edges():
-            if len(edge.vertices) == 1:
-                coloring.add_edge(edge, -1)  # Self-loop edges get color -1
+                coloring.add_edge(edge, -1)
             else:
                 i, j = edge.vertices
                 coloring.add_edge(edge, (i + j - m) % n)
         return coloring
-
-    return default_edge_coloring(hypergraph)
 
     # Color edges based on the second vertex index to create n parallel partitions
     # for i in range(m):

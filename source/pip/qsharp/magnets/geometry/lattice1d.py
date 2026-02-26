@@ -12,7 +12,6 @@ from qsharp.magnets.utilities import (
     Hyperedge,
     Hypergraph,
     HypergraphEdgeColoring,
-    edge_coloring as default_edge_coloring,
 )
 
 
@@ -56,6 +55,18 @@ class Chain1D(Hypergraph):
         super().__init__(_edges)
         self.length = length
 
+    def edge_coloring(self) -> HypergraphEdgeColoring:
+        """Compute a valid edge coloring for this chain."""
+        coloring = HypergraphEdgeColoring(self)
+        for edge in self.edges():
+            if len(edge.vertices) == 1:
+                coloring.add_edge(edge, -1)
+            else:
+                i, j = edge.vertices
+                color = min(i, j) % 2
+                coloring.add_edge(edge, color)
+        return coloring
+
 
 class Ring1D(Hypergraph):
     """A one-dimensional ring (periodic chain) lattice.
@@ -96,64 +107,17 @@ class Ring1D(Hypergraph):
 
         self.length = length
 
-
-def edge_coloring(hypergraph: Hypergraph) -> HypergraphEdgeColoring:
-    """Compute a valid edge coloring for 1D lattice geometries.
-
-        This function specializes coloring for :class:`Chain1D` and
-        :class:`Ring1D`, and falls back to the default hypergraph coloring
-        algorithm for all other :class:`Hypergraph` instances.
-
-        Behavior:
-
-        - ``Chain1D``:
-            - Self-loops (single-vertex edges) are assigned color ``-1``.
-            - Two-vertex edges use parity coloring based on ``min(i, j) % 2``.
-        - ``Ring1D``:
-            - Self-loops are assigned color ``-1``.
-            - Non-wrap edges use ``min(i, j) % 2``.
-            - The wrap-around edge ``{0, length - 1}`` uses a dedicated color,
-                ``(length % 2) + 1``, to avoid same-color conflicts.
-        - Other ``Hypergraph`` subclasses:
-            - Delegates to :func:`qsharp.magnets.utilities.edge_coloring`.
-
-    Args:
-        hypergraph: Hypergraph instance to color.
-
-    Returns:
-        A :class:`HypergraphEdgeColoring` for ``hypergraph``.
-
-    Example:
-
-    .. code-block:: python
-        >>> chain = Chain1D(5)
-        >>> coloring = edge_coloring(chain)
-        >>> sorted(coloring.colors())
-        [0, 1]
-    """
-    if isinstance(hypergraph, Chain1D):
-        coloring = HypergraphEdgeColoring(hypergraph)
-        for edge in hypergraph.edges():
+    def edge_coloring(self) -> HypergraphEdgeColoring:
+        """Compute a valid edge coloring for this ring."""
+        coloring = HypergraphEdgeColoring(self)
+        for edge in self.edges():
             if len(edge.vertices) == 1:
                 coloring.add_edge(edge, -1)
             else:
                 i, j = edge.vertices
-                color = min(i, j) % 2
-                coloring.add_edge(edge, color)
-        return coloring
-
-    if isinstance(hypergraph, Ring1D):
-        coloring = HypergraphEdgeColoring(hypergraph)
-        for edge in hypergraph.edges():
-            if len(edge.vertices) == 1:
-                coloring.add_edge(edge, -1)
-            else:
-                i, j = edge.vertices
-                if {i, j} == {0, hypergraph.length - 1}:
-                    color = (hypergraph.length % 2) + 1
+                if {i, j} == {0, self.length - 1}:
+                    color = (self.length % 2) + 1
                 else:
                     color = min(i, j) % 2
                 coloring.add_edge(edge, color)
         return coloring
-
-    return default_edge_coloring(hypergraph)

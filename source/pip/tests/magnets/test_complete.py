@@ -6,7 +6,6 @@
 from qsharp.magnets.geometry.complete import (
     CompleteBipartiteGraph,
     CompleteGraph,
-    edge_coloring,
 )
 from qsharp.magnets.utilities import HypergraphEdgeColoring
 
@@ -201,7 +200,7 @@ def test_complete_bipartite_graph_edge_count_formula():
 def test_complete_bipartite_graph_coloring_without_self_loops():
     """Test edge coloring without self-loops."""
     graph = CompleteBipartiteGraph(3, 4)
-    coloring = edge_coloring(graph)
+    coloring = graph.edge_coloring()
     # Should have n colors for bipartite coloring
     assert coloring.ncolors == 4
 
@@ -209,7 +208,7 @@ def test_complete_bipartite_graph_coloring_without_self_loops():
 def test_complete_bipartite_graph_coloring_with_self_loops():
     """Test edge coloring with self-loops."""
     graph = CompleteBipartiteGraph(3, 4, self_loops=True)
-    coloring = edge_coloring(graph)
+    coloring = graph.edge_coloring()
     # Self-loops get color -1, bipartite edges get n colors (0 to n-1)
     # ncolors counts nonnegative colors only.
     assert coloring.ncolors == 4
@@ -218,7 +217,7 @@ def test_complete_bipartite_graph_coloring_with_self_loops():
 def test_complete_bipartite_graph_coloring_non_overlapping():
     """Test that edges with the same color don't share vertices."""
     graph = CompleteBipartiteGraph(3, 4)
-    coloring = edge_coloring(graph)
+    coloring = graph.edge_coloring()
     # Group edges by color
     colors = {}
     for edge in graph.edges():
@@ -251,6 +250,6 @@ def test_complete_bipartite_graph_inherits_hypergraph():
     assert isinstance(graph, Hypergraph)
     assert hasattr(graph, "edges")
     assert hasattr(graph, "vertices")
-    coloring = edge_coloring(graph)
+    coloring = graph.edge_coloring()
     assert isinstance(coloring, HypergraphEdgeColoring)
     assert hasattr(coloring, "edges_of_color")

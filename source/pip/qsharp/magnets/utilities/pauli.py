@@ -173,7 +173,7 @@ class PauliString:
 
         Args:
             qubits: Tuple of qubit indices.
-            values: Sequence of Pauli identifiers (integers 0–3 or strings
+            values: Sequence of Pauli identifiers (integers 0-3 or strings
                 'I', 'X', 'Y', 'Z'). A plain string like ``"XZI"`` is also
                 accepted and treated as individual characters.
             coefficient: Complex coefficient multiplying the Pauli string.

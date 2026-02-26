@@ -11,8 +11,6 @@ from .hypergraph import (
     Hyperedge,
     Hypergraph,
     HypergraphEdgeColoring,
-    edge_coloring,
-    greedy_edge_coloring,
 )
 from .pauli import Pauli, PauliString, PauliX, PauliY, PauliZ
 
@@ -25,6 +23,4 @@ __all__ = [
     "PauliX",
     "PauliY",
     "PauliZ",
-    "greedy_edge_coloring",
-    "edge_coloring",
 ]

@@ -12,7 +12,6 @@ from qsharp.magnets.utilities import (
     Hyperedge,
     Hypergraph,
     HypergraphEdgeColoring,
-    edge_coloring as default_edge_coloring,
 )
 
 
@@ -75,6 +74,25 @@ class Patch2D(Hypergraph):
     def __repr__(self) -> str:
         """Return a string representation of the Patch2D geometry."""
         return f"Patch2D(width={self.width}, height={self.height})"
+
+    def edge_coloring(self) -> HypergraphEdgeColoring:
+        """Compute edge coloring for this 2D patch."""
+        coloring = HypergraphEdgeColoring(self)
+        for edge in self.edges():
+            if len(edge.vertices) == 1:
+                coloring.add_edge(edge, -1)
+                continue
+
+            u, v = edge.vertices
+            x_u, y_u = u % self.width, u // self.width
+            x_v, y_v = v % self.width, v // self.width
+
+            if y_u == y_v:
+                color = 0 if min(x_u, x_v) % 2 == 0 else 1
+            else:
+                color = 2 if min(y_u, y_v) % 2 == 0 else 3
+            coloring.add_edge(edge, color)
+        return coloring
 
 
 class Torus2D(Hypergraph):
@@ -143,56 +161,27 @@ class Torus2D(Hypergraph):
         """Return a string representation of the Torus2D geometry."""
         return f"Torus2D(width={self.width}, height={self.height})"
 
-
-def edge_coloring(hypergraph: Hypergraph) -> HypergraphEdgeColoring:
-    """Compute edge coloring for 2D lattice geometries with fallback behavior.
-
-    - ``Patch2D``: uses parity-based 4-coloring for horizontal/vertical edges,
-      with ``-1`` for self-loops.
-    - ``Torus2D``: attempts the same structured coloring; if periodic parity
-      conflicts arise (e.g., odd dimensions), falls back to default coloring.
-    - Other ``Hypergraph`` types: delegates to default hypergraph coloring.
-    """
-    if isinstance(hypergraph, Patch2D):
-        coloring = HypergraphEdgeColoring(hypergraph)
-        for edge in hypergraph.edges():
+    def edge_coloring(self) -> HypergraphEdgeColoring:
+        """Compute edge coloring for this 2D torus."""
+        coloring = HypergraphEdgeColoring(self)
+        for edge in self.edges():
             if len(edge.vertices) == 1:
                 coloring.add_edge(edge, -1)
                 continue
 
             u, v = edge.vertices
-            x_u, y_u = u % hypergraph.width, u // hypergraph.width
-            x_v, y_v = v % hypergraph.width, v // hypergraph.width
+            x_u, y_u = u % self.width, u // self.width
+            x_v, y_v = v % self.width, v // self.width
 
             if y_u == y_v:
-                color = 0 if min(x_u, x_v) % 2 == 0 else 1
-            else:
-                color = 2 if min(y_u, y_v) % 2 == 0 else 3
-            coloring.add_edge(edge, color)
-        return coloring
-
-    if isinstance(hypergraph, Torus2D):
-        coloring = HypergraphEdgeColoring(hypergraph)
-        for edge in hypergraph.edges():
-            if len(edge.vertices) == 1:
-                coloring.add_edge(edge, -1)
-                continue
-
-            u, v = edge.vertices
-            x_u, y_u = u % hypergraph.width, u // hypergraph.width
-            x_v, y_v = v % hypergraph.width, v // hypergraph.width
-
-            if y_u == y_v:
-                if {x_u, x_v} == {0, hypergraph.width - 1}:
-                    color = 1 if hypergraph.width % 2 == 0 else 4
+                if {x_u, x_v} == {0, self.width - 1}:
+                    color = 1 if self.width % 2 == 0 else 4
                 else:
                     color = 0 if min(x_u, x_v) % 2 == 0 else 1
             else:
-                if {y_u, y_v} == {0, hypergraph.height - 1}:
-                    color = 3 if hypergraph.height % 2 == 0 else 5
+                if {y_u, y_v} == {0, self.height - 1}:
+                    color = 3 if self.height % 2 == 0 else 5
                 else:
                     color = 2 if min(y_u, y_v) % 2 == 0 else 3
             coloring.add_edge(edge, color)
         return coloring
-
-    return default_edge_coloring(hypergraph)
