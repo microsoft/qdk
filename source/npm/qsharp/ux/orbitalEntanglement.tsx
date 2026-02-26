@@ -374,7 +374,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
   const maxOffset = baseOffset + Math.max(0, ...tier) * tierStep + 0.15;
   const lim = radius + maxOffset;
   // Map [-lim, lim] to [0, width/height] — compact legend area
-  const titleH = 50;  // px reserved for title at top
+  const titleH = 50; // px reserved for title at top
   const legendH = 180; // total height reserved for two colour bars + ticks
   const diagramH = height - legendH - titleH;
   const vbPad = lim * 0.04;

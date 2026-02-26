@@ -439,13 +439,17 @@ export function Histogram(props: {
                     <rect
                       x={2 + col * menuItemWidth}
                       y={2 + row * menuItemHeight}
+                      width="32"
+                      height="10"
                       rx="1"
                       class={classList}
                       onClick={() => menuClicked(item.category, row)}
                     ></rect>
                     <text
-                      x={5 + col * menuItemWidth}
-                      y={9 + row * menuItemHeight}
+                      x={18 + col * menuItemWidth}
+                      y={7 + row * menuItemHeight}
+                      dominant-baseline="middle"
+                      text-anchor="middle"
                       class="menu-text"
                     >
                       {option}

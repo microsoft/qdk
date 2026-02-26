@@ -199,6 +199,46 @@ class Histogram(anywidget.AnyWidget):
         # Update the UI one last time to make sure we show the final results
         self._update_ui()
 
+    def export_svg(self, path=None, dark_mode=False):
+        """Export the histogram as an SVG string or file.
+
+        The same Preact component used by the interactive widget is
+        rendered server-side via Node.js.
+
+        Parameters
+        ----------
+        path : str or Path, optional
+            When given the SVG is written to this file and the path is
+            returned.  Otherwise the SVG markup string is returned.
+        dark_mode : bool
+            When ``True`` the exported SVG uses light text on a dark
+            background; when ``False`` (default) dark text on a
+            transparent background.
+
+        Returns
+        -------
+        str
+            SVG markup (when *path* is ``None``) or the file path.
+        """
+        props = {
+            "data": dict(self.buckets),
+            "shotCount": self.shot_count,
+            "filter": "",
+            "shotsHeader": self.shot_header,
+            "labels": self.labels,
+            "items": self.items,
+            "sort": self.sort,
+            "darkMode": bool(dark_mode),
+        }
+        svg = _render_component_node("Histogram", props)
+
+        if path is not None:
+            from pathlib import Path as _P
+
+            _P(path).write_text(svg, encoding="utf-8")
+            return str(path)
+        return svg
+
 
 class Circuit(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "static" / "index.js"
@@ -210,6 +250,43 @@ class Circuit(anywidget.AnyWidget):
     def __init__(self, circuit):
         super().__init__(circuit_json=circuit.json())
         self.layout.overflow = "visible scroll"
+
+    def export_svg(self, path=None, dark_mode=False):
+        """Export the circuit diagram as an SVG string or file.
+
+        The same ``qviz`` renderer used by the interactive widget is
+        executed server-side via Node.js (with ``jsdom`` providing the
+        DOM).
+
+        Parameters
+        ----------
+        path : str or Path, optional
+            When given the SVG is written to this file and the path is
+            returned.  Otherwise the SVG markup string is returned.
+        dark_mode : bool
+            When ``True`` the exported SVG uses light text on a dark
+            background; when ``False`` (default) dark text on a
+            transparent background.
+
+        Returns
+        -------
+        str
+            SVG markup (when *path* is ``None``) or the file path.
+        """
+        import json
+
+        props = {
+            "circuit": json.loads(self.circuit_json),
+            "darkMode": bool(dark_mode),
+        }
+        svg = _render_component_node("Circuit", props)
+
+        if path is not None:
+            from pathlib import Path as _P
+
+            _P(path).write_text(svg, encoding="utf-8")
+            return str(path)
+        return svg
 
 
 class Atoms(anywidget.AnyWidget):
@@ -373,14 +450,17 @@ class OrbitalEntanglement(anywidget.AnyWidget):
 
         if not isinstance(svg, str):
             # Fall back to server-side rendering via Node.js
-            svg = _render_svg_node(
-                s1_entropies=self._init_s1,
-                mutual_information=self._init_mi,
-                labels=self._init_labels,
-                selected_indices=self._init_selected,
-                dark_mode=dark_mode,
-                **self._init_options,
-            )
+            props: dict = {
+                "s1Entropies": self._init_s1,
+                "mutualInformation": self._init_mi,
+                "labels": self._init_labels,
+            }
+            if self._init_selected:
+                props["selectedIndices"] = self._init_selected
+            props["darkMode"] = bool(dark_mode)
+            for key, val in self._init_options.items():
+                props[_snake_to_camel(key)] = val
+            svg = _render_component_node("OrbitalEntanglement", props)
 
         if path is not None:
             from pathlib import Path as _P
@@ -391,7 +471,7 @@ class OrbitalEntanglement(anywidget.AnyWidget):
 
 
 # ---------------------------------------------------------------------------
-# Server-side SVG rendering via Node.js (same Preact component as the widget)
+# Server-side SVG rendering via Node.js (same components as the widget)
 # ---------------------------------------------------------------------------
 
 # Path to the Node SSR helper script bundled alongside the widget JS.
@@ -404,18 +484,22 @@ def _snake_to_camel(name: str) -> str:
     return parts[0] + "".join(p.capitalize() for p in parts[1:])
 
 
-def _render_svg_node(
-    s1_entropies,
-    mutual_information,
-    labels,
-    selected_indices=None,
-    dark_mode=False,
-    **options,
-):
-    """Render the OrbitalEntanglement component server-side via Node.js.
+def _render_component_node(component: str, props: dict) -> str:
+    """Render a component server-side via Node.js.
 
-    This calls the same compiled Preact component used by the interactive
-    widget, ensuring pixel-identical SVG output.
+    Parameters
+    ----------
+    component : str
+        Component name (``"OrbitalEntanglement"``, ``"Histogram"``,
+        ``"Circuit"``).
+    props : dict
+        Props dict that will be JSON-serialised and passed to the JS
+        component.
+
+    Returns
+    -------
+    str
+        The rendered SVG / HTML markup.
     """
     import json
     import shutil
@@ -428,21 +512,11 @@ def _render_svg_node(
             "'node' was not found on the PATH."
         )
 
-    # Build the props object with camelCase keys matching the TS interface
-    props: dict = {
-        "s1Entropies": s1_entropies,
-        "mutualInformation": mutual_information,
-        "labels": labels,
-    }
-    if selected_indices:
-        props["selectedIndices"] = selected_indices
-    props["darkMode"] = bool(dark_mode)
-    for key, val in options.items():
-        props[_snake_to_camel(key)] = val
+    payload = json.dumps({"component": component, "props": props})
 
     result = subprocess.run(
         [node, str(_RENDER_SVG_SCRIPT)],
-        input=json.dumps(props),
+        input=payload,
         capture_output=True,
         text=True,
         timeout=30,
@@ -450,7 +524,8 @@ def _render_svg_node(
 
     if result.returncode != 0:
         raise RuntimeError(
-            f"Node SSR render failed (exit {result.returncode}):\n" f"{result.stderr}"
+            f"Node SSR render failed (exit {result.returncode}):\n"
+            f"{result.stderr}"
         )
 
     return result.stdout
