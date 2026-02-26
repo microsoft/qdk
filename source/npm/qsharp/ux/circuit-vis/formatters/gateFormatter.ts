@@ -9,7 +9,6 @@ import {
   argsFontSize,
   controlCircleRadius,
   controlCircleOffset,
-  groupPaddingX,
   groupTopPadding,
   labelPaddingX,
   groupLabelPaddingY,
@@ -58,11 +57,26 @@ const formatGate = (renderData: GateRenderData): SVGElement => {
   switch (type) {
     case GateType.Measure:
       return _createGate([_measure(x, controlsY[0], controlsY)], renderData);
-    case GateType.Unitary:
+    case GateType.Unitary: {
+      let bodyWidth = width;
+      let bodyX = x;
+      if (renderData.classicalControlIds != null) {
+        bodyWidth = width - controlCircleOffset;
+        bodyX = x + controlCircleOffset / 2;
+      }
       return _createGate(
-        [_unitary(label, x, targetsY as number[][], width, displayArgs)],
+        [
+          _unitary(
+            label,
+            bodyX,
+            targetsY as number[][],
+            bodyWidth,
+            displayArgs,
+          ),
+        ],
         renderData,
       );
+    }
     case GateType.X:
       return _createGate([_x(renderData)], renderData);
     case GateType.Ket:
@@ -100,6 +114,12 @@ const _createGate = (
     ([attr, val]) => (attributes[`data-${attr}`] = val),
   );
 
+  const hasClassicalControls =
+    renderData.classicalControlIds != null && renderData.controlsY.length > 0;
+  const classicalControlElems: SVGElement[] = hasClassicalControls
+    ? _classicalControls(_gateBoundingBox(renderData).x, renderData)
+    : [];
+
   // If there's a source location, wrap the gate in an SVG <a> element to make it clickable
   //
   // `GateType.Group` corresponds to an *expanded* group, which will contain clickable gates
@@ -110,12 +130,16 @@ const _createGate = (
       renderData.link.title,
     );
 
-    // Add the gate elements as children of the link
+    // Add the gate elements as children of the link.
+    // If this operation is classically controlled, keep the control circles
+    // outside the link so they remain independently interactive.
     for (const e of svgElems) {
       linkElem.appendChild(e);
     }
 
-    svgElems = [linkElem];
+    svgElems = classicalControlElems.concat([linkElem]);
+  } else {
+    svgElems = classicalControlElems.concat(svgElems);
   }
 
   // Zoom button comes last so it's on top of the <a> element if both are present
@@ -123,7 +147,12 @@ const _createGate = (
   const zoomBtn: SVGElement | null = _zoomButton(renderData);
   if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);
 
-  return group(svgElems, attributes);
+  const gate = group(svgElems, attributes);
+  if (hasClassicalControls) {
+    gate.classList.add("classically-controlled-group");
+  }
+
+  return gate;
 };
 
 /**
@@ -145,7 +174,15 @@ const _zoomButton = (renderData: GateRenderData): SVGElement | null => {
 
   const expanded = dataAttributes["expanded"] == "true";
 
-  const x = gateBoundingBoxX + 2;
+  // If this operation has classical controls, the overall gate bounding box includes
+  // extra space on the left for the control circles. The expand/collapse button should
+  // align with the left edge of the gate *body* (dashed box / unitary box), not the
+  // outermost bounding box.
+  const hasClassicalControls =
+    renderData.classicalControlIds != null && renderData.controlsY.length > 0;
+
+  const x =
+    gateBoundingBoxX + 2 + (hasClassicalControls ? controlCircleOffset : 0);
   const y = gateBoundingBoxY + 2;
   const circleBorder: SVGElement = circle(x, y, 10);
 
@@ -598,24 +635,37 @@ const _oplus = (x: number, y: number, wireYs: number[]): SVGElement => {
  * @returns SVG representation of gate.
  */
 const _groupedOperations = (renderData: GateRenderData): SVGElement => {
-  // If this group has classical controls, render it using the specialized
-  // classically-controlled group SVG structure.
-  if (renderData.classicalControlIds != null) {
-    return _groupedOperationsWithClassicalControls(renderData);
+  const { children, label } = renderData;
+  const boundingBox = _gateBoundingBox(renderData);
+
+  const hasClassicalControls =
+    renderData.classicalControlIds != null && renderData.controlsY.length > 0;
+
+  const elems: SVGElement[] = [];
+
+  let boxX = boundingBox.x;
+  let boxWidth = boundingBox.width;
+
+  if (hasClassicalControls) {
+    boxX += controlCircleOffset;
+    boxWidth -= controlCircleOffset;
   }
 
-  const { children, label } = renderData;
-  const { x, y, width: w, height: h } = _gateBoundingBox(renderData);
-
   // Draw dashed box around children gates
-  const box: SVGElement = dashedBox(x, y, w, h, "gate-unitary");
-  const elems: SVGElement[] = [box];
+  const boxElem: SVGElement = dashedBox(
+    boxX,
+    boundingBox.y,
+    boxWidth,
+    boundingBox.height,
+    hasClassicalControls ? "classical-container" : "gate-unitary",
+  );
+  elems.push(boxElem);
   if (children != null) elems.push(formatGates(children as GateRenderData[][]));
 
   const labelText = _labelText(
     label,
-    x + labelPaddingX,
-    y + groupTopPadding / 2 + groupLabelPaddingY,
+    boxX + labelPaddingX,
+    boundingBox.y + groupTopPadding / 2 + groupLabelPaddingY,
   );
   labelText.classList.add("qs-group-label");
 
@@ -632,40 +682,29 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
   return _createGate(elems, renderData);
 };
 
-/**
- * Generates the SVG for a group of operations that is classically controlled.
- *
- * @param renderData Render data of gate.
- * @param padding  Padding within dashed box.
- *
- * @returns SVG representation of gate.
- */
-const _groupedOperationsWithClassicalControls = (
+const _classicalControls = (
+  leftX: number,
   renderData: GateRenderData,
-  padding: number = groupPaddingX,
-): SVGElement => {
-  const { controlsY, dataAttributes, label, classicalControlIds, children } =
-    renderData;
-
-  const boundingBox = _gateBoundingBox(renderData);
-  let { x, width } = boundingBox;
-  const { y, height } = boundingBox;
-
+): SVGElement[] => {
+  const { controlsY, classicalControlIds } = renderData;
   const elems: SVGElement[] = [];
 
   for (let i = 0; i < controlsY.length; i++) {
     const controlY = controlsY[i];
     const label = classicalControlIds?.[i] ?? null;
-    // Draw control button and attached dashed line to dashed box
-    const controlCircleX: number = x + controlCircleRadius;
+
+    // Draw control button and attached dashed line to the gate body.
+    const controlCircleX: number = leftX + controlCircleRadius;
     const controlCircle: SVGElement = _controlCircle(
       controlCircleX,
       controlY,
       label,
     );
+
     const lineY1: number = controlY + controlCircleRadius;
     const lineY2: number =
       controlY + controlCircleRadius + groupBottomPadding / 2;
+
     const vertLine: SVGElement = dashedLine(
       controlCircleX,
       lineY1,
@@ -673,7 +712,8 @@ const _groupedOperationsWithClassicalControls = (
       lineY2,
       "classical-line",
     );
-    const lineEndX = x + controlCircleOffset;
+
+    const lineEndX = leftX + controlCircleOffset;
     const horLine: SVGElement = dashedLine(
       controlCircleX,
       lineY2,
@@ -685,48 +725,7 @@ const _groupedOperationsWithClassicalControls = (
     elems.push(horLine, vertLine, controlCircle);
   }
 
-  x += controlCircleOffset;
-
-  width = width - controlCircleOffset + (padding - groupPaddingX) * 2;
-  x += groupPaddingX - padding;
-
-  // Draw dashed box around children gates
-  const box: SVGElement = dashedBox(x, y, width, height, "classical-container");
-
-  elems.push(box);
-
-  const labelText = _labelText(
-    label,
-    x + labelPaddingX,
-    y + groupTopPadding / 2 + groupLabelPaddingY,
-  );
-  labelText.classList.add("qs-group-label");
-
-  if (renderData.link) {
-    const link = createLinkElement(renderData.link.href, renderData.link.title);
-    // Make the text element clickable
-    labelText.style.pointerEvents = "all";
-    link.appendChild(labelText);
-    elems.push(link);
-  } else {
-    elems.push(labelText);
-  }
-
-  if (children != null) {
-    // Get SVG for gates controlled on 0
-    const childrenSvg: SVGElement = formatGates(children);
-    elems.push(childrenSvg);
-  }
-
-  const attributes: { [attr: string]: string } = {
-    class: `classically-controlled-group`,
-  };
-  if (dataAttributes != null)
-    Object.entries(dataAttributes).forEach(
-      ([attr, val]) => (attributes[`data-${attr}`] = val),
-    );
-
-  return group(elems, attributes);
+  return elems;
 };
 
 /**

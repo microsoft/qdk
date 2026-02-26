@@ -244,18 +244,13 @@ const _opToRenderData = (
   renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
 
   if (isConditional) {
-    // Classically-controlled operations
-    if (children == null || children.length == 0)
-      throw new Error(
-        "No children operations found for classically-controlled operation.",
-      );
+    // Classically-controlled operations.
+    //
+    // These can be rendered in two ways:
+    // - Expanded (`ConditionalRender.AsGroup`): show children inside a dashed group box.
+    // - Collapsed (otherwise): show as a single unitary gate, but still render classical controls.
 
-    // Treat classically-controlled operations as a specialized kind of group.
-    // Rendering will draw classical controls when `classicalControlIds` is present.
-    renderData.type = GateType.Group;
     renderData.label = gate;
-
-    _processChildren(renderData, children, registers, renderLocations);
 
     // Fill in the ID to be displayed in each control wire's circle.
     renderData.classicalControlIds =
@@ -268,8 +263,23 @@ const _opToRenderData = (
         )
         .map((id) => id ?? null) || [];
 
-    // Add additional width for classical control circle
-    renderData.width += controlCircleOffset;
+    if (conditionalRender === ConditionalRender.AsGroup) {
+      if (children == null || children.length == 0)
+        throw new Error(
+          "No children operations found for classically-controlled operation.",
+        );
+
+      // Treat expanded classically-controlled operations as a kind of group.
+      renderData.type = GateType.Group;
+      _processChildren(renderData, children, registers, renderLocations);
+
+      // Add additional width for classical control circle.
+      // (The group width comes from children layout; it doesn't account for controls.)
+      renderData.width += controlCircleOffset;
+    } else {
+      // Collapsed view: render as a single gate.
+      renderData.type = GateType.Unitary;
+    }
   } else if (
     conditionalRender == ConditionalRender.AsGroup &&
     children &&
@@ -447,9 +457,7 @@ const _fillRenderDataX = (
           {
             // Subtract startX offset from nested gates and add offset and padding
             let offset: number = x - startX + groupPaddingX;
-            if (
-              renderData.classicalControlIds != null
-            ) {
+            if (renderData.classicalControlIds != null) {
               offset += controlCircleOffset;
             }
 

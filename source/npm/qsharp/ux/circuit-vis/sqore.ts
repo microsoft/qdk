@@ -568,7 +568,5 @@ function updateRowHeights(
  * its children, with a dashed box around the children.
  */
 function isExpandedGroup(component: Operation) {
-  return (
-    component.dataAttributes?.["expanded"] === "true" || component.isConditional
-  );
+  return component.dataAttributes?.["expanded"] === "true";
 }
