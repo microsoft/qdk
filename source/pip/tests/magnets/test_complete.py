@@ -3,7 +3,11 @@
 
 """Unit tests for complete graph data structures."""
 
-from qsharp.magnets.geometry.complete import CompleteBipartiteGraph, CompleteGraph
+from qsharp.magnets.geometry.complete import (
+    CompleteBipartiteGraph,
+    CompleteGraph,
+)
+from qsharp.magnets.utilities import HypergraphEdgeColoring
 
 
 # CompleteGraph tests
@@ -79,11 +83,8 @@ def test_complete_graph_with_self_loops():
 def test_complete_graph_self_loops_edges():
     """Test that self-loop edges are created correctly."""
     graph = CompleteGraph(3, self_loops=True)
-    edges = list(graph.edges())
-    # First 3 edges should be self-loops
-    assert edges[0].vertices == (0,)
-    assert edges[1].vertices == (1,)
-    assert edges[2].vertices == (2,)
+    edge_vertices = {edge.vertices for edge in graph.edges()}
+    assert {(0,), (1,), (2,)}.issubset(edge_vertices)
 
 
 def test_complete_graph_edge_count_formula():
@@ -183,12 +184,8 @@ def test_complete_bipartite_graph_with_self_loops():
 def test_complete_bipartite_graph_self_loops_edges():
     """Test that self-loop edges are created correctly."""
     graph = CompleteBipartiteGraph(2, 2, self_loops=True)
-    edges = list(graph.edges())
-    # First 4 edges should be self-loops
-    assert edges[0].vertices == (0,)
-    assert edges[1].vertices == (1,)
-    assert edges[2].vertices == (2,)
-    assert edges[3].vertices == (3,)
+    edge_vertices = {edge.vertices for edge in graph.edges()}
+    assert {(0,), (1,), (2,), (3,)}.issubset(edge_vertices)
 
 
 def test_complete_bipartite_graph_edge_count_formula():
@@ -203,24 +200,30 @@ def test_complete_bipartite_graph_edge_count_formula():
 def test_complete_bipartite_graph_coloring_without_self_loops():
     """Test edge coloring without self-loops."""
     graph = CompleteBipartiteGraph(3, 4)
+    coloring = graph.edge_coloring()
     # Should have n colors for bipartite coloring
-    assert graph.ncolors == 4
+    assert coloring.ncolors == 4
 
 
 def test_complete_bipartite_graph_coloring_with_self_loops():
     """Test edge coloring with self-loops."""
     graph = CompleteBipartiteGraph(3, 4, self_loops=True)
+    coloring = graph.edge_coloring()
     # Self-loops get color -1, bipartite edges get n colors (0 to n-1)
-    # So total distinct colors = n + 1 (including -1)
-    assert graph.ncolors == 5
+    # ncolors counts nonnegative colors only.
+    assert coloring.ncolors == 4
 
 
 def test_complete_bipartite_graph_coloring_non_overlapping():
     """Test that edges with the same color don't share vertices."""
     graph = CompleteBipartiteGraph(3, 4)
+    coloring = graph.edge_coloring()
     # Group edges by color
     colors = {}
-    for edge_vertices, color in graph.color.items():
+    for edge in graph.edges():
+        color = coloring.color(edge)
+        assert color is not None
+        edge_vertices = edge.vertices
         if color not in colors:
             colors[color] = []
         colors[color].append(edge_vertices)
@@ -247,4 +250,6 @@ def test_complete_bipartite_graph_inherits_hypergraph():
     assert isinstance(graph, Hypergraph)
     assert hasattr(graph, "edges")
     assert hasattr(graph, "vertices")
-    assert hasattr(graph, "edges_by_color")
+    coloring = graph.edge_coloring()
+    assert isinstance(coloring, HypergraphEdgeColoring)
+    assert hasattr(coloring, "edges_of_color")

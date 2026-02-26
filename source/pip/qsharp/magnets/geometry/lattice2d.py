@@ -8,7 +8,11 @@ hypergraphs. These lattices are commonly used in quantum spin system
 simulations and other two-dimensional quantum systems.
 """
 
-from qsharp.magnets.utilities import Hyperedge, Hypergraph
+from qsharp.magnets.utilities import (
+    Hyperedge,
+    Hypergraph,
+    HypergraphEdgeColoring,
+)
 
 
 class Patch2D(Hypergraph):
@@ -19,13 +23,6 @@ class Patch2D(Hypergraph):
 
     Vertices are indexed in row-major order: vertex (x, y) has index y * width + x.
 
-    Edges are colored for parallel updates:
-    - Color -1 (if self_loops): Self-loop edges on each vertex
-    - Color 0: Even-column horizontal edges
-    - Color 1: Odd-column horizontal edges
-    - Color 2: Even-row vertical edges
-    - Color 3: Odd-row vertical edges
-
     Attributes:
         width: Number of vertices in the horizontal direction.
         height: Number of vertices in the vertical direction.
@@ -34,10 +31,8 @@ class Patch2D(Hypergraph):
 
     .. code-block:: python
         >>> patch = Patch2D(3, 2)
-        >>> patch.nvertices
-        6
-        >>> patch.nedges
-        7
+        >>> str(patch)
+        '3x2 lattice patch with 6 vertices and 7 edges'
     """
 
     def __init__(self, width: int, height: int, self_loops: bool = False) -> None:
@@ -68,28 +63,36 @@ class Patch2D(Hypergraph):
                 _edges.append(Hyperedge([self._index(x, y), self._index(x, y + 1)]))
         super().__init__(_edges)
 
-        # Set up edge colors for parallel updates
-        if self_loops:
-            for i in range(width * height):
-                self.color[(i,)] = -1
-
-        # Color horizontal edges
-        for y in range(height):
-            for x in range(width - 1):
-                v1, v2 = self._index(x, y), self._index(x + 1, y)
-                color = 0 if x % 2 == 0 else 1
-                self.color[tuple(sorted([v1, v2]))] = color
-
-        # Color vertical edges
-        for y in range(height - 1):
-            for x in range(width):
-                v1, v2 = self._index(x, y), self._index(x, y + 1)
-                color = 2 if y % 2 == 0 else 3
-                self.color[tuple(sorted([v1, v2]))] = color
-
     def _index(self, x: int, y: int) -> int:
         """Convert (x, y) coordinates to vertex index."""
         return y * self.width + x
+
+    def __str__(self) -> str:
+        """Return the summary string ``"{width}x{height} lattice patch with {nvertices} vertices and {nedges} edges"``."""
+        return f"{self.width}x{self.height} lattice patch with {self.nvertices} vertices and {self.nedges} edges"
+
+    def __repr__(self) -> str:
+        """Return a string representation of the Patch2D geometry."""
+        return f"Patch2D(width={self.width}, height={self.height})"
+
+    def edge_coloring(self) -> HypergraphEdgeColoring:
+        """Compute edge coloring for this 2D patch."""
+        coloring = HypergraphEdgeColoring(self)
+        for edge in self.edges():
+            if len(edge.vertices) == 1:
+                coloring.add_edge(edge, -1)
+                continue
+
+            u, v = edge.vertices
+            x_u, y_u = u % self.width, u // self.width
+            x_v, y_v = v % self.width, v // self.width
+
+            if y_u == y_v:
+                color = 0 if min(x_u, x_v) % 2 == 0 else 1
+            else:
+                color = 2 if min(y_u, y_v) % 2 == 0 else 3
+            coloring.add_edge(edge, color)
+        return coloring
 
 
 class Torus2D(Hypergraph):
@@ -101,13 +104,6 @@ class Torus2D(Hypergraph):
 
     Vertices are indexed in row-major order: vertex (x, y) has index y * width + x.
 
-    Edges are colored for parallel updates:
-    - Color -1 (if self_loops): Self-loop edges on each vertex
-    - Color 0: Even-column horizontal edges
-    - Color 1: Odd-column horizontal edges
-    - Color 2: Even-row vertical edges
-    - Color 3: Odd-row vertical edges
-
     Attributes:
         width: Number of vertices in the horizontal direction.
         height: Number of vertices in the vertical direction.
@@ -116,10 +112,8 @@ class Torus2D(Hypergraph):
 
     .. code-block:: python
         >>> torus = Torus2D(3, 2)
-        >>> torus.nvertices
-        6
-        >>> torus.nedges
-        12
+        >>> str(torus)
+        '3x2 lattice torus with 6 vertices and 12 edges'
     """
 
     def __init__(self, width: int, height: int, self_loops: bool = False) -> None:
@@ -155,25 +149,39 @@ class Torus2D(Hypergraph):
 
         super().__init__(_edges)
 
-        # Set up edge colors for parallel updates
-        if self_loops:
-            for i in range(width * height):
-                self.color[(i,)] = -1
-
-        # Color horizontal edges
-        for y in range(height):
-            for x in range(width):
-                v1, v2 = self._index(x, y), self._index((x + 1) % width, y)
-                color = 0 if x % 2 == 0 else 1
-                self.color[tuple(sorted([v1, v2]))] = color
-
-        # Color vertical edges
-        for y in range(height):
-            for x in range(width):
-                v1, v2 = self._index(x, y), self._index(x, (y + 1) % height)
-                color = 2 if y % 2 == 0 else 3
-                self.color[tuple(sorted([v1, v2]))] = color
-
     def _index(self, x: int, y: int) -> int:
         """Convert (x, y) coordinates to vertex index."""
         return y * self.width + x
+
+    def __str__(self) -> str:
+        """Return the summary string ``"{width}x{height} lattice torus with {nvertices} vertices and {nedges} edges"``."""
+        return f"{self.width}x{self.height} lattice torus with {self.nvertices} vertices and {self.nedges} edges"
+
+    def __repr__(self) -> str:
+        """Return a string representation of the Torus2D geometry."""
+        return f"Torus2D(width={self.width}, height={self.height})"
+
+    def edge_coloring(self) -> HypergraphEdgeColoring:
+        """Compute edge coloring for this 2D torus."""
+        coloring = HypergraphEdgeColoring(self)
+        for edge in self.edges():
+            if len(edge.vertices) == 1:
+                coloring.add_edge(edge, -1)
+                continue
+
+            u, v = edge.vertices
+            x_u, y_u = u % self.width, u // self.width
+            x_v, y_v = v % self.width, v // self.width
+
+            if y_u == y_v:
+                if {x_u, x_v} == {0, self.width - 1}:
+                    color = 1 if self.width % 2 == 0 else 4
+                else:
+                    color = 0 if min(x_u, x_v) % 2 == 0 else 1
+            else:
+                if {y_u, y_v} == {0, self.height - 1}:
+                    color = 3 if self.height % 2 == 0 else 5
+                else:
+                    color = 2 if min(y_u, y_v) % 2 == 0 else 3
+            coloring.add_edge(edge, color)
+        return coloring

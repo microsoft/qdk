@@ -8,7 +8,11 @@ hypergraphs. These lattices are commonly used in quantum spin chain
 simulations and other one-dimensional quantum systems.
 """
 
-from qsharp.magnets.utilities import Hyperedge, Hypergraph
+from qsharp.magnets.utilities import (
+    Hyperedge,
+    Hypergraph,
+    HypergraphEdgeColoring,
+)
 
 
 class Chain1D(Hypergraph):
@@ -17,11 +21,6 @@ class Chain1D(Hypergraph):
     Represents a linear chain of vertices with nearest-neighbor edges.
     The chain has open boundary conditions, meaning the first and last
     vertices are not connected.
-
-    Edges are colored for parallel updates:
-    - Color -1 (if self_loops): Self-loop edges on each vertex
-    - Color 0: Even-indexed nearest-neighbor edges (0-1, 2-3, ...)
-    - Color 1: Odd-indexed nearest-neighbor edges (1-2, 3-4, ...)
 
     Attributes:
         length: Number of vertices in the chain.
@@ -52,18 +51,21 @@ class Chain1D(Hypergraph):
 
         for i in range(length - 1):
             _edges.append(Hyperedge([i, i + 1]))
+
         super().__init__(_edges)
-
-        # Update color for self-loop edges
-        if self_loops:
-            for i in range(length):
-                self.color[(i,)] = -1
-
-        for i in range(length - 1):
-            color = i % 2
-            self.color[(i, i + 1)] = color
-
         self.length = length
+
+    def edge_coloring(self) -> HypergraphEdgeColoring:
+        """Compute a valid edge coloring for this chain."""
+        coloring = HypergraphEdgeColoring(self)
+        for edge in self.edges():
+            if len(edge.vertices) == 1:
+                coloring.add_edge(edge, -1)
+            else:
+                i, j = edge.vertices
+                color = min(i, j) % 2
+                coloring.add_edge(edge, color)
+        return coloring
 
 
 class Ring1D(Hypergraph):
@@ -72,11 +74,6 @@ class Ring1D(Hypergraph):
     Represents a circular chain of vertices with nearest-neighbor edges.
     The ring has periodic boundary conditions, meaning the first and last
     vertices are connected.
-
-    Edges are colored for parallel updates:
-    - Color -1 (if self_loops): Self-loop edges on each vertex
-    - Color 0: Even-indexed nearest-neighbor edges (0-1, 2-3, ...)
-    - Color 1: Odd-indexed nearest-neighbor edges (1-2, 3-4, ...)
 
     Attributes:
         length: Number of vertices in the ring.
@@ -108,14 +105,19 @@ class Ring1D(Hypergraph):
             _edges.append(Hyperedge([i, (i + 1) % length]))
         super().__init__(_edges)
 
-        # Update color for self-loop edges
-        if self_loops:
-            for i in range(length):
-                self.color[(i,)] = -1
-
-        for i in range(length):
-            j = (i + 1) % length
-            color = i % 2
-            self.color[tuple(sorted([i, j]))] = color
-
         self.length = length
+
+    def edge_coloring(self) -> HypergraphEdgeColoring:
+        """Compute a valid edge coloring for this ring."""
+        coloring = HypergraphEdgeColoring(self)
+        for edge in self.edges():
+            if len(edge.vertices) == 1:
+                coloring.add_edge(edge, -1)
+            else:
+                i, j = edge.vertices
+                if {i, j} == {0, self.length - 1}:
+                    color = (self.length % 2) + 1
+                else:
+                    color = min(i, j) % 2
+                coloring.add_edge(edge, color)
+        return coloring

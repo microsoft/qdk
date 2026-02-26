@@ -7,6 +7,6 @@ This module provides classes for representing quantum spin models
 as Hamiltonians built from Pauli operators.
 """
 
-from .model import Model, translation_invariant_ising_model
+from .model import IsingModel, Model
 
-__all__ = ["Model", "translation_invariant_ising_model"]
+__all__ = ["Model", "IsingModel"]
