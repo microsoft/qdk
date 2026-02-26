@@ -22,8 +22,8 @@ from .. import telemetry_events
 def estimate(
     source: Union[str, Callable],
     params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
-    *args,
-    **kwargs: Optional[Dict[str, Any]],
+    *args: Any,
+    **kwargs: Any,
 ) -> EstimatorResult:
     """
     Estimates the resource requirements for executing OpenQASM source code.

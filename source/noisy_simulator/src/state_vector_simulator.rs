@@ -10,11 +10,12 @@ mod tests;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use crate::{
-    ComplexVector, Error, NoisySimulator, SquareMatrix, TOLERANCE, handle_error,
+    ComplexVector, Error, NoisySimulator, SquareMatrix, TOLERANCE, eq_with_tolerance, handle_error,
     instrument::Instrument, kernel::apply_kernel, operation::Operation,
 };
 
 /// A vector representing the state of a quantum system.
+#[derive(Debug)]
 pub struct StateVector {
     /// Dimension of the vector.
     dimension: usize,
@@ -24,6 +25,59 @@ pub struct StateVector {
     trace_change: f64,
     /// Vector storing the entries of the density matrix.
     data: ComplexVector,
+}
+
+impl PartialEq for StateVector {
+    /// Compares two state vectors for equality up to a global phase.
+    ///
+    /// Two state vectors are considered equal if one can be obtained from the other
+    /// by multiplying by a complex number of unit magnitude (a global phase factor).
+    fn eq(&self, other: &Self) -> bool {
+        use num_complex::Complex;
+
+        if self.dimension != other.dimension || self.number_of_qubits != other.number_of_qubits {
+            return false;
+        }
+
+        if !eq_with_tolerance(self.trace_change, other.trace_change, TOLERANCE) {
+            return false;
+        }
+
+        // Find the first non-zero element in self to determine the global phase
+        let phase = self
+            .data
+            .iter()
+            .zip(other.data.iter())
+            .max_by(|pair1, pair2| pair1.0.norm().total_cmp(&pair2.0.norm()))
+            .map(|(a, b)| {
+                if b.norm() > TOLERANCE {
+                    // phase = b / a, so self * phase ≈ other
+                    b / a
+                } else {
+                    // a is non-zero but b is zero - not equal
+                    Complex::new(f64::NAN, 0.0)
+                }
+            });
+
+        match phase {
+            Some(phase) if phase.re.is_nan() => false,
+            Some(phase) => {
+                // Check that the phase has unit magnitude
+                if !eq_with_tolerance(phase.norm(), 1.0, TOLERANCE) {
+                    return false;
+                }
+                // Check that all elements match after applying the phase
+                self.data
+                    .iter()
+                    .zip(other.data.iter())
+                    .all(|(a, b)| eq_with_tolerance((a * phase - b).norm(), 0.0, TOLERANCE))
+            }
+            // The first vector is the zero vector. This case is unreachable.
+            None => unreachable!(
+                "we return an error during simulation if the norm of a state-vector is zero"
+            ),
+        }
+    }
 }
 
 impl StateVector {

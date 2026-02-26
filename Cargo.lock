@@ -1925,6 +1925,7 @@ name = "qsc_circuit"
 version = "0.0.0"
 dependencies = [
  "expect-test",
+ "indenter",
  "indoc",
  "log",
  "miette",
@@ -2273,6 +2274,8 @@ name = "qsharp"
 version = "0.0.0"
 dependencies = [
  "allocator",
+ "expect-test",
+ "memchr",
  "miette",
  "noisy_simulator",
  "num-bigint",

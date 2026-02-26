@@ -119,6 +119,13 @@ class GlobalCallable:
 
     ...
 
+class Closure:
+    """
+    A closure reference that can be passed back into Q#.
+    """
+
+    ...
+
 class Interpreter:
     """A Q# interpreter."""
 
@@ -169,7 +176,7 @@ class Interpreter:
         output_fn: Optional[Callable[[Output], None]],
         noise: Optional[Tuple[float, float, float]],
         qubit_loss: Optional[float],
-        callable: Optional[GlobalCallable],
+        callable: Optional[GlobalCallable | Closure],
         args: Optional[Any],
     ) -> Any:
         """
@@ -191,7 +198,7 @@ class Interpreter:
 
     def invoke(
         self,
-        callable: GlobalCallable,
+        callable: GlobalCallable | Closure,
         args: Any,
         output_fn: Callable[[Output], None],
     ) -> Any:
@@ -207,9 +214,9 @@ class Interpreter:
 
     def qir(
         self,
-        entry_expr: Optional[str],
-        callable: Optional[GlobalCallable],
-        args: Optional[Any],
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
     ) -> str:
         """
         Generates QIR from Q# source code. Either an entry expression or a callable with arguments must be provided.
@@ -228,7 +235,7 @@ class Interpreter:
         entry_expr: Optional[str] = None,
         *,
         operation: Optional[str] = None,
-        callable: Optional[GlobalCallable] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
         args: Optional[Any] = None,
     ) -> Circuit:
         """
@@ -254,9 +261,9 @@ class Interpreter:
     def estimate(
         self,
         params: str,
-        entry_expr: Optional[str],
-        callable: Optional[GlobalCallable],
-        args: Optional[Any],
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
     ) -> str:
         """
         Estimates resources for Q# source code.
@@ -272,9 +279,9 @@ class Interpreter:
 
     def logical_counts(
         self,
-        entry_expr: Optional[str],
-        callable: Optional[GlobalCallable],
-        args: Optional[Any],
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
     ) -> Dict[str, int]:
         """
         Estimates logical operation counts for Q# source code.
@@ -920,6 +927,7 @@ class NoiseConfig:
     ry: NoiseTable
     rz: NoiseTable
     cx: NoiseTable
+    cy: NoiseTable
     cz: NoiseTable
     rxx: NoiseTable
     ryy: NoiseTable
@@ -934,6 +942,20 @@ class NoiseConfig:
         """
         The noise table for a custom intrinsic.
         """
+
+    def load_csv_dir(self, dir_path: str):
+        """
+        Loads noise tables from the specified directory path. For each .csv file found in the directory,
+        the noise table is loaded and associated with a unique identifier. The name of the file (without the .csv extension)
+        is used as the label for the noise table, which should match the QIR instruction that will apply noise using this table.
+
+        Each line of the table should be of the format: "IXYZ,1.345e-4" where IXYZ is a string of Pauli operators
+        representing the error on each qubit (Z applying to the first qubit argument, Y to the second, etc.), and the second value
+        is the corresponding error probability for that specific Pauli string.
+
+        Blank lines, lines starting with #, or lines that start with the string "pauli" (i.e., a column header) are ignored.
+        """
+        ...
 
 def run_clifford(
     input: List[QirInstruction],

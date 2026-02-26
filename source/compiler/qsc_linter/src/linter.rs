@@ -157,6 +157,15 @@ impl Compilation<'_> {
     }
 }
 
+/// A code action that can be applied to fix a lint.
+#[derive(Debug, Clone)]
+pub struct CodeAction {
+    /// The title for the code action.
+    pub title: String,
+    /// The suggested edits to fix the lint.
+    pub edits: Vec<(String, Span)>,
+}
+
 /// A lint emitted by the linter.
 #[derive(Debug, Clone, thiserror::Error)]
 pub struct Lint {
@@ -170,8 +179,8 @@ pub struct Lint {
     pub help: &'static str,
     /// An enum identifying this lint.
     pub kind: LintKind,
-    /// The suggested edits to fix the lint.
-    pub code_action_edits: Vec<(String, Span)>,
+    /// An optional code action that the user can apply to fix the lint.
+    pub code_action: Option<CodeAction>,
 }
 
 impl std::hash::Hash for Lint {

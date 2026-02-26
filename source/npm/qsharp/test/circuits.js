@@ -194,8 +194,11 @@ test("circuit snapshot tests - .qsc files", async (t) => {
       const circuit = loadCircuit(file);
       const container = createContainerElement(`circuit`);
       draw(circuit, container, {
-        isEditable: true,
+        editor: {
+          editCallback: () => {},
+        },
         renderLocations,
+        renderDepth: 999999,
       });
       await checkDocumentSnapshot(tt, tt.name);
     });

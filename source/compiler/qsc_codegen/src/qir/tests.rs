@@ -58,6 +58,7 @@ fn single_qubit_call() {
         rir::CallableId(0),
         vec![rir::Operand::Literal(rir::Literal::Qubit(0))],
         None,
+        None,
     );
     expect!["  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))"]
         .assert_eq(&call.to_qir(&program));
@@ -76,6 +77,7 @@ fn qubit_rotation_call() {
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],
         None,
+        None,
     );
     expect!["  call void @__quantum__qis__rx__body(double 3.141592653589793, %Qubit* inttoptr (i64 0 to %Qubit*))"]
         .assert_eq(&call.to_qir(&program));
@@ -93,6 +95,7 @@ fn qubit_rotation_round_number_call() {
             rir::Operand::Literal(rir::Literal::Double(3.0)),
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],
+        None,
         None,
     );
     expect![
@@ -117,6 +120,7 @@ fn qubit_rotation_variable_angle_call() {
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],
         None,
+        None,
     );
     expect![
         "  call void @__quantum__qis__rx__body(double %var_0, %Qubit* inttoptr (i64 0 to %Qubit*))"
@@ -131,7 +135,6 @@ fn bell_program() {
         %Result = type opaque
         %Qubit = type opaque
 
-        @empty_tag = internal constant [1 x i8] c"\00"
         @0 = internal constant [4 x i8] c"0_a\00"
         @1 = internal constant [6 x i8] c"1_a0r\00"
         @2 = internal constant [6 x i8] c"2_a1r\00"
@@ -179,7 +182,6 @@ fn teleport_program() {
         %Result = type opaque
         %Qubit = type opaque
 
-        @empty_tag = internal constant [1 x i8] c"\00"
         @0 = internal constant [4 x i8] c"0_r\00"
 
         declare void @__quantum__qis__h__body(%Qubit*)

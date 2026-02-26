@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+pub mod attrs;
 pub mod display;
 pub mod error;
 pub mod functors;

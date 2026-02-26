@@ -34,8 +34,7 @@ use crate::{
         build_qasmstd_convert_call_with_two_params, build_range_expr, build_reset_all_call,
         build_reset_call, build_return_expr, build_return_unit, build_stmt_semi_from_expr,
         build_stmt_semi_from_expr_with_span, build_top_level_ns_with_items, build_tuple_expr,
-        build_unary_op_expr, build_unmanaged_qubit_alloc, build_unmanaged_qubit_alloc_array,
-        build_while_stmt, build_wrapped_block_expr, managed_qubit_alloc_array,
+        build_unary_op_expr, build_while_stmt, build_wrapped_block_expr, managed_qubit_alloc_array,
         map_qsharp_type_to_ast_ty, wrap_expr_in_parens,
     },
     get_semantic_errors_from_lowering_result,
@@ -59,6 +58,8 @@ use qsc_openqasm_parser::{
 
 const QSHARP_QIR_INTRINSIC_ANNOTATION: &str = "SimulatableIntrinsic";
 const QDK_QIR_INTRINSIC_ANNOTATION: &str = "qdk.qir.intrinsic";
+const QSHARP_QIR_NOISE_INTRINSIC_ANNOTATION: &str = "NoiseIntrinsic";
+const QDK_QIR_NOISE_INTRINSIC_ANNOTATION: &str = "qdk.qir.noise_intrinsic";
 const QSHARP_CONFIG_ANNOTATION: &str = "Config";
 const QDK_CONFIG_ANNOTATION: &str = "qdk.qir.profile";
 
@@ -103,12 +104,23 @@ pub fn compile_to_qsharp_ast_with_config(
         config,
         stmts: vec![],
         symbols: res.symbols,
+        qubits: vec![],
         errors,
         pragma_config: PragmaConfig::default(),
         functor_constraints: FxHashMap::default(),
     };
 
     compiler.compile(&program)
+}
+
+pub fn set_unit_entry_expr(package: &mut Package) {
+    package.entry = Some(
+        qsast::Expr {
+            kind: Box::new(qsast::ExprKind::Tuple(Box::new([]))),
+            ..Default::default()
+        }
+        .into(),
+    );
 }
 
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
@@ -164,6 +176,7 @@ pub struct QasmCompiler {
     /// The compiled statements accumulated during compilation.
     pub stmts: Vec<qsast::Stmt>,
     pub symbols: SymbolTable,
+    pub qubits: Vec<Rc<Symbol>>,
     pub errors: Vec<WithSource<crate::Error>>,
     pub pragma_config: PragmaConfig,
     /// Functor constraints for each gate, computed by the constraint solver pass.
@@ -299,7 +312,15 @@ impl QasmCompiler {
         whole_span: Span,
     ) -> (qsast::Item, OperationSignature) {
         let stmts = self.stmts.drain(..).collect::<Vec<_>>();
-        let input = self.symbols.get_input();
+        let mut input = self.symbols.get_input();
+
+        if self.config.program_ty == ProgramType::Operation {
+            if let Some(input) = &mut input {
+                input.extend(self.qubits.iter().cloned());
+            } else {
+                input = Some(self.qubits.clone());
+            }
+        }
 
         // Analyze input for `Angle` types which we can't support as it would require
         // passing a struct from Python. So we need to raise an error saying to use `float`
@@ -923,18 +944,35 @@ impl QasmCompiler {
         let qsharp_ty = self.map_semantic_type_to_qsharp_type(return_type, stmt.return_type_span);
         let return_type = map_qsharp_type_to_ast_ty(&qsharp_ty, stmt.return_type_span);
         let kind = if stmt.has_qubit_params
-            || annotations
-                .iter()
-                .any(|annotation| Self::is_simulatable_intrinsic(annotation))
-        {
+            || annotations.iter().any(|annotation| {
+                Self::is_simulatable_intrinsic(annotation) || Self::is_noise_intrinsic(annotation)
+            }) {
             qsast::CallableKind::Operation
         } else {
             qsast::CallableKind::Function
         };
 
-        let attrs = annotations
+        let mut attrs: Vec<_> = annotations
             .iter()
-            .filter_map(|annotation| self.compile_annotation(annotation));
+            .filter_map(|annotation| self.compile_annotation(annotation))
+            .collect();
+
+        // If the callable is a noise intrinsic but is missing the simulatable intrinsic
+        // attr, inject it. This is because OpenQASM callables must have bodies, so just
+        // having a @qdk.qir.noise_intrinsic in qasm won't work.
+        if let Some(annotation) = annotations
+            .iter()
+            .find(|annotation| Self::is_noise_intrinsic(annotation))
+            && !annotations
+                .iter()
+                .any(|annotation| Self::is_simulatable_intrinsic(annotation))
+        {
+            attrs.push(build_attr(
+                QSHARP_QIR_INTRINSIC_ANNOTATION,
+                annotation.value.clone(),
+                annotation.span,
+            ));
+        }
 
         // We use the same primitives used for declaring gates, because def declarations
         // in QASM can take qubits as arguments and call quantum gates.
@@ -1340,10 +1378,27 @@ impl QasmCompiler {
         let body = Some(self.compile_block(&stmt.body));
 
         // Collect attrs first to avoid borrow conflicts with functor_constraints lookup.
-        let attrs: Vec<_> = annotations
+        let mut attrs: Vec<_> = annotations
             .iter()
             .filter_map(|annotation| self.compile_annotation(annotation))
             .collect();
+
+        // If the callable is a noise intrinsic but is missing the simulatable intrinsic
+        // attr, inject it. This is because OpenQASM callables must have bodies, so just
+        // having a @qdk.qir.noise_intrinsic in qasm won't work.
+        if let Some(annotation) = annotations
+            .iter()
+            .find(|annotation| Self::is_noise_intrinsic(annotation))
+            && !annotations
+                .iter()
+                .any(|annotation| Self::is_simulatable_intrinsic(annotation))
+        {
+            attrs.push(build_attr(
+                QSHARP_QIR_INTRINSIC_ANNOTATION,
+                annotation.value.clone(),
+                annotation.span,
+            ));
+        }
 
         // Determine which functors this gate needs based on how it's called.
         // Do not compile functors if we have the simulatable intrinsic annotation.
@@ -1383,7 +1438,9 @@ impl QasmCompiler {
     fn compile_annotation(&mut self, annotation: &semast::Annotation) -> Option<qsast::Attr> {
         let name = annotation.identifier.as_string();
         match name.as_str() {
-            QSHARP_QIR_INTRINSIC_ANNOTATION | QSHARP_CONFIG_ANNOTATION => {
+            QSHARP_QIR_INTRINSIC_ANNOTATION
+            | QSHARP_QIR_NOISE_INTRINSIC_ANNOTATION
+            | QSHARP_CONFIG_ANNOTATION => {
                 Some(build_attr(name, annotation.value.clone(), annotation.span))
             }
             QDK_CONFIG_ANNOTATION => Some(build_attr(
@@ -1400,6 +1457,15 @@ impl QasmCompiler {
                     annotation.span,
                 ))
             }
+            QDK_QIR_NOISE_INTRINSIC_ANNOTATION => {
+                // Map the QDK QIR noise intrinsic annotation to the noise intrinsic annotation
+                // which is used by the Q# compiler
+                Some(build_attr(
+                    QSHARP_QIR_NOISE_INTRINSIC_ANNOTATION,
+                    annotation.value.clone(),
+                    annotation.span,
+                ))
+            }
             _ => {
                 self.push_compiler_error(CompilerErrorKind::UnknownAnnotation(
                     format!("@{name}"),
@@ -1412,12 +1478,22 @@ impl QasmCompiler {
 
     fn compile_qubit_decl_stmt(&mut self, stmt: &semast::QubitDeclaration) -> Option<qsast::Stmt> {
         let symbol = self.symbols[stmt.symbol_id].clone();
+
+        if self.config.program_ty == ProgramType::Operation {
+            self.qubits.push(symbol);
+            return None;
+        }
+
         let name = &symbol.name;
         let name_span = symbol.span;
 
         let stmt = match self.config.qubit_semantics {
-            QubitSemantics::QSharp => build_managed_qubit_alloc(name, stmt.span, name_span),
-            QubitSemantics::Qiskit => build_unmanaged_qubit_alloc(name, stmt.span, name_span),
+            QubitSemantics::QSharp => {
+                build_managed_qubit_alloc(name, stmt.span, name_span, qsast::QubitSource::Fresh)
+            }
+            QubitSemantics::Qiskit => {
+                build_managed_qubit_alloc(name, stmt.span, name_span, qsast::QubitSource::Dirty)
+            }
         };
         Some(stmt)
     }
@@ -1427,20 +1503,32 @@ impl QasmCompiler {
         stmt: &semast::QubitArrayDeclaration,
     ) -> Option<qsast::Stmt> {
         let symbol = self.symbols[stmt.symbol_id].clone();
+
+        if self.config.program_ty == ProgramType::Operation {
+            self.qubits.push(symbol);
+            return None;
+        }
+
         let name = &symbol.name;
         let name_span = symbol.span;
+        let size = stmt.size.get_const_u32()?;
 
         let stmt = match self.config.qubit_semantics {
-            QubitSemantics::QSharp => {
-                let size = stmt.size.get_const_u32()?;
-                managed_qubit_alloc_array(name, size, stmt.span, name_span, stmt.size_span)
-            }
-            QubitSemantics::Qiskit => build_unmanaged_qubit_alloc_array(
+            QubitSemantics::QSharp => managed_qubit_alloc_array(
                 name,
-                stmt.size.get_const_u32()?,
+                size,
                 stmt.span,
                 name_span,
                 stmt.size_span,
+                qsast::QubitSource::Fresh,
+            ),
+            QubitSemantics::Qiskit => managed_qubit_alloc_array(
+                name,
+                size,
+                stmt.span,
+                name_span,
+                stmt.size_span,
+                qsast::QubitSource::Dirty,
             ),
         };
         Some(stmt)
@@ -2376,6 +2464,13 @@ impl QasmCompiler {
         matches!(
             annotation.identifier.as_string().as_str(),
             QDK_QIR_INTRINSIC_ANNOTATION | QSHARP_QIR_INTRINSIC_ANNOTATION
+        )
+    }
+
+    fn is_noise_intrinsic(annotation: &semast::Annotation) -> bool {
+        matches!(
+            annotation.identifier.as_string().as_str(),
+            QDK_QIR_NOISE_INTRINSIC_ANNOTATION | QSHARP_QIR_NOISE_INTRINSIC_ANNOTATION
         )
     }
 

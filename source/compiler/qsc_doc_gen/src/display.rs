@@ -486,6 +486,11 @@ struct HirUdtField<'a> {
 
 impl Display for HirUdtField<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        if let Some(doc) = &self.field.doc {
+            for line in doc.lines() {
+                writeln!(f, "/// {line}")?;
+            }
+        }
         if let Some(name) = &self.field.name {
             write!(f, "{name} : ")?;
         }
@@ -591,7 +596,7 @@ struct TyDef<'a> {
 impl Display for TyDef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.def.kind.as_ref() {
-            ast::TyDefKind::Field(name, ty) => match name {
+            ast::TyDefKind::Field(name, ty, _) => match name {
                 Some(name) => write!(f, "{} : {}", name.name, AstTy { ty }),
                 None => write!(f, "{}", AstTy { ty }),
             },
@@ -720,11 +725,12 @@ fn as_struct(ty_def: &ast::TyDef) -> Option<Vec<ast::FieldDef>> {
             for field in fields {
                 let field = remove_parens(field);
                 match field.kind.as_ref() {
-                    ast::TyDefKind::Field(Some(name), field_ty) => {
+                    ast::TyDefKind::Field(Some(name), field_ty, doc) => {
                         converted_fields.push(ast::FieldDef {
                             id: field.id,
                             span: field.span,
                             name: name.clone(),
+                            doc: doc.as_ref().map(Rc::clone),
                             ty: field_ty.clone(),
                         });
                     }

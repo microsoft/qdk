@@ -129,6 +129,7 @@ fn call_instr_matching_types_passes_check() {
                 variable_id: VariableId(1),
                 ty: Ty::Integer,
             }),
+            None,
         ),
     );
 }
@@ -163,6 +164,7 @@ fn call_instr_mismatching_output_types_fails_check() {
                 variable_id: VariableId(1),
                 ty: Ty::Boolean,
             }),
+            None,
         ),
     );
 }
@@ -191,6 +193,7 @@ fn call_instr_mismatching_input_types_fails_check() {
                 variable_id: VariableId(0),
                 ty: Ty::Integer,
             }),
+            None,
         ),
     );
 }
@@ -225,6 +228,7 @@ fn call_instr_too_many_args_fails_check() {
                 variable_id: VariableId(1),
                 ty: Ty::Integer,
             }),
+            None,
         ),
     );
 }
@@ -249,7 +253,10 @@ fn call_instr_no_return_type_no_output_var_passes_check() {
         },
     );
 
-    check_instr_types(&program, &Instruction::Call(CallableId(0), vec![opr], None));
+    check_instr_types(
+        &program,
+        &Instruction::Call(CallableId(0), vec![opr], None, None),
+    );
 }
 
 #[test]
@@ -275,7 +282,10 @@ fn call_instr_return_type_without_output_var_fails() {
         },
     );
 
-    check_instr_types(&program, &Instruction::Call(CallableId(0), vec![opr], None));
+    check_instr_types(
+        &program,
+        &Instruction::Call(CallableId(0), vec![opr], None, None),
+    );
 }
 
 #[test]
@@ -310,6 +320,7 @@ fn call_instr_output_var_without_return_type_fails() {
                 variable_id: VariableId(1),
                 ty: Ty::Integer,
             }),
+            None,
         ),
     );
 }

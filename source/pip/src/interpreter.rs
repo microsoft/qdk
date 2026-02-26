@@ -48,7 +48,10 @@ use qsc::{
         self, CircuitEntryPoint, PauliNoise, TaggedItem, Value,
         output::{Error, Receiver},
     },
-    openqasm::{CompilerConfig, QubitSemantics, compiler::compile_to_qsharp_ast_with_config},
+    openqasm::{
+        CompilerConfig, QubitSemantics,
+        compiler::{compile_to_qsharp_ast_with_config, set_unit_entry_expr},
+    },
     packages::BuildableProgram,
     project::{FileSystem, PackageCache, PackageGraphSources, ProjectType},
     target::Profile,
@@ -113,6 +116,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_class::<CircuitGenerationMethod>()?;
     m.add_class::<Circuit>()?;
     m.add_class::<GlobalCallable>()?;
+    m.add_class::<Closure>()?;
     m.add_class::<UdtValue>()?;
     m.add_class::<TypeIR>()?;
     m.add_class::<TypeKind>()?;
@@ -609,7 +613,12 @@ impl Interpreter {
         );
         let res = qsc::openqasm::semantic::parse_sources(&sources);
         let unit = compile_to_qsharp_ast_with_config(res, config);
-        let (sources, errors, package, _, _) = unit.into_tuple();
+        let (sources, errors, mut package, _, _) = unit.into_tuple();
+
+        // Explicitly set the entry expression for the package. This avoids having the call to `eval_ast_fragments`
+        // below have the side-effect of executing the code, which might have a callable marked as `@EntryPoint`
+        // if the program type is `File` and the QASM code has no unbound inputs.
+        set_unit_entry_expr(&mut package);
 
         if !errors.is_empty() {
             let errors = errors
@@ -695,10 +704,16 @@ impl Interpreter {
         callback: Option<Py<PyAny>>,
         noise: Option<(f64, f64, f64)>,
         qubit_loss: Option<f64>,
-        callable: Option<GlobalCallable>,
+        callable: Option<Py<PyAny>>,
         args: Option<Py<PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let mut receiver = OptionalCallbackReceiver { callback, py };
+
+        let callable_val = if let Some(callable) = callable {
+            Some(extract_callable_value(py, &callable)?)
+        } else {
+            None
+        };
 
         let noise = match noise {
             None => None,
@@ -708,21 +723,16 @@ impl Interpreter {
             },
         };
 
-        let result = match callable {
+        let result = match callable_val {
             Some(callable) => {
                 let (input_ty, output_ty) = self
                     .interpreter
-                    .global_callable_ty(&callable.0)
+                    .global_callable_ty(&callable)
                     .ok_or(QSharpError::new_err("callable not found"))?;
                 let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
 
-                self.interpreter.invoke_with_noise(
-                    &mut receiver,
-                    callable.0,
-                    args,
-                    noise,
-                    qubit_loss,
-                )
+                self.interpreter
+                    .invoke_with_noise(&mut receiver, callable, args, noise, qubit_loss)
             }
             _ => self
                 .interpreter
@@ -736,22 +746,24 @@ impl Interpreter {
     }
 
     #[pyo3(signature=(callable, args=None, callback=None))]
+    #[allow(clippy::needless_pass_by_value)]
     fn invoke(
         &mut self,
         py: Python,
-        callable: GlobalCallable,
+        callable: Py<PyAny>,
         args: Option<Py<PyAny>>,
         callback: Option<Py<PyAny>>,
     ) -> PyResult<Py<PyAny>> {
+        let callable = extract_callable_value(py, &callable)?;
         let mut receiver = OptionalCallbackReceiver { callback, py };
         let (input_ty, output_ty) = self
             .interpreter
-            .global_callable_ty(&callable.0)
+            .global_callable_ty(&callable)
             .ok_or(QSharpError::new_err("callable not found"))?;
 
         let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
 
-        match self.interpreter.invoke(&mut receiver, callable.0, args) {
+        match self.interpreter.invoke(&mut receiver, callable, args) {
             Ok(value) => value_to_pyobj(&self.interpreter, py, &value),
             Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
         }
@@ -762,7 +774,7 @@ impl Interpreter {
         &mut self,
         py: Python,
         entry_expr: Option<&str>,
-        callable: Option<GlobalCallable>,
+        callable: Option<Py<PyAny>>,
         args: Option<Py<PyAny>>,
     ) -> PyResult<String> {
         if let Some(entry_expr) = entry_expr {
@@ -774,13 +786,14 @@ impl Interpreter {
             let callable = callable.ok_or_else(|| {
                 QSharpError::new_err("either entry_expr or callable must be specified")
             })?;
+            let callable = extract_callable_value(py, &callable)?;
             let (input_ty, output_ty) = self
                 .interpreter
-                .global_callable_ty(&callable.0)
+                .global_callable_ty(&callable)
                 .ok_or(QSharpError::new_err("callable not found"))?;
 
             let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
-            match self.interpreter.qirgen_from_callable(&callable.0, args) {
+            match self.interpreter.qirgen_from_callable(&callable, args) {
                 Ok(qir) => Ok(qir),
                 Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
             }
@@ -810,19 +823,20 @@ impl Interpreter {
         config: &CircuitConfig,
         entry_expr: Option<String>,
         operation: Option<String>,
-        callable: Option<GlobalCallable>,
+        callable: Option<Py<PyAny>>,
         args: Option<Py<PyAny>>,
     ) -> PyResult<Py<PyAny>> {
         let entrypoint = match (entry_expr, operation, callable) {
             (Some(entry_expr), None, None) => CircuitEntryPoint::EntryExpr(entry_expr),
             (None, Some(operation), None) => CircuitEntryPoint::Operation(operation),
             (None, None, Some(callable)) => {
+                let callable = extract_callable_value(py, &callable)?;
                 let (input_ty, output_ty) = self
                     .interpreter
-                    .global_callable_ty(&callable.0)
+                    .global_callable_ty(&callable)
                     .ok_or(QSharpError::new_err("callable not found"))?;
                 let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
-                CircuitEntryPoint::Callable(callable.0, args)
+                CircuitEntryPoint::Callable(callable, args)
             }
             _ => {
                 return Err(PyException::new_err(
@@ -861,7 +875,7 @@ impl Interpreter {
         py: Python,
         job_params: &str,
         entry_expr: Option<&str>,
-        callable: Option<GlobalCallable>,
+        callable: Option<Py<PyAny>>,
         args: Option<Py<PyAny>>,
     ) -> PyResult<String> {
         let results = if let Some(entry_expr) = entry_expr {
@@ -870,12 +884,13 @@ impl Interpreter {
             let callable = callable.ok_or_else(|| {
                 QSharpError::new_err("either entry_expr or callable must be specified")
             })?;
+            let callable = extract_callable_value(py, &callable)?;
             let (input_ty, output_ty) = self
                 .interpreter
-                .global_callable_ty(&callable.0)
+                .global_callable_ty(&callable)
                 .ok_or(QSharpError::new_err("callable not found"))?;
             let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
-            estimate_call(&mut self.interpreter, callable.0, args, job_params)
+            estimate_call(&mut self.interpreter, callable, args, job_params)
         };
         match results {
             Ok(estimate) => Ok(estimate),
@@ -908,7 +923,7 @@ impl Interpreter {
         &mut self,
         py: Python<'a>,
         entry_expr: Option<&str>,
-        callable: Option<GlobalCallable>,
+        callable: Option<Py<PyAny>>,
         args: Option<Py<PyAny>>,
     ) -> PyResult<Bound<'a, PyDict>> {
         let results = if let Some(entry_expr) = entry_expr {
@@ -917,12 +932,13 @@ impl Interpreter {
             let callable = callable.ok_or_else(|| {
                 QSharpError::new_err("either entry_expr or callable must be specified")
             })?;
+            let callable = extract_callable_value(py, &callable)?;
             let (input_ty, output_ty) = self
                 .interpreter
-                .global_callable_ty(&callable.0)
+                .global_callable_ty(&callable)
                 .ok_or(QSharpError::new_err("callable not found"))?;
             let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
-            logical_counts_call(&mut self.interpreter, callable.0, args)
+            logical_counts_call(&mut self.interpreter, callable, args)
         };
         match results {
             Ok(counts) => {
@@ -1052,7 +1068,20 @@ where
 
             None
         }
-        Ty::Arrow(..) | Ty::Infer(..) | Ty::Param { .. } | Ty::Err => Some(ty),
+        Ty::Arrow(..) => None,
+        Ty::Infer(..) | Ty::Param { .. } | Ty::Err => Some(ty),
+    }
+}
+
+fn extract_callable_value(py: Python, callable: &Py<PyAny>) -> PyResult<Value> {
+    if let Ok(global_callable) = callable.extract::<GlobalCallable>(py) {
+        Ok(global_callable.0)
+    } else if let Ok(closure) = callable.extract::<Closure>(py) {
+        Ok(closure.0)
+    } else {
+        Err(PyException::new_err(
+            "callable must be either a GlobalCallable or a Closure",
+        ))
     }
 }
 
@@ -1445,6 +1474,25 @@ impl From<Value> for GlobalCallable {
 
 impl From<GlobalCallable> for Value {
     fn from(val: GlobalCallable) -> Self {
+        val.0
+    }
+}
+
+#[pyclass(unsendable)]
+#[derive(Clone)]
+struct Closure(Value);
+
+impl From<Value> for Closure {
+    fn from(val: Value) -> Self {
+        match val {
+            val @ Value::Closure(..) => Closure(val),
+            _ => panic!("expected closure"),
+        }
+    }
+}
+
+impl From<Closure> for Value {
+    fn from(val: Closure) -> Self {
         val.0
     }
 }

@@ -38,7 +38,7 @@ def run(
     ] = None,
     qubit_loss: Optional[float] = None,
     as_bitstring: bool = False,
-    **kwargs: Optional[Dict[str, Any]],
+    **kwargs: Any,
 ) -> List[Any]:
     """
     Runs the given OpenQASM program for the given number of shots.

@@ -1422,6 +1422,9 @@ pub enum Attr {
     /// Indicates that an intrinsic callable is a reset. This means that the operation will be marked as
     /// "irreversible" in the generated QIR.
     Reset,
+    /// Indicates that an intrinsic callable is a noise intrinsic. This means that the operation will be marked as
+    /// `"qdk_noise"` in the generated QIR.
+    NoiseIntrinsic,
     /// Indicates that a callable is a test case.
     Test,
 }
@@ -1441,6 +1444,7 @@ The `not` operator is also supported to negate the attribute, e.g. `not Adaptive
             Attr::SimulatableIntrinsic => "Indicates that an item should be treated as an intrinsic callable for QIR code generation and any implementation should only be used during simulation.",
             Attr::Measurement => "Indicates that an intrinsic callable is a measurement. This means that the operation will be marked as \"irreversible\" in the generated QIR, and output Result types will be moved to the arguments.",
             Attr::Reset => "Indicates that an intrinsic callable is a reset. This means that the operation will be marked as \"irreversible\" in the generated QIR.",
+            Attr::NoiseIntrinsic => "Indicates that an intrinsic callable is a noise intrinsic. This means that the operation will be marked as \"qdk_noise\" in the generated QIR.",
             Attr::Test =>  "Indicates that a callable is a test case.",
         }
     }
@@ -1457,6 +1461,7 @@ impl FromStr for Attr {
             "SimulatableIntrinsic" => Ok(Self::SimulatableIntrinsic),
             "Measurement" => Ok(Self::Measurement),
             "Reset" => Ok(Self::Reset),
+            "NoiseIntrinsic" => Ok(Self::NoiseIntrinsic),
             "Test" => Ok(Self::Test),
             _ => Err(()),
         }

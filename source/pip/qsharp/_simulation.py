@@ -236,6 +236,8 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             or callee_name == "__quantum__rt__begin_parallel"
             or callee_name == "__quantum__rt__end_parallel"
             or callee_name == "__quantum__qis__barrier__body"
+            # We only hit this during noiseless simulations
+            or "qdk_noise" in call.callee.attributes.func
         ):
             pass
         else:
@@ -262,6 +264,10 @@ class CorrelatedNoisePass(AggregateGatesPass):
                     [pyqir.qubit_id(arg) for arg in call.args],
                 )
             )
+        elif "qdk_noise" in call.callee.attributes.func:
+            # If we are running a noisy simulation, we treat
+            # missing noise intrinsics as an error.
+            raise ValueError(f"Missing noise intrinsic: {callee_name}")
         else:
             super()._on_call_instr(call)
 
@@ -289,6 +295,10 @@ class GpuCorrelatedNoisePass(AggregateGatesPass):
                     [pyqir.qubit_id(qubit) for qubit in call.args],  # qubit args
                 )
             )
+        elif "qdk_noise" in call.callee.attributes.func:
+            # If we are running a noisy simulation, we treat
+            # missing noise intrinsics as an error.
+            raise ValueError(f"Missing noise intrinsic: {callee_name}")
         else:
             super()._on_call_instr(call)
 

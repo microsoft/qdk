@@ -198,3 +198,7 @@ macro_rules! handle_error {
 }
 
 pub(crate) use handle_error;
+
+pub(crate) fn eq_with_tolerance(left: f64, right: f64, tolerance: f64) -> bool {
+    (left - right).abs() <= tolerance
+}

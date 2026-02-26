@@ -343,6 +343,7 @@ impl With<'_> {
         ids
     }
 
+    #[allow(clippy::too_many_lines)]
     fn lower_attr(&mut self, attr: &ast::Attr) -> Option<hir::Attr> {
         match hir::Attr::from_str(attr.name.name.as_ref()) {
             Ok(hir::Attr::EntryPoint) => match &*attr.arg.kind {
@@ -418,6 +419,15 @@ impl With<'_> {
             },
             Ok(hir::Attr::Reset) => match &*attr.arg.kind {
                 ast::ExprKind::Tuple(args) if args.is_empty() => Some(hir::Attr::Reset),
+                _ => {
+                    self.lowerer
+                        .errors
+                        .push(Error::InvalidAttrArgs("()".to_string(), attr.arg.span));
+                    None
+                }
+            },
+            Ok(hir::Attr::NoiseIntrinsic) => match &*attr.arg.kind {
+                ast::ExprKind::Tuple(args) if args.is_empty() => Some(hir::Attr::NoiseIntrinsic),
                 _ => {
                     self.lowerer
                         .errors
@@ -545,7 +555,11 @@ impl With<'_> {
     }
 
     fn check_invalid_attrs_on_function(&mut self, attrs: &[hir::Attr], span: Span) {
-        const INVALID_ATTRS: [hir::Attr; 2] = [hir::Attr::Measurement, hir::Attr::Reset];
+        const INVALID_ATTRS: [hir::Attr; 3] = [
+            hir::Attr::Measurement,
+            hir::Attr::Reset,
+            hir::Attr::NoiseIntrinsic,
+        ];
 
         for invalid_attr in &INVALID_ATTRS {
             if attrs.contains(invalid_attr) {

@@ -303,7 +303,7 @@ impl<'package, T: Handler<'package>> Visitor<'package> for Locator<'_, 'package,
     // Handles UDT field definitions
     fn visit_ty_def(&mut self, def: &'package ast::TyDef) {
         if def.span.contains(self.offset) {
-            if let ast::TyDefKind::Field(ident, ty) = &*def.kind {
+            if let ast::TyDefKind::Field(ident, ty, _) = &*def.kind {
                 if let Some(ident) = ident {
                     if ident.span.touches(self.offset) {
                         self.inner.at_field_def(&self.context, ident, ty);

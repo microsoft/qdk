@@ -1,0 +1,3560 @@
+{
+  "circuits": [
+    {
+      "qubits": [
+        {
+          "id": 0,
+          "numResults": 3
+        },
+        {
+          "id": 1,
+          "numResults": 1
+        },
+        {
+          "id": 2,
+          "numResults": 1
+        },
+        {
+          "id": 3,
+          "numResults": 1
+        },
+        {
+          "id": 4,
+          "numResults": 1
+        },
+        {
+          "id": 5,
+          "numResults": 1
+        },
+        {
+          "id": 6,
+          "numResults": 1
+        },
+        {
+          "id": 7,
+          "numResults": 1
+        },
+        {
+          "id": 8,
+          "numResults": 1
+        },
+        {
+          "id": 9,
+          "numResults": 1
+        },
+        {
+          "id": 10,
+          "numResults": 1
+        },
+        {
+          "id": 11,
+          "numResults": 1
+        },
+        {
+          "id": 12,
+          "numResults": 1
+        },
+        {
+          "id": 13,
+          "numResults": 1
+        },
+        {
+          "id": 14,
+          "numResults": 1
+        },
+        {
+          "id": 15,
+          "numResults": 1
+        },
+        {
+          "id": 16,
+          "numResults": 1
+        },
+        {
+          "id": 17,
+          "numResults": 1
+        },
+        {
+          "id": 18,
+          "numResults": 1
+        },
+        {
+          "id": 19,
+          "numResults": 1
+        },
+        {
+          "id": 20,
+          "numResults": 1
+        },
+        {
+          "id": 21,
+          "numResults": 1
+        },
+        {
+          "id": 22,
+          "numResults": 0
+        },
+        {
+          "id": 23,
+          "numResults": 1
+        },
+        {
+          "id": 24,
+          "numResults": 0
+        },
+        {
+          "id": 25,
+          "numResults": 2
+        },
+        {
+          "id": 26,
+          "numResults": 0
+        },
+        {
+          "id": 27,
+          "numResults": 1
+        },
+        {
+          "id": 28,
+          "numResults": 1
+        },
+        {
+          "id": 29,
+          "numResults": 0
+        },
+        {
+          "id": 30,
+          "numResults": 1
+        },
+        {
+          "id": 31,
+          "numResults": 1
+        }
+      ],
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Main",
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "ResultComparisonToLiteral",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 0
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 0,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_0 = |1〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "X",
+                                      "targets": [
+                                        {
+                                          "qubit": 0
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 0
+                                },
+                                {
+                                  "qubit": 0,
+                                  "result": 0
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 0,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 0,
+                                      "result": 0
+                                    },
+                                    0
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 0
+                        },
+                        {
+                          "qubit": 0,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "ResultComparisonToLiteralZero",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 1
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 1
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 1,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_1 = |0〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "X",
+                                      "targets": [
+                                        {
+                                          "qubit": 1
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 1
+                                },
+                                {
+                                  "qubit": 1,
+                                  "result": 0
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 1,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 1,
+                                      "result": 0
+                                    },
+                                    1
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 1
+                        },
+                        {
+                          "qubit": 1,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "ElseBlockOnly",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 2
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 2
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 2,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_2 = |1〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "X",
+                                      "targets": [
+                                        {
+                                          "qubit": 2
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 2
+                                },
+                                {
+                                  "qubit": 2,
+                                  "result": 0
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 2,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 2,
+                                      "result": 0
+                                    },
+                                    2
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 2
+                        },
+                        {
+                          "qubit": 2,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "ResultComparisonToResult",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 3
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 4
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 3
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 3,
+                                  "result": 0
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 4
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 4,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_3c_4 = |00〉 or c_3c_4 = |11〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "X",
+                                      "targets": [
+                                        {
+                                          "qubit": 3
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 3
+                                },
+                                {
+                                  "qubit": 3,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 4,
+                                  "result": 0
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 3,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 4,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 3,
+                                      "result": 0
+                                    },
+                                    3
+                                  ],
+                                  [
+                                    {
+                                      "qubit": 4,
+                                      "result": 0
+                                    },
+                                    4
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 3
+                        },
+                        {
+                          "qubit": 3,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 4
+                        },
+                        {
+                          "qubit": 4,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "ResultComparisonEmptyBlock",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 5
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 6
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 5
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 5,
+                                  "result": 0
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 6
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 6,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 5
+                        },
+                        {
+                          "qubit": 5,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 6
+                        },
+                        {
+                          "qubit": 6,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "IfElse",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 7
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 7
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 7,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_7 = |1〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "X",
+                                      "targets": [
+                                        {
+                                          "qubit": 8
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 7,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 8
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 7,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 7,
+                                      "result": 0
+                                    },
+                                    7
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_7 = |0〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "Y",
+                                      "targets": [
+                                        {
+                                          "qubit": 8
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 7,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 8
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 7,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 7,
+                                      "result": 0
+                                    },
+                                    7
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 8
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 8,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 7
+                        },
+                        {
+                          "qubit": 7,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 8
+                        },
+                        {
+                          "qubit": 8,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "SequentialIfs",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 9
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 10
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 9
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 9,
+                                  "result": 0
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 10
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 10,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_9 = |1〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "X",
+                                      "targets": [
+                                        {
+                                          "qubit": 11
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 9,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 11
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 9,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 9,
+                                      "result": 0
+                                    },
+                                    9
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_9 = |0〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "Z",
+                                      "targets": [
+                                        {
+                                          "qubit": 11
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 9,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 11
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 9,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 9,
+                                      "result": 0
+                                    },
+                                    9
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_10 = |1〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "X",
+                                      "targets": [
+                                        {
+                                          "qubit": 11
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 10,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 11
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 10,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 10,
+                                      "result": 0
+                                    },
+                                    10
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_10 = |0〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "Y",
+                                      "targets": [
+                                        {
+                                          "qubit": 11
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 10,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 11
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 10,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 10,
+                                      "result": 0
+                                    },
+                                    10
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 11
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 11,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 9
+                        },
+                        {
+                          "qubit": 9,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 10
+                        },
+                        {
+                          "qubit": 10,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 11
+                        },
+                        {
+                          "qubit": 11,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "NestedIfs",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 12
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 13
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 12
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 12,
+                                  "result": 0
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 13
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 13,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_12 = |1〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "if: c_13 = |1〉",
+                                      "children": [
+                                        {
+                                          "components": [
+                                            {
+                                              "kind": "unitary",
+                                              "gate": "X",
+                                              "targets": [
+                                                {
+                                                  "qubit": 14
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ],
+                                      "targets": [
+                                        {
+                                          "qubit": 12,
+                                          "result": 0
+                                        },
+                                        {
+                                          "qubit": 13,
+                                          "result": 0
+                                        },
+                                        {
+                                          "qubit": 14
+                                        }
+                                      ],
+                                      "controls": [
+                                        {
+                                          "qubit": 12,
+                                          "result": 0
+                                        },
+                                        {
+                                          "qubit": 13,
+                                          "result": 0
+                                        }
+                                      ],
+                                      "isConditional": true,
+                                      "metadata": {
+                                        "controlResultIds": [
+                                          [
+                                            {
+                                              "qubit": 12,
+                                              "result": 0
+                                            },
+                                            12
+                                          ],
+                                          [
+                                            {
+                                              "qubit": 13,
+                                              "result": 0
+                                            },
+                                            13
+                                          ]
+                                        ]
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "if: c_13 = |0〉",
+                                      "children": [
+                                        {
+                                          "components": [
+                                            {
+                                              "kind": "unitary",
+                                              "gate": "Y",
+                                              "targets": [
+                                                {
+                                                  "qubit": 14
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ],
+                                      "targets": [
+                                        {
+                                          "qubit": 12,
+                                          "result": 0
+                                        },
+                                        {
+                                          "qubit": 13,
+                                          "result": 0
+                                        },
+                                        {
+                                          "qubit": 14
+                                        }
+                                      ],
+                                      "controls": [
+                                        {
+                                          "qubit": 12,
+                                          "result": 0
+                                        },
+                                        {
+                                          "qubit": 13,
+                                          "result": 0
+                                        }
+                                      ],
+                                      "isConditional": true,
+                                      "metadata": {
+                                        "controlResultIds": [
+                                          [
+                                            {
+                                              "qubit": 12,
+                                              "result": 0
+                                            },
+                                            12
+                                          ],
+                                          [
+                                            {
+                                              "qubit": 13,
+                                              "result": 0
+                                            },
+                                            13
+                                          ]
+                                        ]
+                                      }
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 12,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 13,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 14
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 12,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 12,
+                                      "result": 0
+                                    },
+                                    12
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_12 = |0〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "Z",
+                                      "targets": [
+                                        {
+                                          "qubit": 14
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 12,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 14
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 12,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 12,
+                                      "result": 0
+                                    },
+                                    12
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 14
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 14,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 12
+                        },
+                        {
+                          "qubit": 12,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 13
+                        },
+                        {
+                          "qubit": 13,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 14
+                        },
+                        {
+                          "qubit": 14,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "MultiplePossibleFloatValuesInUnitaryArg",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 15
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 15
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 15,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "using: c_15",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "Rx",
+                                      "args": [
+                                        "f(c_15)"
+                                      ],
+                                      "targets": [
+                                        {
+                                          "qubit": 16
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 15,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 16
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 15,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 15,
+                                      "result": 0
+                                    },
+                                    15
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 16
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 16,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 15
+                        },
+                        {
+                          "qubit": 15,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 16
+                        },
+                        {
+                          "qubit": 16,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "CustomIntrinsicVariableArg",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 17
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 17
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 17,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "using: c_17",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "foo",
+                                      "args": [
+                                        "f(c_17)"
+                                      ],
+                                      "targets": [
+                                        {
+                                          "qubit": 17
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 17
+                                },
+                                {
+                                  "qubit": 17,
+                                  "result": 0
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 17,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 17,
+                                      "result": 0
+                                    },
+                                    17
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 17
+                        },
+                        {
+                          "qubit": 17,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "BranchOnDynamicDouble",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 18
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 18
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 18,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "using: c_18",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "Rx",
+                                      "args": [
+                                        "f(c_18)"
+                                      ],
+                                      "targets": [
+                                        {
+                                          "qubit": 19
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 18,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 19
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 18,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 18,
+                                      "result": 0
+                                    },
+                                    18
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 19
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 19,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 18
+                        },
+                        {
+                          "qubit": 18,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 19
+                        },
+                        {
+                          "qubit": 19,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "BranchOnDynamicBool",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 20
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 20
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 20,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: f(c_20)",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "X",
+                                      "targets": [
+                                        {
+                                          "qubit": 21
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 20,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 21
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 20,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 20,
+                                      "result": 0
+                                    },
+                                    20
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 21
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 21,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 20
+                        },
+                        {
+                          "qubit": 20,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 21
+                        },
+                        {
+                          "qubit": 21,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "NestedCallablesInBranch",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "Foo",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "Bar",
+                                      "children": [
+                                        {
+                                          "components": [
+                                            {
+                                              "kind": "unitary",
+                                              "gate": "X",
+                                              "targets": [
+                                                {
+                                                  "qubit": 22
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "components": [
+                                            {
+                                              "kind": "unitary",
+                                              "gate": "Y",
+                                              "targets": [
+                                                {
+                                                  "qubit": 22
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ],
+                                      "targets": [
+                                        {
+                                          "qubit": 22
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 22
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 23
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 23
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 23,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_22 = |1〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "Foo",
+                                      "children": [
+                                        {
+                                          "components": [
+                                            {
+                                              "kind": "unitary",
+                                              "gate": "Bar",
+                                              "children": [
+                                                {
+                                                  "components": [
+                                                    {
+                                                      "kind": "unitary",
+                                                      "gate": "X",
+                                                      "targets": [
+                                                        {
+                                                          "qubit": 22
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                },
+                                                {
+                                                  "components": [
+                                                    {
+                                                      "kind": "unitary",
+                                                      "gate": "Y",
+                                                      "targets": [
+                                                        {
+                                                          "qubit": 22
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ],
+                                              "targets": [
+                                                {
+                                                  "qubit": 22
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ],
+                                      "targets": [
+                                        {
+                                          "qubit": 22
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 22
+                                },
+                                {
+                                  "qubit": 23,
+                                  "result": 0
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 23,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 23,
+                                      "result": 0
+                                    },
+                                    22
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 22
+                        },
+                        {
+                          "qubit": 23
+                        },
+                        {
+                          "qubit": 23,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "ConditionalInLoop",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 25
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 25,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "ket",
+                              "gate": "0",
+                              "targets": [
+                                {
+                                  "qubit": 25
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 25
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 25,
+                                  "result": 1
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "ket",
+                              "gate": "0",
+                              "targets": [
+                                {
+                                  "qubit": 25
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "loop: 0..1",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "(1)",
+                                      "children": [
+                                        {
+                                          "components": [
+                                            {
+                                              "kind": "unitary",
+                                              "gate": "if: c_23 = |1〉",
+                                              "children": [
+                                                {
+                                                  "components": [
+                                                    {
+                                                      "kind": "unitary",
+                                                      "gate": "X",
+                                                      "targets": [
+                                                        {
+                                                          "qubit": 24
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ],
+                                              "targets": [
+                                                {
+                                                  "qubit": 24
+                                                },
+                                                {
+                                                  "qubit": 25,
+                                                  "result": 0
+                                                }
+                                              ],
+                                              "controls": [
+                                                {
+                                                  "qubit": 25,
+                                                  "result": 0
+                                                }
+                                              ],
+                                              "isConditional": true,
+                                              "metadata": {
+                                                "controlResultIds": [
+                                                  [
+                                                    {
+                                                      "qubit": 25,
+                                                      "result": 0
+                                                    },
+                                                    23
+                                                  ]
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ],
+                                      "targets": [
+                                        {
+                                          "qubit": 24
+                                        },
+                                        {
+                                          "qubit": 25,
+                                          "result": 0
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "(2)",
+                                      "children": [
+                                        {
+                                          "components": [
+                                            {
+                                              "kind": "unitary",
+                                              "gate": "if: c_24 = |1〉",
+                                              "children": [
+                                                {
+                                                  "components": [
+                                                    {
+                                                      "kind": "unitary",
+                                                      "gate": "X",
+                                                      "targets": [
+                                                        {
+                                                          "qubit": 24
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ],
+                                              "targets": [
+                                                {
+                                                  "qubit": 24
+                                                },
+                                                {
+                                                  "qubit": 25,
+                                                  "result": 1
+                                                }
+                                              ],
+                                              "controls": [
+                                                {
+                                                  "qubit": 25,
+                                                  "result": 1
+                                                }
+                                              ],
+                                              "isConditional": true,
+                                              "metadata": {
+                                                "controlResultIds": [
+                                                  [
+                                                    {
+                                                      "qubit": 25,
+                                                      "result": 1
+                                                    },
+                                                    24
+                                                  ]
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ],
+                                      "targets": [
+                                        {
+                                          "qubit": 24
+                                        },
+                                        {
+                                          "qubit": 25,
+                                          "result": 1
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 24
+                                },
+                                {
+                                  "qubit": 25,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 25,
+                                  "result": 1
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "loop: 0..1",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "(1)",
+                                      "children": [
+                                        {
+                                          "components": [
+                                            {
+                                              "kind": "unitary",
+                                              "gate": "Baz",
+                                              "children": [
+                                                {
+                                                  "components": [
+                                                    {
+                                                      "kind": "unitary",
+                                                      "gate": "H",
+                                                      "targets": [
+                                                        {
+                                                          "qubit": 24
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ],
+                                              "targets": [
+                                                {
+                                                  "qubit": 24
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ],
+                                      "targets": [
+                                        {
+                                          "qubit": 24
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "(2)",
+                                      "children": [
+                                        {
+                                          "components": [
+                                            {
+                                              "kind": "unitary",
+                                              "gate": "Baz",
+                                              "children": [
+                                                {
+                                                  "components": [
+                                                    {
+                                                      "kind": "unitary",
+                                                      "gate": "H",
+                                                      "targets": [
+                                                        {
+                                                          "qubit": 24
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ],
+                                              "targets": [
+                                                {
+                                                  "qubit": 24
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ],
+                                      "targets": [
+                                        {
+                                          "qubit": 24
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 24
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 24
+                        },
+                        {
+                          "qubit": 25
+                        },
+                        {
+                          "qubit": 25,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 25,
+                          "result": 1
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "NestedConditionalsInCallable",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 27
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 27,
+                                  "result": 0
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 28
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 28,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "ket",
+                              "gate": "0",
+                              "targets": [
+                                {
+                                  "qubit": 27
+                                }
+                              ]
+                            },
+                            {
+                              "kind": "ket",
+                              "gate": "0",
+                              "targets": [
+                                {
+                                  "qubit": 28
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "Quux",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "if: c_25 = |0〉",
+                                      "children": [
+                                        {
+                                          "components": [
+                                            {
+                                              "kind": "unitary",
+                                              "gate": "if: c_26 = |1〉",
+                                              "children": [
+                                                {
+                                                  "components": [
+                                                    {
+                                                      "kind": "unitary",
+                                                      "gate": "X",
+                                                      "targets": [
+                                                        {
+                                                          "qubit": 26
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ],
+                                              "targets": [
+                                                {
+                                                  "qubit": 26
+                                                },
+                                                {
+                                                  "qubit": 27,
+                                                  "result": 0
+                                                },
+                                                {
+                                                  "qubit": 28,
+                                                  "result": 0
+                                                }
+                                              ],
+                                              "controls": [
+                                                {
+                                                  "qubit": 27,
+                                                  "result": 0
+                                                },
+                                                {
+                                                  "qubit": 28,
+                                                  "result": 0
+                                                }
+                                              ],
+                                              "isConditional": true,
+                                              "metadata": {
+                                                "controlResultIds": [
+                                                  [
+                                                    {
+                                                      "qubit": 27,
+                                                      "result": 0
+                                                    },
+                                                    25
+                                                  ],
+                                                  [
+                                                    {
+                                                      "qubit": 28,
+                                                      "result": 0
+                                                    },
+                                                    26
+                                                  ]
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "components": [
+                                            {
+                                              "kind": "unitary",
+                                              "gate": "if: c_26 = |0〉",
+                                              "children": [
+                                                {
+                                                  "components": [
+                                                    {
+                                                      "kind": "unitary",
+                                                      "gate": "Z",
+                                                      "targets": [
+                                                        {
+                                                          "qubit": 26
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ],
+                                              "targets": [
+                                                {
+                                                  "qubit": 26
+                                                },
+                                                {
+                                                  "qubit": 27,
+                                                  "result": 0
+                                                },
+                                                {
+                                                  "qubit": 28,
+                                                  "result": 0
+                                                }
+                                              ],
+                                              "controls": [
+                                                {
+                                                  "qubit": 27,
+                                                  "result": 0
+                                                },
+                                                {
+                                                  "qubit": 28,
+                                                  "result": 0
+                                                }
+                                              ],
+                                              "isConditional": true,
+                                              "metadata": {
+                                                "controlResultIds": [
+                                                  [
+                                                    {
+                                                      "qubit": 27,
+                                                      "result": 0
+                                                    },
+                                                    25
+                                                  ],
+                                                  [
+                                                    {
+                                                      "qubit": 28,
+                                                      "result": 0
+                                                    },
+                                                    26
+                                                  ]
+                                                ]
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ],
+                                      "targets": [
+                                        {
+                                          "qubit": 26
+                                        },
+                                        {
+                                          "qubit": 27,
+                                          "result": 0
+                                        },
+                                        {
+                                          "qubit": 28,
+                                          "result": 0
+                                        }
+                                      ],
+                                      "controls": [
+                                        {
+                                          "qubit": 27,
+                                          "result": 0
+                                        }
+                                      ],
+                                      "isConditional": true,
+                                      "metadata": {
+                                        "controlResultIds": [
+                                          [
+                                            {
+                                              "qubit": 27,
+                                              "result": 0
+                                            },
+                                            25
+                                          ]
+                                        ]
+                                      }
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 26
+                                },
+                                {
+                                  "qubit": 27,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 28,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 26
+                        },
+                        {
+                          "qubit": 27
+                        },
+                        {
+                          "qubit": 27,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 28
+                        },
+                        {
+                          "qubit": 28,
+                          "result": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "unitary",
+                      "gate": "MeasurementInConditional",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 30
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 30
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 30
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 30
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 30,
+                                  "result": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_27 = |1〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "H",
+                                      "targets": [
+                                        {
+                                          "qubit": 29
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "kind": "measurement",
+                                      "gate": "M",
+                                      "qubits": [
+                                        {
+                                          "qubit": 31
+                                        }
+                                      ],
+                                      "results": [
+                                        {
+                                          "qubit": 31,
+                                          "result": 0
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 29
+                                },
+                                {
+                                  "qubit": 30,
+                                  "result": 0
+                                },
+                                {
+                                  "qubit": 31
+                                },
+                                {
+                                  "qubit": 31,
+                                  "result": 0
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 30,
+                                  "result": 0
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 30,
+                                      "result": 0
+                                    },
+                                    27
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 29
+                        },
+                        {
+                          "qubit": 30
+                        },
+                        {
+                          "qubit": 30,
+                          "result": 0
+                        },
+                        {
+                          "qubit": 31
+                        },
+                        {
+                          "qubit": 31,
+                          "result": 0
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "TwoMeasurementsOnSameQubit",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "H",
+                              "targets": [
+                                {
+                                  "qubit": 0
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 0
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 0,
+                                  "result": 1
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "measurement",
+                              "gate": "M",
+                              "qubits": [
+                                {
+                                  "qubit": 0
+                                }
+                              ],
+                              "results": [
+                                {
+                                  "qubit": 0,
+                                  "result": 2
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "if: c_0 = |1〉or if: c_1 = |1〉",
+                              "children": [
+                                {
+                                  "components": [
+                                    {
+                                      "kind": "unitary",
+                                      "gate": "X",
+                                      "targets": [
+                                        {
+                                          "qubit": 0
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "targets": [
+                                {
+                                  "qubit": 0
+                                },
+                                {
+                                  "qubit": 0,
+                                  "result": 1
+                                },
+                                {
+                                  "qubit": 0,
+                                  "result": 2
+                                }
+                              ],
+                              "controls": [
+                                {
+                                  "qubit": 0,
+                                  "result": 1
+                                },
+                                {
+                                  "qubit": 0,
+                                  "result": 2
+                                }
+                              ],
+                              "isConditional": true,
+                              "metadata": {
+                                "controlResultIds": [
+                                  [
+                                    {
+                                      "qubit": 0,
+                                      "result": 1
+                                    },
+                                    0
+                                  ],
+                                  [
+                                    {
+                                      "qubit": 0,
+                                      "result": 2
+                                    },
+                                    1
+                                  ]
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [
+                        {
+                          "qubit": 0
+                        },
+                        {
+                          "qubit": 0,
+                          "result": 1
+                        },
+                        {
+                          "qubit": 0,
+                          "result": 2
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "components": [
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 0
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 1
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 2
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 3
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 4
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 5
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 6
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 7
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 8
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 9
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 10
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 11
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 12
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 13
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 14
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 15
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 16
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 17
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 18
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 19
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 20
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 21
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 22
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 23
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 24
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 25
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 26
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 27
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 28
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 29
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 30
+                        }
+                      ]
+                    },
+                    {
+                      "kind": "ket",
+                      "gate": "0",
+                      "targets": [
+                        {
+                          "qubit": 31
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "targets": [
+                {
+                  "qubit": 0
+                },
+                {
+                  "qubit": 0,
+                  "result": 0
+                },
+                {
+                  "qubit": 1
+                },
+                {
+                  "qubit": 1,
+                  "result": 0
+                },
+                {
+                  "qubit": 2
+                },
+                {
+                  "qubit": 2,
+                  "result": 0
+                },
+                {
+                  "qubit": 3
+                },
+                {
+                  "qubit": 3,
+                  "result": 0
+                },
+                {
+                  "qubit": 4
+                },
+                {
+                  "qubit": 4,
+                  "result": 0
+                },
+                {
+                  "qubit": 5
+                },
+                {
+                  "qubit": 5,
+                  "result": 0
+                },
+                {
+                  "qubit": 6
+                },
+                {
+                  "qubit": 6,
+                  "result": 0
+                },
+                {
+                  "qubit": 7
+                },
+                {
+                  "qubit": 7,
+                  "result": 0
+                },
+                {
+                  "qubit": 8
+                },
+                {
+                  "qubit": 8,
+                  "result": 0
+                },
+                {
+                  "qubit": 9
+                },
+                {
+                  "qubit": 9,
+                  "result": 0
+                },
+                {
+                  "qubit": 10
+                },
+                {
+                  "qubit": 10,
+                  "result": 0
+                },
+                {
+                  "qubit": 11
+                },
+                {
+                  "qubit": 11,
+                  "result": 0
+                },
+                {
+                  "qubit": 12
+                },
+                {
+                  "qubit": 12,
+                  "result": 0
+                },
+                {
+                  "qubit": 13
+                },
+                {
+                  "qubit": 13,
+                  "result": 0
+                },
+                {
+                  "qubit": 14
+                },
+                {
+                  "qubit": 14,
+                  "result": 0
+                },
+                {
+                  "qubit": 15
+                },
+                {
+                  "qubit": 15,
+                  "result": 0
+                },
+                {
+                  "qubit": 16
+                },
+                {
+                  "qubit": 16,
+                  "result": 0
+                },
+                {
+                  "qubit": 17
+                },
+                {
+                  "qubit": 17,
+                  "result": 0
+                },
+                {
+                  "qubit": 18
+                },
+                {
+                  "qubit": 18,
+                  "result": 0
+                },
+                {
+                  "qubit": 19
+                },
+                {
+                  "qubit": 19,
+                  "result": 0
+                },
+                {
+                  "qubit": 20
+                },
+                {
+                  "qubit": 20,
+                  "result": 0
+                },
+                {
+                  "qubit": 21
+                },
+                {
+                  "qubit": 21,
+                  "result": 0
+                },
+                {
+                  "qubit": 22
+                },
+                {
+                  "qubit": 23
+                },
+                {
+                  "qubit": 23,
+                  "result": 0
+                },
+                {
+                  "qubit": 24
+                },
+                {
+                  "qubit": 25
+                },
+                {
+                  "qubit": 25,
+                  "result": 0
+                },
+                {
+                  "qubit": 25,
+                  "result": 1
+                },
+                {
+                  "qubit": 26
+                },
+                {
+                  "qubit": 27
+                },
+                {
+                  "qubit": 27,
+                  "result": 0
+                },
+                {
+                  "qubit": 28
+                },
+                {
+                  "qubit": 28,
+                  "result": 0
+                },
+                {
+                  "qubit": 29
+                },
+                {
+                  "qubit": 30
+                },
+                {
+                  "qubit": 30,
+                  "result": 0
+                },
+                {
+                  "qubit": 31
+                },
+                {
+                  "qubit": 31,
+                  "result": 0
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

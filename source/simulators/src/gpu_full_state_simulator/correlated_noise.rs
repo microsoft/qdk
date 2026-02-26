@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::noise_config::{NoiseConfig, NoiseTable, uq1_63};
+use crate::noise_config::{NoiseConfig, NoiseTable, encode_pauli, uq1_63};
 
 /// A `NoiseTableEntry` describes the probability of the one possible pauli-noise string when working
 /// with correlated Pauli noise.
@@ -123,13 +123,13 @@ impl NoiseTables {
         let mut entry_count: u32 = 0;
         let mut noise_probability: u64 = 0;
 
-        for (pauli, prob) in noise_table
+        for (paulis, prob) in noise_table
             .pauli_strings
             .iter()
             .zip(&noise_table.probabilities)
         {
             let entry = NoiseTableEntry {
-                paulis: paulis_to_u64(pauli),
+                paulis: *paulis,
                 probability: uq1_63::from_prob(*prob),
             };
             if entry.paulis == 0u64 || entry.probability == 0u64 {
@@ -174,24 +174,9 @@ fn parse_line(line: &str) -> Result<NoiseTableEntry, Error> {
 
 fn parse_noise_table_entry(paulis: &str, probability: f64) -> Result<NoiseTableEntry, Error> {
     Ok(NoiseTableEntry {
-        paulis: paulis_to_u64(paulis),
+        paulis: encode_pauli(paulis),
         probability: uq1_63::from_prob(probability),
     })
-}
-
-fn paulis_to_u64(paulis: &str) -> u64 {
-    let mut result: u64 = 0;
-    for (i, c) in paulis.chars().rev().enumerate() {
-        let val: u64 = match c {
-            'I' => 0,
-            'X' => 1,
-            'Z' => 2,
-            'Y' => 3,
-            _ => panic!("Invalid pauli character: {c}"),
-        };
-        result |= val << (2 * i);
-    }
-    result
 }
 
 #[cfg(test)]
@@ -245,8 +230,8 @@ IIIIYY,0.125
 
         // Identity pauli "IIIIII" and zero probability "IIIIZZ" should be ignored
         assert_eq!(tables.entries.len(), 2);
-        assert_eq!(tables.entries[0].paulis, paulis_to_u64("IIIIIX"));
-        assert_eq!(tables.entries[1].paulis, paulis_to_u64("IIIIYY"));
+        assert_eq!(tables.entries[0].paulis, encode_pauli("IIIIIX"));
+        assert_eq!(tables.entries[1].paulis, encode_pauli("IIIIYY"));
 
         assert_eq!(tables.metadata[0].entry_count, 2);
         // Total probability should be 0.25 (0.125 + 0.125)

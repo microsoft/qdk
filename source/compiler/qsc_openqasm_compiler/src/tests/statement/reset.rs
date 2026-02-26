@@ -40,7 +40,7 @@ fn reset_calls_are_generated_from_qasm() -> miette::Result<(), Vec<Report>> {
             @EntryPoint()
             operation Test() : Result[] {
                 mutable meas = [Zero];
-                let q = QIR.Runtime.AllocateQubitArray(1);
+                borrow q = Qubit[1];
                 Reset(q[0]);
                 h(q[0]);
                 set meas[0] = Std.Intrinsic.M(q[0]);
@@ -70,16 +70,16 @@ fn reset_with_base_profile_is_rewritten_without_resets() -> miette::Result<(), V
         %Result = type opaque
         %Qubit = type opaque
 
-        @empty_tag = internal constant [1 x i8] c"\00"
-        @0 = internal constant [6 x i8] c"0_a0r\00"
+        @0 = internal constant [4 x i8] c"0_a\00"
+        @1 = internal constant [6 x i8] c"1_a0r\00"
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           call void @__quantum__rt__initialize(i8* null)
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__array_record_output(i64 1, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
+          call void @__quantum__rt__array_record_output(i64 1, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
           ret i64 0
         }
 
@@ -128,8 +128,8 @@ fn reset_with_adaptive_ri_profile_generates_reset_qir() -> miette::Result<(), Ve
         %Result = type opaque
         %Qubit = type opaque
 
-        @empty_tag = internal constant [1 x i8] c"\00"
-        @0 = internal constant [6 x i8] c"0_a0r\00"
+        @0 = internal constant [4 x i8] c"0_a\00"
+        @1 = internal constant [6 x i8] c"1_a0r\00"
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
@@ -137,8 +137,8 @@ fn reset_with_adaptive_ri_profile_generates_reset_qir() -> miette::Result<(), Ve
           call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__array_record_output(i64 1, i8* getelementptr inbounds ([1 x i8], [1 x i8]* @empty_tag, i64 0, i64 0))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @0, i64 0, i64 0))
+          call void @__quantum__rt__array_record_output(i64 1, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
           ret i64 0
         }
 
@@ -182,7 +182,7 @@ fn on_a_single_qubit() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.__quantum__rt__qubit_allocate();
+        borrow q = Qubit();
         Reset(q);
     "#]]
     .assert_eq(&qsharp);
@@ -199,7 +199,7 @@ fn on_an_indexed_qubit_register() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(5);
+        borrow q = Qubit[5];
         Reset(q[2]);
     "#]]
     .assert_eq(&qsharp);
@@ -216,7 +216,7 @@ fn on_a_span_indexed_qubit_register() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(5);
+        borrow q = Qubit[5];
         ResetAll(q[1..3]);
     "#]]
     .assert_eq(&qsharp);
@@ -256,7 +256,7 @@ fn on_an_unindexed_qubit_register() -> miette::Result<(), Vec<Report>> {
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        let q = QIR.Runtime.AllocateQubitArray(5);
+        borrow q = Qubit[5];
         ResetAll(q);
     "#]]
     .assert_eq(&qsharp);

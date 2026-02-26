@@ -25,6 +25,8 @@ import { createDropzones } from "./draggable.js";
 import { enableEvents } from "./events.js";
 import { createPanel, enableRunButton } from "./panel.js";
 import { getMinMaxRegIdx } from "./utils.js";
+import type { StateColumn } from "./state-viz/stateViz.js";
+import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
 
 /**
  * Contains render data for visualization.
@@ -46,12 +48,25 @@ type GateRegistry = {
   [location: string]: Operation;
 };
 
+export type EditorHandlers = {
+  editCallback: (circuitGroup: CircuitGroup) => void;
+  // When provided, enables the Run button in the toolbox.
+  runCallback?: () => void;
+  // Optional callback to offload state visualization computation.
+  // When provided (e.g., by the VS Code webview), the state visualizer can
+  // compute state in a Web Worker without relying on globals.
+  computeStateVizColumnsForCircuitModel?: (
+    model: Circuit,
+    opts?: PrepareStateVizOptions,
+  ) => Promise<StateColumn[]>;
+};
+
 export type DrawOptions = {
   renderDepth?: number;
-  isEditable?: boolean;
-  editCallback?: (circuitGroup: CircuitGroup) => void;
-  runCallback?: () => void;
   renderLocations?: (l: SourceLocation[]) => { title: string; href: string };
+  // When provided, enables editing behaviors (dropzones, run button, etc.) and
+  // requires the callbacks necessary to support those behaviors.
+  editor?: EditorHandlers;
 };
 
 /**
@@ -65,9 +80,7 @@ export class Sqore {
    * Initializes Sqore object.
    *
    * @param circuitGroup Group of circuits to be visualized.
-   * @param isEditable Whether the circuit is editable.
-   * @param editCallback Callback function to be called when the circuit is edited.
-   * @param runCallback Callback function to be called when the circuit is run.
+   * @param options Optional rendering/interaction options.
    */
   constructor(
     public circuitGroup: CircuitGroup,
@@ -139,17 +152,16 @@ export class Sqore {
     }
     this.addGateClickHandlers(container, _circuit);
 
-    if (this.options.isEditable) {
+    const editor = this.options.editor;
+    const isEditable = editor != null;
+    if (isEditable) {
       createDropzones(container, this);
-      createPanel(container);
-      if (this.options.runCallback != undefined) {
-        const callback = this.options.runCallback;
-        enableRunButton(container, callback);
+      createPanel(container, editor.computeStateVizColumnsForCircuitModel);
+      if (editor.runCallback) {
+        enableRunButton(container, editor.runCallback);
       }
       enableEvents(container, this, () => this.renderCircuit(container));
-      if (this.options.editCallback != undefined) {
-        this.options.editCallback(this.minimizeCircuits(this.circuitGroup));
-      }
+      editor.editCallback(this.minimizeCircuits(this.circuitGroup));
     }
   }
 
@@ -241,12 +253,14 @@ export class Sqore {
     // expanded group borders need to fit between qubit wires.
     const rowHeights = getRowHeights(qubits, componentGrid);
 
+    const isEditable = this.options.editor != null;
+
     // Draw the qubit labels.
     // Also calculate other register render data to be used later in the rendering.
     const { qubitLabels, registers, svgHeight } = formatInputs(
       qubits,
       rowHeights,
-      this.options.isEditable ? undefined : this.options.renderLocations,
+      isEditable ? undefined : this.options.renderLocations,
     );
 
     // Calculate the render data for the operations.
@@ -259,7 +273,7 @@ export class Sqore {
       topY,
       bottomY,
       registers,
-      this.options.isEditable ? undefined : this.options.renderLocations,
+      isEditable ? undefined : this.options.renderLocations,
     );
 
     // Draw the operations.
@@ -354,56 +368,7 @@ export class Sqore {
    *
    */
   private addGateClickHandlers(container: HTMLElement, circuit: Circuit): void {
-    this.addClassicalControlHandlers(container);
     this.addZoomHandlers(container, circuit);
-  }
-
-  /**
-   * Add interactive click handlers for classically-controlled operations.
-   *
-   * @param container HTML element containing visualized circuit.
-   *
-   */
-  private addClassicalControlHandlers(container: HTMLElement): void {
-    container.querySelectorAll(".classically-controlled-btn").forEach((btn) => {
-      // Zoom in on clicked gate
-      btn.addEventListener("click", (evt: Event) => {
-        const textSvg = btn.querySelector("text");
-        const group = btn.parentElement;
-        if (textSvg == null || group == null) return;
-
-        const currValue = textSvg.firstChild?.nodeValue;
-        const zeroGates = group?.querySelector(".gates-zero");
-        const oneGates = group?.querySelector(".gates-one");
-        switch (currValue) {
-          case "?":
-            textSvg.childNodes[0].nodeValue = "1";
-            group.classList.remove("classically-controlled-unknown");
-            group.classList.remove("classically-controlled-zero");
-            group.classList.add("classically-controlled-one");
-            zeroGates?.classList.add("hidden");
-            oneGates?.classList.remove("hidden");
-            break;
-          case "1":
-            textSvg.childNodes[0].nodeValue = "0";
-            group.classList.remove("classically-controlled-unknown");
-            group.classList.add("classically-controlled-zero");
-            group.classList.remove("classically-controlled-one");
-            zeroGates?.classList.remove("hidden");
-            oneGates?.classList.add("hidden");
-            break;
-          case "0":
-            textSvg.childNodes[0].nodeValue = "?";
-            group.classList.add("classically-controlled-unknown");
-            group.classList.remove("classically-controlled-zero");
-            group.classList.remove("classically-controlled-one");
-            zeroGates?.classList.remove("hidden");
-            oneGates?.classList.remove("hidden");
-            break;
-        }
-        evt.stopPropagation();
-      });
-    });
   }
 
   /**
@@ -566,10 +531,10 @@ function updateRowHeights(
 ) {
   for (const col of componentGrid) {
     for (const component of col.components) {
-      if (component.dataAttributes?.["expanded"] === "true") {
+      if (isExpandedGroup(component)) {
         // We're in an expanded group. There is a dashed border above
         // the top qubit, and below the bottom qubit.
-        const [topQubit, bottomQubit] = getMinMaxRegIdx(component, numQubits);
+        const [topQubit, bottomQubit] = getMinMaxRegIdx(component);
 
         // Increment the current count of dashed group borders for
         // the top and bottom rows for this operation.
@@ -596,4 +561,14 @@ function updateRowHeights(
       }
     }
   }
+}
+
+/**
+ * An "expanded group" here is any operation that is to be rendered showing
+ * its children, with a dashed box around the children.
+ */
+function isExpandedGroup(component: Operation) {
+  return (
+    component.dataAttributes?.["expanded"] === "true" || component.isConditional
+  );
 }

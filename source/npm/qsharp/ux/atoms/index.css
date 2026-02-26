@@ -1,64 +1,20 @@
 /* Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License. */
 
-/* Default colors, or theme set explicitly to light */
-/* data-vscode-theme-kind="vscode-dark" or "vscode-light" or "vscode-high-contrast" or "vscode-high-contrast-light" */
-:root,
-[data-theme="light"],
-[data-vscode-theme-kind="vscode-light"],
-[data-vscode-theme-kind="vscode-high-contrast-light"] {
-  --qs-atoms-primay-color: #222;
-  --qs-atoms-background-color: #eee;
-  --qs-atoms-qubitbox: #bbd;
-  --qs-atoms-qubit: #123;
-  --qs-atoms-label: #aaa;
-  --qs-atoms-gate: #66d;
-  --qs-atoms-gate-cz: #ec4;
-  --qs-atoms-gate-mz: #822;
-  --qs-atoms-gate-reset: #282;
-}
-/* User has set OS preference for dark (explict theme will override) */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --qs-atoms-primay-color: #eee;
-    --qs-atoms-background-color: #222;
-    --qs-atoms-qubitbox: #446;
-    --qs-atoms-qubit: #9df;
-    --qs-atoms-label: #666;
-    --qs-atoms-gate: #ccf;
-    --qs-atoms-gate-cz: #b91;
-    --qs-atoms-gate-mz: #e88;
-    --qs-atoms-gate-reset: #8e8;
-  }
-}
-/* Explicit dark theme set (should match above dark preference values) */
-[data-theme="dark"],
-[data-vscode-theme-kind="vscode-dark"],
-[data-vscode-theme-kind="vscode-high-contrast"] {
-  --qs-atoms-primay-color: #eee;
-  --qs-atoms-background-color: #222;
-  --qs-atoms-qubitbox: #446;
-  --qs-atoms-qubit: #9df;
-  --qs-atoms-label: #666;
-  --qs-atoms-gate: #ccf;
-  --qs-atoms-gate-cz: #b91;
-  --qs-atoms-gate-mz: #e88;
-  --qs-atoms-gate-reset: #8e8;
-}
-
 .qs-atoms-app {
-  background-color: var(--qs-atoms-background-color);
-  color: var(--qs-atoms-primay-color);
-  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+  background-color: var(--qdk-host-background);
+  color: var(--qdk-host-foreground);
+  font-family: var(--qdk-font-family);
   box-sizing: border-box;
   width: 600px;
-  border: 1px solid gray;
+  border: 1px solid var(--qdk-mid-gray);
   border-radius: 8px;
   margin: auto;
   margin-top: 24px;
   padding: 16px;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 
 .qs-atoms-app:focus {
@@ -77,14 +33,14 @@
 }
 
 .qs-atoms-icon > circle {
-  stroke: var(--qs-atoms-primay-color);
+  stroke: var(--qdk-host-foreground);
   stroke-width: 6;
   fill: transparent;
   cursor: pointer;
 }
 
 .qs-atoms-icon > .qs-atoms-info-dot {
-  fill: var(--qs-atoms-primay-color);
+  fill: var(--qdk-host-foreground);
   stroke: none;
   pointer-events: none;
 }
@@ -95,14 +51,14 @@
 
 .qs-atoms-icon > path {
   stroke: none;
-  fill: var(--qs-atoms-primay-color);
+  fill: var(--qdk-host-foreground);
   pointer-events: none;
 }
 
 .qs-atoms-icon > .qs-atoms-icon-line {
   fill: none;
   stroke-width: 16;
-  stroke: var(--qs-atoms-primay-color);
+  stroke: var(--qdk-host-foreground);
   stroke-linecap: round;
   stroke-linejoin: round;
 }
@@ -129,7 +85,7 @@
 .qs-atoms-zone-text {
   font-size: 8px;
   font-family: system-ui;
-  fill: gray;
+  fill: var(--qdk-mid-gray);
   stroke-width: 0;
   user-select: none;
   -webkit-user-select: none;
@@ -138,7 +94,7 @@
 .qs-atoms-label {
   font-size: 6px;
   font-family: system-ui;
-  fill: var(--qs-atoms-label);
+  fill: var(--qdk-foreground-muted);
   stroke-width: 0;
   user-select: none;
   -webkit-user-select: none;
@@ -148,54 +104,54 @@
 }
 
 .qs-atoms-zonebox {
-  stroke: var(--qs-atoms-background-color);
+  stroke: var(--qdk-host-background);
   stroke-width: 0.75;
-  fill: var(--qs-atoms-qubitbox);
+  fill: var(--qdk-menu-fill);
 }
 
 .qs-atoms-qubit {
   stroke: none;
-  fill: var(--qs-atoms-qubit);
+  fill: var(--qdk-atom-fill);
 }
 
 .qs-atoms-qubit-trail-start {
-  stroke: gray;
+  stroke: var(--qdk-mid-gray);
   stroke-width: 1px;
-  fill: var(--qs-atoms-qubitbox);
+  fill: var(--qdk-menu-fill);
   r: 3px;
 }
 
 .qs-atoms-qubit-trail {
-  stroke: gray;
-  stroke-width: 1px;
+  stroke: var(--qdk-mid-gray);
+  stroke-width: 1.5px;
   fill: none;
   stroke-dasharray: 1, 1;
 }
 
 .qs-atoms-qubit-highlight {
-  stroke: orange;
+  stroke: var(--qdk-atom-trail);
   stroke-width: 1px;
 }
 
 .qs-atoms-gate {
-  fill: var(--qs-atoms-gate);
+  fill: var(--qdk-gate-generic);
   stroke-width: 0;
 }
 
 .qs-atoms-gate-cz {
-  fill: var(--qs-atoms-gate-cz);
+  fill: var(--qdk-gate-pair);
 }
 .qs-atoms-gate-mz {
-  fill: var(--qs-atoms-gate-mz);
+  fill: var(--qdk-gate-measure);
 }
 
 .qs-atoms-gate-reset {
-  fill: var(--qs-atoms-gate-reset);
+  fill: var(--qdk-gate-reset);
 }
 
 .qs-atoms-gate-text {
   stroke-width: 0;
-  fill: var(--qs-atoms-background-color);
+  fill: var(--qdk-host-background);
   font-size: 5px;
   font-family: Verdana, Geneva, Tahoma, sans-serif;
   text-anchor: middle;
@@ -210,11 +166,11 @@
   position: absolute;
   display: none;
   left: 40px;
-  top: 50px;
-  border: 1px solid gray;
+  top: 48px;
+  border: 1px solid var(--qdk-mid-gray);
   border-radius: 8px;
-  background-color: var(--qs-atoms-background-color);
-  color: var(--qs-atoms-primay-color);
+  background-color: var(--qdk-host-background);
+  color: var(--qdk-host-foreground);
   padding: 16px;
   width: 250px;
 }

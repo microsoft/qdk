@@ -1,7 +1,6 @@
 %Result = type opaque
 %Qubit = type opaque
 
-@empty_tag = internal constant [1 x i8] c"\00"
 @0 = internal constant [4 x i8] c"0_r\00"
 
 define i64 @ENTRYPOINT__main() #0 {

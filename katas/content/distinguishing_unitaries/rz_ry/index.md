@@ -2,7 +2,7 @@
 
 1. An angle $\theta \in [0.01 \pi; 0.99 \pi]$.
 2. An operation that implements a single-qubit unitary transformation:
-either the [$R_z(\theta)$ gate](https://learn.microsoft.com/qsharp/api/qsharp-lang/microsoft.quantum.intrinsic/rz) or the [$R_y(\theta)$ gate](https://learn.microsoft.com/qsharp/api/qsharp/microsoft.quantum.intrinsic/ry). 
+either the [$R_z(\theta)$ gate](https://learn.microsoft.com/qsharp/api/qsharp-lang/microsoft.quantum.intrinsic/rz) or the [$R_y(\theta)$ gate](https://learn.microsoft.com/qsharp/api/qsharp-lang/microsoft.quantum.intrinsic/ry). 
 
 > As a reminder,
 > 

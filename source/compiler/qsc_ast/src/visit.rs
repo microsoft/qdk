@@ -140,7 +140,7 @@ pub fn walk_attr<'a>(vis: &mut impl Visitor<'a>, attr: &'a Attr) {
 
 pub fn walk_ty_def<'a>(vis: &mut impl Visitor<'a>, def: &'a TyDef) {
     match &*def.kind {
-        TyDefKind::Field(name, ty) => {
+        TyDefKind::Field(name, ty, _) => {
             if let Some(n) = name.as_ref() {
                 vis.visit_ident(n);
             }

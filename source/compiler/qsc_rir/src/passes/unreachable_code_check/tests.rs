@@ -137,6 +137,7 @@ fn test_check_unreachable_blocks_succeeds_on_no_unreachable_blocks_with_branch()
             },
             BlockId(1),
             BlockId(2),
+            None,
         )]),
     );
     program
@@ -193,6 +194,7 @@ fn test_check_unreachable_blocks_panics_on_unreachable_block_with_branch() {
             },
             BlockId(1),
             BlockId(1),
+            None,
         )]),
     );
     program
@@ -284,7 +286,12 @@ fn test_check_unreachable_callable_succeeds_on_no_unreachable_callables_with_cal
     );
     program.blocks.insert(
         BlockId(0),
-        Block(vec![Instruction::Call(CallableId(1), Vec::new(), None)]),
+        Block(vec![Instruction::Call(
+            CallableId(1),
+            Vec::new(),
+            None,
+            None,
+        )]),
     );
     program
         .blocks
@@ -328,11 +335,21 @@ fn test_check_unreachable_callable_succeeds_on_no_unreachable_callables_with_nes
     );
     program.blocks.insert(
         BlockId(0),
-        Block(vec![Instruction::Call(CallableId(1), Vec::new(), None)]),
+        Block(vec![Instruction::Call(
+            CallableId(1),
+            Vec::new(),
+            None,
+            None,
+        )]),
     );
     program.blocks.insert(
         BlockId(1),
-        Block(vec![Instruction::Call(CallableId(2), Vec::new(), None)]),
+        Block(vec![Instruction::Call(
+            CallableId(2),
+            Vec::new(),
+            None,
+            None,
+        )]),
     );
     check_unreachable_callable(&program);
 }
@@ -374,7 +391,12 @@ fn test_check_unreachable_callable_panics_on_unreachable_callable_with_nested_ca
     );
     program.blocks.insert(
         BlockId(0),
-        Block(vec![Instruction::Call(CallableId(1), Vec::new(), None)]),
+        Block(vec![Instruction::Call(
+            CallableId(1),
+            Vec::new(),
+            None,
+            None,
+        )]),
     );
     program
         .blocks
@@ -412,7 +434,12 @@ fn test_check_unreachable_callable_succeeds_on_no_unreachable_callables_with_cal
         .insert(BlockId(0), Block(vec![Instruction::Jump(BlockId(1))]));
     program.blocks.insert(
         BlockId(1),
-        Block(vec![Instruction::Call(CallableId(1), Vec::new(), None)]),
+        Block(vec![Instruction::Call(
+            CallableId(1),
+            Vec::new(),
+            None,
+            None,
+        )]),
     );
     check_unreachable_callable(&program);
 }
