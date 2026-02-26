@@ -7,13 +7,13 @@ import {
   gateHeight,
   labelFontSize,
   argsFontSize,
-  controlBtnRadius,
-  controlBtnOffset,
+  controlCircleRadius,
+  controlCircleOffset,
   groupPaddingX,
-  classicalRegHeight,
   groupTopPadding,
   labelPaddingX,
   groupLabelPaddingY,
+  groupBottomPadding,
 } from "../constants.js";
 import {
   createSvgElement,
@@ -176,7 +176,7 @@ const _zoomButton = (renderData: GateRenderData): SVGElement | null => {
  *
  * @param renderData Operation render data.
  *
- * @returns Bounding box of the gate, not including any control dots or circles.
+ * @returns Bounding box of the gate, including any control dots and circles.
  */
 const _gateBoundingBox = (
   renderData: GateRenderData,
@@ -205,10 +205,7 @@ const _gateBoundingBox = (
   //   ╚══╡ ╞═╪═════╪═
   //      │c│┄╎     ╎
   //      ╰─╯ └╌╌╌╌╌┘
-  let ys = targetsY.flatMap((y) => y as number[]);
-  if (renderData.type === GateType.ClassicalControlled) {
-    ys = ys.concat(controlsY);
-  }
+  const ys = targetsY.flatMap((y) => y as number[]).concat(controlsY);
 
   const maxY = Math.max(...ys);
   const minY = Math.min(...ys);
@@ -656,23 +653,24 @@ const _classicalControlled = (
     const controlY = controlsY[i];
     const label = classicalControlIds?.[i] ?? null;
     // Draw control button and attached dashed line to dashed box
-    const controlCircleX: number = x + controlBtnRadius;
+    const controlCircleX: number = x + controlCircleRadius;
     const controlCircle: SVGElement = _controlCircle(
       controlCircleX,
       controlY,
       label,
     );
-    const lineY1: number = controlY + controlBtnRadius,
-      lineY2: number = controlY + classicalRegHeight / 2;
-    const vertLine: SVGElement = line(
+    const lineY1: number = controlY + controlCircleRadius;
+    const lineY2: number =
+      controlY + controlCircleRadius + groupBottomPadding / 2;
+    const vertLine: SVGElement = dashedLine(
       controlCircleX,
       lineY1,
       controlCircleX,
       lineY2,
       "classical-line",
     );
-    const lineEndX = x + controlBtnOffset;
-    const horLine: SVGElement = line(
+    const lineEndX = x + controlCircleOffset;
+    const horLine: SVGElement = dashedLine(
       controlCircleX,
       lineY2,
       lineEndX,
@@ -683,9 +681,9 @@ const _classicalControlled = (
     elems.push(horLine, vertLine, controlCircle);
   }
 
-  x += controlBtnOffset;
+  x += controlCircleOffset;
 
-  width = width - controlBtnOffset + (padding - groupPaddingX) * 2;
+  width = width - controlCircleOffset + (padding - groupPaddingX) * 2;
   x += groupPaddingX - padding;
 
   // Draw dashed box around children gates
@@ -742,7 +740,7 @@ const _controlCircle = (
   y: number,
   controlId: number | null,
 ): SVGElement =>
-  group([circle(x, y, controlBtnRadius), controlLabel(x, y, controlId)], {
+  group([circle(x, y, controlCircleRadius), controlLabel(x, y, controlId)], {
     class: "classically-controlled-btn",
   });
 

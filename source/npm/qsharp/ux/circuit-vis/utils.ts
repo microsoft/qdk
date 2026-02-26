@@ -7,7 +7,7 @@ import {
   labelPaddingX,
   labelFontSize,
   argsFontSize,
-  controlBtnOffset,
+  controlCircleOffset,
 } from "./constants.js";
 import { ComponentGrid, Operation } from "./circuit.js";
 import { Register } from "./register.js";
@@ -70,7 +70,7 @@ const getMinGateWidth = ({
     default: {
       // Classically controlled gates are wider because of the control button on the left
       const controlButtonWidth =
-        type === GateType.ClassicalControlled ? controlBtnOffset : 0;
+        type === GateType.ClassicalControlled ? controlCircleOffset : 0;
       const labelWidth = _getStringWidth(label);
       const argsWidth =
         displayArgs != null ? _getStringWidth(displayArgs, argsFontSize) : 0;

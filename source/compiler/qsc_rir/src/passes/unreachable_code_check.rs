@@ -4,7 +4,7 @@
 use std::iter::once;
 
 use crate::{
-    rir::{InstructionKind, Program},
+    rir::{Instruction, Program},
     utils,
 };
 use rustc_hash::FxHashSet;
@@ -30,8 +30,8 @@ pub fn check_unreachable_instrs(program: &Program) {
     for (block_id, block) in program.blocks.iter() {
         match block.0.iter().position(|i| {
             matches!(
-                &i.kind,
-                InstructionKind::Return | InstructionKind::Jump(..) | InstructionKind::Branch(..)
+                i,
+                Instruction::Return | Instruction::Jump(..) | Instruction::Branch(..)
             )
         }) {
             Some(idx) => {
@@ -92,7 +92,7 @@ pub fn check_unreachable_callable(program: &Program) {
         {
             let block = program.get_block(*block_id);
             for instr in &block.0 {
-                if let InstructionKind::Call(callable_id, ..) = &instr.kind {
+                if let Instruction::Call(callable_id, ..) = instr {
                     callables_to_check.push(*callable_id);
                 }
             }
