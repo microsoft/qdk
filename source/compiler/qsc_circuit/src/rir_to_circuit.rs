@@ -9,9 +9,9 @@ use core::panic;
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::fir::PackageId;
 use qsc_partial_eval::{
-    Callable, CallableType, ConditionCode, FcmpConditionCode, InstructionKind, Literal, Operand,
+    Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
     VariableId,
-    rir::{Block, BlockId, Instruction, Program, Ty, Variable},
+    rir::{Block, BlockId, Program, Ty, Variable},
 };
 use qsc_rir::debug::{DbgInfo, DbgLocationId, DbgScope, DbgScopeId};
 use std::{fmt::Display, vec};
@@ -215,9 +215,8 @@ fn push_operations_in_block(
         process_variables(state, wire_map_builder, callables, instruction)?;
 
         // Then we push operations to the builder.
-        if let InstructionKind::Call(callable_id, operands, _) = &instruction.kind {
-            let call_instruction_stack = instruction
-                .metadata
+        if let Instruction::Call(callable_id, operands, _, metadata) = instruction {
+            let call_instruction_stack = metadata
                 .as_deref()
                 .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location))
                 .unwrap_or_default();
@@ -309,8 +308,8 @@ fn process_variables(
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     instruction: &Instruction,
 ) -> Result<(), Error> {
-    match &instruction.kind {
-        InstructionKind::Call(callable_id, operands, var) => {
+    match instruction {
+        Instruction::Call(callable_id, operands, var, _) => {
             process_call_variables(
                 &mut state.variables,
                 wire_map_builder,
@@ -319,7 +318,7 @@ fn process_variables(
                 *var,
             )?;
         }
-        InstructionKind::Fcmp(condition_code, operand, operand1, variable) => {
+        Instruction::Fcmp(condition_code, operand, operand1, variable) => {
             process_fcmp_variables(
                 &mut state.variables,
                 *condition_code,
@@ -328,7 +327,7 @@ fn process_variables(
                 *variable,
             )?;
         }
-        InstructionKind::Icmp(condition_code, operand, operand1, variable) => {
+        Instruction::Icmp(condition_code, operand, operand1, variable) => {
             process_icmp_variables(
                 &mut state.variables,
                 *condition_code,
@@ -337,7 +336,7 @@ fn process_variables(
                 *variable,
             )?;
         }
-        InstructionKind::Phi(pres, variable) => {
+        Instruction::Phi(pres, variable) => {
             process_phi_variables(
                 &state.blocks_to_control_results,
                 &mut state.variables,
@@ -345,33 +344,33 @@ fn process_variables(
                 *variable,
             )?;
         }
-        InstructionKind::Add(operand, operand1, variable)
-        | InstructionKind::Sub(operand, operand1, variable)
-        | InstructionKind::Mul(operand, operand1, variable)
-        | InstructionKind::Sdiv(operand, operand1, variable)
-        | InstructionKind::Srem(operand, operand1, variable)
-        | InstructionKind::Shl(operand, operand1, variable)
-        | InstructionKind::Ashr(operand, operand1, variable)
-        | InstructionKind::Fadd(operand, operand1, variable)
-        | InstructionKind::Fsub(operand, operand1, variable)
-        | InstructionKind::Fmul(operand, operand1, variable)
-        | InstructionKind::Fdiv(operand, operand1, variable)
-        | InstructionKind::LogicalAnd(operand, operand1, variable)
-        | InstructionKind::LogicalOr(operand, operand1, variable)
-        | InstructionKind::BitwiseAnd(operand, operand1, variable)
-        | InstructionKind::BitwiseOr(operand, operand1, variable)
-        | InstructionKind::BitwiseXor(operand, operand1, variable) => {
+        Instruction::Add(operand, operand1, variable)
+        | Instruction::Sub(operand, operand1, variable)
+        | Instruction::Mul(operand, operand1, variable)
+        | Instruction::Sdiv(operand, operand1, variable)
+        | Instruction::Srem(operand, operand1, variable)
+        | Instruction::Shl(operand, operand1, variable)
+        | Instruction::Ashr(operand, operand1, variable)
+        | Instruction::Fadd(operand, operand1, variable)
+        | Instruction::Fsub(operand, operand1, variable)
+        | Instruction::Fmul(operand, operand1, variable)
+        | Instruction::Fdiv(operand, operand1, variable)
+        | Instruction::LogicalAnd(operand, operand1, variable)
+        | Instruction::LogicalOr(operand, operand1, variable)
+        | Instruction::BitwiseAnd(operand, operand1, variable)
+        | Instruction::BitwiseOr(operand, operand1, variable)
+        | Instruction::BitwiseXor(operand, operand1, variable) => {
             process_binop_variables(&mut state.variables, operand, operand1, *variable)?;
         }
-        InstructionKind::LogicalNot(operand, variable) => {
+        Instruction::LogicalNot(operand, variable) => {
             process_logical_not_variables(&mut state.variables, operand, *variable)?;
         }
-        instruction @ (InstructionKind::Store(..) | InstructionKind::BitwiseNot(..)) => {
+        instruction @ (Instruction::Store(..) | Instruction::BitwiseNot(..)) => {
             return Err(Error::UnsupportedFeature(format!(
                 "unsupported instruction in block: {instruction:?}"
             )));
         }
-        InstructionKind::Return | InstructionKind::Branch(..) | InstructionKind::Jump(..) => {
+        Instruction::Return | Instruction::Branch(..) | Instruction::Jump(..) => {
             // do nothing for terminators
         }
     }

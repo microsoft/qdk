@@ -4,8 +4,8 @@
 use core::panic;
 use qsc_data_structures::index_map::IndexMap;
 use qsc_partial_eval::{
-    InstructionKind,
-    rir::{Block, BlockId, Instruction, Variable},
+    Instruction,
+    rir::{Block, BlockId, Variable},
 };
 use qsc_rir::debug::InstructionDbgMetadata;
 use rustc_hash::FxHashMap;
@@ -64,23 +64,16 @@ fn terminator(block: &Block) -> Terminator {
         .last()
         .expect("block should have at least one instruction")
     {
-        Instruction {
-            kind: InstructionKind::Branch(condition, target1, target2),
-            metadata,
-        } => Terminator::Conditional(Branch {
-            condition: *condition,
-            true_block: *target1,
-            false_block: *target2,
-            instruction_metadata: metadata.clone(),
-        }),
-        Instruction {
-            kind: InstructionKind::Jump(target),
-            ..
-        } => Terminator::Unconditional(*target),
-        Instruction {
-            kind: InstructionKind::Return,
-            ..
-        } => Terminator::Return,
+        Instruction::Branch(condition, target1, target2, metadata) => {
+            Terminator::Conditional(Branch {
+                condition: *condition,
+                true_block: *target1,
+                false_block: *target2,
+                instruction_metadata: metadata.clone(),
+            })
+        }
+        Instruction::Jump(target, ..) => Terminator::Unconditional(*target),
+        Instruction::Return => Terminator::Return,
         _ => panic!("unexpected terminator kind"),
     }
 }
