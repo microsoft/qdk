@@ -169,11 +169,48 @@ async function generateCircuit(
 
   if (
     result.result === "error" &&
+    hasAdaptiveComplianceOrUnsupportedRirError(result.errors) &&
+    config.generationMethod === "static"
+  ) {
+    // Retry with "classicalEval" method if the "static" method failed due to issues like QIR Adaptive compliance
+    // Note: this will fall back to TargetProfile="Unrestricted" even if the program explicitly specifies "Adaptive" in its configuration.
+    // This may not be desirable behavior. However, retrieving the configuration again here via `getActiveProgram` would require parsing
+    // the whole program again so we take this shortcut for now.
+    log.debug(
+      "Retrying circuit generation with classicalEval due to errors: ",
+      result.errors,
+    );
+
+    params.program.profile = "unrestricted";
+    config.generationMethod = "classicalEval";
+
+    // Force the panel open
+    updateCircuitPanel(
+      params.program.profile,
+      params.program.projectName,
+      false, // reveal
+      {
+        operation: params.operation,
+        calculating: true,
+        simulated: false,
+      },
+    );
+
+    // try again with the new settings
+    result = await getCircuitOrErrorWithTimeout(extensionUri, params, config);
+  }
+
+  if (
+    result.result === "error" &&
     result.hasResultComparisonError &&
     config.generationMethod === "classicalEval"
   ) {
     // Retry with the simulator if circuit generation failed because
     // there was a result comparison (i.e. if this is a dynamic circuit)
+    log.debug(
+      "Retrying circuit generation with simulation due to result comparison error: ",
+      result.errors,
+    );
 
     updateCircuitPanel(
       params.program.profile,
@@ -355,6 +392,22 @@ function hasResultComparisonError(errors: IQSharpError[]) {
       (item) =>
         item?.diagnostic?.code === "Qsc.Eval.ResultComparisonUnsupported",
     ) >= 0;
+  return hasResultComparisonError;
+}
+
+function hasAdaptiveComplianceOrUnsupportedRirError(errors: IQSharpError[]) {
+  const hasResultComparisonError =
+    errors &&
+    errors.findIndex((item) => {
+      const code = item?.diagnostic?.code;
+      return (
+        !!code &&
+        (code.startsWith("Qsc.PartialEval.") || // Partial eval error (codegen)
+          code.startsWith("Qsc.CapabilitiesCk.") || // RCA error (codegen)
+          code === "Qsc.Resolve.NotFound" || // Raised sometimes when @Config(Unrestricted) items are used in Adaptive
+          code === "Qsc.Circuit.UnsupportedFeature") // Generated RIR can't be handled by the circuit generator
+      );
+    }) >= 0;
   return hasResultComparisonError;
 }
 
