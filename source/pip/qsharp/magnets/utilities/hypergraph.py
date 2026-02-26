@@ -124,7 +124,7 @@ class Hypergraph:
         self._vertex_set.update(edge.vertices)
 
     def edge_coloring(
-        self, seed: Optional[int] = None, trials: int = 1
+        self, seed: Optional[int] = 0, trials: int = 1
     ) -> "HypergraphEdgeColoring":
         """Compute a (nondeterministic) greedy edge coloring of this hypergraph.
 
