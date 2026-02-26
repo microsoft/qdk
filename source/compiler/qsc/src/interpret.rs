@@ -1062,8 +1062,9 @@ impl Interpreter {
                         args,
                         eval_config,
                     )?;
+                } else {
+                    return self.static_circuit(entry_expr.as_deref(), tracer_config);
                 }
-                return self.static_circuit(entry_expr.as_deref(), tracer_config);
             }
         }
         let circuit = tracer.finish(&(self.compiler.package_store(), &self.fir_store));
