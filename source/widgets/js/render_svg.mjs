@@ -94,13 +94,6 @@ const CIRCUIT_CSS_DARK = `
     stroke: none; font-family: "KaTeX_Main", sans-serif; fill: #d4d4d4; }
 `;
 
-/** Inject a <defs><style> block as the first child of an SVG string. */
-function injectSvgStyle(svgString, css) {
-  const styleBlock = `<defs><style>${css}</style></defs>`;
-  // Insert right after the opening <svg ...> tag
-  return svgString.replace(/>/, `>${styleBlock}`);
-}
-
 const input = readFileSync(0, "utf-8"); // stdin
 const { component, props } = JSON.parse(input);
 
