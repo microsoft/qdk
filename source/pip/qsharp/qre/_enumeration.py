@@ -8,6 +8,7 @@ from typing import (
     TypeVar,
     Literal,
     Union,
+    cast,
     get_args,
     get_origin,
     get_type_hints,
@@ -20,41 +21,127 @@ from enum import Enum
 T = TypeVar("T")
 
 
+def _is_union_type(tp) -> bool:
+    """Check if a type is a Union or Python 3.10+ union (X | Y)."""
+    return get_origin(tp) is Union or isinstance(tp, types.UnionType)
+
+
+def _is_type_filter(val, union_members: tuple) -> bool:
+    """
+    Check if *val* is a union member type or a list of union member types,
+    i.e. a type filter for a union field (as opposed to a fixed value or
+    instance domain).
+    """
+    member_set = set(union_members)
+    if isinstance(val, type) and val in member_set:
+        return True
+    if isinstance(val, list) and all(
+        isinstance(v, type) and v in member_set for v in val
+    ):
+        return True
+    return False
+
+
+def _is_union_constraint_dict(val) -> bool:
+    """
+    Check if *val* is a dict whose keys are all types, i.e. a per-member
+    constraint mapping for a union field.
+
+    Example: ``{OptionA: {"number": [2, 3]}, OptionB: {}}``
+    """
+    return isinstance(val, dict) and all(isinstance(k, type) for k in val)
+
+
+def _enumerate_union_members(
+    union_members: tuple,
+    val=None,
+) -> list:
+    """
+    Enumerate instances for a union-typed field.
+
+    *val* controls which members are enumerated and how:
+
+    - ``None`` - enumerate all members with their default domains.
+    - A single type (e.g. ``OptionB``) - enumerate only that member.
+    - A list of types (e.g. ``[OptionA, OptionB]``) - enumerate those members.
+    - A dict mapping types to constraint dicts
+      (e.g. ``{OptionA: {"number": [2, 3]}, OptionB: {}}``) -
+      enumerate only the listed members, forwarding the constraint dicts.
+    """
+    # No override - enumerate all members with defaults
+    if val is None:
+        domain: list = []
+        for member_type in union_members:
+            domain.extend(_enumerate_instances(member_type))
+        return domain
+
+    # Single type
+    if isinstance(val, type):
+        return list(_enumerate_instances(val))
+
+    # List of types
+    if isinstance(val, list) and all(isinstance(v, type) for v in val):
+        domain = []
+        for member_type in val:
+            domain.extend(_enumerate_instances(member_type))
+        return domain
+
+    # Dict of type → constraint dict
+    if _is_union_constraint_dict(val):
+        domain = []
+        for member_type, member_kwargs in cast(dict, val).items():
+            domain.extend(_enumerate_instances(member_type, **member_kwargs))
+        return domain
+
+    raise ValueError(
+        f"Invalid value for union field: {val!r}. "
+        "Expected a union member type, a list of types, or a dict mapping "
+        "types to constraint dicts."
+    )
+
+
 def _enumerate_instances(cls: Type[T], **kwargs) -> Generator[T, None, None]:
     """
     Yields all instances of a dataclass given its class.
 
-    The enumeration logic supports defining domains for fields using the `domain`
-    metadata key. This allows fields to specify their valid range of values for
-    enumeration directly in the definition. Additionally, boolean fields are
-    automatically enumerated with `[True, False]`. Enum fields are enumerated
-    with all their members, and Literal types with their defined values.
+    The enumeration logic supports defining domains for fields using the
+    ``domain`` metadata key.  Additionally, boolean fields are automatically
+    enumerated with ``[True, False]``, Enum fields with all their members,
+    and Literal types with their defined values.
+
+    **Nested dataclass fields** can be constrained by passing a dict::
+
+        _enumerate_instances(Outer, inner={"option": True})
+
+    **Union-typed fields** support several override forms:
+
+    - A single type to select one member::
+
+          _enumerate_instances(Config, option=OptionB)
+
+    - A list of types to select a subset::
+
+          _enumerate_instances(Config, option=[OptionA, OptionB])
+
+    - A dict mapping types to constraint dicts::
+
+          _enumerate_instances(Config, option={OptionA: {"number": [2, 3]}, OptionB: {}})
 
     Args:
         cls (Type[T]): The dataclass type to enumerate.
-        **kwargs: Fixed values or domains for fields. If a value is a list
+        **kwargs: Fixed values or domains for fields.  If a value is a list
             and the corresponding field is kw_only, it is treated as a domain
-            to enumerate over.
+            to enumerate over.  For nested dataclass fields a ``dict`` value
+            is forwarded as keyword arguments.  For union-typed fields a type,
+            list of types, or ``dict[type, dict]`` controls member selection
+            and constraints.
 
     Returns:
-        Generator[T, None, None]: A generator yielding instances of the dataclass.
+        Generator[T, None, None]: A generator yielding instances of the
+        dataclass.
 
     Raises:
         ValueError: If a field cannot be enumerated (no domain found).
-
-    Example:
-
-    .. code-block:: python
-        from dataclasses import dataclass, field, KW_ONLY
-        @dataclass
-        class MyConfig:
-            # Not part of enumeration
-            name: str
-            _ : KW_ONLY
-            # Part of enumeration with implicit domain [True, False]
-            enable_logging: bool = field(kw_only=True)
-            # Explicit domain in metadata
-            retry_count: int = field(metadata={"domain": [1, 3, 5]}, kw_only=True)
     """
 
     names = []
@@ -77,6 +164,29 @@ def _enumerate_instances(cls: Type[T], **kwargs) -> Generator[T, None, None]:
 
         if name in kwargs:
             val = kwargs[name]
+
+            is_union = _is_union_type(current_type)
+            union_members = get_args(current_type) if is_union else ()
+
+            # Union field with a type filter or constraint dict
+            if is_union and (
+                _is_type_filter(val, union_members) or _is_union_constraint_dict(val)
+            ):
+                names.append(name)
+                values.append(_enumerate_union_members(union_members, val))
+                continue
+
+            # Nested dataclass field with a dict of constraints
+            if (
+                isinstance(val, dict)
+                and not is_union
+                and isinstance(current_type, type)
+                and hasattr(current_type, "__dataclass_fields__")
+            ):
+                names.append(name)
+                values.append(list(_enumerate_instances(current_type, **val)))
+                continue
+
             # If kw_only and list, it's a domain to enumerate
             if field.kw_only and isinstance(val, list):
                 names.append(name)
@@ -111,13 +221,8 @@ def _enumerate_instances(cls: Type[T], **kwargs) -> Generator[T, None, None]:
             continue
 
         # Union types (e.g., OptionA | OptionB or Union[OptionA, OptionB])
-        if get_origin(current_type) is Union or isinstance(
-            current_type, types.UnionType
-        ):
-            union_domain = []
-            for member_type in get_args(current_type):
-                union_domain.extend(_enumerate_instances(member_type))
-            values.append(union_domain)
+        if _is_union_type(current_type):
+            values.append(_enumerate_union_members(get_args(current_type), None))
             continue
 
         # Nested dataclass types

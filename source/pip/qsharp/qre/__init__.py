@@ -3,7 +3,12 @@
 
 from ._application import Application
 from ._architecture import Architecture
-from ._estimation import estimate
+from ._estimation import (
+    estimate,
+    EstimationTable,
+    EstimationTableColumn,
+    EstimationTableEntry,
+)
 from ._instruction import (
     LOGICAL,
     PHYSICAL,
@@ -11,7 +16,6 @@ from ._instruction import (
     ISATransform,
     PropertyKey,
     constraint,
-    instruction,
     InstructionSource,
 )
 from ._isa_enumeration import ISAQuery, ISARefNode, ISA_ROOT
@@ -31,14 +35,13 @@ from ._qre import (
     linear_function,
     instruction_name,
 )
-from ._trace import LatticeSurgery, PSSPC, TraceQuery
+from ._trace import LatticeSurgery, PSSPC, TraceQuery, TraceTransform
 
 __all__ = [
     "block_linear_function",
     "constant_function",
     "constraint",
     "estimate",
-    "instruction",
     "linear_function",
     "Application",
     "Architecture",
@@ -47,6 +50,9 @@ __all__ = [
     "ConstraintBound",
     "Encoding",
     "EstimationResult",
+    "EstimationTable",
+    "EstimationTableColumn",
+    "EstimationTableEntry",
     "FactoryResult",
     "generic_function",
     "instruction_name",
@@ -63,6 +69,7 @@ __all__ = [
     "PSSPC",
     "Trace",
     "TraceQuery",
+    "TraceTransform",
     "LOGICAL",
     "PHYSICAL",
 ]

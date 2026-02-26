@@ -5,8 +5,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, KW_ONLY, field
 from itertools import product
-from typing import Any, Optional, Generator, Type
-from ._application import _Context
+from types import NoneType
+from typing import Any, Optional, Generator, Type, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ._application import _Context
 from ._enumeration import _enumerate_instances
 from ._qre import PSSPC as _PSSPC, LatticeSurgery as _LatticeSurgery, Trace
 
@@ -52,38 +55,53 @@ class _Node(ABC):
     def enumerate(self, ctx: _Context) -> Generator[Trace, None, None]: ...
 
 
-class RootNode(_Node):
-    # NOTE: this might be redundant with TransformationNode with an empty sequence
-    def enumerate(self, ctx: _Context) -> Generator[Trace, None, None]:
-        yield from ctx.application.enumerate_traces(**ctx.kwargs)
-
-
 class TraceQuery(_Node):
+    # This is a sequence of trace transforms together with possible kwargs to
+    # override their default domains.  The first element might be
     sequence: list[tuple[Type, dict[str, Any]]]
 
     def __init__(self, t: Type, **kwargs):
         self.sequence = [(t, kwargs)]
 
-    def enumerate(self, ctx: _Context) -> Generator[Trace, None, None]:
-        for trace in ctx.application.enumerate_traces(**ctx.kwargs):
-            if not self.sequence:
-                yield trace
+    def enumerate(
+        self, ctx: _Context, track_parameters: bool = False
+    ) -> Generator[Trace | tuple[Any, Trace], None, None]:
+        sequence = self.sequence
+        kwargs = {}
+        if len(sequence) > 0 and sequence[0][0] is NoneType:
+            kwargs = sequence[0][1]
+            sequence = sequence[1:]
+
+        if track_parameters:
+            source = ctx.application.enumerate_traces_with_parameters(**kwargs)
+        else:
+            source = ((None, t) for t in ctx.application.enumerate_traces(**kwargs))
+
+        for params, trace in source:
+            if not sequence:
+                yield (params, trace) if track_parameters else trace
                 continue
 
             transformer_instances = []
 
-            for t, transformer_kwargs in self.sequence:
+            for t, transformer_kwargs in sequence:
                 instances = _enumerate_instances(t, **transformer_kwargs)
                 transformer_instances.append(instances)
 
             # TODO: make parallel
-            for sequence in product(*transformer_instances):
+            for combination in product(*transformer_instances):
                 transformed = trace
-                for transformer in sequence:
+                for transformer in combination:
                     transformed = transformer.transform(transformed)
-                yield transformed
+                yield (params, transformed) if track_parameters else transformed
 
     def __mul__(self, other: TraceQuery) -> TraceQuery:
         new_query = TraceQuery.__new__(TraceQuery)
+
+        if len(other.sequence) > 0 and other.sequence[0][0] is NoneType:
+            raise ValueError(
+                "Cannot multiply with a TraceQuery that has a None transform at the beginning of its sequence."
+            )
+
         new_query.sequence = self.sequence + other.sequence
         return new_query

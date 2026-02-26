@@ -2,3 +2,4 @@ pytest
 expecttest==0.3.0
 pyqir<0.12
 cirq==1.6.1
+pandas==2.3.3

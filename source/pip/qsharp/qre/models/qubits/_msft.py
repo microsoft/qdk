@@ -3,7 +3,7 @@
 
 from dataclasses import KW_ONLY, dataclass, field
 
-from ..._architecture import Architecture
+from ..._architecture import Architecture, _Context
 from ...instruction_ids import (
     T,
     PREP_X,
@@ -13,7 +13,7 @@ from ...instruction_ids import (
     MEAS_X,
     MEAS_Z,
 )
-from ..._instruction import ISA, instruction
+from ..._instruction import ISA
 
 
 @dataclass
@@ -47,8 +47,7 @@ class Majorana(Architecture):
     _: KW_ONLY
     error_rate: float = field(default=1e-5, metadata={"domain": [1e-4, 1e-5, 1e-6]})
 
-    @property
-    def provided_isa(self) -> ISA:
+    def provided_isa(self, ctx: _Context) -> ISA:
         if abs(self.error_rate - 1e-4) <= 1e-8:
             t_error_rate = 0.05
         elif abs(self.error_rate - 1e-5) <= 1e-8:
@@ -56,42 +55,16 @@ class Majorana(Architecture):
         elif abs(self.error_rate - 1e-6) <= 1e-8:
             t_error_rate = 0.01
 
-        return ISA(
-            instruction(
-                PREP_X,
-                time=1000,
-                error_rate=self.error_rate,
+        return ctx.make_isa(
+            ctx.add_instruction(PREP_X, time=1000, error_rate=self.error_rate),
+            ctx.add_instruction(PREP_Z, time=1000, error_rate=self.error_rate),
+            ctx.add_instruction(
+                MEAS_XX, arity=2, time=1000, error_rate=self.error_rate
             ),
-            instruction(
-                PREP_Z,
-                time=1000,
-                error_rate=self.error_rate,
+            ctx.add_instruction(
+                MEAS_ZZ, arity=2, time=1000, error_rate=self.error_rate
             ),
-            instruction(
-                MEAS_XX,
-                arity=2,
-                time=1000,
-                error_rate=self.error_rate,
-            ),
-            instruction(
-                MEAS_ZZ,
-                arity=2,
-                time=1000,
-                error_rate=self.error_rate,
-            ),
-            instruction(
-                MEAS_X,
-                time=1000,
-                error_rate=self.error_rate,
-            ),
-            instruction(
-                MEAS_Z,
-                time=1000,
-                error_rate=self.error_rate,
-            ),
-            instruction(
-                T,
-                time=1000,
-                error_rate=t_error_rate,
-            ),
+            ctx.add_instruction(MEAS_X, time=1000, error_rate=self.error_rate),
+            ctx.add_instruction(MEAS_Z, time=1000, error_rate=self.error_rate),
+            ctx.add_instruction(T, time=1000, error_rate=t_error_rate),
         )

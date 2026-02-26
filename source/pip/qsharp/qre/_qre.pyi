@@ -5,28 +5,6 @@ from __future__ import annotations
 from typing import Any, Callable, Iterator, Optional, overload
 
 class ISA:
-    @overload
-    def __new__(cls, *instructions: _Instruction) -> ISA: ...
-    @overload
-    def __new__(cls, instructions: list[_Instruction], /) -> ISA: ...
-    def __new__(cls, *instructions: _Instruction | list[_Instruction]) -> ISA:
-        """
-        Creates an ISA from a list of instructions.
-
-        Args:
-            instructions (list[_Instruction] | *_Instruction): The list of instructions.
-        """
-        ...
-
-    def append(self, instruction: _Instruction) -> None:
-        """
-        Appends an instruction to the ISA.
-
-        Args:
-            instruction (_Instruction): The instruction to append.
-        """
-        ...
-
     def __add__(self, other: ISA) -> ISA:
         """
         Concatenates two ISAs (logical union). Instructions in the second
@@ -87,6 +65,28 @@ class ISA:
 
         Returns:
             int: The number of instructions.
+        """
+        ...
+
+    def node_index(self, id: int) -> Optional[int]:
+        """
+        Returns the provenance graph node index for the given instruction ID.
+
+        Args:
+            id (int): The instruction ID.
+
+        Returns:
+            Optional[int]: The node index, or None if not found.
+        """
+        ...
+
+    def add_node(self, instruction_id: int, node_index: int) -> None:
+        """
+        Adds a pre-existing provenance graph node to the ISA.
+
+        Args:
+            instruction_id (int): The instruction ID.
+            node_index (int): The node index in the provenance graph.
         """
         ...
 
@@ -376,6 +376,18 @@ class _Instruction:
         """
         ...
 
+    def __getitem__(self, key: int) -> int:
+        """
+        Gets a property by its key, or raises an error if not found.
+
+        Args:
+            key (int): The property key.
+
+        Returns:
+            int: The property value.
+        """
+        ...
+
     def __str__(self) -> str:
         """
         Returns a string representation of the instruction.
@@ -545,18 +557,23 @@ def linear_function(
     ...
 
 @overload
-def block_linear_function(block_size: int, slope: int) -> _IntFunction: ...
+def block_linear_function(block_size: int, slope: int, offset: int) -> _IntFunction: ...
 @overload
-def block_linear_function(block_size: int, slope: float) -> _FloatFunction: ...
 def block_linear_function(
-    block_size: int, slope: int | float
+    block_size: int, slope: float, offset: float
+) -> _FloatFunction: ...
+def block_linear_function(
+    block_size: int, slope: int | float, offset: int | float
 ) -> _IntFunction | _FloatFunction:
     """
-    Creates a block linear function.
+    Creates a block linear function that takes an arity (number of qubits) as
+    input.  Given an arity, it will compute the number of blocks `num_blocks` by
+    computing `ceil(arity / block_size)` and then return `slope * num_blocks +
+    offset`.
 
     Args:
-        block_size (int): The block size.
-        slope (int | float): The slope.
+        block_size (int): The block size. slope (int | float): The slope. offset
+        (int | float): The offset
 
     Returns:
         _IntFunction | _FloatFunction: The block linear function.
@@ -597,13 +614,13 @@ class _ProvenanceGraph:
     """
 
     def add_node(
-        self, instruction_id: int, transform_id: int, children: list[int]
+        self, instruction: _Instruction, transform_id: int, children: list[int]
     ) -> int:
         """
         Adds a node to the provenance graph.
 
         Args:
-            instruction_id (int): The instruction ID corresponding to the node.
+            instruction (int): The instruction corresponding to the node.
             transform_id (int): The transform ID corresponding to the node.
             children (list[int]): The list of child node indices in the provenance graph.
 
@@ -612,15 +629,15 @@ class _ProvenanceGraph:
         """
         ...
 
-    def instruction_id(self, node_index: int) -> int:
+    def instruction(self, node_index: int) -> _Instruction:
         """
-        Returns the instruction ID for a given node index.
+        Returns the instruction for a given node index.
 
         Args:
             node_index (int): The index of the node in the provenance graph.
 
         Returns:
-            int: The instruction ID corresponding to the node.
+            int: The instruction corresponding to the node.
         """
         ...
 
@@ -666,6 +683,74 @@ class _ProvenanceGraph:
         """
         ...
 
+    @overload
+    def add_instruction(
+        self,
+        instruction: _Instruction,
+    ) -> int: ...
+    @overload
+    def add_instruction(
+        self,
+        id: int,
+        encoding: int = 0,
+        *,
+        arity: Optional[int] = 1,
+        time: int | _IntFunction = ...,
+        space: Optional[int | _IntFunction] = None,
+        length: Optional[int | _IntFunction] = None,
+        error_rate: float | _FloatFunction = ...,
+        **kwargs: int,
+    ) -> int: ...
+    def add_instruction(
+        self,
+        id_or_instruction: int | _Instruction,
+        encoding: int = 0,
+        *,
+        arity: Optional[int] = 1,
+        time: int | _IntFunction = ...,
+        space: Optional[int | _IntFunction] = None,
+        length: Optional[int | _IntFunction] = None,
+        error_rate: float | _FloatFunction = ...,
+        **kwargs: int,
+    ) -> int:
+        """
+        Adds an instruction to the provenance graph with no transform or
+        children.
+
+        Can be called with a pre-existing ``_Instruction`` or with keyword
+        args to create one inline.
+
+        Args:
+            id_or_instruction: An instruction ID (int) or ``_Instruction``.
+            encoding: 0 = Physical, 1 = Logical. Ignored for ``_Instruction``.
+            arity: Instruction arity, ``None`` for variable. Ignored for
+                ``_Instruction``.
+            time: Time in ns (or ``_IntFunction``). Ignored for ``_Instruction``.
+            space: Space in physical qubits (or ``_IntFunction``). Ignored for
+                ``_Instruction``.
+            length: Arity including ancillas. Ignored for ``_Instruction``.
+            error_rate: Error rate (or ``_FloatFunction``). Ignored for
+                ``_Instruction``.
+            **kwargs: Additional properties (e.g. ``distance=9``).
+
+        Returns:
+            int: The node index of the added instruction.
+        """
+        ...
+
+    def make_isa(self, node_indices: list[int]) -> ISA:
+        """
+        Creates an ISA backed by this provenance graph from the given node
+        indices.
+
+        Args:
+            node_indices: A list of node indices in the provenance graph.
+
+        Returns:
+            ISA: An ISA referencing this provenance graph.
+        """
+        ...
+
 class EstimationResult:
     """
     Represents the result of a resource estimation.
@@ -697,12 +782,13 @@ class EstimationResult:
         """
         ...
 
-    def add_qubits(self, qubits: int) -> None:
+    @qubits.setter
+    def qubits(self, qubits: int) -> None:
         """
-        Adds to the number of logical qubits.
+        Sets the number of logical qubits.
 
         Args:
-            qubits (int): The number of logical qubits to add.
+            qubits (int): The number of logical qubits to set.
         """
         ...
 
@@ -716,12 +802,13 @@ class EstimationResult:
         """
         ...
 
-    def add_runtime(self, runtime: int) -> None:
+    @runtime.setter
+    def runtime(self, runtime: int) -> None:
         """
-        Adds to the runtime.
+        Sets the runtime.
 
         Args:
-            runtime (int): The amount of runtime in nanoseconds to add.
+            runtime (int): The runtime in nanoseconds to set.
         """
         ...
 
@@ -735,12 +822,13 @@ class EstimationResult:
         """
         ...
 
-    def add_error(self, error: float) -> None:
+    @error.setter
+    def error(self, error: float) -> None:
         """
-        Adds to the error probability.
+        Sets the error probability.
 
         Args:
-            error (float): The amount to add to the error probability.
+            error (float): The error probability to set.
         """
         ...
 
@@ -771,6 +859,17 @@ class EstimationResult:
 
         Returns:
             dict[str, bool | int | float | str]: A dictionary mapping property keys to their values.
+        """
+        ...
+
+    def set_property(self, key: str, value: bool | int | float | str) -> None:
+        """
+        Sets a custom property.
+
+        Args:
+            key (str): The property key.
+            value (bool | int | float | str): The property value. All values of type `int`, `float`, `bool`, and `str`
+                are supported.  Any other value is converted to a string using its `__str__` method.
         """
         ...
 
