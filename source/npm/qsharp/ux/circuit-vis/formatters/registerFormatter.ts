@@ -41,8 +41,7 @@ const formatRegisters = (
       const ys: number[] = [];
       for (const gate of allGates.flat()) {
         if (
-          gate.type === GateType.Group ||
-          gate.type === GateType.ClassicalControlled
+          gate.type === GateType.Group
         ) {
           // Don't render classical wires for a group that is expanded - the wires
           // will be coming out of the measurement operations *inside* the group.

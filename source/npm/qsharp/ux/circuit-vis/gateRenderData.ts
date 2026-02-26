@@ -21,8 +21,6 @@ export enum GateType {
   Unitary,
   /** Single/multi controlled unitary gate. */
   ControlledUnitary,
-  /** Nested group of classically-controlled gates. */
-  ClassicalControlled,
   /** Group of nested gates */
   Group,
   /** Invalid gate. */
@@ -61,6 +59,6 @@ export interface GateRenderData {
   dataAttributes?: DataAttributes;
   /** Link href and title for clickable gate. */
   link?: { href: string; title: string };
-  /** Labels for the classical control registers (applicable only for GateType.ClassicalControlled). */
+  /** Labels for the classical control registers (when present, this group is rendered with classical controls). */
   classicalControlIds?: (number | null)[];
 }

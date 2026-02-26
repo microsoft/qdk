@@ -250,7 +250,9 @@ const _opToRenderData = (
         "No children operations found for classically-controlled operation.",
       );
 
-    renderData.type = GateType.ClassicalControlled;
+    // Treat classically-controlled operations as a specialized kind of group.
+    // Rendering will draw classical controls when `classicalControlIds` is present.
+    renderData.type = GateType.Group;
     renderData.label = gate;
 
     _processChildren(renderData, children, registers, renderLocations);
@@ -441,12 +443,13 @@ const _fillRenderDataX = (
     col.forEach((renderData) => {
       const x = colStartX[colIndex];
       switch (renderData.type) {
-        case GateType.ClassicalControlled:
         case GateType.Group:
           {
             // Subtract startX offset from nested gates and add offset and padding
             let offset: number = x - startX + groupPaddingX;
-            if (renderData.type === GateType.ClassicalControlled) {
+            if (
+              renderData.classicalControlIds != null
+            ) {
               offset += controlCircleOffset;
             }
 

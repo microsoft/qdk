@@ -76,8 +76,6 @@ const formatGate = (renderData: GateRenderData): SVGElement => {
       return _controlledGate(renderData);
     case GateType.Group:
       return _groupedOperations(renderData);
-    case GateType.ClassicalControlled:
-      return _classicalControlled(renderData);
     default:
       throw new Error(`ERROR: unknown gate (${label}) of type ${type}.`);
   }
@@ -600,6 +598,12 @@ const _oplus = (x: number, y: number, wireYs: number[]): SVGElement => {
  * @returns SVG representation of gate.
  */
 const _groupedOperations = (renderData: GateRenderData): SVGElement => {
+  // If this group has classical controls, render it using the specialized
+  // classically-controlled group SVG structure.
+  if (renderData.classicalControlIds != null) {
+    return _groupedOperationsWithClassicalControls(renderData);
+  }
+
   const { children, label } = renderData;
   const { x, y, width: w, height: h } = _gateBoundingBox(renderData);
 
@@ -629,14 +633,14 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
 };
 
 /**
- * Generates the SVG for a classically controlled group of operations.
+ * Generates the SVG for a group of operations that is classically controlled.
  *
  * @param renderData Render data of gate.
  * @param padding  Padding within dashed box.
  *
  * @returns SVG representation of gate.
  */
-const _classicalControlled = (
+const _groupedOperationsWithClassicalControls = (
   renderData: GateRenderData,
   padding: number = groupPaddingX,
 ): SVGElement => {

@@ -61,6 +61,7 @@ const getMinGateWidth = ({
   type,
   label,
   displayArgs,
+  classicalControlIds,
 }: GateRenderData): number => {
   switch (type) {
     case GateType.Measure:
@@ -70,7 +71,7 @@ const getMinGateWidth = ({
     default: {
       // Classically controlled gates are wider because of the control button on the left
       const controlButtonWidth =
-        type === GateType.ClassicalControlled ? controlCircleOffset : 0;
+        classicalControlIds != null ? controlCircleOffset : 0;
       const labelWidth = _getStringWidth(label);
       const argsWidth =
         displayArgs != null ? _getStringWidth(displayArgs, argsFontSize) : 0;
