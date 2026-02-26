@@ -940,3 +940,31 @@ fn binop_short_circuit() {
         "#]],
     );
 }
+
+#[test]
+fn result_to_result_comparison() {
+    check_trace(
+        indoc! {"
+        operation G(q: Qubit) : Unit { body intrinsic; }
+        operation Main() : Unit {
+            use q0 = Qubit();
+            use q1 = Qubit();
+            let r0 = M(q0);
+            let r1 = M(q1);
+            if r0 == r1 {
+                G(q0);
+            }
+            if r0 != r1 {
+                G(q0);
+            }
+        }
+        "},
+        "A.Main()",
+        &expect![[r#"
+            Main@A.qs:4:13 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_0, c_0)
+            Main@A.qs:5:13 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> Measure@qsharp-library-source:Std/Intrinsic.qs:304:12 -> measure(M, q_1, c_1)
+            Main@A.qs:6:4[true] -> if: c_0c_1 = |00〉 or c_0c_1 = |11〉@A.qs:7:8 -> gate(G, targets=(q_0), controls=())
+            Main@A.qs:9:4[true] -> if: c_0c_1 = |01〉 or c_0c_1 = |10〉@A.qs:10:8 -> gate(G, targets=(q_0), controls=())
+        "#]],
+    );
+}

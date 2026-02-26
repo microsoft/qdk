@@ -576,7 +576,7 @@ fn process_icmp_variables(
     let expr = eq_expr(expr_left, expr_right)?;
     match condition_code {
         ConditionCode::Eq => store_expr_in_variable(variables, variable, expr),
-        ConditionCode::Ne => store_expr_in_variable(variables, variable, expr.negate()), // TODO: add a test that exercises the NE condition code
+        ConditionCode::Ne => store_expr_in_variable(variables, variable, expr.negate()),
         condition_code => Err(Error::UnsupportedFeature(format!(
             "unsupported condition code in icmp: {condition_code:?}"
         ))),
