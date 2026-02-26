@@ -4,7 +4,7 @@
 # pyright: reportPrivateImportUsage=false
 
 from collections.abc import Sequence
-from typing import Optional
+from typing import Iterator, Optional
 
 
 """Base Model class for quantum spin models.
@@ -54,8 +54,11 @@ class Model:
 
         Creates a quantum spin model on the given geometry.
 
-        The model stores operators lazily in ``_ops`` as terms are defined.
-        ``_terms`` is initialized with one empty term group.
+        The model stores operators lazily in ``_ops`` as interaction operators
+        are defined. Noncommuting collections of operators are collected in
+        ``_terms`` that stores the indices of its interaction operators. This
+        list of arrays seperate terms into parallizable groups by color. It is
+        initialized as one empty term group.
 
         Args:
             geometry: Hypergraph defining the interaction topology. The number
@@ -66,7 +69,7 @@ class Model:
         self._ops: list[PauliString] = []
         for edge in geometry.edges():
             self._qubits.update(edge.vertices)
-        self._terms: dict[int, list[int]] = {}
+        self._terms: dict[int, dict[int, list[int]]] = {}
 
     def add_interaction(
         self,
@@ -74,6 +77,7 @@ class Model:
         pauli_string: Sequence[int | str] | str,
         coefficient: complex = 1.0,
         term: Optional[int] = None,
+        color: int = 0,
     ) -> None:
         """Add an interaction term to the model.
 
@@ -88,8 +92,16 @@ class Model:
         self._ops.append(s)
         if term is not None:
             if term not in self._terms:
-                self._terms[term] = []
-            self._terms[term].append(len(self._ops) - 1)
+                self._terms[term] = {}
+            if color not in self._terms[term]:
+                self._terms[term][color] = []
+            self._terms[term][color].append(len(self._ops) - 1)
+
+    def terms(self, t: int) -> Iterator[PauliString]:
+        """Get the list of PauliStrings corresponding to a term group."""
+        if t not in self._terms:
+            raise ValueError("Term group does not exist.")
+        return iter([self._ops[i] for i in self._terms[t]])
 
     @property
     def nqubits(self) -> int:
@@ -126,12 +138,67 @@ class IsingModel(Model):
 
     def __init__(self, geometry: Hypergraph, h: float, J: float):
         super().__init__(geometry)
-        self.coloring: HypergraphEdgeColoring = geometry.edge_coloring()
-        self._terms = {0: [], 1: []}
+        self.h = h
+        self.J = J
+        self._terms = {0: {}, 1: {}}
 
+        coloring: HypergraphEdgeColoring = geometry.edge_coloring()
         for edge in geometry.edges():
             vertices = edge.vertices
             if len(vertices) == 1:
-                self.add_interaction(edge, "X", -h, term=0)
+                self.add_interaction(edge, "X", -h, term=0, color=0)
             elif len(vertices) == 2:
-                self.add_interaction(edge, "ZZ", -J, term=1)
+                color = coloring.color(edge.vertices)
+                if color is None:
+                    raise ValueError("Geometry edge coloring failed to assign a color.")
+                self.add_interaction(edge, "ZZ", -J, term=1, color=color)
+
+    def __str__(self) -> str:
+        return (
+            f"Ising model with {self.nterms} terms on {self.nqubits} qubits "
+            f"(h={self.h}, J={self.J})."
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"IsingModel(nqubits={self.nqubits}, nterms={self.nterms}, "
+            f"h={self.h}, J={self.J})"
+        )
+
+
+class HeisenbergModel(Model):
+    """Translation-invariant Heisenberg model on a hypergraph geometry.
+
+    The Hamiltonian is:
+        H = -J * Σ_{<i,j>} (X_i X_j + Y_i Y_j + Z_i Z_j)
+
+    - Two-vertex edges define XX, YY, and ZZ coupling terms with coefficient ``-J``.
+    - Terms are grouped into three parts: ``0`` for XX, ``1`` for YY, and ``2`` for ZZ.
+    """
+
+    def __init__(self, geometry: Hypergraph, J: float):
+        super().__init__(geometry)
+        self.J = J
+        self.coloring: HypergraphEdgeColoring = geometry.edge_coloring()
+        self._terms = {0: {}, 1: {}, 2: {}}
+        for edge in geometry.edges():
+            vertices = edge.vertices
+            if len(vertices) == 2:
+                color = self.coloring.color(edge.vertices)
+                if color is None:
+                    raise ValueError("Geometry edge coloring failed to assign a color.")
+                self.add_interaction(edge, "XX", -J, term=0, color=color)
+                self.add_interaction(edge, "YY", -J, term=1, color=color)
+                self.add_interaction(edge, "ZZ", -J, term=2, color=color)
+
+    def __str__(self) -> str:
+        return (
+            f"Heisenberg model with {self.nterms} terms on {self.nqubits} qubits "
+            f"(J={self.J})."
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"HeisenbergModel(nqubits={self.nqubits}, nterms={self.nterms}, "
+            f"J={self.J})"
+        )

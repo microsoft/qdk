@@ -173,13 +173,13 @@ def test_hypergraph_edge_coloring_rejects_equivalent_edge_not_in_hypergraph():
 
 
 def test_hypergraph_edge_coloring_color_matches_equivalent_vertices():
-    """Test color lookup uses edge vertices, not Hyperedge object identity."""
+    """Test color lookup uses edge vertex tuples as keys."""
     edge = Hyperedge([0, 1])
     graph = Hypergraph([edge])
     coloring = HypergraphEdgeColoring(graph)
 
     coloring.add_edge(edge, 3)
-    assert coloring.color(Hyperedge([1, 0])) == 3
+    assert coloring.color((0, 1)) == 3
 
 
 def test_hypergraph_edge_coloring_rejects_negative_color_for_nontrivial_edge():
@@ -225,7 +225,7 @@ def test_hypergraph_add_edge_with_color():
     coloring = HypergraphEdgeColoring(graph)
     coloring.add_edge(edge, color=1)
     assert graph.nedges == 2
-    assert coloring.color(edge) == 1
+    assert coloring.color(edge.vertices) == 1
 
 
 def test_hypergraph_color_default():
@@ -297,7 +297,7 @@ def test_greedy_edge_coloring_single_edge():
     edge = Hyperedge([0, 1])
     graph = Hypergraph([edge])
     colored = graph.edge_coloring(seed=42)
-    assert colored.color(edge) == 0
+    assert colored.color(edge.vertices) == 0
     assert colored.ncolors == 1
 
 
@@ -307,8 +307,8 @@ def test_greedy_edge_coloring_non_overlapping():
     graph = Hypergraph(edges)
     colored = graph.edge_coloring(seed=42)
     # Non-overlapping edges can be in the same color
-    assert colored.color(edges[0]) is not None
-    assert colored.color(edges[1]) is not None
+    assert colored.color(edges[0].vertices) is not None
+    assert colored.color(edges[1].vertices) is not None
     assert colored.ncolors == 1
 
 
@@ -318,8 +318,8 @@ def test_greedy_edge_coloring_overlapping():
     graph = Hypergraph(edges)
     colored = graph.edge_coloring(seed=42)
     # Overlapping edges need different colors
-    assert colored.color(edges[0]) is not None
-    assert colored.color(edges[1]) is not None
+    assert colored.color(edges[0].vertices) is not None
+    assert colored.color(edges[1].vertices) is not None
     assert colored.ncolors == 2
 
 
@@ -329,9 +329,9 @@ def test_greedy_edge_coloring_triangle():
     graph = Hypergraph(edges)
     colored = graph.edge_coloring(seed=42)
     # All edges share vertices pairwise, so need 3 colors
-    assert colored.color(edges[0]) is not None
-    assert colored.color(edges[1]) is not None
-    assert colored.color(edges[2]) is not None
+    assert colored.color(edges[0].vertices) is not None
+    assert colored.color(edges[1].vertices) is not None
+    assert colored.color(edges[2].vertices) is not None
     assert colored.ncolors == 3
 
 
@@ -350,7 +350,7 @@ def test_greedy_edge_coloring_validity():
     # Group edges by color
     colors = {}
     for edge in edges:
-        color = colored.color(edge)
+        color = colored.color(edge.vertices)
         assert color is not None
         if color not in colors:
             colors[color] = []
@@ -372,9 +372,9 @@ def test_greedy_edge_coloring_all_edges_colored():
     colored = graph.edge_coloring(seed=42)
 
     # All edges should have a color assigned
-    assert colored.color(edges[0]) is not None
-    assert colored.color(edges[1]) is not None
-    assert colored.color(edges[2]) is not None
+    assert colored.color(edges[0].vertices) is not None
+    assert colored.color(edges[1].vertices) is not None
+    assert colored.color(edges[2].vertices) is not None
 
 
 def test_greedy_edge_coloring_reproducible_with_seed():
@@ -385,8 +385,8 @@ def test_greedy_edge_coloring_reproducible_with_seed():
     colored1 = graph.edge_coloring(seed=123)
     colored2 = graph.edge_coloring(seed=123)
 
-    color_map_1 = {edge.vertices: colored1.color(edge) for edge in edges}
-    color_map_2 = {edge.vertices: colored2.color(edge) for edge in edges}
+    color_map_1 = {edge.vertices: colored1.color(edge.vertices) for edge in edges}
+    color_map_2 = {edge.vertices: colored2.color(edge.vertices) for edge in edges}
     assert color_map_1 == color_map_2
 
 
@@ -415,9 +415,9 @@ def test_greedy_edge_coloring_hyperedges():
     colored = graph.edge_coloring(seed=42)
 
     # First two share vertex 2, third is independent
-    assert colored.color(edges[0]) is not None
-    assert colored.color(edges[1]) is not None
-    assert colored.color(edges[2]) is not None
+    assert colored.color(edges[0].vertices) is not None
+    assert colored.color(edges[1].vertices) is not None
+    assert colored.color(edges[2].vertices) is not None
     assert colored.ncolors >= 2
 
 
@@ -428,7 +428,7 @@ def test_greedy_edge_coloring_self_loops():
     colored = graph.edge_coloring(seed=42)
 
     # Self-loops use the special -1 color and do not contribute to ncolors.
-    assert colored.color(edges[0]) == -1
-    assert colored.color(edges[1]) == -1
-    assert colored.color(edges[2]) == -1
+    assert colored.color(edges[0].vertices) == -1
+    assert colored.color(edges[1].vertices) == -1
+    assert colored.color(edges[2].vertices) == -1
     assert colored.ncolors == 0
