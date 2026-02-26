@@ -5,7 +5,7 @@ import {
   minGateWidth,
   startX,
   gatePadding,
-  controlBtnOffset,
+  controlCircleOffset,
   groupPaddingX,
   groupTopPadding,
   groupBottomPadding,
@@ -267,7 +267,7 @@ const _opToRenderData = (
         .map((id) => id ?? null) || [];
 
     // Add additional width for classical control circle
-    renderData.width += controlBtnOffset;
+    renderData.width += controlCircleOffset;
   } else if (
     conditionalRender == ConditionalRender.AsGroup &&
     children &&
@@ -447,7 +447,7 @@ const _fillRenderDataX = (
             // Subtract startX offset from nested gates and add offset and padding
             let offset: number = x - startX + groupPaddingX;
             if (renderData.type === GateType.ClassicalControlled) {
-              offset += controlBtnOffset;
+              offset += controlCircleOffset;
             }
 
             // Offset each x coord in children gates
