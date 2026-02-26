@@ -16,6 +16,7 @@ import {
   type ZoneLayout,
   type TraceData,
   MoleculeViewer,
+  OrbitalEntanglement,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
@@ -85,6 +86,9 @@ function render({ model, el }: RenderArgs) {
       break;
     case "MoleculeViewer":
       renderMoleculeViewer({ model, el });
+      break;
+    case "OrbitalEntanglement":
+      renderOrbitalEntanglement({ model, el });
       break;
     default:
       throw new Error(`Unknown component type ${componentType}`);
@@ -299,6 +303,66 @@ function renderAtoms({ model, el }: RenderArgs) {
   onChange();
   model.on("change:machine_layout", onChange);
   model.on("change:trace_data", onChange);
+}
+
+function renderOrbitalEntanglement({ model, el }: RenderArgs) {
+  const onChange = () => {
+    const s1Entropies = model.get("s1_entropies") as number[];
+    const mutualInformation = model.get(
+      "mutual_information",
+    ) as number[][];
+    const labels = model.get("labels") as string[];
+    const selectedIndices = model.get(
+      "selected_indices",
+    ) as number[] | null;
+    const options = (model.get("options") || {}) as Record<string, unknown>;
+
+    prender(
+      <OrbitalEntanglement
+        s1Entropies={s1Entropies}
+        mutualInformation={mutualInformation}
+        labels={labels}
+        selectedIndices={selectedIndices ?? undefined}
+        gapDeg={options.gap_deg as number | undefined}
+        radius={options.radius as number | undefined}
+        arcWidth={options.arc_width as number | undefined}
+        lineScale={options.line_scale as number | null | undefined}
+        miThreshold={options.mi_threshold as number | undefined}
+        s1Vmax={options.s1_vmax as number | null | undefined}
+        miVmax={options.mi_vmax as number | null | undefined}
+        title={options.title as string | null | undefined}
+        width={options.width as number | undefined}
+        height={options.height as number | undefined}
+        selectionColor={options.selection_color as string | undefined}
+        selectionLinewidth={
+          options.selection_linewidth as number | undefined
+        }
+      />,
+      el,
+    );
+  };
+
+  onChange();
+  model.on("change:s1_entropies", onChange);
+  model.on("change:mutual_information", onChange);
+  model.on("change:labels", onChange);
+  model.on("change:selected_indices", onChange);
+  model.on("change:options", onChange);
+
+  // Handle SVG export requests from Python
+  model.on("msg:custom", (msg: { type: string }) => {
+    if (msg.type === "export_svg") {
+      const svgEl = el.querySelector("svg");
+      if (svgEl) {
+        const serializer = new XMLSerializer();
+        const svgString = serializer.serializeToString(svgEl);
+        model.send({
+          type: "svg_data",
+          svg: svgString,
+        });
+      }
+    }
+  });
 }
 
 function renderMoleculeViewer({ model, el }: RenderArgs) {
