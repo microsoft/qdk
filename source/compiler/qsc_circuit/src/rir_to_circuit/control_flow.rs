@@ -30,7 +30,6 @@ pub(super) fn reconstruct_control_flow(
 
 pub(super) enum StructuredControlFlow {
     Seq(Vec<StructuredControlFlow>),
-    /// A single basic block's "payload" (you can expand to instructions later).
     BasicBlock(BlockId),
     If {
         cond: Variable,
