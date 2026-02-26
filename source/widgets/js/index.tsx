@@ -331,6 +331,7 @@ function renderOrbitalEntanglement({ model, el }: RenderArgs) {
         height={options.height as number | undefined}
         selectionColor={options.selection_color as string | undefined}
         selectionLinewidth={options.selection_linewidth as number | undefined}
+        groupSelected={options.group_selected as boolean | undefined}
       />,
       el,
     );

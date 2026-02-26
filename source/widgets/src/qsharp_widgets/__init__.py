@@ -325,6 +325,7 @@ class OrbitalEntanglement(anywidget.AnyWidget):
         mutual_information=None,
         labels=None,
         selected_indices=None,
+        group_selected=False,
         **options,
     ):
         """
@@ -349,6 +350,10 @@ class OrbitalEntanglement(anywidget.AnyWidget):
             Orbital labels.  Defaults to ``["0", "1", …]``.
         selected_indices : list[int], optional
             Orbital indices to highlight.
+        group_selected : bool, optional
+            When ``True``, reorder arcs so that selected orbitals sit
+            adjacent on the ring (labels still show the original orbital
+            names).  Defaults to ``False``.
         **options
             Forwarded to the JS component as visual knobs
             (``gap_deg``, ``radius``, ``arc_width``, ``line_scale``,
@@ -390,14 +395,19 @@ class OrbitalEntanglement(anywidget.AnyWidget):
         self._init_mi = [list(row) for row in mutual_information]
         self._init_labels = list(labels)
         self._init_selected = list(selected_indices) if selected_indices else []
+        self._init_group_selected = bool(group_selected)
         self._init_options = dict(options)
+
+        # Merge group_selected into the options dict so the JS widget sees it
+        opts_with_group = dict(options)
+        opts_with_group["group_selected"] = bool(group_selected)
 
         super().__init__(
             s1_entropies=s1_entropies,
             mutual_information=mutual_information,
             labels=labels,
             selected_indices=selected_indices,
-            options=options,
+            options=opts_with_group,
         )
         self.on_msg(self._handle_msg)
 
@@ -457,6 +467,8 @@ class OrbitalEntanglement(anywidget.AnyWidget):
             }
             if self._init_selected:
                 props["selectedIndices"] = self._init_selected
+            if self._init_group_selected:
+                props["groupSelected"] = True
             props["darkMode"] = bool(dark_mode)
             for key, val in self._init_options.items():
                 props[_snake_to_camel(key)] = val
@@ -524,8 +536,7 @@ def _render_component_node(component: str, props: dict) -> str:
 
     if result.returncode != 0:
         raise RuntimeError(
-            f"Node SSR render failed (exit {result.returncode}):\n"
-            f"{result.stderr}"
+            f"Node SSR render failed (exit {result.returncode}):\n" f"{result.stderr}"
         )
 
     return result.stdout

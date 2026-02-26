@@ -132,19 +132,22 @@ switch (component) {
     html = html.replace(/<g\s+id="menu"[^>]*>[\s\S]*?<\/g>/g, "");
     // The help-info is a <g style="display: none;"> wrapping nested elements –
     // match from the last <g style="display: none;"> to the closing </svg>
-    html = html.replace(/<g\s+style="display:\s*none;"[^>]*>[\s\S]*?<\/g>\s*(?=<\/svg>)/, "");
+    html = html.replace(
+      /<g\s+style="display:\s*none;"[^>]*>[\s\S]*?<\/g>\s*(?=<\/svg>)/,
+      "",
+    );
 
     // Add xmlns for standalone SVG and set a reasonable default render size
     html = html.replace(
       /<svg\s+class="histogram"/,
-      '<svg xmlns="http://www.w3.org/2000/svg" class="histogram" width="600"'
+      '<svg xmlns="http://www.w3.org/2000/svg" class="histogram" width="600"',
     );
 
     // Inject resolved CSS styles
     const css = dark ? HISTOGRAM_CSS_DARK : HISTOGRAM_CSS_LIGHT;
     html = html.replace(
       /(<svg\s[^>]*>)/,
-      `$1<defs><style>${css}</style></defs>`
+      `$1<defs><style>${css}</style></defs>`,
     );
 
     output = html;
@@ -168,9 +171,10 @@ switch (component) {
     globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 
     const container = win.document.createElement("div");
-    const circuitData = typeof props.circuit === "string"
-      ? JSON.parse(props.circuit)
-      : props.circuit;
+    const circuitData =
+      typeof props.circuit === "string"
+        ? JSON.parse(props.circuit)
+        : props.circuit;
 
     // Normalise any legacy/raw format into a proper CircuitGroup
     const result = toCircuitGroup(circuitData);
@@ -190,11 +194,13 @@ switch (component) {
       const dark = !!props.darkMode;
       const css = dark ? CIRCUIT_CSS_DARK : CIRCUIT_CSS_LIGHT;
       const styleEl = dom.window.document.createElementNS(
-        "http://www.w3.org/2000/svg", "style"
+        "http://www.w3.org/2000/svg",
+        "style",
       );
       styleEl.textContent = css;
       const defs = dom.window.document.createElementNS(
-        "http://www.w3.org/2000/svg", "defs"
+        "http://www.w3.org/2000/svg",
+        "defs",
       );
       defs.appendChild(styleEl);
       svg.insertBefore(defs, svg.firstChild);

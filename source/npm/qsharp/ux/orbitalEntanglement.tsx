@@ -42,6 +42,11 @@ export interface OrbitalEntanglementProps {
   selectionColor?: string;
   selectionLinewidth?: number;
   /**
+   * When `true`, reorder arcs so that selected orbitals sit adjacent
+   * on the ring (labels still show the original orbital names).
+   */
+  groupSelected?: boolean;
+  /**
    * When `true` renders light text on a dark background; when `false`
    * renders dark text on a transparent background.  Leave `undefined`
    * (the default) to inherit from the host page via `currentColor`.
@@ -186,6 +191,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
     height = 660,
     selectionColor: selectionColorProp,
     selectionLinewidth = 1.2,
+    groupSelected = false,
     darkMode,
   } = props;
 
@@ -253,10 +259,31 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
   const gapTotal = gapDeg * n;
   const arcDegs = totals.map((t) => ((360 - gapTotal) * t) / grand);
 
+  // --- selected set ---
+  const selectedSet = new Set((selectedIndices ?? []).map(String));
+
+  // --- ring ordering (group selected orbitals together when requested) ---
+  const order: number[] = Array.from({ length: n }, (_, i) => i);
+  if (groupSelected && selectedIndices && selectedIndices.length > 0) {
+    const sel: number[] = [];
+    const unsel: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (selectedSet.has(labels[i])) {
+        sel.push(i);
+      } else {
+        unsel.push(i);
+      }
+    }
+    order.length = 0;
+    order.push(...sel, ...unsel);
+  }
+
   const starts: number[] = new Array(n);
-  starts[0] = 0;
-  for (let i = 1; i < n; i++) {
-    starts[i] = starts[i - 1] + arcDegs[i - 1] + gapDeg;
+  starts[order[0]] = 0;
+  for (let p = 1; p < n; p++) {
+    const prev = order[p - 1];
+    const curr = order[p];
+    starts[curr] = starts[prev] + arcDegs[prev] + gapDeg;
   }
 
   const arcMids = starts.map((s, i) => s + arcDegs[i] / 2);
@@ -366,9 +393,6 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       }
     }
   }
-
-  // --- selected set ---
-  const selectedSet = new Set((selectedIndices ?? []).map(String));
 
   // --- viewBox ---
   const maxOffset = baseOffset + Math.max(0, ...tier) * tierStep + 0.15;
