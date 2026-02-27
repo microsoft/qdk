@@ -94,14 +94,22 @@ const processOperations = (
           );
         }
 
+        const isCollapsedGroup =
+          renderData.type === GateType.Group &&
+          renderData.dataAttributes?.["expanded"] !== "true";
+
         if (
           op != null &&
-          [GateType.Unitary, GateType.Ket, GateType.ControlledUnitary].includes(
-            renderData.type,
-          )
+          ([
+            GateType.Unitary,
+            GateType.Ket,
+            GateType.ControlledUnitary,
+          ].includes(renderData.type) ||
+            isCollapsedGroup)
         ) {
-          // If gate is a unitary type, split targetsY into groups if there
-          // is a classical register between them for rendering
+          // Split multi-wire gate bodies into segments if there is a classical
+          // register wire between them. This prevents classical wires from
+          // visually intersecting/entering gate bodies.
 
           // Get y coordinates of classical registers in the same column as this operation
           const classicalRegY: number[] = classicalRegs
