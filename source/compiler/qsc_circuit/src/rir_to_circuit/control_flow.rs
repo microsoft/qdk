@@ -238,7 +238,6 @@ fn earliest_merge_point(
 }
 
 /// Collect blocks reachable from `start` without stepping through `stop`.
-/// Useful if you want to validate that a branch arm is a clean, contained region.
 fn reachable_until(
     blocks: &IndexMap<BlockId, Block>,
     start: BlockId,
