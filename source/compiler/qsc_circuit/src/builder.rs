@@ -1291,34 +1291,32 @@ impl OperationOrGroup {
     }
 
     fn extend_target_results(&mut self, target_results: &[ResultWire]) {
-        {
-            match &mut self.op {
-                Operation::Measurement(measurement) => {
-                    measurement
-                        .results
-                        .extend(target_results.iter().map(|r| Register {
-                            qubit: r.0,
-                            result: Some(r.1),
-                        }));
-                    measurement
-                        .results
-                        .sort_unstable_by_key(|reg| (reg.qubit, reg.result));
-                    measurement.results.dedup();
-                }
-                Operation::Unitary(unitary) => {
-                    unitary
-                        .targets
-                        .extend(target_results.iter().map(|r| Register {
-                            qubit: r.0,
-                            result: Some(r.1),
-                        }));
-                    unitary
-                        .targets
-                        .sort_unstable_by_key(|r| (r.qubit, r.result));
-                    unitary.targets.dedup();
-                }
-                Operation::Ket(_) => {}
+        match &mut self.op {
+            Operation::Measurement(measurement) => {
+                measurement
+                    .results
+                    .extend(target_results.iter().map(|r| Register {
+                        qubit: r.0,
+                        result: Some(r.1),
+                    }));
+                measurement
+                    .results
+                    .sort_unstable_by_key(|reg| (reg.qubit, reg.result));
+                measurement.results.dedup();
             }
+            Operation::Unitary(unitary) => {
+                unitary
+                    .targets
+                    .extend(target_results.iter().map(|r| Register {
+                        qubit: r.0,
+                        result: Some(r.1),
+                    }));
+                unitary
+                    .targets
+                    .sort_unstable_by_key(|r| (r.qubit, r.result));
+                unitary.targets.dedup();
+            }
+            Operation::Ket(_) => {}
         }
     }
 
@@ -1619,9 +1617,6 @@ pub(crate) fn add_scoped_op(
             {
                 // The last scope matched, add to it
                 let last_scope_stack = last_scope_stack.clone();
-
-                // last_op.merge_inputs(&op);
-                // let last_op_children = last_op.children_mut().expect("operation should be a group");
 
                 // Recursively add to the children
                 add_scoped_op(
