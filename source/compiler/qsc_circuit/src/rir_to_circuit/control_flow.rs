@@ -190,7 +190,7 @@ fn compute_must_reach_sets(
         let succs = next_blocks(blocks.get(b).expect("block should exist"));
         assert!(
             !succs.is_empty(),
-            "non-return block must have a next step under your assumptions"
+            "non-return block must have a next step"
         );
 
         // Start with the first successor's must_reach set...
