@@ -101,7 +101,7 @@ fn find_return_block(blocks: &IndexMap<BlockId, Block>) -> BlockId {
 }
 
 /// Produce an order where every block appears before anything it can jump to.
-/// (This works because you said there are no cycles.)
+/// This assumes there are no cycles, which should be true for Adaptive-compliant RIR we generate.
 fn execution_order(blocks: &IndexMap<BlockId, Block>) -> Vec<BlockId> {
     // Count how many incoming edges each block has.
     let mut incoming_count: FxHashMap<BlockId, usize> = FxHashMap::default();
@@ -230,7 +230,7 @@ fn earliest_merge_point(
     let mut shared: Vec<BlockId> = sa.intersection(sb).copied().collect();
     assert!(
         !shared.is_empty(),
-        "paths should reconverge under your assumptions"
+        "paths should reconverge"
     );
 
     shared.sort_by_key(|id| order_index[id]);
@@ -238,7 +238,6 @@ fn earliest_merge_point(
 }
 
 /// Collect blocks reachable from `start` without stepping through `stop`.
-/// Useful if you want to validate that a branch arm is a clean, contained region.
 fn reachable_until(
     blocks: &IndexMap<BlockId, Block>,
     start: BlockId,
