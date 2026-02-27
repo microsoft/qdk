@@ -4,22 +4,24 @@
 /.github/workflows/fuzz.yml @billti @idavis @swernli
 /source/compiler @idavis @minestarks @swernli
 /source/compiler/qsc_codegen @idavis @swernli
-/source/compiler/qsc_doc_gen @billti @DmitryVasilevsky @ScottCarda-MS
+/source/compiler/qsc_doc_gen @billti @ScottCarda-MS
 /source/compiler/qsc_formatter @billti @minestarks @ScottCarda-MS
 /source/compiler/qsc_project @idavis @minestarks @swernli
 /source/compiler/qsc_partial_eval @idavis @swernli
 /source/compiler/qsc_rca @idavis @swernli
 /source/compiler/qsc_rir @idavis @swernli
 /source/fuzz  @billti @idavis @swernli
-/katas @billti @DmitryVasilevsky @swernli
+/katas @billti @swernli
 /source/jupyterlab @billti @idavis @minestarks
 /source/language_service @billti @idavis @minestarks @ScottCarda-MS
-/library @DmitryVasilevsky @swernli
-/source/npm @billti @DmitryVasilevsky @minestarks
+/source/simulators @billti @idavis @orpuente-MS
+/source/noisy_simulator @swernli @orpuente-MS
+/library @swernli @orpuente-MS
+/source/npm @billti @minestarks @ScottCarda-MS
 /source/pip @billti @idavis @minestarks
 /source/playground @billti @minestarks
 /source/resource_estimator @billti @swernli
-/samples @DmitryVasilevsky @minestarks @swernli
+/samples @minestarks @swernli
 /source/vscode @billti @idavis @minestarks
 /source/wasm @billti @idavis @swernli
 
