@@ -418,12 +418,12 @@ function parseFragmentInto(parent, markup) {
 
     if (!selfClosing) {
       // Parse children until we find this tag's closing tag
-      pos = parseChildrenUntilClose(el, markup, pos, tagName);
+      pos = parseChildrenUntilClose(el, markup, pos);
     }
   }
 }
 
-function parseChildrenUntilClose(parent, markup, pos, tagName) {
+function parseChildrenUntilClose(parent, markup, pos) {
   const len = markup.length;
   while (pos < len) {
     const lt = markup.indexOf("<", pos);
@@ -462,7 +462,7 @@ function parseChildrenUntilClose(parent, markup, pos, tagName) {
 
     pos = tagEnd + 1;
     if (!selfClosing) {
-      pos = parseChildrenUntilClose(el, markup, pos, childTag);
+      pos = parseChildrenUntilClose(el, markup, pos);
     }
   }
   return pos;
