@@ -62,6 +62,13 @@ function render({ model, el }: RenderArgs) {
     el.ownerDocument.head.appendChild(forceStyle);
   }
 
+  // Belt-and-suspenders: also set the background inline on the nearest
+  // ipywidget container (if any) so it wins regardless of CSS load order.
+  const bgContainer = el.closest(".cell-output-ipywidget-background");
+  if (bgContainer instanceof HTMLElement) {
+    bgContainer.style.backgroundColor = "transparent";
+  }
+
   switch (componentType) {
     case "SpaceChart":
       renderChart({ model, el });
@@ -251,6 +258,12 @@ function renderHistogram({ model, el }: RenderArgs) {
         labels={labels}
         items={items}
         sort={sort}
+        onSettingsChange={(settings) => {
+          model.set("labels", settings.labels);
+          model.set("items", settings.items);
+          model.set("sort", settings.sort);
+          model.save_changes();
+        }}
       ></Histogram>,
       el,
     );
@@ -263,6 +276,22 @@ function renderHistogram({ model, el }: RenderArgs) {
   model.on("change:labels", onChange);
   model.on("change:items", onChange);
   model.on("change:sort", onChange);
+
+  // Cache the live SVG into a traitlet whenever the histogram DOM changes
+  let svgCacheTimer: ReturnType<typeof setTimeout> | null = null;
+  const cacheLiveSvg = () => {
+    if (svgCacheTimer) clearTimeout(svgCacheTimer);
+    svgCacheTimer = setTimeout(() => {
+      const svg = serializeLiveSvg(el);
+      if (svg) {
+        model.set("_live_svg", svg);
+        model.save_changes();
+      }
+    }, 200);
+  };
+
+  const observer = new MutationObserver(cacheLiveSvg);
+  observer.observe(el, { childList: true, subtree: true });
 }
 
 function renderCircuit({ model, el }: RenderArgs) {
@@ -286,6 +315,29 @@ function renderCircuit({ model, el }: RenderArgs) {
 
   onChange();
   model.on("change:circuit_json", onChange);
+
+  // Cache the live SVG into a traitlet whenever the circuit DOM changes
+  // (initial render, expand/collapse, etc.).  Debounced to avoid
+  // excessive updates during rapid DOM mutations.
+  let svgCacheTimer: ReturnType<typeof setTimeout> | null = null;
+  const cacheLiveSvg = () => {
+    if (svgCacheTimer) clearTimeout(svgCacheTimer);
+    svgCacheTimer = setTimeout(() => {
+      const svg = serializeLiveSvg(el);
+      if (svg) {
+        model.set("_live_svg", svg);
+        model.save_changes();
+      }
+    }, 200);
+  };
+
+  const observer = new MutationObserver(cacheLiveSvg);
+  observer.observe(el, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    characterData: true,
+  });
 }
 
 function renderAtoms({ model, el }: RenderArgs) {
@@ -344,20 +396,166 @@ function renderOrbitalEntanglement({ model, el }: RenderArgs) {
   model.on("change:selected_indices", onChange);
   model.on("change:options", onChange);
 
-  // Handle SVG export requests from Python
-  model.on("msg:custom", (msg: { type: string }) => {
-    if (msg.type === "export_svg") {
-      const svgEl = el.querySelector("svg");
-      if (svgEl) {
-        const serializer = new XMLSerializer();
-        const svgString = serializer.serializeToString(svgEl);
-        model.send({
-          type: "svg_data",
-          svg: svgString,
-        });
+  // Cache the live SVG into a traitlet whenever the diagram DOM changes
+  let svgCacheTimer: ReturnType<typeof setTimeout> | null = null;
+  const cacheLiveSvg = () => {
+    if (svgCacheTimer) clearTimeout(svgCacheTimer);
+    svgCacheTimer = setTimeout(() => {
+      const svg = serializeLiveSvg(el, ".oe-group-toggle");
+      if (svg) {
+        model.set("_live_svg", svg);
+        model.save_changes();
+      }
+    }, 200);
+  };
+
+  const observer = new MutationObserver(cacheLiveSvg);
+  observer.observe(el, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    characterData: true,
+  });
+}
+
+/**
+ * Serialize the first <svg> in the container to a string, optionally
+ * removing elements matching `stripSelector` (e.g. interactive-only UI
+ * that shouldn't appear in a static export).
+ *
+ * The resulting SVG is fully self-contained: it includes an embedded
+ * `<defs><style>` block with the widget CSS so the SVG renders
+ * correctly when opened outside the widget (e.g. saved to a file).
+ */
+function serializeLiveSvg(
+  el: HTMLElement,
+  stripSelector?: string,
+): string | null {
+  const svgEl = el.querySelector("svg");
+  if (!svgEl) return null;
+
+  // Clone so we don't mutate the live DOM
+  const clone = svgEl.cloneNode(true) as SVGSVGElement;
+  if (stripSelector) {
+    clone.querySelectorAll(stripSelector).forEach((n) => n.remove());
+  }
+  // Remove interactive-only elements common across widgets
+  clone
+    .querySelectorAll(".menu-icon, #menu, [style*='display: none']")
+    .forEach((n) => n.remove());
+  // For circuit SVGs, qviz sets zoom-related inline styles
+  // (max-width, width, height) that should not appear in the export.
+  // Strip only those while preserving any other inline styles (e.g.
+  // the OrbitalEntanglement's background setting).
+  const inlineStyle = clone.getAttribute("style");
+  if (inlineStyle) {
+    const cleaned = inlineStyle
+      .replace(/max-width:\s*[^;]+;?/gi, "")
+      .replace(/\bwidth:\s*[^;]+;?/gi, "")
+      .replace(/\bheight:\s*auto\s*;?/gi, "")
+      .trim();
+    if (cleaned) {
+      clone.setAttribute("style", cleaned);
+    } else {
+      clone.removeAttribute("style");
+    }
+  }
+
+  // Ensure xmlns is present for standalone SVG files
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+
+  // Circuit SVGs have class "qviz" and rely on CSS scoped under
+  // `.qs-circuit`.  Add that class to the SVG root so the selectors
+  // match when the SVG is viewed standalone (without the wrapper div).
+  if (clone.classList.contains("qviz")) {
+    clone.classList.add("qs-circuit");
+  }
+
+  // Embed the widget CSS so the SVG is self-contained.
+  // anywidget already injected our index.css into the page — we just
+  // find that stylesheet and embed its full content.
+  const css = getWidgetCssText();
+  if (css) {
+    const svgNS = "http://www.w3.org/2000/svg";
+    let defs = clone.querySelector("defs");
+    if (!defs) {
+      defs = document.createElementNS(svgNS, "defs");
+      clone.insertBefore(defs, clone.firstChild);
+    }
+    const styleEl = document.createElementNS(svgNS, "style");
+    styleEl.textContent = css;
+    defs.appendChild(styleEl);
+  }
+
+  const serializer = new XMLSerializer();
+  return serializer.serializeToString(clone);
+}
+
+/**
+ * Cached widget CSS text — computed once, reused for every SVG export.
+ * `null` means "not yet computed", empty string means "not found".
+ */
+let _cachedWidgetCss: string | null = null;
+
+/**
+ * Return the full widget CSS text suitable for embedding in standalone
+ * SVGs.  We find the stylesheet that anywidget injected (our index.css)
+ * by checking for a known structural class (`.qs-circuit`),
+ * then grab **all** its rules. This avoids maintaining a fragile
+ * selector whitelist — the same CSS that styles the live widget is
+ * embedded verbatim.
+ *
+ * CSS custom properties (--main-color etc.) are resolved to concrete
+ * light-mode values so the SVG doesn't depend on the host page's
+ * theme variables.
+ */
+function getWidgetCssText(): string {
+  if (_cachedWidgetCss !== null) return _cachedWidgetCss;
+
+  // Override CSS custom properties and background AFTER the widget CSS
+  // so standalone SVGs don't pick up host-specific colours.
+  const varOverrides = `:root { --main-color: #222222; --main-background: transparent; }`;
+
+  const collectRules = (rules: CSSRuleList): string =>
+    Array.from(rules)
+      .map((r) => r.cssText)
+      .join("\n");
+
+  const isWidgetSheet = (rules: CSSRuleList): boolean =>
+    Array.from(rules).some(
+      (r) =>
+        r instanceof CSSStyleRule && r.selectorText?.includes(".qs-circuit"),
+    );
+
+  try {
+    // Check adoptedStyleSheets first (used by modern anywidget)
+    for (const sheet of document.adoptedStyleSheets ?? []) {
+      try {
+        if (isWidgetSheet(sheet.cssRules)) {
+          _cachedWidgetCss = `${varOverrides}\n${collectRules(sheet.cssRules)}`;
+          return _cachedWidgetCss;
+        }
+      } catch {
+        /* SecurityError */
       }
     }
-  });
+    // Fall back to regular <style>/<link> stylesheets
+    for (const sheet of document.styleSheets) {
+      try {
+        if (isWidgetSheet(sheet.cssRules)) {
+          _cachedWidgetCss = `${varOverrides}\n${collectRules(sheet.cssRules)}`;
+          return _cachedWidgetCss;
+        }
+      } catch {
+        /* cross-origin SecurityError */
+      }
+    }
+  } catch {
+    /* unexpected error — degrade gracefully */
+  }
+
+  _cachedWidgetCss = varOverrides;
+  return _cachedWidgetCss;
 }
 
 function renderMoleculeViewer({ model, el }: RenderArgs) {

@@ -13,7 +13,12 @@
  */
 
 // Characters that need escaping in XML text content / attribute values.
-const XML_ESCAPE_MAP = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
+const XML_ESCAPE_MAP = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+};
 const xmlEscape = (s) => s.replace(/[&<>"]/g, (c) => XML_ESCAPE_MAP[c]);
 
 // --------------------------------------------------------------------------
@@ -234,9 +239,7 @@ class ShimElement extends ShimNode {
   // --- textContent ---
 
   get textContent() {
-    return this._children
-      .map((c) => c.textContent ?? "")
-      .join("");
+    return this._children.map((c) => c.textContent ?? "").join("");
   }
 
   set textContent(val) {
@@ -327,7 +330,9 @@ class ShimElement extends ShimNode {
     // that must not be entity-encoded.
     const isRawText = this.tagName === "style" || this.tagName === "script";
     const inner = isRawText
-      ? this._children.map((c) => (c.nodeType === 3 ? c._text : c.outerHTML)).join("")
+      ? this._children
+          .map((c) => (c.nodeType === 3 ? c._text : c.outerHTML))
+          .join("")
       : this._children.map((c) => c.outerHTML).join("");
     return `<${this.tagName}${attrStr}>${inner}</${this.tagName}>`;
   }
@@ -401,7 +406,8 @@ function parseFragmentInto(parent, markup) {
     const tagContent = markup.slice(lt + 1, selfClosing ? tagEnd - 1 : tagEnd);
 
     const spaceIdx = tagContent.search(/[\s/]/);
-    const tagName = spaceIdx === -1 ? tagContent : tagContent.slice(0, spaceIdx);
+    const tagName =
+      spaceIdx === -1 ? tagContent : tagContent.slice(0, spaceIdx);
     const attrString = spaceIdx === -1 ? "" : tagContent.slice(spaceIdx);
 
     const el = new ShimElement(null, tagName);
@@ -446,7 +452,8 @@ function parseChildrenUntilClose(parent, markup, pos, tagName) {
     const selfClosing = markup[tagEnd - 1] === "/";
     const tagContent = markup.slice(lt + 1, selfClosing ? tagEnd - 1 : tagEnd);
     const spaceIdx = tagContent.search(/[\s/]/);
-    const childTag = spaceIdx === -1 ? tagContent : tagContent.slice(0, spaceIdx);
+    const childTag =
+      spaceIdx === -1 ? tagContent : tagContent.slice(0, spaceIdx);
     const attrString = spaceIdx === -1 ? "" : tagContent.slice(spaceIdx);
 
     const el = new ShimElement(null, childTag);
@@ -467,7 +474,7 @@ function findTagEnd(markup, start) {
   const len = markup.length;
   while (i < len) {
     const ch = markup[i];
-    if (ch === ">" ) return i;
+    if (ch === ">") return i;
     if (ch === '"' || ch === "'") {
       // Skip quoted string
       const quote = ch;
@@ -503,7 +510,13 @@ function parseAttributes(el, attrString) {
   }
 }
 
-const ENTITY_MAP = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'" };
+const ENTITY_MAP = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+};
 function decodeXMLEntities(s) {
   return s.replace(/&(amp|lt|gt|quot|#39);/g, (m) => ENTITY_MAP[m] ?? m);
 }
@@ -562,7 +575,10 @@ export function installSvgDomShim() {
   globalThis.getComputedStyle = () => ({});
   globalThis.DOMPoint = class DOMPoint {
     constructor(x = 0, y = 0, z = 0, w = 1) {
-      this.x = x; this.y = y; this.z = z; this.w = w;
+      this.x = x;
+      this.y = y;
+      this.z = z;
+      this.w = w;
     }
   };
   globalThis.performance = { now: () => Date.now() };

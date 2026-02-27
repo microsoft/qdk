@@ -101,6 +101,11 @@ export function Histogram(props: {
   labels?: "raw" | "kets" | "none";
   items?: "all" | "top-10" | "top-25";
   sort?: "a-to-z" | "high-to-low" | "low-to-high";
+  onSettingsChange?: (settings: {
+    labels: "raw" | "kets" | "none";
+    items: "all" | "top-10" | "top-25";
+    sort: "a-to-z" | "high-to-low" | "low-to-high";
+  }) => void;
 }) {
   const [hoverLabel, setHoverLabel] = useState("");
   const [scale, setScale] = useState({ zoom: 1.0, offset: 1.0 });
@@ -215,6 +220,26 @@ export function Histogram(props: {
       setScale({ zoom: 1, offset: 1 });
     }
     gMenu.current.style.display = "none";
+
+    // Notify parent of settings change
+    if (props.onSettingsChange) {
+      const sortValues: ("a-to-z" | "high-to-low" | "low-to-high")[] = [
+        "a-to-z",
+        "high-to-low",
+        "low-to-high",
+      ];
+      const labelsValues: ("raw" | "kets" | "none")[] = ["raw", "kets", "none"];
+      const itemsValues: ("all" | "top-10" | "top-25")[] = [
+        "all",
+        "top-10",
+        "top-25",
+      ];
+      props.onSettingsChange({
+        sort: sortValues[newMenuSelection["sortOrder"] ?? 0],
+        labels: labelsValues[newMenuSelection["labels"] ?? 0],
+        items: itemsValues[newMenuSelection["itemCount"] ?? 0],
+      });
+    }
   }
 
   function toggleInfo() {

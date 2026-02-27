@@ -52,6 +52,11 @@ export interface OrbitalEntanglementProps {
    * (the default) to inherit from the host page via `currentColor`.
    */
   darkMode?: boolean;
+  /**
+   * When `true`, interactive-only UI elements (e.g. the grouping toggle)
+   * are suppressed.  Used during server-side SVG export.
+   */
+  static?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +198,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
     selectionLinewidth = 1.2,
     groupSelected = false,
     darkMode,
+    static: isStatic = false,
   } = props;
 
   // --- theme-resolved colours ---
@@ -213,6 +219,13 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
 
   // --- hover state ---
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
+  // --- grouping toggle (only relevant when there is a selection) ---
+  const hasSelection =
+    selectedIndices !== undefined && selectedIndices.length > 0;
+  const [isGrouped, setIsGrouped] = useState(groupSelected);
+  // Sync if the prop changes externally
+  useEffect(() => setIsGrouped(groupSelected), [groupSelected]);
 
   // --- background-aware selection colour ---
   const svgRef = useRef<SVGSVGElement>(null);
@@ -264,7 +277,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
 
   // --- ring ordering (group selected orbitals together when requested) ---
   const order: number[] = Array.from({ length: n }, (_, i) => i);
-  if (groupSelected && selectedIndices && selectedIndices.length > 0) {
+  if (isGrouped && selectedIndices && selectedIndices.length > 0) {
     const sel: number[] = [];
     const unsel: number[] = [];
     for (let i = 0; i < n; i++) {
@@ -436,6 +449,43 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
         >
           {title}
         </text>
+      )}
+
+      {/* Group-selected toggle (only when there is a selection; hidden in static SVG export) */}
+      {hasSelection && !isStatic && (
+        <g
+          class="oe-group-toggle"
+          transform={`translate(${width - 14}, 14)`}
+          style={{ cursor: "pointer" }}
+          onClick={() => setIsGrouped((v) => !v)}
+        >
+          <title>
+            {isGrouped
+              ? "Ungroup selected orbitals"
+              : "Group selected orbitals together"}
+          </title>
+          <rect
+            x={-80}
+            y={-10}
+            width={80}
+            height={20}
+            rx={10}
+            fill={isGrouped ? selectionColor : "#888888"}
+            opacity={0.85}
+          />
+          <circle cx={isGrouped ? -10 : -70} cy={0} r={7} fill="white" />
+          <text
+            x={isGrouped ? -52 : -33}
+            y={0}
+            text-anchor="middle"
+            dominant-baseline="central"
+            font-size="10"
+            font-weight="bold"
+            fill="white"
+          >
+            {isGrouped ? "Grouped" : "Ungrouped"}
+          </text>
+        </g>
       )}
 
       {/* Diagram group — centred and scaled to fit */}

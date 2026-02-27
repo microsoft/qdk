@@ -120,6 +120,8 @@ class Histogram(anywidget.AnyWidget):
     labels = traitlets.Unicode("raw").tag(sync=True)
     items = traitlets.Unicode("all").tag(sync=True)
     sort = traitlets.Unicode("a-to-z").tag(sync=True)
+    # Automatically populated by the front-end MutationObserver.
+    _live_svg = traitlets.Unicode("").tag(sync=True)
 
     def _update_ui(self):
         self.buckets = self._new_buckets.copy()
@@ -202,10 +204,11 @@ class Histogram(anywidget.AnyWidget):
     def export_svg(self, path=None):
         """Export the histogram as an SVG string or file.
 
-        The same Preact component used by the interactive widget is
-        rendered server-side via Node.js.  The exported SVG embeds the
-        canonical project CSS whose ``var()`` fallback chains resolve
-        to concrete light-mode values in a standalone context.
+        If the widget has been displayed in a notebook, the cached live
+        SVG is returned — this captures any interactive changes the user
+        made (sorting, labels, item filters).  Otherwise the same Preact
+        component is rendered server-side via Node.js using the current
+        traitlet values.
 
         Parameters
         ----------
@@ -218,16 +221,19 @@ class Histogram(anywidget.AnyWidget):
         str
             SVG markup (when *path* is ``None``) or the file path.
         """
-        props = {
-            "data": dict(self.buckets),
-            "shotCount": self.shot_count,
-            "filter": "",
-            "shotsHeader": self.shot_header,
-            "labels": self.labels,
-            "items": self.items,
-            "sort": self.sort,
-        }
-        svg = _render_component_node("Histogram", props)
+        svg = self._live_svg if self._live_svg else None
+
+        if not isinstance(svg, str):
+            props = {
+                "data": dict(self.buckets),
+                "shotCount": self.shot_count,
+                "filter": "",
+                "shotsHeader": self.shot_header,
+                "labels": self.labels,
+                "items": self.items,
+                "sort": self.sort,
+            }
+            svg = _render_component_node("Histogram", props)
 
         if path is not None:
             from pathlib import Path as _P
@@ -243,6 +249,9 @@ class Circuit(anywidget.AnyWidget):
 
     comp = traitlets.Unicode("Circuit").tag(sync=True)
     circuit_json = traitlets.Unicode().tag(sync=True)
+    # Automatically populated by the front-end MutationObserver whenever
+    # the circuit SVG re-renders (e.g. after expand/collapse).
+    _live_svg = traitlets.Unicode("").tag(sync=True)
 
     def __init__(self, circuit):
         super().__init__(circuit_json=circuit.json())
@@ -251,12 +260,10 @@ class Circuit(anywidget.AnyWidget):
     def export_svg(self, path=None):
         """Export the circuit diagram as an SVG string or file.
 
-        The same ``qviz`` renderer used by the interactive widget is
-        executed server-side via Node.js (with a lightweight built-in
-        DOM shim — no external packages required beyond Node itself).
-        The exported SVG embeds the canonical project CSS whose
-        ``var()`` fallback chains resolve to concrete light-mode values
-        in a standalone context.
+        If the widget has been displayed in a notebook, the cached live
+        SVG is returned — this captures any interactive changes the user
+        made (expanded/collapsed blocks).  Otherwise the same ``qviz``
+        renderer is executed server-side via Node.js.
 
         Parameters
         ----------
@@ -271,10 +278,13 @@ class Circuit(anywidget.AnyWidget):
         """
         import json
 
-        props = {
-            "circuit": json.loads(self.circuit_json),
-        }
-        svg = _render_component_node("Circuit", props)
+        svg = self._live_svg if self._live_svg else None
+
+        if not isinstance(svg, str):
+            props = {
+                "circuit": json.loads(self.circuit_json),
+            }
+            svg = _render_component_node("Circuit", props)
 
         if path is not None:
             from pathlib import Path as _P
@@ -308,9 +318,8 @@ class OrbitalEntanglement(anywidget.AnyWidget):
         sync=True
     )
     options = traitlets.Dict().tag(sync=True)
-
-    _svg_data = None
-    _svg_event = None
+    # Automatically populated by the front-end MutationObserver.
+    _live_svg = traitlets.Unicode("").tag(sync=True)
 
     def __init__(
         self,
@@ -404,30 +413,20 @@ class OrbitalEntanglement(anywidget.AnyWidget):
             selected_indices=selected_indices,
             options=opts_with_group,
         )
-        self.on_msg(self._handle_msg)
 
-    def _handle_msg(self, widget, content, buffers):
-        if content.get("type") == "svg_data":
-            self._svg_data = content["svg"]
-            if self._svg_event is not None:
-                self._svg_event.set()
-
-    def export_svg(self, path=None, timeout=5, dark_mode=False):
+    def export_svg(self, path=None, dark_mode=False):
         """Export the diagram as an SVG string or file.
 
-        If the widget is displayed in a notebook, the front-end is asked to
-        serialise its live SVG.  If that fails (or the widget was never
-        displayed), the same Preact component is rendered server-side via
-        Node.js — the output is identical to the interactive widget.
+        If the widget has been displayed in a notebook, the cached live
+        SVG is returned — this captures any interactive changes the user
+        made (grouping toggle).  Otherwise the same Preact component is
+        rendered server-side via Node.js.
 
         Parameters
         ----------
         path : str or Path, optional
             When given the SVG is written to this file and the path is
             returned.  Otherwise the SVG markup string is returned.
-        timeout : float
-            Seconds to wait for the front-end round-trip before falling
-            back to server-side rendering.
         dark_mode : bool
             When ``True`` the exported SVG uses light text on a dark
             background; when ``False`` (default) dark text on a
@@ -438,20 +437,7 @@ class OrbitalEntanglement(anywidget.AnyWidget):
         str
             SVG markup (when *path* is ``None``) or the file path.
         """
-        svg = None
-
-        # Try the front-end round-trip first (only works when displayed)
-        try:
-            import threading
-
-            self._svg_data = None
-            self._svg_event = threading.Event()
-            self.send({"type": "export_svg"})
-            if self._svg_event.wait(timeout=timeout):
-                svg = self._svg_data
-            self._svg_event = None
-        except Exception:
-            pass
+        svg = self._live_svg if self._live_svg else None
 
         if not isinstance(svg, str):
             # Fall back to server-side rendering via Node.js

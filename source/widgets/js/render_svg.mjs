@@ -39,7 +39,7 @@ let output = "";
 switch (component) {
   // ---- OrbitalEntanglement (pure Preact SVG) ----
   case "OrbitalEntanglement": {
-    const vnode = h(OrbitalEntanglement, props);
+    const vnode = h(OrbitalEntanglement, { ...props, static: true });
     output = renderToString(vnode);
     break;
   }
