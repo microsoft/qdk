@@ -101,7 +101,7 @@ fn find_return_block(blocks: &IndexMap<BlockId, Block>) -> BlockId {
 }
 
 /// Produce an order where every block appears before anything it can jump to.
-/// (This works because you said there are no cycles.)
+/// This assumes there are no cycles, which should be true for Adaptive-compliant RIR we generate.
 fn execution_order(blocks: &IndexMap<BlockId, Block>) -> Vec<BlockId> {
     // Count how many incoming edges each block has.
     let mut incoming_count: FxHashMap<BlockId, usize> = FxHashMap::default();
