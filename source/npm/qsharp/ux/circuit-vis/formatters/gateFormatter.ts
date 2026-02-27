@@ -109,6 +109,7 @@ const _createGate = (
   renderData: GateRenderData,
 ): SVGElement => {
   const { dataAttributes } = renderData || {};
+  const expanded = dataAttributes?.["expanded"] === "true";
   const attributes: { [attr: string]: string } = { class: "gate" };
   Object.entries(dataAttributes || {}).forEach(
     ([attr, val]) => (attributes[`data-${attr}`] = val),
@@ -122,9 +123,9 @@ const _createGate = (
 
   // If there's a source location, wrap the gate in an SVG <a> element to make it clickable
   //
-  // `GateType.Group` corresponds to an *expanded* group, which will contain clickable gates
-  // so therefore should not itself be clickable
-  if (renderData.link && renderData.type !== GateType.Group) {
+  // Expanded groups contain clickable child gates, so the group itself should not be clickable.
+  // Collapsed groups are rendered as a single summary gate and can be clickable.
+  if (renderData.link && !(renderData.type === GateType.Group && expanded)) {
     const linkElem = createLinkElement(
       renderData.link.href,
       renderData.link.title,
@@ -193,8 +194,8 @@ const _zoomButton = (renderData: GateRenderData): SVGElement | null => {
     });
     const elements: SVGElement[] = [circleBorder, minusSign];
     return group(elements, { class: "gate-control gate-collapse" });
-  } else if (dataAttributes["zoom-in"] == "true") {
-    // Create expand button if operation can be zoomed in
+  } else if (renderData.type === GateType.Group) {
+    // Create expand button if operation is a composite/group gate
     const plusSign: SVGElement = createSvgElement("path", {
       d: `M${x},${y - 7} v14 M${x - 7},${y} h14`,
     });
@@ -635,7 +636,31 @@ const _oplus = (x: number, y: number, wireYs: number[]): SVGElement => {
  * @returns SVG representation of gate.
  */
 const _groupedOperations = (renderData: GateRenderData): SVGElement => {
-  const { children, label } = renderData;
+  const { children, label, displayArgs, x, targetsY, width } = renderData;
+  const expanded = renderData.dataAttributes?.["expanded"] === "true";
+
+  // Collapsed composite: render as a single summary gate (unitary-style), but keep
+  // the GateType as Group so the UI can still offer an expand button.
+  if (!expanded) {
+    // `targetsY` for groups is typically a flat `number[]` (not split into groups).
+    // `_unitary` expects a `number[][]` where each entry is a contiguous set of wires.
+    const normalizedTargetsY: number[][] = Array.isArray(targetsY[0])
+      ? (targetsY as number[][])
+      : [targetsY as number[]];
+
+    let bodyWidth = width;
+    let bodyX = x;
+    if (renderData.classicalControlIds != null) {
+      bodyWidth = width - controlCircleOffset;
+      bodyX = x + controlCircleOffset / 2;
+    }
+
+    return _createGate(
+      [_unitary(label, bodyX, normalizedTargetsY, bodyWidth, displayArgs)],
+      renderData,
+    );
+  }
+
   const boundingBox = _gateBoundingBox(renderData);
 
   const hasClassicalControls =

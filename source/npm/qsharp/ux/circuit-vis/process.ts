@@ -239,16 +239,19 @@ const _opToRenderData = (
     conditionalRender,
   } = op;
 
+  const hasChildren = children != null && children.length > 0;
+  const isExpanded =
+    conditionalRender === ConditionalRender.AsGroup ||
+    dataAttributes?.["expanded"] === "true";
+
   // Set y coords
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
   renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
 
   if (isConditional) {
     // Classically-controlled operations.
-    //
-    // These can be rendered in two ways:
-    // - Expanded (`ConditionalRender.AsGroup`): show children inside a dashed group box.
-    // - Collapsed (otherwise): show as a single unitary gate, but still render classical controls.
+    // These are always treated as composite operations when they have children.
+    // Expanded vs. collapsed rendering is controlled via the `expanded` state.
 
     renderData.label = gate;
 
@@ -263,37 +266,30 @@ const _opToRenderData = (
         )
         .map((id) => id ?? null) || [];
 
-    if (conditionalRender === ConditionalRender.AsGroup) {
-      if (children == null || children.length == 0)
-        throw new Error(
-          "No children operations found for classically-controlled operation.",
-        );
-
-      // Treat expanded classically-controlled operations as a kind of group.
+    if (hasChildren) {
       renderData.type = GateType.Group;
-      _processChildren(renderData, children, registers, renderLocations);
+      if (isExpanded) {
+        _processChildren(renderData, children!, registers, renderLocations);
 
-      // Add additional width for classical control circle.
-      // (The group width comes from children layout; it doesn't account for controls.)
-      renderData.width += controlCircleOffset;
+        // Add additional width for classical control circle.
+        // (The group width comes from children layout; it doesn't account for controls.)
+        renderData.width += controlCircleOffset;
+      }
     } else {
-      // Collapsed view: render as a single gate.
+      // Defensive fallback: a conditional without children is rendered as a unitary.
       renderData.type = GateType.Unitary;
     }
-  } else if (
-    conditionalRender == ConditionalRender.AsGroup &&
-    children &&
-    (children.length || 0) > 0
-  ) {
-    // Grouped operations
+  } else if (hasChildren) {
+    // Composite/grouped operations.
+    // Always represented as `GateType.Group` so the UI can determine expandability
+    // solely from gate type.
 
     renderData.type = GateType.Group;
-    // _zoomButton function in gateFormatter.ts relies on
-    // 'expanded' attribute to render zoom button
-    renderData.dataAttributes = { expanded: "true" };
     renderData.label = gate;
 
-    _processChildren(renderData, children, registers, renderLocations);
+    if (isExpanded) {
+      _processChildren(renderData, children!, registers, renderLocations);
+    }
   } else if (op.kind === "measurement") {
     renderData.type = GateType.Measure;
   } else if (op.kind === "ket") {
@@ -320,9 +316,24 @@ const _opToRenderData = (
   // For now, we only display the first argument
   if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
 
-  // Minimum width is calculated based on the label and args
+  // Minimum width is calculated based on the label and args.
+  // If this is a collapsed composite (GateType.Group with no children render data),
+  // its width should be based on the summary gate rather than the full expanded layout.
   const minWidth = getMinGateWidth(renderData);
-  renderData.width = Math.max(minWidth, renderData.width);
+
+  const isCollapsedComposite =
+    renderData.type === GateType.Group && !isExpanded;
+
+  if (isCollapsedComposite) {
+    renderData.width = minWidth;
+
+    // Leave room for classical control circles when collapsed.
+    if (renderData.classicalControlIds != null) {
+      renderData.width += controlCircleOffset;
+    }
+  } else {
+    renderData.width = Math.max(minWidth, renderData.width);
+  }
 
   if (op.metadata?.source && renderLocations) {
     renderData.link = renderLocations([op.metadata.source]);

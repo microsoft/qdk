@@ -343,21 +343,12 @@ export class Sqore {
   private fillGateRegistry(operation: Operation, location: string): void {
     if (operation.dataAttributes == null) operation.dataAttributes = {};
     operation.dataAttributes["location"] = location;
-    // By default, operations cannot be zoomed-out
-    operation.dataAttributes["zoom-out"] = "false";
     this.gateRegistry[location] = operation;
     operation.children?.forEach((col, colIndex) =>
       col.components.forEach((childOp, i) => {
         this.fillGateRegistry(childOp, `${location}-${colIndex},${i}`);
-        if (childOp.dataAttributes == null) childOp.dataAttributes = {};
-        // Children operations can be zoomed out
-        childOp.dataAttributes["zoom-out"] = "true";
       }),
     );
-    // Composite operations can be zoomed in
-    operation.dataAttributes["zoom-in"] = (
-      operation.children != null
-    ).toString();
   }
 
   /**
@@ -372,11 +363,10 @@ export class Sqore {
   }
 
   /**
-   * Add interactive click handlers for zoom-in/out functionality.
+   * Add interactive click handlers for expand/collapse functionality.
    *
    * @param container HTML element containing visualized circuit.
    * @param circuit Circuit to be visualized.
-   *
    */
   private addZoomHandlers(container: HTMLElement, circuit: Circuit): void {
     container.querySelectorAll(".gate .gate-control").forEach((ctrl) => {
@@ -399,11 +389,10 @@ export class Sqore {
   }
 
   /**
-   * Expand selected operation for zoom-in interaction.
+   * Expand selected composite operation.
    *
    * @param componentGrid Grid of circuit components.
    * @param location Location of operation to expand.
-   *
    */
   private expandOperation(
     componentGrid: ComponentGrid,
@@ -424,11 +413,10 @@ export class Sqore {
   }
 
   /**
-   * Collapse selected operation for zoom-out interaction.
+   * Collapse selected composite operation.
    *
    * @param componentGrid Grid of circuit components.
    * @param parentLoc Location of operation to collapse.
-   *
    */
   private collapseOperation(
     componentGrid: ComponentGrid,
