@@ -123,17 +123,13 @@ fn execution_order(blocks: &IndexMap<BlockId, Block>) -> Vec<BlockId> {
     }
 
     // Start with blocks that have no incoming edges.
-    let mut ready: VecDeque<BlockId> = incoming_count
+    let mut ready: Vec<_> = incoming_count
         .iter()
         .filter_map(|(id, n)| (*n == 0).then_some(*id))
         .collect();
+    ready.sort();
+    let mut ready: VecDeque<_> = ready.into();
 
-    // Optional: keep deterministic ordering.
-    {
-        let mut v: Vec<_> = ready.drain(..).collect();
-        v.sort();
-        ready.extend(v);
-    }
 
     let mut ordered = Vec::with_capacity(blocks.iter().count());
 
