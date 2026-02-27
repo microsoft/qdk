@@ -12,6 +12,7 @@ mod type_check;
 mod unreachable_code_check;
 
 use build_dominator_graph::build_dominator_graph;
+pub use build_dominator_graph::build_post_dominator_graph;
 use defer_meas::defer_measurements;
 use qsc_data_structures::target::TargetCapabilityFlags;
 use reindex_qubits::reindex_qubits;

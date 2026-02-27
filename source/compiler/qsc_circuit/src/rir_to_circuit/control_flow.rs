@@ -8,9 +8,8 @@ use qsc_partial_eval::{
     rir::{Block, BlockId, Variable},
 };
 use qsc_rir::debug::InstructionDbgMetadata;
-use rustc_hash::FxHashMap;
+use qsc_rir::passes::build_post_dominator_graph;
 use rustc_hash::FxHashSet;
-use std::vec;
 
 /// RIR blocks -> Structured Control Flow
 pub(super) fn reconstruct_control_flow(
@@ -29,9 +28,11 @@ pub(super) fn reconstruct_control_flow(
         "IndexMap iteration order should be deterministic and sorted"
     );
 
-    let must_reach = compute_must_reach_sets(blocks, return_block, &ordered);
+    // Compute immediate post-dominators using the dominator algorithm on the reversed CFG.
+    // The post-dominator of a branching block is exactly its merge point.
+    let post_doms = build_post_dominator_graph(blocks, return_block);
 
-    build_structured(blocks, &must_reach, entry, None)
+    build_structured(blocks, &post_doms, entry, None)
 }
 
 pub(super) enum StructuredControlFlow {
@@ -83,18 +84,6 @@ fn terminator(block: &Block) -> Terminator {
     }
 }
 
-/// A block either:
-/// - jumps to one next block,
-/// - splits into two paths (if/else),
-/// - or finishes (return).
-fn next_blocks(block: &Block) -> Vec<BlockId> {
-    match terminator(block) {
-        Terminator::Unconditional(t) => vec![t],
-        Terminator::Conditional(br) => vec![br.true_block, br.false_block],
-        Terminator::Return => vec![],
-    }
-}
-
 /// Find the one final "finish" block (Return).
 fn find_return_block(blocks: &IndexMap<BlockId, Block>) -> BlockId {
     let mut returns = blocks
@@ -106,103 +95,10 @@ fn find_return_block(blocks: &IndexMap<BlockId, Block>) -> BlockId {
     returns.pop().expect("just checked non-empty")
 }
 
-/// For each block b, compute the set of blocks that are guaranteed to happen
-/// after b on the way to the final return.
-///
-/// This is the key trick for turning a split (if/else) into a clean structured
-/// region with a well-defined merge point.
-///
-/// Rules:
-/// - The return block must reach itself.
-/// - If b unconditionally jumps to n, then b must reach everything n must reach.
-/// - If b conditionally jumps to t/f, then b must reach only what BOTH branches
-///   must reach (intersection).
-fn compute_must_reach_sets(
-    blocks: &IndexMap<BlockId, Block>,
-    return_block: BlockId,
-    ordered: &[BlockId],
-) -> FxHashMap<BlockId, FxHashSet<BlockId>> {
-    // Walk backwards so successors are already computed.
-    let mut must_reach: FxHashMap<BlockId, FxHashSet<BlockId>> = FxHashMap::default();
-
-    for &b in ordered.iter().rev() {
-        if b == return_block {
-            let mut s = FxHashSet::default();
-            s.insert(return_block);
-            must_reach.insert(b, s);
-            continue;
-        }
-
-        let succs = next_blocks(blocks.get(b).expect("block should exist"));
-        assert!(!succs.is_empty(), "non-return block must have a next step");
-
-        // Start with the first successor's must_reach set...
-        let mut guaranteed = must_reach
-            .get(&succs[0])
-            .expect("in a DAG, successors appear later in reverse order walk")
-            .clone();
-
-        // ...and if there are multiple successors, keep only what's in ALL of them.
-        for s in succs.iter().skip(1) {
-            let ss = must_reach
-                .get(s)
-                .expect("in a DAG, successors appear later in reverse order walk");
-            guaranteed.retain(|x| ss.contains(x));
-        }
-
-        // A block trivially "must reaches" itself (we include it to simplify joins).
-        guaranteed.insert(b);
-        must_reach.insert(b, guaranteed);
-    }
-
-    must_reach
-}
-
-/// Pick the earliest merge point for two paths a and b:
-/// - find blocks that both paths are guaranteed to reach
-/// - choose the one that happens earliest in the overall forward order
-fn earliest_merge_point(
-    must_reach: &FxHashMap<BlockId, FxHashSet<BlockId>>,
-    a: BlockId,
-    b: BlockId,
-) -> BlockId {
-    let sa = must_reach.get(&a).expect("must reach set should exist");
-    let sb = must_reach.get(&b).expect("must reach set should exist");
-
-    *sa.intersection(sb)
-        .min()
-        .expect("there should be at least the return block in common")
-}
-
-/// Collect blocks reachable from `start` without stepping through `stop`.
-fn reachable_until(
-    blocks: &IndexMap<BlockId, Block>,
-    start: BlockId,
-    stop: BlockId,
-) -> FxHashSet<BlockId> {
-    let mut seen = FxHashSet::default();
-    let mut stack = vec![start];
-
-    while let Some(n) = stack.pop() {
-        if n == stop || seen.contains(&n) {
-            continue;
-        }
-        seen.insert(n);
-
-        for nxt in next_blocks(blocks.get(n).expect("block should exist")) {
-            if nxt != stop {
-                stack.push(nxt);
-            }
-        }
-    }
-
-    seen
-}
-
 /// `build_structured(entry, stop_at)` produces a structured control flow by:
 /// - walking forward normally for straight-line jumps
 /// - when it hits a split (conditional), it:
-///     1) finds the merge point
+///     1) finds the merge point (the immediate post-dominator of the branching block)
 ///     2) recursively builds the "then" path until the merge
 ///     3) recursively builds the "else" path until the merge
 ///     4) continues after the merge
@@ -210,7 +106,7 @@ fn reachable_until(
 /// `stop_at` means "stop before entering this block" (don't include it).
 fn build_structured(
     blocks: &IndexMap<BlockId, Block>,
-    must_reach: &FxHashMap<BlockId, FxHashSet<BlockId>>,
+    post_doms: &IndexMap<BlockId, BlockId>,
     entry: BlockId,
     stop_at: Option<BlockId>,
 ) -> StructuredControlFlow {
@@ -247,14 +143,14 @@ fn build_structured(
             }
 
             Terminator::Conditional(br) => {
-                let merge = earliest_merge_point(must_reach, br.true_block, br.false_block);
+                // The merge point is the immediate post-dominator of the branching block:
+                // the first block that every path from here must pass through.
+                let merge = *post_doms
+                    .get(cur)
+                    .expect("branching block should have a post-dominator");
 
-                // Optional: region sanity checks / debugging
-                let _then_region = reachable_until(blocks, br.true_block, merge);
-                let _else_region = reachable_until(blocks, br.false_block, merge);
-
-                let then_scf = build_structured(blocks, must_reach, br.true_block, Some(merge));
-                let else_scf = build_structured(blocks, must_reach, br.false_block, Some(merge));
+                let then_scf = build_structured(blocks, post_doms, br.true_block, Some(merge));
+                let else_scf = build_structured(blocks, post_doms, br.false_block, Some(merge));
 
                 statements.push(StructuredControlFlow::If {
                     cond: br.condition,
