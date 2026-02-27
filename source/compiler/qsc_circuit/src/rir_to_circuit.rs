@@ -573,14 +573,17 @@ fn process_icmp_variables(
 ) -> Result<(), Error> {
     let expr_left = expr_from_operand(variables, operand)?;
     let expr_right = expr_from_operand(variables, operand1)?;
-    let expr = eq_expr(expr_left, expr_right)?;
-    match condition_code {
-        ConditionCode::Eq => store_expr_in_variable(variables, variable, expr),
-        ConditionCode::Ne => store_expr_in_variable(variables, variable, expr.negate()),
-        condition_code => Err(Error::UnsupportedFeature(format!(
-            "unsupported condition code in icmp: {condition_code:?}"
-        ))),
-    }
+    let expr = match condition_code {
+        ConditionCode::Eq => eq_expr(expr_left, expr_right)?,
+        ConditionCode::Ne => eq_expr(expr_left, expr_right)?.negate(),
+        cmp => Expr::Bool(BoolExpr::BinOp(
+            expr_left.into(),
+            expr_right.into(),
+            cmp.to_string(),
+        )),
+    };
+    store_expr_in_variable(variables, variable, expr)?;
+    Ok(())
 }
 
 fn process_fcmp_variables(
@@ -1328,6 +1331,7 @@ fn known_gate_spec(callable_name: &str) -> Option<GateSpec<'static>> {
         "__quantum__qis__z__body" => GateSpec::single_qubit_gate("Z"),
         "__quantum__qis__s__body" => GateSpec::single_qubit_gate("S"),
         "__quantum__qis__s__adj" => GateSpec::single_qubit_gate_adjoint("S"),
+        "__quantum__qis__sx__body" => GateSpec::single_qubit_gate("SX"),
         "__quantum__qis__t__body" => GateSpec::single_qubit_gate("T"),
         "__quantum__qis__t__adj" => GateSpec::single_qubit_gate_adjoint("T"),
         "__quantum__qis__h__body" => GateSpec::single_qubit_gate("H"),
