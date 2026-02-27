@@ -333,11 +333,6 @@ const _opToRenderData = (
 
   if (isCollapsedComposite) {
     renderData.width = minWidth;
-
-    // Leave room for classical control circles when collapsed.
-    if (renderData.classicalControlIds != null) {
-      renderData.width += controlCircleOffset;
-    }
   } else {
     renderData.width = Math.max(minWidth, renderData.width);
   }
