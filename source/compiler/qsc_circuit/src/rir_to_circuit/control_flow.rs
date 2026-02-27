@@ -217,18 +217,15 @@ fn compute_must_reach_sets(
 /// - choose the one that happens earliest in the overall forward order
 fn earliest_merge_point(
     must_reach: &FxHashMap<BlockId, FxHashSet<BlockId>>,
-    order_index: &FxHashMap<BlockId, usize>,
     a: BlockId,
     b: BlockId,
 ) -> BlockId {
     let sa = must_reach.get(&a).expect("must reach set should exist");
     let sb = must_reach.get(&b).expect("must reach set should exist");
 
-    let mut shared: Vec<BlockId> = sa.intersection(sb).copied().collect();
-    assert!(!shared.is_empty(), "paths should reconverge");
-
-    shared.sort_by_key(|id| order_index[id]);
-    shared[0]
+    *sa.intersection(sb)
+        .min()
+        .expect("there should be at least the return block in common")
 }
 
 /// Collect blocks reachable from `start` without stepping through `stop`.
