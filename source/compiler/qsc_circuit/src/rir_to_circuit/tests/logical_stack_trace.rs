@@ -2,13 +2,13 @@
 // Licensed under the MIT License.
 
 use crate::builder::WireMapBuilder;
-use crate::rir_to_circuit::build_operation_list;
+use crate::rir_to_circuit::{CircuitBuilder, ProgramControlFlow};
 use crate::{
     builder::{
         GateInputs, LogicalStack, LogicalStackWithSourceLookup, OperationReceiver, ScopeStack,
         WireMap,
     },
-    rir_to_circuit::{VariableTracker, reconstruct_control_flow},
+    rir_to_circuit::VariableTracker,
 };
 use expect_test::Expect;
 use expect_test::expect;
@@ -162,7 +162,7 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
     )
     .expect("RIR lowering should succeed");
 
-    let mut program_map = VariableTracker {
+    let program_map = VariableTracker {
         variables: IndexMap::default(),
         blocks_to_control_results: IndexMap::default(),
     };
@@ -173,7 +173,8 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         .expect("entry callable should exist")
         .body
         .expect("entry callable should have a body");
-    let structured_control_flow = reconstruct_control_flow(&rir.blocks, entry_block_id);
+
+    let program_cf = ProgramControlFlow::new(&rir);
 
     let mut builder = TestOperationReceiver {
         trace: String::new(),
@@ -185,15 +186,12 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         wire_map_builder.map_qubit(id, None);
     }
 
-    if let Err(err) = build_operation_list(
-        &mut program_map,
-        &rir,
-        &mut wire_map_builder,
-        &mut builder,
-        &structured_control_flow,
-        &[],
-        &ScopeStack::top(),
-    ) {
+    let mut walker = CircuitBuilder {
+        variable_tracker: program_map,
+        wire_map_builder: &mut wire_map_builder,
+        op_list_builder: &mut builder,
+    };
+    if let Err(err) = program_cf.walk(&mut walker, entry_block_id, None, &[], &ScopeStack::top()) {
         panic!("error building operation list: {err}");
     }
 

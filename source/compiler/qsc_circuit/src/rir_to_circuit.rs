@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-mod control_flow;
 #[cfg(test)]
 mod tests;
 
@@ -13,7 +12,9 @@ use qsc_partial_eval::{
     VariableId,
     rir::{Block, BlockId, Program, Ty, Variable},
 };
-use qsc_rir::debug::{DbgInfo, DbgLocationId, DbgScope, DbgScopeId};
+use qsc_rir::debug::{DbgInfo, DbgLocationId, DbgScope, DbgScopeId, InstructionDbgMetadata};
+use qsc_rir::passes::build_post_dominator_graph;
+use rustc_hash::FxHashSet;
 use std::{fmt::Display, vec};
 use std::{iter::Peekable, mem::take};
 
@@ -24,7 +25,6 @@ use crate::{
         OperationListBuilder, OperationReceiver, PackageOffset, Scope, ScopeStack, SourceLookup,
         WireMap, WireMapBuilder, finish_circuit,
     },
-    rir_to_circuit::control_flow::{StructuredControlFlow, reconstruct_control_flow},
 };
 
 pub fn rir_to_circuit(
@@ -59,20 +59,16 @@ pub fn rir_to_circuit(
         config.source_locations,
     );
 
-    // First, get a structured control flow so we can traverse the program in proper execution order,
-    // following any branches.
-    let structured_control_flow = reconstruct_control_flow(&program_rir.blocks, entry_block_id);
+    // Compute post-dominator map to determine merge points of branches.
+    let program_cf = ProgramControlFlow::new(program_rir);
 
-    // Then we traverse the structured control flow, pushing operations to the builder as we go.
-    build_operation_list(
-        &mut VariableTracker::default(),
-        program_rir,
-        &mut wire_map_builder,
-        &mut builder,
-        &structured_control_flow,
-        &[],
-        &ScopeStack::top(),
-    )?;
+    // Walk the blocks in execution order, pushing operations to the builder as we go.
+    let mut walker = CircuitBuilder {
+        variable_tracker: VariableTracker::default(),
+        wire_map_builder: &mut wire_map_builder,
+        op_list_builder: &mut builder,
+    };
+    program_cf.walk(&mut walker, entry_block_id, None, &[], &ScopeStack::top())?;
 
     // All operations from the program collected, finalize the circuit.
     let qubits = wire_map_builder.into_wire_map().to_qubits(source_lookup);
@@ -82,162 +78,246 @@ pub fn rir_to_circuit(
     Ok(circuit)
 }
 
-/// Recursively traverses the structured control flow, pushing operations and measurement results
-/// to the builder as it goes.
-fn build_operation_list(
-    variable_tracker: &mut VariableTracker,
-    program_rir: &Program,
-    wire_map_builder: &mut WireMapBuilder,
-    op_list_builder: &mut impl OperationReceiver,
-    scf: &StructuredControlFlow,
-    control_results: &[usize],
-    current_stack: &ScopeStack,
-) -> Result<(), Error> {
-    match scf {
-        StructuredControlFlow::Seq(items) => {
-            for item in items {
-                build_operation_list(
-                    variable_tracker,
-                    program_rir,
-                    wire_map_builder,
-                    op_list_builder,
-                    item,
-                    control_results,
-                    current_stack,
-                )?;
+/// A program together with its post-dominator map, which encodes the merge points
+/// of branches in the control flow graph.
+struct ProgramControlFlow<'a> {
+    program: &'a Program,
+    post_doms: IndexMap<BlockId, BlockId>,
+}
+
+impl<'a> ProgramControlFlow<'a> {
+    fn new(program: &'a Program) -> Self {
+        let return_block = program
+            .blocks
+            .iter()
+            .find_map(|(id, b)| {
+                matches!(
+                    b.0.last()
+                        .expect("block should have at least one instruction"),
+                    Instruction::Return
+                )
+                .then_some(id)
+            })
+            .expect("program should have exactly one Return block");
+
+        let post_doms = build_post_dominator_graph(&program.blocks, return_block);
+
+        Self { program, post_doms }
+    }
+
+    /// Walks blocks starting at `entry`, stopping before `stop_at` if set.
+    /// At branches, uses the post-dominator map to find the merge point,
+    /// recurses into both arms, then continues from the merge.
+    fn walk(
+        &self,
+        builder: &mut CircuitBuilder<'_, impl OperationReceiver>,
+        entry: BlockId,
+        stop_at: Option<BlockId>,
+        control_results: &[usize],
+        current_stack: &ScopeStack,
+    ) -> Result<(), Error> {
+        let mut cur = entry;
+
+        // Safety belt: if something is malformed, don't spin.
+        let mut visited: FxHashSet<BlockId> = FxHashSet::default();
+
+        loop {
+            if let Some(stop) = stop_at
+                && cur == stop
+            {
+                break;
             }
-        }
-        StructuredControlFlow::BasicBlock(id) => {
-            let block = program_rir.blocks.get(*id).expect("block should exist");
+            if !visited.insert(cur) {
+                // In a clean DAG region we shouldn't re-visit blocks.
+                break;
+            }
 
-            assert!(
-                !variable_tracker.blocks_to_control_results.contains_key(*id),
-                "block should only be processed once"
-            );
-            variable_tracker
-                .blocks_to_control_results
-                .insert(*id, control_results.to_vec());
+            let block = self.program.blocks.get(cur).expect("block should exist");
 
-            push_operations_in_block(
-                op_list_builder,
-                variable_tracker,
-                wire_map_builder,
-                &program_rir.dbg_info,
-                &program_rir.callables,
+            // Process this block's operations.
+            builder.register_block(cur, control_results);
+
+            builder.push_operations_in_block(
+                &self.program.dbg_info,
+                &self.program.callables,
                 block,
                 current_stack,
             )?;
-        }
-        StructuredControlFlow::If {
-            cond,
-            then_br,
-            else_br,
-            branch_instruction_metadata,
-        } => {
-            let dbg_lookup = DbgLookup {
-                dbg_info: &program_rir.dbg_info,
-            };
 
-            let expr = expr_for_variable(&variable_tracker.variables, cond.variable_id)?;
+            // Determine the terminator and advance.
+            match block
+                .0
+                .last()
+                .expect("block should have at least one instruction")
+            {
+                Instruction::Return => break,
 
-            let mut control_results = control_results.to_vec();
-            for r in expr.linked_results() {
-                if !control_results.contains(&r) {
-                    control_results.push(r);
+                Instruction::Jump(next, ..) => {
+                    cur = *next;
                 }
+
+                Instruction::Branch(cond, true_block, false_block, metadata) => {
+                    // The merge point is the immediate post-dominator of the branching block.
+                    let merge = *self
+                        .post_doms
+                        .get(cur)
+                        .expect("branching block should have a post-dominator");
+
+                    let branch_ctx = builder.prepare_branch_context(
+                        &self.program.dbg_info,
+                        *cond,
+                        metadata.as_deref(),
+                        control_results,
+                        current_stack,
+                    )?;
+
+                    self.walk(
+                        builder,
+                        *true_block,
+                        Some(merge),
+                        &branch_ctx.control_results,
+                        &branch_ctx.true_stack,
+                    )?;
+
+                    self.walk(
+                        builder,
+                        *false_block,
+                        Some(merge),
+                        &branch_ctx.control_results,
+                        &branch_ctx.false_stack,
+                    )?;
+
+                    // After both branches, continue from the merge point.
+                    cur = merge;
+                }
+
+                _ => panic!("unexpected terminator kind"),
             }
-
-            let cond_expr_true = format!("if: {expr}");
-            let cond_expr_false = format!("if: {}", expr.negate());
-
-            let branch_instruction_stack = branch_instruction_metadata
-                .as_deref()
-                .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location))
-                .unwrap_or_default();
-
-            let full_stack =
-                combine_instr_stack_with_current_stack(current_stack, &branch_instruction_stack);
-
-            let new_stack_true = extend_with_branch_scope(
-                &full_stack,
-                cond_expr_true,
-                true,
-                control_results.clone(),
-            );
-
-            let new_stack_false = extend_with_branch_scope(
-                &full_stack,
-                cond_expr_false,
-                false,
-                control_results.clone(),
-            );
-
-            build_operation_list(
-                variable_tracker,
-                program_rir,
-                wire_map_builder,
-                op_list_builder,
-                then_br,
-                &control_results,
-                &new_stack_true,
-            )?;
-
-            build_operation_list(
-                variable_tracker,
-                program_rir,
-                wire_map_builder,
-                op_list_builder,
-                else_br,
-                &control_results,
-                &new_stack_false,
-            )?;
         }
-        StructuredControlFlow::Return => {}
+
+        Ok(())
     }
-    Ok(())
 }
 
-fn push_operations_in_block(
-    builder: &mut impl OperationReceiver,
-    state: &mut VariableTracker,
-    wire_map_builder: &mut WireMapBuilder,
-    dbg_info: &DbgInfo,
-    callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
-    block: &Block,
-    current_stack: &ScopeStack,
-) -> Result<(), Error> {
-    let dbg_lookup = DbgLookup { dbg_info };
+/// Holds the mutable state needed while walking a program's blocks,
+/// converting RIR instructions into circuit operations.
+struct CircuitBuilder<'a, R: OperationReceiver> {
+    variable_tracker: VariableTracker,
+    wire_map_builder: &'a mut WireMapBuilder,
+    op_list_builder: &'a mut R,
+}
 
-    for instruction in &block.0 {
-        // First, we update the variable tracker according to this instruction,
-        // so that when we later trace the instruction, we have the correct relationships
-        // between variables and measurement results.
-        process_variables(state, wire_map_builder, callables, instruction)?;
-
-        // Then we push operations to the builder.
-        if let Instruction::Call(callable_id, operands, _, metadata) = instruction {
-            let call_instruction_stack = metadata
-                .as_deref()
-                .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location))
-                .unwrap_or_default();
-
-            let full_stack =
-                combine_instr_stack_with_current_stack(current_stack, &call_instruction_stack);
-
-            trace_call(
-                &state.variables,
-                &mut BuilderWithRegisterMap {
-                    builder,
-                    wire_map: wire_map_builder.current(),
-                },
-                callables.get(*callable_id).expect("callable should exist"),
-                operands,
-                full_stack,
-            )?;
-        }
+impl<R: OperationReceiver> CircuitBuilder<'_, R> {
+    /// Records that a block is being processed with the given control results.
+    /// Panics if the block was already processed.
+    fn register_block(&mut self, block_id: BlockId, control_results: &[usize]) {
+        assert!(
+            !self
+                .variable_tracker
+                .blocks_to_control_results
+                .contains_key(block_id),
+            "block should only be processed once"
+        );
+        self.variable_tracker
+            .blocks_to_control_results
+            .insert(block_id, control_results.to_vec());
     }
 
-    Ok(())
+    fn push_operations_in_block(
+        &mut self,
+        dbg_info: &DbgInfo,
+        callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
+        block: &Block,
+        current_stack: &ScopeStack,
+    ) -> Result<(), Error> {
+        let dbg_lookup = DbgLookup { dbg_info };
+
+        for instruction in &block.0 {
+            // First, we update the variable tracker according to this instruction,
+            // so that when we later trace the instruction, we have the correct relationships
+            // between variables and measurement results.
+            process_variables(
+                &mut self.variable_tracker,
+                self.wire_map_builder,
+                callables,
+                instruction,
+            )?;
+
+            // Then we push operations to the builder.
+            if let Instruction::Call(callable_id, operands, _, metadata) = instruction {
+                let call_instruction_stack = metadata
+                    .as_deref()
+                    .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location))
+                    .unwrap_or_default();
+
+                let full_stack =
+                    combine_instr_stack_with_current_stack(current_stack, &call_instruction_stack);
+
+                trace_call(
+                    &self.variable_tracker.variables,
+                    &mut BuilderWithRegisterMap {
+                        builder: self.op_list_builder,
+                        wire_map: self.wire_map_builder.current(),
+                    },
+                    callables.get(*callable_id).expect("callable should exist"),
+                    operands,
+                    full_stack,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Build the scope stacks and control results for a conditional branch.
+    fn prepare_branch_context(
+        &self,
+        dbg_info: &DbgInfo,
+        cond: Variable,
+        metadata: Option<&InstructionDbgMetadata>,
+        parent_control_results: &[usize],
+        current_stack: &ScopeStack,
+    ) -> Result<BranchContext, Error> {
+        let dbg_lookup = DbgLookup { dbg_info };
+
+        let expr = expr_for_variable(&self.variable_tracker.variables, cond.variable_id)?;
+
+        let mut control_results = parent_control_results.to_vec();
+        for r in expr.linked_results() {
+            if !control_results.contains(&r) {
+                control_results.push(r);
+            }
+        }
+
+        let cond_expr_true = format!("if: {expr}");
+        let cond_expr_false = format!("if: {}", expr.negate());
+
+        let branch_instruction_stack = metadata
+            .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location))
+            .unwrap_or_default();
+
+        let full_stack =
+            combine_instr_stack_with_current_stack(current_stack, &branch_instruction_stack);
+
+        let true_stack =
+            extend_with_branch_scope(&full_stack, cond_expr_true, true, control_results.clone());
+
+        let false_stack =
+            extend_with_branch_scope(&full_stack, cond_expr_false, false, control_results.clone());
+
+        Ok(BranchContext {
+            control_results,
+            true_stack,
+            false_stack,
+        })
+    }
+}
+
+/// Context needed to walk both sides of a branch.
+struct BranchContext {
+    control_results: Vec<usize>,
+    true_stack: ScopeStack,
+    false_stack: ScopeStack,
 }
 
 pub(crate) struct DbgLookup<'a> {

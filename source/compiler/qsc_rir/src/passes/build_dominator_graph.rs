@@ -5,7 +5,7 @@ use qsc_data_structures::index_map::IndexMap;
 
 use crate::{
     rir::{Block, BlockId, Program},
-    utils::get_block_successors,
+    utils::build_successors_map,
 };
 
 #[cfg(test)]
@@ -58,7 +58,7 @@ pub fn build_post_dominator_graph(
     // - Successors in the original graph become predecessors in the reversed graph.
     // - Blocks are iterated in descending order, since the reversed graph's
     //   reverse postorder is the reverse of the original topological order.
-    let reversed_preds = build_reversed_predecessors_map(blocks);
+    let reversed_preds = build_successors_map(blocks);
 
     let block_ids: Vec<BlockId> = blocks
         .iter()
@@ -122,24 +122,6 @@ fn build_dominator_graph_core(
     }
 
     doms
-}
-
-/// Builds the predecessor map for the reversed control flow graph.
-/// In the reversed graph, edges go from successors to predecessors,
-/// so the predecessors of block X in the reversed graph are the successors
-/// of X in the original graph.
-fn build_reversed_predecessors_map(
-    blocks: &IndexMap<BlockId, Block>,
-) -> IndexMap<BlockId, Vec<BlockId>> {
-    let mut reversed_preds: IndexMap<BlockId, Vec<BlockId>> = IndexMap::default();
-
-    for (block_id, block) in blocks.iter() {
-        let mut succs = get_block_successors(block);
-        succs.sort_unstable();
-        reversed_preds.insert(block_id, succs);
-    }
-
-    reversed_preds
 }
 
 /// Calculates the closest intersection of two blocks in the current dominator tree.

@@ -69,6 +69,23 @@ pub fn build_predecessors_map(program: &Program) -> IndexMap<BlockId, Vec<BlockI
     preds
 }
 
+/// Given a set of blocks, return a map from block IDs to the block IDs of their successors.
+/// The vectors used as values in the map are sorted in ascending order.
+/// This is the dual of [`build_predecessors_map`]: it maps each block to the blocks it jumps to,
+/// rather than the blocks that jump to it.
+#[must_use]
+pub fn build_successors_map(blocks: &IndexMap<BlockId, Block>) -> IndexMap<BlockId, Vec<BlockId>> {
+    let mut succs_map: IndexMap<BlockId, Vec<BlockId>> = IndexMap::default();
+
+    for (block_id, block) in blocks.iter() {
+        let mut succs = get_block_successors(block);
+        succs.sort_unstable();
+        succs_map.insert(block_id, succs);
+    }
+
+    succs_map
+}
+
 #[must_use]
 pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (BlockId, usize)> {
     let mut assignments = IndexMap::default();
