@@ -9,7 +9,7 @@ from qsharp.magnets.utilities import Hyperedge, HypergraphEdgeColoring
 
 def _vertex_color_map(graph) -> dict[tuple[int, ...], int | None]:
     coloring = graph.edge_coloring()
-    return {edge.vertices: coloring.color(edge) for edge in graph.edges()}
+    return {edge.vertices: coloring.color(edge.vertices) for edge in graph.edges()}
 
 
 # Chain1D tests
@@ -101,7 +101,7 @@ def test_chain1d_coloring_non_overlapping():
     # Group edges by color
     colors = {}
     for edge in chain.edges():
-        color = coloring.color(edge)
+        color = coloring.color(edge.vertices)
         assert color is not None
         edge_vertices = edge.vertices
         if color not in colors:
@@ -211,7 +211,7 @@ def test_ring1d_coloring_non_overlapping():
     # Group edges by color
     colors = {}
     for edge in ring.edges():
-        color = coloring.color(edge)
+        color = coloring.color(edge.vertices)
         assert color is not None
         edge_vertices = edge.vertices
         if color not in colors:
