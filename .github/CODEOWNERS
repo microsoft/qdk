@@ -14,7 +14,7 @@
 /katas @billti @swernli
 /source/jupyterlab @billti @idavis @minestarks
 /source/language_service @billti @idavis @minestarks @ScottCarda-MS
-/source/simulators @swernli @orpuente-MS
+/source/simulators @billti @idavis @orpuente-MS
 /source/noisy_simulator @swernli @orpuente-MS
 /library @swernli @orpuente-MS
 /source/npm @billti @minestarks @ScottCarda-MS
