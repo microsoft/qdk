@@ -18,7 +18,6 @@ from ..._instruction import (
     ISAQuery,
     ISATransform,
     constraint,
-    instruction,
 )
 from ..._architecture import _Context
 from ...instruction_ids import CNOT, LATTICE_SURGERY, T, MEAS_ZZ
@@ -111,7 +110,7 @@ class RoundBasedFactory(ISATransform):
         if self.use_cache and cache_path.exists():
             cached_states = InstructionFrontier.load(str(cache_path))
             for state in cached_states:
-                yield ISA(state)
+                yield ctx.make_isa(ctx.add_instruction(state))
             return
 
         # 2) Compute as before
@@ -164,7 +163,9 @@ class RoundBasedFactory(ISATransform):
             optimal_states.dump(str(cache_path))
 
         for state in optimal_states:
-            yield ISA(ctx.set_source(self, state, [impl_isa[T]]))
+            yield ctx.make_isa(
+                ctx.add_instruction(state, transform=self, source=[impl_isa[T]])
+            )
 
     def _physical_units(self, gate_time, clifford_error) -> list[_DistillationUnit]:
         return [
@@ -212,12 +213,14 @@ class RoundBasedFactory(ISATransform):
         ]
 
     def _state_from_pipeline(self, pipeline: _Pipeline) -> _Instruction:
-        return instruction(
+        return _Instruction.fixed_arity(
             T,
-            encoding=LOGICAL,
-            time=pipeline.time,
-            error_rate=pipeline.error_rate,
-            space=pipeline.space,
+            int(LOGICAL),
+            1,
+            pipeline.time,
+            pipeline.space,
+            None,
+            pipeline.error_rate,
         )
 
     def _cache_key(self, impl_isa: ISA) -> str:

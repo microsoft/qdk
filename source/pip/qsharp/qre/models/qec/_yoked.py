@@ -6,7 +6,7 @@ from enum import IntEnum
 from math import ceil
 from typing import Generator
 
-from ..._instruction import ISATransform, constraint, LOGICAL, PropertyKey, instruction
+from ..._instruction import ISATransform, constraint, LOGICAL, PropertyKey
 from ..._qre import ISA, ISARequirements, generic_function
 from ..._architecture import _Context
 from ...instruction_ids import LATTICE_SURGERY, MEMORY
@@ -102,19 +102,17 @@ class YokedSurfaceCode(ISATransform):
 
         error_rate_fn = generic_function(error_rate)
 
-        yield ISA(
-            ctx.set_source(
-                self,
-                instruction(
-                    MEMORY,
-                    arity=None,
-                    encoding=LOGICAL,
-                    space=space_fn,
-                    time=time_fn,
-                    error_rate=error_rate_fn,
-                    distance=distance,
-                ),
-                [lattice_surgery],
+        yield ctx.make_isa(
+            ctx.add_instruction(
+                MEMORY,
+                arity=None,
+                encoding=LOGICAL,
+                space=space_fn,
+                time=time_fn,
+                error_rate=error_rate_fn,
+                transform=self,
+                source=[lattice_surgery],
+                distance=distance,
             )
         )
 

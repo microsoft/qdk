@@ -3,8 +3,8 @@
 
 use std::{
     fmt::Display,
-    ops::{Add, Deref, Index},
-    sync::Arc,
+    ops::Add,
+    sync::{Arc, RwLock},
 };
 
 use num_traits::FromPrimitive;
@@ -16,39 +16,114 @@ use crate::trace::instruction_ids::instruction_name;
 #[cfg(test)]
 mod tests;
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct ISA {
-    instructions: FxHashMap<u64, Instruction>,
+    graph: Arc<RwLock<ProvenanceGraph>>,
+    nodes: FxHashMap<u64, usize>,
+}
+
+impl Default for ISA {
+    fn default() -> Self {
+        ISA {
+            graph: Arc::new(RwLock::new(ProvenanceGraph::new())),
+            nodes: FxHashMap::default(),
+        }
+    }
 }
 
 impl ISA {
     #[must_use]
     pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates an ISA backed by the given shared provenance graph.
+    #[must_use]
+    pub fn with_graph(graph: Arc<RwLock<ProvenanceGraph>>) -> Self {
         ISA {
-            instructions: FxHashMap::default(),
+            graph,
+            nodes: FxHashMap::default(),
         }
     }
 
-    pub fn add_instruction(&mut self, instruction: Instruction) {
-        self.instructions.insert(instruction.id, instruction);
+    /// Returns a reference to the shared provenance graph.
+    #[must_use]
+    pub fn graph(&self) -> &Arc<RwLock<ProvenanceGraph>> {
+        &self.graph
     }
 
+    /// Adds an instruction to the provenance graph and records its node index.
+    /// Returns the node index in the graph.
+    pub fn add_instruction(&mut self, instruction: Instruction) -> usize {
+        let id = instruction.id;
+        let mut graph = self.graph.write().expect("provenance graph lock poisoned");
+        let node_idx = graph.add_node(instruction, 0, &[]);
+        self.nodes.insert(id, node_idx);
+        node_idx
+    }
+
+    /// Records an existing provenance graph node in this ISA.
+    pub fn add_node(&mut self, instruction_id: u64, node_index: usize) {
+        self.nodes.insert(instruction_id, node_index);
+    }
+
+    /// Returns the node index for an instruction ID, if present.
     #[must_use]
-    pub fn get(&self, id: &u64) -> Option<&Instruction> {
-        self.instructions.get(id)
+    pub fn node_index(&self, id: &u64) -> Option<usize> {
+        self.nodes.get(id).copied()
+    }
+
+    /// Returns a clone of the instruction with the given ID, if present.
+    #[must_use]
+    pub fn get(&self, id: &u64) -> Option<Instruction> {
+        let &node_idx = self.nodes.get(id)?;
+        let graph = self.read_graph();
+        Some(graph.instruction(node_idx).clone())
     }
 
     #[must_use]
     pub fn contains(&self, id: &u64) -> bool {
-        self.instructions.contains_key(id)
+        self.nodes.contains_key(id)
+    }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    fn read_graph(&self) -> std::sync::RwLockReadGuard<'_, ProvenanceGraph> {
+        self.graph.read().expect("provenance graph lock poisoned")
+    }
+
+    /// Returns an iterator over pairs of instruction IDs and node IDs.
+    pub fn node_entries(&self) -> impl Iterator<Item = (&u64, &usize)> {
+        self.nodes.iter()
+    }
+
+    /// Returns all instructions as owned clones.
+    #[must_use]
+    pub fn instructions(&self) -> Vec<Instruction> {
+        let graph = self.read_graph();
+        self.nodes
+            .values()
+            .map(|&idx| graph.instruction(idx).clone())
+            .collect()
     }
 
     #[must_use]
     pub fn satisfies(&self, requirements: &ISARequirements) -> bool {
+        let graph = self.read_graph();
         for constraint in requirements.constraints.values() {
-            let Some(instruction) = self.instructions.get(&constraint.id) else {
+            let Some(&node_idx) = self.nodes.get(&constraint.id) else {
                 return false;
             };
+
+            let instruction = graph.instruction(node_idx);
 
             if instruction.encoding != constraint.encoding {
                 return false;
@@ -99,14 +174,6 @@ impl ISA {
     }
 }
 
-impl Deref for ISA {
-    type Target = FxHashMap<u64, Instruction>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.instructions
-    }
-}
-
 impl FromIterator<Instruction> for ISA {
     fn from_iter<T: IntoIterator<Item = Instruction>>(iter: T) -> Self {
         let mut isa = ISA::new();
@@ -119,18 +186,12 @@ impl FromIterator<Instruction> for ISA {
 
 impl Display for ISA {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for instruction in self.instructions.values() {
+        let graph = self.read_graph();
+        for &node_idx in self.nodes.values() {
+            let instruction = graph.instruction(node_idx);
             writeln!(f, "{instruction}")?;
         }
         Ok(())
-    }
-}
-
-impl Index<u64> for ISA {
-    type Output = Instruction;
-
-    fn index(&self, index: u64) -> &Self::Output {
-        &self.instructions[&index]
     }
 }
 
@@ -139,8 +200,23 @@ impl Add<ISA> for ISA {
 
     fn add(self, other: ISA) -> ISA {
         let mut combined = self;
-        for instruction in other.instructions.into_values() {
-            combined.add_instruction(instruction);
+        if Arc::ptr_eq(&combined.graph, &other.graph) {
+            // Same graph: just merge node maps
+            for (id, node_idx) in other.nodes {
+                combined.nodes.insert(id, node_idx);
+            }
+        } else {
+            // Different graphs: copy instructions into combined's graph
+            let other_graph = other.read_graph();
+            let mut self_graph = combined
+                .graph
+                .write()
+                .expect("provenance graph lock poisoned");
+            for (id, node_idx) in &other.nodes {
+                let instruction = other_graph.instruction(*node_idx).clone();
+                let new_idx = self_graph.add_node(instruction, 0, &[]);
+                combined.nodes.insert(*id, new_idx);
+            }
         }
         combined
     }
@@ -450,6 +526,7 @@ pub enum VariableArityFunction<T> {
     BlockLinear {
         block_size: u64,
         slope: T,
+        offset: T,
     },
     #[serde(skip)]
     Generic {
@@ -468,8 +545,12 @@ impl<T: Add<Output = T> + std::ops::Mul<Output = T> + Copy + FromPrimitive>
         VariableArityFunction::Linear { slope }
     }
 
-    pub fn block_linear(block_size: u64, slope: T) -> Self {
-        VariableArityFunction::BlockLinear { block_size, slope }
+    pub fn block_linear(block_size: u64, slope: T, offset: T) -> Self {
+        VariableArityFunction::BlockLinear {
+            block_size,
+            slope,
+            offset,
+        }
     }
 
     pub fn generic(func: impl Fn(u64) -> T + Send + Sync + 'static) -> Self {
@@ -488,9 +569,14 @@ impl<T: Add<Output = T> + std::ops::Mul<Output = T> + Copy + FromPrimitive>
             VariableArityFunction::Linear { slope } => {
                 *slope * T::from_u64(arity).expect("Failed to convert u64 to target type")
             }
-            VariableArityFunction::BlockLinear { block_size, slope } => {
+            VariableArityFunction::BlockLinear {
+                block_size,
+                slope,
+                offset,
+            } => {
                 let blocks = arity.div_ceil(*block_size);
                 *slope * T::from_u64(blocks).expect("Failed to convert u64 to target type")
+                    + *offset
             }
             VariableArityFunction::Generic { func } => func(arity),
         }
@@ -566,16 +652,17 @@ impl ProvenanceGraph {
 
     pub fn add_node(
         &mut self,
-        instruction_id: u64,
+        mut instruction: Instruction,
         transform_id: u64,
         children: &[usize],
     ) -> usize {
         let node_index = self.nodes.len();
+        instruction.source = node_index;
         let offset = self.children.len();
         let num_children = children.len();
         self.children.extend_from_slice(children);
         self.nodes.push(ProvenanceNode {
-            instruction_id,
+            instruction,
             transform_id,
             offset,
             num_children,
@@ -584,8 +671,8 @@ impl ProvenanceGraph {
     }
 
     #[must_use]
-    pub fn instruction_id(&self, node_index: usize) -> u64 {
-        self.nodes[node_index].instruction_id
+    pub fn instruction(&self, node_index: usize) -> &Instruction {
+        &self.nodes[node_index].instruction
     }
 
     #[must_use]
@@ -610,10 +697,20 @@ impl ProvenanceGraph {
     }
 }
 
-#[derive(Default)]
 struct ProvenanceNode {
-    instruction_id: u64,
+    instruction: Instruction,
     transform_id: u64,
     offset: usize,
     num_children: usize,
+}
+
+impl Default for ProvenanceNode {
+    fn default() -> Self {
+        ProvenanceNode {
+            instruction: Instruction::fixed_arity(0, Encoding::Physical, 0, 0, None, None, 0.0),
+            transform_id: 0,
+            offset: 0,
+            num_children: 0,
+        }
+    }
 }
