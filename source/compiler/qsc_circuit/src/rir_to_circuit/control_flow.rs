@@ -19,7 +19,13 @@ pub(super) fn reconstruct_control_flow(
     entry: BlockId,
 ) -> StructuredControlFlow {
     let return_block = find_return_block(blocks);
-    let ordered = execution_order(blocks);
+    // The RIR that comes back from passes uses block IDs that already ordered matching the control flow
+    // as long as the program is a Directec Acyclic Graph (see source/compiler/qsc_rir/src/passes/remap_block_ids.rs).
+    // Further, the `IndexMap` data structure always returns keys in ascending order, matching that DAG.
+    // We rely on both assumptions below so that later code can use the ordering to recreate that
+    // structure control flow.
+    let ordered = blocks.iter().map(|(id, _)| id).collect::<Vec<_>>();
+    assert!(ordered.is_sorted(), "IndexMap iteration order should be deterministic and sorted");
 
     let topo_index: FxHashMap<BlockId, usize> =
         ordered.iter().enumerate().map(|(i, id)| (*id, i)).collect();
