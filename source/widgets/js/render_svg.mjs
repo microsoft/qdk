@@ -15,7 +15,7 @@
 import { readFileSync } from "node:fs";
 import { h } from "preact";
 import renderToString from "preact-render-to-string";
-import { OrbitalEntanglement } from "../../npm/qsharp/ux/orbitalEntanglement.tsx";
+import { ChordDiagram, OrbitalEntanglement } from "../../npm/qsharp/ux/orbitalEntanglement.tsx";
 import { Histogram } from "../../npm/qsharp/ux/histogram.tsx";
 import { draw as drawCircuit } from "../../npm/qsharp/ux/circuit-vis/index.ts";
 import { toCircuitGroup } from "../../npm/qsharp/src/data-structures/legacyCircuitUpdate.ts";
@@ -37,6 +37,13 @@ const { component, props } = JSON.parse(input);
 let output = "";
 
 switch (component) {
+  // ---- ChordDiagram (generic chord diagram, pure Preact SVG) ----
+  case "ChordDiagram": {
+    const vnode = h(ChordDiagram, { ...props, static: true });
+    output = renderToString(vnode);
+    break;
+  }
+
   // ---- OrbitalEntanglement (pure Preact SVG) ----
   case "OrbitalEntanglement": {
     const vnode = h(OrbitalEntanglement, { ...props, static: true });

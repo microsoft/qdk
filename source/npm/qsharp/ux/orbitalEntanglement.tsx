@@ -2,14 +2,17 @@
 // Licensed under the MIT License.
 
 /**
- * Orbital entanglement chord diagram.
+ * Generic chord diagram.
  *
- * Renders single-orbital entropies and mutual information as an SVG chord
- * diagram.  Arc length is proportional to single-orbital entropy; chord
- * thickness is proportional to pairwise mutual information.
+ * Renders per-node scalar values and pairwise edge weights as an SVG chord
+ * diagram.  Arc length is proportional to the node value; chord thickness
+ * is proportional to pairwise weight.
  *
  * The diagram is rendered entirely as native SVG so that the markup can be
  * serialised to a standalone `.svg` file from the Python widget.
+ *
+ * `OrbitalEntanglement` is a thin wrapper that supplies orbital-specific
+ * defaults (title, legend labels, colormaps, scale maxima).
  */
 
 import { useState, useRef, useEffect } from "preact/hooks";
@@ -18,14 +21,14 @@ import { useState, useRef, useEffect } from "preact/hooks";
 // Types
 // ---------------------------------------------------------------------------
 
-export interface OrbitalEntanglementProps {
-  /** Single-orbital entropies, length N. */
-  s1Entropies: number[];
-  /** Mutual information matrix, N×N (row-major flat array or nested). */
-  mutualInformation: number[][];
-  /** Orbital labels (length N). Falls back to "0", "1", … */
+export interface ChordDiagramProps {
+  /** Per-node scalar values (length N).  Drives arc colour. */
+  nodeValues: number[];
+  /** N×N symmetric weight matrix.  Drives chord colour / width. */
+  pairwiseWeights: number[][];
+  /** Node labels (length N). Falls back to "0", "1", … */
   labels?: string[];
-  /** Indices of orbitals to highlight with an outline. */
+  /** Indices of nodes to highlight with an outline. */
   selectedIndices?: number[];
 
   // --- visual knobs (all optional with sensible defaults) ---
@@ -33,17 +36,32 @@ export interface OrbitalEntanglementProps {
   radius?: number;
   arcWidth?: number;
   lineScale?: number | null;
-  miThreshold?: number;
-  s1Vmax?: number | null;
-  miVmax?: number | null;
+  /** Minimum edge weight to draw a chord. */
+  edgeThreshold?: number;
+  /** Clamp for node colour scale. */
+  nodeVmax?: number | null;
+  /** Clamp for edge colour scale. */
+  edgeVmax?: number | null;
   title?: string | null;
   width?: number;
   height?: number;
   selectionColor?: string;
   selectionLinewidth?: number;
+  /** 3-stop hex colourmap for arcs. */
+  nodeColormap?: [string, string, string];
+  /** 3-stop hex colourmap for chords. */
+  edgeColormap?: [string, string, string];
+  /** Legend label for the node colour bar. */
+  nodeColorbarLabel?: string | null;
+  /** Legend label for the edge colour bar. */
+  edgeColorbarLabel?: string | null;
+  /** Prefix shown before the node value on hover (e.g. "S₁="). */
+  nodeHoverPrefix?: string;
+  /** Prefix shown before the edge value on hover (e.g. "MI="). */
+  edgeHoverPrefix?: string;
   /**
-   * When `true`, reorder arcs so that selected orbitals sit adjacent
-   * on the ring (labels still show the original orbital names).
+   * When `true`, reorder arcs so that selected nodes sit adjacent
+   * on the ring (labels still show the original names).
    */
   groupSelected?: boolean;
   /**
@@ -56,6 +74,31 @@ export interface OrbitalEntanglementProps {
    * When `true`, interactive-only UI elements (e.g. the grouping toggle)
    * are suppressed.  Used during server-side SVG export.
    */
+  static?: boolean;
+}
+
+/** Convenience alias keeping the old prop names for backward compat. */
+export interface OrbitalEntanglementProps {
+  s1Entropies: number[];
+  mutualInformation: number[][];
+  labels?: string[];
+  selectedIndices?: number[];
+  gapDeg?: number;
+  radius?: number;
+  arcWidth?: number;
+  lineScale?: number | null;
+  miThreshold?: number;
+  s1Vmax?: number | null;
+  miVmax?: number | null;
+  title?: string | null;
+  width?: number;
+  height?: number;
+  selectionColor?: string;
+  selectionLinewidth?: number;
+  nodeColormap?: [string, string, string];
+  edgeColormap?: [string, string, string];
+  groupSelected?: boolean;
+  darkMode?: boolean;
   static?: boolean;
 }
 
@@ -102,8 +145,16 @@ function colormapEval(stops: [string, string, string], t: number): string {
   return rgbaToCSS(lerpColor(colors[1], colors[2], (clamped - 0.5) * 2));
 }
 
-const ARC_CMAP: [string, string, string] = ["#d8d8d8", "#c82020", "#1a1a1a"];
-const CHORD_CMAP: [string, string, string] = ["#d8d8d8", "#2060b0", "#1a1a1a"];
+const DEFAULT_NODE_CMAP: [string, string, string] = [
+  "#d8d8d8",
+  "#c82020",
+  "#1a1a1a",
+];
+const DEFAULT_EDGE_CMAP: [string, string, string] = [
+  "#d8d8d8",
+  "#2060b0",
+  "#1a1a1a",
+];
 
 /**
  * Detect whether the host background is dark or light by sampling the
@@ -178,24 +229,30 @@ function chordPath(
 // Component
 // ---------------------------------------------------------------------------
 
-export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
+export function ChordDiagram(props: ChordDiagramProps) {
   const {
-    s1Entropies,
-    mutualInformation,
+    nodeValues,
+    pairwiseWeights,
     labels: labelsProp,
     selectedIndices,
     gapDeg = 3,
     radius = 1,
     arcWidth = 0.08,
     lineScale: lineScaleProp = null,
-    miThreshold = 0,
-    s1Vmax = null,
-    miVmax = null,
-    title = "Orbital Entanglement",
+    edgeThreshold = 0,
+    nodeVmax = null,
+    edgeVmax = null,
+    title = null,
     width = 600,
     height = 660,
     selectionColor: selectionColorProp,
     selectionLinewidth = 1.2,
+    nodeColormap = DEFAULT_NODE_CMAP,
+    edgeColormap = DEFAULT_EDGE_CMAP,
+    nodeColorbarLabel = null,
+    edgeColorbarLabel = null,
+    nodeHoverPrefix = "",
+    edgeHoverPrefix = "",
     groupSelected = false,
     darkMode,
     static: isStatic = false,
@@ -215,7 +272,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       : "transparent"
     : "transparent";
 
-  const n = s1Entropies.length;
+  const n = nodeValues.length;
 
   // --- hover state ---
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
@@ -244,26 +301,28 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       : Array.from({ length: n }, (_, i) => String(i));
 
   // --- colour scales ---
-  const s1Max = s1Vmax ?? Math.log(4);
-  const miMax = miVmax ?? Math.log(16);
+  const nodeMax = nodeVmax ?? Math.max(...nodeValues, 1);
+  const edgeMax =
+    edgeVmax ?? Math.max(...pairwiseWeights.flatMap((row) => row), 1);
 
-  const arcColours = s1Entropies.map((v) => colormapEval(ARC_CMAP, v / s1Max));
+  const arcColours = nodeValues.map((v) =>
+    colormapEval(nodeColormap, v / nodeMax),
+  );
 
   // --- line scale ---
   const maxLw = Math.max(12 * (20 / Math.max(n, 1)) ** 0.5, 2);
   let lineScale: number;
   {
-    let miPeak = 0;
+    let peak = 0;
     for (let i = 0; i < n; i++)
-      for (let j = 0; j < n; j++)
-        miPeak = Math.max(miPeak, mutualInformation[i][j]);
-    if (miPeak <= 0) miPeak = 1;
+      for (let j = 0; j < n; j++) peak = Math.max(peak, pairwiseWeights[i][j]);
+    if (peak <= 0) peak = 1;
     lineScale =
-      lineScaleProp !== null ? lineScaleProp : maxLw / Math.sqrt(miPeak);
+      lineScaleProp !== null ? lineScaleProp : maxLw / Math.sqrt(peak);
   }
 
   // --- arc geometry ---
-  const totals = s1Entropies.slice();
+  const totals = nodeValues.slice();
   let grand = totals.reduce((a, b) => a + b, 0);
   if (grand === 0) {
     totals.fill(1);
@@ -335,17 +394,15 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
   }
 
   // --- chord computation ---
-  const miRowSums = mutualInformation.map((row) =>
-    row.reduce((a, b) => a + b, 0),
-  );
+  const rowSums = pairwiseWeights.map((row) => row.reduce((a, b) => a + b, 0));
 
   type Conn = { j: number; val: number };
   const nodeConns: Conn[][] = Array.from({ length: n }, () => []);
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
       if (i === j) continue;
-      const val = mutualInformation[i][j];
-      if (val <= miThreshold) continue;
+      const val = pairwiseWeights[i][j];
+      if (val <= edgeThreshold) continue;
       nodeConns[i].push({ j, val });
     }
     const mid = arcMids[i];
@@ -359,7 +416,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
   const allocated = new Map<string, number>();
   for (let i = 0; i < n; i++) {
     for (const { j, val } of nodeConns[i]) {
-      const span = miRowSums[i] > 0 ? (arcDegs[i] * val) / miRowSums[i] : 0;
+      const span = rowSums[i] > 0 ? (arcDegs[i] * val) / rowSums[i] : 0;
       allocated.set(`${i},${j}`, cursor[i] + span / 2);
       cursor[i] += span;
     }
@@ -381,7 +438,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       chords.push({
         i,
         j,
-        val: mutualInformation[i][j],
+        val: pairwiseWeights[i][j],
         angleI: allocated.get(keyIJ)!,
         angleJ: allocated.get(keyJI)!,
       });
@@ -412,7 +469,10 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
   const lim = radius + maxOffset;
   // Map [-lim, lim] to [0, width/height] — compact legend area
   const titleH = 50; // px reserved for title at top
-  const legendH = 180; // total height reserved for two colour bars + ticks
+  const hasNodeBar = !!nodeColorbarLabel;
+  const hasEdgeBar = !!edgeColorbarLabel;
+  const legendH =
+    hasNodeBar || hasEdgeBar ? (hasNodeBar && hasEdgeBar ? 180 : 100) : 0;
   const diagramH = height - legendH - titleH;
   const vbPad = lim * 0.04;
   const vbSize = (lim + vbPad) * 2;
@@ -433,7 +493,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       xmlns="http://www.w3.org/2000/svg"
       width={width}
       height={height}
-      class="qs-orbital-entanglement"
+      class="qs-chord-diagram"
       style={{ background: bgColor, fontFamily: FONT_FAMILY }}
       ref={svgRef}
     >
@@ -461,8 +521,8 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
         >
           <title>
             {isGrouped
-              ? "Ungroup selected orbitals"
-              : "Group selected orbitals together"}
+              ? "Ungroup selected items"
+              : "Group selected items together"}
           </title>
           <rect
             x={-80}
@@ -494,7 +554,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       >
         {/* Chord lines — when hovering, split into dimmed background + bright foreground */}
         {(isHovering ? bgChords : chords).map((ch, ci) => {
-          const c = colormapEval(CHORD_CMAP, ch.val / miMax);
+          const c = colormapEval(edgeColormap, ch.val / edgeMax);
           const lwPx = Math.min(Math.sqrt(ch.val) * lineScale, maxLw);
           const lw = lwPx / scale;
           return (
@@ -511,7 +571,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
         })}
         {/* Highlighted chords for hovered orbital (drawn on top) */}
         {fgChords.map((ch, ci) => {
-          const c = colormapEval(CHORD_CMAP, ch.val / miMax);
+          const c = colormapEval(edgeColormap, ch.val / edgeMax);
           const lwPx = Math.min(Math.sqrt(ch.val) * lineScale, maxLw);
           const lw = lwPx / scale;
           return (
@@ -602,9 +662,9 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
           let labelOpacity = 1;
           if (isHovering) {
             if (isThisHovered) {
-              labelText = `${labels[i]}  S\u2081=${s1Entropies[i].toFixed(3)}`;
+              labelText = `${labels[i]}  ${nodeHoverPrefix}${nodeValues[i].toFixed(3)}`;
             } else if (isConnected && hoveredIdx !== null) {
-              labelText = `${labels[i]}  MI=${mutualInformation[hoveredIdx][i].toFixed(3)}`;
+              labelText = `${labels[i]}  ${edgeHoverPrefix}${pairwiseWeights[hoveredIdx][i].toFixed(3)}`;
             } else {
               labelOpacity = 0.15;
             }
@@ -631,111 +691,154 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       </g>
 
       {/* ---- Colour-bar legends ---- */}
-      {/* Arc (entropy) colour bar */}
-      <g>
-        <text
-          x={width / 2}
-          y={cbY - 6}
-          text-anchor="middle"
-          font-size="18"
-          fill={textColor}
-        >
-          Single-orbital entropy
-        </text>
-        {Array.from({ length: numCbStops }, (_, k) => {
-          const t = k / (numCbStops - 1);
-          return (
-            <rect
-              key={`cb-arc-${k}`}
-              x={cbX + (cbW * k) / numCbStops}
-              y={cbY}
-              width={cbW / numCbStops + 0.5}
-              height={cbH}
-              fill={colormapEval(ARC_CMAP, t)}
-            />
-          );
-        })}
-        {/* Ticks */}
-        {Array.from({ length: numTicks }, (_, k) => {
-          const frac = k / (numTicks - 1);
-          const xPos = cbX + cbW * frac;
-          const val = s1Max * frac;
-          return (
-            <g key={`cb-arc-tick-${k}`}>
-              <line
-                x1={xPos}
-                y1={cbY + cbH}
-                x2={xPos}
-                y2={cbY + cbH + 3}
-                stroke={textColor}
-                stroke-width={0.5}
+      {/* Node value colour bar */}
+      {nodeColorbarLabel && (
+        <g>
+          <text
+            x={width / 2}
+            y={cbY - 6}
+            text-anchor="middle"
+            font-size="18"
+            fill={textColor}
+          >
+            {nodeColorbarLabel}
+          </text>
+          {Array.from({ length: numCbStops }, (_, k) => {
+            const t = k / (numCbStops - 1);
+            return (
+              <rect
+                key={`cb-arc-${k}`}
+                x={cbX + (cbW * k) / numCbStops}
+                y={cbY}
+                width={cbW / numCbStops + 0.5}
+                height={cbH}
+                fill={colormapEval(nodeColormap, t)}
               />
-              <text
-                x={xPos}
-                y={cbY + cbH + 14}
-                text-anchor="middle"
-                font-size="14"
-                fill={textColor}
-              >
-                {val.toFixed(2)}
-              </text>
-            </g>
-          );
-        })}
-      </g>
+            );
+          })}
+          {/* Ticks */}
+          {Array.from({ length: numTicks }, (_, k) => {
+            const frac = k / (numTicks - 1);
+            const xPos = cbX + cbW * frac;
+            const val = nodeMax * frac;
+            return (
+              <g key={`cb-arc-tick-${k}`}>
+                <line
+                  x1={xPos}
+                  y1={cbY + cbH}
+                  x2={xPos}
+                  y2={cbY + cbH + 3}
+                  stroke={textColor}
+                  stroke-width={0.5}
+                />
+                <text
+                  x={xPos}
+                  y={cbY + cbH + 14}
+                  text-anchor="middle"
+                  font-size="14"
+                  fill={textColor}
+                >
+                  {val.toFixed(2)}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+      )}
 
-      {/* Chord (MI) colour bar */}
-      <g>
-        <text
-          x={width / 2}
-          y={cbY + cbH + cbSpacing - 6}
-          text-anchor="middle"
-          font-size="18"
-          fill={textColor}
-        >
-          Mutual information
-        </text>
-        {Array.from({ length: numCbStops }, (_, k) => {
-          const t = k / (numCbStops - 1);
-          return (
-            <rect
-              key={`cb-mi-${k}`}
-              x={cbX + (cbW * k) / numCbStops}
-              y={cbY + cbH + cbSpacing}
-              width={cbW / numCbStops + 0.5}
-              height={cbH}
-              fill={colormapEval(CHORD_CMAP, t)}
-            />
-          );
-        })}
-        {/* Ticks */}
-        {Array.from({ length: numTicks }, (_, k) => {
-          const frac = k / (numTicks - 1);
-          const xPos = cbX + cbW * frac;
-          const val = miMax * frac;
-          return (
-            <g key={`cb-mi-tick-${k}`}>
-              <line
-                x1={xPos}
-                y1={cbY + cbH + cbSpacing + cbH}
-                x2={xPos}
-                y2={cbY + cbH + cbSpacing + cbH + 3}
-                stroke={textColor}
-                stroke-width={0.5}
+      {/* Edge weight colour bar */}
+      {edgeColorbarLabel && (
+        <g>
+          <text
+            x={width / 2}
+            y={cbY + cbH + cbSpacing - 6}
+            text-anchor="middle"
+            font-size="18"
+            fill={textColor}
+          >
+            {edgeColorbarLabel}
+          </text>
+          {Array.from({ length: numCbStops }, (_, k) => {
+            const t = k / (numCbStops - 1);
+            return (
+              <rect
+                key={`cb-mi-${k}`}
+                x={cbX + (cbW * k) / numCbStops}
+                y={cbY + cbH + cbSpacing}
+                width={cbW / numCbStops + 0.5}
+                height={cbH}
+                fill={colormapEval(edgeColormap, t)}
               />
-              <text
-                x={xPos}
-                y={cbY + cbH + cbSpacing + cbH + 14}
-                text-anchor="middle"
-                font-size="14"
-                fill={textColor}
-              >
-                {val.toFixed(2)}
-              </text>
-            </g>
-          );
-        })}
-      </g>
+            );
+          })}
+          {/* Ticks */}
+          {Array.from({ length: numTicks }, (_, k) => {
+            const frac = k / (numTicks - 1);
+            const xPos = cbX + cbW * frac;
+            const val = edgeMax * frac;
+            return (
+              <g key={`cb-mi-tick-${k}`}>
+                <line
+                  x1={xPos}
+                  y1={cbY + cbH + cbSpacing + cbH}
+                  x2={xPos}
+                  y2={cbY + cbH + cbSpacing + cbH + 3}
+                  stroke={textColor}
+                  stroke-width={0.5}
+                />
+                <text
+                  x={xPos}
+                  y={cbY + cbH + cbSpacing + cbH + 14}
+                  text-anchor="middle"
+                  font-size="14"
+                  fill={textColor}
+                >
+                  {val.toFixed(2)}
+                </text>
+              </g>
+            );
+          })}
+        </g>
+      )}
     </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Orbital Entanglement — convenience wrapper
+// ---------------------------------------------------------------------------
+
+/**
+ * Orbital entanglement chord diagram.
+ *
+ * Thin wrapper around `ChordDiagram` that accepts `s1Entropies` /
+ * `mutualInformation` and supplies orbital-specific defaults for the
+ * title, legend labels, colormaps, and scale maxima.
+ */
+export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
+  const {
+    s1Entropies,
+    mutualInformation,
+    miThreshold,
+    s1Vmax,
+    miVmax,
+    title = "Orbital Entanglement",
+    ...rest
+  } = props;
+
+  return (
+    <ChordDiagram
+      nodeValues={s1Entropies}
+      pairwiseWeights={mutualInformation}
+      edgeThreshold={miThreshold}
+      nodeVmax={s1Vmax ?? Math.log(4)}
+      edgeVmax={miVmax ?? Math.log(16)}
+      nodeColorbarLabel="Single-orbital entropy"
+      edgeColorbarLabel="Mutual information"
+      nodeHoverPrefix="S\u2081="
+      edgeHoverPrefix="MI="
+      title={title}
+      {...rest}
+    />
   );
 }

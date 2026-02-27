@@ -306,6 +306,129 @@ class Atoms(anywidget.AnyWidget):
         super().__init__(machine_layout=machine_layout, trace_data=trace_data)
 
 
+class ChordDiagram(anywidget.AnyWidget):
+    """General-purpose chord diagram widget.
+
+    Displays per-node scalar values as coloured arcs and pairwise weights
+    as chords.  This is the generic base; ``OrbitalEntanglement`` is a
+    convenience subclass that maps orbital-specific terminology onto
+    these general parameters.
+    """
+
+    _esm = pathlib.Path(__file__).parent / "static" / "index.js"
+    _css = pathlib.Path(__file__).parent / "static" / "index.css"
+
+    comp = traitlets.Unicode("ChordDiagram").tag(sync=True)
+    node_values = traitlets.List().tag(sync=True)
+    pairwise_weights = traitlets.List().tag(sync=True)
+    labels = traitlets.List().tag(sync=True)
+    selected_indices = traitlets.List(allow_none=True, default_value=None).tag(
+        sync=True
+    )
+    options = traitlets.Dict().tag(sync=True)
+    # Automatically populated by the front-end MutationObserver.
+    _live_svg = traitlets.Unicode("").tag(sync=True)
+
+    def __init__(
+        self,
+        node_values,
+        pairwise_weights,
+        *,
+        labels=None,
+        selected_indices=None,
+        group_selected=False,
+        **options,
+    ):
+        """Create a chord diagram.
+
+        Parameters
+        ----------
+        node_values : list[float]
+            Per-node scalar values (length *N*).  Drives arc colour.
+        pairwise_weights : list[list[float]]
+            N×N symmetric weight matrix.  Drives chord colour / width.
+        labels : list[str], optional
+            Node labels.  Defaults to ``["0", "1", …]``.
+        selected_indices : list[int], optional
+            Node indices to highlight.
+        group_selected : bool, optional
+            When ``True``, reorder arcs so that selected nodes sit
+            adjacent on the ring.  Defaults to ``False``.
+        **options
+            Forwarded to the JS component as visual knobs
+            (``gap_deg``, ``radius``, ``arc_width``, ``line_scale``,
+            ``edge_threshold``, ``node_vmax``, ``edge_vmax``,
+            ``node_colormap``, ``edge_colormap``,
+            ``node_colorbar_label``, ``edge_colorbar_label``,
+            ``title``, ``width``, ``height``, ``selection_color``,
+            ``selection_linewidth``).
+        """
+        n = len(node_values)
+        if labels is None:
+            labels = [str(i) for i in range(n)]
+
+        # Store for Python-side SVG rendering fallback
+        self._init_node_values = list(node_values)
+        self._init_pairwise_weights = [list(row) for row in pairwise_weights]
+        self._init_labels = list(labels)
+        self._init_selected = list(selected_indices) if selected_indices else []
+        self._init_group_selected = bool(group_selected)
+        self._init_options = dict(options)
+
+        opts_with_group = dict(options)
+        opts_with_group["group_selected"] = bool(group_selected)
+
+        super().__init__(
+            node_values=node_values,
+            pairwise_weights=pairwise_weights,
+            labels=labels,
+            selected_indices=selected_indices,
+            options=opts_with_group,
+        )
+
+    def export_svg(self, path=None, dark_mode=False):
+        """Export the diagram as an SVG string or file.
+
+        Parameters
+        ----------
+        path : str or Path, optional
+            When given the SVG is written to this file and the path is
+            returned.  Otherwise the SVG markup string is returned.
+        dark_mode : bool
+            When ``True`` the exported SVG uses light text on a dark
+            background; when ``False`` (default) dark text on a
+            transparent background.
+
+        Returns
+        -------
+        str
+            SVG markup (when *path* is ``None``) or the file path.
+        """
+        svg = self._live_svg if self._live_svg else None
+
+        if not isinstance(svg, str):
+            props: dict = {
+                "nodeValues": self._init_node_values,
+                "pairwiseWeights": self._init_pairwise_weights,
+                "labels": self._init_labels,
+            }
+            if self._init_selected:
+                props["selectedIndices"] = self._init_selected
+            if self._init_group_selected:
+                props["groupSelected"] = True
+            props["darkMode"] = bool(dark_mode)
+            for key, val in self._init_options.items():
+                props[_snake_to_camel(key)] = val
+            svg = _render_component_node("ChordDiagram", props)
+
+        if path is not None:
+            from pathlib import Path as _P
+
+            _P(path).write_text(svg, encoding="utf-8")
+            return str(path)
+        return svg
+
+
 class OrbitalEntanglement(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "static" / "index.js"
     _css = pathlib.Path(__file__).parent / "static" / "index.css"

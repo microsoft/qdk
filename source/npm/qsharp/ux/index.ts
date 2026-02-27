@@ -25,7 +25,9 @@ export { setRenderer, Markdown } from "./renderers.js";
 export { Atoms, type ZoneLayout, type TraceData } from "./atoms/index.js";
 export { MoleculeViewer } from "./chem/index.js";
 export {
+  ChordDiagram,
   OrbitalEntanglement,
+  type ChordDiagramProps,
   type OrbitalEntanglementProps,
 } from "./orbitalEntanglement.js";
 export {

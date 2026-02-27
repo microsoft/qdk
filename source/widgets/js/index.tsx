@@ -16,6 +16,7 @@ import {
   type ZoneLayout,
   type TraceData,
   MoleculeViewer,
+  ChordDiagram,
   OrbitalEntanglement,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
@@ -93,6 +94,9 @@ function render({ model, el }: RenderArgs) {
       break;
     case "MoleculeViewer":
       renderMoleculeViewer({ model, el });
+      break;
+    case "ChordDiagram":
+      renderChordDiagram({ model, el });
       break;
     case "OrbitalEntanglement":
       renderOrbitalEntanglement({ model, el });
@@ -355,6 +359,81 @@ function renderAtoms({ model, el }: RenderArgs) {
   onChange();
   model.on("change:machine_layout", onChange);
   model.on("change:trace_data", onChange);
+}
+
+function renderChordDiagram({ model, el }: RenderArgs) {
+  const onChange = () => {
+    const nodeValues = model.get("node_values") as number[];
+    const pairwiseWeights = model.get("pairwise_weights") as number[][];
+    const labels = model.get("labels") as string[];
+    const selectedIndices = model.get("selected_indices") as number[] | null;
+    const options = (model.get("options") || {}) as Record<string, unknown>;
+
+    prender(
+      <ChordDiagram
+        nodeValues={nodeValues}
+        pairwiseWeights={pairwiseWeights}
+        labels={labels}
+        selectedIndices={selectedIndices ?? undefined}
+        gapDeg={options.gap_deg as number | undefined}
+        radius={options.radius as number | undefined}
+        arcWidth={options.arc_width as number | undefined}
+        lineScale={options.line_scale as number | null | undefined}
+        edgeThreshold={options.edge_threshold as number | undefined}
+        nodeVmax={options.node_vmax as number | null | undefined}
+        edgeVmax={options.edge_vmax as number | null | undefined}
+        nodeColormap={
+          options.node_colormap as [string, string, string] | undefined
+        }
+        edgeColormap={
+          options.edge_colormap as [string, string, string] | undefined
+        }
+        nodeColorbarLabel={
+          options.node_colorbar_label as string | null | undefined
+        }
+        edgeColorbarLabel={
+          options.edge_colorbar_label as string | null | undefined
+        }
+        nodeHoverPrefix={options.node_hover_prefix as string | undefined}
+        edgeHoverPrefix={options.edge_hover_prefix as string | undefined}
+        title={options.title as string | null | undefined}
+        width={options.width as number | undefined}
+        height={options.height as number | undefined}
+        selectionColor={options.selection_color as string | undefined}
+        selectionLinewidth={options.selection_linewidth as number | undefined}
+        groupSelected={options.group_selected as boolean | undefined}
+      />,
+      el,
+    );
+  };
+
+  onChange();
+  model.on("change:node_values", onChange);
+  model.on("change:pairwise_weights", onChange);
+  model.on("change:labels", onChange);
+  model.on("change:selected_indices", onChange);
+  model.on("change:options", onChange);
+
+  // Cache the live SVG into a traitlet whenever the diagram DOM changes
+  let svgCacheTimer0: ReturnType<typeof setTimeout> | null = null;
+  const cacheLiveSvg0 = () => {
+    if (svgCacheTimer0) clearTimeout(svgCacheTimer0);
+    svgCacheTimer0 = setTimeout(() => {
+      const svg = serializeLiveSvg(el, ".oe-group-toggle");
+      if (svg) {
+        model.set("_live_svg", svg);
+        model.save_changes();
+      }
+    }, 200);
+  };
+
+  const observer0 = new MutationObserver(cacheLiveSvg0);
+  observer0.observe(el, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    characterData: true,
+  });
 }
 
 function renderOrbitalEntanglement({ model, el }: RenderArgs) {
