@@ -6,7 +6,6 @@ import { formatGates } from "./formatters/gateFormatter.js";
 import { formatRegisters } from "./formatters/registerFormatter.js";
 import { processOperations } from "./process.js";
 import {
-  ConditionalRender,
   Circuit,
   CircuitGroup,
   ComponentGrid,
@@ -173,7 +172,6 @@ export class Sqore {
     for (const col of componentGrid) {
       for (const op of col.components) {
         if (currentDepth < targetDepth && op.children != null) {
-          op.conditionalRender = ConditionalRender.AsGroup;
           op.dataAttributes = op.dataAttributes || {};
           op.dataAttributes["expanded"] = "true";
           this.expandOperationsToDepth(
@@ -343,6 +341,13 @@ export class Sqore {
   private fillGateRegistry(operation: Operation, location: string): void {
     if (operation.dataAttributes == null) operation.dataAttributes = {};
     operation.dataAttributes["location"] = location;
+
+    // Note: `dataAttributes["expanded"]` is intentionally not defaulted here.
+    // Expansion is controlled by:
+    // - `renderDepth` (see `expandOperationsToDepth`),
+    // - user interaction (expand/collapse), and
+    // - `expandIfSingleOperation`, which auto-expands a single top-level op
+    //   unless it has been explicitly collapsed.
     this.gateRegistry[location] = operation;
     operation.children?.forEach((col, colIndex) =>
       col.components.forEach((childOp, i) => {
@@ -400,12 +405,10 @@ export class Sqore {
   ): void {
     componentGrid.forEach((col) =>
       col.components.forEach((op) => {
-        if (op.conditionalRender === ConditionalRender.AsGroup)
-          this.expandOperation(op.children || [], location);
+        if (op.children != null) this.expandOperation(op.children, location);
         if (op.dataAttributes == null) return op;
         const opId: string = op.dataAttributes["location"];
         if (opId === location && op.children != null) {
-          op.conditionalRender = ConditionalRender.AsGroup;
           op.dataAttributes["expanded"] = "true";
         }
       }),
@@ -424,13 +427,11 @@ export class Sqore {
   ): void {
     componentGrid.forEach((col) =>
       col.components.forEach((op) => {
-        if (op.conditionalRender === ConditionalRender.AsGroup)
-          this.collapseOperation(op.children || [], parentLoc);
+        if (op.children != null) this.collapseOperation(op.children, parentLoc);
         if (op.dataAttributes == null) return op;
         const opId: string = op.dataAttributes["location"];
         // Collapse parent gate and its children
         if (opId.startsWith(parentLoc)) {
-          op.conditionalRender = ConditionalRender.Always;
           op.dataAttributes["expanded"] = "false";
         }
       }),

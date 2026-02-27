@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 export {
-  ConditionalRender,
   type CircuitGroup,
   type Circuit,
   type ComponentGrid,

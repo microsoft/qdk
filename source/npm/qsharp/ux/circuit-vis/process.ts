@@ -10,12 +10,7 @@ import {
   groupTopPadding,
   groupBottomPadding,
 } from "./constants.js";
-import {
-  ComponentGrid,
-  Operation,
-  ConditionalRender,
-  SourceLocation,
-} from "./circuit.js";
+import { ComponentGrid, Operation, SourceLocation } from "./circuit.js";
 import { GateRenderData, GateType } from "./gateRenderData.js";
 import { Register, RegisterMap } from "./register.js";
 import { getMinGateWidth } from "./utils.js";
@@ -45,18 +40,20 @@ const processOperations = (
   maxTopPadding: number;
   maxBottomPadding: number;
 } => {
-  if (componentGrid.length === 0)
+  if (componentGrid.length === 0) {
     return {
       renderDataArray: [],
       svgWidth: startX + gatePadding * 2,
       maxTopPadding: 0,
       maxBottomPadding: 0,
     };
-  const numColumns: number = componentGrid.length;
-  const columnsWidths: number[] = new Array(numColumns).fill(minGateWidth);
+  }
 
   let maxTopPadding = 0;
   let maxBottomPadding = 0;
+
+  // Track the width of each column as we process it.
+  const columnsWidths: number[] = componentGrid.map(() => minGateWidth);
 
   // Get classical registers and their starting column index
   const classicalRegs: [number, Register][] =
@@ -136,13 +133,23 @@ const processOperations = (
       }),
   );
 
-  // Filter out invalid gates
-  const filteredArray: GateRenderData[][] = renderDataArray
-    .map((col) => col.filter(({ type }) => type != GateType.Invalid))
-    .filter((col) => col.length > 0);
+  // Filter out invalid gates and remove empty columns.
+  // Keep column widths in sync with the filtered columns.
+  const filteredColumns = renderDataArray
+    .map((col, colIndex) => ({
+      colIndex,
+      gates: col.filter(({ type }) => type != GateType.Invalid),
+    }))
+    .filter(({ gates }) => gates.length > 0);
+  const filteredArray: GateRenderData[][] = filteredColumns.map(
+    ({ gates }) => gates,
+  );
+  const filteredColumnWidths: number[] = filteredColumns.map(
+    ({ colIndex }) => columnsWidths[colIndex],
+  );
 
   // Fill in x coord of each gate
-  const endX: number = _fillRenderDataX(filteredArray, columnsWidths);
+  const endX: number = _fillRenderDataX(filteredArray, filteredColumnWidths);
 
   return {
     renderDataArray: filteredArray,
@@ -230,27 +237,27 @@ const _opToRenderData = (
       break;
   }
 
-  const {
-    gate,
-    args,
-    children,
-    dataAttributes,
-    isConditional,
-    conditionalRender,
-  } = op;
+  const { gate, args, children, dataAttributes } = op;
+
+  // Classically-controlled operations are encoded as operations whose `controls` are
+  // classical registers (i.e. `Register.result` is set), with IDs provided via
+  // `metadata.controlResultIds`.
+  const hasClassicalControls =
+    op.kind === "unitary" &&
+    ((controls?.some((reg) => reg.result != null) ?? false) ||
+      (op.metadata?.controlResultIds?.length ?? 0) > 0);
 
   const hasChildren = children != null && children.length > 0;
-  const isExpanded =
-    conditionalRender === ConditionalRender.AsGroup ||
-    dataAttributes?.["expanded"] === "true";
+  const expandedAttr = dataAttributes?.["expanded"];
+  const isExpanded = expandedAttr === "true";
 
   // Set y coords
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
   renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
 
-  if (isConditional) {
+  if (hasClassicalControls) {
     // Classically-controlled operations.
-    // These are always treated as composite operations when they have children.
+    // These are treated as composite/group operations when they have children.
     // Expanded vs. collapsed rendering is controlled via the `expanded` state.
 
     renderData.label = gate;
