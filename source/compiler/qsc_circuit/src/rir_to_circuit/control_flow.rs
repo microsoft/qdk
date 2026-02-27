@@ -230,7 +230,7 @@ fn earliest_merge_point(
     let mut shared: Vec<BlockId> = sa.intersection(sb).copied().collect();
     assert!(
         !shared.is_empty(),
-        "paths should reconverge under your assumptions"
+        "paths should reconverge"
     );
 
     shared.sort_by_key(|id| order_index[id]);
