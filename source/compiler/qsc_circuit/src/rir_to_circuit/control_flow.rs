@@ -188,10 +188,7 @@ fn compute_must_reach_sets(
         }
 
         let succs = next_blocks(blocks.get(b).expect("block should exist"));
-        assert!(
-            !succs.is_empty(),
-            "non-return block must have a next step"
-        );
+        assert!(!succs.is_empty(), "non-return block must have a next step");
 
         // Start with the first successor's must_reach set...
         let mut guaranteed = must_reach
@@ -228,10 +225,7 @@ fn earliest_merge_point(
     let sb = must_reach.get(&b).expect("must reach set should exist");
 
     let mut shared: Vec<BlockId> = sa.intersection(sb).copied().collect();
-    assert!(
-        !shared.is_empty(),
-        "paths should reconverge"
-    );
+    assert!(!shared.is_empty(), "paths should reconverge");
 
     shared.sort_by_key(|id| order_index[id]);
     shared[0]
