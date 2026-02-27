@@ -1,7 +1,7 @@
 {
   "scripts": {
     "dev": "npm run build -- --sourcemap=inline --watch",
-    "build": "npx esbuild js/index.tsx --minify --format=esm --bundle --outdir=src/qsharp_widgets/static && npx esbuild js/render_svg.mjs --minify --format=esm --bundle --platform=node --outfile=src/qsharp_widgets/static/render_svg.mjs --loader:.css=empty --external:jsdom"
+    "build": "npx esbuild js/index.tsx --minify --format=esm --bundle --outdir=src/qsharp_widgets/static && npx esbuild js/render_svg.mjs --minify --format=esm --bundle --platform=node --outfile=src/qsharp_widgets/static/render_svg.mjs --loader:.css=text"
   },
   "devDependencies": {}
 }

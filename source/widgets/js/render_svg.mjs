@@ -19,80 +19,17 @@ import { OrbitalEntanglement } from "../../npm/qsharp/ux/orbitalEntanglement.tsx
 import { Histogram } from "../../npm/qsharp/ux/histogram.tsx";
 import { draw as drawCircuit } from "../../npm/qsharp/ux/circuit-vis/index.ts";
 import { toCircuitGroup } from "../../npm/qsharp/src/data-structures/legacyCircuitUpdate.ts";
+import { installSvgDomShim } from "./svgDomShim.mjs";
 
-// ---------- Embedded CSS for standalone SVGs ----------
-// The interactive widgets inherit CSS from the page's theme variables.
-// For standalone SVG export we resolve those variables to concrete values.
-
-const HISTOGRAM_CSS_LIGHT = `
-  .bar { fill: #8ab8ff; }
-  .bar-label { font-size: 3pt; fill: #000; text-anchor: end; pointer-events: none; }
-  .bar-label-ket { font-family: Consolas, "Menlo", monospace; font-variant-ligatures: none; }
-  .histo-label { font-size: 3.5pt; fill: #222; }
-  .hover-text { font-size: 3.5pt; fill: #222; text-anchor: middle; }
-`;
-
-const HISTOGRAM_CSS_DARK = `
-  .bar { fill: #4aa3ff; }
-  .bar-label { font-size: 3pt; fill: #fff; text-anchor: end; pointer-events: none; }
-  .bar-label-ket { font-family: Consolas, "Menlo", monospace; font-variant-ligatures: none; }
-  .histo-label { font-size: 3.5pt; fill: #eee; }
-  .hover-text { font-size: 3.5pt; fill: #eee; text-anchor: middle; }
-`;
-
-const CIRCUIT_CSS_LIGHT = `
-  line, circle, rect { stroke: #202020; stroke-width: 1; }
-  text { fill: #202020; dominant-baseline: middle; text-anchor: middle;
-         user-select: none; pointer-events: none; }
-  .qs-maintext { font-family: "KaTeX_Main", sans-serif; font-style: normal; }
-  .qs-mathtext { font-family: "KaTeX_Math", serif; }
-  .gate .qs-group-label { fill: #202020; text-anchor: start; }
-  .gate-unitary { fill: #333333; }
-  .gate text { fill: #ffffff; }
-  .control-line, .control-dot { fill: #202020; }
-  .oplus > line, .oplus > circle { fill: #ececf0; stroke: #202020; stroke-width: 2; }
-  .gate-measure { fill: #007acc; }
-  .qs-line-measure, .arc-measure { stroke: #ffffff; fill: none; stroke-width: 1; }
-  .gate-ket { fill: #007acc; }
-  text.ket-text { fill: #ffffff; stroke: none; }
-  rect.gate-swap { fill: transparent; stroke: transparent; }
-  .register-classical { stroke-width: 0.5; }
-  .qubit-wire { stroke: #202020; }
-  .qs-qubit-label { fill: #202020; }
-  .gate-collapse circle, .gate-expand circle { fill: white; stroke-width: 2px; stroke: black; }
-  .gate-collapse path, .gate-expand path { stroke-width: 4px; stroke: black; }
-  .classical-container { stroke-dasharray: 8, 8; fill-opacity: 0; }
-  .classically-controlled-btn circle { fill: #ececf0; stroke-width: 1; }
-  .classically-controlled-btn text { dominant-baseline: middle; text-anchor: middle;
-    stroke: none; font-family: "KaTeX_Main", sans-serif; fill: #202020; }
-`;
-
-const CIRCUIT_CSS_DARK = `
-  line, circle, rect { stroke: #d4d4d4; stroke-width: 1; }
-  text { fill: #d4d4d4; dominant-baseline: middle; text-anchor: middle;
-         user-select: none; pointer-events: none; }
-  .qs-maintext { font-family: "KaTeX_Main", sans-serif; font-style: normal; }
-  .qs-mathtext { font-family: "KaTeX_Math", serif; }
-  .gate .qs-group-label { fill: #d4d4d4; text-anchor: start; }
-  .gate-unitary { fill: #3c3c3c; }
-  .gate text { fill: #ffffff; }
-  .control-line, .control-dot { fill: #d4d4d4; }
-  .oplus > line, .oplus > circle { fill: #1e1e1e; stroke: #d4d4d4; stroke-width: 2; }
-  .gate-measure { fill: #0e639c; }
-  .qs-line-measure, .arc-measure { stroke: #ffffff; fill: none; stroke-width: 1; }
-  .gate-ket { fill: #0e639c; }
-  text.ket-text { fill: #ffffff; stroke: none; }
-  rect.gate-swap { fill: transparent; stroke: transparent; }
-  .register-classical { stroke-width: 0.5; }
-  .qubit-wire { stroke: #d4d4d4; }
-  .qs-qubit-label { fill: #d4d4d4; }
-  .gate-collapse circle, .gate-expand circle { fill: #1e1e1e; stroke-width: 2px; stroke: #d4d4d4; }
-  .gate-collapse path, .gate-expand path { stroke-width: 4px; stroke: #d4d4d4; }
-  .classical-container { stroke-dasharray: 8, 8; fill-opacity: 0; }
-  .classically-controlled-btn circle { fill: #1e1e1e; stroke-width: 1; }
-  .classically-controlled-btn text { dominant-baseline: middle; text-anchor: middle;
-    stroke: none; font-family: "KaTeX_Main", sans-serif; fill: #d4d4d4; }
-`;
+// ---------- Canonical CSS for standalone SVGs ----------
+// Import the same CSS files used by the interactive widgets.  In a
+// standalone SVG the :root selector matches the <svg> element, so
+// CSS var() fallback chains resolve to their concrete light-mode values
+// (e.g. var(--vscode-editor-foreground, var(--jp-widgets-color, #202020))
+// → #202020) because none of the host-specific custom properties exist.
+import themeCss from "../../npm/qsharp/ux/qdk-theme.css";
+import uxCss from "../../npm/qsharp/ux/qsharp-ux.css";
+import circuitCss from "../../npm/qsharp/ux/qsharp-circuit.css";
 
 const input = readFileSync(0, "utf-8"); // stdin
 const { component, props } = JSON.parse(input);
@@ -110,13 +47,11 @@ switch (component) {
   // ---- Histogram (pure Preact SVG) ----
   case "Histogram": {
     // The TS component expects `data` as a Map, but JSON gives us an object.
-    const dark = !!props.darkMode;
     const histProps = {
       ...props,
       data: new Map(Object.entries(props.data)),
       onFilter: () => {},
     };
-    delete histProps.darkMode;
     const vnode = h(Histogram, histProps);
     let html = renderToString(vnode);
 
@@ -143,11 +78,10 @@ switch (component) {
       '<svg xmlns="http://www.w3.org/2000/svg" class="histogram" width="600"',
     );
 
-    // Inject resolved CSS styles
-    const css = dark ? HISTOGRAM_CSS_DARK : HISTOGRAM_CSS_LIGHT;
+    // Inject canonical CSS so the SVG renders correctly standalone
     html = html.replace(
       /(<svg\s[^>]*>)/,
-      `$1<defs><style>${css}</style></defs>`,
+      `$1<defs><style>${themeCss}\n${uxCss}</style></defs>`,
     );
 
     output = html;
@@ -156,58 +90,53 @@ switch (component) {
 
   // ---- Circuit (imperative DOM via qviz) ----
   case "Circuit": {
-    // qviz.draw() needs a real DOM.  Use jsdom.
-    const { JSDOM } = await import("jsdom");
-    const dom = new JSDOM("<!DOCTYPE html><html><body></body></html>");
-    const win = dom.window;
+    // qviz.draw() uses the DOM API internally.  Install a minimal SVG DOM
+    // shim so that it works without jsdom or any external dependency.
+    const restore = installSvgDomShim();
 
-    // Patch globals so qviz helpers can call
-    // document.createElementNS, document.createElement, getComputedStyle, etc.
-    globalThis.document = win.document;
-    globalThis.window = win;
-    globalThis.getComputedStyle = win.getComputedStyle;
-    globalThis.DOMPoint = win.DOMPoint;
-    globalThis.performance = win.performance;
-    globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+    try {
+      const container = document.createElement("div");
+      const circuitData =
+        typeof props.circuit === "string"
+          ? JSON.parse(props.circuit)
+          : props.circuit;
 
-    const container = win.document.createElement("div");
-    const circuitData =
-      typeof props.circuit === "string"
-        ? JSON.parse(props.circuit)
-        : props.circuit;
+      // Normalise any legacy/raw format into a proper CircuitGroup
+      const result = toCircuitGroup(circuitData);
+      if (!result.ok) {
+        process.stderr.write(`Circuit conversion error: ${result.error}\n`);
+        process.exit(1);
+      }
 
-    // Normalise any legacy/raw format into a proper CircuitGroup
-    const result = toCircuitGroup(circuitData);
-    if (!result.ok) {
-      process.stderr.write(`Circuit conversion error: ${result.error}\n`);
-      process.exit(1);
-    }
+      drawCircuit(result.circuitGroup, container);
 
-    drawCircuit(result.circuitGroup, container);
-
-    // The rendered SVG is the first child with class "qviz"
-    const svg = container.querySelector("svg.qviz");
-    if (svg) {
-      // Ensure the xmlns is present for standalone SVG files
-      svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-      // Inject embedded CSS so the SVG renders correctly standalone
-      const dark = !!props.darkMode;
-      const css = dark ? CIRCUIT_CSS_DARK : CIRCUIT_CSS_LIGHT;
-      const styleEl = dom.window.document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "style",
-      );
-      styleEl.textContent = css;
-      const defs = dom.window.document.createElementNS(
-        "http://www.w3.org/2000/svg",
-        "defs",
-      );
-      defs.appendChild(styleEl);
-      svg.insertBefore(defs, svg.firstChild);
-      output = svg.outerHTML;
-    } else {
-      // Fallback: return the full container HTML
-      output = container.innerHTML;
+      // The rendered SVG is the first child with class "qviz"
+      const svg = container.querySelector("svg.qviz");
+      if (svg) {
+        // Ensure the xmlns is present for standalone SVG files
+        svg.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+        // Add qs-circuit class so the nested circuit CSS selectors match
+        const existing = svg.getAttribute("class") || "";
+        svg.setAttribute("class", `qs-circuit ${existing}`.trim());
+        // Inject canonical CSS so the SVG renders correctly standalone
+        const styleEl = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "style",
+        );
+        styleEl.textContent = `${themeCss}\n${uxCss}\n${circuitCss}`;
+        const defs = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "defs",
+        );
+        defs.appendChild(styleEl);
+        svg.insertBefore(defs, svg.firstChild);
+        output = svg.outerHTML;
+      } else {
+        // Fallback: return the full container HTML
+        output = container.innerHTML;
+      }
+    } finally {
+      restore();
     }
     break;
   }

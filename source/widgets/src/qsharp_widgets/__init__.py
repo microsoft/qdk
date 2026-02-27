@@ -199,21 +199,19 @@ class Histogram(anywidget.AnyWidget):
         # Update the UI one last time to make sure we show the final results
         self._update_ui()
 
-    def export_svg(self, path=None, dark_mode=False):
+    def export_svg(self, path=None):
         """Export the histogram as an SVG string or file.
 
         The same Preact component used by the interactive widget is
-        rendered server-side via Node.js.
+        rendered server-side via Node.js.  The exported SVG embeds the
+        canonical project CSS whose ``var()`` fallback chains resolve
+        to concrete light-mode values in a standalone context.
 
         Parameters
         ----------
         path : str or Path, optional
             When given the SVG is written to this file and the path is
             returned.  Otherwise the SVG markup string is returned.
-        dark_mode : bool
-            When ``True`` the exported SVG uses light text on a dark
-            background; when ``False`` (default) dark text on a
-            transparent background.
 
         Returns
         -------
@@ -228,7 +226,6 @@ class Histogram(anywidget.AnyWidget):
             "labels": self.labels,
             "items": self.items,
             "sort": self.sort,
-            "darkMode": bool(dark_mode),
         }
         svg = _render_component_node("Histogram", props)
 
@@ -251,22 +248,21 @@ class Circuit(anywidget.AnyWidget):
         super().__init__(circuit_json=circuit.json())
         self.layout.overflow = "visible scroll"
 
-    def export_svg(self, path=None, dark_mode=False):
+    def export_svg(self, path=None):
         """Export the circuit diagram as an SVG string or file.
 
         The same ``qviz`` renderer used by the interactive widget is
-        executed server-side via Node.js (with ``jsdom`` providing the
-        DOM).
+        executed server-side via Node.js (with a lightweight built-in
+        DOM shim — no external packages required beyond Node itself).
+        The exported SVG embeds the canonical project CSS whose
+        ``var()`` fallback chains resolve to concrete light-mode values
+        in a standalone context.
 
         Parameters
         ----------
         path : str or Path, optional
             When given the SVG is written to this file and the path is
             returned.  Otherwise the SVG markup string is returned.
-        dark_mode : bool
-            When ``True`` the exported SVG uses light text on a dark
-            background; when ``False`` (default) dark text on a
-            transparent background.
 
         Returns
         -------
@@ -277,7 +273,6 @@ class Circuit(anywidget.AnyWidget):
 
         props = {
             "circuit": json.loads(self.circuit_json),
-            "darkMode": bool(dark_mode),
         }
         svg = _render_component_node("Circuit", props)
 
