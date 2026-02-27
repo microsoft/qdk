@@ -980,6 +980,8 @@ fn integer_comparison() {
         let num = MeasureInteger(reg);
         if num < 8 {
             X(q);
+        } else {
+            Y(q);
         }
     }
     "},
@@ -993,7 +995,8 @@ fn integer_comparison() {
             Main@A.qs:4:14 -> MeasureInteger@qsharp-library-source:Std/Measurement.qs:155:4 -> loop: 0..nBits - 1@qsharp-library-source:Std/Measurement.qs:155:26[2] -> (2)@qsharp-library-source:Std/Measurement.qs:156:12 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_2, c_1)
             Main@A.qs:4:14 -> MeasureInteger@qsharp-library-source:Std/Measurement.qs:155:4 -> loop: 0..nBits - 1@qsharp-library-source:Std/Measurement.qs:155:26[3] -> (3)@qsharp-library-source:Std/Measurement.qs:156:12 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_3, c_2)
             Main@A.qs:4:14 -> MeasureInteger@qsharp-library-source:Std/Measurement.qs:155:4 -> loop: 0..nBits - 1@qsharp-library-source:Std/Measurement.qs:155:26[4] -> (4)@qsharp-library-source:Std/Measurement.qs:156:12 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_4, c_3)
-            Main@A.qs:5:4[true] -> if: (f(c_0, c_1, c_2, c_3)) Slt (8)@A.qs:6:8 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
+            Main@A.qs:5:4[true] -> if: (f(c_0, c_1, c_2, c_3)) < (8)@A.qs:6:8 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
+            Main@A.qs:5:4[false] -> if: (f(c_0, c_1, c_2, c_3)) >= (8)@A.qs:8:8 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
         "#]],
     );
 }

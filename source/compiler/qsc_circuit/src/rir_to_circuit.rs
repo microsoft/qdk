@@ -576,10 +576,25 @@ fn process_icmp_variables(
     let expr = match condition_code {
         ConditionCode::Eq => eq_expr(expr_left, expr_right)?,
         ConditionCode::Ne => eq_expr(expr_left, expr_right)?.negate(),
-        cmp => Expr::Bool(BoolExpr::BinOp(
+        ConditionCode::Slt => Expr::Bool(BoolExpr::BinOp(
             expr_left.into(),
             expr_right.into(),
-            cmp.to_string(),
+            ComparisonOp::Lt,
+        )),
+        ConditionCode::Sgt => Expr::Bool(BoolExpr::BinOp(
+            expr_left.into(),
+            expr_right.into(),
+            ComparisonOp::Gt,
+        )),
+        ConditionCode::Sle => Expr::Bool(BoolExpr::BinOp(
+            expr_left.into(),
+            expr_right.into(),
+            ComparisonOp::Le,
+        )),
+        ConditionCode::Sge => Expr::Bool(BoolExpr::BinOp(
+            expr_left.into(),
+            expr_right.into(),
+            ComparisonOp::Ge,
         )),
     };
     store_expr_in_variable(variables, variable, expr)?;
@@ -598,7 +613,34 @@ fn process_fcmp_variables(
     let expr = match condition_code {
         FcmpConditionCode::False => BoolExpr::LiteralBool(false),
         FcmpConditionCode::True => BoolExpr::LiteralBool(true),
-        cmp => BoolExpr::BinOp(expr_left.into(), expr_right.into(), cmp.to_string()),
+        FcmpConditionCode::OrderedAndEqual | FcmpConditionCode::UnorderedOrEqual => {
+            BoolExpr::BinOp(expr_left.into(), expr_right.into(), ComparisonOp::Eq)
+        }
+        FcmpConditionCode::OrderedAndNotEqual | FcmpConditionCode::UnorderedOrNotEqual => {
+            BoolExpr::BinOp(expr_left.into(), expr_right.into(), ComparisonOp::Ne)
+        }
+        FcmpConditionCode::OrderedAndLessThan | FcmpConditionCode::UnorderedOrLessThan => {
+            BoolExpr::BinOp(expr_left.into(), expr_right.into(), ComparisonOp::Lt)
+        }
+        FcmpConditionCode::OrderedAndGreaterThan | FcmpConditionCode::UnorderedOrGreaterThan => {
+            BoolExpr::BinOp(expr_left.into(), expr_right.into(), ComparisonOp::Gt)
+        }
+        FcmpConditionCode::OrderedAndLessThanOrEqual
+        | FcmpConditionCode::UnorderedOrLessThanOrEqual => {
+            BoolExpr::BinOp(expr_left.into(), expr_right.into(), ComparisonOp::Le)
+        }
+        FcmpConditionCode::OrderedAndGreaterThanOrEqual
+        | FcmpConditionCode::UnorderedOrGreaterThanOrEqual => {
+            BoolExpr::BinOp(expr_left.into(), expr_right.into(), ComparisonOp::Ge)
+        }
+        FcmpConditionCode::Ordered | FcmpConditionCode::Unordered => {
+            // These don't map to a simple binary comparison; treat as opaque.
+            return store_expr_in_variable(
+                variables,
+                variable,
+                Expr::Rich(RichExpr::FunctionOf(vec![expr_left, expr_right])),
+            );
+        }
     };
     store_expr_in_variable(variables, variable, Expr::Bool(expr))?;
     Ok(())
@@ -623,7 +665,7 @@ fn eq_expr(expr_left: Expr, expr_right: Expr) -> Result<Expr, Error> {
                 filter: (true, false, false, true), // 00 and 11
             })
         }
-        (left, right) => Expr::Rich(RichExpr::FunctionOf(vec![left, right])),
+        (left, right) => Expr::Bool(BoolExpr::BinOp(left.into(), right.into(), ComparisonOp::Eq)),
     })
 }
 
@@ -663,6 +705,42 @@ enum Expr {
     Bool(BoolExpr),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ComparisonOp {
+    Eq,
+    Ne,
+    Lt,
+    Gt,
+    Le,
+    Ge,
+}
+
+impl ComparisonOp {
+    fn negate(self) -> Self {
+        match self {
+            Self::Eq => Self::Ne,
+            Self::Ne => Self::Eq,
+            Self::Lt => Self::Ge,
+            Self::Gt => Self::Le,
+            Self::Le => Self::Gt,
+            Self::Ge => Self::Lt,
+        }
+    }
+}
+
+impl Display for ComparisonOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Eq => write!(f, "=="),
+            Self::Ne => write!(f, "!="),
+            Self::Lt => write!(f, "<"),
+            Self::Gt => write!(f, ">"),
+            Self::Le => write!(f, "<="),
+            Self::Ge => write!(f, ">="),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum BoolExpr {
     Result(usize),
@@ -673,7 +751,7 @@ enum BoolExpr {
         filter: (bool, bool, bool, bool),
     },
     LiteralBool(bool),
-    BinOp(Box<Expr>, Box<Expr>, String),
+    BinOp(Box<Expr>, Box<Expr>, ComparisonOp),
 }
 
 /// These could be of type boolean, we just don't necessary know
@@ -697,6 +775,9 @@ impl Expr {
                     results: *results,
                     filter: (!f00, !f01, !f10, !f11),
                 })
+            }
+            Expr::Bool(BoolExpr::BinOp(left, right, op)) => {
+                Expr::Bool(BoolExpr::BinOp(left.clone(), right.clone(), op.negate()))
             }
             expr => Expr::Rich(RichExpr::FunctionOf(expr.flat_exprs())),
         }
