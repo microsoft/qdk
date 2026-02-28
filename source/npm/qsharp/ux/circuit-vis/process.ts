@@ -473,11 +473,17 @@ const _fillRenderDataX = (
   renderDataArray.forEach((col, colIndex) =>
     col.forEach((renderData) => {
       const x = colStartX[colIndex];
+      const columnWidth = columnWidths[colIndex];
+      const columnCenterX = x + columnWidth / 2;
       switch (renderData.type) {
         case GateType.Group:
           {
+            // Center the group within the column, and offset nested child gates
+            // relative to the group's left edge (plus internal padding).
+            const groupLeftX = columnCenterX - renderData.width / 2;
+
             // Subtract startX offset from nested gates and add offset and padding
-            let offset: number = x - startX + groupPaddingX;
+            let offset: number = groupLeftX - startX + groupPaddingX;
             if (renderData.classicalControlIds != null) {
               offset += controlCircleOffset;
             }
@@ -485,14 +491,14 @@ const _fillRenderDataX = (
             // Offset each x coord in children gates
             _offsetChildrenX(renderData.children, offset);
 
-            // Groups should be left-aligned in their column
-            renderData.x = x + renderData.width / 2;
+            // Center gate in column
+            renderData.x = columnCenterX;
           }
           break;
 
         default:
           // Center gate in column
-          renderData.x = x + columnWidths[colIndex] / 2;
+          renderData.x = columnCenterX;
           break;
       }
     }),
