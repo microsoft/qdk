@@ -357,7 +357,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
     const sel: number[] = [];
     const unsel: number[] = [];
     for (let i = 0; i < n; i++) {
-      if (selectedSet.has(labels[i])) {
+      if (selectedSet.has(String(i))) {
         sel.push(i);
       } else {
         unsel.push(i);
@@ -630,7 +630,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
 
         {/* Selection outlines */}
         {Array.from({ length: n }, (_, i) =>
-          selectedSet.has(labels[i]) ? (
+          selectedSet.has(String(i)) ? (
             <path
               key={`sel-${i}`}
               d={arcPath(

@@ -581,7 +581,6 @@ class OrbitalEntanglement(ChordDiagram):
             group_selected=group_selected,
             **options,
         )
-        return svg
 
 
 # ---------------------------------------------------------------------------
