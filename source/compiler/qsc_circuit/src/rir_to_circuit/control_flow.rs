@@ -10,7 +10,6 @@ use qsc_partial_eval::{
 use qsc_rir::debug::InstructionDbgMetadata;
 use rustc_hash::FxHashMap;
 use rustc_hash::FxHashSet;
-use std::collections::VecDeque;
 use std::vec;
 
 /// RIR blocks -> Structured Control Flow
@@ -19,18 +18,24 @@ pub(super) fn reconstruct_control_flow(
     entry: BlockId,
 ) -> StructuredControlFlow {
     let return_block = find_return_block(blocks);
-    let ordered = execution_order(blocks);
+    // The RIR that comes back from passes uses block IDs that already ordered matching the control flow
+    // as long as the program is a Directec Acyclic Graph (see source/compiler/qsc_rir/src/passes/remap_block_ids.rs).
+    // Further, the `IndexMap` data structure always returns keys in ascending order, matching that DAG.
+    // We rely on both assumptions below so that later code can use the ordering to recreate that
+    // structure control flow.
+    let ordered = blocks.iter().map(|(id, _)| id).collect::<Vec<_>>();
+    assert!(
+        ordered.is_sorted(),
+        "IndexMap iteration order should be deterministic and sorted"
+    );
 
-    let topo_index: FxHashMap<BlockId, usize> =
-        ordered.iter().enumerate().map(|(i, id)| (*id, i)).collect();
     let must_reach = compute_must_reach_sets(blocks, return_block, &ordered);
 
-    build_structured(blocks, &must_reach, &topo_index, entry, None)
+    build_structured(blocks, &must_reach, entry, None)
 }
 
 pub(super) enum StructuredControlFlow {
     Seq(Vec<StructuredControlFlow>),
-    /// A single basic block's "payload" (you can expand to instructions later).
     BasicBlock(BlockId),
     If {
         cond: Variable,
@@ -101,66 +106,6 @@ fn find_return_block(blocks: &IndexMap<BlockId, Block>) -> BlockId {
     returns.pop().expect("just checked non-empty")
 }
 
-/// Produce an order where every block appears before anything it can jump to.
-/// (This works because you said there are no cycles.)
-fn execution_order(blocks: &IndexMap<BlockId, Block>) -> Vec<BlockId> {
-    // Count how many incoming edges each block has.
-    let mut incoming_count: FxHashMap<BlockId, usize> = FxHashMap::default();
-    for id in blocks.iter().map(|(k, _)| k) {
-        incoming_count.insert(id, 0);
-    }
-
-    for (id, b) in blocks.iter() {
-        for nxt in next_blocks(b) {
-            *incoming_count.get_mut(&nxt).expect("missing successor") += 1;
-        }
-        let _ = id;
-    }
-
-    // Start with blocks that have no incoming edges.
-    let mut ready: VecDeque<BlockId> = incoming_count
-        .iter()
-        .filter_map(|(id, n)| (*n == 0).then_some(*id))
-        .collect();
-
-    // Optional: keep deterministic ordering.
-    {
-        let mut v: Vec<_> = ready.drain(..).collect();
-        v.sort();
-        ready.extend(v);
-    }
-
-    let mut ordered = Vec::with_capacity(blocks.iter().count());
-
-    while let Some(bid) = ready.pop_front() {
-        ordered.push(bid);
-
-        let b = blocks.get(bid).expect("missing block");
-        for nxt in next_blocks(b) {
-            let n = incoming_count.get_mut(&nxt).expect("missing successor");
-            *n -= 1;
-            if *n == 0 {
-                ready.push_back(nxt);
-            }
-        }
-
-        // Optional: keep deterministic ordering.
-        if ready.len() > 1 {
-            let mut v: Vec<_> = ready.drain(..).collect();
-            v.sort();
-            ready.extend(v);
-        }
-    }
-
-    assert_eq!(
-        ordered.len(),
-        blocks.iter().count(),
-        "graph has a cycle or inconsistent edges"
-    );
-
-    ordered
-}
-
 /// For each block b, compute the set of blocks that are guaranteed to happen
 /// after b on the way to the final return.
 ///
@@ -189,10 +134,7 @@ fn compute_must_reach_sets(
         }
 
         let succs = next_blocks(blocks.get(b).expect("block should exist"));
-        assert!(
-            !succs.is_empty(),
-            "non-return block must have a next step under your assumptions"
-        );
+        assert!(!succs.is_empty(), "non-return block must have a next step");
 
         // Start with the first successor's must_reach set...
         let mut guaranteed = must_reach
@@ -221,25 +163,18 @@ fn compute_must_reach_sets(
 /// - choose the one that happens earliest in the overall forward order
 fn earliest_merge_point(
     must_reach: &FxHashMap<BlockId, FxHashSet<BlockId>>,
-    order_index: &FxHashMap<BlockId, usize>,
     a: BlockId,
     b: BlockId,
 ) -> BlockId {
     let sa = must_reach.get(&a).expect("must reach set should exist");
     let sb = must_reach.get(&b).expect("must reach set should exist");
 
-    let mut shared: Vec<BlockId> = sa.intersection(sb).copied().collect();
-    assert!(
-        !shared.is_empty(),
-        "paths should reconverge under your assumptions"
-    );
-
-    shared.sort_by_key(|id| order_index[id]);
-    shared[0]
+    *sa.intersection(sb)
+        .min()
+        .expect("there should be at least the return block in common")
 }
 
 /// Collect blocks reachable from `start` without stepping through `stop`.
-/// Useful if you want to validate that a branch arm is a clean, contained region.
 fn reachable_until(
     blocks: &IndexMap<BlockId, Block>,
     start: BlockId,
@@ -276,7 +211,6 @@ fn reachable_until(
 fn build_structured(
     blocks: &IndexMap<BlockId, Block>,
     must_reach: &FxHashMap<BlockId, FxHashSet<BlockId>>,
-    order_index: &FxHashMap<BlockId, usize>,
     entry: BlockId,
     stop_at: Option<BlockId>,
 ) -> StructuredControlFlow {
@@ -313,17 +247,14 @@ fn build_structured(
             }
 
             Terminator::Conditional(br) => {
-                let merge =
-                    earliest_merge_point(must_reach, order_index, br.true_block, br.false_block);
+                let merge = earliest_merge_point(must_reach, br.true_block, br.false_block);
 
                 // Optional: region sanity checks / debugging
                 let _then_region = reachable_until(blocks, br.true_block, merge);
                 let _else_region = reachable_until(blocks, br.false_block, merge);
 
-                let then_scf =
-                    build_structured(blocks, must_reach, order_index, br.true_block, Some(merge));
-                let else_scf =
-                    build_structured(blocks, must_reach, order_index, br.false_block, Some(merge));
+                let then_scf = build_structured(blocks, must_reach, br.true_block, Some(merge));
+                let else_scf = build_structured(blocks, must_reach, br.false_block, Some(merge));
 
                 statements.push(StructuredControlFlow::If {
                     cond: br.condition,
