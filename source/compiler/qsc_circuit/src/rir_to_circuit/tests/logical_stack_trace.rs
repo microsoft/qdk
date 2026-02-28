@@ -968,3 +968,35 @@ fn result_to_result_comparison() {
         "#]],
     );
 }
+
+#[test]
+fn integer_comparison() {
+    check_trace(
+        indoc! {"
+    operation Main() : Unit {
+        use q = Qubit();
+        use reg = Qubit[4];
+        ApplyToEach(H, reg);
+        let num = MeasureInteger(reg);
+        if num < 8 {
+            X(q);
+        } else {
+            Y(q);
+        }
+    }
+    "},
+        "A.Main()",
+        &expect![[r#"
+            Main@A.qs:3:4 -> ApplyToEach@qsharp-library-source:Std/Canon.qs:29:4 -> loop: register@qsharp-library-source:Std/Canon.qs:29:25[1] -> (1)@qsharp-library-source:Std/Canon.qs:30:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_1), controls=())
+            Main@A.qs:3:4 -> ApplyToEach@qsharp-library-source:Std/Canon.qs:29:4 -> loop: register@qsharp-library-source:Std/Canon.qs:29:25[2] -> (2)@qsharp-library-source:Std/Canon.qs:30:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_2), controls=())
+            Main@A.qs:3:4 -> ApplyToEach@qsharp-library-source:Std/Canon.qs:29:4 -> loop: register@qsharp-library-source:Std/Canon.qs:29:25[3] -> (3)@qsharp-library-source:Std/Canon.qs:30:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_3), controls=())
+            Main@A.qs:3:4 -> ApplyToEach@qsharp-library-source:Std/Canon.qs:29:4 -> loop: register@qsharp-library-source:Std/Canon.qs:29:25[4] -> (4)@qsharp-library-source:Std/Canon.qs:30:8 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_4), controls=())
+            Main@A.qs:4:14 -> MeasureInteger@qsharp-library-source:Std/Measurement.qs:155:4 -> loop: 0..nBits - 1@qsharp-library-source:Std/Measurement.qs:155:26[1] -> (1)@qsharp-library-source:Std/Measurement.qs:156:12 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_1, c_0)
+            Main@A.qs:4:14 -> MeasureInteger@qsharp-library-source:Std/Measurement.qs:155:4 -> loop: 0..nBits - 1@qsharp-library-source:Std/Measurement.qs:155:26[2] -> (2)@qsharp-library-source:Std/Measurement.qs:156:12 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_2, c_1)
+            Main@A.qs:4:14 -> MeasureInteger@qsharp-library-source:Std/Measurement.qs:155:4 -> loop: 0..nBits - 1@qsharp-library-source:Std/Measurement.qs:155:26[3] -> (3)@qsharp-library-source:Std/Measurement.qs:156:12 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_3, c_2)
+            Main@A.qs:4:14 -> MeasureInteger@qsharp-library-source:Std/Measurement.qs:155:4 -> loop: 0..nBits - 1@qsharp-library-source:Std/Measurement.qs:155:26[4] -> (4)@qsharp-library-source:Std/Measurement.qs:156:12 -> MResetZ@qsharp-library-source:Std/Measurement.qs:135:4 -> measure(MResetZ, q_4, c_3)
+            Main@A.qs:5:4[true] -> if: (f(c_0, c_1, c_2, c_3)) < (8)@A.qs:6:8 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
+            Main@A.qs:5:4[false] -> if: (f(c_0, c_1, c_2, c_3)) >= (8)@A.qs:8:8 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
+        "#]],
+    );
+}
