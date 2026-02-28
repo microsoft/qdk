@@ -14,7 +14,11 @@ export {
   type CircuitGroup,
   type CircuitProps,
 } from "./data.js";
-export { Histogram } from "./histogram.js";
+export {
+  Histogram,
+  histogramToSvg,
+  type HistogramProps,
+} from "./histogram.js";
 export { ReTable } from "./reTable.js";
 export { SpaceChart } from "./spaceChart.js";
 export { ScatterChart } from "./scatterChart.js";
@@ -27,6 +31,7 @@ export { MoleculeViewer } from "./chem/index.js";
 export {
   ChordDiagram,
   OrbitalEntanglement,
+  chordDiagramToSvg,
   type ChordDiagramProps,
   type OrbitalEntanglementProps,
 } from "./orbitalEntanglement.js";

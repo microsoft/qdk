@@ -120,8 +120,6 @@ class Histogram(anywidget.AnyWidget):
     labels = traitlets.Unicode("raw").tag(sync=True)
     items = traitlets.Unicode("all").tag(sync=True)
     sort = traitlets.Unicode("a-to-z").tag(sync=True)
-    # Automatically populated by the front-end MutationObserver.
-    _live_svg = traitlets.Unicode("").tag(sync=True)
 
     def _update_ui(self):
         self.buckets = self._new_buckets.copy()
@@ -201,38 +199,48 @@ class Histogram(anywidget.AnyWidget):
         # Update the UI one last time to make sure we show the final results
         self._update_ui()
 
-    def export_svg(self, path=None):
-        """Export the histogram as an SVG string or file.
+    def _build_svg_props(self, dark_mode=False):
+        """Build the props dict for SVG rendering."""
+        return {
+            "data": dict(self.buckets),
+            "shotCount": self.shot_count,
+            "filter": "",
+            "labels": self.labels,
+            "items": self.items,
+            "sort": self.sort,
+            "darkMode": bool(dark_mode),
+        }
 
-        If the widget has been displayed in a notebook, the cached live
-        SVG is returned — this captures any interactive changes the user
-        made (sorting, labels, item filters).  Otherwise the same Preact
-        component is rendered server-side via Node.js using the current
-        traitlet values.
+    def export_svg(self, path=None, dark_mode=False):
+        """Render the histogram to a standalone SVG.
+
+        When the widget is displayed in a notebook the SVG is rendered
+        in-browser by the same ``histogramToSvg`` function used by
+        the Node.js SSR script.  When the widget is not connected the
+        function falls back to spawning Node.js.
+
+        The traitlets (including interactive state like labels/items/sort
+        which the front-end syncs back) are read at call time, so exports
+        always reflect the latest user changes.
 
         Parameters
         ----------
         path : str or Path, optional
             When given the SVG is written to this file and the path is
             returned.  Otherwise the SVG markup string is returned.
+        dark_mode : bool
+            When ``True`` the exported SVG uses light text on a dark
+            background; when ``False`` (default) dark text on a light
+            background.
 
         Returns
         -------
         str
             SVG markup (when *path* is ``None``) or the file path.
         """
-        svg = self._live_svg if self._live_svg else None
-
-        if not isinstance(svg, str):
-            props = {
-                "data": dict(self.buckets),
-                "shotCount": self.shot_count,
-                "filter": "",
-                "shotsHeader": self.shot_header,
-                "labels": self.labels,
-                "items": self.items,
-                "sort": self.sort,
-            }
+        svg = self._export_svg_via_widget(dark_mode)
+        if svg is None:
+            props = self._build_svg_props(dark_mode)
             svg = _render_component_node("Histogram", props)
 
         if path is not None:
@@ -242,6 +250,37 @@ class Histogram(anywidget.AnyWidget):
             return str(path)
         return svg
 
+    def _export_svg_via_widget(self, dark_mode=False):
+        """Try to render SVG in-browser via the live widget front-end.
+
+        Sends a custom message asking the JS side to call
+        ``histogramToSvg()`` and waits for the response.  Returns
+        ``None`` if the widget is not connected.
+        """
+        import threading
+
+        result = [None]
+        event = threading.Event()
+
+        def _on_msg(_, content, buffers):
+            if isinstance(content, dict) and content.get("type") == "svg_result":
+                result[0] = content.get("svg")
+                event.set()
+
+        try:
+            self.on_msg(_on_msg)
+            self.send({"type": "export_svg", "dark_mode": bool(dark_mode)})
+            if event.wait(timeout=5):
+                return result[0]
+        except Exception:
+            pass
+        finally:
+            try:
+                self.on_msg(_on_msg, remove=True)
+            except Exception:
+                pass
+        return None
+
 
 class Circuit(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "static" / "index.js"
@@ -249,49 +288,10 @@ class Circuit(anywidget.AnyWidget):
 
     comp = traitlets.Unicode("Circuit").tag(sync=True)
     circuit_json = traitlets.Unicode().tag(sync=True)
-    # Automatically populated by the front-end MutationObserver whenever
-    # the circuit SVG re-renders (e.g. after expand/collapse).
-    _live_svg = traitlets.Unicode("").tag(sync=True)
 
     def __init__(self, circuit):
         super().__init__(circuit_json=circuit.json())
         self.layout.overflow = "visible scroll"
-
-    def export_svg(self, path=None):
-        """Export the circuit diagram as an SVG string or file.
-
-        If the widget has been displayed in a notebook, the cached live
-        SVG is returned — this captures any interactive changes the user
-        made (expanded/collapsed blocks).  Otherwise the same ``qviz``
-        renderer is executed server-side via Node.js.
-
-        Parameters
-        ----------
-        path : str or Path, optional
-            When given the SVG is written to this file and the path is
-            returned.  Otherwise the SVG markup string is returned.
-
-        Returns
-        -------
-        str
-            SVG markup (when *path* is ``None``) or the file path.
-        """
-        import json
-
-        svg = self._live_svg if self._live_svg else None
-
-        if not isinstance(svg, str):
-            props = {
-                "circuit": json.loads(self.circuit_json),
-            }
-            svg = _render_component_node("Circuit", props)
-
-        if path is not None:
-            from pathlib import Path as _P
-
-            _P(path).write_text(svg, encoding="utf-8")
-            return str(path)
-        return svg
 
 
 class Atoms(anywidget.AnyWidget):
@@ -310,9 +310,15 @@ class ChordDiagram(anywidget.AnyWidget):
     """General-purpose chord diagram widget.
 
     Displays per-node scalar values as coloured arcs and pairwise weights
-    as chords.  This is the generic base; ``OrbitalEntanglement`` is a
-    convenience subclass that maps orbital-specific terminology onto
-    these general parameters.
+    as chords.  ``OrbitalEntanglement`` is a convenience subclass that
+    maps orbital-specific terminology onto these general parameters.
+
+    The component renders self-contained SVG with inline styles, so the
+    same ``export_svg()`` code path (server-side ``renderToString``)
+    works identically whether or not a live DOM is available.  Interactive
+    state (e.g. the grouping toggle) is synced back to the ``options``
+    traitlet by the JS front-end so exports always reflect the latest
+    user changes.
     """
 
     _esm = pathlib.Path(__file__).parent / "static" / "index.js"
@@ -326,8 +332,6 @@ class ChordDiagram(anywidget.AnyWidget):
         sync=True
     )
     options = traitlets.Dict().tag(sync=True)
-    # Automatically populated by the front-end MutationObserver.
-    _live_svg = traitlets.Unicode("").tag(sync=True)
 
     def __init__(
         self,
@@ -360,6 +364,7 @@ class ChordDiagram(anywidget.AnyWidget):
             ``edge_threshold``, ``node_vmax``, ``edge_vmax``,
             ``node_colormap``, ``edge_colormap``,
             ``node_colorbar_label``, ``edge_colorbar_label``,
+            ``node_hover_prefix``, ``edge_hover_prefix``,
             ``title``, ``width``, ``height``, ``selection_color``,
             ``selection_linewidth``).
         """
@@ -367,27 +372,43 @@ class ChordDiagram(anywidget.AnyWidget):
         if labels is None:
             labels = [str(i) for i in range(n)]
 
-        # Store for Python-side SVG rendering fallback
-        self._init_node_values = list(node_values)
-        self._init_pairwise_weights = [list(row) for row in pairwise_weights]
-        self._init_labels = list(labels)
-        self._init_selected = list(selected_indices) if selected_indices else []
-        self._init_group_selected = bool(group_selected)
-        self._init_options = dict(options)
-
-        opts_with_group = dict(options)
-        opts_with_group["group_selected"] = bool(group_selected)
+        opts = dict(options)
+        opts["group_selected"] = bool(group_selected)
 
         super().__init__(
-            node_values=node_values,
-            pairwise_weights=pairwise_weights,
-            labels=labels,
-            selected_indices=selected_indices,
-            options=opts_with_group,
+            node_values=list(node_values),
+            pairwise_weights=[list(row) for row in pairwise_weights],
+            labels=list(labels),
+            selected_indices=list(selected_indices) if selected_indices else None,
+            options=opts,
         )
 
+    def _build_svg_props(self, dark_mode=False):
+        """Build the camelCase props dict for SVG rendering."""
+        props: dict = {
+            "nodeValues": list(self.node_values),
+            "pairwiseWeights": [list(row) for row in self.pairwise_weights],
+            "labels": list(self.labels),
+            "darkMode": bool(dark_mode),
+        }
+        if self.selected_indices:
+            props["selectedIndices"] = list(self.selected_indices)
+        for key, val in (self.options or {}).items():
+            props[_snake_to_camel(key)] = val
+        return props
+
     def export_svg(self, path=None, dark_mode=False):
-        """Export the diagram as an SVG string or file.
+        """Render the diagram to a standalone SVG.
+
+        When the widget is displayed in a notebook the SVG is rendered
+        in-browser by the same ``chordDiagramToSvg`` function used by
+        the Node.js SSR script — one rendering path everywhere.  When
+        the widget is not connected (e.g. a plain Python script) the
+        function falls back to spawning Node.js.
+
+        The ``options`` traitlet (including interactive state like the
+        grouping toggle) is read at call time, so exports always
+        reflect the latest user changes.
 
         Parameters
         ----------
@@ -404,21 +425,9 @@ class ChordDiagram(anywidget.AnyWidget):
         str
             SVG markup (when *path* is ``None``) or the file path.
         """
-        svg = self._live_svg if self._live_svg else None
-
-        if not isinstance(svg, str):
-            props: dict = {
-                "nodeValues": self._init_node_values,
-                "pairwiseWeights": self._init_pairwise_weights,
-                "labels": self._init_labels,
-            }
-            if self._init_selected:
-                props["selectedIndices"] = self._init_selected
-            if self._init_group_selected:
-                props["groupSelected"] = True
-            props["darkMode"] = bool(dark_mode)
-            for key, val in self._init_options.items():
-                props[_snake_to_camel(key)] = val
+        svg = self._export_svg_via_widget(dark_mode)
+        if svg is None:
+            props = self._build_svg_props(dark_mode)
             svg = _render_component_node("ChordDiagram", props)
 
         if path is not None:
@@ -428,21 +437,48 @@ class ChordDiagram(anywidget.AnyWidget):
             return str(path)
         return svg
 
+    def _export_svg_via_widget(self, dark_mode=False):
+        """Try to render SVG in-browser via the live widget front-end.
 
-class OrbitalEntanglement(anywidget.AnyWidget):
-    _esm = pathlib.Path(__file__).parent / "static" / "index.js"
-    _css = pathlib.Path(__file__).parent / "static" / "index.css"
+        Sends a custom message asking the JS side to call
+        ``chordDiagramToSvg()`` and waits for the response.  Returns
+        ``None`` if the widget is not connected.
+        """
+        import threading
 
-    comp = traitlets.Unicode("OrbitalEntanglement").tag(sync=True)
-    s1_entropies = traitlets.List().tag(sync=True)
-    mutual_information = traitlets.List().tag(sync=True)
-    labels = traitlets.List().tag(sync=True)
-    selected_indices = traitlets.List(allow_none=True, default_value=None).tag(
-        sync=True
-    )
-    options = traitlets.Dict().tag(sync=True)
-    # Automatically populated by the front-end MutationObserver.
-    _live_svg = traitlets.Unicode("").tag(sync=True)
+        result = [None]
+        event = threading.Event()
+
+        def _on_msg(_, content, buffers):
+            if isinstance(content, dict) and content.get("type") == "svg_result":
+                result[0] = content.get("svg")
+                event.set()
+
+        try:
+            self.on_msg(_on_msg)
+            self.send({"type": "export_svg", "dark_mode": bool(dark_mode)})
+            # Wait up to 5 seconds for the front-end to respond
+            if event.wait(timeout=5):
+                return result[0]
+        except Exception:
+            pass
+        finally:
+            try:
+                self.on_msg(_on_msg, remove=True)
+            except Exception:
+                pass
+        return None
+
+
+class OrbitalEntanglement(ChordDiagram):
+    """Orbital entanglement chord diagram.
+
+    Convenience subclass of ``ChordDiagram`` that accepts
+    orbital-specific terminology (``s1_entropies``,
+    ``mutual_information``) and supplies sensible defaults for quantum
+    chemistry visualisation (colorbar labels, scale maxima, hover
+    prefixes).
+    """
 
     def __init__(
         self,
@@ -453,13 +489,16 @@ class OrbitalEntanglement(anywidget.AnyWidget):
         labels=None,
         selected_indices=None,
         group_selected=False,
+        mi_threshold=None,
+        s1_vmax=None,
+        mi_vmax=None,
+        title="Orbital Entanglement",
         **options,
     ):
-        """
-        Displays an orbital entanglement chord diagram.
+        """Create an orbital entanglement diagram.
 
-        Can be constructed either from a ``Wavefunction`` object or from raw
-        entropy / mutual-information arrays.
+        Can be constructed either from a ``Wavefunction`` object or from
+        raw entropy / mutual-information arrays.
 
         Parameters
         ----------
@@ -479,15 +518,22 @@ class OrbitalEntanglement(anywidget.AnyWidget):
             Orbital indices to highlight.
         group_selected : bool, optional
             When ``True``, reorder arcs so that selected orbitals sit
-            adjacent on the ring (labels still show the original orbital
-            names).  Defaults to ``False``.
+            adjacent on the ring.  Defaults to ``False``.
+        mi_threshold : float, optional
+            Minimum mutual information to draw a chord.
+        s1_vmax : float, optional
+            Clamp for the single-orbital entropy colour scale.
+            Defaults to ``ln(4)``.
+        mi_vmax : float, optional
+            Clamp for the mutual-information colour scale.
+            Defaults to ``ln(16)``.
+        title : str, optional
+            Diagram title.  Defaults to ``"Orbital Entanglement"``.
         **options
-            Forwarded to the JS component as visual knobs
-            (``gap_deg``, ``radius``, ``arc_width``, ``line_scale``,
-            ``mi_threshold``, ``s1_vmax``, ``mi_vmax``, ``title``,
-            ``width``, ``height``, ``selection_color``,
-            ``selection_linewidth``).
+            Additional visual knobs forwarded to the JS component.
         """
+        import math
+
         if wavefunction is not None:
             import numpy as np
 
@@ -514,75 +560,27 @@ class OrbitalEntanglement(anywidget.AnyWidget):
                 "'mutual_information' must be provided."
             )
 
-        if labels is None:
-            labels = [str(i) for i in range(len(s1_entropies))]
-
-        # Store data for Python-side SVG rendering
-        self._init_s1 = list(s1_entropies)
-        self._init_mi = [list(row) for row in mutual_information]
-        self._init_labels = list(labels)
-        self._init_selected = list(selected_indices) if selected_indices else []
-        self._init_group_selected = bool(group_selected)
-        self._init_options = dict(options)
-
-        # Merge group_selected into the options dict so the JS widget sees it
-        opts_with_group = dict(options)
-        opts_with_group["group_selected"] = bool(group_selected)
+        # Map OE-specific params to generic ChordDiagram options
+        if mi_threshold is not None:
+            options.setdefault("edge_threshold", mi_threshold)
+        options.setdefault("node_vmax", s1_vmax if s1_vmax is not None else math.log(4))
+        options.setdefault(
+            "edge_vmax", mi_vmax if mi_vmax is not None else math.log(16)
+        )
+        options.setdefault("node_colorbar_label", "Single-orbital entropy")
+        options.setdefault("edge_colorbar_label", "Mutual information")
+        options.setdefault("node_hover_prefix", "S\u2081=")
+        options.setdefault("edge_hover_prefix", "MI=")
+        options.setdefault("title", title)
 
         super().__init__(
-            s1_entropies=s1_entropies,
-            mutual_information=mutual_information,
+            node_values=s1_entropies,
+            pairwise_weights=mutual_information,
             labels=labels,
             selected_indices=selected_indices,
-            options=opts_with_group,
+            group_selected=group_selected,
+            **options,
         )
-
-    def export_svg(self, path=None, dark_mode=False):
-        """Export the diagram as an SVG string or file.
-
-        If the widget has been displayed in a notebook, the cached live
-        SVG is returned — this captures any interactive changes the user
-        made (grouping toggle).  Otherwise the same Preact component is
-        rendered server-side via Node.js.
-
-        Parameters
-        ----------
-        path : str or Path, optional
-            When given the SVG is written to this file and the path is
-            returned.  Otherwise the SVG markup string is returned.
-        dark_mode : bool
-            When ``True`` the exported SVG uses light text on a dark
-            background; when ``False`` (default) dark text on a
-            transparent background.
-
-        Returns
-        -------
-        str
-            SVG markup (when *path* is ``None``) or the file path.
-        """
-        svg = self._live_svg if self._live_svg else None
-
-        if not isinstance(svg, str):
-            # Fall back to server-side rendering via Node.js
-            props: dict = {
-                "s1Entropies": self._init_s1,
-                "mutualInformation": self._init_mi,
-                "labels": self._init_labels,
-            }
-            if self._init_selected:
-                props["selectedIndices"] = self._init_selected
-            if self._init_group_selected:
-                props["groupSelected"] = True
-            props["darkMode"] = bool(dark_mode)
-            for key, val in self._init_options.items():
-                props[_snake_to_camel(key)] = val
-            svg = _render_component_node("OrbitalEntanglement", props)
-
-        if path is not None:
-            from pathlib import Path as _P
-
-            _P(path).write_text(svg, encoding="utf-8")
-            return str(path)
         return svg
 
 
@@ -606,7 +604,7 @@ def _render_component_node(component: str, props: dict) -> str:
     Parameters
     ----------
     component : str
-        Component name (``"OrbitalEntanglement"``, ``"Histogram"``,
+        Component name (``"ChordDiagram"``, ``"Histogram"``,
         ``"Circuit"``).
     props : dict
         Props dict that will be JSON-serialised and passed to the JS

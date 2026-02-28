@@ -6,6 +6,7 @@ import {
   ReTable,
   SpaceChart,
   Histogram,
+  histogramToSvg,
   CreateSingleEstimateResult,
   EstimatesOverview,
   EstimatesPanel,
@@ -17,7 +18,7 @@ import {
   type TraceData,
   MoleculeViewer,
   ChordDiagram,
-  OrbitalEntanglement,
+  chordDiagramToSvg,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
@@ -96,10 +97,8 @@ function render({ model, el }: RenderArgs) {
       renderMoleculeViewer({ model, el });
       break;
     case "ChordDiagram":
-      renderChordDiagram({ model, el });
-      break;
     case "OrbitalEntanglement":
-      renderOrbitalEntanglement({ model, el });
+      renderChordDiagram({ model, el });
       break;
     default:
       throw new Error(`Unknown component type ${componentType}`);
@@ -242,23 +241,29 @@ function createOnRowDeleted(
   };
 }
 
+function histogramPropsFromModel(model: AnyModel) {
+  const buckets = model.get("buckets") as { [key: string]: number };
+  const bucketMap = new Map(Object.entries(buckets));
+  const shotCount = model.get("shot_count") as number;
+  const shotHeader = model.get("shot_header") as boolean;
+  const labels = model.get("labels") as "raw" | "kets" | "none";
+  const items = model.get("items") as "all" | "top-10" | "top-25";
+  const sort = model.get("sort") as "a-to-z" | "high-to-low" | "low-to-high";
+  return { bucketMap, shotCount, shotHeader, labels, items, sort };
+}
+
 function renderHistogram({ model, el }: RenderArgs) {
   const onChange = () => {
-    const buckets = model.get("buckets") as { [key: string]: number };
-    const bucketMap = new Map(Object.entries(buckets));
-    const shot_count = model.get("shot_count") as number;
-    const shot_header = model.get("shot_header") as boolean;
-    const labels = model.get("labels") as "raw" | "kets" | "none";
-    const items = model.get("items") as "all" | "top-10" | "top-25";
-    const sort = model.get("sort") as "a-to-z" | "high-to-low" | "low-to-high";
+    const { bucketMap, shotCount, shotHeader, labels, items, sort } =
+      histogramPropsFromModel(model);
 
     prender(
       <Histogram
         data={bucketMap}
-        shotCount={shot_count}
+        shotCount={shotCount}
         filter={""}
         onFilter={() => undefined}
-        shotsHeader={shot_header}
+        shotsHeader={shotHeader}
         labels={labels}
         items={items}
         sort={sort}
@@ -281,21 +286,23 @@ function renderHistogram({ model, el }: RenderArgs) {
   model.on("change:items", onChange);
   model.on("change:sort", onChange);
 
-  // Cache the live SVG into a traitlet whenever the histogram DOM changes
-  let svgCacheTimer: ReturnType<typeof setTimeout> | null = null;
-  const cacheLiveSvg = () => {
-    if (svgCacheTimer) clearTimeout(svgCacheTimer);
-    svgCacheTimer = setTimeout(() => {
-      const svg = serializeLiveSvg(el);
-      if (svg) {
-        model.set("_live_svg", svg);
-        model.save_changes();
-      }
-    }, 200);
-  };
-
-  const observer = new MutationObserver(cacheLiveSvg);
-  observer.observe(el, { childList: true, subtree: true });
+  // Handle SVG export requests from Python
+  model.on("msg:custom", (msg: Record<string, unknown>) => {
+    if (msg.type === "export_svg") {
+      const { bucketMap, shotCount, labels, items, sort } =
+        histogramPropsFromModel(model);
+      const svg = histogramToSvg({
+        data: bucketMap,
+        shotCount,
+        filter: "",
+        labels,
+        items,
+        sort,
+        darkMode: msg.dark_mode as boolean | undefined,
+      });
+      model.send({ type: "svg_result", svg });
+    }
+  });
 }
 
 function renderCircuit({ model, el }: RenderArgs) {
@@ -319,29 +326,6 @@ function renderCircuit({ model, el }: RenderArgs) {
 
   onChange();
   model.on("change:circuit_json", onChange);
-
-  // Cache the live SVG into a traitlet whenever the circuit DOM changes
-  // (initial render, expand/collapse, etc.).  Debounced to avoid
-  // excessive updates during rapid DOM mutations.
-  let svgCacheTimer: ReturnType<typeof setTimeout> | null = null;
-  const cacheLiveSvg = () => {
-    if (svgCacheTimer) clearTimeout(svgCacheTimer);
-    svgCacheTimer = setTimeout(() => {
-      const svg = serializeLiveSvg(el);
-      if (svg) {
-        model.set("_live_svg", svg);
-        model.save_changes();
-      }
-    }, 200);
-  };
-
-  const observer = new MutationObserver(cacheLiveSvg);
-  observer.observe(el, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    characterData: true,
-  });
 }
 
 function renderAtoms({ model, el }: RenderArgs) {
@@ -361,13 +345,19 @@ function renderAtoms({ model, el }: RenderArgs) {
   model.on("change:trace_data", onChange);
 }
 
+function chordPropsFromModel(model: AnyModel) {
+  const nodeValues = model.get("node_values") as number[];
+  const pairwiseWeights = model.get("pairwise_weights") as number[][];
+  const labels = model.get("labels") as string[];
+  const selectedIndices = model.get("selected_indices") as number[] | null;
+  const options = (model.get("options") || {}) as Record<string, unknown>;
+  return { nodeValues, pairwiseWeights, labels, selectedIndices, options };
+}
+
 function renderChordDiagram({ model, el }: RenderArgs) {
   const onChange = () => {
-    const nodeValues = model.get("node_values") as number[];
-    const pairwiseWeights = model.get("pairwise_weights") as number[][];
-    const labels = model.get("labels") as string[];
-    const selectedIndices = model.get("selected_indices") as number[] | null;
-    const options = (model.get("options") || {}) as Record<string, unknown>;
+    const { nodeValues, pairwiseWeights, labels, selectedIndices, options } =
+      chordPropsFromModel(model);
 
     prender(
       <ChordDiagram
@@ -402,6 +392,11 @@ function renderChordDiagram({ model, el }: RenderArgs) {
         selectionColor={options.selection_color as string | undefined}
         selectionLinewidth={options.selection_linewidth as number | undefined}
         groupSelected={options.group_selected as boolean | undefined}
+        onGroupChange={(grouped) => {
+          const newOpts = { ...options, group_selected: grouped };
+          model.set("options", newOpts);
+          model.save_changes();
+        }}
       />,
       el,
     );
@@ -414,227 +409,36 @@ function renderChordDiagram({ model, el }: RenderArgs) {
   model.on("change:selected_indices", onChange);
   model.on("change:options", onChange);
 
-  // Cache the live SVG into a traitlet whenever the diagram DOM changes
-  let svgCacheTimer0: ReturnType<typeof setTimeout> | null = null;
-  const cacheLiveSvg0 = () => {
-    if (svgCacheTimer0) clearTimeout(svgCacheTimer0);
-    svgCacheTimer0 = setTimeout(() => {
-      const svg = serializeLiveSvg(el, ".oe-group-toggle");
-      if (svg) {
-        model.set("_live_svg", svg);
-        model.save_changes();
-      }
-    }, 200);
-  };
-
-  const observer0 = new MutationObserver(cacheLiveSvg0);
-  observer0.observe(el, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    characterData: true,
+  // Handle SVG export requests from Python — same rendering function
+  // used by the Node SSR script, executed here in-browser so no
+  // subprocess is needed when the widget is live.
+  model.on("msg:custom", (msg: Record<string, unknown>) => {
+    if (msg.type === "export_svg") {
+      const { nodeValues, pairwiseWeights, labels, selectedIndices, options } =
+        chordPropsFromModel(model);
+      const svg = chordDiagramToSvg({
+        nodeValues,
+        pairwiseWeights,
+        labels,
+        selectedIndices: selectedIndices ?? undefined,
+        darkMode: msg.dark_mode as boolean | undefined,
+        ...snakeToCamelOptions(options),
+      });
+      model.send({ type: "svg_result", svg });
+    }
   });
 }
 
-function renderOrbitalEntanglement({ model, el }: RenderArgs) {
-  const onChange = () => {
-    const s1Entropies = model.get("s1_entropies") as number[];
-    const mutualInformation = model.get("mutual_information") as number[][];
-    const labels = model.get("labels") as string[];
-    const selectedIndices = model.get("selected_indices") as number[] | null;
-    const options = (model.get("options") || {}) as Record<string, unknown>;
-
-    prender(
-      <OrbitalEntanglement
-        s1Entropies={s1Entropies}
-        mutualInformation={mutualInformation}
-        labels={labels}
-        selectedIndices={selectedIndices ?? undefined}
-        gapDeg={options.gap_deg as number | undefined}
-        radius={options.radius as number | undefined}
-        arcWidth={options.arc_width as number | undefined}
-        lineScale={options.line_scale as number | null | undefined}
-        miThreshold={options.mi_threshold as number | undefined}
-        s1Vmax={options.s1_vmax as number | null | undefined}
-        miVmax={options.mi_vmax as number | null | undefined}
-        title={options.title as string | null | undefined}
-        width={options.width as number | undefined}
-        height={options.height as number | undefined}
-        selectionColor={options.selection_color as string | undefined}
-        selectionLinewidth={options.selection_linewidth as number | undefined}
-        groupSelected={options.group_selected as boolean | undefined}
-      />,
-      el,
-    );
-  };
-
-  onChange();
-  model.on("change:s1_entropies", onChange);
-  model.on("change:mutual_information", onChange);
-  model.on("change:labels", onChange);
-  model.on("change:selected_indices", onChange);
-  model.on("change:options", onChange);
-
-  // Cache the live SVG into a traitlet whenever the diagram DOM changes
-  let svgCacheTimer: ReturnType<typeof setTimeout> | null = null;
-  const cacheLiveSvg = () => {
-    if (svgCacheTimer) clearTimeout(svgCacheTimer);
-    svgCacheTimer = setTimeout(() => {
-      const svg = serializeLiveSvg(el, ".oe-group-toggle");
-      if (svg) {
-        model.set("_live_svg", svg);
-        model.save_changes();
-      }
-    }, 200);
-  };
-
-  const observer = new MutationObserver(cacheLiveSvg);
-  observer.observe(el, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    characterData: true,
-  });
-}
-
-/**
- * Serialize the first <svg> in the container to a string, optionally
- * removing elements matching `stripSelector` (e.g. interactive-only UI
- * that shouldn't appear in a static export).
- *
- * The resulting SVG is fully self-contained: it includes an embedded
- * `<defs><style>` block with the widget CSS so the SVG renders
- * correctly when opened outside the widget (e.g. saved to a file).
- */
-function serializeLiveSvg(
-  el: HTMLElement,
-  stripSelector?: string,
-): string | null {
-  const svgEl = el.querySelector("svg");
-  if (!svgEl) return null;
-
-  // Clone so we don't mutate the live DOM
-  const clone = svgEl.cloneNode(true) as SVGSVGElement;
-  if (stripSelector) {
-    clone.querySelectorAll(stripSelector).forEach((n) => n.remove());
+/** Convert a snake_case options dict to camelCase props. */
+function snakeToCamelOptions(
+  options: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(options)) {
+    const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    result[camel] = val;
   }
-  // Remove interactive-only elements common across widgets
-  clone
-    .querySelectorAll(".menu-icon, #menu, [style*='display: none']")
-    .forEach((n) => n.remove());
-  // For circuit SVGs, qviz sets zoom-related inline styles
-  // (max-width, width, height) that should not appear in the export.
-  // Strip only those while preserving any other inline styles (e.g.
-  // the OrbitalEntanglement's background setting).
-  const inlineStyle = clone.getAttribute("style");
-  if (inlineStyle) {
-    const cleaned = inlineStyle
-      .replace(/max-width:\s*[^;]+;?/gi, "")
-      .replace(/\bwidth:\s*[^;]+;?/gi, "")
-      .replace(/\bheight:\s*auto\s*;?/gi, "")
-      .trim();
-    if (cleaned) {
-      clone.setAttribute("style", cleaned);
-    } else {
-      clone.removeAttribute("style");
-    }
-  }
-
-  // Ensure xmlns is present for standalone SVG files
-  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-
-  // Circuit SVGs have class "qviz" and rely on CSS scoped under
-  // `.qs-circuit`.  Add that class to the SVG root so the selectors
-  // match when the SVG is viewed standalone (without the wrapper div).
-  if (clone.classList.contains("qviz")) {
-    clone.classList.add("qs-circuit");
-  }
-
-  // Embed the widget CSS so the SVG is self-contained.
-  // anywidget already injected our index.css into the page — we just
-  // find that stylesheet and embed its full content.
-  const css = getWidgetCssText();
-  if (css) {
-    const svgNS = "http://www.w3.org/2000/svg";
-    let defs = clone.querySelector("defs");
-    if (!defs) {
-      defs = document.createElementNS(svgNS, "defs");
-      clone.insertBefore(defs, clone.firstChild);
-    }
-    const styleEl = document.createElementNS(svgNS, "style");
-    styleEl.textContent = css;
-    defs.appendChild(styleEl);
-  }
-
-  const serializer = new XMLSerializer();
-  return serializer.serializeToString(clone);
-}
-
-/**
- * Cached widget CSS text — computed once, reused for every SVG export.
- * `null` means "not yet computed", empty string means "not found".
- */
-let _cachedWidgetCss: string | null = null;
-
-/**
- * Return the full widget CSS text suitable for embedding in standalone
- * SVGs.  We find the stylesheet that anywidget injected (our index.css)
- * by checking for a known structural class (`.qs-circuit`),
- * then grab **all** its rules. This avoids maintaining a fragile
- * selector whitelist — the same CSS that styles the live widget is
- * embedded verbatim.
- *
- * CSS custom properties (--main-color etc.) are resolved to concrete
- * light-mode values so the SVG doesn't depend on the host page's
- * theme variables.
- */
-function getWidgetCssText(): string {
-  if (_cachedWidgetCss !== null) return _cachedWidgetCss;
-
-  // Override CSS custom properties and background AFTER the widget CSS
-  // so standalone SVGs don't pick up host-specific colours.
-  const varOverrides = `:root { --main-color: #222222; --main-background: transparent; }`;
-
-  const collectRules = (rules: CSSRuleList): string =>
-    Array.from(rules)
-      .map((r) => r.cssText)
-      .join("\n");
-
-  const isWidgetSheet = (rules: CSSRuleList): boolean =>
-    Array.from(rules).some(
-      (r) =>
-        r instanceof CSSStyleRule && r.selectorText?.includes(".qs-circuit"),
-    );
-
-  try {
-    // Check adoptedStyleSheets first (used by modern anywidget)
-    for (const sheet of document.adoptedStyleSheets ?? []) {
-      try {
-        if (isWidgetSheet(sheet.cssRules)) {
-          _cachedWidgetCss = `${varOverrides}\n${collectRules(sheet.cssRules)}`;
-          return _cachedWidgetCss;
-        }
-      } catch {
-        /* SecurityError */
-      }
-    }
-    // Fall back to regular <style>/<link> stylesheets
-    for (const sheet of document.styleSheets) {
-      try {
-        if (isWidgetSheet(sheet.cssRules)) {
-          _cachedWidgetCss = `${varOverrides}\n${collectRules(sheet.cssRules)}`;
-          return _cachedWidgetCss;
-        }
-      } catch {
-        /* cross-origin SecurityError */
-      }
-    }
-  } catch {
-    /* unexpected error — degrade gracefully */
-  }
-
-  _cachedWidgetCss = varOverrides;
-  return _cachedWidgetCss;
+  return result;
 }
 
 function renderMoleculeViewer({ model, el }: RenderArgs) {

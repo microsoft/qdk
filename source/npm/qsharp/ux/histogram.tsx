@@ -2,6 +2,86 @@
 // Licensed under the MIT License.
 
 import { useEffect, useRef, useState } from "preact/hooks";
+import { h } from "preact";
+import renderToString from "preact-render-to-string";
+
+// Concrete colour palettes for standalone SVG export (no host CSS vars).
+const lightPalette = {
+  hostBackground: "#eee",
+  hostForeground: "#222",
+  textHighContrast: "#000",
+  widgetOutline: "#ccc",
+  shapeFill: "#8ab8ff",
+  shapeFillSelected: "#b5c5f2",
+  shapeStrokeSelected: "#587ddd",
+  shapeStrokeHover: "#6b6b6b",
+  menuFill: "#c4dbeb",
+  menuFillHover: "#9cf",
+  menuFillSelected: "#7af",
+  midGray: "#888",
+};
+
+const darkPalette = {
+  hostBackground: "#222",
+  hostForeground: "#eee",
+  textHighContrast: "#fff",
+  widgetOutline: "#444",
+  shapeFill: "#4aa3ff",
+  shapeFillSelected: "#ffd54f",
+  shapeStrokeSelected: "#ffecb3",
+  shapeStrokeHover: "#c5c5c5",
+  menuFill: "#444",
+  menuFillHover: "#468",
+  menuFillSelected: "#47a",
+  midGray: "#888",
+};
+
+/** Build a <style> block that resolves all --qdk-* vars to concrete values. */
+function themeStyleBlock(dark: boolean): string {
+  const p = dark ? darkPalette : lightPalette;
+  return `:root {
+  --qdk-host-background: ${p.hostBackground};
+  --qdk-host-foreground: ${p.hostForeground};
+  --qdk-text-high-contrast: ${p.textHighContrast};
+  --qdk-widget-outline: ${p.widgetOutline};
+  --qdk-shape-fill: ${p.shapeFill};
+  --qdk-shape-fill-selected: ${p.shapeFillSelected};
+  --qdk-shape-stroke-selected: ${p.shapeStrokeSelected};
+  --qdk-shape-stroke-hover: ${p.shapeStrokeHover};
+  --qdk-menu-fill: ${p.menuFill};
+  --qdk-menu-fill-hover: ${p.menuFillHover};
+  --qdk-menu-fill-selected: ${p.menuFillSelected};
+  --qdk-mid-gray: ${p.midGray};
+  --qdk-font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --qdk-font-family-monospace: Consolas, Menlo, monospace;
+}`;
+}
+
+/** Embedded CSS for standalone SVG (mirrors the histogram rules in qsharp-ux.css). */
+const histogramCss = `
+.histogram {
+  max-height: calc(100vh - 40px);
+  max-width: 600px;
+  border: 1px solid var(--qdk-widget-outline);
+  background-color: var(--qdk-host-background);
+}
+.bar { fill: var(--qdk-shape-fill); }
+.bar:hover { stroke: var(--qdk-shape-stroke-hover); stroke-width: 0.5; }
+.bar-selected { stroke: var(--qdk-shape-stroke-selected); fill: var(--qdk-shape-fill-selected); }
+.bar-label { font-size: 3pt; fill: var(--qdk-text-high-contrast); text-anchor: end; pointer-events: none; }
+.bar-label-ket { font-family: var(--qdk-font-family-monospace); font-variant-ligatures: none; }
+.histo-label { font-size: 3.5pt; fill: var(--qdk-host-foreground); }
+.hover-text { font-size: 3.5pt; fill: var(--qdk-host-foreground); text-anchor: middle; }
+.menu-icon * { fill: var(--qdk-host-background); stroke: var(--qdk-host-foreground); }
+.menu-box { fill: var(--qdk-host-background); stroke: var(--qdk-host-foreground); stroke-width: 0.1; }
+.menu-item { width: 32px; height: 10px; fill: var(--qdk-menu-fill); stroke: var(--qdk-mid-gray); stroke-width: 0.2; }
+.menu-item:hover { stroke-width: 0.6; fill: var(--qdk-menu-fill-hover); }
+.menu-selected { fill: var(--qdk-menu-fill-selected); }
+.menu-text { font-size: 4.5px; pointer-events: none; fill: var(--qdk-host-foreground); }
+.menu-separator { stroke: var(--qdk-mid-gray); stroke-width: 0.25; }
+.help-info { fill: var(--qdk-host-background); stroke: var(--qdk-mid-gray); stroke-width: 0.5; }
+.help-info-text { font-size: 4.5px; pointer-events: none; fill: var(--qdk-host-foreground); }
+`;
 
 const menuItems = [
   {
@@ -92,7 +172,7 @@ function resultToKet(result: string): string {
   }
 }
 
-export function Histogram(props: {
+export type HistogramProps = {
   shotCount: number;
   data: Map<string, number>;
   filter: string;
@@ -106,7 +186,13 @@ export function Histogram(props: {
     items: "all" | "top-10" | "top-25";
     sort: "a-to-z" | "high-to-low" | "low-to-high";
   }) => void;
-}) {
+  /** When true, suppress interactive elements (menu, info, zoom). */
+  static?: boolean;
+  /** undefined → inherit from host CSS, true → dark, false → light. */
+  darkMode?: boolean;
+};
+
+export function Histogram(props: HistogramProps) {
   const [hoverLabel, setHoverLabel] = useState("");
   const [scale, setScale] = useState({ zoom: 1.0, offset: 1.0 });
   const [menuSelection, setMenuSelection] = useState(() => {
@@ -339,13 +425,34 @@ export function Histogram(props: {
   }
 
   const label_class = showKetLabels ? "bar-label bar-label-ket" : "bar-label";
+  const isStatic = props.static === true;
+  const embedCss = props.darkMode !== undefined;
 
   return (
     <>
-      {props.shotsHeader ? (
+      {props.shotsHeader && !isStatic ? (
         <h4 style="margin: 8px 0px">Total shots: {props.shotCount}</h4>
       ) : null}
-      <svg class="histogram" viewBox="0 0 165 100" onWheel={onWheel}>
+      <svg
+        class="histogram"
+        viewBox="0 0 165 100"
+        onWheel={isStatic ? undefined : onWheel}
+        {...(embedCss
+          ? {
+              xmlns: "http://www.w3.org/2000/svg",
+              "xmlns:xlink": "http://www.w3.org/1999/xlink",
+            }
+          : {})}
+      >
+        {embedCss ? (
+          <defs>
+            <style
+              dangerouslySetInnerHTML={{
+                __html: themeStyleBlock(props.darkMode === true) + histogramCss,
+              }}
+            />
+          </defs>
+        ) : null}
         <g transform={`translate(${scale.offset},4)`}>
           {bucketArray.map((entry, idx) => {
             const label = showKetLabels ? resultToKet(entry[0]) : entry[0];
@@ -374,9 +481,9 @@ export function Histogram(props: {
                   y={y}
                   width={barFillWidth}
                   height={height}
-                  onMouseOver={onMouseOverRect}
-                  onMouseOut={onMouseOutRect}
-                  onClick={onClickRect}
+                  onMouseOver={isStatic ? undefined : onMouseOverRect}
+                  onMouseOut={isStatic ? undefined : onMouseOutRect}
+                  onClick={isStatic ? undefined : onClickRect}
                   data-raw-label={entry[0]}
                 >
                   <title>{barLabel}</title>
@@ -400,142 +507,192 @@ export function Histogram(props: {
         <text class="histo-label" x="2" y="97">
           {histogramLabel}
         </text>
-        <text class="hover-text" x="85" y="6">
-          {hoverLabel}
-        </text>
+        {!isStatic && (
+          <text class="hover-text" x="85" y="6">
+            {hoverLabel}
+          </text>
+        )}
 
         {/* The settings icon */}
-        <g
-          class="menu-icon"
-          transform="translate(2, 2) scale(0.3 0.3)"
-          onClick={toggleMenu}
-        >
-          <rect width="24" height="24" fill="white" stroke-widths="0.5"></rect>
-          <path
-            d="M3 5 H21 M3 12 H21 M3 19 H21"
-            stroke-width="1.75"
-            stroke-linecap="round"
-          />
-          <rect x="6" y="3" width="4" height="4" rx="1" stroke-width="1.5" />
-          <rect x="15" y="10" width="4" height="4" rx="1" stroke-width="1.5" />
-          <rect x="9" y="17" width="4" height="4" rx="1" stroke-width="1.5" />
-        </g>
+        {!isStatic && (
+          <g
+            class="menu-icon"
+            transform="translate(2, 2) scale(0.3 0.3)"
+            onClick={toggleMenu}
+          >
+            <rect
+              width="24"
+              height="24"
+              fill="white"
+              stroke-widths="0.5"
+            ></rect>
+            <path
+              d="M3 5 H21 M3 12 H21 M3 19 H21"
+              stroke-width="1.75"
+              stroke-linecap="round"
+            />
+            <rect x="6" y="3" width="4" height="4" rx="1" stroke-width="1.5" />
+            <rect
+              x="15"
+              y="10"
+              width="4"
+              height="4"
+              rx="1"
+              stroke-width="1.5"
+            />
+            <rect x="9" y="17" width="4" height="4" rx="1" stroke-width="1.5" />
+          </g>
+        )}
 
         {/* The info icon */}
-        <g
-          class="menu-icon"
-          transform="translate(156, 2) scale(0.3 0.3)"
-          onClick={toggleInfo}
-        >
-          <rect width="24" height="24" stroke-width="0"></rect>
-          <circle cx="12" cy="13" r="10" stroke-width="1.5" />
-          <path
-            stroke-width="2.5"
-            stroke-linecap="round"
-            d="M12 8 V8 M12 12.5 V18"
-          />
-        </g>
+        {!isStatic && (
+          <g
+            class="menu-icon"
+            transform="translate(156, 2) scale(0.3 0.3)"
+            onClick={toggleInfo}
+          >
+            <rect width="24" height="24" stroke-width="0"></rect>
+            <circle cx="12" cy="13" r="10" stroke-width="1.5" />
+            <path
+              stroke-width="2.5"
+              stroke-linecap="round"
+              d="M12 8 V8 M12 12.5 V18"
+            />
+          </g>
+        )}
 
         {/* The menu box */}
-        <g
-          id="menu"
-          ref={gMenu}
-          transform="translate(8, 2)"
-          style="display: none;"
-        >
-          <rect
-            x="0"
-            y="0"
-            rx="2"
-            width={menuBoxWidth}
-            height={menuBoxHeight}
-            class="menu-box"
-          ></rect>
+        {!isStatic && (
+          <g
+            id="menu"
+            ref={gMenu}
+            transform="translate(8, 2)"
+            style="display: none;"
+          >
+            <rect
+              x="0"
+              y="0"
+              rx="2"
+              width={menuBoxWidth}
+              height={menuBoxHeight}
+              class="menu-box"
+            ></rect>
 
-          {
-            // Menu items
-            menuItems.map((item, col) => {
-              return item.options.map((option, row) => {
-                let classList = "menu-item";
-                if (menuSelection[item.category] === row)
-                  classList += " menu-selected";
-                return (
-                  <>
-                    <rect
-                      x={2 + col * menuItemWidth}
-                      y={2 + row * menuItemHeight}
-                      width="32"
-                      height="10"
-                      rx="1"
-                      class={classList}
-                      onClick={() => menuClicked(item.category, row)}
-                    ></rect>
-                    <text
-                      x={18 + col * menuItemWidth}
-                      y={7 + row * menuItemHeight}
-                      dominant-baseline="middle"
-                      text-anchor="middle"
-                      class="menu-text"
-                    >
-                      {option}
-                    </text>
-                  </>
+            {
+              // Menu items
+              menuItems.map((item, col) => {
+                return item.options.map((option, row) => {
+                  let classList = "menu-item";
+                  if (menuSelection[item.category] === row)
+                    classList += " menu-selected";
+                  return (
+                    <>
+                      <rect
+                        x={2 + col * menuItemWidth}
+                        y={2 + row * menuItemHeight}
+                        width="32"
+                        height="10"
+                        rx="1"
+                        class={classList}
+                        onClick={() => menuClicked(item.category, row)}
+                      ></rect>
+                      <text
+                        x={18 + col * menuItemWidth}
+                        y={7 + row * menuItemHeight}
+                        dominant-baseline="middle"
+                        text-anchor="middle"
+                        class="menu-text"
+                      >
+                        {option}
+                      </text>
+                    </>
+                  );
+                });
+              })
+            }
+            {
+              // Column separators
+              menuItems.map((item, idx) => {
+                return idx >= menuItems.length - 1 ? null : (
+                  <line
+                    class="menu-separator"
+                    x1={37 + idx * menuItemWidth}
+                    y1="2"
+                    x2={37 + idx * menuItemWidth}
+                    y2={maxMenuOptions * menuItemHeight + 1}
+                  ></line>
                 );
-              });
-            })
-          }
-          {
-            // Column separators
-            menuItems.map((item, idx) => {
-              return idx >= menuItems.length - 1 ? null : (
-                <line
-                  class="menu-separator"
-                  x1={37 + idx * menuItemWidth}
-                  y1="2"
-                  x2={37 + idx * menuItemWidth}
-                  y2={maxMenuOptions * menuItemHeight + 1}
-                ></line>
-              );
-            })
-          }
-        </g>
+              })
+            }
+          </g>
+        )}
 
         {/* The info box */}
-        <g ref={gInfo} style="display: none;">
-          <rect
-            width="155"
-            height="76"
-            rx="5"
-            x="5"
-            y="6"
-            class="help-info"
-            onClick={toggleInfo}
-          />
-          <text y="6" class="help-info-text">
-            <tspan x="10" dy="10">
-              This histogram shows the frequency of unique 'shot' results.
-            </tspan>
-            <tspan x="10" dy="10">
-              Click the top-left 'settings' icon for display options.
-            </tspan>
-            <tspan x="10" dy="10">
-              You can zoom the chart using the pinch-to-zoom gesture,
-            </tspan>
-            <tspan x="10" dy="10">
-              or use Ctrl+scroll wheel to zoom in/out.
-            </tspan>
-            <tspan x="10" dy="10">
-              To pan left &amp; right, press Shift while zooming.
-            </tspan>
-            <tspan x="10" dy="10">
-              Click on a bar to filter the shot details to that result.
-            </tspan>
-            <tspan x="10" dy="10">
-              Click anywhere in this box to dismiss it.
-            </tspan>
-          </text>
-        </g>
+        {!isStatic && (
+          <g ref={gInfo} style="display: none;">
+            <rect
+              width="155"
+              height="76"
+              rx="5"
+              x="5"
+              y="6"
+              class="help-info"
+              onClick={toggleInfo}
+            />
+            <text y="6" class="help-info-text">
+              <tspan x="10" dy="10">
+                This histogram shows the frequency of unique 'shot' results.
+              </tspan>
+              <tspan x="10" dy="10">
+                Click the top-left 'settings' icon for display options.
+              </tspan>
+              <tspan x="10" dy="10">
+                You can zoom the chart using the pinch-to-zoom gesture,
+              </tspan>
+              <tspan x="10" dy="10">
+                or use Ctrl+scroll wheel to zoom in/out.
+              </tspan>
+              <tspan x="10" dy="10">
+                To pan left &amp; right, press Shift while zooming.
+              </tspan>
+              <tspan x="10" dy="10">
+                Click on a bar to filter the shot details to that result.
+              </tspan>
+              <tspan x="10" dy="10">
+                Click anywhere in this box to dismiss it.
+              </tspan>
+            </text>
+          </g>
+        )}
       </svg>
     </>
   );
+}
+
+/**
+ * Render a standalone Histogram SVG string.
+ * Uses `renderToString` from preact-render-to-string.
+ *
+ * @param props - Props for the Histogram component.
+ *   `darkMode` should be `true` or `false` (not `undefined`) so
+ *   CSS custom properties are resolved to concrete values.
+ *   `static` defaults to `true` when not specified.
+ */
+export function histogramToSvg(
+  props: Omit<HistogramProps, "onFilter" | "onSettingsChange" | "shotsHeader">,
+): string {
+  const fullProps: HistogramProps = {
+    ...props,
+    static: props.static ?? true,
+    onFilter: () => {},
+    onSettingsChange: undefined,
+    shotsHeader: false,
+  };
+  let svg = renderToString(h(Histogram, fullProps));
+  // renderToString wraps in a fragment — extract the <svg …>…</svg>
+  const svgStart = svg.indexOf("<svg");
+  if (svgStart > 0) svg = svg.slice(svgStart);
+  const svgEnd = svg.lastIndexOf("</svg>");
+  if (svgEnd >= 0) svg = svg.slice(0, svgEnd + 6);
+  return svg;
 }

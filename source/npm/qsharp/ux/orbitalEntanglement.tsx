@@ -16,6 +16,8 @@
  */
 
 import { useState, useRef, useEffect } from "preact/hooks";
+import { h } from "preact";
+import renderToString from "preact-render-to-string";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,7 +69,9 @@ export interface ChordDiagramProps {
   /**
    * When `true` renders light text on a dark background; when `false`
    * renders dark text on a transparent background.  Leave `undefined`
-   * (the default) to inherit from the host page via `currentColor`.
+   * (the default) to inherit from the host page via `--qdk-*` CSS
+   * custom properties (which map VS Code / Jupyter theme vars), with
+   * a final fallback to `currentColor` / `transparent`.
    */
   darkMode?: boolean;
   /**
@@ -75,6 +79,11 @@ export interface ChordDiagramProps {
    * are suppressed.  Used during server-side SVG export.
    */
   static?: boolean;
+  /**
+   * Callback fired when the user toggles the grouping control.
+   * The host can use this to sync the new state back to a data model.
+   */
+  onGroupChange?: (grouped: boolean) => void;
 }
 
 /** Convenience alias keeping the old prop names for backward compat. */
@@ -100,6 +109,7 @@ export interface OrbitalEntanglementProps {
   groupSelected?: boolean;
   darkMode?: boolean;
   static?: boolean;
+  onGroupChange?: (grouped: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,21 +266,28 @@ export function ChordDiagram(props: ChordDiagramProps) {
     groupSelected = false,
     darkMode,
     static: isStatic = false,
+    onGroupChange,
   } = props;
 
   // --- theme-resolved colours ---
+  // When darkMode is undefined the component inherits from the host
+  // environment via --qdk-* CSS custom properties (set by qdk-theme.css
+  // which maps VS Code / Jupyter / OS theme vars).  The final fallback
+  // is `currentColor` / `transparent` for plain-browser contexts.
+  // When darkMode is explicitly true/false, concrete hex values are
+  // used so exported SVGs are fully self-contained.
   const FONT_FAMILY = '"Segoe UI", Roboto, Helvetica, Arial, sans-serif';
   const hasExplicitTheme = darkMode !== undefined;
   const textColor = hasExplicitTheme
     ? darkMode
       ? "#e0e0e0"
       : "#222222"
-    : "currentColor";
+    : "var(--qdk-host-foreground, currentColor)";
   const bgColor = hasExplicitTheme
     ? darkMode
       ? "#1e1e1e"
       : "transparent"
-    : "transparent";
+    : "var(--qdk-host-background, transparent)";
 
   const n = nodeValues.length;
 
@@ -517,7 +534,13 @@ export function ChordDiagram(props: ChordDiagramProps) {
           class="oe-group-toggle"
           transform={`translate(${width - 14}, 14)`}
           style={{ cursor: "pointer" }}
-          onClick={() => setIsGrouped((v) => !v)}
+          onClick={() => {
+            setIsGrouped((v) => {
+              const next = !v;
+              onGroupChange?.(next);
+              return next;
+            });
+          }}
         >
           <title>
             {isGrouped
@@ -841,4 +864,24 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       {...rest}
     />
   );
+}
+
+// ---------------------------------------------------------------------------
+// SVG serialisation — single code-path for all contexts
+// ---------------------------------------------------------------------------
+
+/**
+ * Render a `ChordDiagram` (or `OrbitalEntanglement`) to a standalone SVG
+ * string.  This is the **only** function that converts props → SVG markup
+ * and is used identically by:
+ *
+ *   1. The Node.js SSR script (`render_svg.mjs`)
+ *   2. The anywidget front-end (`index.tsx`) for in-browser export
+ *   3. Any VS Code webview extension that needs an SVG string
+ *
+ * Interactive-only UI (e.g. the grouping toggle) is suppressed via
+ * `static: true`.
+ */
+export function chordDiagramToSvg(props: ChordDiagramProps): string {
+  return renderToString(h(ChordDiagram, { ...props, static: true }));
 }
