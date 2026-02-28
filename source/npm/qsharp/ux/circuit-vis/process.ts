@@ -125,9 +125,16 @@ const processOperations = (
               return children[reg.result].y;
             });
 
+          const allowedThroughY = _getClassicalControlRegsUsedByOpOrDescendants(
+            op,
+          ).map((reg) => _getRegY(reg, registers));
+          const splitAroundY = classicalRegY.filter(
+            (y) => !allowedThroughY.includes(y),
+          );
+
           renderData.targetsY = _splitTargetsY(
             targets,
-            classicalRegY,
+            splitAroundY,
             registers,
           );
         }
@@ -195,6 +202,36 @@ const _getClassicalRegStarts = (
     });
   });
   return clsRegs;
+};
+
+const _getClassicalControlRegsUsedByOpOrDescendants = (
+  op: Operation,
+): Register[] => {
+  const regs: Register[] = [];
+  const seen = new Set<string>();
+
+  const addReg = (reg: Register) => {
+    if (reg.result == null) return;
+    const key = `${reg.qubit}:${reg.result}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    regs.push(reg);
+  };
+
+  const visit = (node: Operation) => {
+    if (node.kind === "unitary") {
+      (node.controls ?? []).forEach(addReg);
+    }
+
+    if (node.children != null) {
+      node.children.forEach((col) =>
+        col.components.forEach((child) => visit(child)),
+      );
+    }
+  };
+
+  visit(op);
+  return regs;
 };
 
 /**
