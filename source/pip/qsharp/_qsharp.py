@@ -916,8 +916,6 @@ def circuit(
     else:
         assert isinstance(entry_expr, str)
         res = get_interpreter().circuit(config, entry_expr, operation=operation)
-    else:
-        res = get_interpreter().circuit(config, None, operation=operation)
 
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_circuit_end(durationMs)
@@ -966,7 +964,7 @@ def estimate(
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res_str = get_interpreter().estimate(
-            param_str, entry_expr=None, callable=entry_expr.__global_callable, args=args
+            param_str, callable=entry_expr.__global_callable, args=args
         )
     elif isinstance(entry_expr, (GlobalCallable, Closure)):
         args = python_args_to_interpreter_args(args)
@@ -1007,7 +1005,7 @@ def logical_counts(
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res_dict = get_interpreter().logical_counts(
-            entry_expr=None, callable=entry_expr.__global_callable, args=args
+            callable=entry_expr.__global_callable, args=args
         )
     elif isinstance(entry_expr, (GlobalCallable, Closure)):
         args = python_args_to_interpreter_args(args)
