@@ -88,9 +88,11 @@ function ZoomableCircuit(props: {
       qvizObj.current = qviz.draw(props.circuitGroup, container, {
         renderLocations: props.renderLocations,
         editor: props.editor,
-        onZoomChange: (zoom) => {
-          setZoomLevel(zoom);
-        },
+        onZoomChange: isEditable
+          ? undefined
+          : (zoom) => {
+              setZoomLevel(zoom);
+            },
       });
 
       // Disable "rendering" text
