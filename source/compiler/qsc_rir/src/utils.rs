@@ -10,12 +10,12 @@ use rustc_hash::FxHashSet;
 pub fn get_block_successors(block: &Block) -> Vec<BlockId> {
     let mut successors = Vec::new();
     // Assume that the block is well-formed and that terminators only appear as the last instruction.
-    match block
+    match &block
         .0
         .last()
         .expect("block should have at least one instruction")
     {
-        Instruction::Branch(_, target1, target2) => {
+        Instruction::Branch(_, target1, target2, _) => {
             successors.push(*target1);
             successors.push(*target2);
         }
@@ -77,7 +77,7 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
     for (block_id, block) in program.blocks.iter() {
         for (idx, instr) in block.0.iter().enumerate() {
             match instr {
-                Instruction::Call(_, _, Some(var))
+                Instruction::Call(_, _, Some(var), _)
                 | Instruction::Add(_, _, var)
                 | Instruction::Sub(_, _, var)
                 | Instruction::Mul(_, _, var)
@@ -112,7 +112,7 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
 
-                Instruction::Call(_, _, None)
+                Instruction::Call(_, _, None, _)
                 | Instruction::Jump(..)
                 | Instruction::Branch(..)
                 | Instruction::Return => {}

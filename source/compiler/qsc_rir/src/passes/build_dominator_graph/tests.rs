@@ -95,6 +95,7 @@ fn dominator_graph_branching_blocks_dominated_by_common_predecessor() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Jump(BlockId(1)),
         ]),
@@ -108,6 +109,7 @@ fn dominator_graph_branching_blocks_dominated_by_common_predecessor() {
             },
             BlockId(2),
             BlockId(3),
+            None,
         )]),
     );
     program
@@ -170,6 +172,7 @@ fn dominator_graph_branch_and_loop() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Jump(BlockId(1)),
         ]),
@@ -183,6 +186,7 @@ fn dominator_graph_branch_and_loop() {
             },
             BlockId(2),
             BlockId(3),
+            None,
         )]),
     );
     program
@@ -239,6 +243,7 @@ fn dominator_graph_complex_structure_only_dominated_by_entry() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -247,6 +252,7 @@ fn dominator_graph_complex_structure_only_dominated_by_entry() {
                 },
                 BlockId(5),
                 BlockId(4),
+                None,
             ),
         ]),
     );
@@ -262,6 +268,7 @@ fn dominator_graph_complex_structure_only_dominated_by_entry() {
             },
             BlockId(2),
             BlockId(3),
+            None,
         )]),
     );
     program
@@ -276,6 +283,7 @@ fn dominator_graph_complex_structure_only_dominated_by_entry() {
             },
             BlockId(3),
             BlockId(1),
+            None,
         )]),
     );
     program
@@ -319,6 +327,7 @@ fn dominator_graph_with_node_having_many_predicates() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -327,6 +336,7 @@ fn dominator_graph_with_node_having_many_predicates() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -339,6 +349,7 @@ fn dominator_graph_with_node_having_many_predicates() {
             },
             BlockId(3),
             BlockId(4),
+            None,
         )]),
     );
     program.blocks.insert(
@@ -350,6 +361,7 @@ fn dominator_graph_with_node_having_many_predicates() {
             },
             BlockId(5),
             BlockId(6),
+            None,
         )]),
     );
     program

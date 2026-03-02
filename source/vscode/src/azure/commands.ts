@@ -485,7 +485,7 @@ type Buckets = {
   buckets: [string, number][];
   shotCount: number;
 };
-function getHistogramBucketsFromData(
+export function getHistogramBucketsFromData(
   file: string,
   shotCount?: number,
 ): Buckets | undefined {

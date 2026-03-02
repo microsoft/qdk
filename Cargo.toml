@@ -43,6 +43,7 @@ version = "0.0.0"
 
 [workspace.dependencies]
 bitflags = "2.4"
+memchr = "2"
 clap = "4.4"
 criterion = { version = "0.7", default-features = false }
 difference = "2.0"

@@ -8,15 +8,16 @@
     <link rel="stylesheet" href="../../ux/qsharp-circuit.css" />
   </head>
   <body>
-    <div
-      id="circuit"
-      class="qs-circuit"
-      style="display: flex; height: 80vh; width: 95vw"
-    >
+    <div id="circuit" class="qs-circuit circuit-editor-container">
       <div class="panel">
         <div class="toolbox-panel">
           <h2 class="title">Toolbox</h2>
-          <svg xmlns="http://www.w3.org/2000/svg" class="toolbox-panel-svg">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="toolbox-panel-svg"
+            height="362"
+            width="100%"
+          >
             <g class="gate" data-type="RX" toolbox-item="true">
               <g>
                 <g>
@@ -253,17 +254,13 @@
           </svg>
         </div>
       </div>
-      <div
-        class="circuit-wrapper"
-        style="display: block; overflow: auto; width: 100%"
-      >
+      <div class="circuit-wrapper">
         <svg
           xmlns="http://www.w3.org/2000/svg"
           class="qviz"
           width="190"
-          height="212"
-          style="max-width: fit-content"
-          viewBox="0 0 190 212"
+          height="220"
+          viewBox="0 0 190 220"
         >
           <g class="qubit-input-states">
             <text
@@ -289,28 +286,28 @@
                 x1="153"
                 x2="153"
                 y1="66"
-                y2="109"
+                y2="117"
                 class="register-classical"
               />
               <line
                 x1="151"
                 x2="151"
                 y1="66"
-                y2="111"
+                y2="119"
                 class="register-classical"
               />
               <line
                 x1="153"
                 x2="190"
-                y1="109"
-                y2="109"
+                y1="117"
+                y2="117"
                 class="register-classical"
               />
               <line
                 x1="151"
                 x2="190"
-                y1="111"
-                y2="111"
+                y1="119"
+                y2="119"
                 class="register-classical"
               />
             </g>
@@ -379,14 +376,14 @@
             <line
               x1="40"
               x2="190"
-              y1="160"
-              y2="160"
+              y1="168"
+              y2="168"
               class="qubit-wire ghost-opacity"
             />
             <text
               font-size="16"
               x="20"
-              y="160"
+              y="168"
               text-anchor="start"
               dominant-baseline="middle"
               data-wire="1"
@@ -412,7 +409,7 @@
             <rect
               class="dropzone"
               x="62"
-              y="140"
+              y="148"
               width="24"
               height="40"
               data-dropzone-location="0,1"
@@ -422,7 +419,7 @@
             <rect
               class="dropzone"
               x="80"
-              y="140"
+              y="148"
               width="40"
               height="40"
               data-dropzone-location="0,1"
@@ -442,7 +439,7 @@
             <rect
               class="dropzone"
               x="114"
-              y="140"
+              y="148"
               width="24"
               height="40"
               data-dropzone-location="1,1"
@@ -452,7 +449,7 @@
             <rect
               class="dropzone"
               x="132"
-              y="140"
+              y="148"
               width="40"
               height="40"
               data-dropzone-location="1,1"
@@ -472,7 +469,7 @@
             <rect
               class="dropzone"
               x="166"
-              y="140"
+              y="148"
               width="24"
               height="40"
               data-dropzone-location="2,0"
@@ -481,6 +478,38 @@
             />
           </g>
         </svg>
+      </div>
+      <div class="state-panel collapsed">
+        <div
+          class="state-edge"
+          role="button"
+          tabindex="0"
+          aria-label="Toggle state panel"
+          aria-expanded="false"
+        >
+          <span class="state-edge-text">State Visualization</span
+          ><svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 14 14"
+            aria-hidden="true"
+            class="edge-icon edge-icon-top"
+          >
+            <path d="M 4.25 11 L 11 7 L 4.25 3 Z" /></svg
+          ><svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 14 14"
+            aria-hidden="true"
+            class="edge-icon edge-icon-bottom"
+          >
+            <path d="M 4.25 11 L 11 7 L 4.25 3 Z" />
+          </svg>
+        </div>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          class="state-svg"
+          width="100%"
+          height="100%"
+        />
       </div>
     </div>
   </body>

@@ -193,18 +193,6 @@ fn namespace_named_main_doesnt_create_main_namespace() {
                         ),
                     ),
                 ),
-                Error(
-                    Type(
-                        Error(
-                            AmbiguousTy(
-                                Span {
-                                    lo: 205,
-                                    hi: 218,
-                                },
-                            ),
-                        ),
-                    ),
-                ),
             ]"#]),
     );
 }
@@ -310,18 +298,6 @@ fn multiple_packages_disallow_unexported_imports() {
                                 lo: 78,
                                 hi: 87,
                             },
-                        ),
-                    ),
-                ),
-                Error(
-                    Type(
-                        Error(
-                            AmbiguousTy(
-                                Span {
-                                    lo: 78,
-                                    hi: 89,
-                                },
-                            ),
                         ),
                     ),
                 ),

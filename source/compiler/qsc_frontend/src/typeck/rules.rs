@@ -285,7 +285,15 @@ impl<'a> Context<'a> {
                         },
                     }
                 };
-                let output_ty = self.inferrer.fresh_ty(TySource::not_divergent(expr.span));
+                let output_ty = if callee.ty == Ty::Err {
+                    // If the callee is already an error, don't create a new inference type.
+                    // Using an error type here prevents cascading errors, as other rules
+                    // may not be able to constrain the type further and we leave behind an
+                    // ambiguous type variable.
+                    Ty::Err
+                } else {
+                    self.inferrer.fresh_ty(TySource::not_divergent(expr.span))
+                };
                 self.inferrer.class(
                     expr.span,
                     Class::Call {

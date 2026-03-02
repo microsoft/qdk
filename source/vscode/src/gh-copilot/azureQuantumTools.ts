@@ -4,7 +4,10 @@
 import { log, TargetProfile } from "qsharp-lang";
 import * as vscode from "vscode";
 import { getTokenForWorkspace } from "../azure/auth.js";
-import { compileAndSubmit } from "../azure/commands.js";
+import {
+  compileAndSubmit,
+  getHistogramBucketsFromData,
+} from "../azure/commands.js";
 import { QuantumUris } from "../azure/networkRequests.js";
 import { getPreferredTargetProfile } from "../azure/providerProperties.js";
 import {
@@ -263,8 +266,10 @@ export async function downloadJobResults(
 
   try {
     const outputData = await getJobFiles(container, blob, token, quantumUris);
-    const buckets = formatHistogramBuckets(outputData);
+
     const shotCount = job.shots ?? job.count;
+    const buckets = getHistogramBucketsFromData(outputData, shotCount)?.buckets;
+
     if (!buckets || !shotCount) {
       const doc = await vscode.workspace.openTextDocument({
         content: outputData,
@@ -289,35 +294,6 @@ export async function downloadJobResults(
     }
   } catch {
     throw new CopilotToolError("Failed to download the results for the job.");
-  }
-}
-
-/**
- * Convert raw output data from a job to the histogram buckets
- * format we use for display.
- */
-function formatHistogramBuckets(
-  outputData: string,
-): [string, number][] | undefined {
-  try {
-    // Parse the JSON file
-    const parsedArray = JSON.parse(outputData).Histogram as Array<any>;
-
-    if (parsedArray.length % 2 !== 0) {
-      // "Data is not in correct format for histogram."
-      return undefined;
-    }
-
-    // Transform the flat array into an array of pairs [string, number]
-    const histo: Array<[string, number]> = [];
-    for (let i = 0; i < parsedArray.length; i += 2) {
-      histo.push([parsedArray[i], parsedArray[i + 1]]);
-    }
-
-    return histo;
-  } catch (e: any) {
-    log.error("Error rendering results as histogram: ", e);
-    return undefined;
   }
 }
 

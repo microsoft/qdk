@@ -741,7 +741,7 @@ if build_pip and build_widgets and args.integration_tests:
     qiskit_notebooks = [
         notebook
         for notebook in notebook_files
-        if "qiskit" in os.path.basename(notebook).lower()
+        if ("qiskit" in os.path.basename(notebook).lower() or "estimation-openqasm" in os.path.basename(notebook).lower())
     ]
     other_notebooks = [
         notebook for notebook in notebook_files if notebook not in qiskit_notebooks

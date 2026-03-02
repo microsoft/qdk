@@ -25,6 +25,9 @@ pub enum Error {
         "controlled invocations are not currently supported. consider wrapping the invocation in a lambda expression"
     ))]
     ControlledUnsupported,
+    #[error("program has features that are unsupported for circuit diagrams: {0}")]
+    #[diagnostic(code("Qsc.Circuit.UnsupportedFeature"))]
+    UnsupportedFeature(String),
 }
 
 pub struct QubitParam {

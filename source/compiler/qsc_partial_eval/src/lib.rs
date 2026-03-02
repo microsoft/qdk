@@ -46,8 +46,11 @@ use qsc_rca::{
         get_missing_runtime_features,
     },
 };
-use qsc_rir::{
+pub use qsc_rir::{
     builder::{self, initialize_decl},
+    debug::{
+        DbgLocation, DbgLocationId, DbgPackageOffset, DbgScope, DbgScopeId, InstructionDbgMetadata,
+    },
     rir::{
         self, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode, Instruction,
         Literal, Operand, Program, VariableId,
@@ -63,9 +66,15 @@ pub fn partially_evaluate(
     compute_properties: &PackageStoreComputeProperties,
     entry: &ProgramEntry,
     capabilities: TargetCapabilityFlags,
+    config: PartialEvalConfig,
 ) -> Result<Program, Error> {
-    let partial_evaluator =
-        PartialEvaluator::new(package_store, compute_properties, entry, capabilities);
+    let partial_evaluator = PartialEvaluator::new(
+        package_store,
+        compute_properties,
+        entry,
+        capabilities,
+        config,
+    );
     partial_evaluator.eval()
 }
 
@@ -76,12 +85,14 @@ pub fn partially_evaluate_call(
     callable: StoreItemId,
     args: Value,
     capabilities: TargetCapabilityFlags,
+    config: PartialEvalConfig,
 ) -> Result<Program, Error> {
     let partial_evaluator = PartialEvaluator::new_from_package_id(
         package_store,
         compute_properties,
         callable.package,
         capabilities,
+        config,
     );
     partial_evaluator.invoke(callable, args)
 }
@@ -179,6 +190,13 @@ struct PartialEvaluator<'a> {
     eval_context: EvaluationContext,
     program: Program,
     entry: Option<&'a ProgramEntry>,
+    config: PartialEvalConfig,
+    dbg_context: DbgContext,
+}
+
+#[derive(Clone, Copy)]
+pub struct PartialEvalConfig {
+    pub generate_debug_metadata: bool,
 }
 
 impl<'a> PartialEvaluator<'a> {
@@ -187,6 +205,7 @@ impl<'a> PartialEvaluator<'a> {
         compute_properties: &'a PackageStoreComputeProperties,
         entry: &'a ProgramEntry,
         capabilities: TargetCapabilityFlags,
+        config: PartialEvalConfig,
     ) -> Self {
         Self::new_internal(
             package_store,
@@ -194,6 +213,7 @@ impl<'a> PartialEvaluator<'a> {
             capabilities,
             Some(entry),
             None,
+            config,
         )
     }
 
@@ -202,6 +222,7 @@ impl<'a> PartialEvaluator<'a> {
         compute_properties: &'a PackageStoreComputeProperties,
         package_id: PackageId,
         capabilities: TargetCapabilityFlags,
+        config: PartialEvalConfig,
     ) -> Self {
         Self::new_internal(
             package_store,
@@ -209,6 +230,7 @@ impl<'a> PartialEvaluator<'a> {
             capabilities,
             None,
             Some(package_id),
+            config,
         )
     }
 
@@ -218,6 +240,7 @@ impl<'a> PartialEvaluator<'a> {
         capabilities: TargetCapabilityFlags,
         entry: Option<&'a ProgramEntry>,
         package_id: Option<PackageId>,
+        config: PartialEvalConfig,
     ) -> Self {
         // Create the entry-point callable.
         let mut resource_manager = ResourceManager::default();
@@ -247,6 +270,7 @@ impl<'a> PartialEvaluator<'a> {
                 init_id,
                 vec![Operand::Literal(Literal::Pointer)],
                 None,
+                None,
             ));
 
         // Initialize the evaluation context and create a new partial evaluator.
@@ -268,6 +292,8 @@ impl<'a> PartialEvaluator<'a> {
             callables_map: FxHashMap::default(),
             program,
             entry,
+            config,
+            dbg_context: Default::default(),
         }
     }
 
@@ -468,6 +494,8 @@ impl<'a> PartialEvaluator<'a> {
             .result_register_count()
             .try_into()
             .expect("results count should fit into a u32");
+
+        self.program.dbg_info.remove_unused_dbg_metadata();
 
         Ok(self.program)
     }
@@ -955,7 +983,10 @@ impl<'a> PartialEvaluator<'a> {
         } else {
             (rhs_eval_block_id, continuation_block_id)
         };
-        let branch_ins = Instruction::Branch(lhs_rir_var, true_block_id, false_block_id);
+
+        let branch_metadata = self.metadata_from_expr(rhs_expr_id);
+        let branch_ins =
+            Instruction::Branch(lhs_rir_var, true_block_id, false_block_id, branch_metadata);
         self.get_program_block_mut(current_block_node.id)
             .0
             .push(branch_ins);
@@ -1262,7 +1293,7 @@ impl<'a> PartialEvaluator<'a> {
             }
             ExprKind::Var(res, _) => Ok(EvalControlFlow::Continue(self.eval_expr_var(res))),
             ExprKind::While(condition_expr_id, body_block_id) => {
-                self.eval_expr_while(*condition_expr_id, *body_block_id)
+                self.eval_expr_while(expr_id, *condition_expr_id, *body_block_id)
             }
         }
     }
@@ -1473,6 +1504,7 @@ impl<'a> PartialEvaluator<'a> {
         );
 
         self.check_unresolved_call_capabilities(call_expr_id, callee_expr_id, &call_scope)?;
+        self.assign_current_dbg_location(call_expr_id);
 
         // We generate instructions differently depending on whether we are calling an intrinsic or a specialization
         // with an implementation.
@@ -1665,11 +1697,23 @@ impl<'a> PartialEvaluator<'a> {
                 CallableType::Reset,
             );
         }
+        if callable_decl.attrs.contains(&fir::Attr::NoiseIntrinsic) {
+            self.program.attrs |= qsc_data_structures::attrs::Attributes::QdkNoise;
+            return self.eval_expr_call_to_intrinsic_qis(
+                store_item_id,
+                callable_decl,
+                args_value,
+                callee_expr_span,
+                CallableType::NoiseIntrinsic,
+            );
+        }
 
         // There are a few special cases regarding intrinsic callables. Identify them and handle them properly.
         match callable_decl.name.name.as_ref() {
             // Qubit allocations and measurements have special handling.
-            "__quantum__rt__qubit_allocate" => Ok(self.allocate_qubit()),
+            "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
+                Ok(self.allocate_qubit())
+            }
             "__quantum__rt__qubit_release" => Ok(self.release_qubit(args_value)),
             "PermuteLabels" => {
                 if self.eval_context.is_currently_evaluating_any_branch() {
@@ -1762,7 +1806,9 @@ impl<'a> PartialEvaluator<'a> {
             .map(|arg| self.map_eval_value_to_rir_operand(&arg.into_value()))
             .collect();
 
-        let instruction = Instruction::Call(callable_id, args_operands, output_var);
+        // Current debug location should be set to the call expression currently being evaluated.
+        let metadata = self.metadata_from_current_dbg_location();
+        let instruction = Instruction::Call(callable_id, args_operands, output_var, metadata);
         let current_block = self.get_current_rir_block_mut();
         current_block.0.push(instruction);
         let ret_val = match output_var {
@@ -1895,8 +1941,13 @@ impl<'a> PartialEvaluator<'a> {
         // Finally, we insert the branch instruction.
         let condition_value_var = condition_value.unwrap_var();
         let condition_rir_var = map_eval_var_to_rir_var(condition_value_var);
-        let branch_ins =
-            Instruction::Branch(condition_rir_var, if_true_block_id, if_false_block_id);
+        let metadata = self.metadata_from_expr(if_expr_id);
+        let branch_ins = Instruction::Branch(
+            condition_rir_var,
+            if_true_block_id,
+            if_false_block_id,
+            metadata,
+        );
         self.get_program_block_mut(current_block_node.id)
             .0
             .push(branch_ins);
@@ -2233,6 +2284,7 @@ impl<'a> PartialEvaluator<'a> {
 
     fn eval_expr_while(
         &mut self,
+        loop_expr_id: ExprId,
         condition_expr_id: ExprId,
         body_block_id: BlockId,
     ) -> Result<EvalControlFlow, Error> {
@@ -2260,10 +2312,22 @@ impl<'a> PartialEvaluator<'a> {
             ));
         }
         let mut condition_boolean = condition_control_flow.into_value().unwrap_bool();
+
+        let dbg_location_id = self.new_dbg_location(loop_expr_id);
+        if let Some(dbg_location_id) = dbg_location_id {
+            self.dbg_push_loop_iteration_scope(loop_expr_id, dbg_location_id);
+        }
+
         while condition_boolean {
+            if dbg_location_id.is_some() {
+                self.dbg_increment_loop_iteration_count();
+            }
             // Evaluate the loop block.
             let block_control_flow = self.try_eval_block(body_block_id)?;
             if block_control_flow.is_return() {
+                if dbg_location_id.is_some() {
+                    self.dbg_pop_loop_iteration_scope();
+                }
                 return Ok(block_control_flow);
             }
 
@@ -2276,6 +2340,9 @@ impl<'a> PartialEvaluator<'a> {
                 ));
             }
             condition_boolean = condition_control_flow.into_value().unwrap_bool();
+        }
+        if dbg_location_id.is_some() {
+            self.dbg_pop_loop_iteration_scope();
         }
 
         // We have evaluated the loop so just return unit as the value of this loop expression.
@@ -2297,12 +2364,15 @@ impl<'a> PartialEvaluator<'a> {
                     variable_id,
                     ty: variable_ty,
                 };
+                // Current debug location should be set to the call expression currently being evaluated.
+                let metadata = self.metadata_from_current_dbg_location();
+                let current_block = self.get_current_rir_block_mut();
                 let instruction = Instruction::Call(
                     read_result_callable_id,
                     vec![result_operand],
                     Some(variable),
+                    metadata,
                 );
-                let current_block = self.get_current_rir_block_mut();
                 current_block.0.push(instruction);
                 Operand::Variable(variable)
             }
@@ -2838,7 +2908,9 @@ impl<'a> PartialEvaluator<'a> {
 
         // Check if the callable has already been added to the program and if not do so now.
         let measure_callable_id = self.get_or_insert_callable(measurement_callable);
-        let instruction = Instruction::Call(measure_callable_id, operands, None);
+        // Current debug location should be set to the call expression currently being evaluated.
+        let metadata = self.metadata_from_current_dbg_location();
+        let instruction = Instruction::Call(measure_callable_id, operands, None, metadata);
         let current_block = self.get_current_rir_block_mut();
         current_block.0.push(instruction);
 
@@ -2860,8 +2932,10 @@ impl<'a> PartialEvaluator<'a> {
         // Check if the callable has already been added to the program and if not do so now.
         let measure_callable_id = self.get_or_insert_callable(measure_callable);
         let args = vec![qubit_operand, result_operand];
-        let instruction = Instruction::Call(measure_callable_id, args, None);
+        // Current debug location should be set to the call expression currently being evaluated.
+        let metadata = self.metadata_from_current_dbg_location();
         let current_block = self.get_current_rir_block_mut();
+        let instruction = Instruction::Call(measure_callable_id, args, None, metadata);
         current_block.0.push(instruction);
 
         // Return the result value.
@@ -3216,6 +3290,7 @@ impl<'a> PartialEvaluator<'a> {
                 Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
+            None,
         ));
     }
 
@@ -3232,6 +3307,7 @@ impl<'a> PartialEvaluator<'a> {
                 Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
+            None,
         ));
     }
 
@@ -3247,6 +3323,7 @@ impl<'a> PartialEvaluator<'a> {
                 Operand::Literal(Literal::Bool(val)),
                 Operand::Literal(Literal::Tag(idx, len)),
             ],
+            None,
             None,
         ));
     }
@@ -3275,6 +3352,7 @@ impl<'a> PartialEvaluator<'a> {
                 Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
+            None,
         ));
     }
 
@@ -3295,6 +3373,7 @@ impl<'a> PartialEvaluator<'a> {
                 Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
+            None,
         ));
     }
 
@@ -3309,6 +3388,10 @@ impl<'a> PartialEvaluator<'a> {
             panic!("expected tuple type for tuple value");
         };
         let new_tag_root = format!("{tag_root}t");
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{new_tag_root}");
+        let len = tag.len();
+        self.program.tags.push(tag);
         let tuple_record_callable_id = self.get_tuple_record_callable();
         instrs.push(Instruction::Call(
             tuple_record_callable_id,
@@ -3318,8 +3401,9 @@ impl<'a> PartialEvaluator<'a> {
                         .try_into()
                         .expect("tuple length should fit into u32"),
                 )),
-                Operand::Literal(Literal::EmptyTag),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
+            None,
             None,
         ));
         for (idx, (val, elem_ty)) in vals.iter().zip(elem_tys.iter()).enumerate() {
@@ -3345,10 +3429,10 @@ impl<'a> PartialEvaluator<'a> {
             panic!("expected array type for array value");
         };
         let new_tag_root = format!("{tag_root}a");
-        // let idx = self.program.tags.len();
-        // let tag = format!("{idx}_{new_tag_root}");
-        // let len = tag.len();
-        // self.program.tags.push(tag);
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{new_tag_root}");
+        let len = tag.len();
+        self.program.tags.push(tag);
         let array_record_callable_id = self.get_array_record_callable();
         instrs.push(Instruction::Call(
             array_record_callable_id,
@@ -3358,8 +3442,9 @@ impl<'a> PartialEvaluator<'a> {
                         .try_into()
                         .expect("array length should fit into u32"),
                 )),
-                Operand::Literal(Literal::EmptyTag),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
+            None,
             None,
         ));
         for (idx, val) in vals.iter().enumerate() {
@@ -3503,6 +3588,233 @@ impl<'a> PartialEvaluator<'a> {
             .get_current_scope_mut()
             .keep_matching_static_var_mappings(other_mappings);
     }
+
+    fn new_dbg_location(&mut self, expr_id: ExprId) -> Option<DbgLocationId> {
+        if !self.config.generate_debug_metadata {
+            return None;
+        }
+
+        let scope_id = self.get_current_dbg_scope();
+
+        if let Some(current_scope_id) = scope_id {
+            let expr_location = self.expr_start_source_location(expr_id);
+            let inlined_at = self.caller_dbg_location_id();
+            let new_location = DbgLocation {
+                location: expr_location,
+                scope: current_scope_id,
+                inlined_at,
+            };
+            let dbg_location_id = self.program.dbg_info.add_location(new_location);
+
+            return Some(dbg_location_id);
+        }
+        None
+    }
+
+    fn assign_current_dbg_location(&mut self, call_expr_id: ExprId) {
+        if !self.config.generate_debug_metadata {
+            return;
+        }
+
+        if let Some(dbg_location_id) = self.new_dbg_location(call_expr_id) {
+            self.eval_context
+                .get_current_scope_mut()
+                .dbg_context
+                .current_call_location = Some(dbg_location_id);
+        }
+    }
+
+    fn get_current_dbg_scope(&mut self) -> Option<DbgScopeId> {
+        if !self.config.generate_debug_metadata {
+            return None;
+        }
+
+        let scope = self.eval_context.get_current_scope();
+
+        if let Some(LoopScope {
+            loop_expr,
+            iteration_count,
+            ..
+        }) = scope.dbg_context.loop_iterations.last()
+        {
+            let s = self
+                .dbg_context
+                .dbg_loop_expr_to_scope
+                .get(&(*loop_expr, *iteration_count))
+                .copied();
+            if let Some(s) = s {
+                Some(s)
+            } else {
+                let loop_expr_location = self.expr_start_source_location(*loop_expr);
+                let scope = DbgScope::LexicalBlockFile {
+                    discriminator: *iteration_count,
+                    location: loop_expr_location,
+                };
+
+                let i = self.program.dbg_info.add_scope(scope);
+                self.dbg_context
+                    .dbg_loop_expr_to_scope
+                    .insert((*loop_expr, *iteration_count), i);
+                Some(i)
+            }
+        } else {
+            let (callable_id, functor_app) = scope.callable?;
+            let item_id = StoreItemId {
+                package: scope.package_id,
+                item: callable_id,
+            };
+            let s = self
+                .dbg_context
+                .dbg_callable_to_scope
+                .get(&(item_id, functor_app.adjoint))
+                .copied();
+
+            if let Some(s) = s {
+                Some(s)
+            } else {
+                let fir::ItemKind::Callable(callable_decl) =
+                    &self.package_store.get_item(item_id).kind
+                else {
+                    panic!("expected callable");
+                };
+                let name = if functor_app.adjoint {
+                    format!("{}'", callable_decl.name.name).into()
+                } else {
+                    callable_decl.name.name.clone()
+                };
+                let current_package_id = self.get_current_package_id();
+                let package_id = current_package_id.into();
+                let scope = DbgScope::SubProgram {
+                    name,
+                    location: DbgPackageOffset {
+                        package_id,
+                        offset: callable_decl.span.lo,
+                    },
+                };
+                let i = self.program.dbg_info.add_scope(scope);
+                self.dbg_context
+                    .dbg_callable_to_scope
+                    .insert((item_id, functor_app.adjoint), i);
+                Some(i)
+            }
+        }
+    }
+
+    fn metadata_from_expr(&mut self, expr_id: ExprId) -> Option<Box<InstructionDbgMetadata>> {
+        if self.config.generate_debug_metadata {
+            let dbg_location_id = self.new_dbg_location(expr_id);
+            dbg_location_id.map(|dbg_location| {
+                self.program.dbg_info.mark_location_used(dbg_location);
+                Box::new(InstructionDbgMetadata { dbg_location })
+            })
+        } else {
+            None
+        }
+    }
+
+    fn metadata_from_current_dbg_location(&mut self) -> Option<Box<InstructionDbgMetadata>> {
+        if self.config.generate_debug_metadata {
+            self.eval_context
+                .get_current_scope()
+                .dbg_context
+                .current_call_location
+                .map(|dbg_location| {
+                    self.program.dbg_info.mark_location_used(dbg_location);
+                    Box::new(InstructionDbgMetadata { dbg_location })
+                })
+        } else {
+            None
+        }
+    }
+
+    fn caller_dbg_location_id(&mut self) -> Option<DbgLocationId> {
+        if let Some(LoopScope {
+            location_id: loop_location_id,
+            ..
+        }) = self
+            .eval_context
+            .get_current_scope()
+            .dbg_context
+            .loop_iterations
+            .last()
+        {
+            Some(*loop_location_id)
+        } else if let Some(scope) = self.eval_context.get_caller_scope() {
+            scope.dbg_context.current_call_location
+        } else {
+            None
+        }
+    }
+
+    fn expr_start_source_location(&self, expr_id: ExprId) -> DbgPackageOffset {
+        let package_id = self.get_current_package_id();
+        let package = self.package_store.get(package_id);
+        DbgPackageOffset {
+            package_id: package_id.into(),
+            offset: package
+                .exprs
+                .get(expr_id)
+                .expect("current expr id not found")
+                .span
+                .lo,
+        }
+    }
+
+    fn dbg_push_loop_iteration_scope(&mut self, expr_id: ExprId, dbg_location_id: DbgLocationId) {
+        self.eval_context
+            .get_current_scope_mut()
+            .dbg_context
+            .loop_iterations
+            .push(LoopScope {
+                loop_expr: expr_id,
+                iteration_count: 0,
+                location_id: dbg_location_id,
+            });
+    }
+
+    fn dbg_pop_loop_iteration_scope(&mut self) {
+        if self.config.generate_debug_metadata {
+            self.eval_context
+                .get_current_scope_mut()
+                .dbg_context
+                .loop_iterations
+                .pop();
+        }
+    }
+
+    fn dbg_increment_loop_iteration_count(&mut self) {
+        if self.config.generate_debug_metadata {
+            self.eval_context
+                .get_current_scope_mut()
+                .dbg_context
+                .loop_iterations
+                .last_mut()
+                .expect("there should be a loop iteration in the stack")
+                .iteration_count += 1;
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct DbgContext {
+    /// (`CallableId`, isAdjoint) -> Scope index
+    pub(crate) dbg_callable_to_scope: FxHashMap<(StoreItemId, bool), DbgScopeId>,
+    /// (Loop `ExprId`, iteration) -> Scope index
+    pub(crate) dbg_loop_expr_to_scope: FxHashMap<(ExprId, usize), DbgScopeId>,
+}
+
+#[derive(Default)]
+struct ScopeDbgContext {
+    /// The distinct debug location of the call expression currently being evaluated.
+    pub(crate) current_call_location: Option<DbgLocationId>,
+    pub(crate) loop_iterations: Vec<LoopScope>,
+}
+
+#[derive(Clone, Copy)]
+struct LoopScope {
+    loop_expr: ExprId,
+    iteration_count: usize,
+    location_id: DbgLocationId,
 }
 
 fn eval_un_op_with_literals(un_op: UnOp, value: Value) -> Value {

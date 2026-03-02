@@ -205,6 +205,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
                 },
                 BlockId(1),
                 BlockId(6),
+                None,
             ),
         ]),
     );
@@ -360,6 +361,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
                 },
                 BlockId(0),
                 BlockId(2),
+                None,
             ),
         ]),
     );

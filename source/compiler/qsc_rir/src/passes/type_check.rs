@@ -16,9 +16,11 @@ pub fn check_types(program: &Program) {
 
 fn check_instr_types(program: &Program, instr: &Instruction) {
     match instr {
-        Instruction::Call(id, args, var) => check_call_types(program.get_callable(*id), args, *var),
+        Instruction::Call(id, args, var, _) => {
+            check_call_types(program.get_callable(*id), args, *var);
+        }
 
-        Instruction::Branch(var, _, _) => assert_eq!(var.ty, Ty::Boolean),
+        Instruction::Branch(var, _, _, _) => assert_eq!(var.ty, Ty::Boolean),
 
         Instruction::Add(opr1, opr2, var)
         | Instruction::Sub(opr1, opr2, var)

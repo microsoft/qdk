@@ -3355,10 +3355,10 @@ fn unknown_name_has_any_class() {
     check(
         "",
         "{ foo(); foo + 1 }",
-        &expect![[r#"
+        &expect![[r##"
             #1 0-18 "{ foo(); foo + 1 }" : ?
             #2 0-18 "{ foo(); foo + 1 }" : ?
-            #4 2-7 "foo()" : ?0
+            #4 2-7 "foo()" : ?
             #5 2-5 "foo" : ?
             #8 5-7 "()" : Unit
             #10 9-16 "foo + 1" : ?
@@ -3366,8 +3366,7 @@ fn unknown_name_has_any_class() {
             #14 15-16 "1" : Int
             Error(Resolve(NotFound("foo", Span { lo: 2, hi: 5 })))
             Error(Resolve(NotFound("foo", Span { lo: 9, hi: 12 })))
-            Error(Type(Error(AmbiguousTy(Span { lo: 2, hi: 7 }))))
-        "#]],
+        "##]],
     );
 }
 

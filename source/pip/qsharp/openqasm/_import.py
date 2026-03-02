@@ -19,7 +19,16 @@ def import_openqasm(
     **kwargs: Any,
 ) -> Any:
     """
-    Imports OpenQASM source code into the active Q# interpreter.
+    Imports OpenQASM source code into the active QDK interpreter. By default, import uses `ProgramType.Operation` such that 
+    the source becomes a Q# operation in the global namespace with parameters for any declared classical inputs and
+    paramters for each of the declared qubits, while any explicit or implicit output declarations become the return
+    type of the operation.
+    Alternatively, specifying `ProgramType.File` will treat the input source as a stand-alone program and create an
+    operation in the `qasm_import` namespace that only takes classical parameters, allocates the required qubits
+    internally and releases them at the end of the operation.
+    Finally, using `ProgramType.Fragments` executes the provided source in the current interactive interpreter,
+    defining any declared variables or operations in the current scope and returning the value of the last statement
+    in the source.
 
     Args:
         source (str): An OpenQASM program or fragment.

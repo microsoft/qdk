@@ -362,7 +362,7 @@ const _dropzoneLayer = (context: Context) => {
       );
 
     columnOps.components.forEach((op, opIndex) => {
-      const [minTarget, maxTarget] = getMinMaxRegIdx(op, wireData.length);
+      const [minTarget, maxTarget] = getMinMaxRegIdx(op);
       // Add dropzones before the first target
       while (wireIndex <= maxTarget) {
         dropzoneLayer.appendChild(makeBox(opIndex, true));

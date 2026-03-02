@@ -558,9 +558,9 @@ fn array_of_results_update_element_at_index_with_dynamic_content() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Result(0), )
                 Call id(2), args( Qubit(1), Result(1), )
-                Call id(3), args( Integer(2), EmptyTag, )
-                Call id(4), args( Result(0), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
+                Call id(3), args( Integer(2), Tag(0, 3), )
+                Call id(4), args( Result(0), Tag(1, 5), )
+                Call id(4), args( Result(1), Tag(2, 5), )
                 Return"#]],
     );
 }
@@ -644,9 +644,9 @@ fn array_of_bools_update_element_at_index_with_dynamic_content() {
                 Call id(2), args( Qubit(1), Result(1), )
                 Variable(2, Boolean) = Call id(3), args( Result(1), )
                 Variable(3, Boolean) = Store Variable(2, Boolean)
-                Call id(4), args( Integer(2), EmptyTag, )
-                Call id(5), args( Variable(1, Boolean), Tag(0, 5), )
-                Call id(5), args( Variable(3, Boolean), Tag(1, 5), )
+                Call id(4), args( Integer(2), Tag(0, 3), )
+                Call id(5), args( Variable(1, Boolean), Tag(1, 5), )
+                Call id(5), args( Variable(3, Boolean), Tag(2, 5), )
                 Return"#]],
     );
 }
@@ -762,12 +762,12 @@ fn array_of_results_update_slice_with_explicit_range() {
                 Call id(2), args( Qubit(5), Result(5), )
                 Call id(2), args( Qubit(6), Result(6), )
                 Call id(2), args( Qubit(7), Result(7), )
-                Call id(3), args( Integer(5), EmptyTag, )
-                Call id(4), args( Result(5), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
-                Call id(4), args( Result(6), Tag(2, 5), )
-                Call id(4), args( Result(3), Tag(3, 5), )
-                Call id(4), args( Result(7), Tag(4, 5), )
+                Call id(3), args( Integer(5), Tag(0, 3), )
+                Call id(4), args( Result(5), Tag(1, 5), )
+                Call id(4), args( Result(1), Tag(2, 5), )
+                Call id(4), args( Result(6), Tag(3, 5), )
+                Call id(4), args( Result(3), Tag(4, 5), )
+                Call id(4), args( Result(7), Tag(5, 5), )
                 Return"#]],
     );
 }
@@ -837,10 +837,10 @@ fn array_of_results_update_slice_with_open_start_range() {
                 Call id(2), args( Qubit(2), Result(2), )
                 Call id(2), args( Qubit(3), Result(3), )
                 Call id(2), args( Qubit(4), Result(4), )
-                Call id(3), args( Integer(3), EmptyTag, )
-                Call id(4), args( Result(3), Tag(0, 5), )
-                Call id(4), args( Result(4), Tag(1, 5), )
-                Call id(4), args( Result(2), Tag(2, 5), )
+                Call id(3), args( Integer(3), Tag(0, 3), )
+                Call id(4), args( Result(3), Tag(1, 5), )
+                Call id(4), args( Result(4), Tag(2, 5), )
+                Call id(4), args( Result(2), Tag(3, 5), )
                 Return"#]],
     );
 }
@@ -910,10 +910,10 @@ fn array_of_results_update_slice_with_open_ended_range() {
                 Call id(2), args( Qubit(2), Result(2), )
                 Call id(2), args( Qubit(3), Result(3), )
                 Call id(2), args( Qubit(4), Result(4), )
-                Call id(3), args( Integer(3), EmptyTag, )
-                Call id(4), args( Result(0), Tag(0, 5), )
-                Call id(4), args( Result(3), Tag(1, 5), )
-                Call id(4), args( Result(4), Tag(2, 5), )
+                Call id(3), args( Integer(3), Tag(0, 3), )
+                Call id(4), args( Result(0), Tag(1, 5), )
+                Call id(4), args( Result(3), Tag(2, 5), )
+                Call id(4), args( Result(4), Tag(3, 5), )
                 Return"#]],
     );
 }
@@ -983,10 +983,10 @@ fn array_of_results_update_slice_with_open_two_step_range() {
                 Call id(2), args( Qubit(2), Result(2), )
                 Call id(2), args( Qubit(3), Result(3), )
                 Call id(2), args( Qubit(4), Result(4), )
-                Call id(3), args( Integer(3), EmptyTag, )
-                Call id(4), args( Result(3), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
-                Call id(4), args( Result(4), Tag(2, 5), )
+                Call id(3), args( Integer(3), Tag(0, 3), )
+                Call id(4), args( Result(3), Tag(1, 5), )
+                Call id(4), args( Result(1), Tag(2, 5), )
+                Call id(4), args( Result(4), Tag(3, 5), )
                 Return"#]],
     );
 }
@@ -1075,9 +1075,9 @@ fn empty_array_of_results_in_place_concatenation() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Result(0), )
                 Call id(2), args( Qubit(1), Result(1), )
-                Call id(3), args( Integer(2), EmptyTag, )
-                Call id(4), args( Result(0), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
+                Call id(3), args( Integer(2), Tag(0, 3), )
+                Call id(4), args( Result(0), Tag(1, 5), )
+                Call id(4), args( Result(1), Tag(2, 5), )
                 Return"#]],
     );
 }
@@ -1144,9 +1144,9 @@ fn non_empty_array_of_results_in_place_concatenation() {
                 Call id(1), args( Pointer, )
                 Call id(2), args( Qubit(0), Result(0), )
                 Call id(2), args( Qubit(1), Result(1), )
-                Call id(3), args( Integer(2), EmptyTag, )
-                Call id(4), args( Result(0), Tag(0, 5), )
-                Call id(4), args( Result(1), Tag(1, 5), )
+                Call id(3), args( Integer(2), Tag(0, 3), )
+                Call id(4), args( Result(0), Tag(1, 5), )
+                Call id(4), args( Result(1), Tag(2, 5), )
                 Return"#]],
     );
 }

@@ -154,7 +154,7 @@ pub fn walk_ty_def(vis: &mut impl MutVisitor, def: &mut TyDef) {
     vis.visit_span(&mut def.span);
 
     match &mut *def.kind {
-        TyDefKind::Field(name, ty) => {
+        TyDefKind::Field(name, ty, _) => {
             for n in name.iter_mut() {
                 vis.visit_ident(n);
             }

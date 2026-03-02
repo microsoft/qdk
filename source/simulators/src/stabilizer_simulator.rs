@@ -178,6 +178,7 @@ impl StabilizerSimulator {
 
 impl Simulator for StabilizerSimulator {
     type Noise = Arc<CumulativeNoiseConfig<Fault>>;
+    type StateDumpData = paulimer::clifford::CliffordUnitary;
 
     fn new(num_qubits: usize, num_results: usize, seed: u32, noise_config: Self::Noise) -> Self {
         Self {
@@ -275,6 +276,20 @@ impl Simulator for StabilizerSimulator {
         self.apply_fault(fault, &[control, target]);
     }
 
+    fn cy(&mut self, control: QubitID, target: QubitID) {
+        if !self.loss[control] && !self.loss[target] {
+            self.apply_idle_noise(control);
+            self.apply_idle_noise(target);
+            self.state.apply_unitary(UnitaryOp::SqrtZInv, &[target]);
+            self.state
+                .apply_unitary(UnitaryOp::ControlledX, &[control, target]);
+            self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]);
+        }
+        // We still apply operation faults to non-lost qubits.
+        let fault = self.noise_config.cy.gen_operation_fault(&mut self.rng);
+        self.apply_fault(fault, &[control, target]);
+    }
+
     fn cz(&mut self, control: QubitID, target: QubitID) {
         if !self.loss[control] && !self.loss[target] {
             self.apply_idle_noise(control);
@@ -323,7 +338,7 @@ impl Simulator for StabilizerSimulator {
     fn mz(&mut self, target: QubitID, result_id: QubitID) {
         self.apply_idle_noise(target);
         self.record_mz(target, result_id);
-        let fault = self.noise_config.mresetz.gen_operation_fault(&mut self.rng);
+        let fault = self.noise_config.mz.gen_operation_fault(&mut self.rng);
         self.apply_fault(fault, &[target]);
     }
 
@@ -395,5 +410,9 @@ impl Simulator for StabilizerSimulator {
 
     fn rzz(&mut self, _angle: f64, _q1: QubitID, _q2: QubitID) {
         unimplemented!("unssuported instruction in stabilizer simulator: Rzz")
+    }
+
+    fn state_dump(&self) -> &Self::StateDumpData {
+        self.state.clifford()
     }
 }

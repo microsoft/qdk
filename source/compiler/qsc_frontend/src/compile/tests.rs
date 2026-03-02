@@ -217,13 +217,7 @@ fn two_files_error() {
         .map(|error| source_span(&unit.sources, error))
         .collect();
 
-    assert_eq!(
-        vec![
-            ("test2", Span { lo: 50, hi: 51 }),
-            ("test2", Span { lo: 50, hi: 53 }),
-        ],
-        errors
-    );
+    assert_eq!(vec![("test2", Span { lo: 50, hi: 51 }),], errors);
 }
 
 #[test]
@@ -570,8 +564,8 @@ fn package_dependency_internal_error() {
                     output: Int
                     functors: empty set
                     body: SpecDecl 3 [25-76]: Impl:
-                        Block 4 [46-76] [Type Int]:
-                            Stmt 5 [56-70]: Expr: Expr 6 [56-70] [Type Int]: Call:
+                        Block 4 [46-76] [Type ?]:
+                            Stmt 5 [56-70]: Expr: Expr 6 [56-70] [Type ?]: Call:
                                 Expr 7 [56-68] [Type ?]: Var: Err
                                 Expr 8 [68-70] [Type Unit]: Unit
                     adj: <none>

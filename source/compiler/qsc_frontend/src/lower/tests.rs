@@ -1977,8 +1977,8 @@ fn partial_app_unknown_callable() {
                         body: SpecDecl 3 [18-70]: Impl:
                             Block 4 [38-70] [Type Unit]:
                                 Stmt 5 [40-68]: Local (Immutable):
-                                    Pat 6 [44-45] [Type ?3]: Bind: Ident 7 [44-45] "f"
-                                    Expr 8 [48-67] [Type ?3]: Call:
+                                    Pat 6 [44-45] [Type ?0]: Bind: Ident 7 [44-45] "f"
+                                    Expr 8 [48-67] [Type ?]: Call:
                                         Expr 9 [48-55] [Type ?]: Var: Err
                                         Expr 10 [55-67] [Type (Bool, ?1, ?2)]: Tuple:
                                             Expr 11 [56-60] [Type Bool]: Lit: Bool(true)
@@ -2228,6 +2228,31 @@ fn test_measurement_attr_on_function_issues_error() {
                     Span {
                         lo: 49,
                         hi: 52,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn test_noise_intrinsic_attr_on_function_issues_error() {
+    check_errors(
+        indoc! {r#"
+            namespace Test {
+                @NoiseIntrinsic()
+                function Foo(q: Qubit) : Unit {
+                    body intrinsic;
+                }
+            }
+        "#},
+        &expect![[r#"
+            [
+                InvalidAttrOnFunction(
+                    "NoiseIntrinsic",
+                    Span {
+                        lo: 52,
+                        hi: 55,
                     },
                 ),
             ]

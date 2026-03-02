@@ -63,6 +63,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -175,6 +176,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -333,6 +335,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -351,6 +354,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -507,6 +511,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -525,6 +530,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -650,6 +656,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -668,6 +675,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -845,6 +853,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -863,6 +872,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -1014,6 +1024,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -1032,6 +1043,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -1065,6 +1077,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                 },
                 BlockId(3),
                 BlockId(4),
+                None,
             ),
         ]),
     );
@@ -1098,6 +1111,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                 },
                 BlockId(5),
                 BlockId(6),
+                None,
             ),
         ]),
     );
@@ -1277,6 +1291,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -1305,6 +1320,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -1496,6 +1512,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -1514,6 +1531,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -1547,6 +1565,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                 },
                 BlockId(3),
                 BlockId(4),
+                None,
             ),
         ]),
     );
@@ -1829,6 +1848,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -1847,6 +1867,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -1906,6 +1927,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                 },
                 BlockId(4),
                 BlockId(5),
+                None,
             ),
         ]),
     );
@@ -2125,6 +2147,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -2143,6 +2166,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -2159,6 +2183,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -2177,6 +2202,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                 },
                 BlockId(3),
                 BlockId(4),
+                None,
             ),
         ]),
     );
@@ -2290,6 +2316,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -2412,6 +2439,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -2437,6 +2465,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -2570,6 +2599,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -2737,6 +2767,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
@@ -2752,6 +2783,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -2775,6 +2807,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                 },
                 BlockId(4),
                 BlockId(5),
+                None,
             ),
         ]),
     );
@@ -2788,6 +2821,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                     variable_id: VariableId(2),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
@@ -2811,6 +2845,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                     variable_id: VariableId(3),
                     ty: Ty::Boolean,
                 })],
+                None,
                 None,
             ),
             Instruction::Return,

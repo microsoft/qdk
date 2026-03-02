@@ -851,7 +851,9 @@ pub struct UdtField {
     pub name_span: Option<Span>,
     /// The field name.
     pub name: Option<Rc<str>>,
-    // The field type.
+    /// The documentation comment for the field.
+    pub doc: Option<Rc<str>>,
+    /// The field type.
     pub ty: Ty,
 }
 
@@ -863,6 +865,9 @@ impl Display for UdtField {
             write!(f, "\nname: {n} {s}")?;
         }
         write!(f, "\ntype: {}", self.ty)?;
+        if let Some(doc) = &self.doc {
+            write!(f, "\ndoc: {doc}")?;
+        }
         Ok(())
     }
 }

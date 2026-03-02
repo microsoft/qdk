@@ -37,12 +37,14 @@ pub struct NoiseConfig<T: Float, Q: Float> {
     pub ry: NoiseTable<T>,
     pub rz: NoiseTable<T>,
     pub cx: NoiseTable<T>,
+    pub cy: NoiseTable<T>,
     pub cz: NoiseTable<T>,
     pub rxx: NoiseTable<T>,
     pub ryy: NoiseTable<T>,
     pub rzz: NoiseTable<T>,
     pub swap: NoiseTable<T>,
     pub mov: NoiseTable<T>,
+    pub mz: NoiseTable<T>,
     pub mresetz: NoiseTable<T>,
     pub idle: IdleNoiseParams,
     pub intrinsics: FxHashMap<IntrinsicID, NoiseTable<Q>>,
@@ -74,12 +76,14 @@ impl<T: Float + ConstZero, Q: Float> NoiseConfig<T, Q> {
         ry: NoiseTable::<T>::noiseless(1),
         rz: NoiseTable::<T>::noiseless(1),
         cx: NoiseTable::<T>::noiseless(2),
+        cy: NoiseTable::<T>::noiseless(2),
         cz: NoiseTable::<T>::noiseless(2),
         rxx: NoiseTable::<T>::noiseless(2),
         ryy: NoiseTable::<T>::noiseless(2),
         rzz: NoiseTable::<T>::noiseless(2),
         swap: NoiseTable::<T>::noiseless(2),
         mov: NoiseTable::<T>::noiseless(1),
+        mz: NoiseTable::<T>::noiseless(1),
         mresetz: NoiseTable::<T>::noiseless(1),
         idle: IdleNoiseParams::NOISELESS,
         intrinsics: const_empty_hash_map(),
@@ -97,6 +101,12 @@ impl<T: Float + ConstZero, Q: Float> NoiseConfig<T, Q> {
 #[derive(Clone, Copy, Debug)]
 pub struct IdleNoiseParams {
     pub s_probability: f32,
+}
+
+impl Default for IdleNoiseParams {
+    fn default() -> Self {
+        Self::NOISELESS
+    }
 }
 
 impl IdleNoiseParams {
@@ -119,7 +129,7 @@ impl IdleNoiseParams {
 #[derive(Clone, Debug)]
 pub struct NoiseTable<T: Float> {
     pub qubits: u32,
-    pub pauli_strings: Vec<String>,
+    pub pauli_strings: Vec<u64>,
     pub probabilities: Vec<T>,
     pub loss: T,
 }
@@ -151,6 +161,7 @@ impl<T: Float> NoiseTable<T> {
 /// Describes the noise configuration for each operation.
 ///
 /// This is the internal format used by the simulator.
+#[derive(Default)]
 pub struct CumulativeNoiseConfig<T> {
     pub i: CumulativeNoiseTable<T>,
     pub x: CumulativeNoiseTable<T>,
@@ -167,12 +178,14 @@ pub struct CumulativeNoiseConfig<T> {
     pub ry: CumulativeNoiseTable<T>,
     pub rz: CumulativeNoiseTable<T>,
     pub cx: CumulativeNoiseTable<T>,
+    pub cy: CumulativeNoiseTable<T>,
     pub cz: CumulativeNoiseTable<T>,
     pub rxx: CumulativeNoiseTable<T>,
     pub ryy: CumulativeNoiseTable<T>,
     pub rzz: CumulativeNoiseTable<T>,
     pub swap: CumulativeNoiseTable<T>,
     pub mov: CumulativeNoiseTable<T>,
+    pub mz: CumulativeNoiseTable<T>,
     pub mresetz: CumulativeNoiseTable<T>,
     pub idle: IdleNoiseParams,
     pub intrinsics: FxHashMap<IntrinsicID, CorrelatedNoiseSampler<T>>,
@@ -180,7 +193,7 @@ pub struct CumulativeNoiseConfig<T> {
 
 impl<F> From<NoiseConfig<f64, f64>> for CumulativeNoiseConfig<F>
 where
-    F: Fault + Clone + for<'s> From<&'s str>,
+    F: Fault + Clone + From<(u64, u32)>,
 {
     fn from(value: NoiseConfig<f64, f64>) -> Self {
         let intrinsics = value
@@ -205,12 +218,14 @@ where
             ry: value.ry.into(),
             rz: value.rz.into(),
             cx: value.cx.into(),
+            cy: value.cy.into(),
             cz: value.cz.into(),
             rxx: value.rxx.into(),
             ryy: value.ryy.into(),
             rzz: value.rzz.into(),
             swap: value.swap.into(),
             mov: value.mov.into(),
+            mz: value.mz.into(),
             mresetz: value.mresetz.into(),
             idle: value.idle,
             intrinsics,
@@ -222,6 +237,7 @@ where
 /// computation more efficient.
 ///
 /// This is the internal format used by the simulator.
+#[derive(Default)]
 pub struct CumulativeNoiseTable<T> {
     pub sampler: CorrelatedNoiseSampler<T>,
     pub loss: f64,
@@ -229,10 +245,14 @@ pub struct CumulativeNoiseTable<T> {
 
 impl<F> From<NoiseTable<f64>> for CumulativeNoiseTable<F>
 where
-    F: Fault + Clone + for<'s> From<&'s str>,
+    F: Fault + Clone + From<(u64, u32)>,
 {
     fn from(value: NoiseTable<f64>) -> Self {
-        let choices = value.pauli_strings.into_iter().map(|p| F::from(&p));
+        let qubits = value.qubits;
+        let choices = value
+            .pauli_strings
+            .into_iter()
+            .map(|p| F::from((p, qubits)));
         let probs = value.probabilities.into_iter().map(uq1_63::from_prob);
         Self {
             sampler: CorrelatedNoiseSampler::new(choices, probs),
@@ -257,6 +277,7 @@ where
     }
 }
 
+#[derive(Default)]
 pub struct CorrelatedNoiseSampler<T> {
     /// The total probability of any noise.
     noise_probability: u64,
@@ -268,14 +289,18 @@ pub struct CorrelatedNoiseSampler<T> {
 
 impl<F> From<NoiseTable<f64>> for CorrelatedNoiseSampler<F>
 where
-    F: Fault + Clone + for<'a> From<&'a str>,
+    F: Fault + Clone + From<(u64, u32)>,
 {
     fn from(value: NoiseTable<f64>) -> Self {
         assert!(
             !value.pauli_strings.is_empty(),
             "there should be at least one pauli_string"
         );
-        let choices = value.pauli_strings.iter().map(|p| F::from(p.as_str()));
+        let qubits = value.qubits;
+        let choices = value
+            .pauli_strings
+            .into_iter()
+            .map(|p| F::from((p, qubits)));
         let probs = value.probabilities.into_iter().map(uq1_63::from_prob);
         Self::new(choices, probs)
     }
@@ -335,6 +360,40 @@ impl<F: Fault + Clone> CorrelatedNoiseSampler<F> {
 
 /// Checks if a pauli string is the identity.
 #[must_use]
-pub fn is_pauli_identity(pauli_string: &str) -> bool {
-    pauli_string.chars().all(|c| c == 'I')
+pub fn is_pauli_identity(pauli_string: u64) -> bool {
+    pauli_string == 0
+}
+
+/// Encode a validated Pauli string as a `u64` using 2 bits per character
+/// (I=0, X=1, Z=2, Y=3). Supports up to 32 qubits.
+#[must_use]
+pub fn encode_pauli(pauli: &str) -> u64 {
+    let pauli = pauli.as_bytes();
+    debug_assert!(pauli.len() <= 32);
+    let mut result: u64 = 0;
+    for &b in pauli {
+        let bits = match b {
+            b'I' => 0u64,
+            b'X' => 1u64,
+            b'Z' => 2u64,
+            b'Y' => 3u64,
+            _ => unreachable!("pauli bytes must be validated before encoding"),
+        };
+        result = (result << 2) | bits;
+    }
+    result
+}
+
+/// Decode a `u64`-encoded Pauli string back into a list of T,
+/// using the given `map` for decoding.
+/// (I=0, X=1, Z=2, Y=3). Supports up to 32 qubits.
+#[must_use]
+pub fn decode_pauli<T: Clone>(mut pauli: u64, qubits: u32, map: &[T; 4]) -> Vec<T> {
+    let n = qubits as usize;
+    let mut buf = vec![map[0].clone(); n];
+    for i in (0..n).rev() {
+        buf[i] = map[(pauli & 0b11) as usize].clone();
+        pauli >>= 2;
+    }
+    buf
 }

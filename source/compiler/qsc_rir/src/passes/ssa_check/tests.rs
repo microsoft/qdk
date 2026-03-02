@@ -235,6 +235,7 @@ fn ssa_check_passes_for_variable_that_dominates_usage() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -243,6 +244,7 @@ fn ssa_check_passes_for_variable_that_dominates_usage() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -315,6 +317,7 @@ fn ssa_check_fails_when_definition_does_not_dominates_usage() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -323,6 +326,7 @@ fn ssa_check_fails_when_definition_does_not_dominates_usage() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -405,6 +409,7 @@ fn ssa_check_succeeds_when_phi_handles_multiple_values_from_branches() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -413,6 +418,7 @@ fn ssa_check_succeeds_when_phi_handles_multiple_values_from_branches() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -517,6 +523,7 @@ fn ssa_check_succeeds_when_phi_handles_value_from_dominator_of_predecessor() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -525,6 +532,7 @@ fn ssa_check_succeeds_when_phi_handles_value_from_dominator_of_predecessor() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -636,6 +644,7 @@ fn ssa_check_fails_when_phi_handles_value_from_non_dominator_of_predecessor() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -644,6 +653,7 @@ fn ssa_check_fails_when_phi_handles_value_from_non_dominator_of_predecessor() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -685,6 +695,7 @@ fn ssa_check_fails_when_phi_handles_value_from_non_dominator_of_predecessor() {
                 },
                 BlockId(4),
                 BlockId(5),
+                None,
             ),
         ]),
     );
@@ -781,6 +792,7 @@ fn ssa_check_fails_when_phi_lists_non_predecessor_block() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -789,6 +801,7 @@ fn ssa_check_fails_when_phi_lists_non_predecessor_block() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -894,6 +907,7 @@ fn ssa_check_fails_when_phi_assigns_to_itself() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -902,6 +916,7 @@ fn ssa_check_fails_when_phi_assigns_to_itself() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -1006,6 +1021,7 @@ fn ssa_check_fails_when_phi_blocks_have_different_predecessors() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -1014,6 +1030,7 @@ fn ssa_check_fails_when_phi_blocks_have_different_predecessors() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );

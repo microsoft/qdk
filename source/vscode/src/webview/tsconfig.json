@@ -3,6 +3,7 @@
     "module": "CommonJS",
     "target": "ES2020",
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "lib": ["DOM", "ES2021"],
     "rootDir": ".",
     "strict": true /* enable all strict type-checking options */,
@@ -11,5 +12,6 @@
     "isolatedModules": true,
     "esModuleInterop": true,
     "skipLibCheck": true
-  }
+  },
+  "exclude": ["stateComputeWorker.ts"]
 }

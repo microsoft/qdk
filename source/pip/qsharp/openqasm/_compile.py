@@ -64,7 +64,7 @@ def compile(
     # This doesn't work the same way as the Q# compile function as it doesn't
     # have access to the global configuration which has the target profile.
     # Instead, we get the target profile from the kwargs and pass it to the telemetry event.
-    target_profile = kwargs.get("target_profile", "unspecified")
+    target_profile = str(kwargs.get("target_profile", "unspecified"))
 
     telemetry_events.on_compile_qasm(target_profile)
 

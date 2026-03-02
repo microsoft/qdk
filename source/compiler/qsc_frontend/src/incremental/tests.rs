@@ -343,9 +343,6 @@ fn errors_across_multiple_lines() {
             Some(
                 "line_3",
             ),
-            Some(
-                "line_4",
-            ),
         ]
     "#]]
     .assert_debug_eq(&labels);

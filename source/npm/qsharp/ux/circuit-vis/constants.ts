@@ -32,10 +32,10 @@ export const groupBottomPadding = 10;
 /** Top padding inside group box. */
 export const groupTopPadding =
   groupBottomPadding + labelFontSize + groupLabelPaddingY;
-/** Additional offset for control button. */
-export const controlBtnOffset = 40;
-/** Control button radius. */
-export const controlBtnRadius = 15;
+/** Additional offset for the classical control circle. */
+export const controlCircleOffset = 40;
+/** Classical control circle radius. */
+export const controlCircleRadius = 15;
 /** Default font size for gate arguments. */
 export const argsFontSize = 12;
 /** Starting x coord for each register wire. */

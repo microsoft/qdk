@@ -38,10 +38,11 @@ const formatRegisters = (
 
     // Render classical wires
     for (const classical of registers[qId].children || []) {
+      const ys: number[] = [];
       for (const gate of allGates.flat()) {
         if (
-          gate.type === GateType.Group &&
-          gate.dataAttributes?.["expanded"] === "true"
+          gate.type === GateType.Group ||
+          gate.type === GateType.ClassicalControlled
         ) {
           // Don't render classical wires for a group that is expanded - the wires
           // will be coming out of the measurement operations *inside* the group.
@@ -49,6 +50,10 @@ const formatRegisters = (
         }
 
         for (const y of gate.targetsY.flat().filter((y) => y === classical.y)) {
+          if (ys.includes(y)) {
+            continue;
+          }
+          ys.push(y);
           // Found the gate that this classical wire originates from. Draw
           // it starting at this gates x-coordinate.
 
