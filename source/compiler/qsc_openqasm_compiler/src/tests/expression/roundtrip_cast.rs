@@ -177,3 +177,30 @@ fn no_paren_roundtrip_in_larger_expr() {
         "#]],
     );
 }
+
+#[test]
+fn bit_array_xor_original_repro() {
+    let source = r#"
+        include "stdgates.inc";
+        qubit[4] q;
+        bit[1] r1;
+        r1[0] = measure q[0];
+        bit[1] r2;
+        r2[0] = measure q[1];
+        if ((r1^r2)!=0) cx q[2],q[3];
+    "#;
+    check(
+        source,
+        &expect![[r#"
+            import Std.OpenQASM.Intrinsic.*;
+            borrow q = Qubit[4];
+            mutable r1 = [Zero];
+            set r1[0] = Std.Intrinsic.M(q[0]);
+            mutable r2 = [Zero];
+            set r2[0] = Std.Intrinsic.M(q[1]);
+            if (Std.OpenQASM.Convert.ResultArrayAsIntBE(r1) ^^^ Std.OpenQASM.Convert.ResultArrayAsIntBE(r2)) != 0 {
+                cx(q[2], q[3]);
+            };
+        "#]],
+    );
+}

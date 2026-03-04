@@ -46,6 +46,28 @@ pub enum Type {
     Err,
 }
 
+impl Type {
+    /// Returns the same type with the const qualifier set to `false`.
+    pub fn without_const(self) -> Self {
+        match self {
+            Self::Angle(_) => Self::Angle(false),
+            Self::Bool(_) => Self::Bool(false),
+            Self::BigInt(_) => Self::BigInt(false),
+            Self::Complex(_) => Self::Complex(false),
+            Self::Int(_) => Self::Int(false),
+            Self::Double(_) => Self::Double(false),
+            Self::Result(_) => Self::Result(false),
+            Self::BoolArray(d, _) => Self::BoolArray(d, false),
+            Self::BigIntArray(d, _) => Self::BigIntArray(d, false),
+            Self::IntArray(d, _) => Self::IntArray(d, false),
+            Self::ComplexArray(d, _) => Self::ComplexArray(d, false),
+            Self::AngleArray(d, _) => Self::AngleArray(d, false),
+            Self::ResultArray(d, _) => Self::ResultArray(d, false),
+            other => other,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CallableKind {
     /// A function.
