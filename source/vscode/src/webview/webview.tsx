@@ -201,7 +201,7 @@ function App({ state }: { state: State }) {
           {state.suppressSettings ? null : (
             <p style="margin-top: 8px; font-size: 0.8em">
               Note: If a{" "}
-              <a href="command:workbench.action.openSettings?%22Q%23.simulation.noiseModel%22">
+              <a href="command:workbench.action.openSettings?%22Q%23.simulation.pauliNoise%22">
                 noise model
               </a>{" "}
               or any{" "}
