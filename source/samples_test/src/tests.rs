@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(clippy::unicode_not_nfc)]
+
 mod algorithms;
 #[rustfmt::skip]
 mod algorithms_generated;
@@ -25,7 +27,7 @@ use qsc::{
     circuit::TracerConfig,
     compile,
     hir::PackageId,
-    interpret::{GenericReceiver, Interpreter},
+    interpret::{CircuitEntryPoint, CircuitGenerationMethod, GenericReceiver, Interpreter},
     openqasm::{
         OutputSemantics, ProgramType, QubitSemantics,
         compiler::parse_and_compile_to_qsharp_ast_with_config, io::InMemorySourceResolver,
@@ -258,5 +260,231 @@ fn compile_project(project_folder: &str) {
             eprintln!("error: {error}");
         }
         panic!("compilation failed (first error: {})", errors[0]);
+    }
+}
+
+fn circuit(sources: SourceMap) -> String {
+    let capabilities = TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations;
+    let (std_id, store) = compile::package_store_with_stdlib(capabilities);
+
+    let mut interpreter = match Interpreter::new(
+        sources,
+        PackageType::Exe,
+        capabilities,
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+    ) {
+        Ok(interpreter) => interpreter,
+        Err(errors) => {
+            return format!("compilation error: {}", errors[0]);
+        }
+    };
+
+    match interpreter.circuit(
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::Static,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: false,
+            group_by_scope: true,
+            prune_classical_qubits: false,
+        },
+    ) {
+        Ok(circuit) => circuit.display_with_groups().to_string(),
+        Err(errors) => format!("circuit error: {}", errors[0]),
+    }
+}
+
+fn circuit_qasm(source: &str) -> String {
+    let config = qsc::openqasm::CompilerConfig::new(
+        QubitSemantics::Qiskit,
+        OutputSemantics::OpenQasm,
+        ProgramType::File,
+        None,
+        None,
+    );
+    let unit = parse_and_compile_to_qsharp_ast_with_config(
+        source,
+        "",
+        Option::<&mut InMemorySourceResolver>::None,
+        config,
+    );
+    let (source_map, errors, package, sig, _) = unit.into_tuple();
+    assert!(errors.is_empty(), "QASM compilation failed: {errors:?}");
+
+    let Some(signature) = sig else {
+        panic!("signature should have had value. This is a bug");
+    };
+
+    assert!(
+        signature.input.is_empty(),
+        "Circuit has unbound input parameters\n  help: Parameters: {}",
+        signature.input_params()
+    );
+    let capabilities = TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations;
+    let package_type = PackageType::Lib;
+    let language_features = LanguageFeatures::default();
+    let (stdid, mut store) = qsc::compile::package_store_with_stdlib(capabilities);
+    let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
+
+    let (mut unit, errors) = qsc::compile::compile_ast(
+        &store,
+        &dependencies,
+        package,
+        source_map,
+        package_type,
+        capabilities,
+    );
+
+    assert!(
+        errors.is_empty(),
+        "Compilation of Q# AST from QASM failed: {errors:?}"
+    );
+
+    unit.expose();
+    let source_package_id = store.insert(unit);
+
+    let mut interpreter = match Interpreter::with_package_store(
+        false,
+        store,
+        source_package_id,
+        capabilities,
+        language_features,
+        &dependencies,
+    ) {
+        Ok(interpreter) => interpreter,
+        Err(errors) => {
+            return format!("compilation error: {}", errors[0]);
+        }
+    };
+
+    match interpreter.circuit(
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::Static,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: false,
+            group_by_scope: true,
+            prune_classical_qubits: false,
+        },
+    ) {
+        Ok(circuit) => circuit.display_with_groups().to_string(),
+        Err(errors) => format!("circuit error: {}", errors[0]),
+    }
+}
+
+fn qirgen(sources: SourceMap) -> String {
+    let capabilities = TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations;
+    let (std_id, store) = compile::package_store_with_stdlib(capabilities);
+
+    let namespace = sources
+        .iter()
+        .next()
+        .expect("there should be at least one source")
+        .name
+        .split('.')
+        .next()
+        .expect("name has `.qs` extension")
+        .to_string();
+
+    let mut interpreter = match Interpreter::new(
+        sources,
+        PackageType::Exe,
+        capabilities,
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+    ) {
+        Ok(interpreter) => interpreter,
+        Err(errors) => {
+            return format!("compilation error: {}", errors[0]);
+        }
+    };
+
+    let entry_expr = format!("{namespace}.Main()");
+    match interpreter.qirgen(&entry_expr) {
+        Ok(qir) => qir,
+        Err(errors) => format!("QIR generation error for `{entry_expr}`: {}", errors[0]),
+    }
+}
+
+fn qirgen_qasm(source: &str) -> String {
+    let config = qsc::openqasm::CompilerConfig::new(
+        QubitSemantics::Qiskit,
+        OutputSemantics::OpenQasm,
+        ProgramType::File,
+        None,
+        None,
+    );
+    let unit = parse_and_compile_to_qsharp_ast_with_config(
+        source,
+        "",
+        Option::<&mut InMemorySourceResolver>::None,
+        config,
+    );
+    let (source_map, errors, package, sig, _) = unit.into_tuple();
+    assert!(errors.is_empty(), "QASM compilation failed: {errors:?}");
+
+    let Some(signature) = sig else {
+        panic!("signature should have had value. This is a bug");
+    };
+
+    assert!(
+        signature.input.is_empty(),
+        "Circuit has unbound input parameters\n  help: Parameters: {}",
+        signature.input_params()
+    );
+    let capabilities = TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations;
+    let package_type = PackageType::Lib;
+    let language_features = LanguageFeatures::default();
+    let (stdid, mut store) = qsc::compile::package_store_with_stdlib(capabilities);
+    let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
+
+    let (mut unit, errors) = qsc::compile::compile_ast(
+        &store,
+        &dependencies,
+        package,
+        source_map,
+        package_type,
+        capabilities,
+    );
+
+    assert!(
+        errors.is_empty(),
+        "Compilation of Q# AST from QASM failed: {errors:?}"
+    );
+
+    unit.expose();
+    let source_package_id = store.insert(unit);
+
+    let mut interpreter = match Interpreter::with_package_store(
+        false,
+        store,
+        source_package_id,
+        capabilities,
+        language_features,
+        &dependencies,
+    ) {
+        Ok(interpreter) => interpreter,
+        Err(errors) => {
+            return format!("compilation error: {}", errors[0]);
+        }
+    };
+
+    match interpreter.qirgen("qasm_import.program()") {
+        Ok(qir) => qir,
+        Err(errors) => format!(
+            "QIR generation error for `qasm_import.program()`: {}",
+            errors[0]
+        ),
     }
 }

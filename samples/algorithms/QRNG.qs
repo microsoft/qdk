@@ -5,33 +5,17 @@
 /// This program implements a quantum random number generator by setting qubits
 /// in superposition and then using the measurement results as random bits.
 import Std.Convert.*;
-import Std.Intrinsic.*;
-import Std.Math.*;
 
 operation Main() : Int {
-    let max = 100;
-    Message($"Sampling a random number between 0 and {max}:");
-
-    // Generate random number in the 0..max range.
-    return GenerateRandomNumberInRange(max);
-}
-
-/// # Summary
-/// Generates a random number between 0 and `max`.
-operation GenerateRandomNumberInRange(max : Int) : Int {
-    // Determine the number of bits needed to represent `max` and store it
-    // in the `nBits` variable. Then generate `nBits` random bits which will
-    // represent the generated random number.
+    // This sample generates a random, positive 64-bit integer by using a qubit
+    // to produce 63 random bits, and then converting the resulting bit array into an integer.
     mutable bits = [];
-    let nBits = BitSizeI(max);
-    for idxBit in 1..nBits {
+    for idxBit in 1..63 {
         bits += [GenerateRandomBit()];
     }
     let sample = ResultArrayAsInt(bits);
 
-    // Return random number if it is within the requested range.
-    // Generate it again if it is outside the range.
-    return sample > max ? GenerateRandomNumberInRange(max) | sample;
+    return sample;
 }
 
 /// # Summary

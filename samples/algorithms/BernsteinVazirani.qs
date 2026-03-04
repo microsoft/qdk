@@ -40,12 +40,11 @@ operation Main() : Int[] {
         // algorithm to determine the bit string.
         let decodedBitString = BernsteinVazirani(parityOperation, nQubits);
         let decodedInteger = ResultArrayAsInt(decodedBitString);
-        Fact(
-            decodedInteger == integer,
-            $"Decoded integer {decodedInteger}, but expected {integer}."
-        );
-
-        Message($"Successfully decoded bit string as int: {decodedInteger}");
+        if decodedInteger == integer {
+            Message($"Successfully decoded bit string as int: {decodedInteger}");
+        } else {
+            Message($"FAILED: Decoded integer {decodedInteger}, but expected {integer}.");
+        }
         decodedIntegers += [decodedInteger];
     }
 
