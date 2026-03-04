@@ -2646,7 +2646,6 @@ impl QasmCompiler {
     }
 
     /// Returns `true` if both `OpenQASM` types map to the same Q# type without errors.
-    /// Ignores const qualifiers, since constness does not affect the Q# representation.
     fn maps_to_same_qsharp_type(
         a: &qsc_openqasm_parser::semantic::types::Type,
         b: &qsc_openqasm_parser::semantic::types::Type,
@@ -2654,7 +2653,7 @@ impl QasmCompiler {
         let mut errs = Vec::new();
         let ty_a = Self::semantic_type_for_qsharp_type(a, Span::default(), &mut errs);
         let ty_b = Self::semantic_type_for_qsharp_type(b, Span::default(), &mut errs);
-        errs.is_empty() && ty_a.without_const() == ty_b.without_const()
+        errs.is_empty() && ty_a == ty_b
     }
 
     fn get_argument_validation_stmts(
