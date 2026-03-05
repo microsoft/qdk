@@ -293,7 +293,10 @@ fn circuit(sources: SourceMap) -> String {
             prune_classical_qubits: false,
         },
     ) {
-        Ok(circuit) => circuit.display_with_groups().to_string(),
+        Ok(circuit) => format!(
+            "generated circuit of length {}",
+            circuit.display_with_groups().to_string().len()
+        ),
         Err(errors) => format!("circuit error: {}", errors[0]),
     }
 }
@@ -373,7 +376,10 @@ fn circuit_qasm(source: &str) -> String {
             prune_classical_qubits: false,
         },
     ) {
-        Ok(circuit) => circuit.display_with_groups().to_string(),
+        Ok(circuit) => format!(
+            "generated circuit of length {}",
+            circuit.display_with_groups().to_string().len()
+        ),
         Err(errors) => format!("circuit error: {}", errors[0]),
     }
 }
@@ -410,7 +416,7 @@ fn qirgen(sources: SourceMap) -> String {
 
     let entry_expr = format!("{namespace}.Main()");
     match interpreter.qirgen(&entry_expr) {
-        Ok(qir) => qir,
+        Ok(qir) => format!("generated QIR of length {}", qir.len()),
         Err(errors) => format!("QIR generation error for `{entry_expr}`: {}", errors[0]),
     }
 }
@@ -481,7 +487,7 @@ fn qirgen_qasm(source: &str) -> String {
     };
 
     match interpreter.qirgen("qasm_import.program()") {
-        Ok(qir) => qir,
+        Ok(qir) => format!("generated QIR of length {}", qir.len()),
         Err(errors) => format!(
             "QIR generation error for `qasm_import.program()`: {}",
             errors[0]
