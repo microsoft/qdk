@@ -10,10 +10,10 @@ from __future__ import annotations
 import pytest
 
 from qsharp.magnets.models import IsingModel, Model
+from qsharp.magnets.models.model import HeisenbergModel
 from qsharp.magnets.utilities import (
     Hyperedge,
     Hypergraph,
-    HypergraphEdgeColoring,
     PauliString,
 )
 
@@ -72,7 +72,7 @@ def test_model_add_interaction_with_term():
 
     assert model.nterms == 1
     assert 3 in model._terms
-    assert model._terms[3] == [0]
+    assert model._terms[3] == {0: [0]}
 
 
 def test_model_add_interaction_rejects_edge_not_in_geometry():
@@ -95,7 +95,23 @@ def test_ising_model_basic():
     assert isinstance(model, Model)
     assert model.geometry is geometry
     assert model.nterms == 2
-    assert isinstance(model.coloring, HypergraphEdgeColoring)
+    assert set(model._terms.keys()) == {0, 1}
+
+
+def test_ising_model_str_and_repr():
+    geometry = make_chain_with_vertices(3)
+    model = IsingModel(geometry, h=0.5, J=2.0)
+
+    assert str(model) == "Ising model with 2 terms on 3 qubits (h=0.5, J=2.0)."
+    assert repr(model) == "IsingModel(nqubits=3, nterms=2, h=0.5, J=2.0)"
+
+
+def test_heisenberg_model_str_and_repr():
+    geometry = make_chain(3)
+    model = HeisenbergModel(geometry, J=1.5)
+
+    assert str(model) == "Heisenberg model with 3 terms on 3 qubits (J=1.5)."
+    assert repr(model) == "HeisenbergModel(nqubits=3, nterms=3, J=1.5)"
 
 
 def test_ising_model_coloring_matches_geometry_coloring():
@@ -103,8 +119,11 @@ def test_ising_model_coloring_matches_geometry_coloring():
     model = IsingModel(geometry, h=1.0, J=1.0)
     geometry_coloring = geometry.edge_coloring()
 
-    for edge in geometry.edges():
-        assert model.coloring.color(edge) == geometry_coloring.color(edge)
+    for color, indices in model._terms[1].items():
+        for index in indices:
+            op = model._ops[index]
+            edge_vertices = tuple(sorted(op.qubits))
+            assert geometry_coloring.color(edge_vertices) == color
 
 
 def test_ising_model_initialization_calls_geometry_edge_coloring_once():
@@ -120,7 +139,7 @@ def test_ising_model_initialization_calls_geometry_edge_coloring_once():
 
     model = IsingModel(geometry, h=1.0, J=1.0)
 
-    assert isinstance(model.coloring, HypergraphEdgeColoring)
+    assert isinstance(model, IsingModel)
     assert geometry.edge_coloring_calls == 1
 
 
@@ -142,5 +161,55 @@ def test_ising_model_term_grouping_indices():
     model = IsingModel(geometry, h=1.0, J=1.0)
 
     assert set(model._terms.keys()) == {0, 1}
-    assert all(len(model._ops[index].qubits) == 1 for index in model._terms[0])
-    assert all(len(model._ops[index].qubits) == 2 for index in model._terms[1])
+    assert all(
+        len(model._ops[index].qubits) == 1
+        for indices in model._terms[0].values()
+        for index in indices
+    )
+    assert all(
+        len(model._ops[index].qubits) == 2
+        for indices in model._terms[1].values()
+        for index in indices
+    )
+
+
+def test_heisenberg_model_basic():
+    geometry = make_chain(3)
+    model = HeisenbergModel(geometry, J=1.0)
+
+    assert isinstance(model, Model)
+    assert model.geometry is geometry
+    assert model.nterms == 3
+    assert set(model._terms.keys()) == {0, 1, 2}
+
+
+def test_heisenberg_model_coefficients_and_paulis():
+    geometry = make_chain(3)
+    model = HeisenbergModel(geometry, J=2.5)
+
+    expected = [
+        PauliString.from_qubits((0, 1), "XX", -2.5),
+        PauliString.from_qubits((1, 2), "XX", -2.5),
+        PauliString.from_qubits((0, 1), "YY", -2.5),
+        PauliString.from_qubits((1, 2), "YY", -2.5),
+        PauliString.from_qubits((0, 1), "ZZ", -2.5),
+        PauliString.from_qubits((1, 2), "ZZ", -2.5),
+    ]
+    for pauli in expected:
+        assert pauli in model._ops
+
+
+def test_heisenberg_model_term_grouping_colors_and_paulis():
+    geometry = make_chain(4)
+    model = HeisenbergModel(geometry, J=1.0)
+
+    paulis_by_term = {0: "XX", 1: "YY", 2: "ZZ"}
+    for term, pauli in paulis_by_term.items():
+        for color, indices in model._terms[term].items():
+            for index in indices:
+                op = model._ops[index]
+                expected = PauliString.from_qubits(
+                    tuple(sorted(op.qubits)), pauli, -1.0
+                )
+                assert op == expected
+                assert model.coloring.color(tuple(sorted(op.qubits))) == color

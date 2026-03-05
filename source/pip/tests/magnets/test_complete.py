@@ -221,7 +221,7 @@ def test_complete_bipartite_graph_coloring_non_overlapping():
     # Group edges by color
     colors = {}
     for edge in graph.edges():
-        color = coloring.color(edge)
+        color = coloring.color(edge.vertices)
         assert color is not None
         edge_vertices = edge.vertices
         if color not in colors:

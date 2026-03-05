@@ -205,9 +205,9 @@ class HypergraphEdgeColoring:
 
     Note:
         Colors are keyed by edge vertex tuples (``edge.vertices``), not by
-        ``Hyperedge`` object identity. As a result, :meth:`color` accepts any
-        ``Hyperedge`` with matching vertices, while :meth:`add_edge` still
-        requires an edge instance that belongs to :attr:`hypergraph`.
+        ``Hyperedge`` object identity. As a result, :meth:`color` accepts edge
+        vertex tuples directly, while :meth:`add_edge` still requires an edge
+        instance that belongs to :attr:`hypergraph`.
 
     Attributes:
         hypergraph: The supporting :class:`Hypergraph` whose edges can be
@@ -226,20 +226,22 @@ class HypergraphEdgeColoring:
         """Return the number of distinct nonnegative colors in the coloring."""
         return len(self._used_vertices)
 
-    def color(self, edge: Hyperedge) -> Optional[int]:
-        """Return the color assigned to a specific edge.
+    def color(self, vertices: tuple[int, ...]) -> Optional[int]:
+        """Return the color assigned to edge vertices.
 
         Args:
-            edge: Hyperedge to query. Any ``Hyperedge`` with the same
-                ``vertices`` tuple resolves to the same stored color.
+            vertices: Canonical vertex tuple for the edge to query (typically
+                ``edge.vertices``).
 
         Returns:
-            The color assigned to ``edge``, or ``None`` if the edge has not
-            been added to this coloring.
+            The color assigned to ``vertices``, or ``None`` if the edge has
+            not been added to this coloring.
         """
-        if not isinstance(edge, Hyperedge):
-            raise TypeError(f"edge must be Hyperedge, got {type(edge).__name__}")
-        return self._colors.get(edge.vertices)
+        if not isinstance(vertices, tuple) or not all(
+            isinstance(vertex, int) for vertex in vertices
+        ):
+            raise TypeError("vertices must be tuple[int, ...]")
+        return self._colors.get(vertices)
 
     def colors(self) -> Iterator[int]:
         """Iterate over distinct nonnegative colors present in the coloring.
