@@ -40,20 +40,12 @@ function onMessage(msg) {
     }
     console.log();
     send("tools/call", {
-      name: "get-time",
-      arguments: {},
-    });
-  } else if (data.id === 4) {
-    console.log("=== GET-TIME RESULT ===");
-    console.log(data.result.content[0].text);
-    console.log();
-    send("tools/call", {
       name: "circuit",
       arguments: {
         source: `operation Main() : Result { use q = Qubit(); H(q); let r = M(q); Reset(q); r }`,
       },
     });
-  } else if (data.id === 5) {
+  } else if (data.id === 4) {
     console.log("=== CIRCUIT RESULT ===");
     if (data.error) {
       console.log("ERROR:", JSON.stringify(data.error, null, 2));

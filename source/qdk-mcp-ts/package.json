@@ -6,7 +6,7 @@
   "description": "QDK MCP server with circuit visualization",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc --noEmit && cross-env INPUT=mcp-app.html vite build && cross-env INPUT=circuit-app.html vite build && tsc -p tsconfig.server.json && node build-server.mjs",
+    "build": "tsc --noEmit && cross-env INPUT=circuit-app.html vite build && tsc -p tsconfig.server.json && node build-server.mjs",
     "serve": "bun --watch main.ts",
     "start": "cross-env NODE_ENV=development npm run build && npm run serve"
   },

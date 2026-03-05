@@ -35,43 +35,6 @@ export function createServer(): McpServer {
     version: "0.0.1",
   });
 
-  // --- get-time tool (baseline) ---
-
-  const getTimeUri = "ui://qdk/mcp-app.html";
-
-  registerAppTool(
-    server,
-    "get-time",
-    {
-      title: "Get Time",
-      description: "Returns the current server time as an ISO 8601 string.",
-      inputSchema: {},
-      _meta: { ui: { resourceUri: getTimeUri } },
-    },
-    async (): Promise<CallToolResult> => {
-      const time = new Date().toISOString();
-      return { content: [{ type: "text", text: time }] };
-    },
-  );
-
-  registerAppResource(
-    server,
-    getTimeUri,
-    getTimeUri,
-    { mimeType: RESOURCE_MIME_TYPE },
-    async (): Promise<ReadResourceResult> => {
-      const html = await fs.readFile(
-        path.join(DIST_DIR, "mcp-app.html"),
-        "utf-8",
-      );
-      return {
-        contents: [
-          { uri: getTimeUri, mimeType: RESOURCE_MIME_TYPE, text: html },
-        ],
-      };
-    },
-  );
-
   // --- circuit tool ---
 
   const circuitUri = "ui://qdk/circuit-app.html";
