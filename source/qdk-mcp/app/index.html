@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QDK Circuit</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--color-background-primary, #fff);
+        color: var(--color-text-primary, #000);
+      }
+      #circuit-container {
+        width: 100%;
+        height: 100%;
+        overflow: auto;
+      }
+      #status {
+        padding: 1rem;
+        font-family: var(--font-sans, system-ui, sans-serif);
+        font-size: var(--font-text-sm-size, 0.875rem);
+        color: var(--color-text-secondary, #666);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="circuit-container">
+      <div id="status">Waiting for circuit data…</div>
+    </div>
+    <script type="module" src="./src/mcp-app.ts"></script>
+  </body>
+</html>

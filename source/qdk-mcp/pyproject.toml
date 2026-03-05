@@ -19,3 +19,6 @@ where = ["src"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+qdk_mcp = ["static/*.html"]

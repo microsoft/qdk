@@ -2,12 +2,30 @@
 # Licensed under the MIT License.
 
 import json
+import pathlib
+from typing import Optional
+
 from mcp.server.fastmcp import FastMCP
+from mcp.types import CallToolResult, TextContent
 
 import qsharp
-from qsharp._native import QSharpError
+from qsharp._native import CircuitGenerationMethod, QSharpError
 
 mcp = FastMCP("qdk")
+
+CIRCUIT_RESOURCE_URI = "ui://qdk/circuit.html"
+
+_STATIC_DIR = pathlib.Path(__file__).parent / "static"
+
+
+@mcp.resource(
+    CIRCUIT_RESOURCE_URI,
+    mime_type="text/html;profile=mcp-app",
+    meta={"ui": {}},
+)
+def circuit_resource() -> str:
+    """Serve the circuit visualization MCP App HTML."""
+    return (_STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
 
 def _serialize_shot_result(shot_result: dict) -> dict:
@@ -70,6 +88,76 @@ def eval(source: str) -> str:
         return json.dumps(_serialize_shot_result(result))
     except QSharpError as e:
         return json.dumps({"error": str(e)})
+
+
+_GENERATION_METHODS = {
+    "ClassicalEval": CircuitGenerationMethod.ClassicalEval,
+    "Simulate": CircuitGenerationMethod.Simulate,
+}
+
+
+@mcp.tool(
+    meta={
+        "ui": {"resourceUri": CIRCUIT_RESOURCE_URI},
+        "ui/resourceUri": CIRCUIT_RESOURCE_URI,
+    }
+)
+def circuit(
+    entry_expr: str,
+    operation: Optional[str] = None,
+    generation_method: Optional[str] = None,
+    max_operations: Optional[int] = None,
+    source_locations: bool = False,
+    group_by_scope: bool = True,
+    prune_classical_qubits: bool = False,
+) -> CallToolResult:
+    """Synthesize a circuit diagram for a Q# program.
+
+    Args:
+        entry_expr: Q# expression to synthesize a circuit for.
+        operation: Operation to synthesize (name or lambda). Must take only qubits or qubit arrays.
+        generation_method: Circuit generation method: "ClassicalEval" or "Simulate".
+        max_operations: Maximum number of operations in the circuit.
+        source_locations: Include source locations in the circuit.
+        group_by_scope: Group operations by scope.
+        prune_classical_qubits: Prune classical qubits from the circuit.
+    """
+    try:
+        gen_method = None
+        if generation_method is not None:
+            gen_method = _GENERATION_METHODS.get(generation_method)
+            if gen_method is None:
+                return CallToolResult(
+                    content=[
+                        TextContent(
+                            type="text",
+                            text=f"Invalid generation_method: {generation_method!r}. Must be 'ClassicalEval' or 'Simulate'.",
+                        )
+                    ],
+                    isError=True,
+                )
+
+        result = qsharp.circuit(
+            entry_expr,
+            operation=operation,
+            generation_method=gen_method,
+            max_operations=max_operations,
+            source_locations=source_locations,
+            group_by_scope=group_by_scope,
+            prune_classical_qubits=prune_classical_qubits,
+        )
+
+        circuit_json = json.loads(result.json())
+
+        return CallToolResult(
+            content=[TextContent(type="text", text=str(result))],
+            structuredContent=circuit_json,
+        )
+    except QSharpError as e:
+        return CallToolResult(
+            content=[TextContent(type="text", text=str(e))],
+            isError=True,
+        )
 
 
 def main():
