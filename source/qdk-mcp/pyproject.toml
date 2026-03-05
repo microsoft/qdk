@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qdk-mcp"
+version = "0.0.0"
+description = "QDK MCP Server"
+authors = [ { name = "Microsoft" } ]
+license = { file = "LICENSE.txt" }
+requires-python = ">=3.10"
+dependencies = ["qsharp==0.0.0", "mcp[cli]"]
+
+[project.scripts]
+qdk-mcp = "qdk_mcp.server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
