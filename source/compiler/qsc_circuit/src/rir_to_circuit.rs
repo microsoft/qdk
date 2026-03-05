@@ -513,12 +513,7 @@ fn process_binop_variables(
 ) -> Result<(), Error> {
     let expr_left = expr_from_operand(variables, operand)?;
     let expr_right = expr_from_operand(variables, operand1)?;
-    let expr = Expr::Rich(RichExpr::FunctionOf(
-        [expr_left, expr_right]
-            .into_iter()
-            .flat_map(|e| e.flat_exprs())
-            .collect(),
-    ));
+    let expr = Expr::Rich(RichExpr::function_of([expr_left, expr_right]));
     store_expr_in_variable(variables, variable, expr)?;
     Ok(())
 }
@@ -558,7 +553,7 @@ fn process_phi_variables(
         exprs.push(expr);
     }
 
-    let expr = Expr::Rich(RichExpr::FunctionOf(exprs));
+    let expr = Expr::Rich(RichExpr::function_of(exprs));
     store_expr_in_variable(variables, variable, expr)?;
 
     Ok(())
@@ -638,7 +633,7 @@ fn process_fcmp_variables(
             return store_expr_in_variable(
                 variables,
                 variable,
-                Expr::Rich(RichExpr::FunctionOf(vec![expr_left, expr_right])),
+                Expr::Rich(RichExpr::function_of([expr_left, expr_right])),
             );
         }
     };
@@ -760,7 +755,18 @@ enum BoolExpr {
 #[derive(Debug, Clone, PartialEq)]
 enum RichExpr {
     Literal(String),
-    FunctionOf(Vec<Expr>), // catch-all for complex expressions
+    FunctionOf(Vec<usize>), // catch-all for complex expressions
+}
+
+impl RichExpr {
+    /// Creates a `FunctionOf` from expressions, collecting their linked
+    /// measurement result IDs into a sorted, deduplicated list.
+    fn function_of(exprs: impl IntoIterator<Item = Expr>) -> Self {
+        let mut results: Vec<usize> = exprs.into_iter().flat_map(|e| e.linked_results()).collect();
+        results.sort_unstable();
+        results.dedup();
+        RichExpr::FunctionOf(results)
+    }
 }
 
 impl Expr {
@@ -779,15 +785,14 @@ impl Expr {
             Expr::Bool(BoolExpr::BinOp(left, right, op)) => {
                 Expr::Bool(BoolExpr::BinOp(left.clone(), right.clone(), op.negate()))
             }
-            expr => Expr::Rich(RichExpr::FunctionOf(expr.flat_exprs())),
+            expr => Expr::Rich(RichExpr::function_of([expr.clone()])),
         }
     }
 
     fn flat_exprs(&self) -> Vec<Expr> {
         match self {
             Expr::Rich(rich_expr) => match rich_expr {
-                RichExpr::Literal(_) => vec![self.clone()],
-                RichExpr::FunctionOf(exprs) => exprs.iter().flat_map(Expr::flat_exprs).collect(),
+                RichExpr::Literal(_) | RichExpr::FunctionOf(_) => vec![self.clone()],
             },
             Expr::Bool(condition_expr) => match condition_expr {
                 BoolExpr::Result(_) | BoolExpr::NotResult(_) | BoolExpr::LiteralBool(_) => {
@@ -807,9 +812,7 @@ impl Expr {
         match self {
             Expr::Rich(rich_expr) => match rich_expr {
                 RichExpr::Literal(_) => vec![],
-                RichExpr::FunctionOf(exprs) => {
-                    exprs.iter().flat_map(Expr::linked_results).collect()
-                }
+                RichExpr::FunctionOf(results) => results.clone(),
             },
             Expr::Bool(condition_expr) => match condition_expr {
                 BoolExpr::Result(result_id) | BoolExpr::NotResult(result_id) => {
@@ -834,15 +837,8 @@ impl Display for Expr {
         match self {
             Expr::Rich(complicated_expr) => match complicated_expr {
                 RichExpr::Literal(literal_str) => write!(f, "{literal_str}"),
-                RichExpr::FunctionOf(exprs) => {
-                    let mut results = exprs
-                        .iter()
-                        .flat_map(Expr::linked_results)
-                        .map(|r| format!("c_{r}"))
-                        .collect::<Vec<_>>();
-
-                    results.sort();
-                    results.dedup();
+                RichExpr::FunctionOf(results) => {
+                    let results = results.iter().map(|r| format!("c_{r}")).collect::<Vec<_>>();
                     write!(f, "f({})", results.join(", "))
                 }
             },
@@ -987,15 +983,14 @@ fn process_call_variables(
         },
         CallableType::Regular | CallableType::NoiseIntrinsic => {
             if let Some(var) = var {
-                let result_expr = Expr::Rich(RichExpr::FunctionOf(
-                    operands
-                        .iter()
-                        .map(|o| expr_from_operand(variables, o))
-                        .collect::<Result<Vec<_>, _>>()?
-                        .into_iter()
-                        .flat_map(|e| e.flat_exprs())
-                        .collect(),
-                ));
+                let exprs: Vec<_> = operands
+                    .iter()
+                    .map(|o| expr_from_operand(variables, o))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into_iter()
+                    .flat_map(|e| e.flat_exprs())
+                    .collect();
+                let result_expr = Expr::Rich(RichExpr::function_of(exprs));
 
                 store_expr_in_variable(variables, var, result_expr)?;
             }
