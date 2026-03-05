@@ -9,26 +9,51 @@ from typing import Iterator
 
 class TrotterStep:
     """
-    Base class for Trotter decompositions. Essentially, this is a wrapper around a
-    list of (time, term_index) tuples, which specify which term to apply for how long.
+    Base class for Trotter decompositions.
+
+    Essentially, this is a wrapper around a list of ``(time, term_index)`` tuples,
+    which specify which term to apply for how long, independent of the specific
+    Trotter decomposition or model being used.
 
     The TrotterStep class provides a common interface for different Trotter decompositions,
     such as first-order Trotter and Strang splitting. It also serves as the base class for
     higher-order Trotter steps that can be constructed via Suzuki or Yoshida recursion. Each
     Trotter step is defined by the sequence of terms to apply and their corresponding time
     durations, as well as the overall order of the decomposition and the time step for each term.
+
+    The constructor creates an empty Trotter step (when ``num_terms = 0``), or a
+    first-order Trotter step:
+
+    .. math::
+
+        e^{-i H t} \\approx \\prod_k e^{-i H_k t}, \\quad H = \\sum_k H_k.
+
+    In the first-order case, each term index from ``0`` to ``num_terms - 1`` appears
+    once, each with duration ``time_step``.
+
+    Example:
+
+    .. code-block:: python
+
+        >>> trotter = TrotterStep(num_terms=3, time_step=0.5)
+        >>> list(trotter.step())
+        [(0.5, 0), (0.5, 1), (0.5, 2)]
+
+    References:
+        H. F. Trotter, Proc. Amer. Math. Soc. 10, 545 (1959).
+
+    TODO: Initializer offers randomized order of terms.
     """
 
-    def __init__(self):
+    def __init__(self, num_terms: int = 0, time_step: float = 0.0):
         """
         Creates an empty Trotter decomposition.
 
         """
-        self.terms: list[tuple[float, int]] = []
-        self._nterms = 0
-        self._time_step = 0.0
-        self._order = 0
-        self._repr_string = "TrotterStep()"
+        self._nterms = num_terms
+        self._time_step = time_step
+        self._order = 1 if num_terms > 0 else 0
+        self.terms: list[tuple[float, int]] = [(time_step, j) for j in range(num_terms)]
 
     @property
     def order(self) -> int:
@@ -89,7 +114,7 @@ class TrotterStep:
 
     def __repr__(self) -> str:
         """String representation of the Trotter decomposition."""
-        return self._repr_string
+        return f"TrotterStep(num_terms={self._nterms}, time_step={self._time_step})"
 
 
 def suzuki_recursion(trotter: TrotterStep) -> TrotterStep:
@@ -180,38 +205,6 @@ def yoshida_recursion(trotter: TrotterStep) -> TrotterStep:
     return yoshida
 
 
-def trotter_decomposition(num_terms: int, time: float) -> TrotterStep:
-    """
-    Factory function for creating a first-order Trotter decomposition.
-
-    The first-order Trotter-Suzuki formula for approximating time evolution
-    under a Hamiltonian represented as a sum of terms
-
-    H = ∑_k H_k
-
-    is obtained by sequentially applying each term for the full time
-
-    e^{-i H t} ≈ ∏_k e^{-i H_k t}.
-
-    Example:
-
-    .. code-block:: python
-        >>> trotter = first_order_trotter(num_terms=3, time=0.5)
-        >>> list(trotter.step())
-        [(0.5, 0), (0.5, 1), (0.5, 2)]
-
-    References:
-        H. F. Trotter, Proc. Amer. Math. Soc. 10, 545 (1959).
-    """
-    trotter = TrotterStep()
-    trotter.terms = [(time, term_index) for term_index in range(num_terms)]
-    trotter._nterms = num_terms
-    trotter._time_step = time
-    trotter._order = 1
-    trotter._repr_string = f"FirstOrderTrotter(time_step={time}, num_terms={num_terms})"
-    return trotter
-
-
 def strang_splitting(num_terms: int, time: float) -> TrotterStep:
     """
     Factory function for creating a Strang splitting (second-order
@@ -286,7 +279,7 @@ class TrotterExpansion:
     .. code-block:: python
         >>> n = 4  # Number of Trotter steps
         >>> total_time = 1.0  # Total time
-        >>> step = trotter_decomposition(num_terms=2, time=total_time/n)
+        >>> step = TrotterStep(num_terms=2, time_step=total_time/n)
         >>> expansion = TrotterExpansion(step, n)
         >>> expansion.order
         1
@@ -318,7 +311,7 @@ class TrotterExpansion:
         return self._trotter_step.nterms
 
     @property
-    def num_steps(self) -> int:
+    def nsteps(self) -> int:
         """Get the number of Trotter steps."""
         return self._num_steps
 

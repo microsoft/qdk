@@ -201,6 +201,21 @@ class PauliString:
         """
         return tuple(p.qubit for p in self._paulis)
 
+    @property
+    def coefficient(self) -> complex:
+        """Complex coefficient multiplying this Pauli string."""
+        return self._coefficient
+
+    @property
+    def paulis(self) -> str:
+        """String of Pauli labels in the same order as the stored Pauli terms.
+
+        Returns:
+            String of Pauli labels ('I', 'X', 'Z', 'Y'), one per Pauli operator.
+        """
+        labels = {0: "I", 1: "X", 2: "Z", 3: "Y"}
+        return "".join(labels[p.op] for p in self._paulis)
+
     def __iter__(self):
         """Iterate over Pauli terms in stored order.
 

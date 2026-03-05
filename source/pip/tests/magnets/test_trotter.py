@@ -6,7 +6,6 @@
 from qsharp.magnets.trotter import (
     TrotterStep,
     TrotterExpansion,
-    trotter_decomposition,
     strang_splitting,
     suzuki_recursion,
     yoshida_recursion,
@@ -49,68 +48,68 @@ def test_trotter_step_reduce_empty():
     assert list(trotter.step()) == []
 
 
-# trotter_decomposition factory tests
+# first-order TrotterStep constructor tests
 
 
-def test_trotter_decomposition_basic():
-    """Test basic trotter_decomposition creation."""
-    trotter = trotter_decomposition(num_terms=3, time=0.5)
+def test_trotter_step_first_order_basic():
+    """Test basic first-order TrotterStep creation."""
+    trotter = TrotterStep(num_terms=3, time_step=0.5)
     assert trotter.nterms == 3
     assert trotter.time_step == 0.5
     assert trotter.order == 1
 
 
-def test_trotter_decomposition_single_term():
-    """Test trotter_decomposition with a single term."""
-    trotter = trotter_decomposition(num_terms=1, time=1.0)
+def test_trotter_step_first_order_single_term():
+    """Test first-order TrotterStep with a single term."""
+    trotter = TrotterStep(num_terms=1, time_step=1.0)
     result = list(trotter.step())
     assert result == [(1.0, 0)]
 
 
-def test_trotter_decomposition_multiple_terms():
-    """Test trotter_decomposition with multiple terms."""
-    trotter = trotter_decomposition(num_terms=3, time=0.5)
+def test_trotter_step_first_order_multiple_terms():
+    """Test first-order TrotterStep with multiple terms."""
+    trotter = TrotterStep(num_terms=3, time_step=0.5)
     result = list(trotter.step())
     assert result == [(0.5, 0), (0.5, 1), (0.5, 2)]
 
 
-def test_trotter_decomposition_zero_time():
-    """Test trotter_decomposition with zero time."""
-    trotter = trotter_decomposition(num_terms=2, time=0.0)
+def test_trotter_step_first_order_zero_time():
+    """Test first-order TrotterStep with zero time."""
+    trotter = TrotterStep(num_terms=2, time_step=0.0)
     result = list(trotter.step())
     assert result == [(0.0, 0), (0.0, 1)]
 
 
-def test_trotter_decomposition_returns_all_terms():
-    """Test that trotter_decomposition returns all term indices."""
+def test_trotter_step_first_order_returns_all_terms():
+    """Test that first-order TrotterStep returns all term indices."""
     num_terms = 5
-    trotter = trotter_decomposition(num_terms=num_terms, time=1.0)
+    trotter = TrotterStep(num_terms=num_terms, time_step=1.0)
     result = list(trotter.step())
     assert len(result) == num_terms
     term_indices = [idx for _, idx in result]
     assert term_indices == list(range(num_terms))
 
 
-def test_trotter_decomposition_uniform_time():
-    """Test that all terms have the same time in trotter_decomposition."""
+def test_trotter_step_first_order_uniform_time():
+    """Test that all terms have the same time in first-order TrotterStep."""
     time = 0.25
-    trotter = trotter_decomposition(num_terms=4, time=time)
+    trotter = TrotterStep(num_terms=4, time_step=time)
     result = list(trotter.step())
     for t, _ in result:
         assert t == time
 
 
-def test_trotter_decomposition_str():
-    """Test string representation of trotter_decomposition result."""
-    trotter = trotter_decomposition(num_terms=3, time=0.5)
+def test_trotter_step_first_order_str():
+    """Test string representation of first-order TrotterStep."""
+    trotter = TrotterStep(num_terms=3, time_step=0.5)
     result = str(trotter)
     assert "order" in result.lower() or "1" in result
 
 
-def test_trotter_decomposition_repr():
-    """Test repr representation of trotter_decomposition result."""
-    trotter = trotter_decomposition(num_terms=3, time=0.5)
-    assert "FirstOrderTrotter" in repr(trotter)
+def test_trotter_step_first_order_repr():
+    """Test repr representation of first-order TrotterStep."""
+    trotter = TrotterStep(num_terms=3, time_step=0.5)
+    assert "TrotterStep" in repr(trotter)
 
 
 # strang_splitting factory tests
@@ -210,7 +209,7 @@ def test_suzuki_recursion_from_strang():
 
 def test_suzuki_recursion_from_first_order():
     """Test Suzuki recursion applied to first-order Trotter produces 3rd order."""
-    trotter = trotter_decomposition(num_terms=2, time=1.0)
+    trotter = TrotterStep(num_terms=2, time_step=1.0)
     suzuki = suzuki_recursion(trotter)
     assert suzuki.order == 3
     assert suzuki.nterms == 2
@@ -239,7 +238,7 @@ def test_suzuki_recursion_repr():
 
 def test_suzuki_recursion_time_weights_sum():
     """Test that time weights in Suzuki recursion sum correctly."""
-    base = trotter_decomposition(num_terms=2, time=1.0)
+    base = TrotterStep(num_terms=2, time_step=1.0)
     suzuki = suzuki_recursion(base)
     # The total scaled time should equal the original total time * nterms
     # because we're scaling times, not adding them
@@ -265,7 +264,7 @@ def test_yoshida_recursion_from_strang():
 
 def test_yoshida_recursion_from_first_order():
     """Test Yoshida recursion applied to first-order Trotter produces 3rd order."""
-    trotter = trotter_decomposition(num_terms=2, time=1.0)
+    trotter = TrotterStep(num_terms=2, time_step=1.0)
     yoshida = yoshida_recursion(trotter)
     assert yoshida.order == 3
     assert yoshida.nterms == 2
@@ -294,7 +293,7 @@ def test_yoshida_recursion_repr():
 
 def test_yoshida_recursion_time_weights_sum():
     """Test that time weights in Yoshida recursion sum correctly."""
-    base = trotter_decomposition(num_terms=2, time=1.0)
+    base = TrotterStep(num_terms=2, time_step=1.0)
     yoshida = yoshida_recursion(base)
     # The total scaled time should equal the original total time * nterms
     # because weights w1 + w0 + w1 = 2*w1 + w0 = 2*w1 + (1 - 2*w1) = 1
@@ -338,7 +337,7 @@ def test_fourth_order_trotter_suzuki_equals_suzuki_of_strang():
 
 def test_trotter_expansion_init_basic():
     """Test basic TrotterExpansion initialization."""
-    step = trotter_decomposition(num_terms=2, time=0.25)
+    step = TrotterStep(num_terms=2, time_step=0.25)
     expansion = TrotterExpansion(step, num_steps=4)
     assert expansion._trotter_step is step
     assert expansion._num_steps == 4
@@ -346,7 +345,7 @@ def test_trotter_expansion_init_basic():
 
 def test_trotter_expansion_get_single_step():
     """Test TrotterExpansion with a single step."""
-    step = trotter_decomposition(num_terms=2, time=1.0)
+    step = TrotterStep(num_terms=2, time_step=1.0)
     expansion = TrotterExpansion(step, num_steps=1)
     result = expansion.get()
     assert len(result) == 1
@@ -357,7 +356,7 @@ def test_trotter_expansion_get_single_step():
 
 def test_trotter_expansion_get_multiple_steps():
     """Test TrotterExpansion with multiple steps."""
-    step = trotter_decomposition(num_terms=2, time=0.25)
+    step = TrotterStep(num_terms=2, time_step=0.25)
     expansion = TrotterExpansion(step, num_steps=4)
     result = expansion.get()
     assert len(result) == 1
@@ -382,7 +381,7 @@ def test_trotter_expansion_total_time():
     """Test that total evolution time is correct."""
     total_time = 1.0
     num_steps = 4
-    step = trotter_decomposition(num_terms=3, time=total_time / num_steps)
+    step = TrotterStep(num_terms=3, time_step=total_time / num_steps)
     expansion = TrotterExpansion(step, num_steps=num_steps)
     result = expansion.get()
     terms, count = result[0]
@@ -395,7 +394,7 @@ def test_trotter_expansion_total_time():
 
 def test_trotter_expansion_preserves_step():
     """Test that expansion preserves the original step."""
-    step = trotter_decomposition(num_terms=3, time=0.5)
+    step = TrotterStep(num_terms=3, time_step=0.5)
     expansion = TrotterExpansion(step, num_steps=10)
     result = expansion.get()
     terms, _ = result[0]
@@ -421,28 +420,28 @@ def test_trotter_expansion_order_property():
 
 def test_trotter_expansion_nterms_property():
     """Test TrotterExpansion nterms property."""
-    step = trotter_decomposition(num_terms=5, time=0.5)
+    step = TrotterStep(num_terms=5, time_step=0.5)
     expansion = TrotterExpansion(step, num_steps=4)
     assert expansion.nterms == 5
 
 
 def test_trotter_expansion_num_steps_property():
     """Test TrotterExpansion num_steps property."""
-    step = trotter_decomposition(num_terms=2, time=0.25)
+    step = TrotterStep(num_terms=2, time_step=0.25)
     expansion = TrotterExpansion(step, num_steps=8)
     assert expansion.num_steps == 8
 
 
 def test_trotter_expansion_total_time_property():
     """Test TrotterExpansion total_time property."""
-    step = trotter_decomposition(num_terms=2, time=0.25)
+    step = TrotterStep(num_terms=2, time_step=0.25)
     expansion = TrotterExpansion(step, num_steps=4)
     assert expansion.total_time == 1.0
 
 
 def test_trotter_expansion_step_iterator():
     """Test TrotterExpansion step() iterator yields full expansion."""
-    step = trotter_decomposition(num_terms=2, time=0.5)
+    step = TrotterStep(num_terms=2, time_step=0.5)
     expansion = TrotterExpansion(step, num_steps=3)
     result = list(expansion.step())
     # Should yield 3 repetitions of [(0.5, 0), (0.5, 1)]
@@ -474,7 +473,7 @@ def test_trotter_expansion_str():
 
 def test_trotter_expansion_repr():
     """Test TrotterExpansion repr representation."""
-    step = trotter_decomposition(num_terms=2, time=0.5)
+    step = TrotterStep(num_terms=2, time_step=0.5)
     expansion = TrotterExpansion(step, num_steps=4)
     result = repr(expansion)
     assert "TrotterExpansion" in result
