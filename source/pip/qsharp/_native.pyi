@@ -465,6 +465,11 @@ class CircuitGenerationMethod(Enum):
     Use simulation to generate the circuit.
     """
 
+    Static: CircuitGenerationMethod
+    """
+    Use static analysis to generate the circuit.
+    """
+
 class Circuit:
     def json(self) -> str: ...
     def __repr__(self) -> str: ...
