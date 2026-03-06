@@ -18,6 +18,7 @@
     "Notebooks"
   ],
   "browser": "./out/extension.js",
+  "main": "./out/desktop/extension.js",
   "virtualWorkspaces": true,
   "activationEvents": [
     "onNotebook:jupyter-notebook",
@@ -375,6 +376,11 @@
       }
     ],
     "commands": [
+      {
+        "command": "qsharp-vscode.helloWorld",
+        "title": "Hello World",
+        "category": "QDK"
+      },
       {
         "command": "qsharp-vscode.gotoLocations",
         "title": "Go to source locations",
@@ -1049,7 +1055,7 @@
     ]
   },
   "scripts": {
-    "build": "npm run tsc:check && node build.mjs",
+    "build": "npm run tsc:check && node build.mjs && node ../../node_modules/typescript/bin/tsc -p ./src/desktop/tsconfig.json",
     "build:watch": "node build.mjs --watch",
     "start": "npm exec --no -- @vscode/test-web --extensionDevelopmentPath . ../../samples",
     "test": "node ./test/runTests.mjs -- ",
