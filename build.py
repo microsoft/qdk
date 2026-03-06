@@ -151,6 +151,7 @@ pip_src = os.path.join(qdk_src_dir, "pip")
 widgets_src = os.path.join(qdk_src_dir, "widgets")
 qdk_python_src = os.path.join(qdk_src_dir, "qdk_package")
 mcp_src = os.path.join(qdk_src_dir, "qdk-mcp")
+mcp_ts_src = os.path.join(qdk_src_dir, "qdk-mcp-ts")
 wheels_dir = os.path.join(root_dir, "target", "wheels")
 raw_wheels_dir = os.path.join(root_dir, "target", "raw_wheels")
 vscode_src = os.path.join(qdk_src_dir, "vscode")
@@ -524,7 +525,7 @@ if build_qdk:
         step_end()
 
 if build_mcp:
-    step_start("Building the qdk-mcp package")
+    step_start("Building the qdk-mcp package (Python)")
 
     python_bin = use_python_env(qdk_python_src)
 
@@ -539,6 +540,17 @@ if build_mcp:
         mcp_src,
     ]
     subprocess.run(mcp_build_args, check=True, text=True, cwd=mcp_src)
+
+    step_end()
+
+    step_start("Building the qdk-mcp-ts package")
+
+    subprocess.run(
+        [npm_cmd, "install"], check=True, text=True, cwd=mcp_ts_src
+    )
+    subprocess.run(
+        [npm_cmd, "run", "build"], check=True, text=True, cwd=mcp_ts_src
+    )
 
     step_end()
 
