@@ -21,7 +21,11 @@ function onMessage(msg) {
   const data = JSON.parse(msg);
   if (data.id === 1) {
     console.log("=== INIT ===");
-    console.log("Server:", data.result.serverInfo.name, data.result.serverInfo.version);
+    console.log(
+      "Server:",
+      data.result.serverInfo.name,
+      data.result.serverInfo.version,
+    );
     console.log("Capabilities:", JSON.stringify(data.result.capabilities));
     console.log();
     send("tools/list", {});

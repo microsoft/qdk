@@ -19,7 +19,9 @@
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "qsharp-lang/circuit-vis": ["../npm/qsharp/ux/circuit-vis/index.ts"],
-      "qsharp-lang/circuit-group": ["../npm/qsharp/src/data-structures/legacyCircuitUpdate.ts"],
+      "qsharp-lang/circuit-group": [
+        "../npm/qsharp/src/data-structures/legacyCircuitUpdate.ts"
+      ],
       "qsharp-lang/qdk-theme.css": ["../npm/qsharp/ux/qdk-theme.css"],
       "qsharp-lang/qsharp-ux.css": ["../npm/qsharp/ux/qsharp-ux.css"],
       "qsharp-lang/qsharp-circuit.css": ["../npm/qsharp/ux/qsharp-circuit.css"]
