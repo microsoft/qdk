@@ -17,6 +17,7 @@ jupyter = ["qsharp-widgets==0.0.0", "qsharp-jupyterlab==0.0.0"]
 azure = ["azure-quantum>=3.7.0"]
 qiskit = ["qiskit>=1.2.2,<3.0.0"]
 cirq = ["cirq-core>=1.3.0,<=1.4.1", "cirq-ionq>=1.3.0,<=1.4.1"]
+mcp = ["qdk-mcp==0.0.0"]
 all = [
   "qsharp-widgets==0.0.0",
   "azure-quantum>=3.7.0",
@@ -24,6 +25,7 @@ all = [
   "cirq-core>=1.3.0,<=1.4.1",
   "cirq-ionq>=1.3.0,<=1.4.1",
   "qsharp-jupyterlab==0.0.0",
+  "qdk-mcp==0.0.0",
 ]
 
 [tool.setuptools.packages.find]

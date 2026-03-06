@@ -158,6 +158,24 @@ update_file(
     r"qsharp-jupyterlab=={}".format(jupyterlab_version),
     count=2,
 )
+update_file(
+    qdk_pyproject,
+    r"qdk-mcp==0.0.0",
+    r"qdk-mcp=={}".format(pip_version),
+    count=2,
+)
+
+qdk_mcp_pyproject = os.path.join(source_dir, "qdk-mcp/pyproject.toml")
+update_file(
+    qdk_mcp_pyproject,
+    r'version = "0.0.0"',
+    r'version = "{}"'.format(pip_version),
+)
+update_file(
+    qdk_mcp_pyproject,
+    r"qsharp==0.0.0",
+    r"qsharp=={}".format(pip_version),
+)
 
 update_file(
     os.path.join(source_dir, "npm/qsharp/package.json"),
