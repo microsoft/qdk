@@ -1182,25 +1182,25 @@ pub(crate) fn build_unary_op_expr(op: ast::UnOp, expr: ast::Expr, prefix_span: S
 
 pub(crate) fn map_qsharp_type_to_ast_ty(output_ty: &crate::types::Type, span: Span) -> Ty {
     let mut ty = match output_ty {
-        crate::types::Type::Angle(_) => build_angle_ty_ident(),
-        crate::types::Type::Result(_) => build_path_ident_ty("Result"),
+        crate::types::Type::Angle => build_angle_ty_ident(),
+        crate::types::Type::Result => build_path_ident_ty("Result"),
         crate::types::Type::Qubit => build_path_ident_ty("Qubit"),
-        crate::types::Type::BigInt(_) => build_path_ident_ty("BigInt"),
-        crate::types::Type::Int(_) => build_path_ident_ty("Int"),
-        crate::types::Type::Double(_) => build_path_ident_ty("Double"),
-        crate::types::Type::Complex(_) => build_complex_ty_ident(),
-        crate::types::Type::Bool(_) => build_path_ident_ty("Bool"),
-        crate::types::Type::ResultArray(dims, _) => build_array_type_name("Result", *dims),
+        crate::types::Type::BigInt => build_path_ident_ty("BigInt"),
+        crate::types::Type::Int => build_path_ident_ty("Int"),
+        crate::types::Type::Double => build_path_ident_ty("Double"),
+        crate::types::Type::Complex => build_complex_ty_ident(),
+        crate::types::Type::Bool => build_path_ident_ty("Bool"),
+        crate::types::Type::ResultArray(dims) => build_array_type_name("Result", *dims),
         crate::types::Type::QubitArray(dims) => build_array_type_name("Qubit", *dims),
-        crate::types::Type::BigIntArray(dims, _) => build_array_type_name("BigInt", *dims),
-        crate::types::Type::IntArray(dims, _) => build_array_type_name("Int", *dims),
+        crate::types::Type::BigIntArray(dims) => build_array_type_name("BigInt", *dims),
+        crate::types::Type::IntArray(dims) => build_array_type_name("Int", *dims),
         crate::types::Type::DoubleArray(dims) => build_array_type_name("Double", *dims),
-        crate::types::Type::BoolArray(dims, _) => build_array_type_name("Bool", *dims),
-        crate::types::Type::ComplexArray(dims, _) => {
+        crate::types::Type::BoolArray(dims) => build_array_type_name("Bool", *dims),
+        crate::types::Type::ComplexArray(dims) => {
             let ty = build_complex_ty_ident();
             wrap_array_ty_by_dims(*dims, ty)
         }
-        crate::types::Type::AngleArray(dims, _) => {
+        crate::types::Type::AngleArray(dims) => {
             let ty = build_angle_ty_ident();
             wrap_array_ty_by_dims(*dims, ty)
         }
