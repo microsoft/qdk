@@ -122,7 +122,7 @@ export class Compiler implements ICompiler {
   }
 
   // Note: This function does not support project mode.
-  // see https://github.com/microsoft/qsharp/pull/849#discussion_r1409821143
+  // see https://github.com/microsoft/qdk/pull/849#discussion_r1409821143
   async checkCode(code: string): Promise<VSDiagnostic[]> {
     let diags: VSDiagnostic[] = [];
     const languageService = new this.wasm.LanguageService();

@@ -661,7 +661,7 @@ impl Interpreter {
             qsc_linter::run_lints(
                 self.compiler.package_store(),
                 compile_unit,
-                // see https://github.com/microsoft/qsharp/pull/1627 for context
+                // see https://github.com/microsoft/qdk/pull/1627 for context
                 // on why we override this config
                 Some(&[qsc_linter::LintOrGroupConfig::Lint(
                     qsc_linter::LintConfig {

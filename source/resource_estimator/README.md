@@ -15,7 +15,7 @@ In the [examples](./examples/) directory we show how to perform custom resource 
 We advise to specify the dependency location to the resource estimator crate by pointing to a specific release tag or commit hash (see [The Cargo Book](https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#specifying-dependencies-from-git-repositories) for more details):
 
 ```toml
-resource_estimator = { git = "https://github.com/microsoft/qsharp.git", tag = "<tag>" }
+resource_estimator = { git = "https://github.com/microsoft/qdk.git", tag = "<tag>" }
 # ...
-resource_estimator = { git = "https://github.com/microsoft/qsharp.git", rev = "<commit_hash>" }
+resource_estimator = { git = "https://github.com/microsoft/qdk.git", rev = "<commit_hash>" }
 ```
