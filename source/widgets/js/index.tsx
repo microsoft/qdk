@@ -6,6 +6,7 @@ import {
   ReTable,
   SpaceChart,
   Histogram,
+  histogramToSvg,
   CreateSingleEstimateResult,
   EstimatesOverview,
   EstimatesPanel,
@@ -16,6 +17,8 @@ import {
   type ZoneLayout,
   type TraceData,
   MoleculeViewer,
+  ChordDiagram,
+  chordDiagramToSvg,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
@@ -61,6 +64,13 @@ function render({ model, el }: RenderArgs) {
     el.ownerDocument.head.appendChild(forceStyle);
   }
 
+  // Belt-and-suspenders: also set the background inline on the nearest
+  // ipywidget container (if any) so it wins regardless of CSS load order.
+  const bgContainer = el.closest(".cell-output-ipywidget-background");
+  if (bgContainer instanceof HTMLElement) {
+    bgContainer.style.backgroundColor = "transparent";
+  }
+
   switch (componentType) {
     case "SpaceChart":
       renderChart({ model, el });
@@ -85,6 +95,10 @@ function render({ model, el }: RenderArgs) {
       break;
     case "MoleculeViewer":
       renderMoleculeViewer({ model, el });
+      break;
+    case "ChordDiagram":
+    case "OrbitalEntanglement":
+      renderChordDiagram({ model, el });
       break;
     default:
       throw new Error(`Unknown component type ${componentType}`);
@@ -227,26 +241,38 @@ function createOnRowDeleted(
   };
 }
 
+function histogramPropsFromModel(model: AnyModel) {
+  const buckets = model.get("buckets") as { [key: string]: number };
+  const bucketMap = new Map(Object.entries(buckets));
+  const shotCount = model.get("shot_count") as number;
+  const shotHeader = model.get("shot_header") as boolean;
+  const labels = model.get("labels") as "raw" | "kets" | "none";
+  const items = model.get("items") as "all" | "top-10" | "top-25";
+  const sort = model.get("sort") as "a-to-z" | "high-to-low" | "low-to-high";
+  return { bucketMap, shotCount, shotHeader, labels, items, sort };
+}
+
 function renderHistogram({ model, el }: RenderArgs) {
   const onChange = () => {
-    const buckets = model.get("buckets") as { [key: string]: number };
-    const bucketMap = new Map(Object.entries(buckets));
-    const shot_count = model.get("shot_count") as number;
-    const shot_header = model.get("shot_header") as boolean;
-    const labels = model.get("labels") as "raw" | "kets" | "none";
-    const items = model.get("items") as "all" | "top-10" | "top-25";
-    const sort = model.get("sort") as "a-to-z" | "high-to-low" | "low-to-high";
+    const { bucketMap, shotCount, shotHeader, labels, items, sort } =
+      histogramPropsFromModel(model);
 
     prender(
       <Histogram
         data={bucketMap}
-        shotCount={shot_count}
+        shotCount={shotCount}
         filter={""}
         onFilter={() => undefined}
-        shotsHeader={shot_header}
+        shotsHeader={shotHeader}
         labels={labels}
         items={items}
         sort={sort}
+        onSettingsChange={(settings) => {
+          model.set("labels", settings.labels);
+          model.set("items", settings.items);
+          model.set("sort", settings.sort);
+          model.save_changes();
+        }}
       ></Histogram>,
       el,
     );
@@ -259,6 +285,24 @@ function renderHistogram({ model, el }: RenderArgs) {
   model.on("change:labels", onChange);
   model.on("change:items", onChange);
   model.on("change:sort", onChange);
+
+  // Handle SVG export requests from Python
+  model.on("msg:custom", (msg: Record<string, unknown>) => {
+    if (msg.type === "export_svg") {
+      const { bucketMap, shotCount, labels, items, sort } =
+        histogramPropsFromModel(model);
+      const svg = histogramToSvg({
+        data: bucketMap,
+        shotCount,
+        filter: "",
+        labels,
+        items,
+        sort,
+        darkMode: msg.dark_mode as boolean | undefined,
+      });
+      model.send({ type: "svg_result", svg });
+    }
+  });
 }
 
 function renderCircuit({ model, el }: RenderArgs) {
@@ -299,6 +343,102 @@ function renderAtoms({ model, el }: RenderArgs) {
   onChange();
   model.on("change:machine_layout", onChange);
   model.on("change:trace_data", onChange);
+}
+
+function chordPropsFromModel(model: AnyModel) {
+  const nodeValues = model.get("node_values") as number[];
+  const pairwiseWeights = model.get("pairwise_weights") as number[][];
+  const labels = model.get("labels") as string[];
+  const selectedIndices = model.get("selected_indices") as number[] | null;
+  const options = (model.get("options") || {}) as Record<string, unknown>;
+  return { nodeValues, pairwiseWeights, labels, selectedIndices, options };
+}
+
+function renderChordDiagram({ model, el }: RenderArgs) {
+  const onChange = () => {
+    const { nodeValues, pairwiseWeights, labels, selectedIndices, options } =
+      chordPropsFromModel(model);
+
+    prender(
+      <ChordDiagram
+        nodeValues={nodeValues}
+        pairwiseWeights={pairwiseWeights}
+        labels={labels}
+        selectedIndices={selectedIndices ?? undefined}
+        gapDeg={options.gap_deg as number | undefined}
+        radius={options.radius as number | undefined}
+        arcWidth={options.arc_width as number | undefined}
+        lineScale={options.line_scale as number | null | undefined}
+        edgeThreshold={options.edge_threshold as number | undefined}
+        nodeVmax={options.node_vmax as number | null | undefined}
+        edgeVmax={options.edge_vmax as number | null | undefined}
+        nodeColormap={
+          options.node_colormap as [string, string, string] | undefined
+        }
+        edgeColormap={
+          options.edge_colormap as [string, string, string] | undefined
+        }
+        nodeColorbarLabel={
+          options.node_colorbar_label as string | null | undefined
+        }
+        edgeColorbarLabel={
+          options.edge_colorbar_label as string | null | undefined
+        }
+        nodeHoverPrefix={options.node_hover_prefix as string | undefined}
+        edgeHoverPrefix={options.edge_hover_prefix as string | undefined}
+        title={options.title as string | null | undefined}
+        width={options.width as number | undefined}
+        height={options.height as number | undefined}
+        selectionColor={options.selection_color as string | undefined}
+        selectionLinewidth={options.selection_linewidth as number | undefined}
+        groupSelected={options.group_selected as boolean | undefined}
+        onGroupChange={(grouped) => {
+          const newOpts = { ...options, group_selected: grouped };
+          model.set("options", newOpts);
+          model.save_changes();
+        }}
+      />,
+      el,
+    );
+  };
+
+  onChange();
+  model.on("change:node_values", onChange);
+  model.on("change:pairwise_weights", onChange);
+  model.on("change:labels", onChange);
+  model.on("change:selected_indices", onChange);
+  model.on("change:options", onChange);
+
+  // Handle SVG export requests from Python — same rendering function
+  // used by the Node SSR script, executed here in-browser so no
+  // subprocess is needed when the widget is live.
+  model.on("msg:custom", (msg: Record<string, unknown>) => {
+    if (msg.type === "export_svg") {
+      const { nodeValues, pairwiseWeights, labels, selectedIndices, options } =
+        chordPropsFromModel(model);
+      const svg = chordDiagramToSvg({
+        nodeValues,
+        pairwiseWeights,
+        labels,
+        selectedIndices: selectedIndices ?? undefined,
+        darkMode: msg.dark_mode as boolean | undefined,
+        ...snakeToCamelOptions(options),
+      });
+      model.send({ type: "svg_result", svg });
+    }
+  });
+}
+
+/** Convert a snake_case options dict to camelCase props. */
+function snakeToCamelOptions(
+  options: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(options)) {
+    const camel = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    result[camel] = val;
+  }
+  return result;
 }
 
 function renderMoleculeViewer({ model, el }: RenderArgs) {
