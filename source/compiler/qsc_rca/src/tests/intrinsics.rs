@@ -225,19 +225,17 @@ fn check_rca_for_message() {
         &compilation_context.fir_store,
         compilation_context.get_compute_properties(),
         "Message",
-        &expect![
-            r#"
+        &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Classical
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicString)
+                            runtime_features: RuntimeFeatureFlags(0x0)
                             value_kind: Element(Static)
                 adj: <none>
                 ctl: <none>
-                ctl-adj: <none>"#
-        ],
+                ctl-adj: <none>"#]],
     );
 }
 
@@ -1201,22 +1199,20 @@ fn check_rca_for_begin_estimate_caching() {
         &compilation_context.fir_store,
         compilation_context.get_compute_properties(),
         "BeginEstimateCaching",
-        &expect![
-            r#"
+        &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
                     inherent: Classical
                     dynamic_param_applications:
                         [0]: [Parameter Type Element] Quantum: QuantumProperties:
-                            runtime_features: RuntimeFeatureFlags(UseOfDynamicString)
+                            runtime_features: RuntimeFeatureFlags(0x0)
                             value_kind: Element(Dynamic)
                         [1]: [Parameter Type Element] Quantum: QuantumProperties:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                             value_kind: Element(Dynamic)
                 adj: <none>
                 ctl: <none>
-                ctl-adj: <none>"#
-        ],
+                ctl-adj: <none>"#]],
     );
 }
 

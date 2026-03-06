@@ -11,7 +11,7 @@ import Std.Diagnostics.*;
 import Std.Math.*;
 import Std.Measurement.*;
 
-operation Main() : (String, Bool)[] {
+operation Main() : (Int, Bool)[] {
     // A Boolean function is a function that maps bitstrings to a bit:
     //     𝑓 : {0, 1}^n → {0, 1}.
 
@@ -34,16 +34,18 @@ operation Main() : (String, Bool)[] {
     ];
 
     mutable results = [];
+    mutable idx = 0;
     for (name, fn, shouldBeConstant) in nameFunctionTypeTuples {
         let isConstant = DeutschJozsa(fn, 5);
         if (isConstant != shouldBeConstant) {
             let shouldBeConstantStr = shouldBeConstant ? "constant" | "balanced";
-            fail $"{name} should be detected as {shouldBeConstantStr}";
+            Message($"FAILURE: {name} should be detected as {shouldBeConstantStr}");
+        } else {
+            let isConstantStr = isConstant ? "constant" | "balanced";
+            Message($"{name} is {isConstantStr}");
         }
-
-        let isConstantStr = isConstant ? "constant" | "balanced";
-        Message($"{name} is {isConstantStr}");
-        results += [(name, isConstant)];
+        results += [(idx, isConstant)];
+        idx += 1;
     }
 
     return results;
