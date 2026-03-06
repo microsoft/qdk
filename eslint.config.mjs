@@ -16,6 +16,8 @@ export default tseslint.config(
       "source/jupyterlab/lib/",
       "source/jupyterlab/qsharp-jupyterlab/labextension/",
       "source/npm/qsharp/dist/",
+      "source/qdk-mcp/src/qdk_mcp/static/",
+      "source/qdk-mcp-ts/dist/",
       "source/npm/qsharp/lib/",
       "source/npm/qsharp/src/*.generated.ts",
       "source/playground/public/",

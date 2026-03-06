@@ -13,6 +13,8 @@ __pycache__/
 /source/jupyterlab/lib/
 /source/jupyterlab/qsharp-jupyterlab/labextension/
 /source/npm/qsharp/dist/
+/source/qdk-mcp/src/qdk_mcp/static/
+/source/qdk-mcp-ts/dist/
 /source/npm/qsharp/docs/
 /source/npm/qsharp/lib/
 /source/npm/qsharp/src/*.generated.*
