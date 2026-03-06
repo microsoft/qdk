@@ -20,52 +20,30 @@ impl Complex {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Type {
-    Angle(bool),
-    Bool(bool),
-    BigInt(bool),
-    Complex(bool),
-    Int(bool),
-    Double(bool),
+    Angle,
+    Bool,
+    BigInt,
+    Complex,
+    Int,
+    Double,
     Qubit,
-    Result(bool),
+    Result,
     Tuple(Vec<Type>),
     Range,
-    BoolArray(ArrayDimensions, bool),
-    BigIntArray(ArrayDimensions, bool),
-    IntArray(ArrayDimensions, bool),
+    BoolArray(ArrayDimensions),
+    BigIntArray(ArrayDimensions),
+    IntArray(ArrayDimensions),
     DoubleArray(ArrayDimensions),
-    ComplexArray(ArrayDimensions, bool),
-    AngleArray(ArrayDimensions, bool),
+    ComplexArray(ArrayDimensions),
+    AngleArray(ArrayDimensions),
     QubitArray(ArrayDimensions),
-    ResultArray(ArrayDimensions, bool),
+    ResultArray(ArrayDimensions),
     /// # cargs, # qargs
     Gate(u32, u32),
     /// kind, args, return ty
     Callable(CallableKind, Arc<[Type]>, Arc<Type>),
     #[default]
     Err,
-}
-
-impl Type {
-    /// Returns the same type with the const qualifier set to `false`.
-    pub fn without_const(self) -> Self {
-        match self {
-            Self::Angle(_) => Self::Angle(false),
-            Self::Bool(_) => Self::Bool(false),
-            Self::BigInt(_) => Self::BigInt(false),
-            Self::Complex(_) => Self::Complex(false),
-            Self::Int(_) => Self::Int(false),
-            Self::Double(_) => Self::Double(false),
-            Self::Result(_) => Self::Result(false),
-            Self::BoolArray(d, _) => Self::BoolArray(d, false),
-            Self::BigIntArray(d, _) => Self::BigIntArray(d, false),
-            Self::IntArray(d, _) => Self::IntArray(d, false),
-            Self::ComplexArray(d, _) => Self::ComplexArray(d, false),
-            Self::AngleArray(d, _) => Self::AngleArray(d, false),
-            Self::ResultArray(d, _) => Self::ResultArray(d, false),
-            other => other,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,15 +133,15 @@ impl From<qsc_openqasm_parser::semantic::types::Dims> for ArrayDimensions {
 impl Display for Type {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Type::Angle(_) => write!(f, "Angle"),
-            Type::Bool(_) => write!(f, "bool"),
-            Type::BigInt(_) => write!(f, "BigInt"),
-            Type::Complex(_) => write!(f, "Complex"),
-            Type::Int(_) => write!(f, "Int"),
-            Type::Double(_) => write!(f, "Double"),
+            Type::Angle => write!(f, "Angle"),
+            Type::Bool => write!(f, "bool"),
+            Type::BigInt => write!(f, "BigInt"),
+            Type::Complex => write!(f, "Complex"),
+            Type::Int => write!(f, "Int"),
+            Type::Double => write!(f, "Double"),
             Type::Qubit => write!(f, "Qubit"),
             Type::Range => write!(f, "Range"),
-            Type::Result(_) => write!(f, "Result"),
+            Type::Result => write!(f, "Result"),
             Type::Tuple(types) => {
                 write!(f, "(")?;
                 for (i, ty) in types.iter().enumerate() {
@@ -174,14 +152,14 @@ impl Display for Type {
                 }
                 write!(f, ")")
             }
-            Type::BoolArray(dim, _) => write!(f, "bool{dim}"),
-            Type::BigIntArray(dim, _) => write!(f, "BigInt{dim}"),
-            Type::IntArray(dim, _) => write!(f, "Int{dim}"),
+            Type::BoolArray(dim) => write!(f, "bool{dim}"),
+            Type::BigIntArray(dim) => write!(f, "BigInt{dim}"),
+            Type::IntArray(dim) => write!(f, "Int{dim}"),
             Type::DoubleArray(dim) => write!(f, "Double{dim}"),
-            Type::ComplexArray(dim, _) => write!(f, "Complex{dim}"),
-            Type::AngleArray(dim, _) => write!(f, "Angle{dim}"),
+            Type::ComplexArray(dim) => write!(f, "Complex{dim}"),
+            Type::AngleArray(dim) => write!(f, "Angle{dim}"),
             Type::QubitArray(dim) => write!(f, "Qubit{dim}"),
-            Type::ResultArray(dim, _) => write!(f, "Result{dim}"),
+            Type::ResultArray(dim) => write!(f, "Result{dim}"),
             Type::Callable(kind, args, return_type) => {
                 write!(f, "Callable({kind}, {args:?}, {return_type})")
             }
