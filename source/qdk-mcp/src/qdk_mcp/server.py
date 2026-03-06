@@ -171,7 +171,7 @@ async def circuit(
         gen_method = _GENERATION_METHODS.get(generation_method)
         if gen_method is None:
             raise ToolError(
-                    f"Invalid generation_method: {generation_method!r}. Must be one of: {', '.join(repr(k) for k in _GENERATION_METHODS)}."
+                f"Invalid generation_method: {generation_method!r}. Must be one of: {', '.join(repr(k) for k in _GENERATION_METHODS)}."
             )
 
     loop = asyncio.get_event_loop()

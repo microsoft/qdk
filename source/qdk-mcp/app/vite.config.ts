@@ -10,9 +10,17 @@ export default defineConfig({
         __dirname,
         "../../../source/npm/qsharp/ux/circuit-vis",
       ),
+      "qdk-ux-css": resolve(
+        __dirname,
+        "../../../source/npm/qsharp/ux/qsharp-ux.css",
+      ),
       "qdk-circuit-css": resolve(
         __dirname,
         "../../../source/npm/qsharp/ux/qsharp-circuit.css",
+      ),
+      "qdk-theme-css": resolve(
+        __dirname,
+        "../../../source/npm/qsharp/ux/qdk-theme.css",
       ),
     },
   },

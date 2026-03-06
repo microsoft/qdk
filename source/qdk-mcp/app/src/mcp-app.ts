@@ -8,8 +8,9 @@ import {
   applyHostFonts,
 } from "@modelcontextprotocol/ext-apps";
 import { draw, type CircuitGroup } from "qdk-circuit-vis/index.js";
+import "qdk-ux-css";
 import "qdk-circuit-css";
-import "qsharp-lang/qdk-theme.css";
+import "qdk-theme-css";
 
 const container = document.getElementById("circuit-container")!;
 const status = document.getElementById("status")!;
