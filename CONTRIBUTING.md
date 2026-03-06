@@ -14,7 +14,7 @@ Have you identified a reproducible problem in the Quantum Development Kit?
 Have a feature request?
 We want to hear about it!
 
-You can follow the [template](https://github.com/microsoft/qsharp/issues/new?assignees=&labels=bug&template=bug_report.md&title=) for reporting issues on this repository.
+You can follow the [template](https://github.com/microsoft/qdk/issues/new?assignees=&labels=bug&template=bug_report.md&title=) for reporting issues on this repository.
 
 ## Contributing Code
 
@@ -31,13 +31,13 @@ we are a small team and are doing our best to be quick with responding to your i
 
 **Note:**
 Issues related to the design and evolution of the Q# language are marked with
-[Area-Language](https://github.com/microsoft/qsharp/issues?q=is%3Aissue+is%3Aopen+label%3AArea-Language).
+[Area-Language](https://github.com/microsoft/qdk/issues?q=is%3Aissue+is%3Aopen+label%3AArea-Language).
 
 If you are interested in contributing a new feature,
 please first check if a similar functionality has already been requested.
 If so, consider contributing to the discussion around it rather than filing a separate issue.
 If no open or closed issue with such a request already exists,
-please file one following the [feature request template](https://github.com/microsoft/qsharp/issues/new?assignees=&labels=feature&template=feature_request.md&title=).
+please file one following the [feature request template](https://github.com/microsoft/qdk/issues/new?assignees=&labels=feature&template=feature_request.md&title=).
 We will respond to feature requests and follow up with a discussion around its feasibility,
 how one might go about implementing it, and whether that is something we would consider adding to our repo.
 We might not be able to eventually merge even a great feature for one reason or another.
@@ -46,7 +46,7 @@ we encourage you to pursue your passion project in your own fork,
 and share and discuss your thoughts and progress on the corresponding issue.
 
 If you are looking for a place to get started with contributing code,
-search for example for the [good-first-issue](https://github.com/microsoft/qsharp/labels/good%20first%20issue) or [help-wanted](https://github.com/microsoft/qsharp/labels/help%20wanted) labels.
+search for example for the [good-first-issue](https://github.com/microsoft/qdk/labels/good%20first%20issue) or [help-wanted](https://github.com/microsoft/qdk/labels/help%20wanted) labels.
 Also, look for issues that have already been discussed in more detail,
 and check if you can help someone who has already started working on it.
 
