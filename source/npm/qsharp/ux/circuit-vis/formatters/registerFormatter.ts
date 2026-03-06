@@ -40,13 +40,11 @@ const formatRegisters = (
     for (const classical of registers[qId].children || []) {
       const ys: number[] = [];
       for (const gate of allGates.flat()) {
-        if (
-          gate.type === GateType.Group ||
-          gate.type === GateType.ClassicalControlled
-        ) {
+        if (gate.type === GateType.Group) {
           // Don't render classical wires for a group that is expanded - the wires
           // will be coming out of the measurement operations *inside* the group.
-          continue;
+          const expanded = gate.dataAttributes?.["expanded"] === "true";
+          if (expanded) continue;
         }
 
         for (const y of gate.targetsY.flat().filter((y) => y === classical.y)) {
