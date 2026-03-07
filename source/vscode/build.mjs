@@ -209,16 +209,24 @@ export async function watchVsCode() {
 
 export function copyNodeWasm() {
   const src = join(thisDir, "..", "npm", "qsharp", "lib", "nodejs");
-
-  // Copy WASM binary next to the MCP server bundle, since esbuild inlines
-  // qsc_wasm.cjs into server.js and its __dirname resolves to out/desktop/mcp/
-  const mcpDest = join(thisDir, "out", "desktop", "mcp");
   console.log("Copying Node.js WASM files from: " + src);
+
+  // The bundled server.js has TWO WASM loading paths:
+  // 1. Inlined qsc_wasm.cjs (__commonJS wrapper) uses __dirname → out/desktop/mcp/
+  // 2. Dynamic require2("../lib/nodejs/qsc_wasm.cjs") from createRequire pattern
+  //    resolves relative to server.js → out/desktop/lib/nodejs/
+  // Both paths need the .wasm file, and path 2 needs the .cjs file on disk.
+
+  // Path 1: WASM binary next to server.js for inlined loader
+  const mcpDest = join(thisDir, "out", "desktop", "mcp");
   mkdirSync(mcpDest, { recursive: true });
-  copyFileSync(
-    join(src, "qsc_wasm_bg.wasm"),
-    join(mcpDest, "qsc_wasm_bg.wasm"),
-  );
+  copyFileSync(join(src, "qsc_wasm_bg.wasm"), join(mcpDest, "qsc_wasm_bg.wasm"));
+
+  // Path 2: CJS + WASM for dynamic createRequire-based require
+  const libDest = join(thisDir, "out", "desktop", "lib", "nodejs");
+  mkdirSync(libDest, { recursive: true });
+  copyFileSync(join(src, "qsc_wasm.cjs"), join(libDest, "qsc_wasm.cjs"));
+  copyFileSync(join(src, "qsc_wasm_bg.wasm"), join(libDest, "qsc_wasm_bg.wasm"));
 }
 
 export async function buildMcpServer() {
