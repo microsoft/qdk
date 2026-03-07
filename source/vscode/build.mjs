@@ -3,7 +3,13 @@
 
 //@ts-check
 
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuildBuild, context } from "esbuild";
@@ -201,6 +207,106 @@ export async function watchVsCode() {
   ctx.watch();
 }
 
+export function copyNodeWasm() {
+  const src = join(thisDir, "..", "npm", "qsharp", "lib", "nodejs");
+
+  // Copy WASM binary next to the MCP server bundle, since esbuild inlines
+  // qsc_wasm.cjs into server.js and its __dirname resolves to out/desktop/mcp/
+  const mcpDest = join(thisDir, "out", "desktop", "mcp");
+  console.log("Copying Node.js WASM files from: " + src);
+  mkdirSync(mcpDest, { recursive: true });
+  copyFileSync(
+    join(src, "qsc_wasm_bg.wasm"),
+    join(mcpDest, "qsc_wasm_bg.wasm"),
+  );
+}
+
+export async function buildMcpServer() {
+  console.log("Building MCP server bundle");
+
+  await esbuildBuild({
+    entryPoints: [join(thisDir, "src", "desktop", "mcp", "main.ts")],
+    outfile: join(thisDir, "out", "desktop", "mcp", "server.js"),
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    target: ["es2022"],
+    sourcemap: "linked",
+    external: ["vscode"],
+    // qsharp-lang uses createRequire(import.meta.url) which is empty in CJS.
+    // Provide a shim via banner so the bundled code can resolve paths.
+    banner: {
+      js: 'var import_meta_url = typeof __filename !== "undefined" ? require("url").pathToFileURL(__filename).href : undefined;',
+    },
+    define: {
+      "import.meta.url": "import_meta_url",
+    },
+  });
+
+  console.log("MCP server bundle built");
+}
+
+export async function buildCircuitApp() {
+  console.log("Building circuit app");
+
+  const qsharpUx = join(thisDir, "..", "npm", "qsharp", "ux");
+  const qsharpSrc = join(thisDir, "..", "npm", "qsharp", "src");
+
+  const result = await esbuildBuild({
+    entryPoints: [
+      join(thisDir, "src", "desktop", "mcp", "ui", "circuit-app.tsx"),
+    ],
+    bundle: true,
+    write: false,
+    outdir: join(thisDir, "out", "desktop", "mcp"),
+    platform: "browser",
+    format: "esm",
+    target: ["es2020"],
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    minify: true,
+    sourcemap: false,
+    loader: { ".css": "css" },
+    alias: {
+      "qsharp-lang/circuit-vis": join(qsharpUx, "circuit-vis", "index.ts"),
+      "qsharp-lang/circuit-group": join(
+        qsharpSrc,
+        "data-structures",
+        "legacyCircuitUpdate.ts",
+      ),
+      "qsharp-lang/qdk-theme.css": join(qsharpUx, "qdk-theme.css"),
+      "qsharp-lang/qsharp-ux.css": join(qsharpUx, "qsharp-ux.css"),
+      "qsharp-lang/qsharp-circuit.css": join(qsharpUx, "qsharp-circuit.css"),
+    },
+  });
+
+  const template = readFileSync(
+    join(thisDir, "src", "desktop", "mcp", "ui", "circuit-app.html"),
+    "utf-8",
+  );
+
+  let js = "";
+  let css = "";
+  for (const file of result.outputFiles ?? []) {
+    if (file.path.endsWith(".js")) {
+      js += file.text;
+    } else if (file.path.endsWith(".css")) {
+      css += file.text;
+    }
+  }
+
+  const html = template.replace(
+    "</head>",
+    `<style>${css}</style>\n<script type="module">${js}</script>\n</head>`,
+  );
+
+  const outDir = join(thisDir, "out", "desktop", "mcp");
+  mkdirSync(outDir, { recursive: true });
+  writeFileSync(join(outDir, "circuit-app.html"), html);
+
+  console.log("Circuit app built");
+}
+
 const thisFilePath = resolve(fileURLToPath(import.meta.url));
 if (thisFilePath === resolve(process.argv[1])) {
   // This script being run directly (not imported)
@@ -209,7 +315,10 @@ if (thisFilePath === resolve(process.argv[1])) {
     watchVsCode();
   } else {
     copyWasmToVsCode();
+    copyNodeWasm();
     copyKatex();
     buildBundle();
+    await buildMcpServer();
+    await buildCircuitApp();
   }
 }

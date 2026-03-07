@@ -11,6 +11,15 @@ export function activate(context: vscode.ExtensionContext) {
       );
     }),
   );
+
+  const serverPath = context.asAbsolutePath("out/desktop/mcp/server.js");
+  const disposable = vscode.lm.registerMcpServerDefinitionProvider("qdk", {
+    provideMcpServerDefinitions: () => [
+      new vscode.McpStdioServerDefinition("QDK", "node", [serverPath]),
+    ],
+    onDidChangeMcpServerDefinitions: new vscode.EventEmitter<void>().event,
+  });
+  context.subscriptions.push(disposable);
 }
 
 export function deactivate() {
