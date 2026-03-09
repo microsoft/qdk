@@ -1065,7 +1065,7 @@
     ]
   },
   "scripts": {
-    "build": "npm run tsc:check && node build.mjs && node ../../node_modules/typescript/bin/tsc -p ./src/desktop/tsconfig.json && node ../../node_modules/typescript/bin/tsc -p ./src/desktop/mcp/tsconfig.json",
+    "build": "npm run tsc:check && node build.mjs && node ../../node_modules/typescript/bin/tsc -p ./src/desktop/mcp/tsconfig.json",
     "build:watch": "node build.mjs --watch",
     "start": "npm exec --no -- @vscode/test-web --extensionDevelopmentPath . ../../samples",
     "test": "node ./test/runTests.mjs -- ",

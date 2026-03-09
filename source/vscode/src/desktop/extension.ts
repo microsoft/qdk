@@ -1,17 +1,21 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+// Desktop entrypoint: activates all Q# features (language service, debugger,
+// notebooks, circuit editor, Azure, etc.) then registers the MCP server.
+
 import * as vscode from "vscode";
+import { activate as activateShared, ExtensionApi } from "../extension.js";
 
-export function activate(context: vscode.ExtensionContext) {
-  context.subscriptions.push(
-    vscode.commands.registerCommand("qsharp-vscode.helloWorld", () => {
-      vscode.window.showInformationMessage(
-        "Hello World from the Q# desktop extension host!",
-      );
-    }),
-  );
+export type { ExtensionApi };
 
+export async function activate(
+  context: vscode.ExtensionContext,
+): Promise<ExtensionApi> {
+  // Activate all shared Q# features
+  const api = await activateShared(context);
+
+  // Register the MCP server (desktop-only)
   const serverPath = context.asAbsolutePath("out/desktop/mcp/server.js");
   const disposable = vscode.lm.registerMcpServerDefinitionProvider("qdk", {
     provideMcpServerDefinitions: () => [
@@ -20,6 +24,8 @@ export function activate(context: vscode.ExtensionContext) {
     onDidChangeMcpServerDefinitions: new vscode.EventEmitter<void>().event,
   });
   context.subscriptions.push(disposable);
+
+  return api;
 }
 
 export function deactivate() {

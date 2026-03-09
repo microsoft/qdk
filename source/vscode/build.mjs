@@ -211,22 +211,116 @@ export function copyNodeWasm() {
   const src = join(thisDir, "..", "npm", "qsharp", "lib", "nodejs");
   console.log("Copying Node.js WASM files from: " + src);
 
-  // The bundled server.js has TWO WASM loading paths:
-  // 1. Inlined qsc_wasm.cjs (__commonJS wrapper) uses __dirname → out/desktop/mcp/
-  // 2. Dynamic require2("../lib/nodejs/qsc_wasm.cjs") from createRequire pattern
-  //    resolves relative to server.js → out/desktop/lib/nodejs/
+  // The bundled CJS files (server.js, extension.js) have TWO WASM loading paths:
+  // 1. Inlined qsc_wasm.cjs (__commonJS wrapper) uses __dirname
+  // 2. Dynamic require("../lib/nodejs/qsc_wasm.cjs") from createRequire pattern
+  //    resolves relative to each bundle file
   // Both paths need the .wasm file, and path 2 needs the .cjs file on disk.
 
-  // Path 1: WASM binary next to server.js for inlined loader
+  // Path 1a: WASM binary next to server.js for inlined loader
   const mcpDest = join(thisDir, "out", "desktop", "mcp");
   mkdirSync(mcpDest, { recursive: true });
-  copyFileSync(join(src, "qsc_wasm_bg.wasm"), join(mcpDest, "qsc_wasm_bg.wasm"));
+  copyFileSync(
+    join(src, "qsc_wasm_bg.wasm"),
+    join(mcpDest, "qsc_wasm_bg.wasm"),
+  );
 
-  // Path 2: CJS + WASM for dynamic createRequire-based require
-  const libDest = join(thisDir, "out", "desktop", "lib", "nodejs");
-  mkdirSync(libDest, { recursive: true });
-  copyFileSync(join(src, "qsc_wasm.cjs"), join(libDest, "qsc_wasm.cjs"));
-  copyFileSync(join(src, "qsc_wasm_bg.wasm"), join(libDest, "qsc_wasm_bg.wasm"));
+  // Path 1b: WASM binary next to desktop extension.js for inlined loader
+  const desktopDest = join(thisDir, "out", "desktop");
+  mkdirSync(desktopDest, { recursive: true });
+  copyFileSync(
+    join(src, "qsc_wasm_bg.wasm"),
+    join(desktopDest, "qsc_wasm_bg.wasm"),
+  );
+
+  // Path 2a: CJS + WASM for createRequire from out/desktop/mcp/server.js
+  //   "../lib/nodejs/qsc_wasm.cjs" → out/desktop/lib/nodejs/
+  const libDestMcp = join(thisDir, "out", "desktop", "lib", "nodejs");
+  mkdirSync(libDestMcp, { recursive: true });
+  copyFileSync(join(src, "qsc_wasm.cjs"), join(libDestMcp, "qsc_wasm.cjs"));
+  copyFileSync(
+    join(src, "qsc_wasm_bg.wasm"),
+    join(libDestMcp, "qsc_wasm_bg.wasm"),
+  );
+
+  // Path 2b: CJS + WASM for createRequire from out/desktop/extension.js
+  //   "../lib/nodejs/qsc_wasm.cjs" → out/lib/nodejs/
+  const libDestExt = join(thisDir, "out", "lib", "nodejs");
+  mkdirSync(libDestExt, { recursive: true });
+  copyFileSync(join(src, "qsc_wasm.cjs"), join(libDestExt, "qsc_wasm.cjs"));
+  copyFileSync(
+    join(src, "qsc_wasm_bg.wasm"),
+    join(libDestExt, "qsc_wasm_bg.wasm"),
+  );
+
+  // Worker bundles: each worker also loads WASM via __dirname
+  for (const workerDir of ["compiler", "debug-service", "language-service"]) {
+    const dest = join(thisDir, "out", workerDir);
+    mkdirSync(dest, { recursive: true });
+    copyFileSync(join(src, "qsc_wasm_bg.wasm"), join(dest, "qsc_wasm_bg.wasm"));
+  }
+}
+
+export async function buildDesktopExtension() {
+  console.log("Building desktop extension bundle");
+
+  const nodeWasmBanner = {
+    js: 'var import_meta_url = typeof __filename !== "undefined" ? require("url").pathToFileURL(__filename).href : undefined;',
+  };
+  const nodeWasmDefine = {
+    "import.meta.url": "import_meta_url",
+  };
+
+  await esbuildBuild({
+    entryPoints: [join(thisDir, "src", "desktop", "extension.ts")],
+    outfile: join(thisDir, "out", "desktop", "extension.js"),
+    bundle: true,
+    platform: "node",
+    format: "cjs",
+    target: ["es2022"],
+    sourcemap: "linked",
+    external: ["vscode"],
+    banner: nodeWasmBanner,
+    define: nodeWasmDefine,
+    plugins: [inlineStateComputeWorkerPlugin],
+  });
+
+  // Build Node.js worker scripts as separate bundles.
+  // The bundled extension.js resolves worker paths relative to __filename
+  // (out/desktop/extension.js), e.g. "../compiler/worker-node.js" → "out/compiler/".
+  const qsharpSrc = join(thisDir, "..", "npm", "qsharp", "src");
+  const workers = [
+    {
+      entry: join(qsharpSrc, "compiler", "worker-node.ts"),
+      outfile: join(thisDir, "out", "compiler", "worker-node.js"),
+    },
+    {
+      entry: join(qsharpSrc, "debug-service", "worker-node.ts"),
+      outfile: join(thisDir, "out", "debug-service", "worker-node.js"),
+    },
+    {
+      entry: join(qsharpSrc, "language-service", "worker-node.ts"),
+      outfile: join(thisDir, "out", "language-service", "worker-node.js"),
+    },
+  ];
+
+  await Promise.all(
+    workers.map((w) =>
+      esbuildBuild({
+        entryPoints: [w.entry],
+        outfile: w.outfile,
+        bundle: true,
+        platform: "node",
+        format: "cjs",
+        target: ["es2022"],
+        sourcemap: "linked",
+        banner: nodeWasmBanner,
+        define: nodeWasmDefine,
+      }),
+    ),
+  );
+
+  console.log("Desktop extension bundle built");
 }
 
 export async function buildMcpServer() {
@@ -326,6 +420,7 @@ if (thisFilePath === resolve(process.argv[1])) {
     copyNodeWasm();
     copyKatex();
     buildBundle();
+    await buildDesktopExtension();
     await buildMcpServer();
     await buildCircuitApp();
   }

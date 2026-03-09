@@ -22,14 +22,41 @@ import {
   ILanguageServiceWorker,
   QSharpLanguageService,
   languageServiceProtocol,
+  qsharpGithubUriScheme,
   qsharpLibraryUriScheme,
 } from "./language-service/language-service.js";
 import { log } from "./log.js";
 import { createProxy } from "./workers/node.js";
 import { ProjectLoader } from "./project.js";
+import { callAndTransformExceptions, QdkDiagnostics } from "./diagnostics.js";
 import type { IProjectHost } from "./browser.js";
 
-export { qsharpLibraryUriScheme };
+export { qsharpGithubUriScheme, qsharpLibraryUriScheme };
+export { QdkDiagnostics };
+export { QscEventTarget } from "./compiler/events.js";
+export { default as samples } from "./samples.generated.js";
+export { default as openqasm_samples } from "./openqasm-samples.generated.js";
+export { log };
+export type { LogLevel } from "./log.js";
+
+// Node.js loads WASM lazily via require(), so loadWasmModule is a no-op.
+export function loadWasmModule(
+  uriOrBuffer?: string | ArrayBuffer,
+): Promise<void> {
+  void uriOrBuffer;
+  return Promise.resolve();
+}
+
+// StepResultId enum values matching the WASM-generated enum.
+// Defined inline to avoid eagerly loading the WASM binary on module import.
+export enum StepResultId {
+  BreakpointHit = 0,
+  Next = 1,
+  StepIn = 2,
+  StepOut = 3,
+  Return = 4,
+  Fail = 5,
+}
 
 // Only load the Wasm module when first needed, as it may only be used in a Worker,
 // and not in the main thread.
@@ -91,5 +118,57 @@ export function getLanguageServiceWorker(): ILanguageServiceWorker {
   );
 }
 
+export async function getTargetProfileFromEntryPoint(
+  fileName: string,
+  source: string,
+): Promise<import("../lib/web/qsc_wasm.js").TargetProfile | undefined> {
+  ensureWasm();
+  return callAndTransformExceptions(
+    async () =>
+      wasm!.get_target_profile_from_entry_point(fileName, source) as
+        | import("../lib/web/qsc_wasm.js").TargetProfile
+        | undefined,
+  );
+}
+
 export * as utils from "./utils.js";
-export type { IVariable, IVariableChild } from "./browser.js";
+
+// Type re-exports to match browser.ts API surface
+export type {
+  IBreakpointSpan,
+  ICodeAction,
+  ICodeLens,
+  IDocFile,
+  ILocation,
+  IOperationInfo,
+  IPosition,
+  IProjectConfig,
+  IProjectHost,
+  IQSharpError,
+  IRange,
+  IStackFrame,
+  IStructStepResult,
+  ITestDescriptor,
+  IVariable,
+  IVariableChild,
+  IWorkspaceEdit,
+  VSDiagnostic,
+} from "../lib/web/qsc_wasm.js";
+export type { Dump, ShotResult } from "./compiler/common.js";
+export type { CompilerState, ProgramConfig } from "./compiler/compiler.js";
+export type {
+  LanguageServiceDiagnosticEvent,
+  LanguageServiceEvent,
+  LanguageServiceTestCallablesEvent,
+} from "./language-service/language-service.js";
+export type { ProjectLoader } from "./project.js";
+export type { CircuitGroup as CircuitData } from "./data-structures/circuit.js";
+export type {
+  ICompiler,
+  ICompilerWorker,
+  IDebugService,
+  IDebugServiceWorker,
+  ILanguageService,
+  ILanguageServiceWorker,
+};
+export type { TargetProfile, ProjectType } from "../lib/web/qsc_wasm.js";
