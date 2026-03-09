@@ -111,7 +111,7 @@ If you use Q#, Microsoft Quantum Development Kit, or Microsoft Quantum Resource 
    author = {{Microsoft}},
    license = {MIT},
    title = {{Microsoft Quantum Development Kit}},
-   url = {https://github.com/microsoft/qsharp} }
+   url = {https://github.com/microsoft/qdk} }
 ```
 
 - Q# programming language:
@@ -148,7 +148,7 @@ If you use Q#, Microsoft Quantum Development Kit, or Microsoft Quantum Resource 
 
 ## Feedback
 
-If you have feedback about the content in this repository, please let us know by filing a [new issue](https://github.com/microsoft/qsharp/issues/new/choose)!
+If you have feedback about the content in this repository, please let us know by filing a [new issue](https://github.com/microsoft/qdk/issues/new/choose)!
 
 ## Reporting Security Issues
 

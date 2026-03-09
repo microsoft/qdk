@@ -35,8 +35,8 @@ resolver = "2"
 
 [workspace.package]
 authors = ["Microsoft"]
-homepage = "https://github.com/microsoft/qsharp"
-repository = "https://github.com/microsoft/qsharp"
+homepage = "https://github.com/microsoft/qdk"
+repository = "https://github.com/microsoft/qdk"
 edition = "2024"
 license = "MIT"
 version = "0.0.0"

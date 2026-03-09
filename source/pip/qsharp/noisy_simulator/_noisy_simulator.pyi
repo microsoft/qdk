@@ -32,7 +32,7 @@ class Operation:
         ...
 
     def get_effect_matrix(self) -> List[List[complex]]:
-        """
+        r"""
         Returns effect matrix:
         $$ (\sum_i K_i^{\dagger} K_i) $$
         where $K_i$ are Kraus operators.
@@ -40,7 +40,7 @@ class Operation:
         ...
 
     def get_operation_matrix(self) -> List[List[complex]]:
-        """
+        r"""
         Return matrix representation:
         $$ \sum_i K_i \otimes K_{i}* $$
         where $K_i$ are Kraus operators.

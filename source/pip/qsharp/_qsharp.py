@@ -31,6 +31,7 @@ from typing import (
     List,
     Set,
     Iterable,
+    cast,
 )
 from .estimator._estimator import (
     EstimatorResult,
@@ -162,8 +163,10 @@ class Config:
         elif target_profile == TargetProfile.Unrestricted:
             self._config = {"targetProfile": "unrestricted"}
 
-        self._config["languageFeatures"] = language_features
-        self._config["manifest"] = manifest
+        if language_features is not None:
+            self._config["languageFeatures"] = language_features
+        if manifest is not None:
+            self._config["manifest"] = manifest
         if project_root:
             # For now, we only support local project roots, so use a file schema in the URI.
             # In the future, we may support other schemes, such as github, if/when
@@ -182,7 +185,7 @@ class Config:
     # (i.e. the language service) can read and interpret the data.
     def _repr_mimebundle_(
         self, include: Union[Any, None] = None, exclude: Union[Any, None] = None
-    ) -> Dict[str, Dict[str, str]]:
+    ) -> Dict[str, Dict[str, Any]]:
         return {"application/x.qsharp-config": self._config}
 
     def get_target_profile(self) -> str:
@@ -477,9 +480,8 @@ def eval(
             results["events"].append(output)
             results["matrices"].append(output)
         elif output.is_state_dump():
-            s = output.state_dump()
-            assert s is not None, "state_dump output is missing data"
-            state_dump = StateDump(s)
+            dump_data = cast(StateDumpData, output.state_dump())
+            state_dump = StateDump(dump_data)
             results["events"].append(state_dump)
             results["dumps"].append(state_dump)
         elif output.is_message():
@@ -754,9 +756,8 @@ def run(
         if output.is_matrix():
             results[-1]["matrices"].append(output)
         elif output.is_state_dump():
-            s = output.state_dump()
-            assert s is not None, "state_dump output is missing data"
-            results[-1]["dumps"].append(StateDump(s))
+            dump_data = cast(StateDumpData, output.state_dump())
+            results[-1]["dumps"].append(StateDump(dump_data))
         elif output.is_message():
             results[-1]["messages"].append(str(output))
 
@@ -941,18 +942,19 @@ def estimate(
     ipython_helper()
 
     def _coerce_estimator_params(
-        params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
+        params: Optional[
+            Union[Dict[str, Any], List[Dict[str, Any]], EstimatorParams]
+        ] = None,
     ) -> List[Dict[str, Any]]:
         if params is None:
-            params = [{}]
+            return [{}]
         elif isinstance(params, EstimatorParams):
             if params.has_items:
-                params = params.as_dict()["items"]
+                return cast(List[Dict[str, Any]], params.as_dict()["items"])
             else:
-                params = [params.as_dict()]
+                return [params.as_dict()]
         elif isinstance(params, dict):
-            params = [params]
-        assert isinstance(params, List)
+            return [params]
         return params
 
     params = _coerce_estimator_params(params)

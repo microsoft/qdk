@@ -137,13 +137,13 @@ fn calls_to_other_callables() {
                 0 = SubProgram name=Main location=(2-40)
                 1 = SubProgram name=Foo location=(2-138)
                 2 = SubProgram name=H location=(1-110222)
-                3 = SubProgram name=MResetZ location=(1-181274)
+                3 = SubProgram name=MResetZ location=(1-181271)
             dbg_locations:
                 [1]: scope=0 location=(2-99)
                 [2]: scope=1 location=(2-179) inlined_at=1
                 [3]: scope=2 location=(1-110294) inlined_at=2
                 [4]: scope=0 location=(2-115)
-                [5]: scope=3 location=(1-181323) inlined_at=4"#]],
+                [5]: scope=3 location=(1-181320) inlined_at=4"#]],
     );
 }
 

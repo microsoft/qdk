@@ -304,7 +304,7 @@ fn parse_namespace_block_contents(s: &mut ParserContext) -> Result<Vec<Box<Item>
     Ok(items)
 }
 
-/// See [GH Issue 941](https://github.com/microsoft/qsharp/issues/941) for context.
+/// See [GH Issue 941](https://github.com/microsoft/qdk/issues/941) for context.
 /// We want to anticipate docstrings in places people might
 /// put them, but throw them away. This is to maintain
 /// back compatibility.
