@@ -1007,22 +1007,6 @@ impl Backend for SparseSim {
 
                 Some(Ok(Value::unit()))
             }
-            "PostSelectZ" => {
-                let [result, qubit] = unwrap_tuple(arg);
-                let id = qubit.unwrap_qubit().deref().0;
-                let Value::Result(val::Result::Val(val)) = result else {
-                    return Some(Err(
-                        "first argument to PostSelectZ should be a measurement result".to_string(),
-                    ));
-                };
-                let prob = self.sim.force_collapse(val, id);
-                if prob.is_zero() {
-                    return Some(Err(
-                        "post-selection condition has zero probability".to_string()
-                    ));
-                }
-                Some(Ok(Value::unit()))
-            }
             _ => None,
         }
     }
