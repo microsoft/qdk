@@ -455,6 +455,10 @@ function NoNoise() : (Double, Double, Double) {
     (0.0, 0.0, 0.0)
 }
 
+operation PostSelectZ(res : Result, qubit : Qubit) : Unit {
+    body intrinsic;
+}
+
 export
     DumpMachine,
     DumpRegister,
@@ -475,4 +479,5 @@ export
     BitFlipNoise,
     PhaseFlipNoise,
     DepolarizingNoise,
-    NoNoise;
+    NoNoise,
+    PostSelectZ;
