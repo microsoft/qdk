@@ -4,7 +4,7 @@
 """Base Trotter class for first- and second-order Trotter-Suzuki decomposition."""
 
 
-from typing import Iterator
+from typing import Iterator, Optional
 
 
 class TrotterStep:
@@ -53,6 +53,7 @@ class TrotterStep:
         self._nterms = num_terms
         self._time_step = time_step
         self._order = 1 if num_terms > 0 else 0
+        self._repr_string: Optional[str] = None
         self.terms: list[tuple[float, int]] = [(time_step, j) for j in range(num_terms)]
 
     @property
@@ -114,7 +115,10 @@ class TrotterStep:
 
     def __repr__(self) -> str:
         """String representation of the Trotter decomposition."""
-        return f"TrotterStep(num_terms={self._nterms}, time_step={self._time_step})"
+        if self._repr_string is not None:
+            return self._repr_string
+        else:
+            return f"TrotterStep(num_terms={self._nterms}, time_step={self._time_step})"
 
 
 def suzuki_recursion(trotter: TrotterStep) -> TrotterStep:
