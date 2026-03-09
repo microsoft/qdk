@@ -287,9 +287,6 @@
         {
           "command": "qsharp-vscode.addProjectReference",
           "when": "resourceFilename == qsharp.json"
-        },
-        {
-          "command": "qsharp-vscode.updateCopilotInstructions"
         }
       ],
       "view/title": [
