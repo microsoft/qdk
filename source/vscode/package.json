@@ -522,11 +522,6 @@
         "command": "qsharp-vscode.showChangelog",
         "title": "Show Changelog",
         "category": "QDK"
-      },
-      {
-        "command": "qsharp-vscode.updateCopilotInstructions",
-        "category": "QDK",
-        "title": "Add Copilot instructions file for Q# and OpenQASM"
       }
     ],
     "breakpoints": [
