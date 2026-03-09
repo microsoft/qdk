@@ -372,7 +372,13 @@ export function initTelemetry(context: vscode.ExtensionContext) {
   if (!packageJson) {
     return;
   }
-  reporter = new TelemetryReporter(packageJson.aiKey);
+  try {
+    reporter = new TelemetryReporter(packageJson.aiKey);
+  } catch (e) {
+    // @vscode/extension-telemetry may fail in Node.js extension host
+    // (e.g. accessing navigator). Continue without telemetry.
+    log.warn("Failed to initialize telemetry reporter:", e);
+  }
   const version = context.extension?.packageJSON?.version;
   const browserAndRelease = getBrowserRelease();
   userAgentString = `VSCode/${version} ${browserAndRelease}`;
@@ -401,18 +407,35 @@ export function sendTelemetryEvent<E extends keyof EventTypes>(
   );
 }
 
-function getBrowserRelease(): string {
-  if (navigator.userAgentData?.brands) {
-    const browser =
-      navigator.userAgentData.brands[navigator.userAgentData.brands.length - 1];
-    return `${browser.brand}/${browser.version}`;
-  } else {
-    return navigator.userAgent;
+function getBrowserRelease() {
+  try {
+    if (navigator?.userAgentData?.brands) {
+      const browser =
+        navigator.userAgentData.brands[
+          navigator.userAgentData.brands.length - 1
+        ];
+      return `${browser.brand}/${browser.version}`;
+    } else if (navigator?.userAgent) {
+      return navigator.userAgent;
+    }
+  } catch {
+    // navigator may be shimmed in VS Code's Node.js extension host
   }
+  return "Node.js";
 }
 
 export function getUserAgent(): string {
-  return userAgentString || navigator.userAgent;
+  if (userAgentString) {
+    return userAgentString;
+  }
+  try {
+    if (navigator?.userAgent) {
+      return navigator.userAgent;
+    }
+  } catch {
+    // navigator may be shimmed in VS Code's Node.js extension host
+  }
+  return "Node.js";
 }
 
 export function getVisibleDocumentType(): QsharpDocumentType {

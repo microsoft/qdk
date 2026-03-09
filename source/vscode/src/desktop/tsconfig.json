@@ -1,16 +1,15 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "Node16",
-    "moduleResolution": "Node16",
-    "lib": ["ES2022"],
-    "outDir": "../../out/desktop",
-    "rootDir": ".",
-    "strict": true,
-    "sourceMap": true,
+    "moduleResolution": "Bundler",
+    "customConditions": ["browser"],
+    "isolatedModules": true,
     "esModuleInterop": true,
+    "noEmit": true,
+    "target": "ES2022",
+    "lib": ["ES2022", "WebWorker"],
+    "strict": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["./**/*.ts"]
+  "include": ["extension.ts", "../**/*.ts"]
 }
