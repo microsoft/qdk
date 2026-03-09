@@ -644,5 +644,18 @@ function updateRowHeights(
  * its children, with a dashed box around the children.
  */
 function isExpandedGroup(component: Operation) {
-  return component.dataAttributes?.["expanded"] === "true";
+  const expandedAttr = component.dataAttributes?.["expanded"];
+  if (expandedAttr != null) {
+    return expandedAttr === "true";
+  }
+
+  const hasChildren =
+    component.children != null && component.children.length > 0;
+  const hasClassicalControls =
+    component.kind === "unitary" &&
+    (((component.controls ?? []).some((reg) => reg.result != null) ?? false) ||
+      (component.metadata?.controlResultIds?.length ?? 0) > 0);
+
+  // Classically controlled groups default to expanded when not explicitly set.
+  return hasChildren && hasClassicalControls;
 }

@@ -294,7 +294,9 @@ const _opToRenderData = (
 
   const hasChildren = children != null && children.length > 0;
   const expandedAttr = dataAttributes?.["expanded"];
-  const isExpanded = expandedAttr === "true";
+  const defaultExpanded = hasClassicalControls && hasChildren;
+  const isExpanded =
+    expandedAttr === undefined ? defaultExpanded : expandedAttr === "true";
 
   // Set y coords
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
@@ -392,6 +394,14 @@ const _opToRenderData = (
       ...renderData.dataAttributes,
       ...dataAttributes,
     };
+
+  // By default, classically controlled groups are expanded unless explicitly overridden.
+  if (defaultExpanded && expandedAttr === undefined) {
+    renderData.dataAttributes = {
+      ...renderData.dataAttributes,
+      expanded: "true",
+    };
+  }
 
   return renderData;
 };
