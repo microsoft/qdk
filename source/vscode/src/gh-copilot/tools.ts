@@ -6,7 +6,6 @@ import * as vscode from "vscode";
 import { EventType, sendTelemetryEvent, UserFlowStatus } from "../telemetry";
 import { getRandomGuid } from "../utils";
 import * as azqTools from "./azureQuantumTools";
-import { updateCopilotInstructions } from "./instructions";
 import { QSharpTools } from "./qsharpTools";
 import { CopilotToolError } from "./types";
 import { ToolState } from "./azureQuantumTools";
@@ -98,6 +97,10 @@ const toolDefinitions: {
     tool: async (input) => await qsharpTools!.runResourceEstimator(input),
   },
   {
+    name: "qdk-read-instructions",
+    tool: async () => await qsharpTools!.qdkReadInstructions(),
+  },
+  {
     name: "qsharp-get-library-descriptions",
     tool: async () => await qsharpTools!.qsharpGetLibraryDescriptions(),
   },
@@ -134,8 +137,6 @@ async function invokeTool<T>(
   options: vscode.LanguageModelToolInvocationOptions<T>,
   toolFn: (input: T) => Promise<any>,
 ): Promise<vscode.LanguageModelToolResult> {
-  updateCopilotInstructions("ChatToolCall", context);
-
   const associationId = getRandomGuid();
   sendTelemetryEvent(EventType.LanguageModelToolStart, {
     associationId,

@@ -1022,6 +1022,26 @@
         }
       },
       {
+        "name": "qdk-read-instructions",
+        "tags": [
+          "azure-quantum",
+          "qsharp",
+          "qdk",
+          "openqasm"
+        ],
+        "toolReferenceName": "qdkReadInstructions",
+        "displayName": "Read Qsharp and OpenQASM Instructions Files",
+        "modelDescription": "Reads the contents of the instructions files for Q# and OpenQASM, which are intended to provide guidance to the language model on how to generate code in these languages. Call this tool whenever dealing with code generation or questions about code generation for Q# or OpenQASM, to ensure that the language model has the most up to date instructions on how to generate code in these languages according to best practices.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
         "name": "qsharp-get-library-descriptions",
         "tags": [
           "azure-quantum",
