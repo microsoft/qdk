@@ -242,20 +242,6 @@ export class QSharpTools {
     }
   }
 
-  async qdkReadInstructions(): Promise<string> {
-    const readFile = async (name: string) => {
-      const uri = vscode.Uri.joinPath(
-        this.extensionUri,
-        "resources",
-        "chat-instructions",
-        name,
-      );
-      const bytes = await vscode.workspace.fs.readFile(uri);
-      return new TextDecoder().decode(bytes);
-    };
-    return `qsharp: ${await readFile("qsharp.instructions.md")}; openqasm: ${await readFile("openqasm.instructions.md")}`;
-  }
-
   /**
    * Copilot tool: Returns a Markdown string summarizing all Q# standard library items,
    * organized by namespace. Each entry includes its signature and a short description extracted

@@ -6,7 +6,7 @@ import { EventType, sendTelemetryEvent } from "../telemetry";
 
 /**
  * Removes deprecated Copilot instructions from previous releases.
- * We have transitioned to a tool-based approach for providing instructions to Copilot.
+ * We have transitioned to a chatInstructions-based approach for providing instructions to Copilot.
  */
 export async function removeDeprecatedCopilotInstructions(
   context: vscode.ExtensionContext,

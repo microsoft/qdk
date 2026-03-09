@@ -97,10 +97,6 @@ const toolDefinitions: {
     tool: async (input) => await qsharpTools!.runResourceEstimator(input),
   },
   {
-    name: "qdk-read-instructions",
-    tool: async () => await qsharpTools!.qdkReadInstructions(),
-  },
-  {
     name: "qsharp-get-library-descriptions",
     tool: async () => await qsharpTools!.qsharpGetLibraryDescriptions(),
   },
