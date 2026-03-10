@@ -552,7 +552,9 @@ def test_run_with_result_from_qsharp_callable(capsys) -> None:
     assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
 
 
-def test_run_with_result_from_python_callable_while_global_qubits_allocated(capsys) -> None:
+def test_run_with_result_from_python_callable_while_global_qubits_allocated(
+    capsys,
+) -> None:
     qsharp.init()
     qsharp.eval("use q = Qubit();")
     qsharp.eval(
@@ -564,7 +566,9 @@ def test_run_with_result_from_python_callable_while_global_qubits_allocated(caps
     assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
 
 
-def test_run_with_result_from_qsharp_callable_while_global_qubits_allocated(capsys) -> None:
+def test_run_with_result_from_qsharp_callable_while_global_qubits_allocated(
+    capsys,
+) -> None:
     qsharp.init()
     qsharp.eval("use q = Qubit();")
     qsharp.eval(
@@ -983,6 +987,7 @@ def test_function_defined_before_namespace_keeps_both_accessible() -> None:
     assert qsharp.code.Four.Two() == 42
     from qsharp.code import Four
     from qsharp.code.Four import Two
+
     assert Four() == 4
     assert Two() == 42
 
@@ -995,6 +1000,7 @@ def test_namespace_defined_before_function_keeps_both_accessible() -> None:
     assert qsharp.code.Four.Two() == 42
     from qsharp.code import Four
     from qsharp.code.Four import Two
+
     assert Four() == 4
     assert Two() == 42
 
@@ -1079,6 +1085,55 @@ def test_circuit_with_generation_method() -> None:
         """\
         q_0    ── X ──── |0〉 ──
         q_1    ────────────────
+        """
+    )
+
+
+def test_circuit_with_static_generation_method() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qsharp.eval(
+        """
+    operation Foo() : Result {
+        use q = Qubit();
+        H(q);
+        let r = M(q);
+        if r == One { X(q); }
+        Reset(q);
+        r
+    }
+    """
+    )
+    circuit = qsharp.circuit(
+        "Foo()", generation_method=qsharp.CircuitGenerationMethod.Static
+    )
+    assert str(circuit) == dedent(
+        """\
+        q_0    ── H ──── M ──── if: c_0 = |1〉 ──── |0〉 ──
+                         ╘═══════════ ● ═════════════════
+        """
+    )
+
+
+def test_circuit_from_qsharp_callable_static() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qsharp.eval(
+        """
+    operation Foo() : Unit {
+        use q = Qubit();
+        H(q);
+        let r = M(q);
+        if r == One { X(q); }
+        Reset(q);
+    }
+    """
+    )
+    circuit = qsharp.circuit(
+        qsharp.code.Foo, generation_method=qsharp.CircuitGenerationMethod.Static
+    )
+    assert str(circuit) == dedent(
+        """\
+        q_0    ── H ──── M ──── if: c_0 = |1〉 ──── |0〉 ──
+                         ╘═══════════ ● ═════════════════
         """
     )
 

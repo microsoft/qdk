@@ -587,10 +587,19 @@ pub(crate) fn circuit_qasm_program(
 
     let package_type = PackageType::Exe;
     let language_features = LanguageFeatures::default();
+    let target_profile = if matches!(
+        config.generation_method,
+        Some(crate::interpreter::CircuitGenerationMethod::Static)
+    ) {
+        TargetProfile::Adaptive_RIF.into()
+    } else {
+        TargetProfile::Unrestricted.into()
+    };
+
     let mut interpreter = create_interpreter_from_ast(
         package,
         source_map,
-        TargetProfile::Unrestricted.into(),
+        target_profile,
         language_features,
         package_type,
     )

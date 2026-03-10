@@ -9,6 +9,7 @@ from qsharp import (
     TargetProfile,
     set_quantum_seed,
     BitFlipNoise,
+    CircuitGenerationMethod,
     QSharpError,
     Result,
     eval as qsharp_eval,
@@ -198,7 +199,11 @@ def test_run_imported_with_noise_produces_noisy_results() -> None:
         """,
         name="Program0",
     )
-    result = qsharp_run("{ use (q1, q2) = (Qubit(), Qubit()); Program0(q1, q2) }", shots=1, noise=BitFlipNoise(0.1))
+    result = qsharp_run(
+        "{ use (q1, q2) = (Qubit(), Qubit()); Program0(q1, q2) }",
+        shots=1,
+        noise=BitFlipNoise(0.1),
+    )
     assert result[0] > 5
 
     result = import_openqasm(
@@ -214,7 +219,9 @@ def test_run_imported_with_noise_produces_noisy_results() -> None:
         """,
         name="Program1",
     )
-    result = qsharp_run("{ use q = Qubit(); Program1(q) }", shots=1, noise=BitFlipNoise(0.1))
+    result = qsharp_run(
+        "{ use q = Qubit(); Program1(q) }", shots=1, noise=BitFlipNoise(0.1)
+    )
     assert result[0] > 5
 
 
@@ -626,6 +633,29 @@ def test_circuit_from_program() -> None:
     )
 
 
+def test_circuit_from_program_static() -> None:
+    init()
+
+    c = circuit(
+        """
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        bit c;
+        h q;
+        c = measure q;
+        if (c) { x q; }
+        """,
+        generation_method=CircuitGenerationMethod.Static,
+    )
+    assert str(c) == dedent(
+        """\
+        q_0    ── H ──── M ──── if: c_0 = |1〉 ──
+                         ╘═══════════ ● ════════
+        """
+    )
+
+
 def test_circuit_from_callable() -> None:
     init()
     import_openqasm(
@@ -686,7 +716,9 @@ def test_circuit_from_callable_with_single_qubit_and_qubit_registers() -> None:
         program_type=ProgramType.Operation,
         name="Foo",
     )
-    c = qsharp_circuit("{ use (qs1, a, qs2) = (Qubit[2], Qubit(), Qubit[2]); Foo(qs1, a, qs2); }")
+    c = qsharp_circuit(
+        "{ use (qs1, a, qs2) = (Qubit[2], Qubit(), Qubit[2]); Foo(qs1, a, qs2); }"
+    )
     assert str(c) == dedent(
         """\
         q_0    ── X ──
@@ -731,6 +763,33 @@ def test_circuit_with_measure_from_callable() -> None:
         """\
         q_0    ── H ──── M ──
                          ╘═══
+        """
+    )
+
+
+def test_circuit_from_callable_static() -> None:
+    init(target_profile=TargetProfile.Adaptive_RIF)
+    import_openqasm(
+        """
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        bit c;
+        h q;
+        c = measure q;
+        if (c) { x q; }
+        """,
+        program_type=ProgramType.File,
+        name="Foo",
+    )
+    c = qsharp_circuit(
+        code.qasm_import.Foo,
+        generation_method=CircuitGenerationMethod.Static,
+    )
+    assert str(c) == dedent(
+        """\
+        q_0    ── H ──── M ──── if: c_0 = |1〉 ──
+                         ╘═══════════ ● ════════
         """
     )
 

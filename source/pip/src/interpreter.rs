@@ -1400,6 +1400,7 @@ impl CircuitConfig {
 pub(crate) enum CircuitGenerationMethod {
     ClassicalEval,
     Simulate,
+    Static,
 }
 
 impl From<CircuitGenerationMethod> for qsc::interpret::CircuitGenerationMethod {
@@ -1409,6 +1410,7 @@ impl From<CircuitGenerationMethod> for qsc::interpret::CircuitGenerationMethod {
                 qsc::interpret::CircuitGenerationMethod::ClassicalEval
             }
             CircuitGenerationMethod::Simulate => qsc::interpret::CircuitGenerationMethod::Simulate,
+            CircuitGenerationMethod::Static => qsc::interpret::CircuitGenerationMethod::Static,
         }
     }
 }
