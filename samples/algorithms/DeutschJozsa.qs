@@ -11,7 +11,7 @@ import Std.Diagnostics.*;
 import Std.Math.*;
 import Std.Measurement.*;
 
-operation Main() : (Int, Bool)[] {
+operation Main() : Bool[] {
     // A Boolean function is a function that maps bitstrings to a bit:
     //     𝑓 : {0, 1}^n → {0, 1}.
 
@@ -26,29 +26,42 @@ operation Main() : (Int, Bool)[] {
 
     // Here, we demonstrate the use of the Deutsch-Jozsa algorithm by
     // determining the type (constant or balanced) of various functions.
-    let nameFunctionTypeTuples = [
-        ("SimpleConstantBoolF", SimpleConstantBoolF, true),
-        ("SimpleBalancedBoolF", SimpleBalancedBoolF, false),
-        ("ConstantBoolF", ConstantBoolF, true),
-        ("BalancedBoolF", BalancedBoolF, false)
+    let functionsToTest = [
+        SimpleConstantBoolF,
+        SimpleBalancedBoolF,
+        ConstantBoolF,
+        BalancedBoolF
     ];
 
     mutable results = [];
-    mutable idx = 0;
-    for (name, fn, shouldBeConstant) in nameFunctionTypeTuples {
+    for fn in functionsToTest {
         let isConstant = DeutschJozsa(fn, 5);
-        if (isConstant != shouldBeConstant) {
-            let shouldBeConstantStr = shouldBeConstant ? "constant" | "balanced";
-            Message($"FAILURE: {name} should be detected as {shouldBeConstantStr}");
-        } else {
-            let isConstantStr = isConstant ? "constant" | "balanced";
-            Message($"{name} is {isConstantStr}");
-        }
-        results += [(idx, isConstant)];
-        idx += 1;
+        results += [isConstant];
     }
 
     return results;
+}
+
+/// # Summary
+/// Validates the implementation of the Deutsch–Jozsa algorithm by comparing
+/// the results to the expected values.
+/// This also demonstrates how to use the `@Test` attribute to define a test operation.
+@Test()
+operation ValidateDeutschJozsa() : Unit {
+    // To see how tests verify the behavior, try changing either the algorithm or the expected values
+    // in the assertion below and observe the test failure.
+    let expectedResults = [
+        ("SimpleConstantBoolF", true),
+        ("SimpleBalancedBoolF", false),
+        ("ConstantBoolF", true),
+        ("BalancedBoolF", false)
+    ];
+    let results = Main();
+    for idx in 0..Length(expectedResults)-1 {
+        let (fnName, expected) = expectedResults[idx];
+        let actual = results[idx];
+        Fact(actual == expected, $"Function {fnName} was expected to be {(expected ? "constant" | "balanced")}, but was determined to be {(actual ? "constant" | "balanced")}.");
+    }
 }
 
 /// # Summary

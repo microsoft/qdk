@@ -40,15 +40,23 @@ operation Main() : Int[] {
         // algorithm to determine the bit string.
         let decodedBitString = BernsteinVazirani(parityOperation, nQubits);
         let decodedInteger = ResultArrayAsInt(decodedBitString);
-        if decodedInteger == integer {
-            Message($"Successfully decoded bit string as int: {decodedInteger}");
-        } else {
-            Message($"FAILED: Decoded integer {decodedInteger}, but expected {integer}.");
-        }
         decodedIntegers += [decodedInteger];
     }
 
     return decodedIntegers;
+}
+
+/// # Summary
+/// Validates the implementation of the Bernstein-Vazirani algorithm by
+/// comparing the decoded integers to the expected values.
+/// This also demonstrates how to use the `@Test` attribute to define a test operation.
+@Test()
+operation ValidateBernsteinVazirani() : Unit {
+    // To see how tests verify the behavior, try changing either the algorithm or the expected values
+    // in the assertion below and observe the test failure.
+    let integers = [127, 238, 512];
+    let results = Main();
+    Fact(results == integers, $"Decoded integers {results} do not match expected values {integers}");
 }
 
 /// # Summary

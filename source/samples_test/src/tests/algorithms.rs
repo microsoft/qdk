@@ -6,18 +6,10 @@ use expect_test::{Expect, expect};
 // Each file in the samples/algorithms folder is compiled and run as two tests and should
 // have matching expect strings in this file. If new samples are added, this file will
 // fail to compile until the new expect strings are added.
-pub const BERNSTEINVAZIRANI_EXPECT: Expect = expect![[r#"
-    Successfully decoded bit string as int: 127
-    Successfully decoded bit string as int: 238
-    Successfully decoded bit string as int: 512
-    [127, 238, 512]"#]];
-pub const BERNSTEINVAZIRANI_EXPECT_DEBUG: Expect = expect![[r#"
-    Successfully decoded bit string as int: 127
-    Successfully decoded bit string as int: 238
-    Successfully decoded bit string as int: 512
-    [127, 238, 512]"#]];
+pub const BERNSTEINVAZIRANI_EXPECT: Expect = expect!["[127, 238, 512]"];
+pub const BERNSTEINVAZIRANI_EXPECT_DEBUG: Expect = expect!["[127, 238, 512]"];
 pub const BERNSTEINVAZIRANI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 29822"];
-pub const BERNSTEINVAZIRANI_EXPECT_QIR: Expect = expect!["generated QIR of length 20763"];
+pub const BERNSTEINVAZIRANI_EXPECT_QIR: Expect = expect!["generated QIR of length 20277"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_DEBUG: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_CIRCUIT: Expect =
@@ -41,20 +33,10 @@ pub const BITFLIPCODE_EXPECT_DEBUG: Expect = expect![[r#"
     One"#]];
 pub const BITFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 8046"];
 pub const BITFLIPCODE_EXPECT_QIR: Expect = expect!["generated QIR of length 3794"];
-pub const DEUTSCHJOZSA_EXPECT: Expect = expect![[r#"
-    SimpleConstantBoolF is constant
-    SimpleBalancedBoolF is balanced
-    ConstantBoolF is constant
-    BalancedBoolF is balanced
-    [(0, true), (1, false), (2, true), (3, false)]"#]];
-pub const DEUTSCHJOZSA_EXPECT_DEBUG: Expect = expect![[r#"
-    SimpleConstantBoolF is constant
-    SimpleBalancedBoolF is balanced
-    ConstantBoolF is constant
-    BalancedBoolF is balanced
-    [(0, true), (1, false), (2, true), (3, false)]"#]];
-pub const DEUTSCHJOZSA_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 197995"];
-pub const DEUTSCHJOZSA_EXPECT_QIR: Expect = expect!["generated QIR of length 85182"];
+pub const DEUTSCHJOZSA_EXPECT: Expect = expect!["[true, false, true, false]"];
+pub const DEUTSCHJOZSA_EXPECT_DEBUG: Expect = expect!["[true, false, true, false]"];
+pub const DEUTSCHJOZSA_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 197703"];
+pub const DEUTSCHJOZSA_EXPECT_QIR: Expect = expect!["generated QIR of length 82659"];
 pub const DEUTSCHJOZSANISQ_EXPECT: Expect =
     expect!["([One, Zero, Zero, Zero, Zero], [Zero, Zero, Zero, Zero, Zero])"];
 pub const DEUTSCHJOZSANISQ_EXPECT_DEBUG: Expect =
