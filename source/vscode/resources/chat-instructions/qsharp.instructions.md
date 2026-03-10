@@ -1,13 +1,12 @@
 ---
 applyTo: "**/*.{qs,qsc,ipynb}"
+
+description: "**CRITICAL**: These instructions MUST be followed whenever you are working with any file matching the `applyTo` glob pattern above. This includes generating new code, editing existing files, answering questions, or performing any task involving Q# or quantum computing code. Never skip these instructions.
+
+Follow these instructions when generating Q# code in .qs files"
 ---
 
 # Q# coding instructions
-
-**CRITICAL**: These instructions MUST be followed whenever you are working with any file matching the `applyTo` glob pattern above. This includes generating new code, editing existing files, answering questions, or performing any task involving Q# or quantum computing code. Never skip these instructions.
-
-Follow these instructions when generating Q# code in .qs files,
-and Q# project folders that include a `qsharp.json` file.
 
 ## Syntax
 
