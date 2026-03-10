@@ -7,21 +7,21 @@ import {
   CircuitOrError,
   showCircuitCommand,
   getConfig as getCircuitConfig,
-} from "../circuit";
-import { loadCompilerWorker, toVsCodeDiagnostic } from "../common";
-import { resourceEstimateTool } from "../estimate";
-import { FullProgramConfig, getProgramForDocument } from "../programConfig";
+} from "../../circuit";
+import { loadCompilerWorker, toVsCodeDiagnostic } from "../../common";
+import { resourceEstimateTool } from "../../estimate";
+import { FullProgramConfig, getProgramForDocument } from "../../programConfig";
 import {
   determineDocumentType,
   EventType,
   QsharpDocumentType,
   sendTelemetryEvent,
   UserTaskInvocationType,
-} from "../telemetry";
-import { getRandomGuid } from "../utils";
-import { sendMessageToPanel } from "../webviewPanel.js";
+} from "../../telemetry";
+import { getRandomGuid } from "../../utils";
+import { sendMessageToPanel } from "../../webviewPanel.js";
 import { CopilotToolError } from "./types";
-import { HistogramData, runProgram } from "../run";
+import { HistogramData, runProgram } from "../../run";
 
 /**
  * In general, tool calls that deal with Q# should include this project

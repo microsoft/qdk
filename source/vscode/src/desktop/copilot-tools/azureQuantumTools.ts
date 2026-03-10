@@ -3,27 +3,27 @@
 
 import { log, TargetProfile } from "qsharp-lang";
 import * as vscode from "vscode";
-import { getTokenForWorkspace } from "../azure/auth.js";
+import { getTokenForWorkspace } from "../../azure/auth.js";
 import {
   compileAndSubmit,
   getHistogramBucketsFromData,
-} from "../azure/commands.js";
-import { QuantumUris } from "../azure/networkRequests.js";
-import { getPreferredTargetProfile } from "../azure/providerProperties.js";
+} from "../../azure/commands.js";
+import { QuantumUris } from "../../azure/networkRequests.js";
+import { getPreferredTargetProfile } from "../../azure/providerProperties.js";
 import {
   Job,
   Provider,
   Target,
   WorkspaceConnection,
   WorkspaceTreeProvider,
-} from "../azure/treeView.js";
-import { getJobFiles } from "../azure/workspaceActions.js";
-import { QirGenerationError } from "../qirGeneration.js";
-import { UserTaskInvocationType } from "../telemetry.js";
-import { sendMessageToPanel } from "../webviewPanel.js";
+} from "../../azure/treeView.js";
+import { getJobFiles } from "../../azure/workspaceActions.js";
+import { QirGenerationError } from "../../qirGeneration.js";
+import { UserTaskInvocationType } from "../../telemetry.js";
+import { sendMessageToPanel } from "../../webviewPanel.js";
 import { ProjectInfo, QSharpTools } from "./qsharpTools.js";
 import { CopilotToolError } from "./types.js";
-import { HistogramData } from "../run.js";
+import { HistogramData } from "../../run.js";
 
 export type ToolResult<T = any> = { result: T };
 /**

@@ -15,7 +15,6 @@ import { initProjectCreator } from "./createProject.js";
 import { activateDebugger } from "./debugger/activate.js";
 import { startOtherQSharpDiagnostics } from "./diagnostics.js";
 import { registerGhCopilotInstructionsCommand } from "./gh-copilot/instructions.js";
-import { registerLanguageModelTools } from "./gh-copilot/tools.js";
 import { activateLanguageService } from "./language-service/activate.js";
 import {
   Logging,
@@ -86,7 +85,6 @@ export async function activate(
   registerWebViewCommands(context);
   await initFileSystem(context);
   await initProjectCreator(context);
-  registerLanguageModelTools(context);
   // fire-and-forget
   registerGhCopilotInstructionsCommand(context);
 
