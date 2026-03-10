@@ -3,6 +3,7 @@
 
 import * as vscode from "vscode";
 import { EventType, sendTelemetryEvent } from "../telemetry";
+import { log } from "qsharp-lang";
 
 /**
  * Removes deprecated Copilot instructions that were placed by previous releases (May 2025 - Mar 2026)
@@ -68,6 +69,7 @@ async function removeOldInstructionsFilesFromGlobalStorage(
     result = true;
   } catch {
     // directory doesn't exist or we couldn't delete it
+    log.warn(`Could not delete old instructions directory at ${dir.fsPath}`);
   }
   return result;
 }
