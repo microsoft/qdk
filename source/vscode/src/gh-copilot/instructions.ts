@@ -63,20 +63,11 @@ async function removeOldInstructionsFilesFromGlobalStorage(
     "chat-instructions",
   );
 
-  for (const file of ["qsharp.instructions.md", "openqasm.instructions.md"]) {
-    try {
-      await vscode.workspace.fs.delete(vscode.Uri.joinPath(dir, file));
-      result = true;
-    } catch {
-      // file doesn't exist or we couldn't delete it
-    }
-  }
-
   try {
-    await vscode.workspace.fs.delete(dir);
+    await vscode.workspace.fs.delete(dir, { recursive: true });
     result = true;
   } catch {
-    // directory doesn't exist or isn't empty
+    // directory doesn't exist or we couldn't delete it
   }
   return result;
 }
