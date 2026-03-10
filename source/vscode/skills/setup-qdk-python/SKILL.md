@@ -1,6 +1,6 @@
 ---
 name: setup-qdk-python
-description: 'Set up Python QDK environment. Use when: user asks to "install qdk", "set up python for quantum", "configure qdk packages", "install qsharp", troubleshoot missing QDK Python packages, or needs guidance on qdk extras like qdk[qiskit], qdk[azure], qdk[mcp]. Checks current environment and provides tailored installation steps.'
+description: 'Set up Python QDK (Quantum Development Kit) environment. Use when: user asks to "install qdk", "set up python for quantum", "configure qdk packages", "install qsharp", troubleshoot missing QDK Python packages, or needs guidance on qdk extras like qdk[qiskit], qdk[azure], qdk[mcp]. Checks current environment and provides tailored installation steps.'
 ---
 
 # Set Up Python QDK Environment
@@ -28,7 +28,7 @@ Use the tool output to skip steps that are already satisfied.
 
 ## Step 2: Ensure Python is Available
 
-- **Required**: Python >= 3.10 (3.10, 3.11, 3.12, and 3.13 are supported)
+- **Required**: Python >= 3.10
 - If Python is not found, direct the user to https://www.python.org/downloads/
 - Recommend installing the **Python VS Code extension** (`ms-python.python`) for the best experience
 
@@ -93,7 +93,7 @@ Ask the user what they need:
 
 ## Step 5: Version Alignment
 
-The QDK packages **built from this repo** are versioned together and must be kept in sync:
+These QDK packages are versioned together and must be kept in sync:
 
 - `qdk` (metapackage)
 - `qsharp` (core compiler/simulator)
@@ -101,7 +101,7 @@ The QDK packages **built from this repo** are versioned together and must be kep
 - `qsharp-jupyterlab`
 - `qdk-mcp`
 
-These all share the same version number (e.g., `1.26.1234`). **Never mix versions** across these packages — if `qsharp` is at `1.26.x` but `qdk-mcp` is at `1.25.x`, things will break.
+These all share the same version number (e.g., `1.26.1234`). **Never mix versions** across these packages — if `qsharp` is at `1.26.x` but `qdk-mcp` is at `1.25.x`, things may break.
 
 Third-party and external dependencies have their own versioning:
 - `azure-quantum` — separate Microsoft product, versioned independently

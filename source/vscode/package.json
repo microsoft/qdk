@@ -1085,6 +1085,12 @@
     "chatSkills": [
       {
         "path": "./skills/setup-qdk-python/SKILL.md"
+      },
+      {
+        "path": "./skills/qdk-python-programming/SKILL.md"
+      },
+      {
+        "path": "./skills/qsharp-programming/SKILL.md"
       }
     ]
   },
