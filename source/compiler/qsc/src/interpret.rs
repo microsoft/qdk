@@ -29,7 +29,9 @@ use qsc_circuit::{
     operations::{entry_expr_for_qubit_operation, qubit_param_info},
     rir_to_circuit::rir_to_circuit,
 };
-use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable, fir_to_rir};
+use qsc_codegen::qir::{
+    fir_to_qir, fir_to_qir_from_callable, fir_to_rir, fir_to_rir_from_callable,
+};
 use qsc_data_structures::{
     error::WithSource,
     functors::FunctorApp,
@@ -1053,18 +1055,9 @@ impl Interpreter {
             }
             CircuitGenerationMethod::Static => {
                 if let Some((callable, args)) = invoke_params {
-                    // Static circuit generation from a callable is not yet supported.
-                    // Fall back to classical eval.
-                    self.invoke_with_tracing_backend(
-                        &mut TracingBackend::<SparseSim>::no_backend(&mut tracer),
-                        &mut out,
-                        callable,
-                        args,
-                        eval_config,
-                    )?;
-                } else {
-                    return self.static_circuit(entry_expr.as_deref(), tracer_config);
+                    return self.static_circuit_from_callable(&callable, args, tracer_config);
                 }
+                return self.static_circuit(entry_expr.as_deref(), tracer_config);
             }
         }
         let circuit = tracer.finish(&(self.compiler.package_store(), &self.fir_store));
@@ -1083,6 +1076,55 @@ impl Interpreter {
         let program = self.compile_to_rir_with_debug_metadata(entry_expr)?;
         rir_to_circuit(
             &program,
+            tracer_config,
+            &[self.package, self.source_package],
+            &(self.compiler.package_store(), &self.fir_store),
+        )
+        .map_err(|e| vec![e.into()])
+    }
+
+    fn static_circuit_from_callable(
+        &mut self,
+        callable: &Value,
+        args: Value,
+        tracer_config: TracerConfig,
+    ) -> std::result::Result<Circuit, Vec<Error>> {
+        if self.capabilities == TargetCapabilityFlags::all() {
+            return Err(vec![Error::UnsupportedRuntimeCapabilities]);
+        }
+
+        let Value::Global(store_item_id, _) = callable else {
+            return Err(vec![Error::NotACallable]);
+        };
+
+        let (_original, transformed) = fir_to_rir_from_callable(
+            &self.fir_store,
+            self.capabilities,
+            None,
+            *store_item_id,
+            args,
+            PartialEvalConfig {
+                generate_debug_metadata: true,
+            },
+        )
+        .map_err(|e| {
+            let hir_package_id = match e.span() {
+                Some(span) => span.package,
+                None => map_fir_package_to_hir(self.package),
+            };
+            let source_package = self
+                .compiler
+                .package_store()
+                .get(hir_package_id)
+                .expect("package should exist in the package store");
+            vec![Error::PartialEvaluation(WithSource::from_map(
+                &source_package.sources,
+                e,
+            ))]
+        })?;
+
+        rir_to_circuit(
+            &transformed,
             tracer_config,
             &[self.package, self.source_package],
             &(self.compiler.package_store(), &self.fir_store),
