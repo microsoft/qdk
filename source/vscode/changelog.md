@@ -29,7 +29,7 @@ operation Main() : Result {
 }
 ```
 
-<img width="800" alt="image" src="https://github.com/user-attachments/assets/d9301b78-08ba-4ce8-a842-57c6261e895f" />
+<img width="668" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/conditional_circuit.webp" />
 
 As with other circuit operations or gates, clicking on the box for a conditional branch will navigate to the corresponding source code location.
 
@@ -37,7 +37,7 @@ As with other circuit operations or gates, clicking on the box for a conditional
 
 The [Quantum Circuit Editor](https://learn.microsoft.com/en-us/azure/quantum/qdk-circuit-editor) now includes a state visualizer panel that shows the resulting quantum state from running the circuit, with live updates as the circuit is edited. It visualizes the probability density and phase for each basis state. The panel may be collapsed or expanded by clicking on the vertical divider.
 
-<img width="824" alt="image" src="https://github.com/user-attachments/assets/83f5c6f1-7c7e-4631-9201-f9ea7f75e227" />
+<img width="833" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/editor_state_visualizer.webp" />
 
 ### Python improvements for language interop
 
@@ -136,7 +136,7 @@ Below are some of the highlights for the 1.25 release of the QDK.
 
 The QDK has been updated to reflect Microsoft's branding for quantum computing, including updating the name of the VS Code extension to "Microsoft Quantum Development Kit" and updating the extension logo to the Mobius strip design.
 
-<img width="128" height="128" alt="mobius" src="https://github.com/user-attachments/assets/ead2c7ca-b78f-41ab-9e5c-144e7e6e9106" />
+<img width="128" alt="mobius" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/mobius_logo.webp" />
 
 ### New simulators
 
@@ -150,15 +150,13 @@ Both simulators are currently exposed via the new `NeutralAtomDevice` Python cla
 
 When running the simulators with qubit loss configured, lost qubits will be indicated in the measurement results with the special `Loss` result value when using _raw_ labels, or with a `-` character when using _ket_ labels.
 
-<img width="600" alt="NoiseConfig" src="https://github.com/user-attachments/assets/0856308f-cc50-44e8-bdd2-c4f7c0ea3d48" />
+<img width="588" alt="NoiseConfig" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/noise_with_loss.webp" />
 
 ### Neutral Atom device visualizer
 
 The `NeutralAtomDevice` class includes a `show_trace` method that takes the compiled program and visualizes the execution on an animated representation of a neutral atom device. This allows users to see how qubits are manipulated over time, including gate operations, measurements, and movement. This visualization can help with understanding the unique characteristics of neutral atom hardware, and how programs map to operations on the physical device. See the notebooks mentioned in the prior section for example usage.
 
-<video width="793" autoplay loop muted>
-    <source src="https://github.com/user-attachments/assets/1733d210-df53-4b1a-987a-0ca62c1aa79b" type="video/mp4">
-</video>
+<video src="https://raw.githubusercontent.com/microsoft/qdk/main/media/atom_circuit.mp4" autoplay loop muted playsinline></video>
 
 ### Circuit visualization improvements
 
@@ -166,15 +164,13 @@ In circuit diagrams, loops (`for`, `while`, etc.) from the source code are now r
 
 This release also includes other usability improvements to circuit diagrams, including labels at the top of expanded components, the ability to navigate to the call site of an operation by clicking on the corresponding component in the circuit diagram, and automatic expansion of trivial components.
 
-<video width="1200" autoplay loop muted>
-  <source src="https://github.com/user-attachments/assets/d8720cc4-cc63-47f7-a740-1def1700fd32" type="video/mp4">
-</video>
+<video src="https://raw.githubusercontent.com/microsoft/qdk/main/media/circuit_groups.mp4" autoplay loop muted playsinline></video>
 
 ### Molecule visualizer
 
 A `MoleculeViewer` class has been added to the collection of widgets (`from qdk.widgets import MoleculeViewer`) that can display 3D visualizations of molecules using data in `.xyz` and `.cube` formats. This is most useful when used in conjunction with the new [qdk-chemistry](https://pypi.org/project/qdk-chemistry/) package, which provides advanced tools for quantum chemistry exploration.
 
-<img width="600" alt="MoleculeViewer" src="https://github.com/user-attachments/assets/0ddb86e7-6c5c-4e8f-a9f1-747f6824461d" />
+<img width="600" alt="MoleculeViewer" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/molecule_widget.webp" />
 
 ### TableLookup library
 
