@@ -19,7 +19,7 @@ Sharpness and auto-filtering (`-af`) can help preserve details in screenshots. T
 
 Put images in this directory and use an HTML tag in the markdown file to reference them similar to the below.
 
-```html
+```text
 <img width="668" alt="description" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/filename.webp" />
 ```
 
@@ -33,7 +33,7 @@ ffmpeg -i input.mp4 -vf "scale=iw*0.5:-2:flags=lanczos,fps=15" -c:v libx264 -crf
 
 For putting videos in the markdown file, use an HTML tag similar to the below:
 
-```html
+```text
 <video src="https://raw.githubusercontent.com/microsoft/qdk/main/media/filename.mp4" autoplay loop muted playsinline></video>
 ```
 
