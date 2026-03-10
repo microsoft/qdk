@@ -29,7 +29,7 @@ operation Main() : Result {
 }
 ```
 
-<img width="800" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/conditional_circuit.webp" />
+<img width="668" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/conditional_circuit.webp" />
 
 As with other circuit operations or gates, clicking on the box for a conditional branch will navigate to the corresponding source code location.
 
@@ -37,7 +37,7 @@ As with other circuit operations or gates, clicking on the box for a conditional
 
 The [Quantum Circuit Editor](https://learn.microsoft.com/en-us/azure/quantum/qdk-circuit-editor) now includes a state visualizer panel that shows the resulting quantum state from running the circuit, with live updates as the circuit is edited. It visualizes the probability density and phase for each basis state. The panel may be collapsed or expanded by clicking on the vertical divider.
 
-<img width="824" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/editor_state_visualizer.webp" />
+<img width="833" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/editor_state_visualizer.webp" />
 
 ### Python improvements for language interop
 
@@ -150,7 +150,7 @@ Both simulators are currently exposed via the new `NeutralAtomDevice` Python cla
 
 When running the simulators with qubit loss configured, lost qubits will be indicated in the measurement results with the special `Loss` result value when using _raw_ labels, or with a `-` character when using _ket_ labels.
 
-<img width="600" alt="NoiseConfig" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/noise_with_loss.webp" />
+<img width="588" alt="NoiseConfig" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/noise_with_loss.webp" />
 
 ### Neutral Atom device visualizer
 
