@@ -136,7 +136,7 @@ Below are some of the highlights for the 1.25 release of the QDK.
 
 The QDK has been updated to reflect Microsoft's branding for quantum computing, including updating the name of the VS Code extension to "Microsoft Quantum Development Kit" and updating the extension logo to the Mobius strip design.
 
-<img width="128" height="128" alt="mobius" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/mobius_logo.webp" />
+<img width="128" alt="mobius" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/mobius_logo.webp" />
 
 ### New simulators
 
@@ -156,9 +156,7 @@ When running the simulators with qubit loss configured, lost qubits will be indi
 
 The `NeutralAtomDevice` class includes a `show_trace` method that takes the compiled program and visualizes the execution on an animated representation of a neutral atom device. This allows users to see how qubits are manipulated over time, including gate operations, measurements, and movement. This visualization can help with understanding the unique characteristics of neutral atom hardware, and how programs map to operations on the physical device. See the notebooks mentioned in the prior section for example usage.
 
-<video width="793" autoplay loop muted playsinline>
-    <source src="https://raw.githubusercontent.com/microsoft/qdk/main/media/atom_circuit.webm" type="video/webm">
-</video>
+<video src="https://raw.githubusercontent.com/microsoft/qdk/main/media/atom_circuit.mp4" autoplay loop muted playsinline></video>
 
 ### Circuit visualization improvements
 
@@ -166,9 +164,7 @@ In circuit diagrams, loops (`for`, `while`, etc.) from the source code are now r
 
 This release also includes other usability improvements to circuit diagrams, including labels at the top of expanded components, the ability to navigate to the call site of an operation by clicking on the corresponding component in the circuit diagram, and automatic expansion of trivial components.
 
-<video width="1200" autoplay loop muted playsinline>
-  <source src="https://raw.githubusercontent.com/microsoft/qdk/main/media/circuit_groups.webm" type="video/webm">
-</video>
+<video src="https://raw.githubusercontent.com/microsoft/qdk/main/media/circuit_groups.mp4" autoplay loop muted playsinline></video>
 
 ### Molecule visualizer
 
