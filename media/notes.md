@@ -2,7 +2,7 @@
 
 For publishing images and videos for VS Code and GitHub rendering, keep the following in mind.
 
-- VS Code support mp4 with limited codecs. See <https://code.visualstudio.com/api/extension-guides/webview#supported-media-formats>. For best compatibility, use H.264 video codec and remove audio (usually not needed for brief screen recordings).
+- VS Code supports mp4 with limited codecs. See <https://code.visualstudio.com/api/extension-guides/webview#supported-media-formats>. For best compatibility, use H.264 video codec and remove audio (usually not needed for brief screen recordings).
 - WebP images work well in VS Code and GitHub. They are broadly supported and significantly smaller than png files. However, using `ffmpeg` often resulted in images that wouldn't render in GitHub or VS Code. To avoid this, use the `cwebp` utility to convert PNG files to WebP format.
 
 ## Images
@@ -31,7 +31,7 @@ For `ffmpeg`, you can use the following command to convert a video to mp4 format
 ffmpeg -i input.mp4 -vf "scale=iw*0.5:-2:flags=lanczos,fps=15" -c:v libx264 -crf 28 -an output.mp4
 ```
 
-For putting videos in the markdown file, you an HTML tag similar to the below:
+For putting videos in the markdown file, use an HTML tag similar to the below:
 
 ```html
 <video src="https://raw.githubusercontent.com/microsoft/qdk/main/media/filename.mp4" autoplay loop muted playsinline></video>
