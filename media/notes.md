@@ -27,8 +27,10 @@ Put images in this directory and use an HTML tag in the markdown file to referen
 
 For `ffmpeg`, you can use the following command to convert a video to mp4 format with the H.264 codec and no audio at 15 frames per second, and also resize the video to half the resolution while maintaining the aspect ratio. The quality (`-crf 28`) is good enough for screen recordings. You can add the `-ss` and `-to` options to trim the video start and end if needed.
 
+The `-movflags +faststart` option is important for web playback, as it allows the video to start playing before it is fully downloaded. The `-pix_fmt yuv420p` option ensures compatibility with a wide range of players.
+
 ```bash
-ffmpeg -i input.mp4 -vf "scale=iw*0.5:-2:flags=lanczos,fps=15" -c:v libx264 -crf 28 -an output.mp4
+ffmpeg -i input.mp4 -vf "scale=iw*0.5:-2:flags=lanczos,fps=15" -c:v libx264 -movflags +faststart -pix_fmt yuv420p -crf 28 -an output.mp4
 ```
 
 For putting videos in the markdown file, use an HTML tag similar to the below:
