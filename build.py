@@ -185,13 +185,19 @@ def step_end():
 
 
 def install_build_package(cwd, interpreter):
-    # Ensure that the 'build' package is installed in the given interpreter
+    # Ensure that the 'build' package and maturin are installed in the given
+    # interpreter.  Installing maturin here lets us pass --no-isolation to
+    # `python -m build`, which avoids creating a temporary virtual environment
+    # on every invocation.  Those temporary environments have random paths that
+    # change PYO3_PYTHON and PATH, which invalidates all of Cargo's fingerprints
+    # and forces a full rebuild of every Rust crate.
     command_args = [
         interpreter,
         "-m",
         "pip",
         "install",
         "build",
+        "maturin~=1.10.2",
         "-v",
     ]
     subprocess.run(command_args, check=True, text=True, cwd=cwd)
@@ -352,6 +358,7 @@ def build_qsharp_wheel(cwd, interpreter, pip_env_dir):
         "-m",
         "build",
         "--wheel",
+        "--no-isolation",
         "-v",
     ]
 
@@ -367,6 +374,13 @@ def build_qsharp_wheel(cwd, interpreter, pip_env_dir):
     command_args.append(raw_wheels_dir)
 
     command_args.append(cwd)
+
+    # Ensure the maturin CLI binary (installed in the interpreter's directory)
+    # is on PATH so the maturin build backend can find it.
+    interpreter_dir = os.path.dirname(os.path.abspath(interpreter))
+    if pip_env_dir is None:
+        pip_env_dir = os.environ.copy()
+    pip_env_dir["PATH"] = interpreter_dir + os.pathsep + pip_env_dir.get("PATH", "")
 
     subprocess.run(command_args, check=True, text=True, cwd=cwd, env=pip_env_dir)
 
