@@ -41,13 +41,20 @@ async function removeOldCopilotInstructionsConfig(
     .replace(/\\/g, "/");
 
   if (locations[instructionsDir]) {
-    delete locations[instructionsDir];
-    await config.update(
-      "instructionsFilesLocations",
-      locations,
-      vscode.ConfigurationTarget.Global,
-    );
-    return true;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { [instructionsDir]: _, ...rest } = locations;
+    try {
+      await config.update(
+        "instructionsFilesLocations",
+        rest,
+        vscode.ConfigurationTarget.Global,
+      );
+      return true;
+    } catch {
+      log.warn(
+        `Could not remove old instructions directory from chat.instructionsFilesLocations config`,
+      );
+    }
   }
   return false;
 }
