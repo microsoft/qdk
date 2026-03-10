@@ -193,6 +193,22 @@ from qdk.widgets import Circuit
 Circuit(circuit)
 ```
 
+### Visualizing Circuits via MCP
+
+When the user wants to visualize a circuit generated from a Python script:
+
+1. Write a Python script that generates the circuit and prints the JSON:
+   ```python
+   import qsharp
+   qsharp.init()
+   circuit = qsharp.circuit("GHZSample(3)")
+   print(circuit.json())  # prints JSON-serialized CircuitGroup
+   ```
+2. Run the script and capture the JSON output.
+3. Call the `renderCircuit` MCP tool with the JSON string as `circuitJson`.
+
+`circuit.json()` returns a `CircuitGroup` JSON string that `renderCircuit` accepts directly.
+
 ## Resource Estimation
 
 Estimate the physical resources needed to run a quantum algorithm on fault-tolerant hardware.
@@ -433,20 +449,10 @@ Requires `pip install "qdk[jupyter]"`.
 
 ```python
 from qdk.widgets import Circuit, Histogram, EstimateDetails, SpaceChart
-
-# Circuit diagram
-Circuit(qsharp.circuit("GHZSample(3)"))
-
-# Histogram of results
-results = qsharp.run("Main()", 1000)
-Histogram(results)
-Histogram(results, labels="kets")         # ket notation
-Histogram(results, labels="kets", items="top-25")  # top 25
-
-# Resource estimation widgets
-result = qsharp.estimate("Main()")
-EstimateDetails(result)
-SpaceChart(result)
+Circuit(qsharp.circuit("GHZSample(3)"))              # circuit diagram
+Histogram(qsharp.run("Main()", 1000), labels="kets")  # histogram with ket labels
+EstimateDetails(qsharp.estimate("Main()"))            # resource estimation table
+SpaceChart(qsharp.estimate("Main()"))                 # physical qubit chart
 ```
 
 ## Seeding for Reproducibility
@@ -463,17 +469,14 @@ qsharp.set_classical_seed(42)  # deterministic classical RNG
 ```python
 for n in range(2, 20):
     result = qsharp.estimate(f"RandomCircuit({n}, 100)")
-    qubits = result["physicalCounts"]["breakdown"]["algorithmicLogicalQubits"]
-    print(f"n={n}: {qubits} logical qubits")
+    print(f"n={n}: {result['physicalCounts']['breakdown']['algorithmicLogicalQubits']} logical qubits")
 ```
 
 ### Collecting Statistics from Multi-shot Runs
 
 ```python
 from collections import Counter
-
 results = qsharp.run("Main()", 1000)
-results.sort()
 counts = Counter(str(r) for r in results)
 for outcome, count in counts.most_common():
     print(f"{outcome}: {count}")

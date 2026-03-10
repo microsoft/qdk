@@ -13,19 +13,7 @@ import {
   registerAppResource,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
-import { getCompiler } from "qsharp-lang";
 import { z } from "zod";
-
-type Compiler = ReturnType<typeof getCompiler>;
-
-let compiler: Compiler | undefined;
-
-function ensureCompiler(): Compiler {
-  if (!compiler) {
-    compiler = getCompiler();
-  }
-  return compiler;
-}
 
 export function createServer(): McpServer {
   const server = new McpServer({
@@ -33,59 +21,86 @@ export function createServer(): McpServer {
     version: "0.0.1",
   });
 
-  // --- circuit tool ---
-
   const circuitUri = "ui://qdk/circuit-app.html";
+
+  // --- renderCircuit tool ---
 
   registerAppTool(
     server,
-    "circuit",
+    "renderCircuit",
     {
-      title: "Q# Circuit",
+      title: "Render Circuit",
       description:
-        "Generate a quantum circuit diagram from Q# source code. Returns the circuit as structured JSON data and renders it visually.",
+        "Render a quantum circuit diagram from JSON circuit data. " +
+        "Accepts either a CircuitGroup object ({ circuits: [...] }) or " +
+        "a bare Circuit object ({ qubits: [...], componentGrid: [...] }). " +
+        "Use this to visualize circuit data obtained from the QDK Python library " +
+        "(e.g. qsharp.circuit(...).json()).",
       inputSchema: z.object({
-        source: z
+        circuitJson: z
           .string()
-          .describe("Q# source code to generate a circuit from."),
-        generationMethod: z
-          .enum(["simulate", "classicalEval", "static"])
-          .optional()
           .describe(
-            'Circuit generation method. "simulate" traces execution, "classicalEval" evaluates classical logic, "static" performs static analysis. Defaults to "simulate".',
+            "JSON string representing a Circuit or CircuitGroup object, " +
+            "as returned by the Python qsharp.circuit().json() method.",
           ),
       }),
       _meta: { ui: { resourceUri: circuitUri } },
     },
-    async (args: {
-      source: string;
-      generationMethod?: "simulate" | "classicalEval" | "static";
-    }): Promise<CallToolResult> => {
-      const comp = ensureCompiler();
+    async (args: { circuitJson: string }): Promise<CallToolResult> => {
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(args.circuitJson) as Record<string, unknown>;
+      } catch {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: "Invalid JSON: the circuitJson input could not be parsed.",
+            },
+          ],
+        };
+      }
 
-      const program = {
-        sources: [["main.qs", args.source]] as [string, string][],
-        languageFeatures: [] as string[],
-      };
+      // Normalize: accept both a bare Circuit ({ qubits, componentGrid })
+      // and a full CircuitGroup ({ version, circuits: [...] }).
+      // The circuit-app's toCircuitGroup() handles both, but we normalize
+      // here so the summary stats are correct.
+      let circuitData: Record<string, unknown>;
+      if (
+        typeof parsed.version === "number" &&
+        Array.isArray(parsed.circuits)
+      ) {
+        // Already a CircuitGroup
+        circuitData = parsed;
+      } else if (
+        Array.isArray(parsed.qubits) &&
+        Array.isArray(parsed.componentGrid)
+      ) {
+        // Bare Circuit — wrap into a CircuitGroup with version
+        circuitData = { version: 1, circuits: [parsed] };
+      } else {
+        circuitData = parsed;
+      }
 
-      const config = {
-        generationMethod: args.generationMethod ?? "simulate",
-        maxOperations: 10000,
-        sourceLocations: false,
-        groupByScope: false,
-      };
-
-      const circuitData = await comp.getCircuit(program, config);
-
-      const numQubits = circuitData.circuits[0]?.qubits?.length ?? 0;
-      const numOps = circuitData.circuits[0]?.componentGrid?.length ?? 0;
+      // Extract stats from the first circuit for the summary text
+      const circuits = circuitData.circuits;
+      let numQubits = 0;
+      let numOps = 0;
+      if (Array.isArray(circuits) && circuits.length > 0) {
+        const first = circuits[0] as Record<string, unknown>;
+        numQubits = Array.isArray(first.qubits) ? first.qubits.length : 0;
+        numOps = Array.isArray(first.componentGrid)
+          ? first.componentGrid.length
+          : 0;
+      }
 
       return {
-        structuredContent: circuitData as unknown as Record<string, unknown>,
+        structuredContent: circuitData,
         content: [
           {
             type: "text",
-            text: `Circuit generated: ${numQubits} qubit(s), ${numOps} gate column(s).`,
+            text: `Circuit rendered: ${numQubits} qubit(s), ${numOps} gate column(s).`,
           },
         ],
       };
