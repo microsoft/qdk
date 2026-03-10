@@ -3,6 +3,10 @@
 
 # pyright: reportPrivateImportUsage=false
 
+from collections.abc import Sequence
+from typing import Iterator, Optional
+
+
 """Base Model class for quantum spin models.
 
 This module provides the base class for representing quantum spin models
@@ -10,7 +14,12 @@ as Hamiltonians. The Model class integrates with hypergraph geometries
 to define interaction topologies and stores coefficients for each edge.
 """
 
-from qsharp.magnets.utilities import Hyperedge, Hypergraph, PauliString
+from qsharp.magnets.utilities import (
+    Hyperedge,
+    Hypergraph,
+    HypergraphEdgeColoring,
+    PauliString,
+)
 
 
 class Model:
@@ -19,8 +28,8 @@ class Model:
     This class represents a quantum spin Hamiltonian defined on a hypergraph
     geometry. The Hamiltonian is characterized by:
 
-    - Ops: A mapping from edge vertex tuples to (coefficient, PauliString) pairs
-    - Terms: Groupings of hyperedges for Trotterization or parallel execution
+    - Ops: A list of PauliStrings (one entry per interaction term)
+    - Terms: Groupings of operator indices for Trotterization or parallel execution
 
     The model is built on a hypergraph geometry that defines which qubits
     interact with each other.
@@ -43,9 +52,13 @@ class Model:
     def __init__(self, geometry: Hypergraph):
         """Initialize the Model.
 
-        Creates a quantum spin model on the given geometry. The model starts
-        with all coefficients set to zero (with identity PauliStrings) and
-        no term groupings.
+        Creates a quantum spin model on the given geometry.
+
+        The model stores operators lazily in ``_ops`` as interaction operators
+        are defined. Noncommuting collections of operators are collected in
+        ``_terms`` that stores the indices of its interaction operators. This
+        list of arrays seperate terms into parallizable groups by color. It is
+        initialized as one empty term group.
 
         Args:
             geometry: Hypergraph defining the interaction topology. The number
@@ -53,144 +66,52 @@ class Model:
         """
         self.geometry: Hypergraph = geometry
         self._qubits: set[int] = set()
-        self._ops: dict[tuple[int, ...], tuple[float, PauliString]] = dict()
+        self._ops: list[PauliString] = []
         for edge in geometry.edges():
             self._qubits.update(edge.vertices)
-            self._ops[edge.vertices] = (
-                0.0,
-                PauliString.from_qubits(edge.vertices, [0] * len(edge.vertices)),
-            )
-        self._terms: list[list[Hyperedge]] = []
+        self._terms: dict[int, dict[int, list[int]]] = {}
 
-    def get_coefficient(self, vertices: tuple[int, ...]) -> float:
-        """Get the coefficient for an edge in the Hamiltonian.
-
-        Args:
-            vertices: Tuple of vertex indices identifying the edge.
-
-        Returns:
-            The coefficient value for the specified edge.
-
-        Raises:
-            KeyError: If the vertex tuple does not correspond to an edge
-                in the geometry.
-        """
-        vertices = tuple(sorted(vertices))
-        if vertices not in self._ops:
-            raise KeyError(f"No edge with vertices {vertices} in geometry")
-        return self._ops[vertices][0]
-
-    def get_pauli_string(self, vertices: tuple[int, ...]) -> PauliString:
-        """Get the PauliString for an edge in the Hamiltonian.
-
-        Args:
-            vertices: Tuple of vertex indices identifying the edge.
-
-        Returns:
-            The PauliString for the specified edge.
-
-        Raises:
-            KeyError: If the vertex tuple does not correspond to an edge
-                in the geometry.
-        """
-        vertices = tuple(sorted(vertices))
-        if vertices not in self._ops:
-            raise KeyError(f"No edge with vertices {vertices} in geometry")
-        return self._ops[vertices][1]
-
-    def has_interaction_term(self, vertices: tuple[int, ...]) -> bool:
-        """Check if an interaction term exists for the given edge vertices.
-
-        Args:
-            vertices: Tuple of vertex indices identifying the edge.
-        Returns:
-            True if an interaction term exists for the edge, False otherwise.
-        """
-        return tuple(sorted(vertices)) in self._ops
-
-    def set_coefficient(
+    def add_interaction(
         self,
-        vertices: tuple[int, ...],
-        value: float,
+        edge: Hyperedge,
+        pauli_string: Sequence[int | str] | str,
+        coefficient: complex = 1.0,
+        term: Optional[int] = None,
+        color: int = 0,
     ) -> None:
-        """Set the coefficient for an edge in the Hamiltonian.
+        """Add an interaction term to the model.
 
         Args:
-            vertices: Tuple of vertex indices identifying the edge.
-            value: The coefficient value to set.
-
-        Raises:
-            KeyError: If the vertex tuple does not correspond to an edge
-                in the geometry.
+            edge: The Hyperedge representing the qubits involved in the interaction.
+            pauli_string: The PauliString operator for this interaction.
+            coefficient: The complex coefficient multiplying this term (default 1.0).
         """
-        vertices = tuple(sorted(vertices))
-        if vertices not in self._ops:
-            raise KeyError(f"No edge with vertices {vertices} in geometry")
-        self._ops[vertices] = (value, self._ops[vertices][1])
+        if edge not in self.geometry.edges():
+            raise ValueError("Edge is not part of the model geometry.")
+        s = PauliString.from_qubits(edge.vertices, pauli_string, coefficient)
+        self._ops.append(s)
+        if term is not None:
+            if term not in self._terms:
+                self._terms[term] = {}
+            if color not in self._terms[term]:
+                self._terms[term][color] = []
+            self._terms[term][color].append(len(self._ops) - 1)
 
-    def set_pauli_string(
-        self,
-        vertices: tuple[int, ...],
-        pauli_string: PauliString,
-    ) -> None:
-        """Set the PauliString for an edge in the Hamiltonian.
+    def terms(self, t: int) -> Iterator[PauliString]:
+        """Get the list of PauliStrings corresponding to a term group."""
+        if t not in self._terms:
+            raise ValueError("Term group does not exist.")
+        return iter([self._ops[i] for i in self._terms[t]])
 
-        Args:
-            vertices: Tuple of vertex indices identifying the edge.
-            pauli_string: The PauliString to associate with this edge.
+    @property
+    def nqubits(self) -> int:
+        """Return the number of qubits in the model."""
+        return len(self._qubits)
 
-        Raises:
-            KeyError: If the vertex tuple does not correspond to an edge
-                in the geometry.
-        """
-        vertices = tuple(sorted(vertices))
-        if vertices not in self._ops:
-            raise KeyError(f"No edge with vertices {vertices} in geometry")
-        self._ops[vertices] = (self._ops[vertices][0], pauli_string)
-
-    def set_operator(
-        self,
-        vertices: tuple[int, ...],
-        value: float,
-        pauli_string: PauliString,
-    ) -> None:
-        """Set both the coefficient and PauliString for an edge.
-
-        Convenience method that combines :meth:`set_coefficient` and
-        :meth:`set_pauli_string` in a single call.
-
-        Args:
-            vertices: Tuple of vertex indices identifying the edge.
-            value: The coefficient value to set.
-            pauli_string: The PauliString to associate with this edge.
-
-        Raises:
-            KeyError: If the vertex tuple does not correspond to an edge
-                in the geometry.
-        """
-        vertices = tuple(sorted(vertices))
-        if vertices not in self._ops:
-            raise KeyError(f"No edge with vertices {vertices} in geometry")
-        self._ops[vertices] = (value, pauli_string)
-
-    def add_term(self, edges: list[Hyperedge]) -> None:
-        """Add a term grouping to the model.
-
-        Appends a list of hyperedges as a term. Terms are used for
-        grouping edges for Trotterization or parallel execution.
-
-        Args:
-            edges: List of Hyperedge objects to group as a term.
-        """
-        self._terms.append(list(edges))
-
-    def terms(self) -> list[list[Hyperedge]]:
-        """Return the list of term groupings.
-
-        Returns:
-            List of lists of Hyperedges representing term groupings.
-        """
-        return self._terms
+    @property
+    def nterms(self) -> int:
+        """Return the number of term groups in the model."""
+        return len(self._terms)
 
     def __str__(self) -> str:
         """String representation of the model."""
@@ -203,39 +124,81 @@ class Model:
         return self.__str__()
 
 
-def translation_invariant_ising_model(
-    geometry: Hypergraph, h: float, J: float
-) -> Model:
-    """Create a translation-invariant Ising model on the given geometry.
+class IsingModel(Model):
+    """Translation-invariant Ising model on a hypergraph geometry.
 
     The Hamiltonian is:
         H = -J * Σ_{<i,j>} Z_i Z_j - h * Σ_i X_i
 
-    Two-body edges (len=2) in the geometry represent ZZ interactions with
-    coefficient -J. Single-vertex edges (len=1) represent X field terms
-    with coefficient -h. Edges are grouped into terms by their color
-    for parallel execution.
-
-    Args:
-        geometry: The Hypergraph defining the interaction topology.
-            Should include single-vertex edges for field terms.
-        h: The transverse field strength (coefficient for X terms).
-        J: The coupling strength (coefficient for ZZ interaction terms).
-
-    Returns:
-        A Model instance representing the Ising Hamiltonian.
+    - Single-vertex edges define X-field terms with coefficient ``-h``.
+    - Two-vertex edges define ZZ-coupling terms with coefficient ``-J``.
+    - Terms are grouped into two groups: ``0`` for field terms and ``1`` for
+      coupling terms.
     """
-    model = Model(geometry)
-    model._terms = [
-        [] for _ in range(geometry.ncolors + 1)
-    ]  # Initialize term groupings based on edge colors
-    for edge in geometry.edges():
-        vertices = edge.vertices
-        if len(vertices) == 1:
-            model.set_operator(vertices, -h, PauliString.from_qubits(vertices, "X"))
-        elif len(vertices) == 2:
-            model.set_operator(vertices, -J, PauliString.from_qubits(vertices, "ZZ"))
-        color = geometry.color[vertices]
-        model._terms[color].append(edge)  # Group edges by color for parallel execution
 
-    return model
+    def __init__(self, geometry: Hypergraph, h: float, J: float):
+        super().__init__(geometry)
+        self.h = h
+        self.J = J
+        self._terms = {0: {}, 1: {}}
+
+        coloring: HypergraphEdgeColoring = geometry.edge_coloring()
+        for edge in geometry.edges():
+            vertices = edge.vertices
+            if len(vertices) == 1:
+                self.add_interaction(edge, "X", -h, term=0, color=0)
+            elif len(vertices) == 2:
+                color = coloring.color(edge.vertices)
+                if color is None:
+                    raise ValueError("Geometry edge coloring failed to assign a color.")
+                self.add_interaction(edge, "ZZ", -J, term=1, color=color)
+
+    def __str__(self) -> str:
+        return (
+            f"Ising model with {self.nterms} terms on {self.nqubits} qubits "
+            f"(h={self.h}, J={self.J})."
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"IsingModel(nqubits={self.nqubits}, nterms={self.nterms}, "
+            f"h={self.h}, J={self.J})"
+        )
+
+
+class HeisenbergModel(Model):
+    """Translation-invariant Heisenberg model on a hypergraph geometry.
+
+    The Hamiltonian is:
+        H = -J * Σ_{<i,j>} (X_i X_j + Y_i Y_j + Z_i Z_j)
+
+    - Two-vertex edges define XX, YY, and ZZ coupling terms with coefficient ``-J``.
+    - Terms are grouped into three parts: ``0`` for XX, ``1`` for YY, and ``2`` for ZZ.
+    """
+
+    def __init__(self, geometry: Hypergraph, J: float):
+        super().__init__(geometry)
+        self.J = J
+        self.coloring: HypergraphEdgeColoring = geometry.edge_coloring()
+        self._terms = {0: {}, 1: {}, 2: {}}
+        for edge in geometry.edges():
+            vertices = edge.vertices
+            if len(vertices) == 2:
+                color = self.coloring.color(edge.vertices)
+                if color is None:
+                    raise ValueError("Geometry edge coloring failed to assign a color.")
+                self.add_interaction(edge, "XX", -J, term=0, color=color)
+                self.add_interaction(edge, "YY", -J, term=1, color=color)
+                self.add_interaction(edge, "ZZ", -J, term=2, color=color)
+
+    def __str__(self) -> str:
+        return (
+            f"Heisenberg model with {self.nterms} terms on {self.nqubits} qubits "
+            f"(J={self.J})."
+        )
+
+    def __repr__(self) -> str:
+        return (
+            f"HeisenbergModel(nqubits={self.nqubits}, nterms={self.nterms}, "
+            f"J={self.J})"
+        )

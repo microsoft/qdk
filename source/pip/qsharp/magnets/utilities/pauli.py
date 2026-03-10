@@ -14,28 +14,28 @@ except Exception as ex:
 
 
 class Pauli:
-    """A single-qubit Pauli operator (I, X, Y, or Z) acting on a specific qubit.
+    """Single-qubit Pauli term tied to an explicit qubit index.
 
-    Can be constructed from an integer (0–3) or a string ('I', 'X', 'Y', 'Z'),
-    along with the index of the qubit it acts on.
+    ``Pauli`` stores a Pauli identifier and the qubit it acts on. The Pauli
+    identifier can be provided either as an integer code or a label:
 
-    Mapping:
-        0 / 'I' → Identity
-        1 / 'X' → Pauli-X
-        2 / 'Z' → Pauli-Z
-        3 / 'Y' → Pauli-Y
+    - ``0`` / ``"I"``
+    - ``1`` / ``"X"``
+    - ``2`` / ``"Z"``
+    - ``3`` / ``"Y"``
 
-    Attributes:
-        qubit: The qubit index this operator acts on.
+    Note:
+        The integer mapping follows the internal QDK convention where ``2`` is
+        ``Z`` and ``3`` is ``Y``.
 
     Example:
 
     .. code-block:: python
-        >>> p = Pauli('X', 0)
+        >>> p = Pauli("Y", qubit=2)
         >>> p.op
-        1
+        3
         >>> p.qubit
-        0
+        2
     """
 
     _VALID_INTS = {0, 1, 2, 3}
@@ -45,15 +45,15 @@ class Pauli:
         """Initialize a Pauli operator.
 
         Args:
-            value: An integer 0–3 or one of 'I', 'X', 'Y', 'Z' (case-insensitive).
+            value: An integer 0-3 or one of 'I', 'X', 'Y', 'Z' (case-insensitive).
             qubit: The index of the qubit this operator acts on. Defaults to 0.
 
         Raises:
-            ValueError: If the value is not a recognized Pauli identifier.
+            ValueError: If ``value`` is not a valid integer/string Pauli identifier.
         """
         if isinstance(value, int):
             if value not in self._VALID_INTS:
-                raise ValueError(f"Integer value must be 0–3, got {value}.")
+                raise ValueError(f"Integer value must be 0-3, got {value}.")
             self._op = value
         elif isinstance(value, str):
             key = value.upper()
@@ -68,12 +68,16 @@ class Pauli:
 
     @property
     def op(self) -> int:
-        """Return the integer representation of this Pauli operator.
+        """Integer encoding of this Pauli term.
 
         Returns:
-            0 for I, 1 for X, 2 for Z, 3 for Y.
+            ``0`` for ``I``, ``1`` for ``X``, ``2`` for ``Z``, ``3`` for ``Y``.
         """
         return self._op
+
+    def __str__(self) -> str:
+        labels = {0: "I", 1: "X", 2: "Z", 3: "Y"}
+        return f"{labels[self._op]}({self.qubit})"
 
     def __repr__(self) -> str:
         labels = {0: "I", 1: "X", 2: "Z", 3: "Y"}
@@ -89,10 +93,11 @@ class Pauli:
 
     @property
     def cirq(self):
-        """Return the corresponding Cirq Pauli operator.
+        """Return this Pauli term as a Cirq gate operation on ``LineQubit``.
 
         Returns:
-            ``cirq.I``, ``cirq.X``, ``cirq.Z``, or ``cirq.Y``.
+            A Cirq operation equivalent to
+            ``cirq.{I|X|Z|Y}.on(cirq.LineQubit(self.qubit))``.
         """
         _INT_TO_CIRQ = (cirq.I, cirq.X, cirq.Z, cirq.Y)
         return _INT_TO_CIRQ[self._op].on(cirq.LineQubit(self.qubit))
@@ -114,35 +119,36 @@ def PauliZ(qubit: int) -> Pauli:
 
 
 class PauliString:
-    """A multi-qubit Pauli operator acting on specific qubits.
+    """Ordered tensor product of single-qubit ``Pauli`` terms with a coefficient.
 
-    Stores a tuple of :class:`Pauli` objects, each carrying its own qubit index.
-    Can be constructed from a sequence of ``Pauli`` instances (default), or via
-    the :meth:`from_qubits` class method which takes qubit indices and Pauli
-    labels separately.
+    ``PauliString`` stores:
 
-    Attributes:
-        _paulis: Tuple of Pauli objects defining the operator on each qubit.
+    - an ordered tuple of :class:`Pauli` objects (including each term's qubit), and
+    - a complex scalar coefficient.
+
+    Construction options:
+
+    - pass a sequence of :class:`Pauli` objects to ``PauliString(...)``
+    - use :meth:`from_qubits` to pair qubit indices with Pauli labels/codes
 
     Example:
 
     .. code-block:: python
-        >>> ps = PauliString([PauliX(0), PauliZ(1)])
+        >>> ps = PauliString([PauliX(0), PauliZ(1)], coefficient=-1j)
         >>> ps.qubits
         (0, 1)
-        >>> list(ps)
-        [Pauli(X, qubit=0), Pauli(Z, qubit=1)]
-        >>> ps2 = PauliString.from_qubits((0, 1), "XZ")
+        >>> ps2 = PauliString.from_qubits((0, 1), "XZ", coefficient=-1j)
         >>> ps == ps2
         True
     """
 
-    def __init__(self, paulis: Sequence[Pauli]) -> None:
+    def __init__(self, paulis: Sequence[Pauli], coefficient: complex = 1.0) -> None:
         """Initialize a PauliString from a sequence of Pauli operators.
 
         Args:
             paulis: A sequence of :class:`Pauli` instances, each with its
                 own qubit index.
+            coefficient: Complex coefficient multiplying the Pauli string (default 1.0).
 
         Raises:
             TypeError: If any element is not a Pauli instance.
@@ -154,20 +160,23 @@ class PauliString:
                     "Use PauliString.from_qubits() for int/str values."
                 )
         self._paulis: tuple[Pauli, ...] = tuple(paulis)
+        self._coefficient: complex = coefficient
 
     @classmethod
     def from_qubits(
         cls,
         qubits: tuple[int, ...],
         values: Sequence[int | str] | str,
+        coefficient: complex = 1.0,
     ) -> "PauliString":
         """Create a PauliString from qubit indices and Pauli labels.
 
         Args:
             qubits: Tuple of qubit indices.
-            values: Sequence of Pauli identifiers (integers 0–3 or strings
+            values: Sequence of Pauli identifiers (integers 0-3 or strings
                 'I', 'X', 'Y', 'Z'). A plain string like ``"XZI"`` is also
                 accepted and treated as individual characters.
+            coefficient: Complex coefficient multiplying the Pauli string.
 
         Returns:
             A new PauliString instance.
@@ -181,19 +190,34 @@ class PauliString:
                 f"Length mismatch: {len(qubits)} qubits vs {len(values)} values."
             )
         paulis = [Pauli(v, q) for q, v in zip(qubits, values)]
-        return cls(paulis)
+        return cls(paulis, coefficient=coefficient)
 
     @property
     def qubits(self) -> tuple[int, ...]:
-        """Return the tuple of qubit indices.
+        """Tuple of qubit indices in the same order as the stored Pauli terms.
 
         Returns:
             Tuple of qubit indices, one per Pauli operator.
         """
         return tuple(p.qubit for p in self._paulis)
 
+    @property
+    def coefficient(self) -> complex:
+        """Complex coefficient multiplying this Pauli string."""
+        return self._coefficient
+
+    @property
+    def paulis(self) -> str:
+        """String of Pauli labels in the same order as the stored Pauli terms.
+
+        Returns:
+            String of Pauli labels ('I', 'X', 'Z', 'Y'), one per Pauli operator.
+        """
+        labels = {0: "I", 1: "X", 2: "Z", 3: "Y"}
+        return "".join(labels[p.op] for p in self._paulis)
+
     def __iter__(self):
-        """Iterate over the Pauli operators in this PauliString.
+        """Iterate over Pauli terms in stored order.
 
         Yields:
             :class:`Pauli` instances in order.
@@ -206,18 +230,23 @@ class PauliString:
     def __getitem__(self, index: int) -> Pauli:
         return self._paulis[index]
 
+    def __str__(self) -> str:
+        labels = {0: "I", 1: "X", 2: "Z", 3: "Y"}
+        s = "".join(map(str, self._paulis))
+        return f"{self._coefficient} * {s}"
+
     def __repr__(self) -> str:
         labels = {0: "I", 1: "X", 2: "Z", 3: "Y"}
         s = "".join(labels[p.op] for p in self._paulis)
-        return f"PauliString(qubits={self.qubits}, ops='{s}')"
+        return f"PauliString(qubits={self.qubits}, ops='{s}', coefficient={self._coefficient})"
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, PauliString):
             return NotImplemented
-        return self._paulis == other._paulis
+        return self._paulis == other._paulis and self._coefficient == other._coefficient
 
     def __hash__(self) -> int:
-        return hash(self._paulis)
+        return hash((self._paulis, self._coefficient))
 
     @property
     def cirq(self):
@@ -227,9 +256,11 @@ class PauliString:
         Pauli to its corresponding ``cirq.LineQubit``.
 
         Returns:
-            A ``cirq.PauliString`` acting on ``cirq.LineQubit`` instances.
+            A ``cirq.PauliString`` on ``cirq.LineQubit`` instances with
+            ``self._coefficient`` as its coefficient.
         """
         _INT_TO_CIRQ = (cirq.I, cirq.X, cirq.Z, cirq.Y)
         return cirq.PauliString(
-            {cirq.LineQubit(p.qubit): _INT_TO_CIRQ[p.op] for p in self._paulis}
+            {cirq.LineQubit(p.qubit): _INT_TO_CIRQ[p.op] for p in self._paulis},
+            coefficient=self._coefficient,
         )

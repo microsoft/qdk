@@ -6,7 +6,6 @@
 from .trotter import (
     TrotterStep,
     TrotterExpansion,
-    trotter_decomposition,
     strang_splitting,
     suzuki_recursion,
     yoshida_recursion,
@@ -16,7 +15,6 @@ from .trotter import (
 __all__ = [
     "TrotterStep",
     "TrotterExpansion",
-    "trotter_decomposition",
     "strang_splitting",
     "suzuki_recursion",
     "yoshida_recursion",

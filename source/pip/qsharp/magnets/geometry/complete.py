@@ -11,7 +11,7 @@ systems with all-to-all or bipartite all-to-all interactions.
 from qsharp.magnets.utilities import (
     Hyperedge,
     Hypergraph,
-    greedy_edge_coloring,
+    HypergraphEdgeColoring,
 )
 
 
@@ -20,8 +20,6 @@ class CompleteGraph(Hypergraph):
 
     In a complete graph K_n, there are n vertices and n(n-1)/2 edges,
     with each pair of distinct vertices connected by exactly one edge.
-
-    To do: edge partitioning for parallel updates.
 
     Attributes:
         n: Number of vertices in the graph.
@@ -55,42 +53,32 @@ class CompleteGraph(Hypergraph):
                 _edges.append(Hyperedge([i, j]))
         super().__init__(_edges)
 
-        # Set colors for self-loop edges if enabled
-        if self_loops:
-            for i in range(n):
-                self.color[(i,)] = -1  # Self-loop edges get color -1
-
-        # Edge coloring for parallel updates
-        # The even case: n-1 colors are needed
-        if n % 2 == 0:
-            m = n - 1
-            for i in range(m):
-                self.color[(i, n - 1)] = (
-                    i  # Connect vertex n-1 to all others with unique colors
-                )
-                for j in range(1, (m - 1) // 2 + 1):
-                    a = (i + j) % m
-                    b = (i - j) % m
-                    if a < b:
-                        self.color[(a, b)] = i
-                    else:
-                        self.color[(b, a)] = i
-
-        # The odd case: n colors are needed
-        # This is the round-robin tournament scheduling algorithm for odd n
-        # Set m = n for ease of reading
-        else:
-            m = n
-            for i in range(m):
-                for j in range(1, (m - 1) // 2 + 1):
-                    a = (i + j) % m
-                    b = (i - j) % m
-                    if a < b:
-                        self.color[(a, b)] = i
-                    else:
-                        self.color[(b, a)] = i
-
         self.n = n
+
+    def edge_coloring(self) -> HypergraphEdgeColoring:
+        """Compute edge coloring for this complete graph."""
+        coloring = HypergraphEdgeColoring(self)
+        for edge in self.edges():
+            if len(edge.vertices) == 1:
+                coloring.add_edge(edge, -1)
+            else:
+                if self.n % 2 == 0:
+                    i, j = edge.vertices
+                    m = self.n - 1
+                    if j == m:
+                        coloring.add_edge(edge, i)
+                    elif (j - i) % 2 == 0:
+                        coloring.add_edge(edge, (j - i) // 2)
+                    else:
+                        coloring.add_edge(edge, (j - i + m) // 2)
+                else:
+                    m = self.n
+                    i, j = edge.vertices
+                    if (j - i) % 2 == 0:
+                        coloring.add_edge(edge, (j - i) // 2)
+                    else:
+                        coloring.add_edge(edge, (j - i + m) // 2)
+        return coloring
 
 
 class CompleteBipartiteGraph(Hypergraph):
@@ -103,8 +91,6 @@ class CompleteBipartiteGraph(Hypergraph):
 
     Vertices 0 to m-1 form the first set, and vertices m to m+n-1
     form the second set.
-
-    To do: edge partitioning for parallel updates.
 
     Attributes:
         m: Number of vertices in the first set.
@@ -144,21 +130,58 @@ class CompleteBipartiteGraph(Hypergraph):
         # Connect every vertex in first set to every vertex in second set
         for i in range(m):
             for j in range(m, m + n):
-                edge_idx = len(_edges)
                 _edges.append(Hyperedge([i, j]))
         super().__init__(_edges)
 
-        # Set colors for self-loop edges if enabled
-        if self_loops:
-            for i in range(total_vertices):
-                self.color[(i,)] = -1  # Self-loop edges get color -1
-
-        # Color edges based on the second vertex index to create n parallel partitions
-        for i in range(m):
-            for j in range(m, m + n):
-                self.color[(i, j)] = (
-                    i + j - m
-                ) % n  # Color edges based on second vertex index
-
         self.m = m
         self.n = n
+
+    def edge_coloring(self) -> HypergraphEdgeColoring:
+        """Compute edge coloring for this complete bipartite graph."""
+        coloring = HypergraphEdgeColoring(self)
+        m = self.m
+        n = self.n
+        for edge in self.edges():
+            if len(edge.vertices) == 1:
+                coloring.add_edge(edge, -1)
+            else:
+                i, j = edge.vertices
+                coloring.add_edge(edge, (i + j - m) % n)
+        return coloring
+
+    # Color edges based on the second vertex index to create n parallel partitions
+    # for i in range(m):
+    #    for j in range(m, m + n):
+    #        self.color[(i, j)] = (
+    #            i + j - m
+    #        ) % n  # Color edges based on second vertex index
+
+    # Edge coloring for parallel updates
+    # The even case: n-1 colors are needed
+    # if n % 2 == 0:
+    #    m = n - 1
+    #    for i in range(m):
+    #        self.color[(i, n - 1)] = (
+    #            i  # Connect vertex n-1 to all others with unique colors
+    #        )
+    #        for j in range(1, (m - 1) // 2 + 1):
+    #            a = (i + j) % m
+    #            b = (i - j) % m
+    #            if a < b:
+    #                self.color[(a, b)] = i
+    #            else:
+    #                self.color[(b, a)] = i
+
+    # The odd case: n colors are needed
+    # This is the round-robin tournament scheduling algorithm for odd n
+    # Set m = n for ease of reading
+    # else:
+    #    m = n
+    #    for i in range(m):
+    #        for j in range(1, (m - 1) // 2 + 1):
+    #            a = (i + j) % m
+    #            b = (i - j) % m
+    #            if a < b:
+    #                self.color[(a, b)] = i
+    #            else:
+    #                self.color[(b, a)] = i
