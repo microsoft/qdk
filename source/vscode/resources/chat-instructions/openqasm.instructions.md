@@ -4,6 +4,8 @@ applyTo: "**/*.{qasm,inc,ipynb}"
 
 # OpenQASM coding instructions
 
+**CRITICAL**: These instructions MUST be followed whenever you are working with any file matching the `applyTo` glob pattern above. This includes generating new code, editing existing files, answering questions, or performing any task involving OpenQASM or quantum computing code. Never skip these instructions.
+
 Follow these instructions when generating OpenQASM code in .qasm files.
 
 ## Syntax
