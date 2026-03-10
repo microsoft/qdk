@@ -827,7 +827,9 @@ class QirInputData:
         return self._ll_str
 
 
-def compile(entry_expr: Union[str, Callable, GlobalCallable, Closure], *args) -> QirInputData:
+def compile(
+    entry_expr: Union[str, Callable, GlobalCallable, Closure], *args
+) -> QirInputData:
     """
     Compiles the Q# source code into a program that can be submitted to a target.
     Either an entry expression or a callable with arguments must be provided.
@@ -910,11 +912,9 @@ def circuit(
         )
     elif isinstance(entry_expr, (GlobalCallable, Closure)):
         args = python_args_to_interpreter_args(args)
-        res = get_interpreter().circuit(
-            config=config, callable=entry_expr, args=args
-        )
+        res = get_interpreter().circuit(config=config, callable=entry_expr, args=args)
     else:
-        assert isinstance(entry_expr, str)
+        assert entry_expr is None or isinstance(entry_expr, str)
         res = get_interpreter().circuit(config, entry_expr, operation=operation)
 
     durationMs = (monotonic() - start) * 1000
@@ -968,9 +968,7 @@ def estimate(
         )
     elif isinstance(entry_expr, (GlobalCallable, Closure)):
         args = python_args_to_interpreter_args(args)
-        res_str = get_interpreter().estimate(
-            param_str, callable=entry_expr, args=args
-        )
+        res_str = get_interpreter().estimate(param_str, callable=entry_expr, args=args)
     else:
         assert isinstance(entry_expr, str)
         res_str = get_interpreter().estimate(param_str, entry_expr=entry_expr)
