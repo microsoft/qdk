@@ -683,7 +683,6 @@ if build_pip and build_widgets and args.integration_tests:
         and not (
             f.startswith("sample.")
             or f.startswith("azure_submission.")
-            or f.startswith("circuits.")
             or f.startswith("iterative_phase_estimation.")
             or f.startswith("repeat_until_success.")
             or f.startswith("python-deps.")
@@ -741,7 +740,10 @@ if build_pip and build_widgets and args.integration_tests:
     qiskit_notebooks = [
         notebook
         for notebook in notebook_files
-        if ("qiskit" in os.path.basename(notebook).lower() or "estimation-openqasm" in os.path.basename(notebook).lower())
+        if (
+            "qiskit" in os.path.basename(notebook).lower()
+            or "estimation-openqasm" in os.path.basename(notebook).lower()
+        )
     ]
     other_notebooks = [
         notebook for notebook in notebook_files if notebook not in qiskit_notebooks

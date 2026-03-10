@@ -11,7 +11,7 @@
 		},
 		"ghcr.io/devcontainers/features/rust:1": {}
 	},
-	"postCreateCommand": "cargo update --dry-run",
+	"postCreateCommand": "cargo update --dry-run && python ./prereqs.py --install",
 	"customizations": {
 		"vscode": {
 			"extensions": [
