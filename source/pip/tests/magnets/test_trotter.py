@@ -429,7 +429,7 @@ def test_trotter_expansion_num_steps_property():
     """Test TrotterExpansion num_steps property."""
     step = TrotterStep(num_terms=2, time_step=0.25)
     expansion = TrotterExpansion(step, num_steps=8)
-    assert expansion.num_steps == 8
+    assert expansion.nsteps == 8
 
 
 def test_trotter_expansion_total_time_property():
