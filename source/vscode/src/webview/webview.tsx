@@ -224,7 +224,14 @@ function App({ state }: { state: State }) {
         />
       );
     case "circuit":
-      return <CircuitPanel {...state.props}></CircuitPanel>;
+      return (
+        <CircuitPanel
+          {...state.props}
+          onExportSvg={(svgContent) =>
+            vscodeApi.postMessage({ command: "exportSvg", svgContent })
+          }
+        ></CircuitPanel>
+      );
     case "help":
       return <HelpPage />;
     case "documentation":

@@ -48,6 +48,19 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
           );
           return;
         }
+        case "exportSvg": {
+          const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file("circuit.svg"),
+            filters: { "SVG Images": ["svg"] },
+          });
+          if (uri) {
+            await vscode.workspace.fs.writeFile(
+              uri,
+              new TextEncoder().encode(e.svgContent),
+            );
+          }
+          return;
+        }
       }
     });
 

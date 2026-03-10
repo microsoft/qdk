@@ -383,16 +383,26 @@ export class QSharpWebViewPanel {
 
   private _setWebviewMessageListener(webview: Webview) {
     console.log("Setting up webview message listener");
-    webview.onDidReceiveMessage((message: any) => {
+    webview.onDidReceiveMessage(async (message: any) => {
       if (message.command === "ready") {
         this._ready = true;
         this._queuedMessages.forEach((message) =>
           this.panel.webview.postMessage(message),
         );
         this._queuedMessages = [];
+      } else if (message.command === "exportSvg") {
+        const uri = await window.showSaveDialog({
+          defaultUri: Uri.file("circuit.svg"),
+          filters: { "SVG Images": ["svg"] },
+        });
+        if (uri) {
+          await vscode.workspace.fs.writeFile(
+            uri,
+            new TextEncoder().encode(message.svgContent),
+          );
+        }
       }
 
-      // No messages are currently sent from the webview
       console.log("Message for webview received", message);
     });
   }

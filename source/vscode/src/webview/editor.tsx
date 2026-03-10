@@ -254,6 +254,9 @@ function App({ state }: { state: State }) {
             computeStateVizColumnsForCircuitModel:
               computeStateVizColumnsInWorker,
           }}
+          onExportSvg={(svgContent) =>
+            vscodeApi.postMessage({ command: "exportSvg", svgContent })
+          }
         ></CircuitPanel>
       );
     default:

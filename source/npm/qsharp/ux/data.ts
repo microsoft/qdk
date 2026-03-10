@@ -76,6 +76,13 @@ export type CircuitProps = {
   // Editor-specific handlers (callbacks, state-viz host offload, etc.).
   // When omitted, the circuit is rendered read-only.
   editor?: EditorHandlers;
+  /**
+   * Optional callback to export the circuit as an SVG string.
+   * When provided, the button calls this instead of attempting a
+   * browser-side download (which is blocked in VS Code webviews).
+   * The host is responsible for writing or presenting the file.
+   */
+  onExportSvg?: (svgContent: string) => void;
 };
 
 export type EditorHandlers = import("./circuit-vis/index.js").EditorHandlers;

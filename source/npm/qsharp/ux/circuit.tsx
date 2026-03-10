@@ -22,6 +22,7 @@ export function Circuit(props: {
   circuit?: qviz.CircuitGroup | qviz.Circuit;
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
   editor?: qviz.EditorHandlers;
+  onExportSvg?: (svgContent: string) => void;
 }) {
   const isEditable = props.editor != null;
   let unrenderable = false;
@@ -56,7 +57,11 @@ export function Circuit(props: {
           error={errorMsg}
         />
       ) : (
-        <ZoomableCircuit {...props} circuitGroup={result.circuitGroup} />
+        <ZoomableCircuit
+          {...props}
+          circuitGroup={result.circuitGroup}
+          onExportSvg={props.onExportSvg}
+        />
       )}
     </div>
   );
@@ -66,6 +71,7 @@ function ZoomableCircuit(props: {
   circuitGroup: qviz.CircuitGroup;
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
   editor?: qviz.EditorHandlers;
+  onExportSvg?: (svgContent: string) => void;
 }) {
   const circuitDiv = useRef<HTMLDivElement>(null);
   const qvizObj = useRef<ReturnType<typeof qviz.draw> | null>(null);
@@ -102,10 +108,16 @@ function ZoomableCircuit(props: {
 
   return (
     <div>
-      <div>
-        {isEditable || rendering ? null : (
+      <div class="qs-circuit-toolbar">
+        {!isEditable && !rendering ? (
           <ZoomControl zoom={zoomLevel} onInput={userSetZoomLevel} />
-        )}
+        ) : null}
+        {!rendering ? (
+          <ExportSvgButton
+            circuitGroup={props.circuitGroup}
+            onExportSvg={props.onExportSvg}
+          />
+        ) : null}
       </div>
       <div>
         {rendering
@@ -168,6 +180,34 @@ function Unrenderable(props: {
   }
 
   return <div class="qs-circuit-error">{errorDiv}</div>;
+}
+
+function ExportSvgButton(props: {
+  circuitGroup: qviz.CircuitGroup;
+  onExportSvg?: (svgContent: string) => void;
+}) {
+  function handleExport() {
+    const svgString = qviz.exportToSvg(props.circuitGroup);
+    if (props.onExportSvg) {
+      // VS Code webviews block anchor-click downloads; the host handles saving.
+      props.onExportSvg(svgString);
+    } else {
+      // Browser / Jupyter fallback: trigger a direct download.
+      const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgString)}`;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "circuit.svg";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  }
+
+  return (
+    <button class="qs-circuit-export-btn" onClick={handleExport}>
+      Export SVG
+    </button>
+  );
 }
 
 function ZoomControl(props: { zoom: number; onInput: (zoom: number) => void }) {
@@ -240,6 +280,7 @@ export function CircuitPanel(props: CircuitProps) {
           circuit={props.circuit}
           renderLocations={renderLocations}
           editor={props.editor}
+          onExportSvg={props.onExportSvg}
         ></Circuit>
       ) : null}
     </div>
