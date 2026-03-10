@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 
 // Minimal type definitions for the Python Environments extension API.

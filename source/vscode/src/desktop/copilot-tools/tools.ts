@@ -91,10 +91,6 @@ const toolDefinitions: {
     tool: async (input) => await qsharpTools!.runProgram(input),
   },
   {
-    name: "qdk-generate-circuit",
-    tool: async (input) => await qsharpTools!.generateCircuit(input),
-  },
-  {
     name: "qdk-run-resource-estimator",
     tool: async (input) => await qsharpTools!.runResourceEstimator(input),
   },

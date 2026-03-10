@@ -956,33 +956,6 @@
         }
       },
       {
-        "name": "qdk-generate-circuit",
-        "tags": [
-          "azure-quantum",
-          "qsharp",
-          "qdk",
-          "openqasm"
-        ],
-        "toolReferenceName": "qdkGenerateCircuit",
-        "displayName": "Generate Quantum Circuit Diagram",
-        "modelDescription": "Generates a visual circuit diagram for a Q# or OpenQASM program. The path to a .qs or .qasm file must be specified in the `filePath` parameter. This tool will compile the program and generate a quantum circuit diagram that visually represents the quantum operations in the code. If the program contains any dynamic behavior such as comparing measurement results, then the program will be executed using a quantum simulator, and the resulting circuit diagram will simply be a trace of the operations that were actually executed during simulation. The diagram will be displayed in a dedicated circuit panel.",
-        "canBeReferencedInPrompt": true,
-        "icon": "./resources/file-icon-light.svg",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "filePath": {
-              "type": "string",
-              "description": "The absolute path to the .qs or .qasm file. If this file is part of a project, the whole project will be compiled as the program. A .qs file belongs to a project if it resides anywhere under a src/ directory whose parent directory also contains a qsharp.json manifest."
-            }
-          },
-          "required": [
-            "filePath"
-          ],
-          "additionalProperties": false
-        }
-      },
-      {
         "name": "qdk-run-resource-estimator",
         "tags": [
           "azure-quantum",
