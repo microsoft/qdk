@@ -7,6 +7,7 @@ import { EventType, sendTelemetryEvent, UserFlowStatus } from "../telemetry";
 import { getRandomGuid } from "../utils";
 import * as azqTools from "./azureQuantumTools";
 import { updateCopilotInstructions } from "./instructions";
+import { initPythonQdkEnvironment } from "./pythonEnvTools";
 import { QSharpTools } from "./qsharpTools";
 import { CopilotToolError } from "./types";
 import { ToolState } from "./azureQuantumTools";
@@ -100,6 +101,10 @@ const toolDefinitions: {
   {
     name: "qsharp-get-library-descriptions",
     tool: async () => await qsharpTools!.qsharpGetLibraryDescriptions(),
+  },
+  {
+    name: "qdk-init-python-environment",
+    tool: async () => await initPythonQdkEnvironment(),
   },
 ];
 

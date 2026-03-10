@@ -1055,12 +1055,36 @@
           "required": [],
           "additionalProperties": false
         }
+      },
+      {
+        "name": "qdk-init-python-environment",
+        "tags": [
+          "qsharp",
+          "qdk",
+          "python"
+        ],
+        "toolReferenceName": "qdkInitPythonEnvironment",
+        "displayName": "Initialize Python QDK Environment",
+        "modelDescription": "Checks the user's Python environment for QDK package availability. Detects whether the Python Environments VS Code extension is installed, gets the active Python environment and installed packages, and checks for the required QDK Python packages ('qdk' and 'qdk-mcp'). Returns the environment status and actionable setup instructions if packages are missing or Python is not configured. Call this tool when the user wants to use Python-based QDK tooling, or when you need to verify their Python QDK setup.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
       }
     ],
     "mcpServerDefinitionProviders": [
       {
         "id": "qdk",
         "label": "QDK - Quantum Development Kit"
+      }
+    ],
+    "chatSkills": [
+      {
+        "path": "./skills/setup-qdk-python/SKILL.md"
       }
     ]
   },
