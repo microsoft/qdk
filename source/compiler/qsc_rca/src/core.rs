@@ -260,7 +260,7 @@ impl<'a> Analyzer<'a> {
                 derive_runtime_features_for_value_kind_associated_to_type(value_kind, expr_type);
 
             let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
-            if value_kind.is_dynamic()
+            if value_kind == ValueKind::Dynamic
                 && matches!(lhs_expr_ty, Ty::Prim(Prim::String))
                 && expr_type == &Ty::Prim(Prim::Bool)
             {
