@@ -2,18 +2,28 @@
 // Licensed under the MIT license.
 
 import { RegisterMap } from "../register.js";
-import { regLineStart } from "../constants.js";
+import {
+  regLineStart,
+  classicalStubLength,
+  gateHeight,
+  controlCircleRadius,
+} from "../constants.js";
 import { GateRenderData, GateType } from "../gateRenderData.js";
+import { ClassicalWireLayout } from "../classicalWireAnalysis.js";
 import { group, line } from "./formatUtils.js";
 
 /**
  * Generate the SVG representation of the qubit register wires in `registers` and the classical wires
  * stemming from each measurement gate.
  *
- * @param registers    Map from register IDs to register render data.
- * @param allGates     All the gates in the circuit.
- * @param endX         End x-coordinate for the whole circuit.
- *                     All wires will stretch to this x-coordinate.
+ * Unused results (not feeding a classically-controlled gate) render as a short
+ * vertical stub below the measurement box.  Used results extend horizontally
+ * only to the rightmost consuming ClassicalControlled gate.
+ *
+ * @param registers           Map from register IDs to register render data.
+ * @param allGates            All the gates in the circuit.
+ * @param endX                End x-coordinate for the whole circuit.
+ * @param classicalWireLayout Layout information for classical wires.
  *
  * @returns SVG representation of register wires.
  */
@@ -21,6 +31,7 @@ const formatRegisters = (
   registers: RegisterMap,
   allGates: GateRenderData[],
   endX: number,
+  classicalWireLayout: ClassicalWireLayout,
 ): SVGElement => {
   const qubitRegs: SVGElement[] = [];
   const classicalRegs: SVGElement[] = [];
@@ -37,38 +48,112 @@ const formatRegisters = (
     );
 
     // Render classical wires
-    for (const classical of registers[qId].children || []) {
-      const ys: number[] = [];
-      for (const gate of allGates.flat()) {
-        if (
-          gate.type === GateType.Group ||
-          gate.type === GateType.ClassicalControlled
-        ) {
-          // Don't render classical wires for a group that is expanded - the wires
-          // will be coming out of the measurement operations *inside* the group.
-          continue;
-        }
+    const children = registers[qId].children || [];
+    for (let resultIdx = 0; resultIdx < children.length; resultIdx++) {
+      const classical = children[resultIdx];
+      const wireKey = `${qId}-${resultIdx}`;
+      const wireInfo = classicalWireLayout.wireInfos.get(wireKey);
+      const isUsed = wireInfo?.isUsedAsControl ?? false;
 
-        for (const y of gate.targetsY.flat().filter((y) => y === classical.y)) {
-          if (ys.includes(y)) {
+      if (!isUsed) {
+        // Unused result: short vertical stub only.
+        // Find the measurement gate that produces this result by wire key.
+        for (const gate of allGates.flat()) {
+          if (gate.type === GateType.Measure && gate.resultWireKey === wireKey) {
+            const qubitY = gate.controlsY[0];
+            // Start the stub at the bottom edge of the gate box,
+            // not at the qubit wire (which is the gate center).
+            const gateBoxBottom = qubitY + gateHeight / 2;
+            classicalRegs.push(
+              _classicalStub(
+                gate.x,
+                gateBoxBottom,
+                gateBoxBottom + classicalStubLength,
+              ),
+            );
+            break;
+          }
+        }
+      } else {
+        // Used result: vertical connector + horizontal wire to the rightmost
+        // ClassicalControlled gate's control circle x.
+        // Find the measurement gate by wire key for the startX, and find the
+        // consuming gate for the endX.
+        const wireRange = classicalWireLayout.wireRanges.get(wireKey);
+
+        for (const gate of allGates.flat()) {
+          if (gate.type !== GateType.Measure || gate.resultWireKey !== wireKey) {
             continue;
           }
-          ys.push(y);
-          // Found the gate that this classical wire originates from. Draw
-          // it starting at this gates x-coordinate.
 
-          // If this is a measurement gate, there is a vertical line
-          // going down from the gate to the wire
-          const verticalY =
-            gate.type === GateType.Measure ? gate.controlsY[0] : undefined;
+          // Found the measurement gate that produces this wire.
+          const verticalY = gate.controlsY[0];
 
-          classicalRegs.push(_classicalRegister(gate.x, endX, y, verticalY));
+          // Determine the end x for this wire.
+          // Scan allGates for ClassicalControlled gates that consume
+          // this specific wire key — use the rightmost one's control circle x.
+          let wireEndX = endX;
+          if (wireRange) {
+            let maxCtrlX = gate.x;
+            for (const ctrlGate of allGates.flat()) {
+              if (ctrlGate.type === GateType.ClassicalControlled) {
+                if (ctrlGate.controlWireKeys?.includes(wireKey)) {
+                  // The control circle is at the left edge of the gate
+                  // bounding box + controlCircleRadius.
+                  const circleX =
+                    ctrlGate.x -
+                    ctrlGate.width / 2 +
+                    controlCircleRadius;
+                  maxCtrlX = Math.max(maxCtrlX, circleX);
+                }
+              }
+            }
+            wireEndX = maxCtrlX;
+          }
+
+          classicalRegs.push(
+            _classicalRegister(gate.x, wireEndX, classical.y, verticalY),
+          );
+          break;
         }
       }
     }
   }
 
   return group(qubitRegs.concat(classicalRegs), { class: "wires" });
+};
+
+/**
+ * Generates the SVG representation of a short vertical classical stub
+ * (for measurement results that are not used as controls).
+ *
+ * @param x      x coord of the measurement gate center.
+ * @param startY y coord of the qubit wire.
+ * @param endY   y coord of the stub bottom.
+ *
+ * @returns SVG group with the stub lines.
+ */
+const _classicalStub = (
+  x: number,
+  startY: number,
+  endY: number,
+): SVGElement => {
+  const wirePadding = 1;
+  const vLine1: SVGElement = line(
+    x + wirePadding,
+    startY,
+    x + wirePadding,
+    endY,
+    "register-classical",
+  );
+  const vLine2: SVGElement = line(
+    x - wirePadding,
+    startY,
+    x - wirePadding,
+    endY,
+    "register-classical",
+  );
+  return group([vLine1, vLine2]);
 };
 
 /**

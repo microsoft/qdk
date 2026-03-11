@@ -18,6 +18,7 @@ import {
 } from "./circuit.js";
 import { GateRenderData, GateType } from "./gateRenderData.js";
 import { Register, RegisterMap } from "./register.js";
+import { ClassicalWireLayout } from "./classicalWireAnalysis.js";
 import { getMinGateWidth } from "./utils.js";
 
 /**
@@ -38,6 +39,7 @@ const processOperations = (
   topY: number,
   bottomY: number,
   registers: RegisterMap,
+  classicalWireLayout: ClassicalWireLayout,
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
 ): {
   renderDataArray: GateRenderData[][];
@@ -58,9 +60,9 @@ const processOperations = (
   let maxTopPadding = 0;
   let maxBottomPadding = 0;
 
-  // Get classical registers and their starting column index
-  const classicalRegs: [number, Register][] =
-    _getClassicalRegStarts(componentGrid);
+  // Get active classical registers (those with horizontal wires) and their column ranges
+  const classicalRegs: [number, number, Register][] =
+    _getActiveClassicalRegRanges(componentGrid, classicalWireLayout);
 
   // Map operation index to gate render data for formatting later
   const renderDataArray: GateRenderData[][] = componentGrid.map(
@@ -69,19 +71,23 @@ const processOperations = (
         const renderData: GateRenderData = _opToRenderData(
           op,
           registers,
+          classicalWireLayout,
           renderLocations,
         );
 
         let targets: Register[];
         switch (op.kind) {
           case "unitary":
-            targets = op.targets;
+            // For collapsed unitary operations, classical result targets are
+            // internal details and should not inflate the gate box.
+            // Filter them out so the box only spans qubit wires.
+            targets = op.targets.filter((reg) => reg.result == null);
             break;
           case "measurement":
             targets = op.qubits;
             break;
           case "ket":
-            targets = op.targets;
+            targets = op.targets.filter((reg) => reg.result == null);
             break;
         }
         const minTargetY = Math.min(...(renderData.targetsY as number[]));
@@ -106,10 +112,13 @@ const processOperations = (
           // If gate is a unitary type, split targetsY into groups if there
           // is a classical register between them for rendering
 
-          // Get y coordinates of classical registers in the same column as this operation
+          // Get y coordinates of classical registers active in the same column as this operation
           const classicalRegY: number[] = classicalRegs
-            .filter(([regCol]) => regCol <= colIndex)
-            .map(([, reg]) => {
+            .filter(
+              ([startCol, endCol]) =>
+                startCol <= colIndex && endCol >= colIndex,
+            )
+            .map(([, , reg]) => {
               if (reg.result == null)
                 throw new Error("Could not find cId for classical register.");
               const { children } = registers[reg.qubit];
@@ -153,33 +162,45 @@ const processOperations = (
 };
 
 /**
- * Retrieves the starting index of each classical register.
+ * Retrieves the column ranges of classical registers that have active
+ * horizontal wires (i.e., results used as controls).
  *
- * @param componentGrid Grid of circuit components.
+ * @param componentGrid       Grid of circuit components.
+ * @param classicalWireLayout The layout information for classical wires.
  *
- * @returns Array of classical register and their starting column indices in the form [[column, register]].
+ * @returns Array of [startCol, endCol, register] triples for active wires only.
  */
-const _getClassicalRegStarts = (
+const _getActiveClassicalRegRanges = (
   componentGrid: ComponentGrid,
-): [number, Register][] => {
-  const clsRegs: [number, Register][] = [];
+  classicalWireLayout: ClassicalWireLayout,
+): [number, number, Register][] => {
+  const result: [number, number, Register][] = [];
   componentGrid.forEach((col, colIndex) => {
     col.components.forEach((op) => {
       if (op.kind === "measurement") {
-        const resultRegs: Register[] = op.results.filter(
+        const resultRegs: Register[] = (op.results || []).filter(
           ({ result }) => result !== undefined,
         );
-        resultRegs.forEach((reg) => clsRegs.push([colIndex, reg]));
+        for (const reg of resultRegs) {
+          if (reg.result == null) continue;
+          const key = `${reg.qubit}-${reg.result}`;
+          const range = classicalWireLayout.wireRanges.get(key);
+          if (range) {
+            result.push([colIndex, range.endCol, reg]);
+          }
+        }
       } else if (op.children != null) {
-        const componentGrid = op.children;
-        const childClsRegs = _getClassicalRegStarts(componentGrid);
-        childClsRegs.forEach(([, reg]) => {
-          clsRegs.push([colIndex, reg]);
-        });
+        const childRanges = _getActiveClassicalRegRanges(
+          op.children,
+          classicalWireLayout,
+        );
+        for (const [, endCol, reg] of childRanges) {
+          result.push([colIndex, endCol, reg]);
+        }
       }
     });
   });
-  return clsRegs;
+  return result;
 };
 
 /**
@@ -194,6 +215,7 @@ const _getClassicalRegStarts = (
 const _opToRenderData = (
   op: Operation | null,
   registers: RegisterMap,
+  classicalWireLayout: ClassicalWireLayout,
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
 ): GateRenderData => {
   const renderData: GateRenderData = {
@@ -241,7 +263,17 @@ const _opToRenderData = (
 
   // Set y coords
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
-  renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
+  // For collapsed unitary/ket operations, classical result targets are internal
+  // details and should not inflate the gate box height. Map them to their parent
+  // qubit's y-position. For expanded groups (AsGroup) and classically-controlled
+  // ops, keep full target span so the dashed border encompasses all children.
+  const isCollapsed =
+    !isConditional && conditionalRender !== ConditionalRender.AsGroup;
+  renderData.targetsY = targets.map((reg) =>
+    isCollapsed && op.kind !== "measurement" && reg.result != null
+      ? registers[reg.qubit].y
+      : _getRegY(reg, registers),
+  );
 
   if (isConditional) {
     // Classically-controlled operations
@@ -253,7 +285,13 @@ const _opToRenderData = (
     renderData.type = GateType.ClassicalControlled;
     renderData.label = gate;
 
-    _processChildren(renderData, children, registers, renderLocations);
+    _processChildren(
+      renderData,
+      children,
+      registers,
+      classicalWireLayout,
+      renderLocations,
+    );
 
     // Fill in the ID to be displayed in each control wire's circle.
     renderData.classicalControlIds =
@@ -265,6 +303,12 @@ const _opToRenderData = (
             )?.[1],
         )
         .map((id) => id ?? null) || [];
+
+    // Store wire keys so registerFormatter can match by key, not y-position.
+    renderData.controlWireKeys =
+      controls
+        ?.filter((reg) => reg.result != null)
+        .map((reg) => `${reg.qubit}-${reg.result}`) || [];
 
     // Add additional width for classical control circle
     renderData.width += controlCircleOffset;
@@ -281,9 +325,22 @@ const _opToRenderData = (
     renderData.dataAttributes = { expanded: "true" };
     renderData.label = gate;
 
-    _processChildren(renderData, children, registers, renderLocations);
+    _processChildren(
+      renderData,
+      children,
+      registers,
+      classicalWireLayout,
+      renderLocations,
+    );
   } else if (op.kind === "measurement") {
     renderData.type = GateType.Measure;
+    // Record the wire key so registerFormatter can match this gate to
+    // the correct result without relying on y-position (which may be
+    // shared when multiple results occupy the same slot).
+    if (op.results.length > 0) {
+      const r = op.results[0];
+      renderData.resultWireKey = `${r.qubit}-${r.result}`;
+    }
   } else if (op.kind === "ket") {
     renderData.type = GateType.Ket;
     renderData.label = gate;
@@ -494,12 +551,14 @@ const _offsetChildrenX = (
  * @param renderData        Render data of the parent operation, to be updated with children data.
  * @param children          Nested operations to be processed.
  * @param registers         Mapping from qubit IDs to register render data.
+ * @param classicalWireLayout Classical wire layout information.
  * @param renderLocations   Optional function to map source locations to link hrefs and titles
  */
 function _processChildren(
   renderData: GateRenderData,
   children: ComponentGrid,
   registers: RegisterMap,
+  classicalWireLayout: ClassicalWireLayout,
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
 ) {
   const topY = Math.min(...(renderData.targetsY as number[]));
@@ -510,6 +569,7 @@ function _processChildren(
     topY,
     bottomY,
     registers,
+    classicalWireLayout,
     renderLocations,
   );
 

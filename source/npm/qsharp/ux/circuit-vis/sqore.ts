@@ -5,6 +5,7 @@ import { formatInputs } from "./formatters/inputFormatter.js";
 import { formatGates } from "./formatters/gateFormatter.js";
 import { formatRegisters } from "./formatters/registerFormatter.js";
 import { processOperations } from "./process.js";
+import { computeClassicalWireLayout } from "./classicalWireAnalysis.js";
 import {
   ConditionalRender,
   Circuit,
@@ -340,6 +341,12 @@ export class Sqore {
     // expanded group borders need to fit between qubit wires.
     const rowHeights = getRowHeights(qubits, componentGrid);
 
+    // Analyze classical wire usage and compute slot-based layout.
+    const classicalWireLayout = computeClassicalWireLayout(
+      componentGrid,
+      qubits,
+    );
+
     const isEditable = this.options.editor != null;
 
     // Draw the qubit labels.
@@ -347,6 +354,7 @@ export class Sqore {
     const { qubitLabels, registers, svgHeight } = formatInputs(
       qubits,
       rowHeights,
+      classicalWireLayout,
       isEditable ? undefined : this.options.renderLocations,
     );
 
@@ -360,6 +368,7 @@ export class Sqore {
       topY,
       bottomY,
       registers,
+      classicalWireLayout,
       isEditable ? undefined : this.options.renderLocations,
     );
 
@@ -371,6 +380,7 @@ export class Sqore {
       registers,
       flatten(renderDataArray),
       svgWidth,
+      classicalWireLayout,
     );
 
     const composedSqore: ComposedSqore = {

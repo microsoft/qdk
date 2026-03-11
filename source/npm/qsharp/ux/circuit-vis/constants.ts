@@ -36,6 +36,8 @@ export const groupTopPadding =
 export const controlCircleOffset = 40;
 /** Classical control circle radius. */
 export const controlCircleRadius = 15;
+/** Length of the short vertical stub below a measurement box for unused classical results. */
+export const classicalStubLength = 12;
 /** Default font size for gate arguments. */
 export const argsFontSize = 12;
 /** Starting x coord for each register wire. */

@@ -7,11 +7,13 @@ import {
   leftPadding,
   startY,
   classicalRegHeight,
+  classicalStubLength,
   groupTopPadding,
   groupBottomPadding,
   gateHeight,
   gatePadding,
 } from "../constants.js";
+import { ClassicalWireLayout } from "../classicalWireAnalysis.js";
 import { createSvgElement, group, text } from "./formatUtils.js";
 import { mathChars } from "../utils.js";
 
@@ -32,6 +34,7 @@ const formatInputs = (
       heightBelowWire: number;
     };
   },
+  classicalWireLayout: ClassicalWireLayout,
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
 ): { qubitLabels: SVGElement; registers: RegisterMap; svgHeight: number } => {
   const qubitLabels: SVGElement[] = [];
@@ -112,33 +115,47 @@ const formatInputs = (
     //             ╎└╌╌╌╌╌┘╎
     //             └╌╌╌╌╌╌╌┘
 
-    // Increment current height by classical register height for attached classical registers
-
     // Add classical wires
-    registers[id].children = Array.from(Array(numResults ?? 0), () => {
+    // Slot-based allocation: used results get dedicated vertical slots,
+    // unused results share a short stub position just below the gate box.
+    const numSlots = classicalWireLayout.maxSlots.get(id) ?? 0;
+    // stubY sits at the tip of the visual stub, which starts at gateBoxBottom
+    // (= qubitY + gateHeight/2 = currY - gatePadding) and extends classicalStubLength below it.
+    const gateBoxBottom = currY - gatePadding;
+    const stubY = gateBoxBottom + classicalStubLength;
+
+    registers[id].children = Array.from(
+      Array(numResults ?? 0),
+      (_, resultIdx) => {
+        const key = `${id}-${resultIdx}`;
+        const slot = classicalWireLayout.slotAssignment.get(key);
+        let regY: number;
+        if (slot != null) {
+          // Used result: dedicated y position based on slot index.
+          regY = currY + (slot + 1) * (gateHeight / 2 + gatePadding);
+        } else {
+          // Unused result: shared stub position.
+          regY = stubY;
+        }
+        const clsReg: RegisterRenderData = {
+          type: RegisterType.Classical,
+          y: regY,
+        };
+        return clsReg;
+      },
+    );
+
+    // Advance currY: used slots get full-height vertical space,
+    // unused stubs still need enough room so they don't overlap the next qubit.
+    if (numSlots > 0) {
+      currY += numSlots * (gateHeight / 2 + gatePadding);
+      // Add space below the last result wire so the enclosing dashed box
+      // (which extends gateHeight/2 + groupBottomPadding below the wire)
+      // does not overlap the next sibling group's dashed box.
       currY += gateHeight / 2 + gatePadding;
-
-      //             ┌╌╌╌╌╌╌╌┐
-      //             ╎┌╌╌╌╌╌┐╎
-      //             ╎╎     ╎╎
-      //             ╎╎ ┌─┐ ╎╎
-      //          ───┼┼─│X│─┼┼──
-      //             ╎╎ └╥┘ ╎╎
-      //             ╎╎  ║  ╎╎
-      // currY ->    ╎╎  ╚══╪╪══
-      //             ╎╎     ╎╎
-      //             ╎└╌╌╌╌╌┘╎
-      //             └╌╌╌╌╌╌╌┘
-
-      const clsReg: RegisterRenderData = {
-        type: RegisterType.Classical,
-        y: currY,
-      };
-
-      currY += gateHeight / 2 + gatePadding;
-
-      return clsReg;
-    });
+    } else if ((numResults ?? 0) > 0) {
+      currY += classicalStubLength;
+    }
 
     //             ┌╌╌╌╌╌╌╌┐
     //             ╎┌╌╌╌╌╌┐╎
