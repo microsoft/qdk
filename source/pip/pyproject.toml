@@ -29,3 +29,4 @@ build-backend = "maturin"
 
 [tool.maturin]
 module-name = "qsharp._native"
+use-base-python = true
