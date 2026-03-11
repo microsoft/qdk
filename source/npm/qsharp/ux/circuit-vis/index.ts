@@ -37,25 +37,6 @@ export const draw = (
   };
 };
 
-/**
- * Export a circuit visualization as a standalone SVG string.
- *
- * The returned string is a fully self-contained SVG document with inlined
- * styles; it can be written directly to a `.svg` file or embedded in HTML
- * without requiring any external stylesheet or VS Code theme variables.
- *
- * @param circuitGroup Group of circuits to be visualized.
- * @param options Optional rendering options (same subset as `draw`).
- * @returns SVG markup string starting with an XML declaration.
- */
-export const exportToSvg = (
-  circuitGroup: CircuitGroup,
-  options: Pick<DrawOptions, "renderDepth" | "renderLocations"> = {},
-): string => {
-  const sqore = new Sqore(circuitGroup, options);
-  return sqore.toSvgString();
-};
-
 export type { DrawOptions, EditorHandlers } from "./sqore.js";
 
 // Export types

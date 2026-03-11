@@ -114,7 +114,7 @@ function ZoomableCircuit(props: {
         ) : null}
         {!rendering ? (
           <ExportSvgButton
-            circuitGroup={props.circuitGroup}
+            circuitRef={circuitDiv}
             onExportSvg={props.onExportSvg}
           />
         ) : null}
@@ -182,12 +182,74 @@ function Unrenderable(props: {
   return <div class="qs-circuit-error">{errorDiv}</div>;
 }
 
+/**
+ * Captures the already-rendered `svg.qviz` element from the given container,
+ * inlines all computed styles (so CSS variables are resolved to their actual
+ * values from the current host theme), strips interactive-only elements, and
+ * returns a standalone SVG string.
+ */
+function captureRenderedSvg(container: HTMLElement | null): string {
+  if (!container) return "";
+  const liveSvg = container.querySelector("svg.qviz") as SVGElement | null;
+  if (!liveSvg) return "";
+
+  const clone = liveSvg.cloneNode(true) as SVGElement;
+
+  // Inline computed styles from the live element tree into the clone so that
+  // CSS class rules and custom properties resolve to their actual values.
+  inlineComputedStyles(liveSvg, clone);
+
+  // Remove elements that are interactive-only and look wrong in a static file.
+  clone
+    .querySelectorAll(
+      ".gate-expand, .gate-collapse, .dropzone-layer, .dropzone, .dropzone-full-wire",
+    )
+    .forEach((el) => el.remove());
+
+  // Remove the dynamic inline width override; viewBox handles sizing.
+  clone.removeAttribute("style");
+
+  const serializer = new XMLSerializer();
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${serializer.serializeToString(clone)}`;
+}
+
+/** Recursively inline SVG presentation properties from computed styles. */
+function inlineComputedStyles(live: Element, clone: Element): void {
+  const computed = getComputedStyle(live);
+  const presentationProps = [
+    "fill",
+    "stroke",
+    "stroke-width",
+    "stroke-opacity",
+    "fill-opacity",
+    "opacity",
+    "display",
+    "visibility",
+    "font-size",
+    "font-family",
+    "font-style",
+    "font-weight",
+    "text-anchor",
+    "dominant-baseline",
+  ];
+  for (const prop of presentationProps) {
+    const val = computed.getPropertyValue(prop);
+    if (val) (clone as SVGElement).style.setProperty(prop, val);
+  }
+  const liveChildren = Array.from(live.children);
+  const cloneChildren = Array.from(clone.children);
+  for (let i = 0; i < liveChildren.length; i++) {
+    inlineComputedStyles(liveChildren[i], cloneChildren[i]);
+  }
+}
+
 function ExportSvgButton(props: {
-  circuitGroup: qviz.CircuitGroup;
+  circuitRef: { current: HTMLElement | null };
   onExportSvg?: (svgContent: string) => void;
 }) {
   function handleExport() {
-    const svgString = qviz.exportToSvg(props.circuitGroup);
+    const svgString = captureRenderedSvg(props.circuitRef.current);
+    if (!svgString) return;
     if (props.onExportSvg) {
       // VS Code webviews block anchor-click downloads; the host handles saving.
       props.onExportSvg(svgString);

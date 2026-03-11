@@ -76,70 +76,6 @@ export type DrawOptions = {
 };
 
 /**
- * CSS styles embedded into standalone SVG exports.
- * Uses hardcoded colour values (the fallback values from qsharp-circuit.css)
- * so the file is self-contained and renders correctly outside a browser that
- * has the VS Code theme variables defined.
- */
-const SVG_EXPORT_STYLES = `
-  /* Wires and gate outlines */
-  line, circle, rect { stroke: #000000; stroke-width: 1; }
-
-  /* Qubit label text */
-  text {
-    fill: #000000;
-    dominant-baseline: middle;
-    text-anchor: middle;
-    user-select: none;
-    pointer-events: none;
-  }
-
-  .qs-maintext { font-family: Arial, "Helvetica Neue", sans-serif; font-style: normal; }
-  .qs-mathtext { font-family: Georgia, serif; }
-  .gate .qs-group-label { fill: #000000; text-anchor: start; }
-
-  /* Gate backgrounds */
-  .gate-unitary { fill: #333333; }
-
-  /* Gate label text */
-  .gate text { fill: #ffffff; }
-
-  /* Controlled-gate dot and line */
-  .control-line, .control-dot { fill: #000000; }
-
-  /* X / target gate (oplus) */
-  .oplus > line, .oplus > circle { fill: #ffffff; stroke: #000000; stroke-width: 2; }
-
-  /* Measurement gate */
-  .gate-measure { fill: #007acc; }
-  .qs-line-measure, .arc-measure { stroke: #ffffff; fill: none; stroke-width: 1; }
-
-  /* Ket gate */
-  .gate-ket { fill: #007acc; }
-  text.ket-text { fill: #ffffff; stroke: none; }
-
-  /* SWAP gate */
-  rect.gate-swap { fill: transparent; stroke: transparent; }
-
-  /* Classical wires */
-  .register-classical { stroke-width: 0.5; }
-
-  /* Conditional circuits */
-  .hidden { display: none; }
-  .classically-controlled-btn circle { fill: #ffffff; stroke-width: 1; }
-  .classically-controlled-btn text {
-    dominant-baseline: middle;
-    text-anchor: middle;
-    stroke: none;
-    font-family: Arial, sans-serif;
-    fill: #000000;
-  }
-
-  /* Expand/collapse controls – hidden in static export */
-  .gate-collapse, .gate-expand { display: none; }
-`;
-
-/**
  * Entrypoint class for rendering circuit visualizations.
  */
 export class Sqore {
@@ -598,50 +534,6 @@ export class Sqore {
         }
       }),
     );
-  }
-
-  /**
-   * Render the circuit as a self-contained SVG string suitable for saving to a
-   * `.svg` file or embedding in HTML without any external stylesheet.
-   *
-   * The returned string begins with the XML declaration and includes an
-   * inlined `<style>` block with hardcoded colour values so the output looks
-   * correct without VS Code theme variables.
-   *
-   * @returns SVG markup as a string.
-   */
-  toSvgString(): string {
-    // Build a fresh circuit copy (same pipeline as renderCircuit, minus DOM injection)
-    const _circuit: Circuit = JSON.parse(JSON.stringify(this.circuit));
-
-    _circuit.componentGrid.forEach((col, colIndex) =>
-      col.components.forEach((op, i) =>
-        this.fillGateRegistry(op, `${colIndex},${i}`),
-      ),
-    );
-
-    this.expandOperationsToDepth(_circuit.componentGrid, this.renderDepth);
-    this.expandIfSingleOperation(_circuit.componentGrid);
-
-    const composedSqore: ComposedSqore = this.compose(_circuit);
-    const svg: SVGElement = this.generateSvg(composedSqore);
-
-    // Set the viewBox so the SVG scales properly when embedded or printed.
-    const width = composedSqore.width;
-    const height = composedSqore.height;
-    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    // Remove the style attribute that encodes a dynamic CSS-variable-based width.
-    svg.removeAttribute("style");
-
-    // Prepend an inline <style> block so the SVG is fully self-contained.
-    const styleEl = document.createElementNS(svgNS, "style");
-    styleEl.textContent = SVG_EXPORT_STYLES;
-    svg.insertBefore(styleEl, svg.firstChild);
-
-    const serializer = new XMLSerializer();
-    const svgString = serializer.serializeToString(svg);
-    // Prepend the XML declaration for well-formed standalone SVG files.
-    return `<?xml version="1.0" encoding="UTF-8"?>\n${svgString}`;
   }
 
   // Minimize the circuits in a circuit group to remove dataAttributes
