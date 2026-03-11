@@ -732,7 +732,6 @@ if build_pip and build_widgets and args.integration_tests:
         and not (
             f.startswith("sample.")
             or f.startswith("azure_submission.")
-            or f.startswith("circuits.")
             or f.startswith("iterative_phase_estimation.")
             or f.startswith("repeat_until_success.")
             or f.startswith("python-deps.")

@@ -186,7 +186,12 @@ class Config:
     def _repr_mimebundle_(
         self, include: Union[Any, None] = None, exclude: Union[Any, None] = None
     ) -> Dict[str, Dict[str, Any]]:
-        return {"application/x.qsharp-config": self._config}
+        mime_type = "application/x.qsharp-config"
+        if (include and mime_type not in include) or (
+            exclude and mime_type in exclude
+        ):
+            return {}
+        return {mime_type: self._config}
 
     def get_target_profile(self) -> str:
         """
