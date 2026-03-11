@@ -7,14 +7,14 @@
     clippy::too_many_lines
 )]
 
-use crate::tests::{assert_blocks, get_rir_program_with_dbg_metadata};
+use crate::tests::{assert_blocks_with_sources, get_rir_program_with_dbg_metadata};
 
 use expect_test::expect;
 use indoc::indoc;
 
 #[test]
 fn no_gates() {
-    let program = get_rir_program_with_dbg_metadata(indoc! {r#"
+    let (program, hir_store) = get_rir_program_with_dbg_metadata(indoc! {r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
@@ -23,8 +23,9 @@ fn no_gates() {
         }
     "#});
 
-    assert_blocks(
+    assert_blocks_with_sources(
         &program,
+        &hir_store,
         &expect![[r#"
             Blocks:
             Block 0:Block:
@@ -36,7 +37,7 @@ fn no_gates() {
 
 #[test]
 fn one_gate() {
-    let program = get_rir_program_with_dbg_metadata(indoc! {r#"
+    let (program, hir_store) = get_rir_program_with_dbg_metadata(indoc! {r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
@@ -46,8 +47,9 @@ fn one_gate() {
         }
     "#});
 
-    assert_blocks(
+    assert_blocks_with_sources(
         &program,
+        &hir_store,
         &expect![[r#"
             Blocks:
             Block 0:Block:
@@ -55,19 +57,18 @@ fn one_gate() {
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=2
                 Call id(3), args( Integer(0), Tag(0, 3), )
                 Return
-
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-40)
-                1 = SubProgram name=H location=(1-110222)
+                0 = SubProgram name=Main location=(2-test:2:4)
+                1 = SubProgram name=H location=(1-qsharp-library-source:Std/Intrinsic.qs:203:0)
             dbg_locations:
-                [1]: scope=0 location=(2-99)
-                [2]: scope=1 location=(1-110294) inlined_at=1"#]],
+                [1]: scope=0 location=(2-test:4:8)
+                [2]: scope=1 location=(1-qsharp-library-source:Std/Intrinsic.qs:205:8) inlined_at=1"#]],
     );
 }
 
 #[test]
 fn one_measurement() {
-    let program = get_rir_program_with_dbg_metadata(indoc! {r#"
+    let (program, hir_store) = get_rir_program_with_dbg_metadata(indoc! {r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Result[] {
@@ -79,8 +80,9 @@ fn one_measurement() {
         }
     "#});
 
-    assert_blocks(
+    assert_blocks_with_sources(
         &program,
+        &hir_store,
         &expect![[r#"
             Blocks:
             Block 0:Block:
@@ -90,24 +92,23 @@ fn one_measurement() {
                 Call id(4), args( Integer(1), Tag(0, 3), )
                 Call id(5), args( Result(0), Tag(1, 5), )
                 Return
-
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-40)
-                1 = SubProgram name=H location=(1-110222)
-                2 = SubProgram name=M location=(1-111931)
-                3 = SubProgram name=Measure location=(1-112847)
+                0 = SubProgram name=Main location=(2-test:2:4)
+                1 = SubProgram name=H location=(1-qsharp-library-source:Std/Intrinsic.qs:203:0)
+                2 = SubProgram name=M location=(1-qsharp-library-source:Std/Intrinsic.qs:267:0)
+                3 = SubProgram name=Measure location=(1-qsharp-library-source:Std/Intrinsic.qs:296:0)
             dbg_locations:
-                [1]: scope=0 location=(2-103)
-                [2]: scope=1 location=(1-110294) inlined_at=1
-                [3]: scope=0 location=(2-126)
-                [4]: scope=2 location=(1-111973) inlined_at=3
-                [6]: scope=3 location=(1-113160) inlined_at=4"#]],
+                [1]: scope=0 location=(2-test:4:8)
+                [2]: scope=1 location=(1-qsharp-library-source:Std/Intrinsic.qs:205:8) inlined_at=1
+                [3]: scope=0 location=(2-test:5:17)
+                [4]: scope=2 location=(1-qsharp-library-source:Std/Intrinsic.qs:268:4) inlined_at=3
+                [6]: scope=3 location=(1-qsharp-library-source:Std/Intrinsic.qs:304:12) inlined_at=4"#]],
     );
 }
 
 #[test]
 fn calls_to_other_callables() {
-    let program = get_rir_program_with_dbg_metadata(indoc! {r#"
+    let (program, hir_store) = get_rir_program_with_dbg_metadata(indoc! {r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
@@ -122,8 +123,9 @@ fn calls_to_other_callables() {
         }
     "#});
 
-    assert_blocks(
+    assert_blocks_with_sources(
         &program,
+        &hir_store,
         &expect![[r#"
             Blocks:
             Block 0:Block:
@@ -132,24 +134,23 @@ fn calls_to_other_callables() {
                 Call id(3), args( Qubit(0), Result(0), ) !dbg dbg_location=5
                 Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
-
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-40)
-                1 = SubProgram name=Foo location=(2-138)
-                2 = SubProgram name=H location=(1-110222)
-                3 = SubProgram name=MResetZ location=(1-181274)
+                0 = SubProgram name=Main location=(2-test:2:4)
+                1 = SubProgram name=Foo location=(2-test:8:4)
+                2 = SubProgram name=H location=(1-qsharp-library-source:Std/Intrinsic.qs:203:0)
+                3 = SubProgram name=MResetZ location=(1-qsharp-library-source:Std/Measurement.qs:134:0)
             dbg_locations:
-                [1]: scope=0 location=(2-99)
-                [2]: scope=1 location=(2-179) inlined_at=1
-                [3]: scope=2 location=(1-110294) inlined_at=2
-                [4]: scope=0 location=(2-115)
-                [5]: scope=3 location=(1-181323) inlined_at=4"#]],
+                [1]: scope=0 location=(2-test:4:8)
+                [2]: scope=1 location=(2-test:9:8) inlined_at=1
+                [3]: scope=2 location=(1-qsharp-library-source:Std/Intrinsic.qs:205:8) inlined_at=2
+                [4]: scope=0 location=(2-test:5:8)
+                [5]: scope=3 location=(1-qsharp-library-source:Std/Measurement.qs:135:4) inlined_at=4"#]],
     );
 }
 
 #[test]
 fn classical_for_loop() {
-    let program = get_rir_program_with_dbg_metadata(indoc! {r#"
+    let (program, hir_store) = get_rir_program_with_dbg_metadata(indoc! {r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
@@ -166,8 +167,9 @@ fn classical_for_loop() {
         }
     "#});
 
-    assert_blocks(
+    assert_blocks_with_sources(
         &program,
+        &hir_store,
         &expect![[r#"
             Blocks:
             Block 0:Block:
@@ -184,38 +186,37 @@ fn classical_for_loop() {
                 Variable(0, Integer) = Store Integer(3)
                 Call id(4), args( Integer(0), Tag(0, 3), )
                 Return
-
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-40)
-                1 = LexicalBlockFile location=(2-99) discriminator=1
-                2 = SubProgram name=Foo location=(2-156)
-                3 = SubProgram name=X location=(1-133020)
-                4 = SubProgram name=Y location=(1-134242)
-                5 = LexicalBlockFile location=(2-99) discriminator=2
-                6 = LexicalBlockFile location=(2-99) discriminator=3
+                0 = SubProgram name=Main location=(2-test:2:4)
+                1 = LexicalBlockFile location=(2-test:4:8) discriminator=1
+                2 = SubProgram name=Foo location=(2-test:9:4)
+                3 = SubProgram name=X location=(1-qsharp-library-source:Std/Intrinsic.qs:1036:0)
+                4 = SubProgram name=Y location=(1-qsharp-library-source:Std/Intrinsic.qs:1080:0)
+                5 = LexicalBlockFile location=(2-test:4:8) discriminator=2
+                6 = LexicalBlockFile location=(2-test:4:8) discriminator=3
             dbg_locations:
-                [1]: scope=0 location=(2-99)
-                [2]: scope=1 location=(2-127) inlined_at=1
-                [3]: scope=2 location=(2-197) inlined_at=2
-                [4]: scope=3 location=(1-133092) inlined_at=3
-                [5]: scope=2 location=(2-211) inlined_at=2
-                [6]: scope=4 location=(1-134314) inlined_at=5
-                [7]: scope=5 location=(2-127) inlined_at=1
-                [8]: scope=2 location=(2-197) inlined_at=7
-                [9]: scope=3 location=(1-133092) inlined_at=8
-                [10]: scope=2 location=(2-211) inlined_at=7
-                [11]: scope=4 location=(1-134314) inlined_at=10
-                [12]: scope=6 location=(2-127) inlined_at=1
-                [13]: scope=2 location=(2-197) inlined_at=12
-                [14]: scope=3 location=(1-133092) inlined_at=13
-                [15]: scope=2 location=(2-211) inlined_at=12
-                [16]: scope=4 location=(1-134314) inlined_at=15"#]],
+                [1]: scope=0 location=(2-test:4:8)
+                [2]: scope=1 location=(2-test:5:12) inlined_at=1
+                [3]: scope=2 location=(2-test:10:8) inlined_at=2
+                [4]: scope=3 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=3
+                [5]: scope=2 location=(2-test:11:8) inlined_at=2
+                [6]: scope=4 location=(1-qsharp-library-source:Std/Intrinsic.qs:1082:8) inlined_at=5
+                [7]: scope=5 location=(2-test:5:12) inlined_at=1
+                [8]: scope=2 location=(2-test:10:8) inlined_at=7
+                [9]: scope=3 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=8
+                [10]: scope=2 location=(2-test:11:8) inlined_at=7
+                [11]: scope=4 location=(1-qsharp-library-source:Std/Intrinsic.qs:1082:8) inlined_at=10
+                [12]: scope=6 location=(2-test:5:12) inlined_at=1
+                [13]: scope=2 location=(2-test:10:8) inlined_at=12
+                [14]: scope=3 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=13
+                [15]: scope=2 location=(2-test:11:8) inlined_at=12
+                [16]: scope=4 location=(1-qsharp-library-source:Std/Intrinsic.qs:1082:8) inlined_at=15"#]],
     );
 }
 
 #[test]
 fn nested_classical_for_loop() {
-    let program = get_rir_program_with_dbg_metadata(indoc! {r#"
+    let (program, hir_store) = get_rir_program_with_dbg_metadata(indoc! {r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Unit {
@@ -233,8 +234,9 @@ fn nested_classical_for_loop() {
         }
     "#});
 
-    assert_blocks(
+    assert_blocks_with_sources(
         &program,
+        &hir_store,
         &expect![[r#"
             Blocks:
             Block 0:Block:
@@ -274,55 +276,54 @@ fn nested_classical_for_loop() {
                 Variable(5, Integer) = Store Integer(3)
                 Call id(3), args( Integer(0), Tag(0, 3), )
                 Return
-
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-40)
-                5 = LexicalBlockFile location=(2-101) discriminator=1
-                6 = LexicalBlockFile location=(2-129) discriminator=1
-                7 = SubProgram name=Foo location=(2-208)
-                8 = SubProgram name=X location=(1-133020)
-                9 = LexicalBlockFile location=(2-129) discriminator=2
-                10 = LexicalBlockFile location=(2-129) discriminator=3
-                11 = LexicalBlockFile location=(2-101) discriminator=2
-                12 = LexicalBlockFile location=(2-101) discriminator=3
+                0 = SubProgram name=Main location=(2-test:2:4)
+                5 = LexicalBlockFile location=(2-test:4:8) discriminator=1
+                6 = LexicalBlockFile location=(2-test:5:12) discriminator=1
+                7 = SubProgram name=Foo location=(2-test:11:4)
+                8 = SubProgram name=X location=(1-qsharp-library-source:Std/Intrinsic.qs:1036:0)
+                9 = LexicalBlockFile location=(2-test:5:12) discriminator=2
+                10 = LexicalBlockFile location=(2-test:5:12) discriminator=3
+                11 = LexicalBlockFile location=(2-test:4:8) discriminator=2
+                12 = LexicalBlockFile location=(2-test:4:8) discriminator=3
             dbg_locations:
-                [5]: scope=0 location=(2-101)
-                [6]: scope=5 location=(2-129) inlined_at=5
-                [7]: scope=6 location=(2-161) inlined_at=6
-                [8]: scope=7 location=(2-249) inlined_at=7
-                [9]: scope=8 location=(1-133092) inlined_at=8
-                [10]: scope=9 location=(2-161) inlined_at=6
-                [11]: scope=7 location=(2-249) inlined_at=10
-                [12]: scope=8 location=(1-133092) inlined_at=11
-                [13]: scope=10 location=(2-161) inlined_at=6
-                [14]: scope=7 location=(2-249) inlined_at=13
-                [15]: scope=8 location=(1-133092) inlined_at=14
-                [16]: scope=11 location=(2-129) inlined_at=5
-                [17]: scope=6 location=(2-161) inlined_at=16
-                [18]: scope=7 location=(2-249) inlined_at=17
-                [19]: scope=8 location=(1-133092) inlined_at=18
-                [20]: scope=9 location=(2-161) inlined_at=16
-                [21]: scope=7 location=(2-249) inlined_at=20
-                [22]: scope=8 location=(1-133092) inlined_at=21
-                [23]: scope=10 location=(2-161) inlined_at=16
-                [24]: scope=7 location=(2-249) inlined_at=23
-                [25]: scope=8 location=(1-133092) inlined_at=24
-                [26]: scope=12 location=(2-129) inlined_at=5
-                [27]: scope=6 location=(2-161) inlined_at=26
-                [28]: scope=7 location=(2-249) inlined_at=27
-                [29]: scope=8 location=(1-133092) inlined_at=28
-                [30]: scope=9 location=(2-161) inlined_at=26
-                [31]: scope=7 location=(2-249) inlined_at=30
-                [32]: scope=8 location=(1-133092) inlined_at=31
-                [33]: scope=10 location=(2-161) inlined_at=26
-                [34]: scope=7 location=(2-249) inlined_at=33
-                [35]: scope=8 location=(1-133092) inlined_at=34"#]],
+                [5]: scope=0 location=(2-test:4:8)
+                [6]: scope=5 location=(2-test:5:12) inlined_at=5
+                [7]: scope=6 location=(2-test:6:16) inlined_at=6
+                [8]: scope=7 location=(2-test:12:8) inlined_at=7
+                [9]: scope=8 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=8
+                [10]: scope=9 location=(2-test:6:16) inlined_at=6
+                [11]: scope=7 location=(2-test:12:8) inlined_at=10
+                [12]: scope=8 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=11
+                [13]: scope=10 location=(2-test:6:16) inlined_at=6
+                [14]: scope=7 location=(2-test:12:8) inlined_at=13
+                [15]: scope=8 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=14
+                [16]: scope=11 location=(2-test:5:12) inlined_at=5
+                [17]: scope=6 location=(2-test:6:16) inlined_at=16
+                [18]: scope=7 location=(2-test:12:8) inlined_at=17
+                [19]: scope=8 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=18
+                [20]: scope=9 location=(2-test:6:16) inlined_at=16
+                [21]: scope=7 location=(2-test:12:8) inlined_at=20
+                [22]: scope=8 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=21
+                [23]: scope=10 location=(2-test:6:16) inlined_at=16
+                [24]: scope=7 location=(2-test:12:8) inlined_at=23
+                [25]: scope=8 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=24
+                [26]: scope=12 location=(2-test:5:12) inlined_at=5
+                [27]: scope=6 location=(2-test:6:16) inlined_at=26
+                [28]: scope=7 location=(2-test:12:8) inlined_at=27
+                [29]: scope=8 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=28
+                [30]: scope=9 location=(2-test:6:16) inlined_at=26
+                [31]: scope=7 location=(2-test:12:8) inlined_at=30
+                [32]: scope=8 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=31
+                [33]: scope=10 location=(2-test:6:16) inlined_at=26
+                [34]: scope=7 location=(2-test:12:8) inlined_at=33
+                [35]: scope=8 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=34"#]],
     );
 }
 
 #[test]
 fn lambda() {
-    let program = get_rir_program_with_dbg_metadata(indoc! {r#"
+    let (program, hir_store) = get_rir_program_with_dbg_metadata(indoc! {r#"
         operation Main() : Unit {
             use q = Qubit();
             let lambda = (x) => {
@@ -332,8 +333,9 @@ fn lambda() {
         }
     "#});
 
-    assert_blocks(
+    assert_blocks_with_sources(
         &program,
+        &hir_store,
         &expect![[r#"
             Blocks:
             Block 0:Block:
@@ -341,21 +343,20 @@ fn lambda() {
                 Call id(2), args( Qubit(0), ) !dbg dbg_location=3
                 Call id(3), args( Integer(0), Tag(0, 3), )
                 Return
-
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-1)
-                1 = SubProgram name=<lambda> location=(2-65)
-                2 = SubProgram name=H location=(1-110222)
+                0 = SubProgram name=Main location=(2-test:0:0)
+                1 = SubProgram name=<lambda> location=(2-test:2:17)
+                2 = SubProgram name=H location=(1-qsharp-library-source:Std/Intrinsic.qs:203:0)
             dbg_locations:
-                [1]: scope=0 location=(2-99)
-                [2]: scope=1 location=(2-82) inlined_at=1
-                [3]: scope=2 location=(1-110294) inlined_at=2"#]],
+                [1]: scope=0 location=(2-test:5:4)
+                [2]: scope=1 location=(2-test:3:8) inlined_at=1
+                [3]: scope=2 location=(1-qsharp-library-source:Std/Intrinsic.qs:205:8) inlined_at=2"#]],
     );
 }
 
 #[test]
 fn result_comparison_to_literal() {
-    let program = get_rir_program_with_dbg_metadata(indoc! {r#"
+    let (program, hir_store) = get_rir_program_with_dbg_metadata(indoc! {r#"
         namespace Test {
             operation Main() : Result[] {
                 use q1 = Qubit();
@@ -370,8 +371,9 @@ fn result_comparison_to_literal() {
         }
     "#});
 
-    assert_blocks(
+    assert_blocks_with_sources(
         &program,
+        &hir_store,
         &expect![[r#"
             Blocks:
             Block 0:Block:
@@ -389,31 +391,30 @@ fn result_comparison_to_literal() {
             Block 2:Block:
                 Call id(5), args( Qubit(0), ) !dbg dbg_location=9
                 Jump(1)
-
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-22)
-                1 = SubProgram name=H location=(1-110222)
-                2 = SubProgram name=M location=(1-111931)
-                3 = SubProgram name=Measure location=(1-112847)
-                4 = SubProgram name=X location=(1-133020)
-                5 = SubProgram name=Reset location=(1-116320)
+                0 = SubProgram name=Main location=(2-test:1:4)
+                1 = SubProgram name=H location=(1-qsharp-library-source:Std/Intrinsic.qs:203:0)
+                2 = SubProgram name=M location=(1-qsharp-library-source:Std/Intrinsic.qs:267:0)
+                3 = SubProgram name=Measure location=(1-qsharp-library-source:Std/Intrinsic.qs:296:0)
+                4 = SubProgram name=X location=(1-qsharp-library-source:Std/Intrinsic.qs:1036:0)
+                5 = SubProgram name=Reset location=(1-qsharp-library-source:Std/Intrinsic.qs:425:0)
             dbg_locations:
-                [1]: scope=0 location=(2-86)
-                [2]: scope=1 location=(1-110294) inlined_at=1
-                [3]: scope=0 location=(2-110)
-                [4]: scope=2 location=(1-111973) inlined_at=3
-                [6]: scope=3 location=(1-113160) inlined_at=4
-                [8]: scope=0 location=(2-154)
-                [9]: scope=4 location=(1-133092) inlined_at=8
-                [10]: scope=0 location=(2-125)
-                [11]: scope=0 location=(2-179)
-                [12]: scope=5 location=(1-116364) inlined_at=11"#]],
+                [1]: scope=0 location=(2-test:3:8)
+                [2]: scope=1 location=(1-qsharp-library-source:Std/Intrinsic.qs:205:8) inlined_at=1
+                [3]: scope=0 location=(2-test:4:17)
+                [4]: scope=2 location=(1-qsharp-library-source:Std/Intrinsic.qs:268:4) inlined_at=3
+                [6]: scope=3 location=(1-qsharp-library-source:Std/Intrinsic.qs:304:12) inlined_at=4
+                [8]: scope=0 location=(2-test:6:12)
+                [9]: scope=4 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=8
+                [10]: scope=0 location=(2-test:5:8)
+                [11]: scope=0 location=(2-test:8:8)
+                [12]: scope=5 location=(1-qsharp-library-source:Std/Intrinsic.qs:426:4) inlined_at=11"#]],
     );
 }
 
 #[test]
 fn if_else() {
-    let program = get_rir_program_with_dbg_metadata(indoc! {r#"
+    let (program, hir_store) = get_rir_program_with_dbg_metadata(indoc! {r#"
         namespace Test {
             operation Main() : Result[] {
                 use q0 = Qubit();
@@ -431,8 +432,9 @@ fn if_else() {
         }
     "#});
 
-    assert_blocks(
+    assert_blocks_with_sources(
         &program,
+        &hir_store,
         &expect![[r#"
             Blocks:
             Block 0:Block:
@@ -454,34 +456,33 @@ fn if_else() {
             Block 3:Block:
                 Call id(6), args( Qubit(1), ) !dbg dbg_location=12
                 Jump(1)
-
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-22)
-                1 = SubProgram name=H location=(1-110222)
-                2 = SubProgram name=M location=(1-111931)
-                3 = SubProgram name=Measure location=(1-112847)
-                4 = SubProgram name=X location=(1-133020)
-                5 = SubProgram name=Y location=(1-134242)
+                0 = SubProgram name=Main location=(2-test:1:4)
+                1 = SubProgram name=H location=(1-qsharp-library-source:Std/Intrinsic.qs:203:0)
+                2 = SubProgram name=M location=(1-qsharp-library-source:Std/Intrinsic.qs:267:0)
+                3 = SubProgram name=Measure location=(1-qsharp-library-source:Std/Intrinsic.qs:296:0)
+                4 = SubProgram name=X location=(1-qsharp-library-source:Std/Intrinsic.qs:1036:0)
+                5 = SubProgram name=Y location=(1-qsharp-library-source:Std/Intrinsic.qs:1080:0)
             dbg_locations:
-                [2]: scope=0 location=(2-112)
-                [3]: scope=1 location=(1-110294) inlined_at=2
-                [4]: scope=0 location=(2-135)
-                [5]: scope=2 location=(1-111973) inlined_at=4
-                [7]: scope=3 location=(1-113160) inlined_at=5
-                [9]: scope=0 location=(2-176)
-                [10]: scope=4 location=(1-133092) inlined_at=9
-                [11]: scope=0 location=(2-212)
-                [12]: scope=5 location=(1-134314) inlined_at=11
-                [13]: scope=0 location=(2-150)
-                [14]: scope=0 location=(2-246)
-                [15]: scope=2 location=(1-111973) inlined_at=14
-                [17]: scope=3 location=(1-113160) inlined_at=15"#]],
+                [2]: scope=0 location=(2-test:4:8)
+                [3]: scope=1 location=(1-qsharp-library-source:Std/Intrinsic.qs:205:8) inlined_at=2
+                [4]: scope=0 location=(2-test:5:16)
+                [5]: scope=2 location=(1-qsharp-library-source:Std/Intrinsic.qs:268:4) inlined_at=4
+                [7]: scope=3 location=(1-qsharp-library-source:Std/Intrinsic.qs:304:12) inlined_at=5
+                [9]: scope=0 location=(2-test:7:12)
+                [10]: scope=4 location=(1-qsharp-library-source:Std/Intrinsic.qs:1038:8) inlined_at=9
+                [11]: scope=0 location=(2-test:9:12)
+                [12]: scope=5 location=(1-qsharp-library-source:Std/Intrinsic.qs:1082:8) inlined_at=11
+                [13]: scope=0 location=(2-test:6:8)
+                [14]: scope=0 location=(2-test:11:17)
+                [15]: scope=2 location=(1-qsharp-library-source:Std/Intrinsic.qs:268:4) inlined_at=14
+                [17]: scope=3 location=(1-qsharp-library-source:Std/Intrinsic.qs:304:12) inlined_at=15"#]],
     );
 }
 
 #[test]
 fn branch_due_to_binop_short_circuit() {
-    let program = get_rir_program_with_dbg_metadata(indoc! {r#"
+    let (program, hir_store) = get_rir_program_with_dbg_metadata(indoc! {r#"
         operation Main() : Unit {
             use q0 = Qubit();
             use q1 = Qubit();
@@ -491,8 +492,9 @@ fn branch_due_to_binop_short_circuit() {
         }
     "#});
 
-    assert_blocks(
+    assert_blocks_with_sources(
         &program,
+        &hir_store,
         &expect![[r#"
             Blocks:
             Block 0:Block:
@@ -514,23 +516,22 @@ fn branch_due_to_binop_short_circuit() {
                 Variable(4, Boolean) = Icmp Eq, Variable(3, Boolean), Bool(false)
                 Variable(2, Boolean) = Store Variable(4, Boolean)
                 Jump(1)
-
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-1)
-                1 = SubProgram name=H location=(1-110222)
-                2 = SubProgram name=M location=(1-111931)
-                3 = SubProgram name=Measure location=(1-112847)
+                0 = SubProgram name=Main location=(2-test:0:0)
+                1 = SubProgram name=H location=(1-qsharp-library-source:Std/Intrinsic.qs:203:0)
+                2 = SubProgram name=M location=(1-qsharp-library-source:Std/Intrinsic.qs:267:0)
+                3 = SubProgram name=Measure location=(1-qsharp-library-source:Std/Intrinsic.qs:296:0)
             dbg_locations:
-                [2]: scope=0 location=(2-75)
-                [3]: scope=1 location=(1-110294) inlined_at=2
-                [4]: scope=0 location=(2-86)
-                [5]: scope=1 location=(1-110294) inlined_at=4
-                [6]: scope=0 location=(2-107)
-                [7]: scope=2 location=(1-111973) inlined_at=6
-                [9]: scope=3 location=(1-113160) inlined_at=7
-                [11]: scope=0 location=(2-129)
-                [12]: scope=2 location=(1-111973) inlined_at=11
-                [14]: scope=3 location=(1-113160) inlined_at=12
-                [16]: scope=0 location=(2-127)"#]],
+                [2]: scope=0 location=(2-test:3:4)
+                [3]: scope=1 location=(1-qsharp-library-source:Std/Intrinsic.qs:205:8) inlined_at=2
+                [4]: scope=0 location=(2-test:4:4)
+                [5]: scope=1 location=(1-qsharp-library-source:Std/Intrinsic.qs:205:8) inlined_at=4
+                [6]: scope=0 location=(2-test:5:14)
+                [7]: scope=2 location=(1-qsharp-library-source:Std/Intrinsic.qs:268:4) inlined_at=6
+                [9]: scope=3 location=(1-qsharp-library-source:Std/Intrinsic.qs:304:12) inlined_at=7
+                [11]: scope=0 location=(2-test:5:36)
+                [12]: scope=2 location=(1-qsharp-library-source:Std/Intrinsic.qs:268:4) inlined_at=11
+                [14]: scope=3 location=(1-qsharp-library-source:Std/Intrinsic.qs:304:12) inlined_at=12
+                [16]: scope=0 location=(2-test:5:34)"#]],
     );
 }

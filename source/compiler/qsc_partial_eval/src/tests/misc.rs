@@ -4,8 +4,8 @@
 #![allow(clippy::needless_raw_string_hashes, clippy::similar_names)]
 
 use super::{
-    assert_block_instructions, assert_blocks, assert_callable, assert_error,
-    get_partial_evaluation_error, get_rir_program,
+    assert_block_instructions, assert_blocks, assert_callable, assert_error_with_sources,
+    get_partial_evaluation_error_with_sources, get_rir_program,
 };
 use expect_test::expect;
 use indoc::indoc;
@@ -600,7 +600,7 @@ fn if_else_expression_with_dynamic_logical_or_condition() {
 
 #[test]
 fn evaluation_error_within_stdlib_yield_correct_package_span() {
-    let error = get_partial_evaluation_error(indoc! {
+    let (error, hir_store) = get_partial_evaluation_error_with_sources(indoc! {
         r#"
         namespace Test {
             import Std.Arrays.*;
@@ -613,10 +613,11 @@ fn evaluation_error_within_stdlib_yield_correct_package_span() {
         }
         "#,
     });
-    assert_error(
+    assert_error_with_sources(
         &error,
+        &hir_store,
         &expect![
-            "UnexpectedDynamicValue(PackageSpan { package: PackageId(1), span: Span { lo: 13910, hi: 13925 } })"
+            "UnexpectedDynamicValue(PackageSpan { package: PackageId(1), source: qsharp-library-source:Std/Arrays.qs, range: 511:23-511:38 })"
         ],
     );
 }

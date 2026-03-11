@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 use super::{
-    assert_block_instructions, assert_callable, assert_error, get_partial_evaluation_error,
-    get_rir_program,
+    assert_block_instructions, assert_callable, assert_error, assert_error_with_sources,
+    get_partial_evaluation_error, get_partial_evaluation_error_with_sources, get_rir_program,
 };
 use expect_test::expect;
 use indoc::indoc;
@@ -363,7 +363,7 @@ fn qubit_double_release_triggers_runtime_error() {
 
 #[test]
 fn qubit_relabel_in_dynamic_block_triggers_capability_error() {
-    let error = get_partial_evaluation_error(indoc! {
+    let (error, hir_store) = get_partial_evaluation_error_with_sources(indoc! {
         r#"
         operation Main() : Result {
             use qs = Qubit[2];
@@ -375,8 +375,11 @@ fn qubit_relabel_in_dynamic_block_triggers_capability_error() {
         "#,
     });
 
-    assert_error(
+    assert_error_with_sources(
         &error,
-        &expect!["CapabilityError(UseOfDynamicQubit(Span { lo: 67160, hi: 67173 }))"],
+        &hir_store,
+        &expect![
+            "CapabilityError(UseOfDynamicQubit(qsharp-library-source:Std/Canon.qs: 789:8-789:21))"
+        ],
     );
 }
