@@ -58,7 +58,7 @@ class MagicUpToClifford(ISATransform):
     def required_isa() -> ISARequirements:
         return ISARequirements()
 
-    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
+    def provided_isa(self, impl_isa, ctx: _Context) -> Generator[ISA, None, None]:
         # Families of equivalent gates under Clifford conjugation.
         families = [
             [
@@ -79,11 +79,12 @@ class MagicUpToClifford(ISATransform):
                     instr = impl_isa[id]
                     for equivalent_id in family:
                         if equivalent_id != id:
-                            impl_isa.append(
-                                ctx.set_source(
-                                    self, instr.with_id(equivalent_id), [instr]
-                                )
+                            node_idx = ctx.add_instruction(
+                                instr.with_id(equivalent_id),
+                                transform=self,
+                                source=[instr],
                             )
+                            impl_isa.add_node(equivalent_id, node_idx)
                     break  # Check next family
 
         yield impl_isa

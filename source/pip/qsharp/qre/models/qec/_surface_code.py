@@ -8,7 +8,6 @@ from ..._instruction import (
     ISA,
     ISARequirements,
     ISATransform,
-    instruction,
     constraint,
     ConstraintBound,
     LOGICAL,
@@ -96,16 +95,16 @@ class SurfaceCode(ISATransform):
 
         # We provide a generic lattice surgery instruction (See Section 3 in
         # arXiv:1111.4022)
-        lattice_surgery = instruction(
-            LATTICE_SURGERY,
-            encoding=LOGICAL,
-            arity=None,
-            space=space_formula,
-            time=time_value,
-            error_rate=error_formula,
-            distance=self.distance,
-        )
-
-        yield ISA(
-            ctx.set_source(self, lattice_surgery, [cnot, h, meas_z]),
+        yield ctx.make_isa(
+            ctx.add_instruction(
+                LATTICE_SURGERY,
+                encoding=LOGICAL,
+                arity=None,
+                space=space_formula,
+                time=time_value,
+                error_rate=error_formula,
+                transform=self,
+                source=[cnot, h, meas_z],
+                distance=self.distance,
+            ),
         )

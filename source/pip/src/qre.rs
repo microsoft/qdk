@@ -1,11 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::{ptr::NonNull, sync::Arc};
+use std::{
+    ptr::NonNull,
+    sync::{Arc, RwLock},
+};
 
 use pyo3::{
     IntoPyObjectExt,
-    exceptions::{PyException, PyKeyError, PyTypeError},
+    exceptions::{PyException, PyKeyError, PyRuntimeError, PyTypeError},
     prelude::*,
     types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple, PyType},
 };
@@ -46,41 +49,22 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 pyo3::create_exception!(qsharp.qre, EstimationError, PyException);
 
+fn poisoned_lock_err<T>(_: std::sync::PoisonError<T>) -> PyErr {
+    PyRuntimeError::new_err("provenance graph lock poisoned")
+}
+
 #[allow(clippy::upper_case_acronyms)]
 #[pyclass]
 pub struct ISA(qre::ISA);
 
+impl ISA {
+    pub fn inner(&self) -> &qre::ISA {
+        &self.0
+    }
+}
+
 #[pymethods]
 impl ISA {
-    #[new]
-    #[pyo3(signature = (*instructions))]
-    pub fn new(instructions: &Bound<'_, PyTuple>) -> PyResult<ISA> {
-        if instructions.len() == 1 {
-            let item = instructions.get_item(0)?;
-            if let Ok(seq) = item.cast_into::<pyo3::types::PyList>() {
-                let mut instrs = Vec::with_capacity(seq.len());
-                for item in seq.iter() {
-                    let instr = item.cast_into::<Instruction>()?;
-                    instrs.push(instr.borrow().0.clone());
-                }
-                return Ok(ISA(instrs.into_iter().collect()));
-            }
-        }
-
-        instructions
-            .into_iter()
-            .map(|instr| {
-                let instr = instr.cast_into::<Instruction>()?;
-                Ok(instr.borrow().0.clone())
-            })
-            .collect::<PyResult<qre::ISA>>()
-            .map(ISA)
-    }
-
-    pub fn append(&mut self, instruction: &Instruction) {
-        self.0.add_instruction(instruction.0.clone());
-    }
-
     pub fn __add__(&self, other: &ISA) -> PyResult<ISA> {
         Ok(ISA(self.0.clone() + other.0.clone()))
     }
@@ -99,7 +83,7 @@ impl ISA {
 
     pub fn __getitem__(&self, id: u64) -> PyResult<Instruction> {
         match self.0.get(&id) {
-            Some(instr) => Ok(Instruction(instr.clone())),
+            Some(instr) => Ok(Instruction(instr)),
             None => Err(PyKeyError::new_err(format!(
                 "Instruction with id {id} not found"
             ))),
@@ -109,15 +93,26 @@ impl ISA {
     #[pyo3(signature = (id, default=None))]
     pub fn get(&self, id: u64, default: Option<&Instruction>) -> Option<Instruction> {
         match self.0.get(&id) {
-            Some(instr) => Some(Instruction(instr.clone())),
+            Some(instr) => Some(Instruction(instr)),
             None => default.cloned(),
         }
     }
 
+    /// Returns the provenance graph node index for the given instruction ID.
+    pub fn node_index(&self, id: u64) -> Option<usize> {
+        self.0.node_index(&id)
+    }
+
+    /// Adds a node (by instruction ID and node index) that already exists in the graph.
+    pub fn add_node(&mut self, instruction_id: u64, node_index: usize) {
+        self.0.add_node(instruction_id, node_index);
+    }
+
     #[allow(clippy::needless_pass_by_value)]
     pub fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<ISAIterator>> {
+        let instructions = slf.0.instructions();
         let iter = ISAIterator {
-            iter: (*slf.0).clone().into_iter(),
+            iter: instructions.into_iter(),
         };
         Py::new(slf.py(), iter)
     }
@@ -129,7 +124,7 @@ impl ISA {
 
 #[pyclass]
 pub struct ISAIterator {
-    iter: std::collections::hash_map::IntoIter<u64, qre::Instruction>,
+    iter: std::vec::IntoIter<qre::Instruction>,
 }
 
 #[pymethods]
@@ -139,7 +134,7 @@ impl ISAIterator {
     }
 
     fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Instruction> {
-        slf.iter.next().map(|(_, instr)| Instruction(instr))
+        slf.iter.next().map(Instruction)
     }
 }
 
@@ -300,6 +295,15 @@ impl Instruction {
         self.0.get_property_or(&key, default)
     }
 
+    pub fn __getitem__(&self, key: u64) -> PyResult<u64> {
+        match self.0.get_property(&key) {
+            Some(value) => Ok(value),
+            None => Err(PyKeyError::new_err(format!(
+                "Property with key {key} not found"
+            ))),
+        }
+    }
+
     fn __str__(&self) -> String {
         format!("{}", self.0)
     }
@@ -373,6 +377,102 @@ fn convert_encoding(encoding: u64) -> PyResult<qre::Encoding> {
     }
 }
 
+/// Property name → integer key mapping (must match Python `_PROPERTY_KEYS`).
+fn property_name_to_key(name: &str) -> PyResult<u64> {
+    match name {
+        "distance" => Ok(0),
+        other => Err(PyTypeError::new_err(format!(
+            "Unknown property '{other}'. Valid properties: [\"distance\"]"
+        ))),
+    }
+}
+
+/// Build a `qre::Instruction` from either an existing `Instruction` Python
+/// object or from keyword arguments (id + encoding + arity + …).
+#[allow(clippy::too_many_arguments)]
+fn build_instruction(
+    id_or_instruction: &Bound<'_, PyAny>,
+    encoding: u64,
+    arity: Option<u64>,
+    time: Option<&Bound<'_, PyAny>>,
+    space: Option<&Bound<'_, PyAny>>,
+    length: Option<&Bound<'_, PyAny>>,
+    error_rate: Option<&Bound<'_, PyAny>>,
+    kwargs: Option<&Bound<'_, PyDict>>,
+) -> PyResult<qre::Instruction> {
+    // If the first argument is already an Instruction, return its inner clone.
+    if let Ok(instr) = id_or_instruction.cast::<Instruction>() {
+        return Ok(instr.borrow().0.clone());
+    }
+
+    // Otherwise treat the first arg as an instruction ID (int).
+    let id: u64 = id_or_instruction.extract()?;
+    let enc = convert_encoding(encoding)?;
+
+    let mut instr = if let Some(arity_val) = arity {
+        // Fixed-arity path
+        let time_val: u64 = time
+            .ok_or_else(|| PyTypeError::new_err("'time' is required"))?
+            .extract()?;
+        let space_val: Option<u64> = space.map(PyAnyMethods::extract).transpose()?;
+        let length_val: Option<u64> = length.map(PyAnyMethods::extract).transpose()?;
+        let error_rate_val: f64 = error_rate
+            .ok_or_else(|| PyTypeError::new_err("'error_rate' is required"))?
+            .extract()?;
+        qre::Instruction::fixed_arity(
+            id,
+            enc,
+            arity_val,
+            time_val,
+            space_val,
+            length_val,
+            error_rate_val,
+        )
+    } else {
+        // Variable-arity path: time/space/error_rate may be functions
+        let time_fn =
+            extract_int_function(time.ok_or_else(|| PyTypeError::new_err("'time' is required"))?)?;
+        let space_fn = extract_int_function(
+            space.ok_or_else(|| PyTypeError::new_err("'space' is required for variable arity"))?,
+        )?;
+        let length_fn = length.map(extract_int_function).transpose()?;
+        let error_rate_fn = extract_float_function(
+            error_rate.ok_or_else(|| PyTypeError::new_err("'error_rate' is required"))?,
+        )?;
+        qre::Instruction::variable_arity(id, enc, time_fn, space_fn, length_fn, error_rate_fn)
+    };
+
+    // Apply additional properties from kwargs
+    if let Some(kw) = kwargs {
+        for (key, value) in kw {
+            let key_str: String = key.extract()?;
+            let prop_key = property_name_to_key(&key_str)?;
+            let prop_value: u64 = value.extract()?;
+            instr.set_property(prop_key, prop_value);
+        }
+    }
+
+    Ok(instr)
+}
+
+/// Extract an `_IntFunction` or convert a plain int into a constant function.
+fn extract_int_function(obj: &Bound<'_, PyAny>) -> PyResult<qre::VariableArityFunction<u64>> {
+    if let Ok(f) = obj.cast::<IntFunction>() {
+        return Ok(f.borrow().0.clone());
+    }
+    let val: u64 = obj.extract()?;
+    Ok(qre::VariableArityFunction::constant(val))
+}
+
+/// Extract a `_FloatFunction` or convert a plain float into a constant function.
+fn extract_float_function(obj: &Bound<'_, PyAny>) -> PyResult<qre::VariableArityFunction<f64>> {
+    if let Ok(f) = obj.cast::<FloatFunction>() {
+        return Ok(f.borrow().0.clone());
+    }
+    let val: f64 = obj.extract()?;
+    Ok(qre::VariableArityFunction::constant(val))
+}
+
 #[pyclass]
 pub struct ConstraintBound(qre::ConstraintBound<f64>);
 
@@ -404,40 +504,114 @@ impl ConstraintBound {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone)]
 #[pyclass(name = "_ProvenanceGraph")]
-pub struct ProvenanceGraph(qre::ProvenanceGraph);
+pub struct ProvenanceGraph(Arc<RwLock<qre::ProvenanceGraph>>);
+
+impl Default for ProvenanceGraph {
+    fn default() -> Self {
+        Self(Arc::new(RwLock::new(qre::ProvenanceGraph::new())))
+    }
+}
 
 #[pymethods]
 impl ProvenanceGraph {
     #[new]
     pub fn new() -> Self {
-        Self(qre::ProvenanceGraph::new())
+        Self::default()
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    pub fn add_node(&mut self, id: u64, transform: u64, children: Vec<usize>) -> usize {
-        self.0.add_node(id, transform, &children)
+    pub fn add_node(
+        &mut self,
+        instruction: &Instruction,
+        transform: u64,
+        children: Vec<usize>,
+    ) -> PyResult<usize> {
+        Ok(self.0.write().map_err(poisoned_lock_err)?.add_node(
+            instruction.0.clone(),
+            transform,
+            &children,
+        ))
     }
 
-    pub fn instruction_id(&self, node_index: usize) -> u64 {
-        self.0.instruction_id(node_index)
+    pub fn instruction(&self, node_index: usize) -> PyResult<Instruction> {
+        Ok(Instruction(
+            self.0
+                .read()
+                .map_err(poisoned_lock_err)?
+                .instruction(node_index)
+                .clone(),
+        ))
     }
 
-    pub fn transform_id(&self, node_index: usize) -> u64 {
-        self.0.transform_id(node_index)
+    pub fn transform_id(&self, node_index: usize) -> PyResult<u64> {
+        Ok(self
+            .0
+            .read()
+            .map_err(poisoned_lock_err)?
+            .transform_id(node_index))
     }
 
-    pub fn children(&self, node_index: usize) -> Vec<usize> {
-        self.0.children(node_index).to_vec()
+    pub fn children(&self, node_index: usize) -> PyResult<Vec<usize>> {
+        Ok(self
+            .0
+            .read()
+            .map_err(poisoned_lock_err)?
+            .children(node_index)
+            .to_vec())
     }
 
-    pub fn num_nodes(&self) -> usize {
-        self.0.num_nodes()
+    pub fn num_nodes(&self) -> PyResult<usize> {
+        Ok(self.0.read().map_err(poisoned_lock_err)?.num_nodes())
     }
 
-    pub fn num_edges(&self) -> usize {
-        self.0.num_edges()
+    pub fn num_edges(&self) -> PyResult<usize> {
+        Ok(self.0.read().map_err(poisoned_lock_err)?.num_edges())
+    }
+
+    /// Adds an instruction to the provenance graph with no transform or children.
+    /// Accepts either a pre-existing Instruction or keyword args to create one.
+    /// Returns the node index.
+    #[pyo3(signature = (id_or_instruction, encoding=0, *, arity=Some(1), time=None, space=None, length=None, error_rate=None, **kwargs))]
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_instruction(
+        &mut self,
+        id_or_instruction: &Bound<'_, PyAny>,
+        encoding: u64,
+        arity: Option<u64>,
+        time: Option<&Bound<'_, PyAny>>,
+        space: Option<&Bound<'_, PyAny>>,
+        length: Option<&Bound<'_, PyAny>>,
+        error_rate: Option<&Bound<'_, PyAny>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<usize> {
+        let instr = build_instruction(
+            id_or_instruction,
+            encoding,
+            arity,
+            time,
+            space,
+            length,
+            error_rate,
+            kwargs,
+        )?;
+        Ok(self
+            .0
+            .write()
+            .map_err(poisoned_lock_err)?
+            .add_node(instr, 0, &[]))
+    }
+
+    /// Creates an ISA backed by this provenance graph from the given node indices.
+    pub fn make_isa(&self, node_indices: Vec<usize>) -> PyResult<ISA> {
+        let graph = self.0.read().map_err(poisoned_lock_err)?;
+        let mut isa = qre::ISA::with_graph(self.0.clone());
+        for idx in node_indices {
+            let id = graph.instruction(idx).id();
+            isa.add_node(id, idx);
+        }
+        Ok(ISA(isa))
     }
 }
 
@@ -474,17 +648,26 @@ pub fn linear_function<'py>(slope: &Bound<'py, PyAny>) -> PyResult<Bound<'py, Py
     }
 }
 
+// TODO: Assign default value to offset?
 #[pyfunction]
+#[pyo3(signature = (block_size, slope, offset))]
 pub fn block_linear_function<'py>(
     block_size: u64,
     slope: &Bound<'py, PyAny>,
+    offset: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    if let Ok(s) = slope.extract::<u64>() {
-        IntFunction(qre::VariableArityFunction::block_linear(block_size, s))
-            .into_bound_py_any(slope.py())
+    if let Ok(s) = slope.extract() {
+        let offset = offset.extract::<u64>()?;
+        IntFunction(qre::VariableArityFunction::block_linear(
+            block_size, s, offset,
+        ))
+        .into_bound_py_any(slope.py())
     } else if let Ok(s) = slope.extract::<f64>() {
-        FloatFunction(qre::VariableArityFunction::block_linear(block_size, s))
-            .into_bound_py_any(slope.py())
+        let offset = offset.extract()?;
+        FloatFunction(qre::VariableArityFunction::block_linear(
+            block_size, s, offset,
+        ))
+        .into_bound_py_any(slope.py())
     } else {
         Err(PyTypeError::new_err(
             "Slope must be either an integer or a float",
@@ -606,8 +789,9 @@ impl EstimationResult {
         self.0.qubits()
     }
 
-    pub fn add_qubits(&mut self, amount: u64) {
-        self.0.add_qubits(amount);
+    #[setter]
+    pub fn set_qubits(&mut self, qubits: u64) {
+        self.0.set_qubits(qubits);
     }
 
     #[getter]
@@ -615,8 +799,9 @@ impl EstimationResult {
         self.0.runtime()
     }
 
-    pub fn add_runtime(&mut self, amount: u64) {
-        self.0.add_runtime(amount);
+    #[setter]
+    pub fn set_runtime(&mut self, runtime: u64) {
+        self.0.set_runtime(runtime);
     }
 
     #[getter]
@@ -624,8 +809,9 @@ impl EstimationResult {
         self.0.error()
     }
 
-    pub fn add_error(&mut self, amount: f64) {
-        self.0.add_error(amount);
+    #[setter]
+    pub fn set_error(&mut self, error: f64) {
+        self.0.set_error(error);
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -660,6 +846,22 @@ impl EstimationResult {
         }
 
         Ok(dict)
+    }
+
+    pub fn set_property(&mut self, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        let property = if value.is_instance_of::<pyo3::types::PyBool>() {
+            qre::Property::new_bool(value.extract()?)
+        } else if let Ok(i) = value.extract::<i64>() {
+            qre::Property::new_int(i)
+        } else if let Ok(f) = value.extract::<f64>() {
+            qre::Property::new_float(f)
+        } else {
+            qre::Property::new_str(value.to_string())
+        };
+
+        self.0.set_property(key, property);
+
+        Ok(())
     }
 
     fn __str__(&self) -> String {

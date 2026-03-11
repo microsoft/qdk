@@ -11,7 +11,6 @@ from ..._instruction import (
     LOGICAL,
     ISATransform,
     constraint,
-    instruction,
 )
 from ..._qre import (
     ISA,
@@ -103,16 +102,16 @@ class ThreeAux(ISATransform):
             )
         )
 
-        lattice_surgery = instruction(
-            LATTICE_SURGERY,
-            encoding=LOGICAL,
-            arity=None,
-            space=space_formula,
-            time=time_value,
-            error_rate=error_formula,
-            distance=self.distance,
-        )
-
-        yield ISA(
-            ctx.set_source(self, lattice_surgery, [meas_x, meas_z, meas_xx, meas_zz])
+        yield ctx.make_isa(
+            ctx.add_instruction(
+                LATTICE_SURGERY,
+                encoding=LOGICAL,
+                arity=None,
+                space=space_formula,
+                time=time_value,
+                error_rate=error_formula,
+                transform=self,
+                source=[meas_x, meas_z, meas_xx, meas_zz],
+                distance=self.distance,
+            )
         )

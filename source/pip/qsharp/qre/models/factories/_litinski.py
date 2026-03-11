@@ -8,8 +8,8 @@ from math import ceil
 from typing import Generator
 
 from ..._architecture import _Context
-from ..._qre import ISA, ISARequirements, ConstraintBound, _Instruction
-from ..._instruction import ISATransform, constraint, instruction, LOGICAL
+from ..._qre import ISARequirements, ConstraintBound, ISA
+from ..._instruction import ISATransform, constraint, LOGICAL
 from ...instruction_ids import T, CNOT, H, MEAS_Z, CCZ
 
 
@@ -90,7 +90,7 @@ class Litinski19Factory(ISATransform):
             + impl_isa[MEAS_Z].expect_time()
         )
 
-        def make_instruction(entry: _Entry) -> _Instruction:
+        def make_node(entry: _Entry) -> int:
             # Convert cycles (number of syndrome extraction cycles) to time
             # based on fast surface code
             time = ceil(syndrome_extraction_time * entry.cycles)
@@ -99,28 +99,29 @@ class Litinski19Factory(ISATransform):
             # space cost is divided by the number of output states.  This is a
             # simplification that allows us to fit all protocols in the ISA, but
             # it may not be accurate for all protocols.
-            inst = instruction(
+            return ctx.add_instruction(
                 entry.state,
                 arity=3 if entry.state == CCZ else 1,
                 encoding=LOGICAL,
                 space=ceil(entry.space / entry.output_states),
                 time=time,
                 error_rate=entry.error_rate,
+                transform=self,
+                source=[cnot, h, meas_z, t],
             )
-            return ctx.set_source(self, inst, [cnot, h, meas_z, t])
 
         # Yield combinations of T and CCZ entries
         if ccz_entries:
             for t_entry in t_entries:
                 for ccz_entry in ccz_entries:
-                    yield ISA(
-                        make_instruction(t_entry),
-                        make_instruction(ccz_entry),
+                    yield ctx.make_isa(
+                        make_node(t_entry),
+                        make_node(ccz_entry),
                     )
         else:
             # Table 2 scenarios: only T gates available
             for t_entry in t_entries:
-                yield ISA(make_instruction(t_entry))
+                yield ctx.make_isa(make_node(t_entry))
 
     def _initialize_entries(self):
         self._entries = {

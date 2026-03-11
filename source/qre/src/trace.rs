@@ -235,9 +235,9 @@ impl Trace {
         // ------------------------------------------------------------------
         for (factory, count) in &factories {
             let instr = get_instruction(isa, *factory)?;
-            let factory_time = get_time(instr)?;
-            let factory_space = get_space(instr)?;
-            let factory_error_rate = get_error_rate(instr)?;
+            let factory_time = get_time(&instr)?;
+            let factory_space = get_space(&instr)?;
+            let factory_error_rate = get_error_rate(&instr)?;
             let runs = result.runtime() / factory_time;
 
             if runs == 0 {
@@ -590,7 +590,7 @@ impl Display for Property {
 // Some helper functions to extract instructions and their metrics together with
 // error handling
 
-fn get_instruction(isa: &ISA, id: u64) -> Result<&Instruction, Error> {
+fn get_instruction(isa: &ISA, id: u64) -> Result<Instruction, Error> {
     isa.get(&id).ok_or(Error::InstructionNotFound(id))
 }
 

@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::trace::{Gate, TraceTransform};
-use crate::{Error, Trace, instruction_ids};
+use crate::{Error, Property, Trace, instruction_ids};
 
 /// Implements the Parellel Synthesis Sequential Pauli Computation (PSSPC)
 /// layout algorithm described in Appendix D in
@@ -122,7 +122,7 @@ impl PSSPC {
         Ok(counter)
     }
 
-    #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_wrap)]
     fn get_trace(&self, trace: &Trace, counts: &PSSPCCounts) -> Trace {
         let num_qubits = trace.compute_qubits();
         let logical_qubits = Self::logical_qubit_overhead(num_qubits);
@@ -144,6 +144,12 @@ impl PSSPC {
 
         // Add error due to rotation synthesis
         transformed.increment_base_error(counts.rotation_like as f64 * self.synthesis_error());
+
+        // Track some properties
+        transformed.set_property(
+            String::from("num_ts_per_rotation"),
+            Property::Int(self.num_ts_per_rotation as i64),
+        );
 
         transformed
     }

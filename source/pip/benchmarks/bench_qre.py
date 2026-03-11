@@ -3,7 +3,8 @@
 
 import timeit
 from dataclasses import dataclass, KW_ONLY, field
-from qsharp.qre import linear_function, generic_function, instruction
+from qsharp.qre import linear_function, generic_function
+from qsharp.qre._architecture import _make_instruction
 from qsharp.qre.models import AQREGateBased, SurfaceCode
 from qsharp.qre._enumeration import _enumerate_instances
 
@@ -39,7 +40,7 @@ def bench_enumerate_isas():
     sys.path.append(os.path.join(os.path.dirname(__file__), "../tests"))
     from test_qre import ExampleLogicalFactory, ExampleFactory  # type: ignore
 
-    ctx = AQREGateBased().context()
+    ctx = AQREGateBased(gate_time=50, measurement_time=100).context()
 
     # Hierarchical factory using from_components
     query = SurfaceCode.q() * ExampleLogicalFactory.q(
@@ -62,7 +63,7 @@ def bench_enumerate_isas():
 def bench_function_evaluation_linear():
     fl = linear_function(12)
 
-    inst = instruction(42, arity=None, space=fl, time=1, error_rate=1.0)
+    inst = _make_instruction(42, 0, None, 1, fl, None, 1.0, {})
     number = 1000
     duration = timeit.timeit(
         "inst.space(5)",
@@ -83,7 +84,7 @@ def bench_function_evaluation_generic():
 
     fg = generic_function(func)
 
-    inst = instruction(42, arity=None, space=fg, time=1, error_rate=1.0)
+    inst = _make_instruction(42, 0, None, 1, fg, None, 1.0, {})
     number = 1000
     duration = timeit.timeit(
         "inst.space(5)",

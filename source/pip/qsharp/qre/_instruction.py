@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Generator, Iterable, Optional, overload, cast
+from typing import Generator, Iterable, Optional
 from enum import IntEnum
 
 from ._architecture import _Context, Architecture
@@ -20,11 +20,8 @@ from ._qre import (
     ISA,
     Constraint,
     ConstraintBound,
-    _FloatFunction,
     _Instruction,
-    _IntFunction,
     ISARequirements,
-    constant_function,
     instruction_name,
 )
 
@@ -82,105 +79,6 @@ def constraint(
 
     return c
 
-
-@overload
-def instruction(
-    id: int,
-    encoding: Encoding = PHYSICAL,
-    *,
-    time: int,
-    arity: int = 1,
-    space: Optional[int] = None,
-    length: Optional[int] = None,
-    error_rate: float,
-    **kwargs: int,
-) -> _Instruction: ...
-@overload
-def instruction(
-    id: int,
-    encoding: Encoding = PHYSICAL,
-    *,
-    time: int | _IntFunction,
-    arity: None = ...,
-    space: int | _IntFunction,
-    length: Optional[int | _IntFunction] = None,
-    error_rate: float | _FloatFunction,
-    **kwargs: int,
-) -> _Instruction: ...
-def instruction(
-    id: int,
-    encoding: Encoding = PHYSICAL,
-    *,
-    time: int | _IntFunction,
-    arity: Optional[int] = 1,
-    space: Optional[int] | _IntFunction = None,
-    length: Optional[int | _IntFunction] = None,
-    error_rate: float | _FloatFunction,
-    **kwargs: int,
-) -> _Instruction:
-    """
-    Creates an instruction.
-
-    Args:
-        id (int): The instruction ID.
-        encoding (Encoding): The instruction encoding. PHYSICAL (0) or LOGICAL (1).
-        time (int | _IntFunction): The instruction time in ns.
-        arity (Optional[int]): The instruction arity.  If None, instruction is
-            assumed to have variable arity.  Default is 1.  One can use variable arity
-            functions for time, space, length, and error_rate in this case.
-        space (Optional[int] | _IntFunction): The instruction space in number of
-            physical qubits. If None, length is used.
-        length (Optional[int | _IntFunction]): The arity including ancilla
-            qubits. If None, arity is used.
-        error_rate (float | _FloatFunction): The instruction error rate.
-        **kwargs (int): Additional properties to set on the instruction.
-            Valid property names: distance.
-
-    Returns:
-        _Instruction: The instruction.
-
-    Raises:
-        ValueError: If an unknown property name is provided in kwargs.
-    """
-    if arity is not None:
-        instr = _Instruction.fixed_arity(
-            id,
-            encoding,
-            arity,
-            cast(int, time),
-            cast(int | None, space),
-            cast(int | None, length),
-            cast(float, error_rate),
-        )
-    else:
-        if isinstance(time, int):
-            time = constant_function(time)
-        if isinstance(space, int):
-            space = constant_function(space)
-        if isinstance(length, int):
-            length = constant_function(length)
-        if isinstance(error_rate, float):
-            error_rate = constant_function(error_rate)
-
-        instr = _Instruction.variable_arity(
-            id,
-            encoding,
-            time,
-            cast(_IntFunction, space),
-            cast(_FloatFunction, error_rate),
-            length,
-        )
-
-    for key, value in kwargs.items():
-        try:
-            prop_key = PropertyKey[key.upper()]
-        except KeyError:
-            raise ValueError(
-                f"Unknown property '{key}'. Valid properties: {[k.name.lower() for k in PropertyKey]}"
-            )
-        instr.set_property(prop_key, value)
-
-    return instr
 
 
 class ISATransform(ABC):
@@ -279,7 +177,7 @@ class ISATransform(ABC):
         return cls.q().bind(name, node)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(slots=True)
 class InstructionSource:
     nodes: list[_InstructionSourceNode] = field(default_factory=list, init=False)
     roots: list[int] = field(default_factory=list, init=False)
@@ -314,7 +212,7 @@ class InstructionSource:
             ]
 
             node = graph.add_node(
-                ctx._provenance.instruction_id(source),
+                ctx._provenance.instruction(source),
                 ctx._transforms.get(ctx._provenance.transform_id(source)),
                 children,
             )
@@ -326,8 +224,9 @@ class InstructionSource:
         source_table: dict[int, int] = {}
 
         for inst in isa:
-            if inst.source != 0:
-                node = _make_node(graph, source_table, inst.source)
+            node_idx = isa.node_index(inst.id)
+            if node_idx is not None and node_idx != 0:
+                node = _make_node(graph, source_table, node_idx)
                 graph.add_root(node)
 
         return graph
@@ -337,17 +236,17 @@ class InstructionSource:
 
     def add_node(
         self,
-        id: int,
+        instruction: _Instruction,
         transform: Optional[ISATransform | Architecture],
         children: list[int],
     ) -> int:
-        node_id = self.nodes.__len__()
-        self.nodes.append(_InstructionSourceNode(id, transform, children))
+        node_id = len(self.nodes)
+        self.nodes.append(_InstructionSourceNode(instruction, transform, children))
         return node_id
 
     def __str__(self) -> str:
         def _format_node(node: _InstructionSourceNode, indent: int = 0) -> str:
-            result = " " * indent + f"{instruction_name(node.id) or '??'}"
+            result = " " * indent + f"{instruction_name(node.instruction.id) or '??'}"
             if node.transform is not None:
                 result += f" @ {node.transform}"
             for child_index in node.children:
@@ -358,9 +257,108 @@ class InstructionSource:
             _format_node(self.nodes[root_index]) for root_index in self.roots
         )
 
+    def __getitem__(self, id: int) -> _InstructionSourceNodeReference:
+        """
+        Retrieves the first instruction source root node with the given
+        instruction ID.  Raises KeyError if no such node exists.
+
+        Args:
+            id (int): The instruction ID to search for.
+
+        Returns:
+            _InstructionSourceNodeReference: The first instruction source node with the
+                given instruction ID.
+        """
+        if (node := self.get(id)) is not None:
+            return node
+
+        raise KeyError(f"Instruction ID {id} not found in instruction source graph.")
+
+    def get(
+        self, id: int, default: Optional[_InstructionSourceNodeReference] = None
+    ) -> Optional[_InstructionSourceNodeReference]:
+        """
+        Retrieves the first instruction source root node with the given
+        instruction ID.  Returns default if no such node exists.
+
+        Args:
+            id (int): The instruction ID to search for.
+            default (Optional[_InstructionSourceNodeReference]): The value to return if no
+                node with the given ID is found. Default is None.
+
+        Returns:
+            Optional[_InstructionSourceNodeReference]: The first instruction source node with the
+                given instruction ID, or default if no such node exists.
+        """
+        for root in self.roots:
+            if self.nodes[root].instruction.id == id:
+                return _InstructionSourceNodeReference(self, root)
+
+        return default
+
 
 @dataclass(frozen=True, slots=True)
 class _InstructionSourceNode:
-    id: int
+    instruction: _Instruction
     transform: Optional[ISATransform | Architecture]
     children: list[int]
+
+
+class _InstructionSourceNodeReference:
+    def __init__(self, graph: InstructionSource, node_id: int):
+        self.graph = graph
+        self.node_id = node_id
+
+    @property
+    def instruction(self) -> _Instruction:
+        return self.graph.nodes[self.node_id].instruction
+
+    @property
+    def transform(self) -> Optional[ISATransform | Architecture]:
+        return self.graph.nodes[self.node_id].transform
+
+    def __str__(self) -> str:
+        return str(self.graph.nodes[self.node_id])
+
+    def __getitem__(self, id: int) -> _InstructionSourceNodeReference:
+        """
+        Retrieves the first child instruction source node with the given
+        instruction ID.  Raises KeyError if no such node exists.
+
+        Args:
+            id (int): The instruction ID to search for.
+
+        Returns:
+            _InstructionSourceNodeReference: The first child instruction source node with the
+                given instruction ID.
+        """
+        if (node := self.get(id)) is not None:
+            return node
+
+        raise KeyError(
+            f"Instruction ID {id} not found in children of instruction {instruction_name(self.instruction.id) or '??'}."
+        )
+
+    def get(
+        self, id: int, default: Optional[_InstructionSourceNodeReference] = None
+    ) -> Optional[_InstructionSourceNodeReference]:
+        """
+        Retrieves the first child instruction source node with the given
+        instruction ID.  Returns default if no such node exists.
+
+        Args:
+            id (int): The instruction ID to search for.
+            default (Optional[_InstructionSourceNodeReference]): The value to return if no
+                node with the given ID is found. Default is None.
+
+        Returns:
+            Optional[_InstructionSourceNodeReference]: The first child instruction source
+                node with the given instruction ID, or default if no such node
+                exists.
+        """
+
+        for child_id in self.graph.nodes[self.node_id].children:
+            if self.graph.nodes[child_id].instruction.id == id:
+                return _InstructionSourceNodeReference(self.graph, child_id)
+
+        return default

@@ -6,8 +6,8 @@ from __future__ import annotations
 import types
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+from types import NoneType
 from typing import (
-    Any,
     ClassVar,
     Generic,
     Protocol,
@@ -18,7 +18,8 @@ from typing import (
 )
 
 from ._enumeration import _enumerate_instances
-from ._qre import Trace
+from ._qre import Trace, EstimationResult
+from ._trace import TraceQuery
 
 
 class DataclassProtocol(Protocol):
@@ -50,9 +51,19 @@ class Application(ABC, Generic[TraceParameters]):
     def get_trace(self, parameters: TraceParameters) -> Trace:
         """Return the trace corresponding to this application."""
 
-    def context(self, **kwargs) -> _Context:
+    @staticmethod
+    def q(**kwargs) -> TraceQuery:
+        return TraceQuery(NoneType, **kwargs)
+
+    def context(self) -> _Context:
         """Create a new enumeration context for this application."""
-        return _Context(self, **kwargs)
+        return _Context(self)
+
+    def post_process(
+        self, parameters: TraceParameters, estimation: EstimationResult
+    ) -> EstimationResult:
+        """Post-process an estimation result for a given set of trace parameters."""
+        return estimation
 
     def enumerate_traces(
         self,
@@ -80,6 +91,45 @@ class Application(ABC, Generic[TraceParameters]):
             for instances in _enumerate_instances(cast(type, param_type), **kwargs):
                 yield self.get_trace(instances)
 
+    def enumerate_traces_with_parameters(
+        self,
+        **kwargs,
+    ) -> Generator[tuple[TraceParameters, Trace], None, None]:
+        """Yields (parameters, trace) pairs for an application.
+
+        Like ``enumerate_traces``, but each yielded trace is accompanied by the
+        trace parameters that were used to generate it.
+
+        Args:
+            **kwargs: Domain overrides forwarded to ``_enumerate_instances``.
+
+        Returns:
+            Generator[tuple[TraceParameters, Trace], None, None]: A generator
+                of (parameters, trace) pairs.
+        """
+
+        param_type = get_type_hints(self.__class__.get_trace).get("parameters")
+        if param_type is types.NoneType:
+            yield None, self.get_trace(None)  # type: ignore
+            return
+
+        if isinstance(param_type, TypeVar):
+            for c in param_type.__constraints__:
+                if c is not types.NoneType:
+                    param_type = c
+                    break
+
+        if self._parallel_traces:
+            instances = list(_enumerate_instances(cast(type, param_type), **kwargs))
+            with ThreadPoolExecutor() as executor:
+                for instance, trace in zip(
+                    instances, executor.map(self.get_trace, instances)
+                ):
+                    yield instance, trace
+        else:
+            for instance in _enumerate_instances(cast(type, param_type), **kwargs):
+                yield instance, self.get_trace(instance)
+
     def disable_parallel_traces(self):
         """Disable parallel trace generation for this application."""
         self._parallel_traces = False
@@ -87,8 +137,6 @@ class Application(ABC, Generic[TraceParameters]):
 
 class _Context:
     application: Application
-    kwargs: dict[str, Any]
 
     def __init__(self, application: Application, **kwargs):
         self.application = application
-        self.kwargs = kwargs

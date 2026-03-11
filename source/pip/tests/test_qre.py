@@ -3,11 +3,13 @@
 
 from dataclasses import KW_ONLY, dataclass, field
 from enum import Enum
-from typing import Generator
+from typing import cast, Generator
 import pytest
 
+import pandas as pd
 import qsharp
 from qsharp.qre import (
+    Application,
     ISA,
     LOGICAL,
     PSSPC,
@@ -19,16 +21,21 @@ from qsharp.qre import (
     Trace,
     constraint,
     estimate,
-    instruction,
     linear_function,
     generic_function,
 )
+from qsharp.qre._qre import _ProvenanceGraph
 from qsharp.qre.application import QSharpApplication
 from qsharp.qre.models import (
     SurfaceCode,
     AQREGateBased,
 )
-from qsharp.qre._architecture import _Context
+from qsharp.qre._architecture import _Context, _make_instruction
+from qsharp.qre._estimation import (
+    EstimationTable,
+    EstimationTableEntry,
+)
+from qsharp.qre._instruction import InstructionSource
 from qsharp.qre._isa_enumeration import (
     ISARefNode,
 )
@@ -50,8 +57,8 @@ class ExampleFactory(ISATransform):
         )
 
     def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
-        yield ISA(
-            instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8),
+        yield ctx.make_isa(
+            ctx.add_instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8),
         )
 
 
@@ -68,17 +75,22 @@ class ExampleLogicalFactory(ISATransform):
         )
 
     def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
-        yield ISA(
-            instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-10),
+        yield ctx.make_isa(
+            ctx.add_instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-10),
         )
 
 
 def test_isa():
-    isa = ISA(
-        instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8, space=400),
-        instruction(
-            CCX, arity=3, encoding=LOGICAL, time=2000, error_rate=1e-10, space=800
-        ),
+    graph = _ProvenanceGraph()
+    isa = graph.make_isa(
+        [
+            graph.add_instruction(
+                T, encoding=LOGICAL, time=1000, space=400, error_rate=1e-8
+            ),
+            graph.add_instruction(
+                CCX, encoding=LOGICAL, arity=3, time=2000, space=800, error_rate=1e-10
+            ),
+        ]
     )
 
     assert T in isa
@@ -97,26 +109,27 @@ def test_isa():
     assert ccz_instr.error_rate() == 1e-10
     assert ccz_instr.space() == 800
 
-    isa.append(ccz_instr)
+    # Add another instruction to the graph and register it in the ISA
+    ccz_node = graph.add_instruction(ccz_instr)
+    isa.add_node(CCZ, ccz_node)
     assert CCZ in isa
     assert len(isa) == 3
 
-    isa.append(ccz_instr)
-    assert (
-        len(isa) == 3
-    )  # Appending the same instruction should not increase the number of instructions
+    # Adding the same instruction ID should not increase the count
+    isa.add_node(CCZ, ccz_node)
+    assert len(isa) == 3
 
 
 def test_instruction_properties():
     # Test instruction with no properties
-    instr_no_props = instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8)
+    instr_no_props = _make_instruction(T, 1, 1, 1000, None, None, 1e-8, {})
     assert instr_no_props.get_property(PropertyKey.DISTANCE) is None
     assert instr_no_props.has_property(PropertyKey.DISTANCE) is False
     assert instr_no_props.get_property_or(PropertyKey.DISTANCE, 5) == 5
 
     # Test instruction with valid property (distance)
-    instr_with_distance = instruction(
-        T, encoding=LOGICAL, time=1000, error_rate=1e-8, distance=9
+    instr_with_distance = _make_instruction(
+        T, 1, 1, 1000, None, None, 1e-8, {"distance": 9}
     )
     assert instr_with_distance.get_property(PropertyKey.DISTANCE) == 9
     assert instr_with_distance.has_property(PropertyKey.DISTANCE) is True
@@ -124,7 +137,7 @@ def test_instruction_properties():
 
     # Test instruction with invalid property name
     with pytest.raises(ValueError, match="Unknown property 'invalid_prop'"):
-        instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8, invalid_prop=42)
+        _make_instruction(T, 1, 1, 1000, None, None, 1e-8, {"invalid_prop": 42})
 
 
 def test_instruction_constraints():
@@ -145,13 +158,19 @@ def test_instruction_constraints():
         constraint(T, encoding=LOGICAL, invalid_prop=True)
 
     # Test ISA.satisfies with property constraints
-    instr_no_dist = instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8)
-    instr_with_dist = instruction(
-        T, encoding=LOGICAL, time=1000, error_rate=1e-8, distance=9
+    graph = _ProvenanceGraph()
+    isa_no_dist = graph.make_isa(
+        [
+            graph.add_instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8),
+        ]
     )
-
-    isa_no_dist = ISA(instr_no_dist)
-    isa_with_dist = ISA(instr_with_dist)
+    isa_with_dist = graph.make_isa(
+        [
+            graph.add_instruction(
+                T, encoding=LOGICAL, time=1000, error_rate=1e-8, distance=9
+            ),
+        ]
+    )
 
     reqs_no_prop = ISARequirements(constraint(T, encoding=LOGICAL))
     reqs_with_prop = ISARequirements(constraint(T, encoding=LOGICAL, distance=True))
@@ -184,21 +203,22 @@ def test_generic_function():
     space_fn = generic_function(lambda x: 12)
     assert isinstance(space_fn, _FloatFunction)
 
-    i = instruction(42, arity=None, space=12, time=time_fn, error_rate=error_rate_fn)
+    i = _make_instruction(42, 0, None, time_fn, 12, None, error_rate_fn, {})
     assert i.space(5) == 12
     assert i.time(5) == 25
     assert i.error_rate(5) == 2.5
 
 
 def test_isa_from_architecture():
-    arch = AQREGateBased()
+    arch = AQREGateBased(gate_time=50, measurement_time=100)
     code = SurfaceCode()
+    ctx = arch.context()
 
     # Verify that the architecture satisfies the code requirements
-    assert arch.provided_isa.satisfies(SurfaceCode.required_isa())
+    assert ctx.isa.satisfies(SurfaceCode.required_isa())
 
     # Generate logical ISAs
-    isas = list(code.provided_isa(arch.provided_isa, arch.context()))
+    isas = list(code.provided_isa(ctx.isa, ctx))
 
     # There is one ISA with one instructions
     assert len(isas) == 1
@@ -351,8 +371,137 @@ def test_enumerate_instances_union():
     assert instances[2].option.number == 1
 
 
+def test_enumerate_instances_nested_with_constraints():
+    from qsharp.qre._enumeration import _enumerate_instances
+
+    @dataclass
+    class InnerConfig:
+        _: KW_ONLY
+        option: bool
+
+    @dataclass
+    class OuterConfig:
+        _: KW_ONLY
+        inner: InnerConfig
+
+    # Constrain nested field via dict
+    instances = list(_enumerate_instances(OuterConfig, inner={"option": True}))
+    assert len(instances) == 1
+    assert instances[0].inner.option is True
+
+
+def test_enumerate_instances_union_single_type():
+    from qsharp.qre._enumeration import _enumerate_instances
+
+    @dataclass
+    class OptionA:
+        _: KW_ONLY
+        value: bool
+
+    @dataclass
+    class OptionB:
+        _: KW_ONLY
+        number: int = field(default=1, metadata={"domain": [1, 2, 3]})
+
+    @dataclass
+    class UnionConfig:
+        _: KW_ONLY
+        option: OptionA | OptionB
+
+    # Restrict to OptionB only - uses its default domain
+    instances = list(_enumerate_instances(UnionConfig, option=OptionB))
+    assert len(instances) == 3
+    assert all(isinstance(i.option, OptionB) for i in instances)
+    assert [cast(OptionB, i.option).number for i in instances] == [1, 2, 3]
+
+    # Restrict to OptionA only
+    instances = list(_enumerate_instances(UnionConfig, option=OptionA))
+    assert len(instances) == 2
+    assert all(isinstance(i.option, OptionA) for i in instances)
+    assert cast(OptionA, instances[0].option).value is True
+    assert cast(OptionA, instances[1].option).value is False
+
+
+def test_enumerate_instances_union_list_of_types():
+    from qsharp.qre._enumeration import _enumerate_instances
+
+    @dataclass
+    class OptionA:
+        _: KW_ONLY
+        value: bool
+
+    @dataclass
+    class OptionB:
+        _: KW_ONLY
+        number: int = field(default=1, metadata={"domain": [1, 2, 3]})
+
+    @dataclass
+    class OptionC:
+        _: KW_ONLY
+        flag: bool
+
+    @dataclass
+    class UnionConfig:
+        _: KW_ONLY
+        option: OptionA | OptionB | OptionC
+
+    # Select a subset: only OptionA and OptionB
+    instances = list(_enumerate_instances(UnionConfig, option=[OptionA, OptionB]))
+    assert len(instances) == 5  # 2 from OptionA + 3 from OptionB
+    assert all(isinstance(i.option, (OptionA, OptionB)) for i in instances)
+
+
+def test_enumerate_instances_union_constraint_dict():
+    from qsharp.qre._enumeration import _enumerate_instances
+
+    @dataclass
+    class OptionA:
+        _: KW_ONLY
+        value: bool
+
+    @dataclass
+    class OptionB:
+        _: KW_ONLY
+        number: int = field(default=1, metadata={"domain": [1, 2, 3]})
+
+    @dataclass
+    class UnionConfig:
+        _: KW_ONLY
+        option: OptionA | OptionB
+
+    # Constrain OptionA, enumerate only that member
+    instances = list(
+        _enumerate_instances(UnionConfig, option={OptionA: {"value": True}})
+    )
+    assert len(instances) == 1
+    assert isinstance(instances[0].option, OptionA)
+    assert instances[0].option.value is True
+
+    # Constrain OptionB with a domain, enumerate only that member
+    instances = list(
+        _enumerate_instances(UnionConfig, option={OptionB: {"number": [2, 3]}})
+    )
+    assert len(instances) == 2
+    assert all(isinstance(i.option, OptionB) for i in instances)
+    assert cast(OptionB, instances[0].option).number == 2
+    assert cast(OptionB, instances[1].option).number == 3
+
+    # Constrain one member and keep another with defaults
+    instances = list(
+        _enumerate_instances(
+            UnionConfig,
+            option={OptionA: {"value": True}, OptionB: {}},
+        )
+    )
+    assert len(instances) == 4  # 1 from OptionA + 3 from OptionB
+    assert isinstance(instances[0].option, OptionA)
+    assert instances[0].option.value is True
+    assert all(isinstance(i.option, OptionB) for i in instances[1:])
+    assert [cast(OptionB, i.option).number for i in instances[1:]] == [1, 2, 3]
+
+
 def test_enumerate_isas():
-    ctx = AQREGateBased().context()
+    ctx = AQREGateBased(gate_time=50, measurement_time=100).context()
 
     # This will enumerate the 4 ISAs for the error correction code
     count = sum(1 for _ in SurfaceCode.q().enumerate(ctx))
@@ -407,7 +556,7 @@ def test_enumerate_isas():
 
 def test_binding_node():
     """Test binding nodes with ISARefNode for component bindings"""
-    ctx = AQREGateBased().context()
+    ctx = AQREGateBased(gate_time=50, measurement_time=100).context()
 
     # Test basic binding: same code used twice
     # Without binding: 12 codes × 12 codes = 144 combinations
@@ -512,7 +661,7 @@ def test_binding_node():
 
 def test_binding_node_errors():
     """Test error handling for binding nodes"""
-    ctx = AQREGateBased().context()
+    ctx = AQREGateBased(gate_time=50, measurement_time=100).context()
 
     # Test ISARefNode enumerate with undefined binding raises ValueError
     try:
@@ -629,17 +778,24 @@ def test_qsharp_application():
     assert trace.depth == 3
     assert trace.resource_states == {}
 
-    isa = ISA(
-        instruction(
-            LATTICE_SURGERY,
-            encoding=LOGICAL,
-            arity=None,
-            time=1000,
-            error_rate=linear_function(1e-6),
-            space=linear_function(50),
-        ),
-        instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8, space=400),
-        instruction(CCX, encoding=LOGICAL, time=2000, error_rate=1e-10, space=800),
+    graph = _ProvenanceGraph()
+    isa = graph.make_isa(
+        [
+            graph.add_instruction(
+                LATTICE_SURGERY,
+                encoding=LOGICAL,
+                arity=None,
+                time=1000,
+                space=linear_function(50),
+                error_rate=linear_function(1e-6),
+            ),
+            graph.add_instruction(
+                T, encoding=LOGICAL, time=1000, space=400, error_rate=1e-8
+            ),
+            graph.add_instruction(
+                CCX, encoding=LOGICAL, time=2000, space=800, error_rate=1e-10
+            ),
+        ]
     )
 
     # Properties from the program
@@ -681,6 +837,21 @@ def test_qsharp_application():
     assert counter == 32
 
 
+def test_application_enumeration():
+    @dataclass(kw_only=True)
+    class _Params:
+        size: int = field(default=1, metadata={"domain": range(1, 4)})
+
+    class TestApp(Application[_Params]):
+        def get_trace(self, parameters: _Params) -> Trace:
+            return Trace(parameters.size)
+
+    app = TestApp()
+    assert sum(1 for _ in TestApp.q().enumerate(app.context())) == 3
+    assert sum(1 for _ in TestApp.q(size=1).enumerate(app.context())) == 1
+    assert sum(1 for _ in TestApp.q(size=[4, 5]).enumerate(app.context())) == 2
+
+
 def test_trace_enumeration():
     code = """
     {{
@@ -693,11 +864,8 @@ def test_trace_enumeration():
 
     app = QSharpApplication(code)
 
-    from qsharp.qre._trace import RootNode
-
     ctx = app.context()
-    root = RootNode()
-    assert sum(1 for _ in root.enumerate(ctx)) == 1
+    assert sum(1 for _ in QSharpApplication.q().enumerate(ctx)) == 1
 
     assert sum(1 for _ in PSSPC.q().enumerate(ctx)) == 32
 
@@ -729,7 +897,7 @@ def test_estimation_max_error():
     from qsharp.estimator import LogicalCounts
 
     app = QSharpApplication(LogicalCounts({"numQubits": 100, "measurementCount": 100}))
-    arch = AQREGateBased()
+    arch = AQREGateBased(gate_time=50, measurement_time=100)
 
     for max_error in [1e-1, 1e-2, 1e-3, 1e-4]:
         results = estimate(
@@ -766,3 +934,333 @@ def _assert_estimation_result(trace: Trace, result: EstimationResult, isa: ISA):
     if CCX in trace.resource_states:
         actual_error += isa[CCX].expect_error_rate() * result.factories[CCX].states
     assert abs(result.error - actual_error) <= 1e-8
+
+
+# --- EstimationTable tests ---
+
+
+def _make_entry(qubits, runtime, error, properties=None):
+    """Helper to create an EstimationTableEntry with a dummy InstructionSource."""
+    return EstimationTableEntry(
+        qubits=qubits,
+        runtime=runtime,
+        error=error,
+        source=InstructionSource(),
+        properties=properties or {},
+    )
+
+
+def test_estimation_table_default_columns():
+    """Test that a new EstimationTable has the three default columns."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01))
+
+    frame = table.as_frame()
+    assert list(frame.columns) == ["qubits", "runtime", "error"]
+    assert frame["qubits"][0] == 100
+    assert frame["runtime"][0] == pd.Timedelta(5000, unit="ns")
+    assert frame["error"][0] == 0.01
+
+
+def test_estimation_table_multiple_rows():
+    """Test as_frame with multiple entries."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01))
+    table.append(_make_entry(200, 10000, 0.02))
+    table.append(_make_entry(300, 15000, 0.03))
+
+    frame = table.as_frame()
+    assert len(frame) == 3
+    assert list(frame["qubits"]) == [100, 200, 300]
+    assert list(frame["error"]) == [0.01, 0.02, 0.03]
+
+
+def test_estimation_table_empty():
+    """Test as_frame with no entries produces an empty DataFrame."""
+    table = EstimationTable()
+    frame = table.as_frame()
+    assert len(frame) == 0
+
+
+def test_estimation_table_add_column():
+    """Test adding a column to the table."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01, properties={"val": 42}))
+    table.append(_make_entry(200, 10000, 0.02, properties={"val": 84}))
+
+    table.add_column("val", lambda e: e.properties["val"])
+
+    frame = table.as_frame()
+    assert list(frame.columns) == ["qubits", "runtime", "error", "val"]
+    assert list(frame["val"]) == [42, 84]
+
+
+def test_estimation_table_add_column_with_formatter():
+    """Test adding a column with a formatter."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01, properties={"ns": 1000}))
+
+    table.add_column(
+        "duration",
+        lambda e: e.properties["ns"],
+        formatter=lambda x: pd.Timedelta(x, unit="ns"),
+    )
+
+    frame = table.as_frame()
+    assert frame["duration"][0] == pd.Timedelta(1000, unit="ns")
+
+
+def test_estimation_table_add_multiple_columns():
+    """Test adding multiple columns preserves order."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01, properties={"a": 1, "b": 2, "c": 3}))
+
+    table.add_column("a", lambda e: e.properties["a"])
+    table.add_column("b", lambda e: e.properties["b"])
+    table.add_column("c", lambda e: e.properties["c"])
+
+    frame = table.as_frame()
+    assert list(frame.columns) == ["qubits", "runtime", "error", "a", "b", "c"]
+    assert frame["a"][0] == 1
+    assert frame["b"][0] == 2
+    assert frame["c"][0] == 3
+
+
+def test_estimation_table_insert_column_at_beginning():
+    """Test inserting a column at index 0."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01, properties={"name": "test"}))
+
+    table.insert_column(0, "name", lambda e: e.properties["name"])
+
+    frame = table.as_frame()
+    assert list(frame.columns) == ["name", "qubits", "runtime", "error"]
+    assert frame["name"][0] == "test"
+
+
+def test_estimation_table_insert_column_in_middle():
+    """Test inserting a column between existing default columns."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01, properties={"extra": 99}))
+
+    # Insert between qubits and runtime (index 1)
+    table.insert_column(1, "extra", lambda e: e.properties["extra"])
+
+    frame = table.as_frame()
+    assert list(frame.columns) == ["qubits", "extra", "runtime", "error"]
+    assert frame["extra"][0] == 99
+
+
+def test_estimation_table_insert_column_at_end():
+    """Test inserting a column at the end (same effect as add_column)."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01, properties={"last": True}))
+
+    # 3 default columns, inserting at index 3 = end
+    table.insert_column(3, "last", lambda e: e.properties["last"])
+
+    frame = table.as_frame()
+    assert list(frame.columns) == ["qubits", "runtime", "error", "last"]
+    assert frame["last"][0]
+
+
+def test_estimation_table_insert_column_with_formatter():
+    """Test inserting a column with a formatter."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01, properties={"ns": 2000}))
+
+    table.insert_column(
+        0,
+        "custom_time",
+        lambda e: e.properties["ns"],
+        formatter=lambda x: pd.Timedelta(x, unit="ns"),
+    )
+
+    frame = table.as_frame()
+    assert frame["custom_time"][0] == pd.Timedelta(2000, unit="ns")
+    assert list(frame.columns)[0] == "custom_time"
+
+
+def test_estimation_table_insert_and_add_columns():
+    """Test combining insert_column and add_column."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01, properties={"a": 1, "b": 2}))
+
+    table.add_column("b", lambda e: e.properties["b"])
+    table.insert_column(0, "a", lambda e: e.properties["a"])
+
+    frame = table.as_frame()
+    assert list(frame.columns) == ["a", "qubits", "runtime", "error", "b"]
+
+
+def test_estimation_table_factory_summary_no_factories():
+    """Test factory summary column when entries have no factories."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01))
+
+    table.add_factory_summary_column()
+
+    frame = table.as_frame()
+    assert "factories" in frame.columns
+    assert frame["factories"][0] == "None"
+
+
+def test_estimation_table_factory_summary_with_estimation():
+    """Test factory summary column with real estimation results."""
+    code = """
+    {
+        use (a, b, c) = (Qubit(), Qubit(), Qubit());
+        T(a);
+        CCNOT(a, b, c);
+        Rz(1.2345, a);
+    }
+    """
+    app = QSharpApplication(code)
+    arch = AQREGateBased(gate_time=50, measurement_time=100)
+    results = estimate(
+        app,
+        arch,
+        SurfaceCode.q() * ExampleFactory.q(),
+        PSSPC.q() * LatticeSurgery.q(),
+        max_error=0.5,
+    )
+
+    assert len(results) >= 1
+
+    results.add_factory_summary_column()
+    frame = results.as_frame()
+
+    assert "factories" in frame.columns
+    # Each result should mention T in the factory summary
+    for val in frame["factories"]:
+        assert "T" in val
+
+
+def test_estimation_table_add_column_from_source():
+    """Test adding a column that accesses the InstructionSource (like distance)."""
+    code = """
+    {
+        use (a, b, c) = (Qubit(), Qubit(), Qubit());
+        T(a);
+        CCNOT(a, b, c);
+        Rz(1.2345, a);
+    }
+    """
+    app = QSharpApplication(code)
+    arch = AQREGateBased(gate_time=50, measurement_time=100)
+    results = estimate(
+        app,
+        arch,
+        SurfaceCode.q() * ExampleFactory.q(),
+        PSSPC.q() * LatticeSurgery.q(),
+        max_error=0.5,
+    )
+
+    assert len(results) >= 1
+
+    results.add_column(
+        "compute_distance",
+        lambda entry: entry.source[LATTICE_SURGERY].instruction[PropertyKey.DISTANCE],
+    )
+
+    frame = results.as_frame()
+    assert "compute_distance" in frame.columns
+    for d in frame["compute_distance"]:
+        assert isinstance(d, int)
+        assert d >= 3
+
+
+def test_estimation_table_add_column_from_properties():
+    """Test adding columns that access trace properties from estimation."""
+    code = """
+    {
+        use (a, b, c) = (Qubit(), Qubit(), Qubit());
+        T(a);
+        CCNOT(a, b, c);
+        Rz(1.2345, a);
+    }
+    """
+    app = QSharpApplication(code)
+    arch = AQREGateBased(gate_time=50, measurement_time=100)
+    results = estimate(
+        app,
+        arch,
+        SurfaceCode.q() * ExampleFactory.q(),
+        PSSPC.q() * LatticeSurgery.q(),
+        max_error=0.5,
+    )
+
+    assert len(results) >= 1
+
+    results.add_column(
+        "num_ts_per_rotation",
+        lambda entry: entry.properties["num_ts_per_rotation"],
+    )
+
+    frame = results.as_frame()
+    assert "num_ts_per_rotation" in frame.columns
+    for val in frame["num_ts_per_rotation"]:
+        assert isinstance(val, int)
+        assert val >= 1
+
+
+def test_estimation_table_insert_column_before_defaults():
+    """Test inserting a name column before all default columns, similar to the factoring notebook."""
+    code = """
+    {
+        use (a, b, c) = (Qubit(), Qubit(), Qubit());
+        T(a);
+        CCNOT(a, b, c);
+        Rz(1.2345, a);
+    }
+    """
+    app = QSharpApplication(code)
+    arch = AQREGateBased(gate_time=50, measurement_time=100)
+    results = estimate(
+        app,
+        arch,
+        SurfaceCode.q() * ExampleFactory.q(),
+        PSSPC.q() * LatticeSurgery.q(),
+        max_error=0.5,
+        name="test_experiment",
+    )
+
+    assert len(results) >= 1
+
+    # Insert a name column at the beginning and add factory summary at the end
+    results.insert_column(0, "name", lambda entry: entry.properties.get("name", ""))
+    results.add_factory_summary_column()
+
+    frame = results.as_frame()
+    assert frame.columns[0] == "name"
+    assert frame.columns[-1] == "factories"
+    # Default columns should still be in order
+    assert list(frame.columns[1:4]) == ["qubits", "runtime", "error"]
+
+
+def test_estimation_table_as_frame_sortable():
+    """Test that the DataFrame from as_frame can be sorted, as done in the factoring tests."""
+    table = EstimationTable()
+    table.append(_make_entry(300, 15000, 0.03))
+    table.append(_make_entry(100, 5000, 0.01))
+    table.append(_make_entry(200, 10000, 0.02))
+
+    frame = table.as_frame()
+    sorted_frame = frame.sort_values(by=["qubits", "runtime"]).reset_index(drop=True)
+
+    assert list(sorted_frame["qubits"]) == [100, 200, 300]
+    assert list(sorted_frame["error"]) == [0.01, 0.02, 0.03]
+
+
+def test_estimation_table_computed_column():
+    """Test adding a column that computes a derived value from the entry."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 5_000_000, 0.01))
+    table.append(_make_entry(200, 10_000_000, 0.02))
+
+    # Compute qubits * error as a derived metric
+    table.add_column("qubit_error_product", lambda e: e.qubits * e.error)
+
+    frame = table.as_frame()
+    assert frame["qubit_error_product"][0] == pytest.approx(1.0)
+    assert frame["qubit_error_product"][1] == pytest.approx(4.0)
