@@ -22,7 +22,9 @@ export function Circuit(props: {
   circuit?: qviz.CircuitGroup | qviz.Circuit;
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
   editor?: qviz.EditorHandlers;
-  onExportSvg?: (svgContent: string) => void;
+  onExportSvg?: (svgContent: string, filename: string) => void;
+  /** Used as the suggested filename when exporting. */
+  title?: string;
 }) {
   const isEditable = props.editor != null;
   let unrenderable = false;
@@ -61,6 +63,7 @@ export function Circuit(props: {
           {...props}
           circuitGroup={result.circuitGroup}
           onExportSvg={props.onExportSvg}
+          title={props.title}
         />
       )}
     </div>
@@ -71,7 +74,8 @@ function ZoomableCircuit(props: {
   circuitGroup: qviz.CircuitGroup;
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string };
   editor?: qviz.EditorHandlers;
-  onExportSvg?: (svgContent: string) => void;
+  onExportSvg?: (svgContent: string, filename: string) => void;
+  title?: string;
 }) {
   const circuitDiv = useRef<HTMLDivElement>(null);
   const qvizObj = useRef<ReturnType<typeof qviz.draw> | null>(null);
@@ -116,6 +120,7 @@ function ZoomableCircuit(props: {
           <ExportSvgButton
             circuitRef={circuitDiv}
             onExportSvg={props.onExportSvg}
+            title={props.title}
           />
         ) : null}
       </div>
@@ -245,20 +250,25 @@ function inlineComputedStyles(live: Element, clone: Element): void {
 
 function ExportSvgButton(props: {
   circuitRef: { current: HTMLElement | null };
-  onExportSvg?: (svgContent: string) => void;
+  onExportSvg?: (svgContent: string, filename: string) => void;
+  title?: string;
 }) {
   function handleExport() {
     const svgString = captureRenderedSvg(props.circuitRef.current);
     if (!svgString) return;
+    // Sanitize the title for use as a filename: strip characters that are
+    // invalid in filenames and trim whitespace. Fall back to "circuit".
+    const filename =
+      (props.title ?? "").replace(/[\\/:*?"<>|]/g, "").trim() || "circuit";
     if (props.onExportSvg) {
       // VS Code webviews block anchor-click downloads; the host handles saving.
-      props.onExportSvg(svgString);
+      props.onExportSvg(svgString, filename);
     } else {
       // Browser / Jupyter fallback: trigger a direct download.
       const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgString)}`;
       const a = document.createElement("a");
       a.href = url;
-      a.download = "circuit.svg";
+      a.download = `${filename}.svg`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -343,6 +353,7 @@ export function CircuitPanel(props: CircuitProps) {
           renderLocations={renderLocations}
           editor={props.editor}
           onExportSvg={props.onExportSvg}
+          title={props.title}
         ></Circuit>
       ) : null}
     </div>

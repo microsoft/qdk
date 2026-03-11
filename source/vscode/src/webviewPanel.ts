@@ -392,7 +392,7 @@ export class QSharpWebViewPanel {
         this._queuedMessages = [];
       } else if (message.command === "exportSvg") {
         const uri = await window.showSaveDialog({
-          defaultUri: Uri.file("circuit.svg"),
+          defaultUri: Uri.file(`${message.filename ?? "circuit"}.svg`),
           filters: { "SVG Images": ["svg"] },
         });
         if (uri) {

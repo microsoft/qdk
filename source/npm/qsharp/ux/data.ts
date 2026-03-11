@@ -81,8 +81,10 @@ export type CircuitProps = {
    * When provided, the button calls this instead of attempting a
    * browser-side download (which is blocked in VS Code webviews).
    * The host is responsible for writing or presenting the file.
+   * @param svgContent The SVG markup string.
+   * @param filename   Suggested filename (without extension).
    */
-  onExportSvg?: (svgContent: string) => void;
+  onExportSvg?: (svgContent: string, filename: string) => void;
 };
 
 export type EditorHandlers = import("./circuit-vis/index.js").EditorHandlers;

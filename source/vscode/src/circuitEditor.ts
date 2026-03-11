@@ -50,7 +50,7 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
         }
         case "exportSvg": {
           const uri = await vscode.window.showSaveDialog({
-            defaultUri: vscode.Uri.file("circuit.svg"),
+            defaultUri: vscode.Uri.file(`${e.filename ?? "circuit"}.svg`),
             filters: { "SVG Images": ["svg"] },
           });
           if (uri) {
