@@ -206,10 +206,30 @@ class Circuit(anywidget.AnyWidget):
 
     comp = traitlets.Unicode("Circuit").tag(sync=True)
     circuit_json = traitlets.Unicode().tag(sync=True)
+    # Populated when the user clicks the Export SVG button in the widget.
+    # In VS Code notebooks (where browser downloads are blocked) call
+    # save_svg() after clicking the button to write the file to disk.
+    svg_data = traitlets.Unicode("").tag(sync=True)
 
     def __init__(self, circuit):
         super().__init__(circuit_json=circuit.json())
         self.layout.overflow = "visible scroll"
+
+    def save_svg(self, path: str) -> None:
+        """Save the current circuit visualization as an SVG file.
+
+        Click the "Export SVG" button in the widget first to capture the
+        visualization, then call this method to write it to disk.
+
+        Parameters:
+        - path: Destination file path, e.g. "circuit.svg".
+        """
+        if not self.svg_data:
+            raise RuntimeError(
+                "No SVG data available. Click the 'Export SVG' button in the "
+                "widget first to capture the current visualization."
+            )
+        pathlib.Path(path).write_text(self.svg_data, encoding="utf-8")
 
 
 class Atoms(anywidget.AnyWidget):

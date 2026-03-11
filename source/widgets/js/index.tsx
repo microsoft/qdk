@@ -275,6 +275,27 @@ function renderCircuit({ model, el }: RenderArgs) {
             href: "#",
           };
         }}
+        onExportSvg={(svgContent, filename) => {
+          // Store the SVG on the Python model so the user can call
+          // widget.save_svg("path") from a notebook cell.
+          // This is the only path that works in VS Code notebooks, where
+          // programmatic anchor-click downloads are blocked.
+          model.set("svg_data", svgContent);
+          model.save_changes();
+          // Also attempt a direct browser download, which works in
+          // browser-based JupyterLab.
+          try {
+            const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgContent)}`;
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `${filename}.svg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+          } catch {
+            // Silently ignore if the browser blocks the download.
+          }
+        }}
       ></Circuit>,
       el,
     );
