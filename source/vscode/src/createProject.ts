@@ -6,7 +6,6 @@ import * as vscode from "vscode";
 import { qsharpExtensionId } from "./common";
 import registryJson from "./registry.json";
 import { EventType, sendTelemetryEvent } from "./telemetry";
-import { updateCopilotInstructions } from "./gh-copilot/instructions";
 
 export async function initProjectCreator(context: vscode.ExtensionContext) {
   context.subscriptions.push(
@@ -64,8 +63,6 @@ export async function initProjectCreator(context: vscode.ExtensionContext) {
           );
         }
 
-        // Call updateCopilotInstructions to update the Copilot instructions file
-        await updateCopilotInstructions("Project", context);
       },
     ),
   );

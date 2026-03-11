@@ -1,20 +1,6 @@
----
-name: qsharp-programming
-description: 'Write Q# quantum programs. Use when: user asks to "write Q# code", "implement a quantum algorithm", "create a Q# operation", "write quantum gates", debug Q# syntax errors, needs Q# standard library guidance, asks about Q# types/operators/control flow, or wants quantum algorithm patterns like Grover, QFT, teleportation, error correction. Covers Q# syntax, type system, quantum operations, standard library, algorithms, testing, and project structure.'
----
-
 # Q# Programming
 
-Write correct, idiomatic Q# code for quantum computing. This skill covers the full Q# language — syntax, type system, quantum operations, standard library, algorithm patterns, testing, and project structure.
-
-## When to Use
-
-- User asks to write, debug, or explain Q# code
-- User wants to implement a quantum algorithm
-- User needs Q# syntax help (operators, control flow, types)
-- User asks about Q# standard library functions
-- User wants to write Q# tests
-- User needs help structuring a Q# project
+Write correct, idiomatic Q# code for quantum computing. This file covers the full Q# language — syntax, type system, quantum operations, standard library, algorithm patterns, testing, and project structure.
 
 ## Critical: Library Lookups
 
@@ -402,7 +388,7 @@ Set in `qsharp.json` to constrain operations for specific hardware:
 |---------|------------|
 | `unrestricted` | Full simulation (default) |
 | `adaptive_ri` | Mid-circuit measurement + classical feed-forward |
-| `adaptive_rif` | Adds floating-point computation |
+| `adaptive_rif` | Adds floating-point computation; required for `CircuitGenerationMethod.Static` |
 | `base` | No mid-circuit measurement, no classical branching |
 
 ## Jupyter Notebook Integration

@@ -6,7 +6,6 @@ import * as vscode from "vscode";
 import { EventType, sendTelemetryEvent, UserFlowStatus } from "../../telemetry";
 import { getRandomGuid } from "../../utils";
 import * as azqTools from "./azureQuantumTools";
-import { updateCopilotInstructions } from "../../gh-copilot/instructions";
 import { initPythonQdkEnvironment } from "./pythonEnvTools";
 import { QSharpTools } from "./qsharpTools";
 import { CopilotToolError } from "./types";
@@ -135,8 +134,6 @@ async function invokeTool<T>(
   options: vscode.LanguageModelToolInvocationOptions<T>,
   toolFn: (input: T) => Promise<any>,
 ): Promise<vscode.LanguageModelToolResult> {
-  updateCopilotInstructions("ChatToolCall", context);
-
   const associationId = getRandomGuid();
   sendTelemetryEvent(EventType.LanguageModelToolStart, {
     associationId,

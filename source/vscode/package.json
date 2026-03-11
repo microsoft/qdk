@@ -536,7 +536,7 @@
       {
         "command": "qsharp-vscode.updateCopilotInstructions",
         "category": "QDK",
-        "title": "Add Copilot instructions file for Q# and OpenQASM"
+        "title": "Copilot Instructions for Q# and OpenQASM"
       }
     ],
     "breakpoints": [
@@ -1060,10 +1060,7 @@
         "path": "./skills/setup-qdk-python/SKILL.md"
       },
       {
-        "path": "./skills/qdk-python-programming/SKILL.md"
-      },
-      {
-        "path": "./skills/qsharp-programming/SKILL.md"
+        "path": "./skills/qdk-programming/SKILL.md"
       }
     ]
   },

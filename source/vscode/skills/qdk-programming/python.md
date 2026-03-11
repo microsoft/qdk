@@ -1,23 +1,6 @@
----
-name: qdk-python-programming
-description: 'Comprehensive guide for programming with the QDK (Quantum Development Kit) Python libraries. Use when: user asks to "write Q# from Python", "run a quantum program", "estimate resources", "generate a circuit", "simulate with noise", "submit to Azure Quantum", "use OpenQASM", "use Qiskit with QDK", "use Cirq with QDK", "run noisy simulation", "use neutral atom device", "test Q# from Python", "do resource estimation", "create a quantum circuit", or needs help with qsharp/qdk Python API patterns, imports, initialization, execution, compilation, or interop.'
----
-
 # QDK Python Programming
 
 Write, run, test, and deploy quantum programs using the QDK Python libraries (`qdk` / `qsharp`).
-
-## When to Use
-
-- Writing or running Q# programs from Python
-- Running OpenQASM programs from Python
-- Resource estimation for quantum algorithms
-- Circuit generation and visualization
-- Noisy simulation and device simulation
-- Submitting jobs to Azure Quantum
-- Interoperating with Qiskit, Cirq, or PennyLane
-- Testing Q# operations from Python (pytest)
-- Variational quantum algorithms (VQE, QAOA)
 
 ## Package Layout
 
@@ -184,13 +167,36 @@ print(circuit)  # text representation
 # From an operation that takes a qubit array
 circuit = qsharp.circuit(operation="PrepareCatState")
 
-# With simulation-based generation (traces execution)
-from qsharp import CircuitGenerationMethod
-circuit = qsharp.circuit("MyOp()", generation_method=CircuitGenerationMethod.Simulate)
-
 # Visualize in Jupyter (requires qdk[jupyter])
 from qdk.widgets import Circuit
 Circuit(circuit)
+```
+
+### Generation Methods
+
+By default, circuit generation traces a single execution path through the program.
+Programs with measurement-based conditionals require an explicit generation method.
+
+```python
+from qsharp import CircuitGenerationMethod
+
+# Simulate: runs in the simulator and records the gates.
+# Shows only one branch of any conditional.
+circuit = qsharp.circuit("MyOp()", generation_method=CircuitGenerationMethod.Simulate)
+
+# Static: compiles the program via partial evaluation.
+# Shows ALL conditional branches as classically controlled groups.
+# Requires a non-Unrestricted target profile (e.g. Adaptive_RIF).
+qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+circuit = qsharp.circuit("MyOp()", generation_method=CircuitGenerationMethod.Static)
+```
+
+Static generation also works with Q# callables:
+
+```python
+qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+qsharp.eval("operation Foo() : Unit { use q = Qubit(); H(q); if M(q) == One { X(q); } Reset(q); }")
+circuit = qsharp.circuit(qsharp.code.Foo, generation_method=CircuitGenerationMethod.Static)
 ```
 
 ### Visualizing Circuits via MCP
@@ -363,7 +369,7 @@ results = device.simulate(qir, shots=1000, noise=noise, type="clifford")
 
 ## OpenQASM Interop
 
-Run, compile, and estimate OpenQASM 3.0 programs. Full details in [OpenQASM reference](./references/openqasm-interop.md).
+Run, compile, and estimate OpenQASM 3.0 programs. For OpenQASM syntax details, see [openqasm.md](./openqasm.md).
 
 ```python
 from qsharp.openqasm import run, compile, estimate, import_openqasm, ProgramType
@@ -377,9 +383,14 @@ results = run(source, shots=1000, noise=DepolarizingNoise(0.01))
 # Compile to QIR
 qir = compile(source, target_profile=TargetProfile.Base)
 
-# Import as callable Q# operation
-import_openqasm(source, name="bell", program_type=ProgramType.File)
-from qsharp.code.qasm_import import bell
+# Import as a standalone file (manages its own qubits)
+import_openqasm(source, name="Bell", program_type=ProgramType.File)
+from qsharp.code.qasm_import import Bell
+result = Bell()
+
+# Import as an operation (qubits become parameters)
+import_openqasm(source, name="MyGate", program_type=ProgramType.Operation)
+qsharp.eval("{ use q = Qubit(); MyGate(q) }")
 
 # Resource estimation
 result = estimate(source, {"qubitParams": {"name": "qubit_gate_ns_e3"}})

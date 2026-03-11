@@ -6,249 +6,151 @@ import * as vscode from "vscode";
 import { EventType, sendTelemetryEvent, UserFlowStatus } from "../telemetry";
 
 /**
- * Command to update or create the Copilot instructions file for Q# and OpenQASM.
- * Shows a prompt to the user and updates the file if confirmed.
+ * Previously installed instruction files into the user's global storage.
+ * Now a no-op — Q# and OpenQASM guidance is provided via extension skills.
+ *
+ * Kept as an export because callers in createProject.ts and tools.ts
+ * fire-and-forget this function. Removing it would be a breaking change
+ * in the same release.
  */
 export async function updateCopilotInstructions(
-  trigger: "Command" | "Project" | "Activation" | "ChatToolCall",
-  context: vscode.ExtensionContext,
+  _trigger: "Command" | "Project" | "Activation" | "ChatToolCall",
+  _context: vscode.ExtensionContext,
 ): Promise<void> {
-  const globalStateUri = context.globalStorageUri;
-  const userInvoked = trigger === "Command" || trigger === "Project";
+  // No-op: instructions are now provided via extension skills.
+}
 
-  if (
-    !userInvoked &&
-    !context.globalState.get<boolean>(
-      "showUpdateCopilotInstructionsPromptAtStartup",
-      true,
-    )
-  ) {
-    // User has previously picked "Don't show again"
-    return;
-  }
-
-  if (isExtensionInstructionsConfigured(globalStateUri)) {
-    if (trigger === "Command") {
-      // fire-and-forget
-      showInfoMessage(
-        "Copilot instructions for Q# and OpenQASM are already configured.",
-        {
-          showSettingButton: true,
-          learnMoreButton: true,
-        },
-      );
-    }
-    // Already configured, do nothing
-    return;
-  }
-
-  sendTelemetryEvent(
-    EventType.UpdateCopilotInstructionsStart,
-    {
-      trigger,
-    },
-    {},
+/**
+ * Registers the Copilot instructions command and cleans up any
+ * previously-installed instruction files (now replaced by extension skills).
+ */
+export async function registerGhCopilotInstructionsCommand(
+  context: vscode.ExtensionContext,
+) {
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "qsharp-vscode.updateCopilotInstructions",
+      () => {
+        vscode.window.showInformationMessage(
+          "Q# and OpenQASM coding guidance is now provided via built-in extension skills. " +
+            "No additional configuration is needed.",
+        );
+      },
+    ),
   );
 
-  const response = await showConfirmationPrompt(userInvoked);
+  // Clean up old instruction files and settings from previous versions
+  await cleanUpOldInstructions(context);
+}
 
-  if (response !== "Yes") {
-    sendTelemetryEvent(EventType.UpdateCopilotInstructionsEnd, {
-      reason: "user declined",
-      flowStatus: UserFlowStatus.Aborted,
-    });
-
-    if (response === "Don't show again") {
-      context.globalState.update(
-        "showUpdateCopilotInstructionsPromptAtStartup",
-        false,
-      );
-    }
-
-    // fire-and-forget
-    showInfoMessage(
-      "To add Copilot instructions for Q# and OpenQASM at any time, " +
-        'run the command "QDK: Add Copilot instructions file for Q# and OpenQASM".',
-      { showSettingButton: false },
-    );
-
-    // User dismissed the dialog
-    return;
-  }
-
+/**
+ * Cleans up instruction files and settings from previous extension versions.
+ *
+ * Previous versions copied .instructions.md files to global storage and
+ * registered the directory via chat.instructionsFilesLocations. This function
+ * removes those artifacts since the content is now provided via extension skills.
+ */
+async function cleanUpOldInstructions(
+  context: vscode.ExtensionContext,
+): Promise<void> {
   try {
-    // Actually add the instructions to the user's config
-    await addExtensionInstructionsToUserConfig(globalStateUri);
+    // Remove the extension's directory from chat.instructionsFilesLocations
+    await removeExtensionInstructionsFromUserConfig(context.globalStorageUri);
 
-    // If we had previously updated `copilot-instructions.md` with Q# instructions,
-    // remove them now. Those are now obsolete.
-    const removedOldInstructions = await removeOldQSharpCopilotInstructions();
+    // Delete old instruction files from global storage
+    await deleteOldInstructionFiles(context.globalStorageUri);
 
-    // fire-and-forget
-    showInfoMessage(
-      "Successfully configured Copilot instructions for Q# and OpenQASM" +
-        (removedOldInstructions
-          ? ", and removed old Q# instructions from copilot-instructions.md."
-          : "."),
-      {
-        showSettingButton: true,
-        learnMoreButton: true,
-      },
-    );
-
-    sendTelemetryEvent(
-      EventType.UpdateCopilotInstructionsEnd,
-      { flowStatus: UserFlowStatus.Succeeded },
-      {},
-    );
+    // If we had previously updated copilot-instructions.md with Q# instructions,
+    // remove them now. Those are obsolete.
+    await removeOldQSharpCopilotInstructions();
   } catch (error) {
-    log.error(`Error updating Copilot instructions`, error);
-    vscode.window.showErrorMessage(
-      `Could not update Copilot instructions for Q# and OpenQASM.`,
-    );
-
-    sendTelemetryEvent(
-      EventType.UpdateCopilotInstructionsEnd,
-      { flowStatus: UserFlowStatus.Failed, reason: "Error" },
-      {},
-    );
+    log.warn("Error cleaning up old Copilot instructions", error);
   }
 }
 
 /**
- * Checks the user's instructionsFilesLocations setting to see if
- * our extension's instructions directory is already included.
+ * Removes the extension's chat-instructions directory from the user's
+ * chat.instructionsFilesLocations setting, if present.
  */
-function isExtensionInstructionsConfigured(
-  globalStateUri: vscode.Uri,
-): boolean {
-  const extensionInstructionsDir = getExtensionInstructionsDir(globalStateUri);
-  const instructionsLocations = getConfiguredInstructionsFilesLocations();
-
-  // Check if our directory is in the map as a key and it's enabled (true)
-  if (instructionsLocations[extensionInstructionsDir] === true) {
-    return true;
-  }
-  return false;
-}
-
-/**
- * Updates the user's instructionsFilesLocations setting to include
- * our extension's instructions directory.
- */
-async function addExtensionInstructionsToUserConfig(
+async function removeExtensionInstructionsFromUserConfig(
   globalStateUri: vscode.Uri,
 ): Promise<void> {
-  const instructionsLocations = getConfiguredInstructionsFilesLocations();
   const extensionInstructionsDir = getExtensionInstructionsDir(globalStateUri);
-
-  // Only add the extension's chat-instructions directory
-  // if it's not already configured or if it's disabled
-  if (instructionsLocations[extensionInstructionsDir] !== true) {
-    // Create a new map with our directory set to true
-    const updatedLocations = { ...instructionsLocations };
-    updatedLocations[extensionInstructionsDir] = true;
-
-    const config = vscode.workspace.getConfiguration("chat");
-    await config.update(
-      "instructionsFilesLocations",
-      updatedLocations,
-      vscode.ConfigurationTarget.Global,
-    );
-  }
-}
-
-/**
- * @returns the user's `chat.instructionsFilesLocations` setting.
- */
-function getConfiguredInstructionsFilesLocations(): Record<string, boolean> {
   const config = vscode.workspace.getConfiguration("chat");
-  const setting = config.get<Record<string, boolean>>(
+  const instructionsLocations = config.get<Record<string, boolean>>(
     "instructionsFilesLocations",
     {},
   );
-  return setting;
+
+  if (extensionInstructionsDir in instructionsLocations) {
+    const updatedLocations = { ...instructionsLocations };
+    delete updatedLocations[extensionInstructionsDir];
+
+    // If the map is now empty, remove the setting entirely to keep config clean
+    if (Object.keys(updatedLocations).length === 0) {
+      await config.update(
+        "instructionsFilesLocations",
+        undefined,
+        vscode.ConfigurationTarget.Global,
+      );
+    } else {
+      await config.update(
+        "instructionsFilesLocations",
+        updatedLocations,
+        vscode.ConfigurationTarget.Global,
+      );
+    }
+
+    sendTelemetryEvent(
+      EventType.UpdateCopilotInstructionsEnd,
+      {
+        reason: "cleaned up old instructions",
+        flowStatus: UserFlowStatus.Succeeded,
+      },
+      {},
+    );
+  }
+}
+
+/**
+ * Deletes old .instructions.md files from global storage.
+ */
+async function deleteOldInstructionFiles(
+  globalStateUri: vscode.Uri,
+): Promise<void> {
+  const files = ["qsharp.instructions.md", "openqasm.instructions.md"];
+  for (const file of files) {
+    const target = vscode.Uri.joinPath(
+      globalStateUri,
+      "chat-instructions",
+      file,
+    );
+    try {
+      await vscode.workspace.fs.delete(target);
+    } catch {
+      // File doesn't exist, nothing to clean up
+    }
+  }
+
+  // Try to remove the now-empty directory
+  const dir = vscode.Uri.joinPath(globalStateUri, "chat-instructions");
+  try {
+    await vscode.workspace.fs.delete(dir);
+  } catch {
+    // Directory doesn't exist or isn't empty
+  }
 }
 
 /**
  * Gets our extension's chat instructions directory's absolute path.
- * Will only work in *real* fileSystems - it's TBD how this setting
- * will work if/when VS Code supports GitHub Copilot in the browser.
+ * Used for identifying and cleaning up old settings entries.
  */
 function getExtensionInstructionsDir(globalStateUri: vscode.Uri): string {
   const instructionsUri = vscode.Uri.joinPath(
     globalStateUri,
     "chat-instructions",
   );
-
-  // Normalize path by removing trailing slashes and replacing backslashes with forward slashes
   return instructionsUri.fsPath.replace(/[/\\]$/, "").replace(/\\/g, "/");
-}
-
-async function showConfirmationPrompt(userInvoked: boolean) {
-  const buttons = [{ title: "Yes" }, { title: "No", isCloseAffordance: true }];
-
-  let message =
-    "Add Copilot instructions for Q# and OpenQASM?\n\n" +
-    "This will configure GitHub Copilot to work better with Q#, OpenQASM, and other Quantum Development Kit features.";
-
-  let response: vscode.MessageItem | undefined;
-
-  if (!userInvoked) {
-    buttons.push({ title: "Don't show again" });
-    // For non-modal dialogs, include a markdown link in the message
-    message +=
-      "\n\nLearn more at [https://aka.ms/qdk.copilot](https://aka.ms/qdk.copilot)";
-    response = await vscode.window.showInformationMessage(message, ...buttons);
-  } else {
-    // For modal dialogs, add a Learn More button
-    const allButtons = [...buttons, { title: "Learn More" }];
-
-    response = await vscode.window.showInformationMessage(
-      message,
-      { modal: true },
-      ...allButtons,
-    );
-
-    // Handle the "Learn More" button click
-    if (response?.title === "Learn More") {
-      vscode.env.openExternal(vscode.Uri.parse("https://aka.ms/qdk.copilot"));
-      // Show the dialog again since clicking Learn More shouldn't dismiss it
-      return await showConfirmationPrompt(userInvoked);
-    }
-  }
-
-  return response?.title;
-}
-
-async function showInfoMessage(
-  message: string,
-  options: {
-    showSettingButton?: boolean;
-    learnMoreButton?: boolean;
-  },
-) {
-  const buttons: string[] = [];
-  if (options.showSettingButton) {
-    buttons.push("Show Setting");
-  }
-  if (options.learnMoreButton) {
-    buttons.push("Learn More");
-  }
-  const selection = await vscode.window.showInformationMessage(
-    message,
-    ...buttons,
-  );
-  if (selection === "Show Setting") {
-    // Open the settings UI at our specific setting
-    vscode.commands.executeCommand(
-      "workbench.action.openSettings",
-      "chat.instructionsFilesLocations",
-    );
-  } else if (selection === "Learn More") {
-    // Open the documentation URL
-    vscode.env.openExternal(vscode.Uri.parse("https://aka.ms/qdk.copilot"));
-  }
 }
 
 /**
@@ -270,8 +172,10 @@ async function removeOldQSharpCopilotInstructions(): Promise<boolean> {
   let removed = false;
 
   for (const workspaceFolder of workspaceFolders) {
-    const instructionsFile = getOldInstructionsFileLocation(
+    const instructionsFile = vscode.Uri.joinPath(
       workspaceFolder.uri,
+      ".github",
+      "copilot-instructions.md",
     );
 
     let text = "";
@@ -312,70 +216,4 @@ async function removeOldQSharpCopilotInstructions(): Promise<boolean> {
   }
 
   return removed;
-}
-
-function getOldInstructionsFileLocation(
-  workspaceFolder: vscode.Uri,
-): vscode.Uri {
-  return vscode.Uri.joinPath(
-    workspaceFolder,
-    ".github",
-    "copilot-instructions.md",
-  );
-}
-
-async function copyInstructionsFileToGlobalStorage(
-  context: vscode.ExtensionContext,
-): Promise<boolean> {
-  const files = ["qsharp.instructions.md", "openqasm.instructions.md"];
-  let success = true;
-  for (const file of files) {
-    const source = vscode.Uri.joinPath(
-      context.extensionUri,
-      "resources",
-      "chat-instructions",
-      file,
-    );
-
-    const target = vscode.Uri.joinPath(
-      context.globalStorageUri,
-      "chat-instructions",
-      file,
-    );
-
-    try {
-      await vscode.workspace.fs.copy(source, target, { overwrite: true });
-    } catch {
-      success = false;
-      log.warn(
-        `Error copying Copilot instructions file from ${source.toString()} to ${target.toString()}`,
-      );
-    }
-  }
-  return success;
-}
-
-/**
- * Registers the command to configure GitHub Copilot to use Q# and OpenQASM coding instructions.
- * This updates the chat.instructionsFilesLocations setting to include the extension's
- * chat-instructions directory, rather than creating a file in the user's workspace.
- */
-export async function registerGhCopilotInstructionsCommand(
-  context: vscode.ExtensionContext,
-) {
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "qsharp-vscode.updateCopilotInstructions",
-      () => updateCopilotInstructions("Command", context),
-    ),
-  );
-
-  // Copy the instructions file to the global storage location
-  // The global storage location is stable across versions,
-  // but our instructions content may change from version to version.
-  await copyInstructionsFileToGlobalStorage(context);
-
-  // Also do a one-time prompt at activation time
-  // fire-and-forget
-  updateCopilotInstructions("Activation", context);
 }
