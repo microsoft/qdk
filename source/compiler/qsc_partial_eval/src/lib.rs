@@ -33,7 +33,8 @@ use qsc_fir::{
         self, BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraph, ExecGraphConfig, Expr,
         ExprId, ExprKind, Field, Global, Ident, LocalVarId, Mutability, PackageId, PackageStore,
         PackageStoreLookup, Pat, PatId, PatKind, PrimField, Res, SpecDecl, SpecImpl, Stmt, StmtId,
-        StmtKind, StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId, UnOp,
+        StmtKind, StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId, StringComponent,
+        UnOp,
     },
     ty::{Prim, Ty},
 };
@@ -632,6 +633,18 @@ impl<'a> PartialEvaluator<'a> {
             }
             Value::Var(lhs_eval_var) => {
                 self.eval_bin_op_with_lhs_var(bin_op, lhs_eval_var, rhs_expr_id, bin_op_expr_span)
+            }
+            Value::String(_) => {
+                // Strings are a special case that we always treat as empty string during partial evaluation,
+                // but we still need to evaluate the RHS expression in case it contains side effects.
+                let rhs_control_flow = self.try_eval_expr(rhs_expr_id)?;
+                let EvalControlFlow::Continue(rhs_value) = rhs_control_flow else {
+                    return Err(Error::Unexpected(
+                        "embedded return in RHS expression".to_string(),
+                        self.get_expr_package_span(rhs_expr_id),
+                    ));
+                };
+                Ok(EvalControlFlow::Continue(rhs_value))
             }
             _ => Err(Error::Unexpected(
                 format!("unsupported LHS value: {lhs_value}"),
@@ -1276,10 +1289,7 @@ impl<'a> PartialEvaluator<'a> {
                 "instruction generation for struct constructor expressions is invalid".to_string(),
                 expr_package_span,
             )),
-            ExprKind::String(_) => Err(Error::Unexpected(
-                "dynamic strings are invalid".to_string(),
-                expr_package_span,
-            )),
+            ExprKind::String(components) => self.eval_expr_string(components),
             ExprKind::Tuple(exprs) => self.eval_expr_tuple(exprs),
             ExprKind::UnOp(un_op, value_expr_id) => {
                 self.eval_expr_unary(*un_op, *value_expr_id, expr_package_span)
@@ -1296,6 +1306,30 @@ impl<'a> PartialEvaluator<'a> {
                 self.eval_expr_while(expr_id, *condition_expr_id, *body_block_id)
             }
         }
+    }
+
+    fn eval_expr_string(
+        &mut self,
+        components: &Vec<StringComponent>,
+    ) -> Result<EvalControlFlow, Error> {
+        // To ensure any dynamic nested expressions are evaluated, we loop through them here.
+        for component in components {
+            match component {
+                StringComponent::Lit(_) => (),
+                StringComponent::Expr(expr_id) => {
+                    let control_flow = self.try_eval_expr(*expr_id)?;
+                    if control_flow.is_return() {
+                        return Err(Error::Unexpected(
+                            "embedded return in string expression".to_string(),
+                            self.get_expr_package_span(*expr_id),
+                        ));
+                    }
+                }
+            }
+        }
+        // All dynamic strings are treated as the empty string for the purpose of partial evaluation since RCA prevents
+        // any dynamic string from affecting control flow.
+        Ok(EvalControlFlow::Continue(Value::String("".into())))
     }
 
     fn eval_expr_array_repeat(
@@ -1741,7 +1775,8 @@ impl<'a> PartialEvaluator<'a> {
             | "EndRepeatEstimatesInternal"
             | "EnableMemoryComputeArchitecture"
             | "ApplyIdleNoise"
-            | "GlobalPhase" => Ok(Value::unit()),
+            | "GlobalPhase"
+            | "Message" => Ok(Value::unit()),
             "CheckZero" => Err(Error::UnsupportedSimulationIntrinsic(
                 "CheckZero".to_string(),
                 callee_expr_span,
@@ -1892,21 +1927,22 @@ impl<'a> PartialEvaluator<'a> {
         // Since the if expression can represent a dynamic value, create a variable to store it if the expression is
         // non-unit.
         let if_expr = self.get_expr(if_expr_id);
-        let maybe_if_expr_var = if if_expr.ty == Ty::UNIT {
-            None
-        } else {
-            let variable_id = self.resource_manager.next_var();
-            let variable_ty = map_fir_type_to_rir_type(&if_expr.ty).map_err(|msg| {
-                Error::Unexpected(
-                    format!("unsupported if-expression output type `{msg}`"),
-                    self.get_expr_package_span(if_expr_id),
-                )
-            })?;
-            Some(rir::Variable {
-                variable_id,
-                ty: variable_ty,
-            })
-        };
+        let maybe_if_expr_var =
+            if if_expr.ty == Ty::UNIT || matches!(if_expr.ty, Ty::Prim(Prim::String)) {
+                None
+            } else {
+                let variable_id = self.resource_manager.next_var();
+                let variable_ty = map_fir_type_to_rir_type(&if_expr.ty).map_err(|msg| {
+                    Error::Unexpected(
+                        format!("unsupported if-expression output type `{msg}`"),
+                        self.get_expr_package_span(if_expr_id),
+                    )
+                })?;
+                Some(rir::Variable {
+                    variable_id,
+                    ty: variable_ty,
+                })
+            };
 
         // Evaluate the body expression.
         // First, we cache the current static variable mappings so that we can restore them later.
@@ -1963,6 +1999,10 @@ impl<'a> PartialEvaluator<'a> {
                     self.get_expr_package_span(if_expr_id),
                 )
             })?)
+        } else if matches!(if_expr.ty, Ty::Prim(Prim::String)) {
+            // Dynamic strings are treated as the empty string for the purpose of partial evaluation since RCA prevents
+            // any dynamic string from affecting control flow.
+            Value::String("".into())
         } else {
             Value::unit()
         };
