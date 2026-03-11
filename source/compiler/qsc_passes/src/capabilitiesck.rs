@@ -230,12 +230,12 @@ impl<'a> Checker<'a> {
 
     fn check_expr(&mut self, expr_id: ExprId) {
         let compute_kind = self.compute_properties.get_expr(expr_id).inherent;
-        let ComputeKind::Quantum(quantum_properties) = compute_kind else {
+        let ComputeKind::Dynamic(dynamic_properties) = compute_kind else {
             return;
         };
 
         let missing_features = get_missing_runtime_features(
-            quantum_properties.runtime_features,
+            dynamic_properties.runtime_features,
             self.target_capabilities,
         );
         let expr = self.get_expr(expr_id);
@@ -319,7 +319,7 @@ impl<'a> Checker<'a> {
                 .expect("ctl_adj specialization is none"),
         };
 
-        if let ComputeKind::Quantum(quantum_properties) = spec_compute_properties.inherent {
+        if let ComputeKind::Dynamic(quantum_properties) = spec_compute_properties.inherent {
             let missing_features = get_missing_runtime_features(
                 quantum_properties.runtime_features,
                 self.target_capabilities,
@@ -355,7 +355,7 @@ impl<'a> Checker<'a> {
 
     fn check_output_recording(&mut self, expr: &Expr) {
         let compute_kind = self.compute_properties.get_expr(expr.id).inherent;
-        let ComputeKind::Quantum(quantum_properties) = compute_kind else {
+        let ComputeKind::Dynamic(quantum_properties) = compute_kind else {
             return;
         };
 

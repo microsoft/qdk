@@ -19,9 +19,9 @@ fn check_rca_for_static_single_qubit_allcation() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Static
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -49,9 +49,9 @@ fn check_rca_for_dynamic_single_qubit_allcation() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Quantum: QuantumProperties:
+                    inherent: Dynamic: DynamicProperties:
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit)
-                        value_kind: Static
+                        value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
                 ctl: <none>
@@ -72,9 +72,9 @@ fn check_rca_for_static_multi_qubit_allcation() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Static
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -94,9 +94,9 @@ fn check_rca_for_dynamic_multi_qubit_allcation() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicallySizedArray | LoopWithDynamicCondition)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }

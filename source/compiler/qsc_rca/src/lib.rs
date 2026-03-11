@@ -319,7 +319,7 @@ pub struct ApplicationGeneratorSet {
 impl Default for ApplicationGeneratorSet {
     fn default() -> Self {
         Self {
-            inherent: ComputeKind::Classical,
+            inherent: ComputeKind::Static,
             dynamic_param_applications: Vec::new(),
         }
     }
@@ -360,26 +360,26 @@ impl ApplicationGeneratorSet {
         {
             match param_application {
                 ParamApplication::Element(param_compute_kind) => {
-                    if arg_compute_kind.is_dynamic() {
+                    if arg_compute_kind.is_variable_value_kind() {
                         compute_kind = compute_kind.aggregate(*param_compute_kind);
                     }
                 }
                 ParamApplication::Array(array_param_application) => {
-                    if let ComputeKind::Quantum(quantum_properties) = arg_compute_kind {
-                        match quantum_properties.value_kind {
-                            ValueKind::Dynamic
-                                if quantum_properties
+                    if let ComputeKind::Dynamic(dynamic_properties) = arg_compute_kind {
+                        match dynamic_properties.value_kind {
+                            ValueKind::Variable
+                                if dynamic_properties
                                     .runtime_features
                                     .contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) =>
                             {
                                 compute_kind =
                                     compute_kind.aggregate(array_param_application.dynamic_size);
                             }
-                            ValueKind::Dynamic => {
+                            ValueKind::Variable => {
                                 compute_kind =
                                     compute_kind.aggregate(array_param_application.static_size);
                             }
-                            ValueKind::Static => {
+                            ValueKind::Constant => {
                                 // No aggregation needed for static arrays.
                             }
                         }
@@ -426,17 +426,24 @@ impl Display for ArrayParamApplication {
     }
 }
 
+/// The two computation kinds for a program element: static or dynamic. These correspond to the
+/// concepts in Partial Evaluation, where "static" refers to computations that can be performed at code generation time and "dynamic" refers to computations
+/// that must occur during runtime and thus emitted into the generated code.
 #[derive(Clone, Copy, Debug)]
 pub enum ComputeKind {
-    Classical,
-    Quantum(QuantumProperties),
+    // An element that will be fully computed during code generation and does not affect the required capabilities of
+    // the runtime environment for emitted code.
+    Static,
+    // An element that will be emitted into the generated code and may require additional capabilities in the runtime
+    // environment.
+    Dynamic(DynamicProperties),
 }
 
 impl Display for ComputeKind {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
-            ComputeKind::Quantum(quantum_properties) => write!(f, "Quantum: {quantum_properties}")?,
-            ComputeKind::Classical => write!(f, "Classical")?,
+            ComputeKind::Dynamic(quantum_properties) => write!(f, "Dynamic: {quantum_properties}")?,
+            ComputeKind::Static => write!(f, "Static")?,
         }
         Ok(())
     }
@@ -448,36 +455,36 @@ impl ComputeKind {
         runtime_features: RuntimeFeatureFlags,
         value_kind: ValueKind,
     ) -> Self {
-        Self::Quantum(QuantumProperties {
+        Self::Dynamic(DynamicProperties {
             runtime_features,
             value_kind,
         })
     }
 
     pub(crate) fn aggregate(self, value: Self) -> Self {
-        let ComputeKind::Quantum(value_quantum_properties) = value else {
+        let ComputeKind::Dynamic(value_dynamic_properties) = value else {
             // A classical compute kind has nothing to aggregate so just return self with no changes.
             return self;
         };
 
         // Determine the aggregated runtime features.
         let runtime_features = match self {
-            Self::Classical => value_quantum_properties.runtime_features,
-            Self::Quantum(ref self_quantum_properties) => {
-                self_quantum_properties.runtime_features | value_quantum_properties.runtime_features
+            Self::Static => value_dynamic_properties.runtime_features,
+            Self::Dynamic(ref self_dynamic_properties) => {
+                self_dynamic_properties.runtime_features | value_dynamic_properties.runtime_features
             }
         };
 
         // Determine the aggregated value kind.
         let value_kind = match self {
-            Self::Classical => value_quantum_properties.value_kind,
-            Self::Quantum(self_quantum_properties) => self_quantum_properties
+            Self::Static => value_dynamic_properties.value_kind,
+            Self::Dynamic(self_dynamic_properties) => self_dynamic_properties
                 .value_kind
-                .aggregate(value_quantum_properties.value_kind),
+                .aggregate(value_dynamic_properties.value_kind),
         };
 
         // Return the aggregated compute kind.
-        ComputeKind::Quantum(QuantumProperties {
+        ComputeKind::Dynamic(DynamicProperties {
             runtime_features,
             value_kind,
         })
@@ -488,72 +495,72 @@ impl ComputeKind {
         value: ComputeKind,
         default_value_kind: ValueKind,
     ) -> Self {
-        let Self::Quantum(value_quantum_properties) = value else {
+        let Self::Dynamic(value_dynamic_properties) = value else {
             // A classical compute kind has nothing to aggregate so just return the self with no changes.
             return self;
         };
 
         // Determine the aggregated runtime features.
         let runtime_features = match self {
-            Self::Classical => value_quantum_properties.runtime_features,
-            Self::Quantum(ref self_quantum_properties) => {
-                self_quantum_properties.runtime_features | value_quantum_properties.runtime_features
+            Self::Static => value_dynamic_properties.runtime_features,
+            Self::Dynamic(ref self_dynamic_properties) => {
+                self_dynamic_properties.runtime_features | value_dynamic_properties.runtime_features
             }
         };
 
         // Use the value kind equivalent from self.
         let value_kind = match self {
-            // If self was classical, the aggregated value kind is all static.
-            Self::Classical => default_value_kind,
-            Self::Quantum(self_quantum_properties) => self_quantum_properties.value_kind,
+            // If self was static, the aggregated value kind is all static.
+            Self::Static => default_value_kind,
+            Self::Dynamic(self_dynamic_properties) => self_dynamic_properties.value_kind,
         };
 
         // Return the aggregated compute kind.
-        ComputeKind::Quantum(QuantumProperties {
+        ComputeKind::Dynamic(DynamicProperties {
             runtime_features,
             value_kind,
         })
     }
 
     pub(crate) fn aggregate_value_kind(&mut self, value: ValueKind) {
-        let Self::Quantum(quantum_properties) = self else {
-            panic!("a value kind can only be aggregated to a compute kind of the quantum variant");
+        let Self::Dynamic(dynamic_properties) = self else {
+            panic!("a value kind can only be aggregated to a compute kind of the dynamic variant");
         };
 
-        quantum_properties.value_kind = quantum_properties.value_kind.aggregate(value);
+        dynamic_properties.value_kind = dynamic_properties.value_kind.aggregate(value);
     }
 
     #[must_use]
-    pub fn is_dynamic(self) -> bool {
+    pub fn is_variable_value_kind(self) -> bool {
         match self {
-            Self::Classical => false,
-            Self::Quantum(quantum_properties) => {
-                quantum_properties.value_kind == ValueKind::Dynamic
+            Self::Static => false,
+            Self::Dynamic(dynamic_properties) => {
+                dynamic_properties.value_kind == ValueKind::Variable
             }
         }
     }
 
     pub(crate) fn value_kind(self) -> Option<ValueKind> {
         match self {
-            Self::Classical => None,
-            Self::Quantum(quantum_properties) => Some(quantum_properties.value_kind),
+            Self::Static => None,
+            Self::Dynamic(quantum_properties) => Some(quantum_properties.value_kind),
         }
     }
 }
 
-/// The quantum properties of a program element.
+/// The dynamic properties of a program element.
 #[derive(Clone, Copy, Debug)]
-pub struct QuantumProperties {
+pub struct DynamicProperties {
     /// The runtime features used by the program element.
     pub runtime_features: RuntimeFeatureFlags,
     /// The kind of value produced by the program element.
     pub value_kind: ValueKind,
 }
 
-impl Display for QuantumProperties {
+impl Display for DynamicProperties {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "QuantumProperties:",)?;
+        write!(indent, "DynamicProperties:",)?;
         indent = set_indentation(indent, 1);
         write!(indent, "\nruntime_features: {:?}", self.runtime_features)?;
         write!(indent, "\nvalue_kind: {}", self.value_kind)?;
@@ -561,20 +568,23 @@ impl Display for QuantumProperties {
     }
 }
 
+/// The kind of value corresponding to a program element, indicating whether it is constant over the course of runtime or can vary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ValueKind {
-    Static,
-    Dynamic,
+    // A value that is constant during execution.
+    Constant,
+    // A value that can vary during execution, which may require additional capabilities in the runtime environment.
+    Variable,
 }
 
 impl Display for ValueKind {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
-            ValueKind::Static => {
-                write!(f, "Static")?;
+            ValueKind::Constant => {
+                write!(f, "Constant")?;
             }
-            ValueKind::Dynamic => {
-                write!(f, "Dynamic")?;
+            ValueKind::Variable => {
+                write!(f, "Variable")?;
             }
         }
         Ok(())
@@ -584,17 +594,17 @@ impl Display for ValueKind {
 impl ValueKind {
     pub(crate) fn aggregate(self, value: ValueKind) -> Self {
         match value {
-            Self::Static => self,
-            Self::Dynamic => Self::Dynamic,
+            Self::Constant => self,
+            Self::Variable => Self::Variable,
         }
     }
 
-    pub(crate) fn new_dynamic_from_type(ty: &Ty) -> Self {
+    pub(crate) fn new_variable_from_type(ty: &Ty) -> Self {
         if *ty == Ty::UNIT {
             // The associated value kind for a unit type is always static.
-            Self::Static
+            Self::Constant
         } else {
-            Self::Dynamic
+            Self::Variable
         }
     }
 }

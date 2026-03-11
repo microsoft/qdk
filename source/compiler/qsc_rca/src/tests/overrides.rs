@@ -13,7 +13,7 @@ fn check_rca_for_length_of_statically_sized_array_with_static_content() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -31,7 +31,7 @@ fn check_rca_for_length_of_statically_sized_array_with_dynamic_content() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -51,9 +51,9 @@ fn check_rca_for_length_of_dynamically_sized_array_with_static_content() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -74,9 +74,9 @@ fn check_rca_for_length_of_dynamically_sized_array_with_dynamic_content() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }

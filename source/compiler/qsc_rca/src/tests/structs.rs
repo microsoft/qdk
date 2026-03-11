@@ -17,7 +17,7 @@ fn check_rca_for_struct_constructor_with_classical_values() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -37,9 +37,9 @@ fn check_rca_for_struct_constructor_with_a_dynamic_value() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | UseOfDynamicUdt)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -58,7 +58,7 @@ fn check_rca_for_struct_copy_constructor_with_classical_value() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -79,9 +79,9 @@ fn check_rca_for_struct_copy_constructor_with_dynamic_value() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | UseOfDynamicUdt)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -102,9 +102,9 @@ fn check_rca_for_struct_dynamic_constructor_overwritten_with_classic_value() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | UseOfDynamicUdt)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }

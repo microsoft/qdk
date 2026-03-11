@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 use crate::{
-    ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, PackageId, ParamApplication,
-    QuantumProperties, RuntimeFeatureFlags, ValueKind, common::LocalSpecId,
+    ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, DynamicProperties, PackageId,
+    ParamApplication, RuntimeFeatureFlags, ValueKind, common::LocalSpecId,
     scaffolding::InternalPackageStoreComputeProperties,
 };
 use qsc_fir::{
@@ -35,18 +35,22 @@ impl<'a> Overrider<'a> {
         package_store: &'a PackageStore,
         package_store_compute_properties: InternalPackageStoreComputeProperties,
     ) -> Self {
+        // We only override one callable as it is a special exception: `Std.Core.Length`.
+        // When given a static array or a dynamic array with static size, `Std.Core.Length` returns a static int.
+        // However, when given a dynamically sized array, it returns a dynamic int with the `UseOfDynamicallySizedArray` runtime feature.
+        // This captures the fact that the length of a dynamically sized array is not known at compile time.
         let callable_overrides_tuples: [(String, Vec<SpecOverride>); 1] = [(
             "Std.Core.Length".into(),
             vec![SpecOverride {
                 functor_set_value: FunctorSetValue::Empty,
                 application_generator_set: ApplicationGeneratorSet {
-                    inherent: ComputeKind::Classical,
+                    inherent: ComputeKind::Static,
                     dynamic_param_applications: vec![ParamApplication::Array(
                         ArrayParamApplication {
-                            static_size: ComputeKind::Classical,
-                            dynamic_size: ComputeKind::Quantum(QuantumProperties {
+                            static_size: ComputeKind::Static,
+                            dynamic_size: ComputeKind::Dynamic(DynamicProperties {
                                 runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
-                                value_kind: ValueKind::Dynamic,
+                                value_kind: ValueKind::Variable,
                             }),
                         },
                     )],

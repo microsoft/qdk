@@ -303,23 +303,23 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         Value::Array(elements) => {
             for element in elements.iter() {
                 let element_runtime_kind = map_eval_value_to_value_kind(element);
-                if element_runtime_kind == ValueKind::Dynamic {
-                    return ValueKind::Dynamic;
+                if element_runtime_kind == ValueKind::Variable {
+                    return ValueKind::Variable;
                 }
             }
 
-            ValueKind::Static
+            ValueKind::Constant
         }
         Value::Tuple(elements, _) => {
             for element in elements.iter() {
                 let element_runtime_kind = map_eval_value_to_value_kind(element);
-                if element_runtime_kind == ValueKind::Dynamic {
-                    return ValueKind::Dynamic;
+                if element_runtime_kind == ValueKind::Variable {
+                    return ValueKind::Variable;
                 }
             }
-            ValueKind::Static
+            ValueKind::Constant
         }
-        Value::Result(Result::Id(_) | Result::Loss) | Value::Var(_) => ValueKind::Dynamic,
+        Value::Result(Result::Id(_) | Result::Loss) | Value::Var(_) => ValueKind::Variable,
         Value::BigInt(_)
         | Value::Bool(_)
         | Value::Closure(_)
@@ -330,6 +330,6 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         | Value::Qubit(_)
         | Value::Range(_)
         | Value::Result(Result::Val(_))
-        | Value::String(_) => ValueKind::Static,
+        | Value::String(_) => ValueKind::Constant,
     }
 }

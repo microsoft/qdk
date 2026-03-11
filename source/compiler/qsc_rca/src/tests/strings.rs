@@ -13,7 +13,7 @@ fn check_rca_for_classical_string() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -31,9 +31,9 @@ fn check_rca_for_dynamic_string() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -47,7 +47,7 @@ fn check_rca_for_classical_interpolated_string() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -65,9 +65,9 @@ fn check_rca_for_dynamic_interpolated_string() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -81,7 +81,7 @@ fn check_rca_for_classical_nested_interpolated_string() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -99,9 +99,9 @@ fn check_rca_for_dynamic_nested_interpolated_string() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -115,7 +115,7 @@ fn check_rca_for_classical_concatenated_string() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -134,9 +134,9 @@ fn check_rca_for_dynamic_concatenated_string() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -150,7 +150,7 @@ fn check_rca_for_classical_string_comparison() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -168,9 +168,9 @@ fn check_rca_for_dynamic_string_comparison() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic: DynamicProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicString)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
