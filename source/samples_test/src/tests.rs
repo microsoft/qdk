@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#![allow(clippy::unicode_not_nfc)]
-
 mod algorithms;
 #[rustfmt::skip]
 mod algorithms_generated;
