@@ -59,8 +59,11 @@ const formatRegisters = (
         // Unused result: short vertical stub only.
         // Find the measurement gate that produces this result by wire key.
         for (const gate of allGates.flat()) {
-          if (gate.type === GateType.Measure && gate.resultWireKey === wireKey) {
-            const qubitY = gate.controlsY[0];
+          if (gate.resultWireKeys?.includes(wireKey)) {
+            const qubitY =
+              gate.type === GateType.Measure
+                ? gate.controlsY[0]
+                : registers[qId].y;
             // Start the stub at the bottom edge of the gate box,
             // not at the qubit wire (which is the gate center).
             const gateBoxBottom = qubitY + gateHeight / 2;
@@ -82,12 +85,15 @@ const formatRegisters = (
         const wireRange = classicalWireLayout.wireRanges.get(wireKey);
 
         for (const gate of allGates.flat()) {
-          if (gate.type !== GateType.Measure || gate.resultWireKey !== wireKey) {
+          if (!gate.resultWireKeys?.includes(wireKey)) {
             continue;
           }
 
-          // Found the measurement gate that produces this wire.
-          const verticalY = gate.controlsY[0];
+          // Found the gate that produces this wire.
+          const verticalY =
+            gate.type === GateType.Measure
+              ? gate.controlsY[0]
+              : registers[qId].y;
 
           // Determine the end x for this wire.
           // Scan allGates for ClassicalControlled gates that consume
@@ -101,9 +107,7 @@ const formatRegisters = (
                   // The control circle is at the left edge of the gate
                   // bounding box + controlCircleRadius.
                   const circleX =
-                    ctrlGate.x -
-                    ctrlGate.width / 2 +
-                    controlCircleRadius;
+                    ctrlGate.x - ctrlGate.width / 2 + controlCircleRadius;
                   maxCtrlX = Math.max(maxCtrlX, circleX);
                 }
               }

@@ -338,8 +338,9 @@ const _opToRenderData = (
     // the correct result without relying on y-position (which may be
     // shared when multiple results occupy the same slot).
     if (op.results.length > 0) {
-      const r = op.results[0];
-      renderData.resultWireKey = `${r.qubit}-${r.result}`;
+      renderData.resultWireKeys = op.results
+        .filter((r) => r.result != null)
+        .map((r) => `${r.qubit}-${r.result}`);
     }
   } else if (op.kind === "ket") {
     renderData.type = GateType.Ket;
@@ -356,6 +357,21 @@ const _opToRenderData = (
     // Any other gate treated as a simple unitary gate
     renderData.type = GateType.Unitary;
     renderData.label = gate;
+  }
+
+  // For collapsed ops that contain inner measurements, record the result
+  // wire keys so registerFormatter can draw stubs/wires from this gate.
+  if (
+    isCollapsed &&
+    op.kind !== "measurement" &&
+    !renderData.resultWireKeys?.length
+  ) {
+    const resultKeys = targets
+      .filter((reg) => reg.result != null)
+      .map((reg) => `${reg.qubit}-${reg.result}`);
+    if (resultKeys.length > 0) {
+      renderData.resultWireKeys = resultKeys;
+    }
   }
 
   // If adjoint, add ' to the end of gate label

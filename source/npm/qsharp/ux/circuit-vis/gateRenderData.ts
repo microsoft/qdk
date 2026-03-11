@@ -65,6 +65,8 @@ export interface GateRenderData {
   classicalControlIds?: (number | null)[];
   /** Wire keys ("qubit-result") for each classical control (applicable only for GateType.ClassicalControlled). */
   controlWireKeys?: string[];
-  /** Wire key ("qubit-result") identifying the result this measurement produces (applicable only for GateType.Measure). */
-  resultWireKey?: string;
+  /** Wire keys ("qubit-result") identifying the results this gate produces.
+   *  For GateType.Measure: single-element array.
+   *  For collapsed unitary/ket ops that contain inner measurements: one entry per result target. */
+  resultWireKeys?: string[];
 }
