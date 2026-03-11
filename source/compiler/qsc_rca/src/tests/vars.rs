@@ -13,7 +13,7 @@ fn check_rca_for_callable_var() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -31,7 +31,7 @@ fn check_rca_for_udt_var() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -49,7 +49,7 @@ fn check_rca_for_static_int_var() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -67,9 +67,9 @@ fn check_rca_for_static_qubit_var() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Static
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -88,9 +88,9 @@ fn check_rca_for_dynamic_result_var() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
