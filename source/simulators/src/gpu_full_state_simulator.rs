@@ -4,6 +4,7 @@
 #[cfg(test)]
 mod tests;
 
+pub mod adaptive_bytecode;
 pub mod correlated_noise;
 pub mod gpu_context;
 pub mod gpu_resources;

@@ -4,15 +4,20 @@
 use crate::qir_simulation::{NoiseConfig, QirInstruction, QirInstructionId, unbind_noise_config};
 use pyo3::{
     IntoPyObjectExt, PyResult,
-    exceptions::{PyOSError, PyRuntimeError, PyValueError},
+    exceptions::{PyKeyError, PyOSError, PyRuntimeError, PyValueError},
     prelude::*,
     pyclass, pymethods,
     types::{PyDict, PyList},
 };
+use qdk_simulators::adaptive_bytecode::{self, AdaptiveProgram, Instruction};
 use qdk_simulators::gpu_context;
 use qdk_simulators::shader_types::Op;
 
 use std::sync::Mutex;
+
+/// Tuple representation of bytecode instructions from the Python adaptive pass.
+/// Fields: (opcode, dst, src0, src1, src2, src3, src4, src5)
+type RawInstructionTuple = (u32, u32, u32, u32, u32, u32, u32, u32);
 
 /// Checks if a compatible GPU adapter is available on the system.
 ///
@@ -173,6 +178,125 @@ impl GpuContext {
         Ok(())
     }
 
+    fn set_adaptive_program(&mut self, program: &Bound<'_, PyDict>) -> PyResult<()> {
+        // Extract scalar fields
+        let version: u32 = program
+            .get_item("version")?
+            .ok_or_else(|| PyKeyError::new_err("version"))?
+            .extract()?;
+        if version != 1 {
+            return Err(PyValueError::new_err(format!(
+                "unsupported adaptive program version: {version}, expected 1"
+            )));
+        }
+
+        let num_qubits: u32 = program
+            .get_item("num_qubits")?
+            .ok_or_else(|| PyKeyError::new_err("num_qubits"))?
+            .extract()?;
+        let num_results: u32 = program
+            .get_item("num_results")?
+            .ok_or_else(|| PyKeyError::new_err("num_results"))?
+            .extract()?;
+        let num_registers: u32 = program
+            .get_item("num_registers")?
+            .ok_or_else(|| PyKeyError::new_err("num_registers"))?
+            .extract()?;
+        let entry_block: u32 = program
+            .get_item("entry_block")?
+            .ok_or_else(|| PyKeyError::new_err("entry_block"))?
+            .extract()?;
+
+        // Extract array fields
+        let blocks: Vec<(u32, u32, u32, u32)> = program
+            .get_item("blocks")?
+            .ok_or_else(|| PyKeyError::new_err("blocks"))?
+            .extract()?;
+        let instructions: Vec<RawInstructionTuple> = program
+            .get_item("instructions")?
+            .ok_or_else(|| PyKeyError::new_err("instructions"))?
+            .extract()?;
+        let quantum_ops_raw: Vec<(u32, u32, u32, u32, f64)> = program
+            .get_item("quantum_ops")?
+            .ok_or_else(|| PyKeyError::new_err("quantum_ops"))?
+            .extract()?;
+        let functions: Vec<(u32, u32, u32, u32)> = program
+            .get_item("functions")?
+            .ok_or_else(|| PyKeyError::new_err("functions"))?
+            .extract()?;
+        let phi_entries: Vec<(u32, u32)> = program
+            .get_item("phi_entries")?
+            .ok_or_else(|| PyKeyError::new_err("phi_entries"))?
+            .extract()?;
+        let switch_cases: Vec<(u32, u32)> = program
+            .get_item("switch_cases")?
+            .ok_or_else(|| PyKeyError::new_err("switch_cases"))?
+            .extract()?;
+        let call_args: Vec<u32> = program
+            .get_item("call_args")?
+            .ok_or_else(|| PyKeyError::new_err("call_args"))?
+            .extract()?;
+
+        // Build quantum Op pool using existing gate constructors
+        let op_pool = adaptive_bytecode::build_op_pool(&quantum_ops_raw);
+
+        // Convert instructions to Instruction structs
+        let bytecode: Vec<Instruction> = instructions
+            .iter()
+            .map(|t| Instruction::from_tuple(*t))
+            .collect();
+
+        // Convert block table: strip block_id and pred_count, keep (instr_offset, instr_count)
+        let block_table: Vec<[u32; 2]> = blocks
+            .iter()
+            .map(|&(_block_id, instr_offset, instr_count, _pred_count)| [instr_offset, instr_count])
+            .collect();
+
+        // Convert function table
+        let function_table: Vec<[u32; 4]> = functions
+            .iter()
+            .map(|&(entry_block_id, param_count, param_base_reg, reserved)| {
+                [entry_block_id, param_count, param_base_reg, reserved]
+            })
+            .collect();
+
+        // Convert phi entries and switch cases
+        let phi_table: Vec<[u32; 2]> = phi_entries
+            .iter()
+            .map(|&(pred_block, value_reg)| [pred_block, value_reg])
+            .collect();
+        let switch_table: Vec<[u32; 2]> = switch_cases
+            .iter()
+            .map(|&(match_val, target_block)| [match_val, target_block])
+            .collect();
+
+        let adaptive_program = AdaptiveProgram {
+            bytecode,
+            block_table,
+            function_table,
+            quantum_ops: op_pool,
+            phi_entries: phi_table,
+            switch_cases: switch_table,
+            call_args,
+            num_qubits,
+            num_results,
+            num_registers,
+            entry_block,
+        };
+
+        self.native_context
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?
+            .set_adaptive_program(adaptive_program);
+
+        // Save the result count for formatting later
+        self.last_set_result_count = num_results.try_into().map_err(|e| {
+            PyValueError::new_err(format!("invalid result count {num_results}: {e}"))
+        })?;
+
+        Ok(())
+    }
+
     fn set_noise<'py>(
         &mut self,
         py: Python<'py>,
@@ -187,6 +311,24 @@ impl GpuContext {
         Ok(())
     }
 
+    fn run_adaptive_shots(
+        &self,
+        py: Python<'_>,
+        shot_count: i32,
+        seed: u32,
+    ) -> PyResult<Py<PyAny>> {
+        let mut gpu_context = self
+            .native_context
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?;
+
+        let results = gpu_context
+            .run_adaptive_shots_sync(shot_count, seed)
+            .map_err(PyRuntimeError::new_err)?;
+
+        Self::format_results(py, results, self.last_set_result_count)
+    }
+
     fn run_shots(&self, py: Python<'_>, shot_count: i32, seed: u32) -> PyResult<Py<PyAny>> {
         let mut gpu_context = self
             .native_context
@@ -197,16 +339,26 @@ impl GpuContext {
             .run_shots_sync(shot_count, seed, 0)
             .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?;
 
+        Self::format_results(py, results, self.last_set_result_count)
+    }
+}
+
+impl GpuContext {
+    fn format_results(
+        py: Python<'_>,
+        results: gpu_context::RunResults,
+        result_count: usize,
+    ) -> PyResult<Py<PyAny>> {
         let str_results = results
             .shot_results
             .iter()
             .map(|shot_results| {
-                let mut bitstring = String::with_capacity(self.last_set_result_count);
+                let mut bitstring = String::with_capacity(result_count);
                 for res in shot_results {
                     let char = match res {
                         0 => '0',
                         1 => '1',
-                        _ => 'L', // lost qubit
+                        _ => 'L',
                     };
                     bitstring.push(char);
                 }
@@ -215,7 +367,6 @@ impl GpuContext {
             .collect::<Vec<String>>();
 
         let dict = PyDict::new(py);
-
         dict.set_item("shot_results", PyList::new(py, str_results)?)
             .map_err(|e| PyValueError::new_err(format!("failed to set results in dict: {e}")))?;
         dict.set_item(
@@ -225,7 +376,6 @@ impl GpuContext {
         .map_err(|e| PyValueError::new_err(format!("failed to set result codes in dict: {e}")))?;
 
         if let Some(diagnostics) = results.diagnostics {
-            // DiagnosticsData doesn't implement Serialize, so use Debug formatting
             dict.set_item("diagnostics", format!("{diagnostics:?}"))
                 .map_err(|e| {
                     PyValueError::new_err(format!("failed to set diagnostics in dict: {e}"))

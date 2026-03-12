@@ -98,6 +98,8 @@ pub struct ShotData {
     pub qubit_is_0_mask: u32,
     pub qubit_is_1_mask: u32,
     pub qubits_updated_last_op_mask: u32,
+    pub q1: u32,
+    pub q2: u32,
     pub qubit_state: [QubitState; MAX_QUBIT_COUNT as usize],
     pub unitary: [f32; 32],
 }

@@ -5,6 +5,7 @@ use std::cmp::min;
 
 use bytemuck::cast_slice;
 
+use crate::adaptive_bytecode::AdaptiveProgram;
 use crate::correlated_noise::NoiseTables;
 use crate::gpu_resources::GpuResources;
 use crate::noise_config::NoiseConfig;
@@ -30,6 +31,9 @@ pub struct GpuContext {
 
     run_params: RunParams,
 
+    // Adaptive program data (set via set_adaptive_program)
+    adaptive_program: Option<AdaptiveProgram>,
+
     // Indicates if items impacting the Ops have changed and need to be re-uploaded / recompiled
     program_is_dirty: bool,
     // Indicates if the pipeline needs to be recompiled due to changes (i.e., qubit or result count)
@@ -38,6 +42,8 @@ pub struct GpuContext {
     noise_config_is_dirty: bool,
     // Indicates if the noise tables have changed and need to be re-uploaded to the GPU
     noise_tables_is_dirty: bool,
+    // Indicates if the adaptive program has changed and needs to be re-uploaded
+    adaptive_program_is_dirty: bool,
 }
 
 #[derive(Debug, Default)]
@@ -96,6 +102,62 @@ impl GpuContext {
 
         // Mark program as dirty, so we recreate the ops to send to the GPU on next run
         self.program_is_dirty = true;
+    }
+
+    /// Set the adaptive program to be run
+    #[allow(clippy::cast_possible_wrap)]
+    pub fn set_adaptive_program(&mut self, program: AdaptiveProgram) {
+        let qubit_count = (program.num_qubits as i32).max(MIN_QUBIT_COUNT);
+        let result_count = program.num_results as i32;
+
+        if qubit_count != self.run_params.qubit_count
+            || result_count != self.run_params.result_count
+        {
+            self.pipeline_is_dirty = true;
+        }
+
+        self.run_params.qubit_count = qubit_count;
+        self.run_params.result_count = result_count;
+
+        self.adaptive_program = Some(program);
+        self.adaptive_program_is_dirty = true;
+    }
+
+    /// Upload adaptive program buffers to the GPU.
+    ///
+    /// Uploads bytecode, block table, function table, quantum op pool,
+    /// and side tables (phi, switch, call args) to their respective GPU bindings.
+    fn upload_adaptive_program_buffers(&mut self) -> Result<(), String> {
+        let program = self
+            .adaptive_program
+            .as_ref()
+            .ok_or("No adaptive program has been set")?;
+
+        // Instructions → bytecode buffer (binding 9)
+        self.resources
+            .upload_bytecode(cast_slice(&program.bytecode))?;
+
+        // Block table → block_table buffer (binding 10)
+        self.resources
+            .upload_block_table(cast_slice(&program.block_table))?;
+
+        // Function table → function_table buffer (binding 11)
+        self.resources
+            .upload_function_table(cast_slice(&program.function_table))?;
+
+        // Quantum op pool → ops buffer (binding 2, reused from existing pipeline)
+        self.resources
+            .upload_ops_data(cast_slice(&program.quantum_ops))?;
+
+        // Side tables
+        self.resources
+            .upload_phi_table(cast_slice(&program.phi_entries))?;
+        self.resources
+            .upload_switch_table(cast_slice(&program.switch_cases))?;
+        self.resources
+            .upload_call_arg_table(cast_slice(&program.call_args))?;
+
+        Ok(())
     }
 
     fn get_program(&self) -> &[Op] {
@@ -311,6 +373,217 @@ impl GpuContext {
             .map(|chunk| chunk[..result_count_usize].to_vec())
             .collect::<Vec<Vec<u32>>>();
         // Separate out every 3rd entry from results into 'error_codes'
+        let shot_result_codes = results
+            .chunks(result_count_usize + 1)
+            .map(|chunk| chunk[result_count_usize])
+            .collect::<Vec<u32>>();
+
+        let success = shot_result_codes.iter().all(|&code| code == 0);
+
+        Ok(RunResults {
+            shot_results,
+            shot_result_codes,
+            diagnostics,
+            success,
+        })
+    }
+
+    /// Run the adaptive program for the given number of shots (blocking)
+    pub fn run_adaptive_shots_sync(
+        &mut self,
+        shot_count: i32,
+        seed: u32,
+    ) -> Result<RunResults, String> {
+        futures::executor::block_on(self.run_adaptive_shots(shot_count, seed))
+    }
+
+    /// Run the adaptive program for the given number of shots
+    #[allow(clippy::too_many_lines)]
+    pub async fn run_adaptive_shots(
+        &mut self,
+        shot_count: i32,
+        seed: u32,
+    ) -> Result<RunResults, String> {
+        const INTERP_STATE_STRIDE: usize = 48;
+        const MAX_REGISTERS: usize = 128;
+        const MAX_ROUNDS: u32 = 100_000;
+        const ROUNDS_PER_BATCH: u32 = 128;
+
+        let program = self
+            .adaptive_program
+            .as_ref()
+            .ok_or("No adaptive program has been set")?;
+
+        let _num_registers = min(program.num_registers, 128);
+        let entry_block = program.entry_block;
+        // Entry instruction offset. PC stands for Program Counter, aka Instruction Pointer.
+        let entry_pc = program.block_table[entry_block as usize][0];
+
+        // Update run params and prepare GPU resources
+        self.update_run_params(shot_count);
+
+        // Ensure GPU device and pipelines are ready before uploading adaptive buffers
+        self.ready_gpu_resources().await?;
+
+        // Upload adaptive buffers if dirty
+        if self.adaptive_program_is_dirty {
+            self.upload_adaptive_program_buffers()?;
+            self.adaptive_program_is_dirty = false;
+        }
+
+        let mut results: Vec<u32> = Vec::new();
+        let mut diagnostics: Option<Box<DiagnosticsData>> = None;
+
+        let mut shots_remaining = self.run_params.shot_count;
+
+        for batch_idx in 0..self.run_params.batch_count {
+            let shots_this_batch = min(shots_remaining, self.run_params.shots_per_batch);
+            let num_shots_u32 =
+                u32::try_from(shots_this_batch).expect("shots_per_batch should fit in u32");
+            let execute_workgroup_count =
+                u32::try_from(self.run_params.workgroups_per_shot * shots_this_batch)
+                    .expect("workgroups_per_shot * shots_per_batch should fit in u32");
+
+            // Upload uniforms for this batch
+            let uniforms = Uniforms {
+                batch_start_shot_id: batch_idx * self.run_params.shots_per_batch,
+                rng_seed: seed,
+            };
+            self.resources.upload_uniform(&uniforms)?;
+
+            // Ensure adaptive run buffers are sized correctly
+            let shots_usize =
+                usize::try_from(shots_this_batch).expect("shots_this_batch should fit in usize");
+            let interp_state_size = shots_usize * INTERP_STATE_STRIDE * 4;
+            let register_file_size = shots_usize * MAX_REGISTERS * 4;
+            self.resources
+                .ensure_adaptive_run_buffers(interp_state_size, register_file_size)?;
+
+            // Initialize interpreter state: zeroed array with pc and block set per shot
+            let mut interp_state_data = vec![0u32; shots_usize * INTERP_STATE_STRIDE];
+            for shot in 0..shots_usize {
+                let base = shot * INTERP_STATE_STRIDE;
+                interp_state_data[base] = entry_pc; // INTERP_PC
+                interp_state_data[base + 1] = entry_block; // INTERP_BLOCK
+                // INTERP_STATUS = 0 (STATUS_RUNNING) already from zeroed init
+            }
+            self.resources
+                .upload_interpreter_state(cast_slice(&interp_state_data))?;
+
+            // Initialize register file: zeroed
+            let register_data = vec![0u32; shots_usize * MAX_REGISTERS];
+            self.resources
+                .upload_register_file(cast_slice(&register_data))?;
+
+            // Initialize termination counter: zeroed u32
+            self.resources
+                .upload_termination_counter(cast_slice(&[0u32]))?;
+
+            // Initialize state vectors and shot data via the init kernel
+            {
+                let bind_group = self.resources.get_bind_group()?;
+                let kernels = self.resources.get_kernels()?;
+                let mut encoder = self.resources.get_encoder("Adaptive Init Encoder")?;
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("Adaptive Init Pass"),
+                    timestamp_writes: None,
+                });
+                compute_pass.set_bind_group(0, &bind_group, &[]);
+                compute_pass.set_pipeline(&kernels.init_op);
+                compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                drop(compute_pass);
+                self.resources.submit_command_buffer(encoder.finish())?;
+            }
+
+            // Main dispatch loop — batch many rounds into each command buffer
+            // so the GPU executes them all without per-round CPU-GPU sync.
+            // Ending each compute pass inserts an implicit storage-buffer
+            // barrier, so phases within and across rounds see prior writes.
+            let num_batches = MAX_ROUNDS.div_ceil(ROUNDS_PER_BATCH);
+
+            for _batch in 0..num_batches {
+                {
+                    let bind_group = self.resources.get_bind_group()?;
+                    let kernels = self.resources.get_kernels()?;
+                    let mut encoder = self.resources.get_encoder("Adaptive Batch Encoder")?;
+
+                    for _round in 0..ROUNDS_PER_BATCH {
+                        // Phase 1: interpret classical bytecode (1 thread per shot)
+                        {
+                            let mut pass =
+                                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                                    label: Some("Adaptive Classical Pass"),
+                                    timestamp_writes: None,
+                                });
+                            pass.set_bind_group(0, &bind_group, &[]);
+                            pass.set_pipeline(&kernels.interpret_classical);
+                            pass.dispatch_workgroups(num_shots_u32, 1, 1);
+                        }
+
+                        // Phase 2: prepare the pending quantum op per shot
+                        {
+                            let mut pass =
+                                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                                    label: Some("Adaptive Prepare Pass"),
+                                    timestamp_writes: None,
+                                });
+                            pass.set_bind_group(0, &bind_group, &[]);
+                            pass.set_pipeline(&kernels.prepare_adaptive_op);
+                            pass.dispatch_workgroups(num_shots_u32, 1, 1);
+                        }
+
+                        // Phase 3: execute the quantum op (parallel state-vector kernel)
+                        {
+                            let mut pass =
+                                encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                                    label: Some("Adaptive Execute Pass"),
+                                    timestamp_writes: None,
+                                });
+                            pass.set_bind_group(0, &bind_group, &[]);
+                            pass.set_pipeline(&kernels.execute_op);
+                            pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                        }
+                    }
+
+                    self.resources.submit_command_buffer(encoder.finish())?;
+                }
+
+                // The termination counter accumulates monotonically (each
+                // shot increments it exactly once on Ret). Check after each
+                // batch whether all shots have finished.
+                let terminated = self.resources.download_termination_counter().await?;
+                if terminated >= num_shots_u32 {
+                    break;
+                }
+            }
+
+            // Download results for this batch
+            let (batch_results, batch_diagnostics) =
+                self.resources.download_batch_results().await?;
+
+            results.extend(batch_results);
+            if batch_diagnostics.error_code != 0 && diagnostics.is_none() {
+                diagnostics = Some(batch_diagnostics);
+            }
+
+            shots_remaining -= self.run_params.shots_per_batch;
+        }
+
+        // Truncate results to the expected count
+        let result_count = self.run_params.result_count;
+        let expected_results: usize = (self.run_params.shot_count * (result_count + 1))
+            .try_into()
+            .expect("Total expected result count should fit in usize");
+        results.truncate(expected_results);
+
+        // Split results into measurements and result codes
+        let result_count_usize: usize = result_count
+            .try_into()
+            .expect("Result count should fit in usize");
+        let shot_results = results
+            .chunks(result_count_usize + 1)
+            .map(|chunk| chunk[..result_count_usize].to_vec())
+            .collect::<Vec<Vec<u32>>>();
         let shot_result_codes = results
             .chunks(result_count_usize + 1)
             .map(|chunk| chunk[result_count_usize])

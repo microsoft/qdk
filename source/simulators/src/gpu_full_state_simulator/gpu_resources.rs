@@ -31,7 +31,9 @@ struct GpuDeviceResources {
 pub struct GpuKernels {
     pub init_op: ComputePipeline,
     pub prepare_op: ComputePipeline,
+    pub prepare_adaptive_op: ComputePipeline,
     pub execute_op: ComputePipeline,
+    pub interpret_classical: ComputePipeline,
 }
 
 #[derive(Debug)]
@@ -54,11 +56,42 @@ const UNIFORM_BUF_IDX: usize = 6;
 const CORRELATED_NOISE_TABLES_BUF_IDX: usize = 7;
 const CORRELATED_NOISE_ENTRIES_BUF_IDX: usize = 8;
 
+// Adaptive interpreter buffer indices (bindings 9-17)
+const BYTECODE_BUF_IDX: usize = 9;
+const BLOCK_TABLE_BUF_IDX: usize = 10;
+const FUNCTION_TABLE_BUF_IDX: usize = 11;
+const PHI_TABLE_BUF_IDX: usize = 12;
+const SWITCH_TABLE_BUF_IDX: usize = 13;
+const CALL_ARG_TABLE_BUF_IDX: usize = 14;
+const INTERPRETER_STATE_BUF_IDX: usize = 15;
+const REGISTER_FILE_BUF_IDX: usize = 16;
+const TERMINATION_COUNTER_BUF_IDX: usize = 17;
+
+#[allow(clippy::too_many_lines)]
 impl Default for GpuDeviceResources {
     fn default() -> Self {
         GpuDeviceResources {
             kernels: None,
             bind_group: None,
+            // ──────────────────────────────────────────────────────────────
+            // Bind group layout: 18 bindings in @group(0)
+            // ──────────────────────────────────────────────────────────────
+            // Bindings 0-8:  Base profile (ops, state vector, results, noise, etc.)
+            // Bindings 9-17: Adaptive interpreter (bytecode, block/function/phi/switch
+            //                tables, interpreter state, register file, termination counter)
+            //
+            // This exceeds the WebGPU minimum of 8 storage buffers per shader stage
+            // but is within the limits of all tested desktop GPUs (typically 24-32+).
+            // The create_device() function validates adapter support at startup.
+            //
+            // If targeting backends with < 17 storage buffer support (web, mobile),
+            // split adaptive bindings into @group(1) @binding(0..8). This requires:
+            //   1. simulator.wgsl: Change bindings 9-17 to @group(1) @binding(0..8)
+            //   2. gpu_resources.rs: Create separate BindGroupLayout and BindGroup
+            //      for the adaptive bindings
+            //   3. gpu_context.rs: Bind both groups via compute_pass.set_bind_group()
+            // Non-adaptive kernels would simply not reference @group(1).
+            // ──────────────────────────────────────────────────────────────
             bound_buffers: vec![
                 BufferBinding {
                     name: "WorkgroupCollation",
@@ -121,6 +154,70 @@ impl Default for GpuDeviceResources {
                     is_uniform: false,
                     read_only: true,
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                // Adaptive interpreter buffers (bindings 9-17)
+                BufferBinding {
+                    name: "Bytecode",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "BlockTable",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "FunctionTable",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "PhiTable",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "SwitchTable",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "CallArgTable",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "InterpreterState",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "RegisterFile",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "TerminationCounter",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
                     buffer: None,
                 },
             ],
@@ -210,6 +307,18 @@ impl GpuResources {
         let adapter = Self::try_get_adapter()?;
 
         let adapter_limits = adapter.limits();
+
+        // The adaptive interpreter uses 17 storage buffers in a single bind group.
+        // Verify the adapter supports this before attempting device creation.
+        if adapter_limits.max_storage_buffers_per_shader_stage < 17 {
+            return Err(format!(
+                "GPU adapter supports only {} storage buffers per shader stage, \
+                 but the adaptive interpreter requires at least 17. \
+                 Consider a discrete GPU or the CPU simulator.",
+                adapter_limits.max_storage_buffers_per_shader_stage,
+            ));
+        }
+
         let required_limits = wgpu::Limits {
             max_storage_buffer_binding_size: 1u32 << 30, // 1GB
             ..adapter_limits
@@ -336,7 +445,8 @@ impl GpuResources {
             .replace(
                 "{{MAX_QUBITS_PER_WORKGROUP}}",
                 &max_qubits_per_workgroup.to_string(),
-            );
+            )
+            .replace("{{MAX_REGISTERS}}", "128");
 
         // Strip out DX12-incompatible code sections if needed
         if adapter.get_info().backend == wgpu::Backend::Dx12 {
@@ -368,7 +478,9 @@ impl GpuResources {
         self.device_resources.kernels = Some(GpuKernels {
             init_op: get_kernel("initialize"),
             prepare_op: get_kernel("prepare_op"),
+            prepare_adaptive_op: get_kernel("prepare_adaptive_op"),
             execute_op: get_kernel("execute"),
+            interpret_classical: get_kernel("interpret_classical"),
         });
 
         Ok(())
@@ -411,6 +523,21 @@ impl GpuResources {
             &mut bound_buffers[CORRELATED_NOISE_ENTRIES_BUF_IDX],
             16,
         );
+
+        // Ensure adaptive interpreter buffers have at least minimum placeholder sizes
+        for idx in [
+            BYTECODE_BUF_IDX,
+            BLOCK_TABLE_BUF_IDX,
+            FUNCTION_TABLE_BUF_IDX,
+            PHI_TABLE_BUF_IDX,
+            SWITCH_TABLE_BUF_IDX,
+            CALL_ARG_TABLE_BUF_IDX,
+            INTERPRETER_STATE_BUF_IDX,
+            REGISTER_FILE_BUF_IDX,
+            TERMINATION_COUNTER_BUF_IDX,
+        ] {
+            Self::ensure_buffer(device, &mut bound_buffers[idx], 16);
+        }
 
         // Ensure all buffers are created
         if bound_buffers.iter().any(|entry| entry.buffer.is_none()) {
@@ -479,6 +606,107 @@ impl GpuResources {
         Ok(())
     }
 
+    // --- Adaptive interpreter buffer uploads ---
+
+    pub fn upload_bytecode(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, BYTECODE_BUF_IDX)
+    }
+
+    pub fn upload_block_table(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, BLOCK_TABLE_BUF_IDX)
+    }
+
+    pub fn upload_function_table(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, FUNCTION_TABLE_BUF_IDX)
+    }
+
+    pub fn upload_phi_table(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, PHI_TABLE_BUF_IDX)
+    }
+
+    pub fn upload_switch_table(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, SWITCH_TABLE_BUF_IDX)
+    }
+
+    pub fn upload_call_arg_table(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, CALL_ARG_TABLE_BUF_IDX)
+    }
+
+    pub fn upload_interpreter_state(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, INTERPRETER_STATE_BUF_IDX)
+    }
+
+    pub fn upload_register_file(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, REGISTER_FILE_BUF_IDX)
+    }
+
+    pub fn upload_termination_counter(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, TERMINATION_COUNTER_BUF_IDX)
+    }
+
+    pub fn ensure_adaptive_run_buffers(
+        &mut self,
+        interpreter_state_size: usize,
+        register_file_size: usize,
+    ) -> Result<(), String> {
+        let device = self.device.as_ref().ok_or("GPU device not initialized")?;
+
+        let mut check_buffer = |idx: usize, required_size: usize| {
+            let buf_binding = &mut self.device_resources.bound_buffers[idx];
+            if let Some(ref buffer) = buf_binding.buffer
+                && buffer.size() == required_size as u64
+            {
+                // Buffer is already the correct size
+            } else {
+                let new_buffer =
+                    create_dst_buffer(device, required_size, buf_binding.usage, buf_binding.name);
+                buf_binding.buffer = Some(new_buffer);
+                self.device_resources.bind_group = None;
+            }
+        };
+
+        check_buffer(INTERPRETER_STATE_BUF_IDX, interpreter_state_size);
+        check_buffer(REGISTER_FILE_BUF_IDX, register_file_size);
+        check_buffer(TERMINATION_COUNTER_BUF_IDX, 4);
+        Ok(())
+    }
+
+    /// Download the termination counter (single u32) from the GPU.
+    pub async fn download_termination_counter(&self) -> Result<u32, String> {
+        let device = self.device.as_ref().ok_or("GPU device not initialized")?;
+        let counter_buf = self.try_get_buffer(TERMINATION_COUNTER_BUF_IDX)?;
+
+        let download = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Termination Counter Download"),
+            size: 4,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.get_encoder("Termination Counter Copy Encoder")?;
+        encoder.copy_buffer_to_buffer(counter_buf, 0, &download, 0, 4);
+        self.submit_command_buffer(encoder.finish())?;
+
+        let buffer_slice = download.slice(..);
+        let (sender, receiver) = futures::channel::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        device
+            .poll(PollType::wait_indefinitely())
+            .expect("GPU poll failed");
+        receiver
+            .await
+            .expect("Failed to receive map completion")
+            .expect("Buffer mapping failed");
+
+        let data = buffer_slice.get_mapped_range();
+        let value = *from_bytes::<u32>(&data);
+        drop(data);
+        download.unmap();
+        Ok(value)
+    }
+
     fn try_get_buffer(&self, buf_idx: usize) -> Result<&Buffer, String> {
         self.device_resources.bound_buffers[buf_idx]
             .buffer
@@ -524,6 +752,11 @@ impl GpuResources {
     fn upload_data(&mut self, data: &[u8], buf_idx: usize) -> Result<(), String> {
         let device = self.device.as_ref().ok_or("GPU device not initialized")?;
         let queue = self.queue.as_ref().ok_or("GPU queue not initialized")?;
+
+        // Skip uploading empty data — the placeholder buffers from bind group creation suffice
+        if data.is_empty() {
+            return Ok(());
+        }
 
         let dst_buffer = &mut self.device_resources.bound_buffers[buf_idx];
 
