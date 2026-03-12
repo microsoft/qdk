@@ -87,6 +87,10 @@ impl<I: ParetoItem2D> ParetoFrontier<I> {
         self.0.iter()
     }
 
+    pub fn iter_mut(&mut self) -> std::slice::IterMut<'_, I> {
+        self.0.iter_mut()
+    }
+
     #[must_use]
     pub fn len(&self) -> usize {
         self.0.len()
@@ -129,6 +133,15 @@ impl<'a, I: ParetoItem2D> IntoIterator for &'a ParetoFrontier<I> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
+    }
+}
+
+impl<'a, I: ParetoItem2D> IntoIterator for &'a mut ParetoFrontier<I> {
+    type Item = &'a mut I;
+    type IntoIter = std::slice::IterMut<'a, I>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter_mut()
     }
 }
 

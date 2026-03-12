@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::property_keys::NUM_TS_PER_ROTATION;
 use crate::trace::{Gate, TraceTransform};
 use crate::{Error, Property, Trace, instruction_ids};
 
@@ -147,7 +148,7 @@ impl PSSPC {
 
         // Track some properties
         transformed.set_property(
-            String::from("num_ts_per_rotation"),
+            NUM_TS_PER_ROTATION,
             Property::Int(self.num_ts_per_rotation as i64),
         );
 

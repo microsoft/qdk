@@ -21,6 +21,11 @@ from ._qre import (
 from ._trace import TraceQuery, PSSPC, LatticeSurgery
 from ._instruction import InstructionSource
 from ._isa_enumeration import ISAQuery
+from .property_keys import (
+    PHYSICAL_COMPUTE_QUBITS,
+    PHYSICAL_MEMORY_QUBITS,
+    PHYSICAL_FACTORY_QUBITS,
+)
 
 
 def estimate(
@@ -76,6 +81,9 @@ def estimate(
         params_and_traces = list(trace_query.enumerate(app_ctx, track_parameters=True))
         isas = list(isa_query.enumerate(arch_ctx))
 
+        num_traces = len(params_and_traces)
+        num_isas = len(isas)
+
         # Estimate all trace × ISA combinations using Python threads
         collection = _EstimationCollection()
 
@@ -85,6 +93,7 @@ def estimate(
                 result = app_ctx.application.post_process(params, result)
             return result
 
+        successful = 0
         with ThreadPoolExecutor() as executor:
             futures = [
                 executor.submit(_estimate_one, params, trace, isa)
@@ -94,13 +103,18 @@ def estimate(
             for future in futures:
                 result = future.result()
                 if result is not None:
+                    successful += 1
                     collection.insert(result)
     else:
         traces = list(trace_query.enumerate(app_ctx))
         isas = list(isa_query.enumerate(arch_ctx))
 
+        num_traces = len(traces)
+        num_isas = len(isas)
+
         # Use the Rust parallel estimation path
         collection = _estimate_parallel(cast(list[Trace], traces), isas, max_error)
+        successful = collection.successful_estimates
 
     # Post-process the results and add them to a results table
     table = EstimationTable()
@@ -120,6 +134,13 @@ def estimate(
 
         table.append(entry)
 
+    # Fill in the stats for this estimation run
+    table.stats.num_traces = num_traces
+    table.stats.num_isas = num_isas
+    table.stats.total_jobs = num_traces * num_isas
+    table.stats.successful_estimates = successful
+    table.stats.pareto_results = len(collection)
+
     return table
 
 
@@ -136,6 +157,8 @@ class EstimationTable(list["EstimationTableEntry"]):
     def __init__(self):
         """Initialize an empty estimation table with default columns."""
         super().__init__()
+
+        self.stats = EstimationTableStats()
 
         self._columns: list[tuple[str, EstimationTableColumn]] = [
             ("qubits", EstimationTableColumn(lambda entry: entry.qubits)),
@@ -186,6 +209,20 @@ class EstimationTable(list["EstimationTableEntry"]):
                 that formats the output of `function` for display purposes.
         """
         self._columns.insert(index, (name, EstimationTableColumn(function, formatter)))
+
+    def add_qubit_partition_column(self) -> None:
+        self.add_column(
+            "physical_compute_qubits",
+            lambda entry: entry.properties.get(PHYSICAL_COMPUTE_QUBITS, 0),
+        )
+        self.add_column(
+            "physical_factory_qubits",
+            lambda entry: entry.properties.get(PHYSICAL_FACTORY_QUBITS, 0),
+        )
+        self.add_column(
+            "physical_memory_qubits",
+            lambda entry: entry.properties.get(PHYSICAL_MEMORY_QUBITS, 0),
+        )
 
     def add_factory_summary_column(self) -> None:
         """Adds a column to the estimation table that summarizes the factories used in the estimation."""
@@ -268,4 +305,13 @@ class EstimationTableEntry:
     error: float
     source: InstructionSource
     factories: dict[int, FactoryResult] = field(default_factory=dict)
-    properties: dict[str, int | float | bool | str] = field(default_factory=dict)
+    properties: dict[int, int | float | bool | str] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class EstimationTableStats:
+    num_traces: int = 0
+    num_isas: int = 0
+    total_jobs: int = 0
+    successful_estimates: int = 0
+    pareto_results: int = 0
