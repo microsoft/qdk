@@ -225,15 +225,21 @@ class RoundBasedFactory(ISATransform):
 
     def _cache_key(self, impl_isa: ISA) -> str:
         """Build a deterministic key from factory configuration and impl_isa."""
-        # You can refine this if ISA has a better serialization method.
-        payload = {
-            "factory": type(self).__qualname__,
-            "code_query": getattr(
-                self.code_query, "__qualname__", repr(self.code_query)
-            ),
-            "impl_isa": str(impl_isa),
-        }
-        data = repr(payload).encode("utf-8")
+        parts = [
+            f"factory={type(self).__qualname__}",
+            f"code_query={repr(self.code_query)}",
+            f"physical_qubit_calculation={self.physical_qubit_calculation.__name__}",
+        ]
+
+        # Include full instruction details, sorted by id for determinism
+        for instr in sorted(impl_isa, key=lambda i: i.id):
+            parts.append(
+                f"id={instr.id}|encoding={instr.encoding}|arity={instr.arity}"
+                f"|time={instr.time()}|space={instr.space()}"
+                f"|error_rate={instr.error_rate()}"
+            )
+
+        data = "\n".join(parts).encode("utf-8")
         return hashlib.sha256(data).hexdigest()
 
     def _cache_path(self, impl_isa: ISA) -> Path:

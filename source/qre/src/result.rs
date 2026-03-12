@@ -17,7 +17,8 @@ pub struct EstimationResult {
     error: f64,
     factories: FxHashMap<u64, FactoryResult>,
     isa: ISA,
-    properties: FxHashMap<String, Property>,
+    isa_index: Option<usize>,
+    properties: FxHashMap<u64, Property>,
 }
 
 impl EstimationResult {
@@ -89,22 +90,31 @@ impl EstimationResult {
         &self.isa
     }
 
-    pub fn set_property(&mut self, key: String, value: Property) {
+    pub fn set_isa_index(&mut self, index: usize) {
+        self.isa_index = Some(index);
+    }
+
+    #[must_use]
+    pub fn isa_index(&self) -> Option<usize> {
+        self.isa_index
+    }
+
+    pub fn set_property(&mut self, key: u64, value: Property) {
         self.properties.insert(key, value);
     }
 
     #[must_use]
-    pub fn get_property(&self, key: &str) -> Option<&Property> {
-        self.properties.get(key)
+    pub fn get_property(&self, key: u64) -> Option<&Property> {
+        self.properties.get(&key)
     }
 
     #[must_use]
-    pub fn has_property(&self, key: &str) -> bool {
-        self.properties.contains_key(key)
+    pub fn has_property(&self, key: u64) -> bool {
+        self.properties.contains_key(&key)
     }
 
     #[must_use]
-    pub fn properties(&self) -> &FxHashMap<String, Property> {
+    pub fn properties(&self) -> &FxHashMap<u64, Property> {
         &self.properties
     }
 }
@@ -146,12 +156,34 @@ impl ParetoItem2D for EstimationResult {
 }
 
 #[derive(Default)]
-pub struct EstimationCollection(ParetoFrontier2D<EstimationResult>);
+pub struct EstimationCollection {
+    frontier: ParetoFrontier2D<EstimationResult>,
+    total_jobs: usize,
+    successful_estimates: usize,
+}
 
 impl EstimationCollection {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    #[must_use]
+    pub fn total_jobs(&self) -> usize {
+        self.total_jobs
+    }
+
+    pub fn set_total_jobs(&mut self, total_jobs: usize) {
+        self.total_jobs = total_jobs;
+    }
+
+    #[must_use]
+    pub fn successful_estimates(&self) -> usize {
+        self.successful_estimates
+    }
+
+    pub fn set_successful_estimates(&mut self, successful_estimates: usize) {
+        self.successful_estimates = successful_estimates;
     }
 }
 
@@ -159,13 +191,13 @@ impl Deref for EstimationCollection {
     type Target = ParetoFrontier2D<EstimationResult>;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.frontier
     }
 }
 
 impl DerefMut for EstimationCollection {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.frontier
     }
 }
 

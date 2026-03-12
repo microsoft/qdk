@@ -15,6 +15,10 @@ from ..._instruction import (
 from ..._isa_enumeration import _Context
 from ..._qre import linear_function
 from ...instruction_ids import CNOT, H, LATTICE_SURGERY, MEAS_Z
+from ...property_keys import (
+    SURFACE_CODE_ONE_QUBIT_TIME_FACTOR,
+    SURFACE_CODE_TWO_QUBIT_TIME_FACTOR,
+)
 
 
 @dataclass
@@ -30,6 +34,12 @@ class SurfaceCode(ISATransform):
         error_correction_threshold: float
             The error correction threshold for the surface code.  (Default is
             0.01 (1%), see [arXiv:1009.3686](https://arxiv.org/abs/1009.3686))
+        one_qubit_gate_depth: int
+            The depth of one-qubit gates in each syndrome extraction cycle.
+            (Default is 1, see Fig. 2 in [arXiv:1009.3686](https://arxiv.org/abs/1009.3686))
+        two_qubit_gate_depth: int
+            The depth of two-qubit gates in each syndrome extraction cycle.
+            (Default is 4, see Fig. 2 in [arXiv:1009.3686](https://arxiv.org/abs/1009.3686))
 
     Hyper parameters:
         distance: int
@@ -50,6 +60,8 @@ class SurfaceCode(ISATransform):
 
     crossing_prefactor: float = 0.03
     error_correction_threshold: float = 0.01
+    one_qubit_gate_depth: int = 1
+    two_qubit_gate_depth: int = 4
     _: KW_ONLY
     distance: int = field(default=3, metadata={"domain": range(3, 26, 2)})
 
@@ -81,8 +93,22 @@ class SurfaceCode(ISATransform):
         space_formula = linear_function(2 * self.distance**2 - 1)
 
         # Each syndrome extraction cycle consists of ancilla preparation, 4
-        # rounds of CNOTs, and measurement.  (See Fig. 2 in arXiv:1009.3686)
-        time_value = (h_time + 4 * cnot_time + meas_time) * self.distance
+        # rounds of CNOTs, and measurement.  (See Fig. 2 in arXiv:1009.3686);
+        # these may be modified by the one_qubit_gate_depth and
+        # two_qubit_gate_depth parameters, or scaled by the time factors
+        # provided in the instruction properties.  The syndrome extraction cycle
+        # is repeated d times for a distance-d code.
+        one_qubit_gate_depth = self.one_qubit_gate_depth * h.get_property_or(
+            SURFACE_CODE_ONE_QUBIT_TIME_FACTOR, 1
+        )
+        two_qubit_gate_depth = self.two_qubit_gate_depth * cnot.get_property_or(
+            SURFACE_CODE_TWO_QUBIT_TIME_FACTOR, 1
+        )
+
+        code_cycle_time = (
+            one_qubit_gate_depth * h_time + two_qubit_gate_depth * cnot_time + meas_time
+        )
+        time_value = code_cycle_time * self.distance
 
         # See Eqs. (10) and (11) in arXiv:1208.0928
         error_formula = linear_function(

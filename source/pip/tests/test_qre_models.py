@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from qsharp.qre import LOGICAL, PHYSICAL, PropertyKey
+from qsharp.qre import LOGICAL, PHYSICAL
 from qsharp.qre.instruction_ids import (
     T,
     CCZ,
@@ -36,6 +36,7 @@ from qsharp.qre.models import (
     ThreeAux,
     YokedSurfaceCode,
 )
+from qsharp.qre.property_keys import DISTANCE
 
 
 # ---------------------------------------------------------------------------
@@ -465,7 +466,7 @@ class TestYokedSurfaceCode:
 
         isas = list(ysc.provided_isa(ls_isa, ctx))
         mem = isas[0][MEMORY]
-        assert mem.get_property(PropertyKey.DISTANCE) == d
+        assert mem.get_property(DISTANCE) == d
 
 
 # ---------------------------------------------------------------------------

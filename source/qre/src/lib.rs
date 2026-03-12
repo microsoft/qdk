@@ -9,17 +9,19 @@ pub use pareto::{
     ParetoFrontier as ParetoFrontier2D, ParetoFrontier3D, ParetoItem2D, ParetoItem3D,
 };
 mod result;
-pub use result::{EstimationCollection, EstimationResult, FactoryResult};
-mod trace;
+pub use isa::property_keys;
+pub use isa::property_keys::property_name_to_key;
 pub use isa::{
-    ConstraintBound, Encoding, ISA, ISARequirements, Instruction, InstructionConstraint,
+    ConstraintBound, Encoding, ISA, ISARequirements, Instruction, InstructionConstraint, LockedISA,
     ProvenanceGraph, VariableArityFunction,
 };
+pub use result::{EstimationCollection, EstimationResult, FactoryResult};
+mod trace;
 pub use trace::instruction_ids;
 pub use trace::instruction_ids::instruction_name;
 pub use trace::{Block, LatticeSurgery, PSSPC, Property, Trace, TraceTransform, estimate_parallel};
 mod utils;
-pub use utils::binom_ppf;
+pub use utils::{binom_ppf, float_from_bits, float_to_bits};
 
 /// A resourc estimation error.
 #[derive(Clone, Debug, Error, PartialEq)]

@@ -6,10 +6,11 @@ from enum import IntEnum
 from math import ceil
 from typing import Generator
 
-from ..._instruction import ISATransform, constraint, LOGICAL, PropertyKey
+from ..._instruction import ISATransform, constraint, LOGICAL
 from ..._qre import ISA, ISARequirements, generic_function
 from ..._architecture import _Context
 from ...instruction_ids import LATTICE_SURGERY, MEMORY
+from ...property_keys import DISTANCE
 
 
 class ShapeHeuristic(IntEnum):
@@ -70,7 +71,7 @@ class YokedSurfaceCode(ISATransform):
 
     def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
         lattice_surgery = impl_isa[LATTICE_SURGERY]
-        distance = lattice_surgery.get_property(PropertyKey.DISTANCE)
+        distance = lattice_surgery.get_property(DISTANCE)
         assert distance is not None
 
         shape_fn = [self._min_area_shape, self._square_shape][self.shape_heuristic]

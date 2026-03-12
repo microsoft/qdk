@@ -17,7 +17,6 @@ from qsharp.qre import (
     ISARequirements,
     ISATransform,
     LatticeSurgery,
-    PropertyKey,
     Trace,
     constraint,
     estimate,
@@ -40,6 +39,7 @@ from qsharp.qre._isa_enumeration import (
     ISARefNode,
 )
 from qsharp.qre.instruction_ids import CCX, CCZ, LATTICE_SURGERY, T, RZ
+from qsharp.qre.property_keys import DISTANCE, NUM_TS_PER_ROTATION
 
 # NOTE These classes will be generalized as part of the QRE API in the following
 # pull requests and then moved out of the tests.
@@ -123,17 +123,17 @@ def test_isa():
 def test_instruction_properties():
     # Test instruction with no properties
     instr_no_props = _make_instruction(T, 1, 1, 1000, None, None, 1e-8, {})
-    assert instr_no_props.get_property(PropertyKey.DISTANCE) is None
-    assert instr_no_props.has_property(PropertyKey.DISTANCE) is False
-    assert instr_no_props.get_property_or(PropertyKey.DISTANCE, 5) == 5
+    assert instr_no_props.get_property(DISTANCE) is None
+    assert instr_no_props.has_property(DISTANCE) is False
+    assert instr_no_props.get_property_or(DISTANCE, 5) == 5
 
     # Test instruction with valid property (distance)
     instr_with_distance = _make_instruction(
         T, 1, 1, 1000, None, None, 1e-8, {"distance": 9}
     )
-    assert instr_with_distance.get_property(PropertyKey.DISTANCE) == 9
-    assert instr_with_distance.has_property(PropertyKey.DISTANCE) is True
-    assert instr_with_distance.get_property_or(PropertyKey.DISTANCE, 5) == 9
+    assert instr_with_distance.get_property(DISTANCE) == 9
+    assert instr_with_distance.has_property(DISTANCE) is True
+    assert instr_with_distance.get_property_or(DISTANCE, 5) == 9
 
     # Test instruction with invalid property name
     with pytest.raises(ValueError, match="Unknown property 'invalid_prop'"):
@@ -143,15 +143,15 @@ def test_instruction_properties():
 def test_instruction_constraints():
     # Test constraint without properties
     c_no_props = constraint(T, encoding=LOGICAL)
-    assert c_no_props.has_property(PropertyKey.DISTANCE) is False
+    assert c_no_props.has_property(DISTANCE) is False
 
     # Test constraint with valid property (distance=True)
     c_with_distance = constraint(T, encoding=LOGICAL, distance=True)
-    assert c_with_distance.has_property(PropertyKey.DISTANCE) is True
+    assert c_with_distance.has_property(DISTANCE) is True
 
     # Test constraint with distance=False (should not add the property)
     c_distance_false = constraint(T, encoding=LOGICAL, distance=False)
-    assert c_distance_false.has_property(PropertyKey.DISTANCE) is False
+    assert c_distance_false.has_property(DISTANCE) is False
 
     # Test constraint with invalid property name
     with pytest.raises(ValueError, match="Unknown property 'invalid_prop'"):
@@ -742,21 +742,26 @@ def test_sum_isa_enumeration_nodes():
 def test_trace_properties():
     trace = Trace(42)
 
-    trace.set_property("int", 42)
-    assert trace.get_property("int") == 42
-    assert isinstance(trace.get_property("int"), int)
+    INT = 0
+    FLOAT = 1
+    BOOL = 2
+    STR = 3
 
-    trace.set_property("float", 3.14)
-    assert trace.get_property("float") == 3.14
-    assert isinstance(trace.get_property("float"), float)
+    trace.set_property(INT, 42)
+    assert trace.get_property(INT) == 42
+    assert isinstance(trace.get_property(INT), int)
 
-    trace.set_property("bool", True)
-    assert trace.get_property("bool") is True
-    assert isinstance(trace.get_property("bool"), bool)
+    trace.set_property(FLOAT, 3.14)
+    assert trace.get_property(FLOAT) == 3.14
+    assert isinstance(trace.get_property(FLOAT), float)
 
-    trace.set_property("str", "hello")
-    assert trace.get_property("str") == "hello"
-    assert isinstance(trace.get_property("str"), str)
+    trace.set_property(BOOL, True)
+    assert trace.get_property(BOOL) is True
+    assert isinstance(trace.get_property(BOOL), bool)
+
+    trace.set_property(STR, "hello")
+    assert trace.get_property(STR) == "hello"
+    assert isinstance(trace.get_property(STR), str)
 
 
 def test_qsharp_application():
@@ -984,11 +989,13 @@ def test_estimation_table_empty():
 
 def test_estimation_table_add_column():
     """Test adding a column to the table."""
-    table = EstimationTable()
-    table.append(_make_entry(100, 5000, 0.01, properties={"val": 42}))
-    table.append(_make_entry(200, 10000, 0.02, properties={"val": 84}))
+    VAL = 0
 
-    table.add_column("val", lambda e: e.properties["val"])
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01, properties={VAL: 42}))
+    table.append(_make_entry(200, 10000, 0.02, properties={VAL: 84}))
+
+    table.add_column("val", lambda e: e.properties[VAL])
 
     frame = table.as_frame()
     assert list(frame.columns) == ["qubits", "runtime", "error", "val"]
@@ -997,12 +1004,14 @@ def test_estimation_table_add_column():
 
 def test_estimation_table_add_column_with_formatter():
     """Test adding a column with a formatter."""
+    NS = 0
+
     table = EstimationTable()
-    table.append(_make_entry(100, 5000, 0.01, properties={"ns": 1000}))
+    table.append(_make_entry(100, 5000, 0.01, properties={NS: 1000}))
 
     table.add_column(
         "duration",
-        lambda e: e.properties["ns"],
+        lambda e: e.properties[NS],
         formatter=lambda x: pd.Timedelta(x, unit="ns"),
     )
 
@@ -1012,12 +1021,16 @@ def test_estimation_table_add_column_with_formatter():
 
 def test_estimation_table_add_multiple_columns():
     """Test adding multiple columns preserves order."""
-    table = EstimationTable()
-    table.append(_make_entry(100, 5000, 0.01, properties={"a": 1, "b": 2, "c": 3}))
+    A = 0
+    B = 1
+    C = 2
 
-    table.add_column("a", lambda e: e.properties["a"])
-    table.add_column("b", lambda e: e.properties["b"])
-    table.add_column("c", lambda e: e.properties["c"])
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01, properties={A: 1, B: 2, C: 3}))
+
+    table.add_column("a", lambda e: e.properties[A])
+    table.add_column("b", lambda e: e.properties[B])
+    table.add_column("c", lambda e: e.properties[C])
 
     frame = table.as_frame()
     assert list(frame.columns) == ["qubits", "runtime", "error", "a", "b", "c"]
@@ -1028,10 +1041,12 @@ def test_estimation_table_add_multiple_columns():
 
 def test_estimation_table_insert_column_at_beginning():
     """Test inserting a column at index 0."""
-    table = EstimationTable()
-    table.append(_make_entry(100, 5000, 0.01, properties={"name": "test"}))
+    NAME = 0
 
-    table.insert_column(0, "name", lambda e: e.properties["name"])
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01, properties={NAME: "test"}))
+
+    table.insert_column(0, "name", lambda e: e.properties[NAME])
 
     frame = table.as_frame()
     assert list(frame.columns) == ["name", "qubits", "runtime", "error"]
@@ -1040,11 +1055,13 @@ def test_estimation_table_insert_column_at_beginning():
 
 def test_estimation_table_insert_column_in_middle():
     """Test inserting a column between existing default columns."""
+    EXTRA = 0
+
     table = EstimationTable()
-    table.append(_make_entry(100, 5000, 0.01, properties={"extra": 99}))
+    table.append(_make_entry(100, 5000, 0.01, properties={EXTRA: 99}))
 
     # Insert between qubits and runtime (index 1)
-    table.insert_column(1, "extra", lambda e: e.properties["extra"])
+    table.insert_column(1, "extra", lambda e: e.properties[EXTRA])
 
     frame = table.as_frame()
     assert list(frame.columns) == ["qubits", "extra", "runtime", "error"]
@@ -1053,11 +1070,13 @@ def test_estimation_table_insert_column_in_middle():
 
 def test_estimation_table_insert_column_at_end():
     """Test inserting a column at the end (same effect as add_column)."""
+    LAST = 0
+
     table = EstimationTable()
-    table.append(_make_entry(100, 5000, 0.01, properties={"last": True}))
+    table.append(_make_entry(100, 5000, 0.01, properties={LAST: True}))
 
     # 3 default columns, inserting at index 3 = end
-    table.insert_column(3, "last", lambda e: e.properties["last"])
+    table.insert_column(3, "last", lambda e: e.properties[LAST])
 
     frame = table.as_frame()
     assert list(frame.columns) == ["qubits", "runtime", "error", "last"]
@@ -1066,13 +1085,15 @@ def test_estimation_table_insert_column_at_end():
 
 def test_estimation_table_insert_column_with_formatter():
     """Test inserting a column with a formatter."""
+    NS = 0
+
     table = EstimationTable()
-    table.append(_make_entry(100, 5000, 0.01, properties={"ns": 2000}))
+    table.append(_make_entry(100, 5000, 0.01, properties={NS: 2000}))
 
     table.insert_column(
         0,
         "custom_time",
-        lambda e: e.properties["ns"],
+        lambda e: e.properties[NS],
         formatter=lambda x: pd.Timedelta(x, unit="ns"),
     )
 
@@ -1083,11 +1104,14 @@ def test_estimation_table_insert_column_with_formatter():
 
 def test_estimation_table_insert_and_add_columns():
     """Test combining insert_column and add_column."""
-    table = EstimationTable()
-    table.append(_make_entry(100, 5000, 0.01, properties={"a": 1, "b": 2}))
+    A = 0
+    B = 0
 
-    table.add_column("b", lambda e: e.properties["b"])
-    table.insert_column(0, "a", lambda e: e.properties["a"])
+    table = EstimationTable()
+    table.append(_make_entry(100, 5000, 0.01, properties={A: 1, B: 2}))
+
+    table.add_column("b", lambda e: e.properties[B])
+    table.insert_column(0, "a", lambda e: e.properties[A])
 
     frame = table.as_frame()
     assert list(frame.columns) == ["a", "qubits", "runtime", "error", "b"]
@@ -1160,7 +1184,7 @@ def test_estimation_table_add_column_from_source():
 
     results.add_column(
         "compute_distance",
-        lambda entry: entry.source[LATTICE_SURGERY].instruction[PropertyKey.DISTANCE],
+        lambda entry: entry.source[LATTICE_SURGERY].instruction[DISTANCE],
     )
 
     frame = results.as_frame()
@@ -1194,7 +1218,7 @@ def test_estimation_table_add_column_from_properties():
 
     results.add_column(
         "num_ts_per_rotation",
-        lambda entry: entry.properties["num_ts_per_rotation"],
+        lambda entry: entry.properties[NUM_TS_PER_ROTATION],
     )
 
     frame = results.as_frame()
@@ -1227,8 +1251,7 @@ def test_estimation_table_insert_column_before_defaults():
 
     assert len(results) >= 1
 
-    # Insert a name column at the beginning and add factory summary at the end
-    results.insert_column(0, "name", lambda entry: entry.properties.get("name", ""))
+    # Add a factory summary at the end
     results.add_factory_summary_column()
 
     frame = results.as_frame()
@@ -1264,3 +1287,5 @@ def test_estimation_table_computed_column():
     frame = table.as_frame()
     assert frame["qubit_error_product"][0] == pytest.approx(1.0)
     assert frame["qubit_error_product"][1] == pytest.approx(4.0)
+
+
