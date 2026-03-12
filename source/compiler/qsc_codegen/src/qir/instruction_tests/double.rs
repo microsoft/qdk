@@ -477,3 +477,32 @@ fn fsub_double_variables() {
     );
     expect!["  %var_0 = fsub double %var_1, %var_2"].assert_eq(&inst.to_qir(&Program::default()));
 }
+
+#[test]
+fn convert_double_literal_to_integer() {
+    let inst = Instruction::Convert (
+        Operand::Literal(Literal::Double(PI)),
+        Variable {
+            variable_id: VariableId(0),
+            ty: Ty::Integer,
+        },
+    );
+    expect!["  %var_0 = fptosi double 3.141592653589793 to i64"]
+        .assert_eq(&inst.to_qir(&Program::default()));
+}
+
+#[test]
+fn convert_double_variable_to_integer() {
+    let inst = Instruction::Convert (
+        Operand::Variable(Variable {
+            variable_id: VariableId(1),
+            ty: Ty::Double,
+        }),
+        Variable {
+            variable_id: VariableId(0),
+            ty: Ty::Integer,
+        },
+    );
+    expect!["  %var_0 = fptosi double %var_1 to i64"]
+        .assert_eq(&inst.to_qir(&Program::default()));
+}
