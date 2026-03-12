@@ -2,6 +2,7 @@
 // Licensed under the MIT license.
 
 import { DataAttributes } from "./circuit.js";
+import { Register } from "./register.js";
 
 /**
  * Enum for the various gate operations handled.
@@ -61,4 +62,10 @@ export interface GateRenderData {
   link?: { href: string; title: string };
   /** Labels for the classical control registers (when present, this group is rendered with classical controls). */
   classicalControlIds?: (number | null)[];
+  /**
+   * Classical control registers used by this operation or any descendant.
+   * Used by processOperations to decide which classical wires may pass through
+   * this gate body without forcing a split.
+   */
+  classicalControlRegs?: Register[];
 }

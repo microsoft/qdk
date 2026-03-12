@@ -125,9 +125,9 @@ const processOperations = (
               return children[reg.result].y;
             });
 
-          const allowedThroughY = _getClassicalControlRegsUsedByOpOrDescendants(
-            op,
-          ).map((reg) => _getRegY(reg, registers));
+          const allowedThroughY = (renderData.classicalControlRegs ?? []).map(
+            (reg) => _getRegY(reg, registers),
+          );
           const splitAroundY = classicalRegY.filter(
             (y) => !allowedThroughY.includes(y),
           );
@@ -204,35 +204,28 @@ const _getClassicalRegStarts = (
   return clsRegs;
 };
 
-const _getClassicalControlRegsUsedByOpOrDescendants = (
-  op: Operation,
-): Register[] => {
+/**
+ * Recursively collects classical control registers from source circuit children.
+ * Used inside _opToRenderData for collapsed groups whose children have not been rendered.
+ */
+function _collectClassicalControlsFromSourceChildren(
+  children: ComponentGrid,
+): Register[] {
   const regs: Register[] = [];
-  const seen = new Set<string>();
-
-  const addReg = (reg: Register) => {
-    if (reg.result == null) return;
-    const key = `${reg.qubit}:${reg.result}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    regs.push(reg);
-  };
-
-  const visit = (node: Operation) => {
-    if (node.kind === "unitary") {
-      (node.controls ?? []).forEach(addReg);
+  for (const col of children) {
+    for (const op of col.components) {
+      if (op.kind === "unitary") {
+        for (const reg of op.controls ?? []) {
+          if (reg.result != null) regs.push(reg);
+        }
+      }
+      if (op.children != null) {
+        regs.push(..._collectClassicalControlsFromSourceChildren(op.children));
+      }
     }
-
-    if (node.children != null) {
-      node.children.forEach((col) =>
-        col.components.forEach((child) => visit(child)),
-      );
-    }
-  };
-
-  visit(op);
+  }
   return regs;
-};
+}
 
 /**
  * Maps operation to render data (e.g. gate type, position, dimensions, text)
@@ -361,6 +354,32 @@ const _opToRenderData = (
     // Any other gate treated as a simple unitary gate
     renderData.type = GateType.Unitary;
     renderData.label = gate;
+  }
+
+  // Collect classical control registers for this op and all descendants.
+  // For expanded groups, aggregate from already-rendered children to avoid re-walking source data.
+  // For collapsed groups with children, walk source data directly.
+  {
+    const ownControls =
+      op.kind === "unitary"
+        ? (controls ?? []).filter((r) => r.result != null)
+        : [];
+    const descendantControls: Register[] =
+      renderData.children != null
+        ? renderData.children
+            .flat()
+            .flatMap((c) => c.classicalControlRegs ?? [])
+        : hasChildren
+          ? _collectClassicalControlsFromSourceChildren(children!)
+          : [];
+    const seen = new Set<string>();
+    renderData.classicalControlRegs = [
+      ...ownControls,
+      ...descendantControls,
+    ].filter((r) => {
+      const key = `${r.qubit}:${r.result}`;
+      return seen.has(key) ? false : (seen.add(key), true);
+    });
   }
 
   // If adjoint, add ' to the end of gate label
