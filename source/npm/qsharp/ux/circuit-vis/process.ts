@@ -78,10 +78,15 @@ const processOperations = (
         let targets: Register[];
         switch (op.kind) {
           case "unitary":
-            // For collapsed unitary operations, classical result targets are
-            // internal details and should not inflate the gate box.
-            // Filter them out so the box only spans qubit wires.
-            targets = op.targets.filter((reg) => reg.result == null);
+            // For collapsed unitary operations, filter out result targets
+            // that are internal details (measurement outputs). Keep result
+            // targets that are consumed as classical controls by the op's
+            // own children so the collapsed box stretches to include those
+            // wire slots.
+            targets = op.targets.filter(
+              (reg) =>
+                reg.result == null || _childrenConsumeControl(op.children, reg),
+            );
             break;
           case "measurement":
             targets = op.qubits;
@@ -263,17 +268,25 @@ const _opToRenderData = (
 
   // Set y coords
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
-  // For collapsed unitary/ket operations, classical result targets are internal
-  // details and should not inflate the gate box height. Map them to their parent
-  // qubit's y-position. For expanded groups (AsGroup) and classically-controlled
-  // ops, keep full target span so the dashed border encompasses all children.
+  // For collapsed unitary/ket operations, classical result targets that are
+  // pure measurement outputs should not inflate the gate box height — map them
+  // to the parent qubit's y-position. However, result targets that are consumed
+  // as classical controls by the op's own children must keep their real slot y
+  // so the box stretches to include those wire endpoints.
+  // For expanded groups (AsGroup) and classically-controlled ops, keep full
+  // target span so the dashed border encompasses all children.
   const isCollapsed =
     !isConditional && conditionalRender !== ConditionalRender.AsGroup;
-  renderData.targetsY = targets.map((reg) =>
-    isCollapsed && op.kind !== "measurement" && reg.result != null
-      ? registers[reg.qubit].y
-      : _getRegY(reg, registers),
-  );
+  renderData.targetsY = targets.map((reg) => {
+    if (isCollapsed && op.kind !== "measurement" && reg.result != null) {
+      // Keep the real y for results consumed as controls by this op's children.
+      if (_childrenConsumeControl(op.children, reg)) {
+        return _getRegY(reg, registers);
+      }
+      return registers[reg.qubit].y;
+    }
+    return _getRegY(reg, registers);
+  });
 
   if (isConditional) {
     // Classically-controlled operations
@@ -359,6 +372,24 @@ const _opToRenderData = (
     renderData.label = gate;
   }
 
+  // For collapsed ops that consume classical controls, record the control
+  // wire keys so registerFormatter can extend wires into this gate.
+  if (
+    isCollapsed &&
+    op.kind !== "measurement" &&
+    !renderData.controlWireKeys?.length
+  ) {
+    const ctrlKeys = targets
+      .filter(
+        (reg) =>
+          reg.result != null && _childrenConsumeControl(op.children, reg),
+      )
+      .map((reg) => `${reg.qubit}-${reg.result}`);
+    if (ctrlKeys.length > 0) {
+      renderData.controlWireKeys = ctrlKeys;
+    }
+  }
+
   // For collapsed ops that contain inner measurements, record the result
   // wire keys so registerFormatter can draw stubs/wires from this gate.
   if (
@@ -369,8 +400,12 @@ const _opToRenderData = (
     const resultKeys = targets
       .filter((reg) => reg.result != null)
       .map((reg) => `${reg.qubit}-${reg.result}`);
-    if (resultKeys.length > 0) {
-      renderData.resultWireKeys = resultKeys;
+    // Exclude keys already claimed as control inputs — those are consumed,
+    // not produced, by this gate.
+    const ctrlSet = new Set(renderData.controlWireKeys || []);
+    const filteredKeys = resultKeys.filter((k) => !ctrlSet.has(k));
+    if (filteredKeys.length > 0) {
+      renderData.resultWireKeys = filteredKeys;
     }
   }
 
@@ -595,6 +630,34 @@ function _processChildren(
   renderData.topPadding = childrenInstrs.maxTopPadding + groupTopPadding;
   renderData.bottomPadding =
     childrenInstrs.maxBottomPadding + groupBottomPadding;
+}
+
+/**
+ * Checks whether an operation's children contain a ClassicalControlled gate
+ * that consumes the given register as a control.
+ */
+function _childrenConsumeControl(
+  children: ComponentGrid | undefined,
+  reg: Register,
+): boolean {
+  if (!children || reg.result == null) return false;
+  for (const col of children) {
+    for (const op of col.components) {
+      if (
+        op.isConditional &&
+        op.kind === "unitary" &&
+        op.controls?.some(
+          (c) => c.qubit === reg.qubit && c.result === reg.result,
+        )
+      ) {
+        return true;
+      }
+      if (op.children && _childrenConsumeControl(op.children, reg)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 export { processOperations };

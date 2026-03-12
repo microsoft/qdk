@@ -96,19 +96,24 @@ const formatRegisters = (
               : registers[qId].y;
 
           // Determine the end x for this wire.
-          // Scan allGates for ClassicalControlled gates that consume
-          // this specific wire key — use the rightmost one's control circle x.
+          // Scan allGates for gates that consume this specific wire key
+          // (ClassicalControlled gates or collapsed ops with inner controls).
+          // Use the rightmost consuming gate's x.
           let wireEndX = endX;
           if (wireRange) {
             let maxCtrlX = gate.x;
             for (const ctrlGate of allGates.flat()) {
-              if (ctrlGate.type === GateType.ClassicalControlled) {
-                if (ctrlGate.controlWireKeys?.includes(wireKey)) {
+              if (ctrlGate.controlWireKeys?.includes(wireKey)) {
+                if (ctrlGate.type === GateType.ClassicalControlled) {
                   // The control circle is at the left edge of the gate
                   // bounding box + controlCircleRadius.
                   const circleX =
                     ctrlGate.x - ctrlGate.width / 2 + controlCircleRadius;
                   maxCtrlX = Math.max(maxCtrlX, circleX);
+                } else {
+                  // Collapsed op consuming this wire — wire ends at the
+                  // gate center (the wire disappears into the box).
+                  maxCtrlX = Math.max(maxCtrlX, ctrlGate.x);
                 }
               }
             }
