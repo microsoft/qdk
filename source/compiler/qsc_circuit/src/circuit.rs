@@ -906,6 +906,21 @@ impl CircuitDisplay<'_> {
 
                     col_width = max(col_width, 1);
                 }
+            } else if op.is_controlled() {
+                // Rendering groups is disabled, but this is a controlled group - the meaning of the diagram would change if we showed just
+                // the group's contents without the control. So just render the group as a "black box" with the control,
+                // as if it's a standalone gate
+                add_operation_to_rows(
+                    op,
+                    rows,
+                    &target_rows,
+                    &control_rows,
+                    column,
+                    begin,
+                    end,
+                    None,
+                );
+                col_width = max(col_width, 1);
             } else {
                 // Don't render the group, render all the children directly
                 let offset = self.add_grid(column, op.children(), rows, insets, register_to_row);

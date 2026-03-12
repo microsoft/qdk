@@ -278,6 +278,20 @@ impl<'a> Analyzer<'a> {
 
             quantum_properties.runtime_features |=
                 derive_runtime_features_for_value_kind_associated_to_type(value_kind, expr_type);
+
+            let lhs_expr_ty = &self.get_expr(lhs_expr_id).ty;
+            if value_kind.is_dynamic()
+                && matches!(lhs_expr_ty, Ty::Prim(Prim::String))
+                && expr_type == &Ty::Prim(Prim::Bool)
+            {
+                // Strings can only be concatenated or compared for equality, and only equality comparison
+                // can affect control flow of the program in a way that required runtime features,
+                // so we only add the `UseOfDynamicString` runtime feature for equality comparisons of strings to
+                // track the need for string support in the runtime.
+                // Note that output of strings from the entry point is separate checked and does not rely on detecting
+                // this runtime feature.
+                quantum_properties.runtime_features |= RuntimeFeatureFlags::UseOfDynamicString;
+            }
         }
 
         compute_kind
@@ -968,7 +982,7 @@ impl<'a> Analyzer<'a> {
             let ComputeKind::Quantum(quantum_properties) = &mut compute_kind else {
                 panic!("Quantum variant was expected for the compute kind of string expression ");
             };
-            quantum_properties.runtime_features |= RuntimeFeatureFlags::UseOfDynamicString;
+            // quantum_properties.runtime_features |= RuntimeFeatureFlags::UseOfDynamicString;
             quantum_properties.value_kind = ValueKind::Element(RuntimeKind::Dynamic);
         }
 
@@ -2483,8 +2497,8 @@ fn derive_runtime_features_for_value_kind_associated_to_type(
                 RuntimeFeatureFlags::UseOfDynamicRange
             }
             // Results are inherently dynamic but they do not need special runtime features just to exist.
-            Prim::Result => RuntimeFeatureFlags::empty(),
-            Prim::String => RuntimeFeatureFlags::UseOfDynamicString,
+            // Checks for dynamic strings are a special case in binop handling, so we do not need to include a specific runtime feature for them.
+            Prim::Result | Prim::String => RuntimeFeatureFlags::empty(),
         }
     }
 
