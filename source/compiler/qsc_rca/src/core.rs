@@ -6,7 +6,7 @@ use crate::{
     ParamApplication, QuantumProperties, RuntimeFeatureFlags, ValueKind,
     applications::{ApplicationInstance, GeneratorSetsBuilder, LocalComputeKind},
     common::{
-        AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind, TyExt,
+        AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind,
         try_resolve_callee,
     },
     scaffolding::{InternalItemComputeProperties, InternalPackageStoreComputeProperties},
@@ -503,20 +503,6 @@ impl<'a> Analyzer<'a> {
                 .insert(RuntimeFeatureFlags::CallToCyclicOperation);
         }
 
-        // If the callable output has type parameters, there might be a discrepancy in the value kind variant we derive
-        // from the application generator set and the value kind variant that corresponds to the call expression type.
-        // Fix that discrepancy here.
-        if callable_decl.output.has_type_parameters()
-            && let ComputeKind::Quantum(quantum_properties) = &mut compute_kind
-        {
-            // Create a default value kind for the call expression type just to know which variant we should map to.
-            // Then map the currently computed variant onto it.
-            let mut mapped_runtime_kind = ValueKind::Static;
-            quantum_properties
-                .value_kind
-                .project_onto_variant(&mut mapped_runtime_kind);
-            quantum_properties.value_kind = mapped_runtime_kind;
-        }
         CallComputeKind::Regular(compute_kind)
     }
 
@@ -1762,11 +1748,8 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
                 let last_expr_compute_kind =
                     application_instance.get_expr_compute_kind(last_expr_id);
                 if let ComputeKind::Quantum(last_expr_quantum_properties) = last_expr_compute_kind {
-                    let mut block_value_kind = ValueKind::Static;
-                    last_expr_quantum_properties
-                        .value_kind
-                        .project_onto_variant(&mut block_value_kind);
-                    block_compute_kind.aggregate_value_kind(block_value_kind);
+                    block_compute_kind
+                        .aggregate_value_kind(last_expr_quantum_properties.value_kind);
                 }
             }
         }
@@ -1831,7 +1814,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
 
     fn visit_expr(&mut self, expr_id: ExprId) {
         let expr = self.get_expr(expr_id);
-        let mut compute_kind = match &expr.kind {
+        let compute_kind = match &expr.kind {
             ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) => self.analyze_expr_array(exprs),
             ExprKind::ArrayRepeat(value_expr_id, size_expr_id) => {
                 self.analyze_expr_array_repeat(*value_expr_id, *size_expr_id)
@@ -1911,20 +1894,6 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
                 self.analyze_expr_while(*condition_expr_id, *block_id)
             }
         };
-
-        // If the expression's compute kind is of the quantum variant, then we need to do a couple more things to get
-        // the final compute kind for the expression.
-        if let ComputeKind::Quantum(quantum_properties) = &mut compute_kind {
-            // Since the value kind does not handle all type structures (e.g. it does not handle the structure of a
-            // tuple type), there could be a mismatch between the expected value kind variant for the expression's type
-            // and the value kind that we got.
-            // We fix this mismatch here.
-            let mut value_kind = ValueKind::Static;
-            quantum_properties
-                .value_kind
-                .project_onto_variant(&mut value_kind);
-            quantum_properties.value_kind = value_kind;
-        }
 
         // Finally, insert the expression's compute kind in the application instance.
         let application_instance = self.get_current_application_instance_mut();

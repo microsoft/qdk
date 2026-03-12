@@ -597,17 +597,6 @@ impl ValueKind {
             Self::Dynamic
         }
     }
-
-    pub(crate) fn project_onto_variant(self, variant: &mut ValueKind) {
-        match self {
-            ValueKind::Static => {
-                // No changes needed.
-            }
-            ValueKind::Dynamic => {
-                *variant = ValueKind::Dynamic;
-            }
-        }
-    }
 }
 
 bitflags! {
