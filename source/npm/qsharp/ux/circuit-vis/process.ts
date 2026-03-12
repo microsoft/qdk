@@ -95,8 +95,7 @@ const processOperations = (
         }
 
         const isCollapsedGroup =
-          renderData.type === GateType.Group &&
-          renderData.dataAttributes?.["expanded"] !== "true";
+          renderData.type === GateType.Group && !renderData.isExpanded;
 
         if (
           op != null &&
@@ -243,6 +242,7 @@ const _opToRenderData = (
 ): GateRenderData => {
   const renderData: GateRenderData = {
     type: GateType.Invalid,
+    isExpanded: false,
     x: 0,
     controlsY: [],
     targetsY: [],
@@ -290,6 +290,7 @@ const _opToRenderData = (
   const defaultExpanded = hasClassicalControls && hasChildren;
   const isExpanded =
     expandedAttr === undefined ? defaultExpanded : expandedAttr === "true";
+  renderData.isExpanded = isExpanded;
 
   // Set y coords
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];

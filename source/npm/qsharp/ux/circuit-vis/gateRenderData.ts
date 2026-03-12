@@ -35,6 +35,8 @@ export enum GateType {
 export interface GateRenderData {
   /** Gate type. */
   type: GateType;
+  /** Whether this group gate is currently expanded. Always false for non-group gates. */
+  isExpanded: boolean;
   /** Centre x coord for gate position. */
   x: number;
   /** Array of y coords of control registers. */

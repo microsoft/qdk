@@ -109,7 +109,7 @@ const _createGate = (
   renderData: GateRenderData,
 ): SVGElement => {
   const { dataAttributes } = renderData || {};
-  const expanded = dataAttributes?.["expanded"] === "true";
+  const expanded = renderData.isExpanded;
   const attributes: { [attr: string]: string } = { class: "gate" };
   Object.entries(dataAttributes || {}).forEach(
     ([attr, val]) => (attributes[`data-${attr}`] = val),
@@ -170,10 +170,7 @@ const _zoomButton = (renderData: GateRenderData): SVGElement | null => {
 
   const { x: gateBoundingBoxX, y: gateBoundingBoxY } =
     _gateBoundingBox(renderData);
-  let { dataAttributes } = renderData;
-  dataAttributes = dataAttributes || {};
-
-  const expanded = dataAttributes["expanded"] == "true";
+  const expanded = renderData.isExpanded;
 
   // If this operation has classical controls, the overall gate bounding box includes
   // extra space on the left for the control circles. The expand/collapse button should
@@ -637,7 +634,7 @@ const _oplus = (x: number, y: number, wireYs: number[]): SVGElement => {
  */
 const _groupedOperations = (renderData: GateRenderData): SVGElement => {
   const { children, label, displayArgs, x, targetsY, width } = renderData;
-  const expanded = renderData.dataAttributes?.["expanded"] === "true";
+  const expanded = renderData.isExpanded;
 
   // Collapsed composite: render as a single summary gate (unitary-style), but keep
   // the GateType as Group so the UI can still offer an expand button.
