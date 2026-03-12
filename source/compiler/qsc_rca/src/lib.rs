@@ -442,7 +442,7 @@ pub enum ComputeKind {
 impl Display for ComputeKind {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
-            ComputeKind::Dynamic(quantum_properties) => write!(f, "Dynamic: {quantum_properties}")?,
+            ComputeKind::Dynamic(dynamic_properties) => write!(f, "Dynamic: {dynamic_properties}")?,
             ComputeKind::Static => write!(f, "Static")?,
         }
         Ok(())
@@ -543,7 +543,7 @@ impl ComputeKind {
     pub(crate) fn value_kind(self) -> Option<ValueKind> {
         match self {
             Self::Static => None,
-            Self::Dynamic(quantum_properties) => Some(quantum_properties.value_kind),
+            Self::Dynamic(dynamic_properties) => Some(dynamic_properties.value_kind),
         }
     }
 }
@@ -601,7 +601,7 @@ impl ValueKind {
 
     pub(crate) fn new_variable_from_type(ty: &Ty) -> Self {
         if *ty == Ty::UNIT {
-            // The associated value kind for a unit type is always static.
+            // The associated value kind for a unit type is always constant.
             Self::Constant
         } else {
             Self::Variable

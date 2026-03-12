@@ -319,9 +319,9 @@ impl<'a> Checker<'a> {
                 .expect("ctl_adj specialization is none"),
         };
 
-        if let ComputeKind::Dynamic(quantum_properties) = spec_compute_properties.inherent {
+        if let ComputeKind::Dynamic(dynamic_properties) = spec_compute_properties.inherent {
             let missing_features = get_missing_runtime_features(
-                quantum_properties.runtime_features,
+                dynamic_properties.runtime_features,
                 self.target_capabilities,
             );
             let missing_spec_level_runtime_features =
@@ -355,7 +355,7 @@ impl<'a> Checker<'a> {
 
     fn check_output_recording(&mut self, expr: &Expr) {
         let compute_kind = self.compute_properties.get_expr(expr.id).inherent;
-        let ComputeKind::Dynamic(quantum_properties) = compute_kind else {
+        let ComputeKind::Dynamic(dynamic_properties) = compute_kind else {
             return;
         };
 
@@ -369,7 +369,7 @@ impl<'a> Checker<'a> {
 
         // Calculate the missing features but only consider the output recording flags.
         let missing_features = get_missing_runtime_features(
-            quantum_properties.runtime_features,
+            dynamic_properties.runtime_features,
             self.target_capabilities,
         ) & RuntimeFeatureFlags::output_recording_flags();
         if !missing_features.is_empty() {

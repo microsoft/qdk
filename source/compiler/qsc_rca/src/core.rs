@@ -757,8 +757,8 @@ impl<'a> Analyzer<'a> {
 
         // If the index expression is variable, the value kind of the expression is at least dynamic (possibly variable)
         // and an additional runtime feature is used.
-        if let ComputeKind::Dynamic(index_quantum_properties) = &index_expr_compute_kind
-            && index_quantum_properties.value_kind == ValueKind::Variable
+        if let ComputeKind::Dynamic(index_dynamic_properties) = &index_expr_compute_kind
+            && index_dynamic_properties.value_kind == ValueKind::Variable
         {
             let dynamic_runtime_features = RuntimeFeatureFlags::UseOfDynamicIndex;
             let dynamic_runtime_kind = ValueKind::new_variable_from_type(expr_type);
@@ -770,8 +770,8 @@ impl<'a> Analyzer<'a> {
 
         // The value kind of the access by index expression also depends on whether the content of the array expression
         // is variable.
-        if let ComputeKind::Dynamic(array_quantum_properties) = &array_expr_compute_kind
-            && array_quantum_properties.value_kind == ValueKind::Variable
+        if let ComputeKind::Dynamic(array_dynamic_properties) = &array_expr_compute_kind
+            && array_dynamic_properties.value_kind == ValueKind::Variable
         {
             let dynamic_value_kind = ValueKind::new_variable_from_type(expr_type);
             compute_kind.aggregate_value_kind(dynamic_value_kind);
@@ -779,10 +779,10 @@ impl<'a> Analyzer<'a> {
 
         // If the index expression is dynamic, aggregate the corresponding runtime features depending on its type.
         if let Some(value_kind) = compute_kind.value_kind() {
-            let ComputeKind::Dynamic(quantum_properties) = &mut compute_kind else {
-                panic!("expected quantum variant of Compute Kind");
+            let ComputeKind::Dynamic(dynamic_properties) = &mut compute_kind else {
+                panic!("expected dynamic variant of Compute Kind");
             };
-            quantum_properties.runtime_features |=
+            dynamic_properties.runtime_features |=
                 derive_runtime_features_for_value_kind_associated_to_type(value_kind, expr_type);
         }
 
@@ -888,10 +888,10 @@ impl<'a> Analyzer<'a> {
         }
 
         // If the constructor is dynamic, aggregate the corresponding runtime features depending on its type.
-        if let ComputeKind::Dynamic(quantum_properties) = &mut compute_kind {
-            quantum_properties.runtime_features |=
+        if let ComputeKind::Dynamic(dynamic_properties) = &mut compute_kind {
+            dynamic_properties.runtime_features |=
                 derive_runtime_features_for_value_kind_associated_to_type(
-                    quantum_properties.value_kind,
+                    dynamic_properties.value_kind,
                     expr_type,
                 );
         }
@@ -923,10 +923,10 @@ impl<'a> Analyzer<'a> {
 
         // If any of the string components is variable, then the string expression is variable as well.
         if has_variable_components {
-            let ComputeKind::Dynamic(quantum_properties) = &mut compute_kind else {
-                panic!("Quantum variant was expected for the compute kind of string expression ");
+            let ComputeKind::Dynamic(dynamic_properties) = &mut compute_kind else {
+                panic!("Dynamic variant was expected for the compute kind of string expression ");
             };
-            quantum_properties.value_kind = ValueKind::Variable;
+            dynamic_properties.value_kind = ValueKind::Variable;
         }
 
         compute_kind
@@ -1566,12 +1566,12 @@ impl<'a> Analyzer<'a> {
                 // If the updated compute kind is dynamic, include additional properties depending on the type of the
                 // local variable.
                 if let Some(value_kind) = updated_compute_kind.value_kind() {
-                    let ComputeKind::Dynamic(updated_quantum_properties) =
+                    let ComputeKind::Dynamic(updated_dynamic_properties) =
                         &mut updated_compute_kind
                     else {
-                        panic!("expected Quantum variant of Compute Kind");
+                        panic!("expected Dynamic variant of Compute Kind");
                     };
-                    updated_quantum_properties.runtime_features |=
+                    updated_dynamic_properties.runtime_features |=
                         derive_runtime_features_for_value_kind_associated_to_type(
                             value_kind,
                             &assignee_expr.ty,
