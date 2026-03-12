@@ -1,7 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from collections import Counter
 from concurrent.futures import Executor
 import logging
 from typing import Any, Dict, List, Literal, Optional, Union
@@ -45,6 +44,15 @@ def _result_to_bitstring(value) -> str:
         return "".join(chars)
     else:
         return str(value)
+
+
+def _bitstring_has_qubit_loss(bitstring: str) -> bool:
+    """Return True if the bitstring contains a qubit-loss marker.
+
+    Lost qubits may be represented using non-binary markers (e.g. '-', '2').
+    We treat any shot containing those markers as lost-qubit affected.
+    """
+    return "-" in bitstring or "2" in bitstring
 
 
 class NeutralAtomBackend(BackendBase):
@@ -225,16 +233,45 @@ class NeutralAtomBackend(BackendBase):
                 seed=seed,
             )
 
-            results = [_result_to_bitstring(shot) for shot in sim_results]
-            counts = dict(Counter(results))
-            probabilities = {bs: count / shots for bs, count in counts.items()}
+            raw_memory = [_result_to_bitstring(shot) for shot in sim_results]
+
+            # Separate accepted shots (no loss markers) from raw shots.
+            # Qiskit-compatible fields (counts, memory, probabilities)
+            # contain only clean {0,1} outcomes; raw_* fields retain the
+            # full picture including loss.
+            memory = [s for s in raw_memory if not _bitstring_has_qubit_loss(s)]
+            accepted_total_count = len(memory)
+            raw_total_count = len(raw_memory)
+
+            raw_counts: Dict[str, int] = {}
+            counts: Dict[str, int] = {}
+            for bs in raw_memory:
+                raw_counts[bs] = raw_counts.get(bs, 0) + 1
+                if not _bitstring_has_qubit_loss(bs):
+                    counts[bs] = counts.get(bs, 0) + 1
+
+            raw_probabilities = (
+                {}
+                if raw_total_count == 0
+                else {bs: c / raw_total_count for bs, c in raw_counts.items()}
+            )
+            probabilities = (
+                {}
+                if accepted_total_count == 0
+                else {bs: c / accepted_total_count for bs, c in counts.items()}
+            )
 
             job_results.append(
                 {
                     "data": {
+                        # Qiskit-compatible fields: loss shots excluded.
                         "counts": counts,
                         "probabilities": probabilities,
-                        "memory": results,
+                        "memory": memory,
+                        # Raw fields: all shots, including loss markers.
+                        "raw_counts": raw_counts,
+                        "raw_probabilities": raw_probabilities,
+                        "raw_memory": raw_memory,
                     },
                     "success": True,
                     "header": {
@@ -242,7 +279,8 @@ class NeutralAtomBackend(BackendBase):
                         "name": program.circuit.name,
                         "compilation_time_taken": program.time_taken,
                     },
-                    "shots": shots,
+                    # shots reflects accepted (non-loss) count.
+                    "shots": accepted_total_count,
                 }
             )
 

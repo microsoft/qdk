@@ -355,6 +355,63 @@ def test_get_memory_is_consistent_with_counts(backend) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Raw fields (loss separation)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+def test_raw_fields_are_present_in_result_data(backend) -> None:
+    """result.data() must expose raw_counts, raw_probabilities, and raw_memory."""
+    circuit = create_deterministic_circuit()
+    data = backend.run(circuit, shots=10).result().data(0)
+    assert "raw_counts" in data
+    assert "raw_probabilities" in data
+    assert "raw_memory" in data
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+def test_raw_fields_equal_accepted_fields_when_no_loss(backend) -> None:
+    """Without loss noise, raw_* fields must equal the accepted fields."""
+    from collections import Counter
+
+    circuit = create_deterministic_circuit()
+    result = backend.run(circuit, shots=20, seed=0).result()
+    data = result.data(0)
+    assert data["raw_counts"] == data["counts"]
+    assert data["raw_memory"] == data["memory"]
+    # Probabilities should also be equal (same denominator when no loss).
+    for bs in data["raw_probabilities"]:
+        assert abs(data["raw_probabilities"][bs] - data["probabilities"][bs]) < 1e-9
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+def test_loss_shots_excluded_from_accepted_fields(backend) -> None:
+    """With high loss noise, raw_memory contains loss markers but memory does not."""
+    circuit = create_deterministic_circuit()
+    noise = NoiseConfig()
+    # High loss probability on the native gate so some shots produce loss markers.
+    noise.rz.loss = 0.9
+    result = backend.run(circuit, shots=100, noise=noise, seed=42).result()
+    data = result.data(0)
+
+    # raw_memory includes all shots; memory filters out loss.
+    assert len(data["raw_memory"]) == 100
+    assert all("-" not in bs for bs in data["memory"])
+
+    # raw_counts must contain an entry for at least one loss-bearing bitstring.
+    loss_keys = [bs for bs in data["raw_counts"] if "-" in bs]
+    assert len(loss_keys) > 0, "Expected loss markers in raw_counts with loss=0.9"
+
+    # counts must not contain any loss-bearing bitstrings.
+    assert all("-" not in bs for bs in data["counts"])
+
+    # raw_memory and raw_counts must be consistent.
+    from collections import Counter
+
+    assert Counter(data["raw_memory"]) == Counter(data["raw_counts"])
+
+
+# ---------------------------------------------------------------------------
 # Error cases
 # ---------------------------------------------------------------------------
 
