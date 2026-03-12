@@ -1285,7 +1285,14 @@ def test_trace_from_qir(ll_file):
     # NOTE: This test is primarily to ensure that the function can parse real
     # QIR output without errors, rather than checking specific properties of the
     # trace.
-    trace_from_qir(ll_file.read_text())
+    try:
+        trace_from_qir(ll_file.read_text())
+    except ValueError as e:
+        # The only reason of failure is presence of control flow
+        assert (
+            str(e)
+            == "simulation of programs with branching control flow is not supported"
+        )
 
 
 def test_trace_from_qir_handles_all_instruction_ids():

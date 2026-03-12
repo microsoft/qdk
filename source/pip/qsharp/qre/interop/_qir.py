@@ -3,14 +3,12 @@
 
 from __future__ import annotations
 
-from collections import OrderedDict
-
 import pyqir
 
-from ..._simulation import AggregateGatesPass
 from ..._native import QirInstructionId
-from .._qre import Trace
+from ..._simulation import AggregateGatesPass
 from .. import instruction_ids as ids
+from .._qre import Trace
 
 # Maps QirInstructionId to (instruction_id, arity) where arity is:
 #   1 = single-qubit gate: tuple is (op, qubit)
@@ -74,63 +72,6 @@ _SKIP = (
 )
 
 
-class _FalseBranchGatesPass(AggregateGatesPass):
-    """Extends AggregateGatesPass to handle conditional branches by always
-    following the false branch (assuming measurement results are Zero)."""
-
-    def _on_function(self, function: pyqir.Function) -> None:
-        if not function.basic_blocks:
-            return
-
-        # Walk blocks, taking only the false successor at conditional branches.
-        visited: OrderedDict[pyqir.BasicBlock, pyqir.BasicBlock] = OrderedDict()
-        queue = [function.basic_blocks[0]]
-
-        while queue:
-            block = queue.pop(0)
-            if block in visited:
-                continue
-            visited[block] = block
-
-            term = block.terminator
-            if term is not None:
-                succs = term.successors
-                if term.opcode == pyqir.Opcode.BR and len(term.operands) > 1:
-                    # Conditional branch: follow the false path (result == Zero)
-                    queue.append(succs[1])
-                else:
-                    queue.extend(succs)
-
-        for block in visited.values():
-            self._on_block(block)
-
-    def _on_block(self, block: pyqir.BasicBlock) -> None:
-        # Bypass AggregateGatesPass's error on conditional branches;
-        # call the grandparent implementation that just visits instructions.
-        pyqir.QirModuleVisitor._on_block(self, block)
-
-    def _on_call_instr(self, call: pyqir.Call) -> None:
-        # The base AggregateGatesPass only handles programs without branching,
-        # so it never encounters these intrinsics.  In branching programs,
-        # read_result reads a measurement outcome to use as a branch condition,
-        # and bool/int_record_output write computed (non-constant) classical
-        # values.  We handle them here because their first argument may be an
-        # SSA variable rather than a constant, which the base class expects.
-        callee_name = call.callee.name
-        if callee_name == "__quantum__rt__read_result":
-            self.gates.append(
-                (QirInstructionId.ReadResult, pyqir.result_id(call.args[0]))
-            )
-        elif callee_name == "__quantum__rt__bool_record_output":
-            tag = self._get_value_as_string(call.args[1])
-            self.gates.append((QirInstructionId.BoolRecordOutput, "0", tag))
-        elif callee_name == "__quantum__rt__int_record_output":
-            tag = self._get_value_as_string(call.args[1])
-            self.gates.append((QirInstructionId.IntRecordOutput, "0", tag))
-        else:
-            super()._on_call_instr(call)
-
-
 def trace_from_qir(input: str | bytes) -> Trace:
     """Convert a QIR program into a resource-estimation Trace.
 
@@ -151,7 +92,7 @@ def trace_from_qir(input: str | bytes) -> Trace:
     else:
         mod = pyqir.Module.from_bitcode(context, input)
 
-    gates, num_qubits, _ = _FalseBranchGatesPass().run(mod)
+    gates, num_qubits, _ = AggregateGatesPass().run(mod)
 
     trace = Trace(compute_qubits=num_qubits)
 
