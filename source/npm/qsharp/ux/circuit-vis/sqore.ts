@@ -517,9 +517,15 @@ export class Sqore {
         if (op.children != null) this.collapseOperation(op.children, parentLoc);
         if (op.dataAttributes == null) return op;
         const opId: string = op.dataAttributes["location"];
-        // Collapse parent gate and its children
-        if (opId.startsWith(parentLoc)) {
+        if (opId === parentLoc) {
+          // Explicitly collapse the targeted parent operation.
           op.dataAttributes["expanded"] = "false";
+        } else if (opId.startsWith(parentLoc)) {
+          // For descendants, remove the explicit expanded attribute rather than
+          // forcing it to "false". This allows default expansion rules (e.g.
+          // classically controlled groups default to expanded) to re-apply
+          // correctly when the parent is later re-expanded.
+          delete op.dataAttributes["expanded"];
         }
       }),
     );
