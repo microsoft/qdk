@@ -37,7 +37,7 @@ fn check_rca_for_udt_constructor_with_a_dynamic_value() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | UseOfDynamicUdt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -81,7 +81,7 @@ fn check_rca_for_udt_field_update_with_dynamic_value() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | UseOfDynamicUdt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],

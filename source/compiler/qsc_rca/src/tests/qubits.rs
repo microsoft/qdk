@@ -19,7 +19,7 @@ fn check_rca_for_static_single_qubit_allcation() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
@@ -49,7 +49,7 @@ fn check_rca_for_dynamic_single_qubit_allcation() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicQubit)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
@@ -72,7 +72,7 @@ fn check_rca_for_static_multi_qubit_allcation() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
@@ -94,7 +94,7 @@ fn check_rca_for_dynamic_multi_qubit_allcation() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicallySizedArray | LoopWithDynamicCondition)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],

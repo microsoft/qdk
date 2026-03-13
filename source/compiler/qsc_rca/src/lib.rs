@@ -365,11 +365,14 @@ impl ApplicationGeneratorSet {
                     }
                 }
                 ParamApplication::Array(array_param_application) => {
-                    if let ComputeKind::Dynamic(dynamic_properties) = arg_compute_kind {
-                        match dynamic_properties.value_kind {
+                    if let ComputeKind::Dynamic {
+                        runtime_features,
+                        value_kind,
+                    } = arg_compute_kind
+                    {
+                        match value_kind {
                             ValueKind::Variable
-                                if dynamic_properties
-                                    .runtime_features
+                                if runtime_features
                                     .contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) =>
                             {
                                 compute_kind =
@@ -436,13 +439,27 @@ pub enum ComputeKind {
     Static,
     // An element that will be emitted into the generated code and may require additional capabilities in the runtime
     // environment.
-    Dynamic(DynamicProperties),
+    Dynamic {
+        /// The runtime features used by the program element.
+        runtime_features: RuntimeFeatureFlags,
+        /// The kind of value produced by the program element.
+        value_kind: ValueKind,
+    },
 }
 
 impl Display for ComputeKind {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
-            ComputeKind::Dynamic(dynamic_properties) => write!(f, "Dynamic: {dynamic_properties}")?,
+            ComputeKind::Dynamic {
+                runtime_features,
+                value_kind,
+            } => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "Dynamic:",)?;
+                indent = set_indentation(indent, 1);
+                write!(indent, "\nruntime_features: {runtime_features:?}")?;
+                write!(indent, "\nvalue_kind: {value_kind}")?;
+            }
             ComputeKind::Static => write!(f, "Static")?,
         }
         Ok(())
@@ -455,39 +472,39 @@ impl ComputeKind {
         runtime_features: RuntimeFeatureFlags,
         value_kind: ValueKind,
     ) -> Self {
-        Self::Dynamic(DynamicProperties {
+        Self::Dynamic {
             runtime_features,
             value_kind,
-        })
+        }
     }
 
     pub(crate) fn aggregate(self, value: Self) -> Self {
-        let ComputeKind::Dynamic(value_dynamic_properties) = value else {
-            // A classical compute kind has nothing to aggregate so just return self with no changes.
+        let ComputeKind::Dynamic {
+            runtime_features,
+            value_kind,
+        } = value
+        else {
+            // A static compute kind has nothing to aggregate so just return self with no changes.
             return self;
         };
 
-        // Determine the aggregated runtime features.
-        let runtime_features = match self {
-            Self::Static => value_dynamic_properties.runtime_features,
-            Self::Dynamic(ref self_dynamic_properties) => {
-                self_dynamic_properties.runtime_features | value_dynamic_properties.runtime_features
-            }
-        };
-
-        // Determine the aggregated value kind.
-        let value_kind = match self {
-            Self::Static => value_dynamic_properties.value_kind,
-            Self::Dynamic(self_dynamic_properties) => self_dynamic_properties
-                .value_kind
-                .aggregate(value_dynamic_properties.value_kind),
+        // Determine the aggregated runtime features and value kind.
+        let (runtime_features, value_kind) = match self {
+            Self::Static => (runtime_features, value_kind),
+            Self::Dynamic {
+                runtime_features: self_runtime_features,
+                value_kind: self_value_kind,
+            } => (
+                self_runtime_features | runtime_features,
+                self_value_kind.aggregate(value_kind),
+            ),
         };
 
         // Return the aggregated compute kind.
-        ComputeKind::Dynamic(DynamicProperties {
+        ComputeKind::Dynamic {
             runtime_features,
             value_kind,
-        })
+        }
     }
 
     pub(crate) fn aggregate_runtime_features(
@@ -495,76 +512,57 @@ impl ComputeKind {
         value: ComputeKind,
         default_value_kind: ValueKind,
     ) -> Self {
-        let Self::Dynamic(value_dynamic_properties) = value else {
-            // A classical compute kind has nothing to aggregate so just return the self with no changes.
+        let Self::Dynamic {
+            runtime_features, ..
+        } = value
+        else {
+            // A static compute kind has nothing to aggregate so just return the self with no changes.
             return self;
         };
 
-        // Determine the aggregated runtime features.
-        let runtime_features = match self {
-            Self::Static => value_dynamic_properties.runtime_features,
-            Self::Dynamic(ref self_dynamic_properties) => {
-                self_dynamic_properties.runtime_features | value_dynamic_properties.runtime_features
-            }
-        };
-
-        // Use the value kind equivalent from self.
-        let value_kind = match self {
-            // If self was static, the aggregated value kind is all static.
-            Self::Static => default_value_kind,
-            Self::Dynamic(self_dynamic_properties) => self_dynamic_properties.value_kind,
+        // Determine the aggregated runtime features, use the value kind equivalent from self or the default.
+        let (runtime_features, value_kind) = match self {
+            Self::Static => (runtime_features, default_value_kind),
+            Self::Dynamic {
+                runtime_features: self_runtime_features,
+                value_kind: self_value_kind,
+            } => (self_runtime_features | runtime_features, self_value_kind),
         };
 
         // Return the aggregated compute kind.
-        ComputeKind::Dynamic(DynamicProperties {
+        ComputeKind::Dynamic {
             runtime_features,
             value_kind,
-        })
+        }
     }
 
     pub(crate) fn aggregate_value_kind(&mut self, value: ValueKind) {
-        let Self::Dynamic(dynamic_properties) = self else {
+        let Self::Dynamic { value_kind, .. } = self else {
             panic!("a value kind can only be aggregated to a compute kind of the dynamic variant");
         };
 
-        dynamic_properties.value_kind = dynamic_properties.value_kind.aggregate(value);
+        *value_kind = value_kind.aggregate(value);
+    }
+
+    pub(crate) fn set_variable_value_kind(&mut self) {
+        let Self::Dynamic { value_kind, .. } = self else {
+            panic!(
+                "a value kind can only be set to variable for a compute kind of the dynamic variant"
+            );
+        };
+
+        *value_kind = ValueKind::Variable;
     }
 
     #[must_use]
     pub fn is_variable_value_kind(self) -> bool {
-        match self {
-            Self::Static => false,
-            Self::Dynamic(dynamic_properties) => {
-                dynamic_properties.value_kind == ValueKind::Variable
+        matches!(
+            self,
+            Self::Dynamic {
+                value_kind: ValueKind::Variable,
+                ..
             }
-        }
-    }
-
-    pub(crate) fn value_kind(self) -> Option<ValueKind> {
-        match self {
-            Self::Static => None,
-            Self::Dynamic(dynamic_properties) => Some(dynamic_properties.value_kind),
-        }
-    }
-}
-
-/// The dynamic properties of a program element.
-#[derive(Clone, Copy, Debug)]
-pub struct DynamicProperties {
-    /// The runtime features used by the program element.
-    pub runtime_features: RuntimeFeatureFlags,
-    /// The kind of value produced by the program element.
-    pub value_kind: ValueKind,
-}
-
-impl Display for DynamicProperties {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "DynamicProperties:",)?;
-        indent = set_indentation(indent, 1);
-        write!(indent, "\nruntime_features: {:?}", self.runtime_features)?;
-        write!(indent, "\nvalue_kind: {}", self.value_kind)?;
-        Ok(())
+        )
     }
 }
 

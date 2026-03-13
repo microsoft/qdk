@@ -230,14 +230,15 @@ impl<'a> Checker<'a> {
 
     fn check_expr(&mut self, expr_id: ExprId) {
         let compute_kind = self.compute_properties.get_expr(expr_id).inherent;
-        let ComputeKind::Dynamic(dynamic_properties) = compute_kind else {
+        let ComputeKind::Dynamic {
+            runtime_features, ..
+        } = compute_kind
+        else {
             return;
         };
 
-        let missing_features = get_missing_runtime_features(
-            dynamic_properties.runtime_features,
-            self.target_capabilities,
-        );
+        let missing_features =
+            get_missing_runtime_features(runtime_features, self.target_capabilities);
         let expr = self.get_expr(expr_id);
         if !missing_features.is_empty() {
             self.missing_features_map
@@ -319,11 +320,12 @@ impl<'a> Checker<'a> {
                 .expect("ctl_adj specialization is none"),
         };
 
-        if let ComputeKind::Dynamic(dynamic_properties) = spec_compute_properties.inherent {
-            let missing_features = get_missing_runtime_features(
-                dynamic_properties.runtime_features,
-                self.target_capabilities,
-            );
+        if let ComputeKind::Dynamic {
+            runtime_features, ..
+        } = spec_compute_properties.inherent
+        {
+            let missing_features =
+                get_missing_runtime_features(runtime_features, self.target_capabilities);
             let missing_spec_level_runtime_features =
                 get_spec_level_runtime_features(missing_features);
 
@@ -355,7 +357,10 @@ impl<'a> Checker<'a> {
 
     fn check_output_recording(&mut self, expr: &Expr) {
         let compute_kind = self.compute_properties.get_expr(expr.id).inherent;
-        let ComputeKind::Dynamic(dynamic_properties) = compute_kind else {
+        let ComputeKind::Dynamic {
+            runtime_features, ..
+        } = compute_kind
+        else {
             return;
         };
 
@@ -368,10 +373,9 @@ impl<'a> Checker<'a> {
         };
 
         // Calculate the missing features but only consider the output recording flags.
-        let missing_features = get_missing_runtime_features(
-            dynamic_properties.runtime_features,
-            self.target_capabilities,
-        ) & RuntimeFeatureFlags::output_recording_flags();
+        let missing_features =
+            get_missing_runtime_features(runtime_features, self.target_capabilities)
+                & RuntimeFeatureFlags::output_recording_flags();
         if !missing_features.is_empty() {
             self.missing_features_map
                 .entry(output_reporting_span)

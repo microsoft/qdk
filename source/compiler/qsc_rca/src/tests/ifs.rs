@@ -53,7 +53,7 @@ fn check_rca_for_if_stmt_with_dynamic_condition_and_classic_if_true_block() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
@@ -103,7 +103,7 @@ fn check_rca_for_if_else_expr_with_dynamic_condition_and_classic_branch_blocks()
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],

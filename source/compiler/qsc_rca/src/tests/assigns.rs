@@ -38,7 +38,7 @@ fn check_rca_for_dynamic_result_assign_to_local() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -61,7 +61,7 @@ fn check_rca_for_dynamic_bool_assign_to_local() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -86,7 +86,7 @@ fn check_rca_for_dynamic_int_assign_to_local() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -112,7 +112,7 @@ fn check_rca_for_dynamic_double_assign_to_local() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -242,7 +242,7 @@ fn check_rca_for_assign_dynamic_call_result_to_tuple_of_vars() {
         compilation_context.get_compute_properties(),
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -256,7 +256,7 @@ fn check_rca_for_assign_dynamic_call_result_to_tuple_of_vars() {
         compilation_context.get_compute_properties(),
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -281,7 +281,7 @@ fn check_rca_for_assign_dynamic_static_mix_call_result_to_tuple_of_vars() {
         compilation_context.get_compute_properties(),
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -295,7 +295,7 @@ fn check_rca_for_assign_dynamic_static_mix_call_result_to_tuple_of_vars() {
         compilation_context.get_compute_properties(),
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -343,7 +343,7 @@ fn check_rca_for_mutable_classical_integer_assigned_updated_with_dynamic_integer
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -368,7 +368,7 @@ fn check_rca_for_mutable_dynamic_integer_assigned_updated_with_classical_integer
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -393,7 +393,7 @@ fn check_rca_for_mutable_dynamic_integer_assigned_updated_with_dynamic_integer()
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -419,7 +419,7 @@ fn check_rca_for_mutable_dynamic_result_assigned_updated_in_dynamic_context() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicResult)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -441,7 +441,7 @@ fn check_rca_for_immutable_dynamic_result_bound_to_dynamic_result() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicResult)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -468,7 +468,7 @@ fn check_rca_for_immutable_dynamic_result_bound_to_result_from_classical_conditi
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -497,7 +497,7 @@ fn check_rca_for_immutable_dynamic_result_bound_to_call_with_dynamic_args() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicResult)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -545,7 +545,7 @@ fn check_rca_for_mutable_tuple_assigned_updated_in_dynamic_context() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicTuple)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -567,7 +567,7 @@ fn check_rca_for_immutable_tuple_bound_to_dynamic_tuple() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicTuple)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],

@@ -51,7 +51,7 @@ fn check_rca_for_length_of_dynamically_sized_array_with_static_content() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -74,7 +74,7 @@ fn check_rca_for_length_of_dynamically_sized_array_with_dynamic_content() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],

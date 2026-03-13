@@ -17,7 +17,7 @@ fn check_rca_for_static_single_qubit_measurement() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -41,7 +41,7 @@ fn check_rca_for_dynamic_single_measurement() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(MeasurementWithinDynamicScope | UseOfDynamicResult)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -62,7 +62,7 @@ fn check_rca_for_static_single_measurement_and_reset() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -87,7 +87,7 @@ fn check_rca_for_dynamic_single_measurement_and_reset() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(MeasurementWithinDynamicScope | UseOfDynamicResult)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -108,7 +108,7 @@ fn check_rca_for_static_multi_qubit_measurement() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],

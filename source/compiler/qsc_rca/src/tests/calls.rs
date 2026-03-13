@@ -48,7 +48,7 @@ fn check_rca_for_call_to_cyclic_function_with_dynamic_argument() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | CallToCyclicFunctionWithDynamicArg)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -74,7 +74,7 @@ fn check_rca_for_call_to_cyclic_operation_with_classical_argument() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | CallToCyclicOperation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -101,7 +101,7 @@ fn check_rca_for_call_to_cyclic_operation_with_dynamic_argument() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | CallToCyclicOperation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -145,7 +145,7 @@ fn check_rca_for_call_to_dynamic_closure_function() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | LoopWithDynamicCondition)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -169,7 +169,7 @@ fn check_rca_for_call_to_static_closure_operation() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
@@ -193,7 +193,7 @@ fn check_rca_for_call_to_dynamic_closure_operation() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
@@ -219,7 +219,7 @@ fn check_rca_for_call_to_operation_with_one_classical_return_and_one_dynamic_ret
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | ReturnWithinDynamicScope)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -247,7 +247,7 @@ fn check_rca_for_call_to_operation_with_codegen_intrinsic_override_treated_as_in
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
@@ -276,7 +276,7 @@ fn check_rca_for_call_to_operation_with_codegen_intrinsic_override_treated_as_in
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
@@ -319,7 +319,7 @@ fn check_rca_for_call_to_function_that_receives_tuple_with_a_non_tuple_dynamic_a
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -342,7 +342,7 @@ fn check_rca_for_call_to_function_passed_single_tuple_variable_for_multiple_args
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -365,7 +365,7 @@ fn check_rca_for_call_to_lambda_passed_single_tuple_variable_for_multiple_args()
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],

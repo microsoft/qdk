@@ -38,7 +38,7 @@ fn check_rca_for_immutable_dynamic_result_binding() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -78,7 +78,7 @@ fn check_rca_for_mutable_dynamic_bool_binding() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -120,7 +120,7 @@ fn check_rca_for_immutable_dynamic_int_binding() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -163,7 +163,7 @@ fn check_rca_for_mutable_dynamic_double_binding() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],

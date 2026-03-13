@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 use crate::{
-    ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, DynamicProperties, PackageId,
-    ParamApplication, RuntimeFeatureFlags, ValueKind, common::LocalSpecId,
+    ApplicationGeneratorSet, ArrayParamApplication, ComputeKind, PackageId, ParamApplication,
+    RuntimeFeatureFlags, ValueKind, common::LocalSpecId,
     scaffolding::InternalPackageStoreComputeProperties,
 };
 use qsc_fir::{
@@ -48,10 +48,10 @@ impl<'a> Overrider<'a> {
                     dynamic_param_applications: vec![ParamApplication::Array(
                         ArrayParamApplication {
                             static_size: ComputeKind::Static,
-                            dynamic_size: ComputeKind::Dynamic(DynamicProperties {
+                            dynamic_size: ComputeKind::Dynamic {
                                 runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
                                 value_kind: ValueKind::Variable,
-                            }),
+                            },
                         },
                     )],
                 },

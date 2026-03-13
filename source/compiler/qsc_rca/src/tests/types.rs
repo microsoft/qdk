@@ -31,7 +31,7 @@ fn check_rca_for_dynamic_result() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -66,7 +66,7 @@ fn check_rca_for_dynamic_bool() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -103,7 +103,7 @@ fn check_rca_for_dynamic_int() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -137,7 +137,7 @@ fn check_rca_for_dynamic_pauli() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicPauli)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -172,7 +172,7 @@ fn check_rca_for_dynamic_range() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -210,7 +210,7 @@ fn check_rca_for_dynamic_double() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -244,7 +244,7 @@ fn check_rca_for_dynamic_big_int() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicBigInt)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],

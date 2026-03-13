@@ -32,7 +32,7 @@ fn check_rca_for_array_with_dynamic_results() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -53,7 +53,7 @@ fn check_rca_for_array_with_dynamic_bools() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -87,7 +87,7 @@ fn check_rca_for_array_repeat_with_dynamic_result_value_and_classical_size() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -108,7 +108,7 @@ fn check_rca_for_array_repeat_with_dynamic_bool_value_and_classical_size() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -129,7 +129,7 @@ fn check_rca_for_array_repeat_with_classical_value_and_dynamic_size() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -153,7 +153,7 @@ fn check_rca_for_array_repeat_with_dynamic_double_value_and_dynamic_size() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -177,7 +177,7 @@ fn check_rca_for_mutable_array_statically_appended() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -201,7 +201,7 @@ fn check_rca_for_mutable_array_dynamically_appended() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -247,7 +247,7 @@ fn check_rca_for_mutable_array_assignment_in_dynamic_context() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -268,7 +268,7 @@ fn check_rca_for_immutable_array_bound_to_dynamic_array() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -314,7 +314,7 @@ fn check_rca_for_mutable_array_assign_index_in_dynamic_context() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -339,7 +339,7 @@ fn check_rca_for_mutable_array_assign_index_dynamic_content_in_dynamic_context()
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -364,7 +364,7 @@ fn check_rca_for_mutable_array_assign_index_dynamic_nested_array_content_in_dyna
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -405,7 +405,7 @@ fn check_rca_for_access_using_dynamic_index() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicIndex)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -428,7 +428,7 @@ fn check_rca_for_array_with_dynamic_size_bound_through_tuple() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -454,7 +454,7 @@ fn check_rca_for_array_with_dynamic_size_bound_through_tuple_from_callable() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -520,7 +520,7 @@ fn check_rca_for_array_with_static_size_bound_through_dynamic_tuple() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
@@ -559,7 +559,7 @@ fn check_rca_for_index_range_on_array_with_dynamic_contents() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
@@ -580,7 +580,7 @@ fn check_rca_for_indirect_length_on_array_with_dynamic_contents() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
@@ -602,7 +602,7 @@ fn check_rca_for_indirect_length_on_array_with_dynamic_length() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Dynamic: DynamicProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],

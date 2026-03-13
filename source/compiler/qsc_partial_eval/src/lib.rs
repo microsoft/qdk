@@ -40,8 +40,8 @@ use qsc_fir::{
 };
 use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{
-    ComputeKind, ComputePropertiesLookup, DynamicProperties, ItemComputeProperties,
-    PackageStoreComputeProperties, RuntimeFeatureFlags, ValueKind,
+    ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
+    RuntimeFeatureFlags, ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
@@ -1592,10 +1592,10 @@ impl<'a> PartialEvaluator<'a> {
         // by the target.
         if self.is_unresolved_callee_expr(callee_expr_id) {
             let call_compute_kind = self.get_call_compute_kind(call_scope);
-            if let ComputeKind::Dynamic(DynamicProperties {
+            if let ComputeKind::Dynamic {
                 runtime_features,
                 value_kind,
-            }) = call_compute_kind
+            } = call_compute_kind
             {
                 let missing_features = get_missing_runtime_features(
                     runtime_features,

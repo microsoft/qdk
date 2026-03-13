@@ -14,7 +14,7 @@ fn check_rca_for_quantum_rt_qubit_allocate() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
@@ -34,11 +34,11 @@ fn check_rca_for_quantum_rt_qubit_release() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -57,11 +57,11 @@ fn check_rca_for_quantum_qis_m_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Variable
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Variable
                 adj: <none>
@@ -84,7 +84,7 @@ fn check_rca_for_length() {
                     dynamic_param_applications:
                         [0]: [Parameter Type Array] ArrayParamApplication:
                             static_size: Static
-                            dynamic_size: Dynamic: DynamicProperties:
+                            dynamic_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray)
                                 value_kind: Variable
                 adj: <none>
@@ -103,11 +103,11 @@ fn check_rca_for_quantum_qis_mresetz_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Variable
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Variable
                 adj: <none>
@@ -128,7 +128,7 @@ fn check_rca_for_int_as_double() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                             value_kind: Variable
                 adj: <none>
@@ -149,7 +149,7 @@ fn check_rca_for_int_as_big_int() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                             value_kind: Variable
                 adj: <none>
@@ -186,11 +186,11 @@ fn check_rca_for_check_zero() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Variable
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Variable
                 adj: <none>
@@ -211,7 +211,7 @@ fn check_rca_for_message() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(0x0)
                             value_kind: Constant
                 adj: <none>
@@ -232,7 +232,7 @@ fn check_rca_for_arc_cos() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -253,7 +253,7 @@ fn check_rca_for_arc_sin() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -274,7 +274,7 @@ fn check_rca_for_arc_tan() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -295,10 +295,10 @@ fn check_rca_for_arc_tan_2() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -319,7 +319,7 @@ fn check_rca_for_cos() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -340,7 +340,7 @@ fn check_rca_for_cosh() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -361,7 +361,7 @@ fn check_rca_for_sin() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -382,7 +382,7 @@ fn check_rca_for_sinh() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -403,7 +403,7 @@ fn check_rca_for_tan() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -424,7 +424,7 @@ fn check_rca_for_tanh() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -445,7 +445,7 @@ fn check_rca_for_sqrt() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -466,7 +466,7 @@ fn check_rca_for_log() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -487,7 +487,7 @@ fn check_rca_for_truncate() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -506,17 +506,17 @@ fn check_rca_for_quantum_qis_ccx_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [2]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -535,14 +535,14 @@ fn check_rca_for_quantum_qis_cx_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -561,14 +561,14 @@ fn check_rca_for_quantum_qis_cy_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -587,14 +587,14 @@ fn check_rca_for_quantum_qis_cz_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -613,14 +613,14 @@ fn check_rca_for_quantum_qis_rx_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -639,17 +639,17 @@ fn check_rca_for_quantum_qis_rxx_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [2]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -668,14 +668,14 @@ fn check_rca_for_quantum_qis_ry_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -694,17 +694,17 @@ fn check_rca_for_quantum_qis_ryy_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [2]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -723,14 +723,14 @@ fn check_rca_for_quantum_qis_rz_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -749,17 +749,17 @@ fn check_rca_for_quantum_qis_rzz_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
-                        [2]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [2]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -778,11 +778,11 @@ fn check_rca_for_quantum_qis_h_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -801,11 +801,11 @@ fn check_rca_for_quantum_qis_s_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -824,11 +824,11 @@ fn check_rca_for_quantum_qis_s_adj() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -847,11 +847,11 @@ fn check_rca_for_quantum_qis_sx_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -870,11 +870,11 @@ fn check_rca_for_quantum_qis_t_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -893,11 +893,11 @@ fn check_rca_for_quantum_qis_t_adj() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -916,11 +916,11 @@ fn check_rca_for_quantum_qis_x_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -939,11 +939,11 @@ fn check_rca_for_quantum_qis_y_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -962,11 +962,11 @@ fn check_rca_for_quantum_qis_z_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -985,14 +985,14 @@ fn check_rca_for_quantum_qis_swap_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -1011,11 +1011,11 @@ fn check_rca_for_quantum_qis_reset_body() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                             value_kind: Constant
                 adj: <none>
@@ -1034,14 +1034,14 @@ fn check_rca_for_draw_random_int() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Variable
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                             value_kind: Variable
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                             value_kind: Variable
                 adj: <none>
@@ -1060,14 +1060,14 @@ fn check_rca_for_draw_random_double() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Variable
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -1086,11 +1086,11 @@ fn check_rca_for_draw_random_bool() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Variable
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
                             value_kind: Variable
                 adj: <none>
@@ -1111,10 +1111,10 @@ fn check_rca_for_begin_estimate_caching() {
                 body: ApplicationsGeneratorSet:
                     inherent: Static
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(0x0)
                             value_kind: Variable
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                             value_kind: Variable
                 adj: <none>
@@ -1151,25 +1151,25 @@ fn check_rca_for_account_for_estimates_internal() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
                         [0]: [Parameter Type Array] ArrayParamApplication:
-                            static_size: Dynamic: DynamicProperties:
+                            static_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                                 value_kind: Constant
-                            dynamic_size: Dynamic: DynamicProperties:
+                            dynamic_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicallySizedArray)
                                 value_kind: Constant
-                        [1]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [1]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                             value_kind: Constant
                         [2]: [Parameter Type Array] ArrayParamApplication:
-                            static_size: Dynamic: DynamicProperties:
+                            static_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit)
                                 value_kind: Constant
-                            dynamic_size: Dynamic: DynamicProperties:
+                            dynamic_size: Dynamic:
                                 runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | UseOfDynamicallySizedArray)
                                 value_kind: Constant
                 adj: <none>
@@ -1188,11 +1188,11 @@ fn check_rca_for_begin_repeat_estimates_internal() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications:
-                        [0]: [Parameter Type Element] Dynamic: DynamicProperties:
+                        [0]: [Parameter Type Element] Dynamic:
                             runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
                             value_kind: Constant
                 adj: <none>
@@ -1211,7 +1211,7 @@ fn check_rca_for_end_repeat_estimates_internal() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Dynamic: DynamicProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(0x0)
                         value_kind: Constant
                     dynamic_param_applications: <empty>

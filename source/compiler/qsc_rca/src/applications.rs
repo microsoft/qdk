@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    ApplicationGeneratorSet, ComputeKind, DynamicProperties, RuntimeFeatureFlags, ValueKind,
+    ApplicationGeneratorSet, ComputeKind, RuntimeFeatureFlags, ValueKind,
     common::{Local, LocalKind, LocalsLookup, initialize_locals_map},
     scaffolding::InternalPackageComputeProperties,
 };
@@ -452,10 +452,10 @@ impl ApplicationInstance {
         if let Some(controls) = controls {
             // Controls compute properties are handled at the call expression, so just use dynamic compute kind with
             // no runtime features and constant value kind here.
-            let compute_kind = ComputeKind::Dynamic(DynamicProperties {
+            let compute_kind = ComputeKind::Dynamic {
                 runtime_features: RuntimeFeatureFlags::empty(),
                 value_kind: ValueKind::Constant,
-            });
+            };
             locals_map.insert(
                 controls.var,
                 LocalComputeKind {
@@ -508,23 +508,24 @@ impl ApplicationInstance {
 
             // There are two scenarios in which a value kind is considered, and both of them only happen if the return
             // expression is dynamic.
-            if let ComputeKind::Dynamic(return_dynamic_properties) = return_expr_compute_kind {
-                let return_value_kind = if return_dynamic_properties
-                    .runtime_features
+            if let ComputeKind::Dynamic {
+                runtime_features, ..
+            } = return_expr_compute_kind
+            {
+                let return_value_kind = if runtime_features
                     .contains(RuntimeFeatureFlags::ReturnWithinDynamicScope)
                 {
-                    // The return expression happens within a dynamic scope so the value kind is dynamic.
+                    // The return expression happens within a dynamic scope so the value kind is variable.
                     ValueKind::new_variable_from_type(&self.return_type)
                 } else {
                     // What we actually want here is the value kind of the returned value expression.
                     let returned_value_expr_compute_kind =
                         self.get_expr_compute_kind(returned_value_expr_id);
-                    let ComputeKind::Dynamic(returned_value_dynamic_properties) =
-                        returned_value_expr_compute_kind
+                    let ComputeKind::Dynamic { value_kind, .. } = returned_value_expr_compute_kind
                     else {
-                        panic!("returned value expression is expected to be quantum");
+                        panic!("returned value expression is expected to be dynamic");
                     };
-                    returned_value_dynamic_properties.value_kind
+                    *value_kind
                 };
                 value_kinds.push(return_value_kind);
             }
