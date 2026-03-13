@@ -14,7 +14,11 @@ export {
   type CircuitGroup,
   type CircuitProps,
 } from "./data.js";
-export { Histogram } from "./histogram.js";
+export {
+  Histogram,
+  histogramToSvg,
+  type HistogramProps,
+} from "./histogram.js";
 export { ReTable } from "./reTable.js";
 export { SpaceChart } from "./spaceChart.js";
 export { ScatterChart } from "./scatterChart.js";
@@ -24,6 +28,13 @@ export { Circuit, CircuitPanel } from "./circuit.js";
 export { setRenderer, Markdown } from "./renderers.js";
 export { Atoms, type ZoneLayout, type TraceData } from "./atoms/index.js";
 export { MoleculeViewer } from "./chem/index.js";
+export {
+  ChordDiagram,
+  OrbitalEntanglement,
+  chordDiagramToSvg,
+  type ChordDiagramProps,
+  type OrbitalEntanglementProps,
+} from "./orbitalEntanglement.js";
 export {
   ensureTheme,
   detectThemeChange,
