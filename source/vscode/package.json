@@ -287,9 +287,6 @@
         {
           "command": "qsharp-vscode.addProjectReference",
           "when": "resourceFilename == qsharp.json"
-        },
-        {
-          "command": "qsharp-vscode.updateCopilotInstructions"
         }
       ],
       "view/title": [
@@ -372,6 +369,14 @@
       {
         "view": "quantum-workspaces",
         "contents": "Connect to Azure Quantum\n[Connect to an existing workspace](command:qsharp-vscode.workspacesAdd)\nNote: For the first workspace added there may be several consent prompts to grant VS Code access.\nFor more information about the QDK and Azure Quantum, visit [https://aka.ms/AQ/Documentation](https://aka.ms/AQ/Documentation)."
+      }
+    ],
+    "chatInstructions": [
+      {
+        "path": "./resources/chat-instructions/qsharp.instructions.md"
+      },
+      {
+        "path": "./resources/chat-instructions/openqasm.instructions.md"
       }
     ],
     "commands": [
@@ -522,11 +527,6 @@
         "command": "qsharp-vscode.showChangelog",
         "title": "Show Changelog",
         "category": "QDK"
-      },
-      {
-        "command": "qsharp-vscode.updateCopilotInstructions",
-        "category": "QDK",
-        "title": "Add Copilot instructions file for Q# and OpenQASM"
       }
     ],
     "breakpoints": [

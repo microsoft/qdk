@@ -6,7 +6,6 @@ import * as vscode from "vscode";
 import { qsharpExtensionId } from "./common";
 import registryJson from "./registry.json";
 import { EventType, sendTelemetryEvent } from "./telemetry";
-import { updateCopilotInstructions } from "./gh-copilot/instructions";
 
 export async function initProjectCreator(context: vscode.ExtensionContext) {
   context.subscriptions.push(
@@ -63,9 +62,6 @@ export async function initProjectCreator(context: vscode.ExtensionContext) {
             "Unable to create the project. Check the project files don't already exist and that the file system is writable",
           );
         }
-
-        // Call updateCopilotInstructions to update the Copilot instructions file
-        await updateCopilotInstructions("Project", context);
       },
     ),
   );
