@@ -430,8 +430,9 @@ impl Display for ArrayParamApplication {
 }
 
 /// The two computation kinds for a program element: static or dynamic. These correspond to the
-/// concepts in Partial Evaluation, where "static" refers to computations that can be performed at code generation time and "dynamic" refers to computations
-/// that must occur during runtime and thus emitted into the generated code.
+/// concepts in Partial Evaluation, where "static" refers to computations that can be performed
+/// at code generation time and "dynamic" refers to computations that must occur during runtime
+/// and are emitted into the generated code.
 #[derive(Clone, Copy, Debug)]
 pub enum ComputeKind {
     // An element that will be fully computed during code generation and does not affect the required capabilities of
@@ -571,7 +572,7 @@ impl ComputeKind {
 pub enum ValueKind {
     // A value that is constant during execution.
     Constant,
-    // A value that can vary during execution, which may require additional capabilities in the runtime environment.
+    // A value that can vary during execution, which may require additional capabilities and support in the runtime environment.
     Variable,
 }
 

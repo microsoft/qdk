@@ -159,10 +159,8 @@ impl Scope {
             env.bind_variable_in_top_frame(local_var_id, var);
         }
 
-        // Add the values to both the classical environment and the hybrid variables depending on whether the value is
-        // static or dynamic.
-        let arg_runtime_kind_tuple = args.into_iter().zip(args_compute_kind.iter());
-        for (arg, _) in arg_runtime_kind_tuple {
+        // Add the values to both environments.
+        for arg in args {
             let Arg::Var(local_var_id, var) = arg else {
                 continue;
             };
