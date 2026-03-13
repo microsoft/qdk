@@ -584,7 +584,7 @@ impl<'a> Analyzer<'a> {
         // If any argument to the UDT constructor is dynamic, then the UDT instance is also dynamic and uses an
         // additional runtime feature.
         if args_expr_compute_kind.is_variable_value_kind() {
-            compute_kind.aggregate_value_kind(ValueKind::Variable);
+            compute_kind.set_variable_value_kind();
         }
 
         compute_kind
@@ -875,7 +875,7 @@ impl<'a> Analyzer<'a> {
 
         // If any of the sub-expressions are variable, then the struct expression is variable as well.
         if has_variable_sub_exprs {
-            compute_kind.aggregate_value_kind(ValueKind::Variable);
+            compute_kind.set_variable_value_kind();
         }
 
         // If the constructor is dynamic, aggregate the corresponding runtime features depending on its type.
@@ -977,7 +977,7 @@ impl<'a> Analyzer<'a> {
         if record_expr_compute_kind.is_variable_value_kind()
             || replace_expr_compute_kind.is_variable_value_kind()
         {
-            compute_kind.aggregate_value_kind(ValueKind::Variable);
+            compute_kind.set_variable_value_kind();
         }
 
         compute_kind
@@ -1028,7 +1028,7 @@ impl<'a> Analyzer<'a> {
         if index_expr_compute_kind.is_variable_value_kind()
             || replacement_value_expr_compute_kind.is_variable_value_kind()
         {
-            compute_kind.aggregate_value_kind(ValueKind::Variable);
+            compute_kind.set_variable_value_kind();
         }
 
         compute_kind
