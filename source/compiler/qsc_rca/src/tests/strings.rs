@@ -33,7 +33,7 @@ fn check_rca_for_dynamic_string() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                    value_kind: Element(Dynamic)
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -67,7 +67,7 @@ fn check_rca_for_dynamic_interpolated_string() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Element(Dynamic)
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -101,7 +101,7 @@ fn check_rca_for_dynamic_nested_interpolated_string() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                    value_kind: Element(Dynamic)
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -136,7 +136,7 @@ fn check_rca_for_dynamic_concatenated_string() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                    value_kind: Element(Dynamic)
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -170,7 +170,7 @@ fn check_rca_for_dynamic_string_comparison() {
             ApplicationsGeneratorSet:
                 inherent: Quantum: QuantumProperties:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicString)
-                    value_kind: Element(Dynamic)
+                    value_kind: Dynamic
                 dynamic_param_applications: <empty>"#]],
     );
 }
