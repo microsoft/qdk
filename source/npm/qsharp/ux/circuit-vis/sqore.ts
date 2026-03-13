@@ -6,7 +6,6 @@ import { formatGates } from "./formatters/gateFormatter.js";
 import { formatRegisters } from "./formatters/registerFormatter.js";
 import { processOperations } from "./process.js";
 import {
-  ConditionalRender,
   Circuit,
   CircuitGroup,
   ComponentGrid,
@@ -260,7 +259,6 @@ export class Sqore {
     for (const col of componentGrid) {
       for (const op of col.components) {
         if (currentDepth < targetDepth && op.children != null) {
-          op.conditionalRender = ConditionalRender.AsGroup;
           op.dataAttributes = op.dataAttributes || {};
           op.dataAttributes["expanded"] = "true";
           this.expandOperationsToDepth(
@@ -429,21 +427,19 @@ export class Sqore {
   private fillGateRegistry(operation: Operation, location: string): void {
     if (operation.dataAttributes == null) operation.dataAttributes = {};
     operation.dataAttributes["location"] = location;
-    // By default, operations cannot be zoomed-out
-    operation.dataAttributes["zoom-out"] = "false";
+
+    // Note: `dataAttributes["expanded"]` is intentionally not defaulted here.
+    // Expansion is controlled by:
+    // - `renderDepth` (see `expandOperationsToDepth`),
+    // - user interaction (expand/collapse), and
+    // - `expandIfSingleOperation`, which auto-expands a single top-level op
+    //   unless it has been explicitly collapsed.
     this.gateRegistry[location] = operation;
     operation.children?.forEach((col, colIndex) =>
       col.components.forEach((childOp, i) => {
         this.fillGateRegistry(childOp, `${location}-${colIndex},${i}`);
-        if (childOp.dataAttributes == null) childOp.dataAttributes = {};
-        // Children operations can be zoomed out
-        childOp.dataAttributes["zoom-out"] = "true";
       }),
     );
-    // Composite operations can be zoomed in
-    operation.dataAttributes["zoom-in"] = (
-      operation.children != null
-    ).toString();
   }
 
   /**
@@ -458,11 +454,10 @@ export class Sqore {
   }
 
   /**
-   * Add interactive click handlers for zoom-in/out functionality.
+   * Add interactive click handlers for expand/collapse functionality.
    *
    * @param container HTML element containing visualized circuit.
    * @param circuit Circuit to be visualized.
-   *
    */
   private addZoomHandlers(container: HTMLElement, circuit: Circuit): void {
     container.querySelectorAll(".gate .gate-control").forEach((ctrl) => {
@@ -486,11 +481,10 @@ export class Sqore {
   }
 
   /**
-   * Expand selected operation for zoom-in interaction.
+   * Expand selected composite operation.
    *
    * @param componentGrid Grid of circuit components.
    * @param location Location of operation to expand.
-   *
    */
   private expandOperation(
     componentGrid: ComponentGrid,
@@ -498,12 +492,10 @@ export class Sqore {
   ): void {
     componentGrid.forEach((col) =>
       col.components.forEach((op) => {
-        if (op.conditionalRender === ConditionalRender.AsGroup)
-          this.expandOperation(op.children || [], location);
+        if (op.children != null) this.expandOperation(op.children, location);
         if (op.dataAttributes == null) return op;
         const opId: string = op.dataAttributes["location"];
         if (opId === location && op.children != null) {
-          op.conditionalRender = ConditionalRender.AsGroup;
           op.dataAttributes["expanded"] = "true";
         }
       }),
@@ -511,11 +503,10 @@ export class Sqore {
   }
 
   /**
-   * Collapse selected operation for zoom-out interaction.
+   * Collapse selected composite operation.
    *
    * @param componentGrid Grid of circuit components.
    * @param parentLoc Location of operation to collapse.
-   *
    */
   private collapseOperation(
     componentGrid: ComponentGrid,
@@ -523,13 +514,11 @@ export class Sqore {
   ): void {
     componentGrid.forEach((col) =>
       col.components.forEach((op) => {
-        if (op.conditionalRender === ConditionalRender.AsGroup)
-          this.collapseOperation(op.children || [], parentLoc);
+        if (op.children != null) this.collapseOperation(op.children, parentLoc);
         if (op.dataAttributes == null) return op;
         const opId: string = op.dataAttributes["location"];
         // Collapse parent gate and its children
         if (opId.startsWith(parentLoc)) {
-          op.conditionalRender = ConditionalRender.Always;
           op.dataAttributes["expanded"] = "false";
         }
       }),
@@ -655,7 +644,18 @@ function updateRowHeights(
  * its children, with a dashed box around the children.
  */
 function isExpandedGroup(component: Operation) {
-  return (
-    component.dataAttributes?.["expanded"] === "true" || component.isConditional
-  );
+  const expandedAttr = component.dataAttributes?.["expanded"];
+  if (expandedAttr != null) {
+    return expandedAttr === "true";
+  }
+
+  const hasChildren =
+    component.children != null && component.children.length > 0;
+  const hasClassicalControls =
+    component.kind === "unitary" &&
+    (((component.controls ?? []).some((reg) => reg.result != null) ?? false) ||
+      (component.metadata?.controlResultIds?.length ?? 0) > 0);
+
+  // Classically controlled groups default to expanded when not explicitly set.
+  return hasChildren && hasClassicalControls;
 }

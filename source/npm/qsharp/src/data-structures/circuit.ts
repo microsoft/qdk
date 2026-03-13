@@ -118,8 +118,6 @@ export interface BaseOperation {
 
   /** Whether gate is a classically controlled operation. */
   isConditional?: boolean;
-  /** Specify conditions on when to render operation. */
-  conditionalRender?: ConditionalRender;
 
   /** Not written to file */
   metadata?: Metadata;
@@ -151,11 +149,7 @@ function isBaseOperation(obj: any): obj is BaseOperation {
           (val) => typeof val === "string",
         ))) &&
     // isConditional is optional, but if present must be boolean
-    (obj.isConditional === undefined ||
-      typeof obj.isConditional === "boolean") &&
-    // conditionalRender is optional, but if present must be a valid enum value
-    (obj.conditionalRender === undefined ||
-      Object.values(ConditionalRender).includes(obj.conditionalRender))
+    (obj.isConditional === undefined || typeof obj.isConditional === "boolean")
   );
 }
 
@@ -253,20 +247,6 @@ export function isParameter(obj: any): obj is Parameter {
     typeof obj.name === "string" &&
     typeof obj.type === "string"
   );
-}
-
-/**
- * Conditions on when to render the given operation.
- */
-export enum ConditionalRender {
-  /** Always rendered. */
-  Always,
-  /** Render classically-controlled operation when measurement is a zero. */
-  OnZero,
-  /** Render classically-controlled operation when measurement is a one. */
-  OnOne,
-  /** Render operation as a group of its nested operations. */
-  AsGroup,
 }
 
 /**
