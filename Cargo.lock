@@ -2306,8 +2306,8 @@ dependencies = [
 
 [[package]]
 name = "quantum-sparse-sim"
-version = "0.8.3"
-source = "git+https://github.com/qir-alliance/qir-runner?rev=8cd6fa698521ecf96d459f88254e53dd6e5d6877#8cd6fa698521ecf96d459f88254e53dd6e5d6877"
+version = "0.9.1"
+source = "git+https://github.com/qir-alliance/qir-runner?rev=3a1384a8113384a88d1848b8ef3c8049234fe76d#3a1384a8113384a88d1848b8ef3c8049234fe76d"
 dependencies = [
  "ndarray",
  "num-bigint",
