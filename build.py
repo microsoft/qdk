@@ -217,7 +217,7 @@ def use_python_env(folder):
             python_bin = os.path.join(venv_dir, "Scripts", "python.exe")
         print(f"Using python from {python_bin}")
 
-        # Update the PATH in the pip_env_dir to include the current interpreter's bin/ directory
+        # Update the PATH in the pip_env to include the current interpreter's bin/ directory
         pip_env["PATH"] = (
             os.path.dirname(python_bin) + os.pathsep + pip_env.get("PATH", "")
         )
@@ -351,13 +351,13 @@ def install_python_test_requirements(cwd, interpreter, check: bool = True):
         subprocess.run(command_args, check=check, text=True, cwd=cwd)
 
 
-def build_qsharp_wheel(cwd, interpreter, pip_env_dir):
+def build_qsharp_wheel(cwd, interpreter, pip_env):
     # Read the build dependencies out of the pyproject.toml and install them first.
     with open(os.path.join(cwd, "pyproject.toml"), "rb") as f:
         requires = tomllib.load(f)["build-system"]["requires"]
 
     command_args = [interpreter, "-m", "pip", "install", *requires]
-    subprocess.run(command_args, check=True, text=True, cwd=cwd, env=pip_env_dir)
+    subprocess.run(command_args, check=True, text=True, cwd=cwd, env=pip_env)
 
     command_args = [
         interpreter,
@@ -381,7 +381,7 @@ def build_qsharp_wheel(cwd, interpreter, pip_env_dir):
 
     command_args.append(cwd)
 
-    subprocess.run(command_args, check=True, text=True, cwd=cwd, env=pip_env_dir)
+    subprocess.run(command_args, check=True, text=True, cwd=cwd, env=pip_env)
 
 
 def run_python_tests(cwd, interpreter, pip_env):
