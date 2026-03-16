@@ -794,7 +794,8 @@ class AdaptiveProfilePass:
                 ret_reg = self._resolve_operand(instr.operands[0])
                 self._emit(OP_RET, dst=ret_reg)
             else:
-                self._emit(OP_RET)
+                # Void return — use immediate 0 as exit code.
+                self._emit(OP_RET | FLAG_SRC0_IMM, dst=0)
 
     # ------------------------------------------------------------------
     # Comparison emitters
