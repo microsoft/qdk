@@ -14,16 +14,14 @@ from ._qre import (
     _IntFunction,
     _FloatFunction,
     constant_function,
+    instruction_name,
+    property_name_to_key,
 )
 
 if TYPE_CHECKING:
     from typing import Optional
 
     from ._instruction import ISATransform, Encoding
-
-
-# Valid property names for instructions, mapped to their integer keys.
-_PROPERTY_KEYS: dict[str, int] = {"distance": 0}
 
 
 class Architecture(ABC):
@@ -228,12 +226,9 @@ def _make_instruction(
         )
 
     for key, value in properties.items():
-        prop_key = _PROPERTY_KEYS.get(key)
+        prop_key = property_name_to_key(key)
         if prop_key is None:
-            raise ValueError(
-                f"Unknown property '{key}'. "
-                f"Valid properties: {list(_PROPERTY_KEYS)}"
-            )
+            raise ValueError(f"Unknown property '{key}'.")
         instr.set_property(prop_key, value)
 
     return instr

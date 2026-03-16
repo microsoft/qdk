@@ -23,16 +23,13 @@ from ._qre import (
     _Instruction,
     ISARequirements,
     instruction_name,
+    property_name_to_key,
 )
 
 
 class Encoding(IntEnum):
     PHYSICAL = 0
     LOGICAL = 1
-
-
-class PropertyKey(IntEnum):
-    DISTANCE = 0
 
 
 PHYSICAL = Encoding.PHYSICAL
@@ -69,16 +66,12 @@ def constraint(
 
     for key, value in kwargs.items():
         if value:
-            try:
-                prop_key = PropertyKey[key.upper()]
-            except KeyError:
-                raise ValueError(
-                    f"Unknown property '{key}'. Valid properties: {[k.name.lower() for k in PropertyKey]}"
-                )
+            if (prop_key := property_name_to_key(key)) is None:
+                raise ValueError(f"Unknown property '{key}'")
+
             c.add_property(prop_key)
 
     return c
-
 
 
 class ISATransform(ABC):

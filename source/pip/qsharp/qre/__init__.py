@@ -14,7 +14,6 @@ from ._instruction import (
     PHYSICAL,
     Encoding,
     ISATransform,
-    PropertyKey,
     constraint,
     InstructionSource,
 )
@@ -65,7 +64,6 @@ __all__ = [
     "ISARequirements",
     "ISATransform",
     "LatticeSurgery",
-    "PropertyKey",
     "PSSPC",
     "Trace",
     "TraceQuery",
