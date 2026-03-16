@@ -239,7 +239,7 @@ impl MutVisitor for ConvertToWSlash<'_> {
                     ty: expr.ty.clone(),
                     kind: ExprKind::BinOp(*op, Box::new(target_expr), take(rhs)),
                 };
-                *rhs = Box::new(bin_expr);
+                **rhs = bin_expr;
             }
 
             // Construct the nested `w/` expressions

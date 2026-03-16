@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(unused_assignments)]
+// clippy false positive bug: https://github.com/rust-lang/rust/issues/147648. Remove when fixed.
+
 use crate::{
     Manifest, PackageRef,
     manifest::{GitHubRef, PackageType},

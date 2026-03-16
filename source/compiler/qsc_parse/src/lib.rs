@@ -4,7 +4,8 @@
 //! The qsc parser uses recursive descent to handle turning an input string into a Q# abstract syntax tree.
 //! The parser produces a tree with placeholder node identifiers that are expected to be replaced with
 //! unique identifiers by a later stage.
-
+#![allow(unused_assignments)]
+// clippy false positive bug: https://github.com/rust-lang/rust/issues/147648. Remove when fixed.
 pub mod completion;
 mod expr;
 mod item;
