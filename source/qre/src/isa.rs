@@ -4,7 +4,7 @@
 use std::{
     fmt::Display,
     ops::Add,
-    sync::{Arc, RwLock},
+    sync::{Arc, RwLock, RwLockReadGuard},
 };
 
 use num_traits::FromPrimitive;
@@ -12,6 +12,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::trace::instruction_ids::instruction_name;
+
+pub mod property_keys;
 
 #[cfg(test)]
 mod tests;
@@ -96,7 +98,17 @@ impl ISA {
         self.nodes.is_empty()
     }
 
-    fn read_graph(&self) -> std::sync::RwLockReadGuard<'_, ProvenanceGraph> {
+    /// Returns a read-locked view of this ISA, enabling zero-clone
+    /// instruction access for the lifetime of the returned guard.
+    #[must_use]
+    pub fn lock(&self) -> LockedISA<'_> {
+        LockedISA {
+            graph: self.read_graph(),
+            nodes: &self.nodes,
+        }
+    }
+
+    fn read_graph(&self) -> RwLockReadGuard<'_, ProvenanceGraph> {
         self.graph.read().expect("provenance graph lock poisoned")
     }
 
@@ -219,6 +231,22 @@ impl Add<ISA> for ISA {
             }
         }
         combined
+    }
+}
+
+/// A read-locked view of an ISA. Holds the graph read lock for the
+/// lifetime of this struct, enabling zero-clone instruction access.
+pub struct LockedISA<'a> {
+    graph: RwLockReadGuard<'a, ProvenanceGraph>,
+    nodes: &'a FxHashMap<u64, usize>,
+}
+
+impl LockedISA<'_> {
+    /// Returns a reference to the instruction with the given ID, if present.
+    #[must_use]
+    pub fn get(&self, id: &u64) -> Option<&Instruction> {
+        let &node_idx = self.nodes.get(id)?;
+        Some(self.graph.instruction(node_idx))
     }
 }
 

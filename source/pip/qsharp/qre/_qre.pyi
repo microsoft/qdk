@@ -853,21 +853,21 @@ class EstimationResult:
         ...
 
     @property
-    def properties(self) -> dict[str, bool | int | float | str]:
+    def properties(self) -> dict[int, bool | int | float | str]:
         """
         Custom properties from application generation and trace transform.
 
         Returns:
-            dict[str, bool | int | float | str]: A dictionary mapping property keys to their values.
+            dict[int, bool | int | float | str]: A dictionary mapping property keys to their values.
         """
         ...
 
-    def set_property(self, key: str, value: bool | int | float | str) -> None:
+    def set_property(self, key: int, value: bool | int | float | str) -> None:
         """
         Sets a custom property.
 
         Args:
-            key (str): The property key.
+            key (int) The property key.
             value (bool | int | float | str): The property value. All values of type `int`, `float`, `bool`, and `str`
                 are supported.  Any other value is converted to a string using its `__str__` method.
         """
@@ -921,6 +921,27 @@ class _EstimationCollection:
 
         Returns:
             Iterator[EstimationResult]: The estimation result iterator.
+        """
+        ...
+
+    @property
+    def total_jobs(self) -> int:
+        """
+        Returns the total number of (trace, ISA) estimation jobs.
+
+        Returns:
+            int: The total number of jobs.
+        """
+        ...
+
+    @property
+    def successful_estimates(self) -> int:
+        """
+        Returns the number of estimation jobs that completed successfully
+        (before Pareto filtering).
+
+        Returns:
+            int: The number of successful estimates.
         """
         ...
 
@@ -1098,36 +1119,36 @@ class Trace:
         """
         ...
 
-    def set_property(self, key: str, value: Any) -> None:
+    def set_property(self, key: int, value: Any) -> None:
         """
         Sets a property.  All values of type `int`, `float`, `bool`, and `str`
         are supported.  Any other value is converted to a string using its
         `__str__` method.
 
         Args:
-            key (str): The property key.
+            key (int): The property key.
             value (Any): The property value.
         """
         ...
 
-    def get_property(self, key: str) -> Optional[int | float | bool | str]:
+    def get_property(self, key: int) -> Optional[int | float | bool | str]:
         """
         Gets a property.
 
         Args:
-            key (str): The property key.
+            key (int): The property key.
 
         Returns:
             Optional[int | float | bool | str]: The property value, or None if not found.
         """
         ...
 
-    def has_property(self, key: str) -> bool:
+    def has_property(self, key: int) -> bool:
         """
         Checks if a property with the given key exists.
 
         Args:
-            key (str): The property key.
+            key (int): The property key.
 
         Returns:
             bool: True if the property exists, False otherwise.
@@ -1359,6 +1380,18 @@ def _binom_ppf(q: float, n: int, p: float) -> int:
     """
     ...
 
+def _float_to_bits(f: float) -> int:
+    """
+    Converts a float to its bit representation as an integer.
+    """
+    ...
+
+def _float_from_bits(b: int) -> float:
+    """
+    Converts a float from its bit representation as an integer.
+    """
+    ...
+
 def instruction_name(id: int) -> Optional[str]:
     """
     Returns the name of an instruction given its ID, if known.
@@ -1368,5 +1401,17 @@ def instruction_name(id: int) -> Optional[str]:
 
     Returns:
         Optional[str]: The name of the instruction, or None if the ID is not recognized.
+    """
+    ...
+
+def property_name_to_key(name: str) -> Optional[int]:
+    """
+    Converts a property name to its corresponding key, if known.
+
+    Args:
+        name (str): The property name.
+
+    Returns:
+        Optional[int]: The property key, or None if the name is not recognized.
     """
     ...

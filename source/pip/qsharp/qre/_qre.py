@@ -28,4 +28,7 @@ from .._native import (
     LatticeSurgery,
     PSSPC,
     Trace,
+    property_name_to_key,
+    _float_to_bits,
+    _float_from_bits,
 )

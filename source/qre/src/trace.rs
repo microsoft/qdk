@@ -6,7 +6,10 @@ use std::fmt::{Display, Formatter};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
-use crate::{Error, EstimationCollection, EstimationResult, FactoryResult, ISA, Instruction};
+use crate::{
+    Error, EstimationCollection, EstimationResult, FactoryResult, ISA, Instruction, LockedISA,
+    property_keys::{PHYSICAL_COMPUTE_QUBITS, PHYSICAL_FACTORY_QUBITS, PHYSICAL_MEMORY_QUBITS},
+};
 
 pub mod instruction_ids;
 use instruction_ids::instruction_name;
@@ -23,7 +26,7 @@ pub struct Trace {
     compute_qubits: u64,
     memory_qubits: Option<u64>,
     resource_states: Option<FxHashMap<u64, u64>>,
-    properties: FxHashMap<String, Property>,
+    properties: FxHashMap<u64, Property>,
 }
 
 impl Trace {
@@ -119,18 +122,18 @@ impl Trace {
         0
     }
 
-    pub fn set_property(&mut self, key: String, value: Property) {
+    pub fn set_property(&mut self, key: u64, value: Property) {
         self.properties.insert(key, value);
     }
 
     #[must_use]
-    pub fn get_property(&self, key: &str) -> Option<&Property> {
-        self.properties.get(key)
+    pub fn get_property(&self, key: u64) -> Option<&Property> {
+        self.properties.get(&key)
     }
 
     #[must_use]
-    pub fn has_property(&self, key: &str) -> bool {
-        self.properties.contains_key(key)
+    pub fn has_property(&self, key: u64) -> bool {
+        self.properties.contains_key(&key)
     }
 
     #[must_use]
@@ -146,9 +149,11 @@ impl Trace {
     #[allow(
         clippy::cast_precision_loss,
         clippy::cast_possible_truncation,
-        clippy::cast_sign_loss
+        clippy::cast_sign_loss,
+        clippy::too_many_lines
     )]
     pub fn estimate(&self, isa: &ISA, max_error: Option<f64>) -> Result<EstimationResult, Error> {
+        let locked = isa.lock();
         let max_error = max_error.unwrap_or(1.0);
 
         if self.base_error > max_error {
@@ -176,7 +181,7 @@ impl Trace {
         // ------------------------------------------------------------------
         if let Some(resource_states) = &self.resource_states {
             for (state_id, count) in resource_states {
-                let rate = get_error_rate_by_id(isa, *state_id)?;
+                let rate = get_error_rate_by_id(&locked, *state_id)?;
                 let actual_error = result.add_error(rate * (*count as f64));
                 if actual_error > max_error {
                     return Err(Error::MaximumErrorExceeded {
@@ -194,7 +199,7 @@ impl Trace {
         // Missing instructions raise an error. Callable rates use arity.
         // ------------------------------------------------------------------
         for (gate, mult) in self.deep_iter() {
-            let instr = get_instruction(isa, gate.id)?;
+            let instr = get_instruction(&locked, gate.id)?;
 
             let arity = gate.qubits.len() as u64;
 
@@ -219,11 +224,15 @@ impl Trace {
             * qubit_counts.last().copied().unwrap_or(1.0))
         .ceil() as u64;
         result.add_qubits(total_compute_qubits);
+        result.set_property(
+            PHYSICAL_COMPUTE_QUBITS,
+            Property::Int(total_compute_qubits.cast_signed()),
+        );
 
         result.add_runtime(
             self.block
                 .depth_and_used(Some(&|op: &Gate| {
-                    let instr = get_instruction(isa, op.id)?;
+                    let instr = get_instruction(&locked, op.id)?;
                     Ok(instr.expect_time(Some(op.qubits.len() as u64)))
                 }))?
                 .0,
@@ -233,11 +242,12 @@ impl Trace {
         // Factory overhead estimation. Each factory produces states at
         // a certain rate, so we need enough copies to meet the demand.
         // ------------------------------------------------------------------
+        let mut total_factory_qubits = 0;
         for (factory, count) in &factories {
-            let instr = get_instruction(isa, *factory)?;
-            let factory_time = get_time(&instr)?;
-            let factory_space = get_space(&instr)?;
-            let factory_error_rate = get_error_rate(&instr)?;
+            let instr = get_instruction(&locked, *factory)?;
+            let factory_time = get_time(instr)?;
+            let factory_space = get_space(instr)?;
+            let factory_error_rate = get_error_rate(instr)?;
             let runs = result.runtime() / factory_time;
 
             if runs == 0 {
@@ -250,21 +260,31 @@ impl Trace {
 
             let copies = count.div_ceil(runs);
 
-            result.add_qubits(copies * factory_space);
+            total_factory_qubits += copies * factory_space;
             result.add_factory_result(
                 *factory,
                 FactoryResult::new(copies, runs, *count, factory_error_rate),
             );
         }
+        result.add_qubits(total_factory_qubits);
+        result.set_property(
+            PHYSICAL_FACTORY_QUBITS,
+            Property::Int(total_factory_qubits.cast_signed()),
+        );
 
         // Memory qubits
         if let Some(memory_qubits) = self.memory_qubits {
             // We need a MEMORY instruction in our ISA
-            let memory = isa
+            let memory = locked
                 .get(&instruction_ids::MEMORY)
                 .ok_or(Error::InstructionNotFound(instruction_ids::MEMORY))?;
 
-            result.add_qubits(memory.expect_space(Some(memory_qubits)));
+            let memory_space = memory.expect_space(Some(memory_qubits));
+            result.add_qubits(memory_space);
+            result.set_property(
+                PHYSICAL_MEMORY_QUBITS,
+                Property::Int(memory_space.cast_signed()),
+            );
 
             // The number of rounds for the memory qubits to stay alive with
             // respect to the total runtime of the algorithm.
@@ -282,11 +302,9 @@ impl Trace {
             }
         }
 
-        result.set_isa(isa.clone());
-
         // Copy properties from the trace to the result
         for (key, value) in &self.properties {
-            result.set_property(key.clone(), value.clone());
+            result.set_property(*key, value.clone());
         }
 
         Ok(result)
@@ -590,7 +608,7 @@ impl Display for Property {
 // Some helper functions to extract instructions and their metrics together with
 // error handling
 
-fn get_instruction(isa: &ISA, id: u64) -> Result<Instruction, Error> {
+fn get_instruction<'a>(isa: &'a LockedISA<'_>, id: u64) -> Result<&'a Instruction, Error> {
     isa.get(&id).ok_or(Error::InstructionNotFound(id))
 }
 
@@ -612,7 +630,7 @@ fn get_error_rate(instruction: &Instruction) -> Result<f64, Error> {
         .ok_or(Error::CannotExtractErrorRate(instruction.id()))
 }
 
-fn get_error_rate_by_id(isa: &ISA, id: u64) -> Result<f64, Error> {
+fn get_error_rate_by_id(isa: &LockedISA<'_>, id: u64) -> Result<f64, Error> {
     let instr = get_instruction(isa, id)?;
     instr
         .error_rate(None)
@@ -650,6 +668,8 @@ pub fn estimate_parallel<'a>(
     let next_job = std::sync::atomic::AtomicUsize::new(0);
 
     let mut collection = EstimationCollection::new();
+    collection.set_total_jobs(total_jobs);
+
     std::thread::scope(|scope| {
         let num_threads = std::thread::available_parallelism()
             .map(std::num::NonZero::get)
@@ -677,7 +697,9 @@ pub fn estimate_parallel<'a>(
                     let trace_idx = job / num_isas;
                     let isa_idx = job % num_isas;
 
-                    if let Ok(estimation) = traces[trace_idx].estimate(isas[isa_idx], max_error) {
+                    if let Ok(mut estimation) = traces[trace_idx].estimate(isas[isa_idx], max_error)
+                    {
+                        estimation.set_isa_index(isa_idx);
                         local_results.push(estimation);
                     }
                 }
@@ -690,10 +712,21 @@ pub fn estimate_parallel<'a>(
         drop(tx);
 
         // Collect results from all workers into the shared collection.
+        let mut successful = 0;
         for local_results in rx {
+            successful += local_results.len();
             collection.extend(local_results.into_iter());
         }
+        collection.set_successful_estimates(successful);
     });
+
+    // Attach ISAs only to Pareto-surviving results, avoiding O(M) HashMap
+    // clones for discarded results.
+    for result in collection.iter_mut() {
+        if let Some(idx) = result.isa_index() {
+            result.set_isa(isas[idx].clone());
+        }
+    }
 
     collection
 }

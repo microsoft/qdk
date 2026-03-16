@@ -8,7 +8,7 @@ use std::{
 
 use pyo3::{
     IntoPyObjectExt,
-    exceptions::{PyException, PyKeyError, PyRuntimeError, PyTypeError},
+    exceptions::{PyException, PyKeyError, PyRuntimeError, PyTypeError, PyValueError},
     prelude::*,
     types::{PyBool, PyDict, PyFloat, PyInt, PyString, PyTuple, PyType},
 };
@@ -38,11 +38,15 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generic_function, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_parallel, m)?)?;
     m.add_function(wrap_pyfunction!(binom_ppf, m)?)?;
+    m.add_function(wrap_pyfunction!(float_to_bits, m)?)?;
+    m.add_function(wrap_pyfunction!(float_from_bits, m)?)?;
     m.add_function(wrap_pyfunction!(instruction_name, m)?)?;
+    m.add_function(wrap_pyfunction!(property_name_to_key, m)?)?;
 
     m.add("EstimationError", m.py().get_type::<EstimationError>())?;
 
     add_instruction_ids(m)?;
+    add_property_keys(m)?;
 
     Ok(())
 }
@@ -314,11 +318,15 @@ impl qre::ParetoItem2D for Instruction {
     type Objective2 = u64;
 
     fn objective1(&self) -> Self::Objective1 {
-        self.0.expect_space(None)
+        self.0
+            .space(None)
+            .unwrap_or_else(|| self.0.expect_space(Some(1)))
     }
 
     fn objective2(&self) -> Self::Objective2 {
-        self.0.expect_time(None)
+        self.0
+            .time(None)
+            .unwrap_or_else(|| self.0.expect_time(Some(1)))
     }
 }
 
@@ -328,15 +336,21 @@ impl qre::ParetoItem3D for Instruction {
     type Objective3 = f64;
 
     fn objective1(&self) -> Self::Objective1 {
-        self.0.expect_space(None)
+        self.0
+            .space(None)
+            .unwrap_or_else(|| self.0.expect_space(Some(1)))
     }
 
     fn objective2(&self) -> Self::Objective2 {
-        self.0.expect_time(None)
+        self.0
+            .time(None)
+            .unwrap_or_else(|| self.0.expect_time(Some(1)))
     }
 
     fn objective3(&self) -> Self::Objective3 {
-        self.0.expect_error_rate(None)
+        self.0
+            .error_rate(None)
+            .unwrap_or_else(|| self.0.expect_error_rate(Some(1)))
     }
 }
 
@@ -374,16 +388,6 @@ fn convert_encoding(encoding: u64) -> PyResult<qre::Encoding> {
         0 => Ok(qre::Encoding::Physical),
         1 => Ok(qre::Encoding::Logical),
         _ => Err(EstimationError::new_err("Invalid encoding value")),
-    }
-}
-
-/// Property name → integer key mapping (must match Python `_PROPERTY_KEYS`).
-fn property_name_to_key(name: &str) -> PyResult<u64> {
-    match name {
-        "distance" => Ok(0),
-        other => Err(PyTypeError::new_err(format!(
-            "Unknown property '{other}'. Valid properties: [\"distance\"]"
-        ))),
     }
 }
 
@@ -446,7 +450,10 @@ fn build_instruction(
     if let Some(kw) = kwargs {
         for (key, value) in kw {
             let key_str: String = key.extract()?;
-            let prop_key = property_name_to_key(&key_str)?;
+            let prop_key =
+                qre::property_name_to_key(&key_str.to_ascii_uppercase()).ok_or_else(|| {
+                    PyValueError::new_err(format!("Unknown property name: {key_str}"))
+                })?;
             let prop_value: u64 = value.extract()?;
             instr.set_property(prop_key, prop_value);
         }
@@ -743,6 +750,16 @@ impl EstimationCollection {
         self.0.len()
     }
 
+    #[getter]
+    pub fn total_jobs(&self) -> usize {
+        self.0.total_jobs()
+    }
+
+    #[getter]
+    pub fn successful_estimates(&self) -> usize {
+        self.0.successful_estimates()
+    }
+
     #[allow(clippy::needless_pass_by_value)]
     pub fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<EstimationCollectionIterator>> {
         let iter = EstimationCollectionIterator {
@@ -848,7 +865,7 @@ impl EstimationResult {
         Ok(dict)
     }
 
-    pub fn set_property(&mut self, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
+    pub fn set_property(&mut self, key: u64, value: &Bound<'_, PyAny>) -> PyResult<()> {
         let property = if value.is_instance_of::<pyo3::types::PyBool>() {
             qre::Property::new_bool(value.extract()?)
         } else if let Ok(i) = value.extract::<i64>() {
@@ -939,7 +956,7 @@ impl Trace {
         self.0.increment_base_error(amount);
     }
 
-    pub fn set_property(&mut self, key: String, value: &Bound<'_, PyAny>) -> PyResult<()> {
+    pub fn set_property(&mut self, key: u64, value: &Bound<'_, PyAny>) -> PyResult<()> {
         let property = if value.is_instance_of::<pyo3::types::PyBool>() {
             qre::Property::new_bool(value.extract()?)
         } else if let Ok(i) = value.extract::<i64>() {
@@ -956,7 +973,7 @@ impl Trace {
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    pub fn get_property<'py>(self_: PyRef<'py, Self>, key: &str) -> Option<Bound<'py, PyAny>> {
+    pub fn get_property(self_: PyRef<'_, Self>, key: u64) -> Option<Bound<'_, PyAny>> {
         if let Some(value) = self_.0.get_property(key) {
             match value {
                 qre::Property::Bool(b) => PyBool::new(self_.py(), *b)
@@ -977,7 +994,7 @@ impl Trace {
         }
     }
 
-    pub fn has_property(&self, key: &str) -> bool {
+    pub fn has_property(&self, key: u64) -> bool {
         self.0.has_property(key)
     }
 
@@ -1004,7 +1021,10 @@ impl Trace {
     pub fn estimate(&self, isa: &ISA, max_error: Option<f64>) -> Option<EstimationResult> {
         self.0
             .estimate(&isa.0, max_error)
-            .map(EstimationResult)
+            .map(|mut r| {
+                r.set_isa(isa.0.clone());
+                EstimationResult(r)
+            })
             .ok()
     }
 
@@ -1292,6 +1312,16 @@ pub fn binom_ppf(q: f64, n: usize, p: f64) -> usize {
     qre::binom_ppf(q, n, p)
 }
 
+#[pyfunction(name = "_float_to_bits")]
+pub fn float_to_bits(f: f64) -> u64 {
+    qre::float_to_bits(f)
+}
+
+#[pyfunction(name = "_float_from_bits")]
+pub fn float_from_bits(bits: u64) -> f64 {
+    qre::float_from_bits(bits)
+}
+
 #[pyfunction]
 pub fn instruction_name(id: u64) -> Option<String> {
     qre::instruction_name(id).map(String::from)
@@ -1384,6 +1414,42 @@ fn add_instruction_ids(m: &Bound<'_, PyModule>) -> PyResult<()> {
     );
 
     m.add_submodule(&instruction_ids)?;
+
+    Ok(())
+}
+
+#[pyfunction]
+pub fn property_name_to_key(name: &str) -> Option<u64> {
+    qre::property_name_to_key(&name.to_ascii_uppercase())
+}
+
+fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    #[allow(clippy::wildcard_imports)]
+    use qre::property_keys::*;
+
+    let property_keys = PyModule::new(m.py(), "property_keys")?;
+
+    macro_rules! add_ids {
+        ($($name:ident),* $(,)?) => {
+            $(property_keys.add(stringify!($name), $name)?;)*
+        };
+    }
+
+    add_ids!(
+        DISTANCE,
+        SURFACE_CODE_ONE_QUBIT_TIME_FACTOR,
+        SURFACE_CODE_TWO_QUBIT_TIME_FACTOR,
+        ACCELERATION,
+        NUM_TS_PER_ROTATION,
+        EXPECTED_SHOTS,
+        RUNTIME_SINGLE_SHOT,
+        EVALUATION_TIME,
+        PHYSICAL_COMPUTE_QUBITS,
+        PHYSICAL_FACTORY_QUBITS,
+        PHYSICAL_MEMORY_QUBITS,
+    );
+
+    m.add_submodule(&property_keys)?;
 
     Ok(())
 }
