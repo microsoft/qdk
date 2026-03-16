@@ -59,7 +59,7 @@ indoc = "2.0"
 js-sys = "0.3"
 libfuzzer-sys = "0.4"
 log = "0.4"
-miette = { version = "7.2" }
+miette = { version = "7.6" }
 thiserror = "2.0"
 nalgebra = { version = "0.34" }
 ndarray = "0.15.4"
