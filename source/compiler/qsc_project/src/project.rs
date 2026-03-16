@@ -822,7 +822,7 @@ impl PackageGraphSources {
             return (Err(DependencyCycle), self.root);
         }
 
-        log::debug!("build plan: {:#?}", sorted_keys);
+        log::debug!("build plan: {sorted_keys:#?}");
 
         (Ok(sorted_packages), self.root)
     }
