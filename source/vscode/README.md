@@ -2,7 +2,7 @@
 
 This extension brings rich language support for Q# and OpenQASM to VS Code. Develop, build, and run your quantum code from VS Code either locally on simulators, or by submitting a job to Azure Quantum.
 
-You can also try out this extension in VS Code for Web at [vscode.dev/quantum](https://vscode.dev/quantum).
+You can also try out this extension in VS Code for Web at [vscode.dev/quantum/playground](https://vscode.dev/quantum/playground/).
 
 ## Features
 
