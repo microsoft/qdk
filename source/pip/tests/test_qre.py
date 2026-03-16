@@ -1266,7 +1266,6 @@ def test_estimation_table_computed_column():
     frame = table.as_frame()
     assert frame["qubit_error_product"][0] == pytest.approx(1.0)
     assert frame["qubit_error_product"][1] == pytest.approx(4.0)
-    assert frame["qubit_error_product"][1] == pytest.approx(4.0)
 
 
 def _ll_files():
