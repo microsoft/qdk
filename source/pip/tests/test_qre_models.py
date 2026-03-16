@@ -34,7 +34,7 @@ from qsharp.qre.models import (
     Litinski19Factory,
     SurfaceCode,
     ThreeAux,
-    YokedSurfaceCode,
+    TwoDimensionalYokedSurfaceCode,
 )
 from qsharp.qre.property_keys import DISTANCE
 
@@ -403,7 +403,7 @@ class TestYokedSurfaceCode:
 
     def test_provides_memory_instruction(self):
         ls_isa, ctx = self._get_lattice_surgery_isa()
-        ysc = YokedSurfaceCode()
+        ysc = TwoDimensionalYokedSurfaceCode()
 
         isas = list(ysc.provided_isa(ls_isa, ctx))
         assert len(isas) == 1
@@ -411,7 +411,7 @@ class TestYokedSurfaceCode:
 
     def test_memory_is_logical(self):
         ls_isa, ctx = self._get_lattice_surgery_isa()
-        ysc = YokedSurfaceCode()
+        ysc = TwoDimensionalYokedSurfaceCode()
 
         isas = list(ysc.provided_isa(ls_isa, ctx))
         mem = isas[0][MEMORY]
@@ -419,7 +419,7 @@ class TestYokedSurfaceCode:
 
     def test_memory_arity_is_variable(self):
         ls_isa, ctx = self._get_lattice_surgery_isa()
-        ysc = YokedSurfaceCode()
+        ysc = TwoDimensionalYokedSurfaceCode()
 
         isas = list(ysc.provided_isa(ls_isa, ctx))
         mem = isas[0][MEMORY]
@@ -428,7 +428,7 @@ class TestYokedSurfaceCode:
 
     def test_space_increases_with_arity(self):
         ls_isa, ctx = self._get_lattice_surgery_isa()
-        ysc = YokedSurfaceCode()
+        ysc = TwoDimensionalYokedSurfaceCode()
 
         isas = list(ysc.provided_isa(ls_isa, ctx))
         mem = isas[0][MEMORY]
@@ -439,7 +439,7 @@ class TestYokedSurfaceCode:
 
     def test_time_increases_with_arity(self):
         ls_isa, ctx = self._get_lattice_surgery_isa()
-        ysc = YokedSurfaceCode()
+        ysc = TwoDimensionalYokedSurfaceCode()
 
         isas = list(ysc.provided_isa(ls_isa, ctx))
         mem = isas[0][MEMORY]
@@ -450,7 +450,7 @@ class TestYokedSurfaceCode:
 
     def test_error_rate_increases_with_arity(self):
         ls_isa, ctx = self._get_lattice_surgery_isa()
-        ysc = YokedSurfaceCode()
+        ysc = TwoDimensionalYokedSurfaceCode()
 
         isas = list(ysc.provided_isa(ls_isa, ctx))
         mem = isas[0][MEMORY]
@@ -462,7 +462,7 @@ class TestYokedSurfaceCode:
     def test_distance_property_propagated(self):
         d = 7
         ls_isa, ctx = self._get_lattice_surgery_isa(distance=d)
-        ysc = YokedSurfaceCode()
+        ysc = TwoDimensionalYokedSurfaceCode()
 
         isas = list(ysc.provided_isa(ls_isa, ctx))
         mem = isas[0][MEMORY]
@@ -1008,12 +1008,14 @@ class TestCrossModelIntegration:
         ctx = arch.context()
 
         count = 0
-        for isa in YokedSurfaceCode.q(source=SurfaceCode.q()).enumerate(ctx):
+        for isa in TwoDimensionalYokedSurfaceCode.q(source=SurfaceCode.q()).enumerate(
+            ctx
+        ):
             assert MEMORY in isa
             count += 1
 
-        # 12 distances × 2 shape heuristics = 24
-        assert count == 24
+        # 12 distances × 1 shape heuristic = 12
+        assert count == 12
 
     def test_majorana_three_aux_yoked(self):
         """Majorana -> ThreeAux -> YokedSurfaceCode pipeline."""
@@ -1021,7 +1023,7 @@ class TestCrossModelIntegration:
         ctx = arch.context()
 
         count = 0
-        for isa in YokedSurfaceCode.q(source=ThreeAux.q()).enumerate(ctx):
+        for isa in TwoDimensionalYokedSurfaceCode.q(source=ThreeAux.q()).enumerate(ctx):
             assert MEMORY in isa
             count += 1
 
