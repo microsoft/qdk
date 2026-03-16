@@ -1543,14 +1543,16 @@ dependencies = [
 
 [[package]]
 name = "ndarray"
-version = "0.15.6"
+version = "0.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adb12d4e967ec485a5f71c6311fe28158e9d6f4bc4a447b474184d0f91a8fa32"
+checksum = "520080814a7a6b4a6e9070823bb24b4531daac8c4627e08ba5de8c5ef2f2752d"
 dependencies = [
  "matrixmultiply",
  "num-complex",
  "num-integer",
  "num-traits",
+ "portable-atomic",
+ "portable-atomic-util",
  "rawpointer",
 ]
 
@@ -2462,8 +2464,8 @@ dependencies = [
 
 [[package]]
 name = "quantum-sparse-sim"
-version = "0.8.3"
-source = "git+https://github.com/qir-alliance/qir-runner?rev=8cd6fa698521ecf96d459f88254e53dd6e5d6877#8cd6fa698521ecf96d459f88254e53dd6e5d6877"
+version = "0.9.1"
+source = "git+https://github.com/qir-alliance/qir-runner?rev=818e686c04dfb061f9c566b1fa5c75abdc901fa3#818e686c04dfb061f9c566b1fa5c75abdc901fa3"
 dependencies = [
  "ndarray",
  "num-bigint",
