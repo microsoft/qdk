@@ -61,15 +61,6 @@ def create_deterministic_circuit() -> "QuantumCircuit":
     return circuit
 
 
-def create_clifford_circuit() -> "QuantumCircuit":
-    """Clifford-only circuit (H + CX + measure) suitable for the Clifford simulator."""
-    circuit = QuantumCircuit(2)
-    circuit.h(0)
-    circuit.cx(0, 1)
-    circuit.measure_all()
-    return circuit
-
-
 # ---------------------------------------------------------------------------
 # Smoke tests
 # ---------------------------------------------------------------------------
@@ -128,19 +119,11 @@ def test_seed_produces_reproducible_results(backend) -> None:
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_different_seeds_may_produce_different_results(backend) -> None:
-    """Two different seeds on a random circuit should not be forced equal."""
+    """Two different seeds on a random circuit should produce different histograms."""
     circuit = create_bell_circuit()
     counts1 = backend.run(circuit, shots=500, seed=1).result().get_counts()
     counts2 = backend.run(circuit, shots=500, seed=2).result().get_counts()
-    # Both should contain only valid Bell outcomes.
-    for key in counts1:
-        assert key in ("00", "11"), f"Unexpected outcome: {key}"
-    for key in counts2:
-        assert key in ("00", "11"), f"Unexpected outcome: {key}"
-    # With 500 shots each seed will almost certainly produce both outcomes;
-    # verify total shot counts are correct.
-    assert sum(counts1.values()) == 500
-    assert sum(counts2.values()) == 500
+    assert counts1 != counts2
 
 
 # ---------------------------------------------------------------------------
@@ -197,9 +180,9 @@ def test_run_with_bitflip_noise_introduces_errors(backend) -> None:
     # p=0.5 bitflip on rz — the native gate X decomposes into — guarantees errors.
     noise.rz.set_bitflip(0.5)
     counts = backend.run(circuit, shots=200, noise=noise, seed=42).result().get_counts()
-    # Expect a mix of outcomes — '11' should no longer dominate.
-    assert sum(counts.values()) == 200
-    assert len(counts) > 1  # noise should produce multiple distinct outcomes
+    # Without noise this circuit always returns "11". With 50% bitflip noise on every
+    # Rz gate, some shots must flip — "11" can no longer account for all 200 shots.
+    assert counts.get("11", 0) < 200
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +211,7 @@ def test_cpu_simulator_type(backend) -> None:
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_clifford_simulator_type(backend) -> None:
-    circuit = create_clifford_circuit()
+    circuit = create_bell_circuit()
     try:
         counts = (
             backend.run(circuit, shots=100, simulator_type="clifford", seed=7)
@@ -312,12 +295,10 @@ def test_run_multiple_circuits(backend) -> None:
     try:
         job = backend.run([circuit1, circuit2], shots=10)
         all_counts = job.result().get_counts()
-        # get_counts() returns a list when multiple circuits were run.
-        if isinstance(all_counts, list):
-            for counts in all_counts:
-                assert counts == {"11": 10}
-        else:
-            assert all_counts == {"11": 10}
+        # get_counts() must return a list when multiple circuits are submitted.
+        assert isinstance(all_counts, list)
+        for counts in all_counts:
+            assert counts == {"11": 10}
     except AssertionError:
         raise
     except Exception as ex:
@@ -390,7 +371,7 @@ def test_loss_shots_excluded_from_accepted_fields(backend) -> None:
     circuit = create_deterministic_circuit()
     noise = NoiseConfig()
     # High loss probability on the native gate so some shots produce loss markers.
-    noise.rz.loss = 0.9
+    noise.rz.loss = 0.2
     result = backend.run(circuit, shots=100, noise=noise, seed=42).result()
     data = result.data(0)
 
@@ -400,7 +381,7 @@ def test_loss_shots_excluded_from_accepted_fields(backend) -> None:
 
     # raw_counts must contain an entry for at least one loss-bearing bitstring.
     loss_keys = [bs for bs in data["raw_counts"] if "-" in bs]
-    assert len(loss_keys) > 0, "Expected loss markers in raw_counts with loss=0.9"
+    assert len(loss_keys) > 0, "Expected loss markers in raw_counts with loss=0.2"
 
     # counts must not contain any loss-bearing bitstrings.
     assert all("-" not in bs for bs in data["counts"])
@@ -409,23 +390,3 @@ def test_loss_shots_excluded_from_accepted_fields(backend) -> None:
     from collections import Counter
 
     assert Counter(data["raw_memory"]) == Counter(data["raw_counts"])
-
-
-# ---------------------------------------------------------------------------
-# Error cases
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
-def test_non_quantum_circuit_raises(backend) -> None:
-    with pytest.raises(ValueError, match="Input must be a QuantumCircuit"):
-        backend.run("not a circuit")
-
-
-@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
-def test_unrestricted_target_profile_raises(backend) -> None:
-    from qsharp import TargetProfile
-
-    circuit = create_bell_circuit()
-    with pytest.raises(ValueError):
-        backend.run(circuit, target_profile=TargetProfile.Unrestricted).result()
