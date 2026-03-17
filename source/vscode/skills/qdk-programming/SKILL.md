@@ -7,16 +7,17 @@ description: 'QDK (Quantum Development Kit) programming guide for Q#, OpenQASM, 
 
 Comprehensive guide for quantum programming with the Microsoft Quantum Development Kit (QDK). Covers three domains:
 
-| Domain | Reference | Use For |
-|--------|-----------|---------|
-| **Q#** | [qsharp.md](./qsharp.md) | Q# language syntax, types, quantum operations, standard library, algorithms, testing, project structure |
-| **OpenQASM** | [openqasm.md](./openqasm.md) | OpenQASM 2.0/3.0 syntax, standard gates, version differences, custom gates |
-| **Python API** | [python.md](./python.md) | Running Q#/OpenQASM from Python, resource estimation, circuit generation, noisy simulation, Azure Quantum, Qiskit/Cirq interop |
+| Domain         | Reference                    | Use For                                                                                                                        |
+| -------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Q#**         | [qsharp.md](./qsharp.md)     | Q# language syntax, types, quantum operations, standard library, algorithms, testing, project structure                        |
+| **OpenQASM**   | [openqasm.md](./openqasm.md) | OpenQASM 2.0/3.0 syntax, standard gates, version differences, custom gates                                                     |
+| **Python API** | [python.md](./python.md)     | Running Q#/OpenQASM from Python, resource estimation, circuit generation, noisy simulation, Azure Quantum, Qiskit/Cirq interop |
 
 ## Routing
 
 Read the appropriate reference file(s) based on the user's question:
 
+- **Learning quantum computing / practicing exercises** (katas, tutorials, structured learning path, "teach me Q#") → defer to the **quantum-tutor** skill instead of this one
 - **Writing Q# code** (syntax, algorithms, gates, tests, projects) → read [qsharp.md](./qsharp.md)
 - **Writing OpenQASM code** (QASM syntax, stdgates.inc, qelib1.inc) → read [openqasm.md](./openqasm.md)
 - **Running quantum programs from Python** (qsharp.eval, run, compile, estimate, circuit) → read [python.md](./python.md)

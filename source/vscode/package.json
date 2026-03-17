@@ -1061,6 +1061,14 @@
       },
       {
         "path": "./skills/qdk-programming/SKILL.md"
+      },
+      {
+        "path": "./skills/quantum-tutor/SKILL.md"
+      }
+    ],
+    "chatInstructions": [
+      {
+        "path": "./instructions/quantum-katas.instructions.md"
       }
     ]
   },

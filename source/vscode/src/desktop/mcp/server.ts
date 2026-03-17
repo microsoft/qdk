@@ -13,7 +13,51 @@ import {
   registerAppResource,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
+import { getCompiler, QscEventTarget } from "qsharp-lang";
+import {
+  getAllKatas,
+  getExerciseSources,
+  type Kata,
+  type Exercise,
+} from "qsharp-lang/katas-md";
 import { z } from "zod";
+
+type Compiler = ReturnType<typeof getCompiler>;
+
+let compiler: Compiler | undefined;
+
+function ensureCompiler(): Compiler {
+  if (!compiler) {
+    compiler = getCompiler();
+  }
+  return compiler;
+}
+
+async function findExercise(
+  kataId: string,
+  exerciseId: string,
+): Promise<{ kata: Kata; exercise: Exercise }> {
+  const katas = await getAllKatas();
+  const kata = katas.find((k) => k.id === kataId.trim());
+  if (!kata) {
+    throw new Error(`Kata not found: ${kataId}`);
+  }
+  // Exercise IDs in the content follow the convention kataId__name.
+  // Accept both the short form (e.g. "flip_qubit") and the full form
+  // (e.g. "getting_started__flip_qubit") so callers don't need to know
+  // the internal convention.
+  const trimmedId = exerciseId.trim();
+  const fullId = trimmedId.includes("__")
+    ? trimmedId
+    : `${kata.id}__${trimmedId}`;
+  const exercise = kata.sections.find(
+    (s): s is Exercise => s.type === "exercise" && s.id.trim() === fullId,
+  );
+  if (!exercise) {
+    throw new Error(`Exercise not found: ${exerciseId} in kata ${kataId}`);
+  }
+  return { kata, exercise };
+}
 
 export function createServer(): McpServer {
   const server = new McpServer({
@@ -41,7 +85,7 @@ export function createServer(): McpServer {
           .string()
           .describe(
             "JSON string representing a Circuit or CircuitGroup object, " +
-            "as returned by the Python qsharp.circuit().json() method.",
+              "as returned by the Python qsharp.circuit().json() method.",
           ),
       }),
       _meta: { ui: { resourceUri: circuitUri } },
@@ -122,6 +166,574 @@ export function createServer(): McpServer {
           { uri: circuitUri, mimeType: RESOURCE_MIME_TYPE, text: html },
         ],
       };
+    },
+  );
+
+  // --- listKatas tool ---
+
+  server.registerTool(
+    "listKatas",
+    {
+      title: "List Quantum Katas",
+      description:
+        "Browse available quantum computing tutorials (katas). " +
+        "Each kata covers a topic (gates, measurements, algorithms) " +
+        "with lessons and exercises. Use this to discover what content " +
+        "is available for learning.",
+      inputSchema: z.object({}),
+    },
+    async (): Promise<CallToolResult> => {
+      const katas = await getAllKatas();
+      const summary = katas.map((k) => ({
+        id: k.id,
+        title: k.title,
+        sectionCount: k.sections.length,
+        exerciseCount: k.sections.filter((s) => s.type === "exercise").length,
+      }));
+      return {
+        content: [{ type: "text", text: JSON.stringify(summary, null, 2) }],
+      };
+    },
+  );
+
+  // --- getKataExercises tool ---
+
+  server.registerTool(
+    "getKataExercises",
+    {
+      title: "Get Kata Exercises",
+      description:
+        "Get a lightweight list of exercises for one or more katas. " +
+        "Returns only exercise IDs and titles — no lesson content, " +
+        "descriptions, or code. Use this to enumerate exercises for " +
+        "workspace scaffolding. Accepts up to 5 kata IDs at once.",
+      inputSchema: z.object({
+        kataIds: z
+          .array(z.string())
+          .min(1)
+          .max(5)
+          .describe(
+            "One or more kata IDs to retrieve, as returned by listKatas. Max 5.",
+          ),
+      }),
+    },
+    async (args: { kataIds: string[] }): Promise<CallToolResult> => {
+      const katas = await getAllKatas();
+      const results = [];
+      const notFound: string[] = [];
+
+      for (const kataId of args.kataIds) {
+        const kata = katas.find((k) => k.id === kataId);
+        if (!kata) {
+          notFound.push(kataId);
+          continue;
+        }
+
+        const prefix = `${kata.id}__`;
+        const exercises = kata.sections
+          .filter((s) => s.type === "exercise")
+          .map((s) => ({
+            exerciseId: s.id.trim().startsWith(prefix)
+              ? s.id.trim().slice(prefix.length)
+              : s.id.trim(),
+            title: s.title,
+          }));
+
+        results.push({ id: kata.id, title: kata.title, exercises });
+      }
+
+      if (notFound.length > 0 && results.length === 0) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Katas not found: ${notFound.join(", ")}`,
+            },
+          ],
+        };
+      }
+
+      const response: Record<string, unknown> = { katas: results };
+      if (notFound.length > 0) {
+        response.notFound = notFound;
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(response, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  // --- getExerciseBriefing tool ---
+
+  server.registerTool(
+    "getExerciseBriefing",
+    {
+      title: "Get Exercise Briefing",
+      description:
+        "Get the prerequisite lesson content and exercise details for a " +
+        "single exercise. Returns only the lessons that appear between " +
+        "the previous exercise (or the start of the kata) and this exercise, " +
+        "pre-sliced and ready to teach. Use this in the teaching phase " +
+        "to present lesson material before asking the user to solve an exercise.",
+      inputSchema: z.object({
+        kataId: z.string().describe("The kata ID, e.g. 'single_qubit_gates'."),
+        exerciseId: z.string().describe("The exercise ID, e.g. 'flip_qubit'."),
+      }),
+    },
+    async (args: {
+      kataId: string;
+      exerciseId: string;
+    }): Promise<CallToolResult> => {
+      let kata: Kata;
+      let exercise: Exercise;
+      try {
+        ({ kata, exercise } = await findExercise(args.kataId, args.exerciseId));
+      } catch (e) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: (e as Error).message }],
+        };
+      }
+
+      const sections = kata.sections;
+      const targetIdx = sections.indexOf(exercise);
+
+      // Walk backward from the exercise to collect prerequisite lessons.
+      // Stop when we hit another exercise or the start of the array.
+      const prerequisiteLessons: {
+        id: string;
+        title: string;
+        items: unknown[];
+      }[] = [];
+      for (let i = targetIdx - 1; i >= 0; i--) {
+        const section = sections[i];
+        if (section.type === "lesson") {
+          const shortId = section.id.startsWith(`${kata.id}__`)
+            ? section.id.slice(kata.id.length + 2)
+            : section.id;
+          prerequisiteLessons.push({
+            id: shortId,
+            title: section.title,
+            items: section.items,
+          });
+        } else {
+          // Hit another exercise — stop collecting
+          break;
+        }
+      }
+      // Reverse so lessons appear in their original order
+      prerequisiteLessons.reverse();
+
+      // Compute exercise position
+      const exercises = sections.filter((s) => s.type === "exercise");
+      const exerciseIndex = exercises.indexOf(exercise) + 1; // 1-based
+      const totalExercises = exercises.length;
+
+      const shortExId = exercise.id.startsWith(`${kata.id}__`)
+        ? exercise.id.slice(kata.id.length + 2)
+        : exercise.id;
+
+      const result = {
+        exercise: {
+          id: shortExId,
+          title: exercise.title,
+          description: exercise.description,
+          placeholderCode: exercise.placeholderCode,
+        },
+        prerequisiteLessons,
+        exerciseIndex,
+        totalExercises,
+      };
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  // --- checkExerciseSolution tool ---
+
+  server.registerTool(
+    "checkExerciseSolution",
+    {
+      title: "Check Exercise Solution",
+      description:
+        "Verify a user's Q# solution against the exercise test harness. " +
+        "Reads the solution from the exercise folder on disk and updates " +
+        "progress.json automatically on success. " +
+        "Returns pass/fail with diagnostic messages and the user's code.",
+      inputSchema: z.object({
+        kataId: z.string().describe("The kata ID, e.g. 'single_qubit_gates'."),
+        exerciseId: z
+          .string()
+          .describe(
+            "The exercise ID as returned by getKataExercises, e.g. 'flip_qubit'.",
+          ),
+        workspaceRoot: z
+          .string()
+          .describe(
+            "Absolute path to the workspace root containing the quantum-katas folder. " +
+              "The tool reads the solution from the exercise folder and updates " +
+              "progress.json automatically on success.",
+          ),
+      }),
+    },
+    async (args: {
+      kataId: string;
+      exerciseId: string;
+      workspaceRoot: string;
+    }): Promise<CallToolResult> => {
+      let exercise: Exercise;
+      try {
+        ({ exercise } = await findExercise(args.kataId, args.exerciseId));
+      } catch (e) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: (e as Error).message }],
+        };
+      }
+
+      // Read progress.json to find the exercise folder
+      const baseDir = path.join(
+        path.resolve(args.workspaceRoot),
+        "quantum-katas",
+      );
+      const progressPath = path.join(baseDir, "progress.json");
+
+      let progress: {
+        level: string;
+        startedAt: string;
+        currentExercise: number;
+        exercises: {
+          sequence: number;
+          kataId: string;
+          exerciseId: string;
+          title: string;
+          folder: string;
+          status: string;
+          completedAt: string | null;
+        }[];
+      };
+      try {
+        const raw = await fs.readFile(progressPath, "utf-8");
+        progress = JSON.parse(raw);
+      } catch {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Could not read progress.json at ${progressPath}. Has createExerciseWorkspace been called?`,
+            },
+          ],
+        };
+      }
+
+      const trimmedExId = args.exerciseId.trim();
+      const progressEntry = progress.exercises.find(
+        (e) => e.kataId === args.kataId.trim() && e.exerciseId === trimmedExId,
+      );
+      if (!progressEntry) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Exercise ${args.exerciseId} not found in progress.json for kata ${args.kataId}.`,
+            },
+          ],
+        };
+      }
+
+      // Read the user's solution from the exercise folder
+      const solutionPath = path.join(
+        baseDir,
+        "exercises",
+        progressEntry.folder,
+        "solution.qs",
+      );
+      let userCode: string;
+      try {
+        userCode = await fs.readFile(solutionPath, "utf-8");
+      } catch {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Could not read solution file at ${solutionPath}.`,
+            },
+          ],
+        };
+      }
+
+      // Run the exercise check
+      const sources = await getExerciseSources(exercise);
+      const eventTarget = new QscEventTarget(true);
+
+      const passed = await ensureCompiler().checkExerciseSolution(
+        userCode,
+        sources,
+        eventTarget,
+      );
+
+      const results = eventTarget.getResults();
+      const messages: string[] = [];
+      for (const shot of results) {
+        for (const event of shot.events) {
+          if (event.type === "Message") {
+            messages.push(event.message);
+          }
+        }
+      }
+
+      // On success, update progress.json
+      if (passed) {
+        progressEntry.status = "completed";
+        progressEntry.completedAt = new Date().toISOString();
+
+        // Advance currentExercise to the next incomplete exercise
+        const nextIdx = progress.exercises.findIndex(
+          (e) => e.status === "not-started" || e.status === "in-progress",
+        );
+        progress.currentExercise =
+          nextIdx === -1 ? progress.exercises.length : nextIdx;
+
+        try {
+          await fs.writeFile(
+            progressPath,
+            JSON.stringify(progress, null, 2),
+            "utf-8",
+          );
+        } catch {
+          // Non-fatal: report the pass but note that progress wasn't saved
+          return {
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(
+                  {
+                    passed,
+                    messages,
+                    userCode,
+                    progressUpdated: false,
+                    warning:
+                      "Solution passed but progress.json could not be updated.",
+                  },
+                  null,
+                  2,
+                ),
+              },
+            ],
+          };
+        }
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(
+              { passed, messages, userCode, progressUpdated: passed },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    },
+  );
+
+  // --- getExerciseHint tool ---
+
+  server.registerTool(
+    "getExerciseHint",
+    {
+      title: "Get Exercise Hint",
+      description:
+        "Get the explained solution for an exercise to use as progressive hints. " +
+        "DO NOT reveal the entire solution at once. Break the content into " +
+        "incremental hints, sharing one step at a time. Only show the complete " +
+        "solution if the user explicitly asks for it.",
+      inputSchema: z.object({
+        kataId: z.string().describe("The kata ID, e.g. 'single_qubit_gates'."),
+        exerciseId: z
+          .string()
+          .describe(
+            "The exercise ID as returned by getKataExercises, e.g. 'flip_qubit'.",
+          ),
+      }),
+    },
+    async (args: {
+      kataId: string;
+      exerciseId: string;
+    }): Promise<CallToolResult> => {
+      let exercise: Exercise;
+      try {
+        ({ exercise } = await findExercise(args.kataId, args.exerciseId));
+      } catch (e) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: (e as Error).message }],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(exercise.explainedSolution, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  server.registerTool(
+    "createExerciseWorkspace",
+    {
+      title: "Create Exercise Workspace",
+      description:
+        "Creates the quantum-katas workspace folder structure on disk. " +
+        "Accepts a curated list of exercises and creates the directory layout, " +
+        "progress.json, and solution.qs files initialized from placeholder code.",
+      inputSchema: z.object({
+        workspaceRoot: z
+          .string()
+          .describe(
+            "Absolute path to the workspace root where the quantum-katas folder will be created.",
+          ),
+        level: z
+          .string()
+          .describe(
+            "The learning path level: beginner, intermediate, advanced, or custom.",
+          ),
+        exercises: z
+          .array(
+            z.object({
+              sequence: z
+                .number()
+                .describe(
+                  "One-based sequence number for the exercise. Used as the two-digit folder prefix.",
+                ),
+              kataId: z
+                .string()
+                .describe("The kata ID, e.g. 'single_qubit_gates'."),
+              exerciseId: z
+                .string()
+                .describe(
+                  "The exercise ID as returned by getKataExercises, e.g. 'flip_qubit'.",
+                ),
+              title: z.string().describe("Human-readable exercise title."),
+            }),
+          )
+          .describe("Ordered list of exercises to include in the workspace."),
+      }),
+    },
+    async (args: {
+      workspaceRoot: string;
+      level: string;
+      exercises: {
+        sequence: number;
+        kataId: string;
+        exerciseId: string;
+        title: string;
+      }[];
+    }): Promise<CallToolResult> => {
+      const baseDir = path.join(
+        path.resolve(args.workspaceRoot),
+        "quantum-katas",
+      );
+      const exercisesDir = path.join(baseDir, "exercises");
+
+      try {
+        await fs.mkdir(exercisesDir, { recursive: true });
+
+        const exerciseEntries = [];
+
+        for (const ex of args.exercises) {
+          let exercise: Exercise;
+          try {
+            ({ exercise } = await findExercise(ex.kataId, ex.exerciseId));
+          } catch (e) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: `Failed to find exercise ${ex.kataId}/${ex.exerciseId}: ${(e as Error).message}`,
+                },
+              ],
+            };
+          }
+
+          const nn = String(ex.sequence).padStart(2, "0");
+          const safeId = ex.exerciseId.trim().replace(/[^a-zA-Z0-9_-]/g, "_");
+          const folderName = `${nn}_${safeId}`;
+          const folderPath = path.join(exercisesDir, folderName);
+
+          await fs.mkdir(folderPath, { recursive: true });
+          await fs.writeFile(
+            path.join(folderPath, "solution.qs"),
+            exercise.placeholderCode,
+            "utf-8",
+          );
+
+          exerciseEntries.push({
+            sequence: ex.sequence,
+            kataId: ex.kataId,
+            exerciseId: ex.exerciseId,
+            title: ex.title,
+            folder: folderName,
+            status: "not-started",
+            completedAt: null,
+          });
+        }
+
+        const progress = {
+          level: args.level,
+          startedAt: new Date().toISOString(),
+          currentExercise: 0,
+          exercises: exerciseEntries,
+        };
+
+        await fs.writeFile(
+          path.join(baseDir, "progress.json"),
+          JSON.stringify(progress, null, 2),
+          "utf-8",
+        );
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Created workspace at ${baseDir} with ${exerciseEntries.length} exercises.`,
+            },
+          ],
+        };
+      } catch (e) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Failed to create workspace: ${(e as Error).message}`,
+            },
+          ],
+        };
+      }
     },
   );
 
