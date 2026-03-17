@@ -162,7 +162,7 @@
       "patterns": [
         {
           "name": "storage.type.qsharp",
-          "match": "\\b(Int|BigInt|Double|Bool|Qubit|Pauli|Result|Range|String|Unit|Ctl|Adj|is)\\b"
+          "match": "\\b(Int|BigInt|Double|Bool|Qubit|QMem|Pauli|Result|Range|String|Unit|Ctl|Adj|is)\\b"
         }
       ]
     },
