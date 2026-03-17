@@ -17,6 +17,7 @@ from ..jobs import QsSimJob, QsJobSet
 from .backend_base import BackendBase
 from .compilation import Compilation
 from .errors import Errors
+from .neutral_atom_target import NeutralAtomTarget
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +59,15 @@ def _bitstring_has_qubit_loss(bitstring: str) -> bool:
 class NeutralAtomBackend(BackendBase):
     """A Qiskit backend that simulates circuits using the NeutralAtomDevice pipeline.
 
-    Circuits are transpiled to OpenQASM 3, compiled to QIR via the Q# compiler,
-    then run through the NeutralAtomDevice compilation and simulation pipeline.
-    The device handles gate decomposition to native gate sets (Rz, SX, CZ),
-    single-qubit gate optimization, and qubit movement scheduling. An optional
-    noise model can be applied to model realistic device behavior.
+    Circuits are transpiled to OpenQASM 3 using the device's native gate set
+    (Rz, SX, CZ), compiled to QIR via the Q# compiler, then run through the
+    NeutralAtomDevice compilation and simulation pipeline.
+    The device handles single-qubit gate optimization and qubit movement scheduling.
+    An optional noise model can be applied to model realistic device behavior.
+
+    The native gate set target ensures Qiskit's transpiler decomposes all non-native
+    gates before simulation, so noise configured on native gates (``noise.rz``,
+    ``noise.sx``, ``noise.cz``, ``noise.mresetz``) behaves as expected.
 
     The simulator backend (Clifford, CPU full-state, or GPU full-state) is
     selected automatically unless overridden via the ``simulator_type`` option.
@@ -108,10 +113,11 @@ class NeutralAtomBackend(BackendBase):
                 for compilation and simulation. A default-configured device is created
                 automatically if not provided. Pass a custom device to control the
                 qubit layout (column count, zone dimensions, etc.).
-            target (Target): Qiskit transpiler target. Derived from ``target_profile``
-                if not provided.
+            target (Target): Qiskit transpiler target. Defaults to the
+                NeutralAtomDevice native gate set ``{rz, sx, cz, measure, reset}``.
+                Override only if you need a custom decomposition strategy.
             qiskit_pass_options (Dict): Options forwarded to Qiskit pre-transpilation
-                passes (e.g. barrier/delay removal).
+                passes.
             transpile_options (Dict): Options forwarded to ``qiskit.transpile()``.
             qasm_export_options (Dict): Options forwarded to the Qiskit QASM3 exporter.
             skip_transpilation (bool): Skip Qiskit transpilation. Useful when the
@@ -150,6 +156,15 @@ class NeutralAtomBackend(BackendBase):
 
             self._device = NeutralAtomDevice()
         return self._device
+
+    def _build_target(self) -> Target:
+        """Return a target restricted to the NeutralAtomDevice native gate set.
+
+        Limiting the target to ``{rz, sx, cz, measure, reset}`` ensures Qiskit's
+        transpiler decomposes all non-native gates before QASM3 export, so the
+        circuit that reaches the simulator already uses only native gates.
+        """
+        return NeutralAtomTarget.build_target(num_qubits=None)
 
     @classmethod
     def _default_options(cls):
