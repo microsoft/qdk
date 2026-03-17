@@ -13,6 +13,7 @@ from ._application import Application
 from ._architecture import Architecture
 from ._qre import (
     _estimate_parallel,
+    _estimate_with_graph,
     _EstimationCollection,
     Trace,
     FactoryResult,
@@ -139,6 +140,101 @@ def estimate(
     table.stats.num_isas = num_isas
     table.stats.total_jobs = num_traces * num_isas
     table.stats.successful_estimates = successful
+    table.stats.pareto_results = len(collection)
+
+    return table
+
+
+def estimate_with_graph(
+    application: Application,
+    architecture: Architecture,
+    isa_query: ISAQuery,
+    trace_query: Optional[TraceQuery] = None,
+    *,
+    max_error: float = 1.0,
+    post_process: bool = False,
+    name: Optional[str] = None,
+) -> EstimationTable:
+    """
+    Estimate the resource requirements for a given application instance and
+    architecture using a graph-based exploration of ISA combinations.
+
+    Unlike `estimate`, which enumerates all ISAs upfront and evaluates every
+    trace × ISA combination independently, this function populates a provenance
+    graph from the ISA query and builds a Pareto index over it. The graph-based
+    approach can prune dominated ISA combinations early, reducing the number of
+    estimations that need to be performed.
+
+    The application instance might return multiple traces.  Each of the traces
+    is transformed by the trace query, which applies several trace transforms in
+    sequence.  Each transform may return multiple traces.  The collection only
+    contains the results that are optimal with respect to the total number of
+    qubits and the total runtime.
+
+    Note:
+        The ``post_process`` parameter is accepted for API compatibility with
+        `estimate` but must be ``False`` for now; passing ``True`` will raise an
+        ``AssertionError``.
+
+    Args:
+        application (Application): The quantum application to be estimated.
+        architecture (Architecture): The target quantum architecture.
+        isa_query (ISAQuery): The ISA query used to populate the provenance
+            graph from the architecture.
+        trace_query (TraceQuery): The trace query to enumerate traces from the
+            application.
+        max_error (float): The maximum allowed error for the estimation
+            results.
+        post_process (bool): Must be False.  Post-processing is not supported
+            in the graph-based estimation path yet.
+        name (Optional[str]): An optional name for the estimation.  If given,
+            this will be added as a first column to the results table for all
+            entries.
+
+    Returns:
+        EstimationTable: A table containing the optimal estimation results.
+    """
+
+    app_ctx = application.context()
+    arch_ctx = architecture.context()
+
+    if trace_query is None:
+        trace_query = PSSPC.q() * LatticeSurgery.q()
+
+    assert not post_process
+
+    isa_query.populate(arch_ctx)
+    arch_ctx._provenance.build_pareto_index()
+
+    traces = list(trace_query.enumerate(app_ctx))
+
+    collection = _estimate_with_graph(
+        cast(list[Trace], traces), arch_ctx._provenance, max_error
+    )
+
+    # Post-process the results and add them to a results table
+    table = EstimationTable()
+
+    if name is not None:
+        table.insert_column(0, "name", lambda entry: name)
+
+    for result in collection:
+        entry = EstimationTableEntry(
+            qubits=result.qubits,
+            runtime=result.runtime,
+            error=result.error,
+            source=InstructionSource.from_isa(arch_ctx, result.isa),
+            factories=result.factories.copy(),
+            properties=result.properties.copy(),
+        )
+
+        table.append(entry)
+
+    # Fill in the stats for this estimation run
+    table.stats.num_traces = len(traces)
+    table.stats.num_isas = arch_ctx._provenance.total_isa_count()
+    table.stats.total_jobs = collection.total_jobs
+    table.stats.successful_estimates = collection.successful_estimates
     table.stats.pareto_results = len(collection)
 
     return table

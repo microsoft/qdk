@@ -12,6 +12,7 @@ from .._native import (
     Constraint,
     ConstraintBound,
     _estimate_parallel,
+    _estimate_with_graph,
     _EstimationCollection,
     EstimationResult,
     FactoryResult,

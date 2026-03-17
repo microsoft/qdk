@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Generator
 
 from ._architecture import _Context
+from ._enumeration import _enumerate_instances
 from ._qre import ISA
 
 
@@ -36,6 +37,29 @@ class ISAQuery(ABC):
             ISA: A possible ISA that can be generated from this node.
         """
         pass
+
+    def populate(self, ctx: _Context) -> int:
+        """
+        Populates the provenance graph with instructions from this node.
+
+        Unlike `enumerate`, this does not yield ISA objects.  Each transform
+        queries the graph for Pareto-optimal instructions matching its
+        requirements, and adds produced instructions directly to the graph.
+
+        Args:
+            ctx (_Context): The enumeration context whose provenance graph
+                will be populated.
+
+        Returns:
+            int: The starting node index of the instructions contributed by
+                this subtree.  Used by consumers to scope graph queries to only
+                see their source's nodes.
+        """
+        # Default implementation: consume enumerate for its side effects
+        start = ctx._provenance.raw_node_count()
+        for _ in self.enumerate(ctx):
+            pass
+        return start
 
     def __add__(self, other: ISAQuery) -> _SumNode:
         """
@@ -146,6 +170,14 @@ class RootNode(ISAQuery):
         """
         yield ctx._isa
 
+    def populate(self, ctx: _Context) -> int:
+        """Architecture ISA is already in the graph from ``_Context.__init__``.
+
+        Returns:
+            int: 1, since architecture nodes start at index 1.
+        """
+        return 1
+
 
 # Singleton instance for convenience
 ISA_ROOT = RootNode()
@@ -184,6 +216,31 @@ class _ComponentQuery(ISAQuery):
         for isa in self.source.enumerate(ctx):
             yield from self.component.enumerate_isas(isa, ctx, **self.kwargs)
 
+    def populate(self, ctx: _Context) -> int:
+        """
+        Populates the graph by querying matching instructions.
+
+        Runs the source first to ensure dependency instructions are in
+        the graph, then queries the graph for all instructions matching
+        this component's requirements within the source's node range.
+        For each matching ISA × each hyperparameter instance, calls
+        ``provided_isa`` to add new instructions to the graph.
+
+        Returns:
+            int: The starting node index of this component's own additions.
+        """
+        source_start = self.source.populate(ctx)
+        impl_isas = ctx._provenance.query_satisfying(
+            self.component.required_isa(), min_node_idx=source_start
+        )
+        own_start = ctx._provenance.raw_node_count()
+        for instance in _enumerate_instances(self.component, **self.kwargs):
+            ctx._transforms[id(instance)] = instance
+            for impl_isa in impl_isas:
+                for _ in instance.provided_isa(impl_isa, ctx):
+                    pass
+        return own_start
+
 
 @dataclass
 class _ProductNode(ISAQuery):
@@ -212,6 +269,17 @@ class _ProductNode(ISAQuery):
             for isa_tuple in itertools.product(*source_generators)
         )
 
+    def populate(self, ctx: _Context) -> int:
+        """Populates the graph from each source sequentially (no cross product).
+
+        Returns:
+            int: The starting node index before any source populated.
+        """
+        first = ctx._provenance.raw_node_count()
+        for source in self.sources:
+            source.populate(ctx)
+        return first
+
 
 @dataclass
 class _SumNode(ISAQuery):
@@ -236,6 +304,17 @@ class _SumNode(ISAQuery):
         """
         for source in self.sources:
             yield from source.enumerate(ctx)
+
+    def populate(self, ctx: _Context) -> int:
+        """Populates the graph from each source sequentially.
+
+        Returns:
+            int: The starting node index before any source populated.
+        """
+        first = ctx._provenance.raw_node_count()
+        for source in self.sources:
+            source.populate(ctx)
+        return first
 
 
 @dataclass
@@ -267,6 +346,14 @@ class ISARefNode(ISAQuery):
         if self.name not in ctx._bindings:
             raise ValueError(f"Undefined component reference: '{self.name}'")
         yield ctx._bindings[self.name]
+
+    def populate(self, ctx: _Context) -> int:
+        """Instructions already in graph from the bound component.
+
+        Returns:
+            int: 1, since bound component nodes start at index 1.
+        """
+        return 1
 
 
 @dataclass
@@ -329,3 +416,13 @@ class _BindingNode(ISAQuery):
             # Add binding to context and enumerate child node
             new_ctx = ctx._with_binding(self.name, isa)
             yield from self.node.enumerate(new_ctx)
+
+    def populate(self, ctx: _Context) -> int:
+        """Populates the graph from both the component and the child node.
+
+        Returns:
+            int: The starting node index of the component's additions.
+        """
+        comp_start = self.component.populate(ctx)
+        self.node.populate(ctx)
+        return comp_start

@@ -37,6 +37,7 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(block_linear_function, m)?)?;
     m.add_function(wrap_pyfunction!(generic_function, m)?)?;
     m.add_function(wrap_pyfunction!(estimate_parallel, m)?)?;
+    m.add_function(wrap_pyfunction!(estimate_with_graph, m)?)?;
     m.add_function(wrap_pyfunction!(binom_ppf, m)?)?;
     m.add_function(wrap_pyfunction!(float_to_bits, m)?)?;
     m.add_function(wrap_pyfunction!(float_from_bits, m)?)?;
@@ -619,6 +620,59 @@ impl ProvenanceGraph {
             isa.add_node(id, idx);
         }
         Ok(ISA(isa))
+    }
+
+    /// Builds the per-instruction-ID Pareto index.
+    ///
+    /// Must be called after all nodes have been added. For each instruction
+    /// ID, retains only the Pareto-optimal nodes w.r.t. (space, time,
+    /// error rate) evaluated at arity 1.
+    pub fn build_pareto_index(&self) -> PyResult<()> {
+        self.0
+            .write()
+            .map_err(poisoned_lock_err)?
+            .build_pareto_index();
+        Ok(())
+    }
+
+    /// Returns the raw node count (including the sentinel at index 0).
+    pub fn raw_node_count(&self) -> PyResult<usize> {
+        Ok(self.0.read().map_err(poisoned_lock_err)?.raw_node_count())
+    }
+
+    /// Computes an upper bound on the possible ISAs that can be formed from
+    /// this graph.
+    ///
+    /// Must be called after `build_pareto_index`.
+    pub fn total_isa_count(&self) -> PyResult<usize> {
+        Ok(self.0.read().map_err(poisoned_lock_err)?.total_isa_count())
+    }
+
+    /// Returns ISAs formed from Pareto-optimal graph nodes satisfying the
+    /// given requirements.
+    ///
+    /// For each constraint in `requirements`, selects matching Pareto-optimal
+    /// nodes. Returns the Cartesian product of per-constraint matches,
+    /// augmented with one representative node per unconstrained instruction
+    /// ID.
+    ///
+    /// When ``min_node_idx`` is provided, only Pareto nodes at or above
+    /// that index are considered for constrained groups (useful for scoping
+    /// queries to a subset of the graph).
+    ///
+    /// Must be called after `build_pareto_index`.
+    #[pyo3(signature = (requirements, min_node_idx=None))]
+    pub fn query_satisfying(
+        &self,
+        requirements: &ISARequirements,
+        min_node_idx: Option<usize>,
+    ) -> PyResult<Vec<ISA>> {
+        let graph = self.0.read().map_err(poisoned_lock_err)?;
+        Ok(graph
+            .query_satisfying(&self.0, &requirements.0, min_node_idx)
+            .into_iter()
+            .map(ISA)
+            .collect())
     }
 }
 
@@ -1275,36 +1329,37 @@ pub fn estimate_parallel(
     EstimationCollection(collection)
 }
 
+#[allow(clippy::needless_pass_by_value)]
+#[pyfunction(name = "_estimate_with_graph", signature = (traces, graph, max_error = 1.0))]
+pub fn estimate_with_graph(
+    py: Python<'_>,
+    traces: Vec<PyRef<'_, Trace>>,
+    graph: &ProvenanceGraph,
+    max_error: f64,
+) -> PyResult<EstimationCollection> {
+    let traces: Vec<_> = traces.iter().map(|t| &t.0).collect();
+
+    let collection = release_gil(py, || {
+        qre::estimate_with_graph(&traces, &graph.0, Some(max_error))
+    });
+    Ok(EstimationCollection(collection))
+}
+
 /// Releases the GIL for the duration of the closure `f`, allowing other
-/// threads to acquire it.  A RAII guard ensures the thread state is restored
-/// even if `f` panics.
-///
-/// # Safety
+/// threads to acquire it.  Delegates to `py.detach()` so that pyo3's internal
+/// attach-count is properly reset; this ensures that any `Python::attach`
+/// calls inside `f` (e.g. from `generic_function` callbacks) will correctly
+/// call `PyGILState_Ensure` to re-acquire the GIL.
 ///
 /// The caller must ensure that no `Bound<'_, _>` or `Python<'_>` references
 /// are used inside `f`.  GIL-independent `Py<T>` handles are fine because
 /// they re-acquire the GIL via `Python::attach` when needed.
-///
-/// We cannot use `py.allow_threads` here because the captured data
-/// (`&qre::ISA`) transitively contains `Arc<dyn Fn + Send + Sync>` whose
-/// trait object does not carry the `Ungil` auto-trait bound.
-fn release_gil<F, R>(_py: Python<'_>, f: F) -> R
+fn release_gil<F, R>(py: Python<'_>, f: F) -> R
 where
-    F: FnOnce() -> R,
+    F: FnOnce() -> R + Send,
+    R: Send,
 {
-    struct RestoreGuard(*mut pyo3::ffi::PyThreadState);
-
-    impl Drop for RestoreGuard {
-        fn drop(&mut self) {
-            // SAFETY: called on the same thread that saved the state.
-            unsafe { pyo3::ffi::PyEval_RestoreThread(self.0) };
-        }
-    }
-
-    // SAFETY: we hold the GIL (proven by the `_py` token) and release it
-    // here so that worker threads can acquire it for Python callbacks.
-    let _guard = RestoreGuard(unsafe { pyo3::ffi::PyEval_SaveThread() });
-    f()
+    py.detach(f)
 }
 
 #[pyfunction(name = "_binom_ppf")]
