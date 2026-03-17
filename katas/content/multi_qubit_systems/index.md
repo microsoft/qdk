@@ -355,19 +355,19 @@ Array elements are indexed starting with 0, the first array element corresponds 
 Entangled quantum states can be manipulated using single-qubit gates. For example, each state in the Bell basis is entangled and can be transformed into another Bell state through the application of single-qubit gates. In this lesson, you'll learn how to do that (and you'll learn more about applying single-qubit gates to multi-qubit states in the next kata).
 
 @[exercise]({
-    "id": "multi_qubit_systems__bell_state_change_1 ",
+    "id": "multi_qubit_systems__bell_state_change_1",
     "title": "Bell State Change 1",
     "path": "./bell_state_change_1/"
 })
 
 @[exercise]({
-    "id": "multi_qubit_systems__bell_state_change_2 ",
+    "id": "multi_qubit_systems__bell_state_change_2",
     "title": "Bell State Change 2",
     "path": "./bell_state_change_2/"
 })
 
 @[exercise]({
-    "id": "multi_qubit_systems__bell_state_change_3 ",
+    "id": "multi_qubit_systems__bell_state_change_3",
     "title": "Bell State Change 3",
     "path": "./bell_state_change_3/"
 })
