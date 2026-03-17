@@ -1002,6 +1002,18 @@ class _EstimationCollection:
         """
         ...
 
+    @property
+    def all_summaries(self) -> list[tuple[int, int, int, int]]:
+        """
+        Returns lightweight summaries of ALL successful estimates as a list
+        of (trace_index, isa_index, qubits, runtime) tuples.
+
+        Returns:
+            list[tuple[int, int, int, int]]: List of (trace_index, isa_index,
+                qubits, runtime) for every successful estimation.
+        """
+        ...
+
 class FactoryResult:
     """
     Represents the result of a factory used in resource estimation.

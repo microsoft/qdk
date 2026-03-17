@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import cast, Optional, Callable, Any
 
@@ -79,33 +78,67 @@ def estimate(
 
     if post_process:
         # Enumerate traces with their parameters so we can post-process later
-        params_and_traces = list(trace_query.enumerate(app_ctx, track_parameters=True))
+        params_and_traces = cast(
+            list[tuple[Any, Trace]],
+            list(trace_query.enumerate(app_ctx, track_parameters=True)),
+        )
         isas = list(isa_query.enumerate(arch_ctx))
 
         num_traces = len(params_and_traces)
         num_isas = len(isas)
 
-        # Estimate all trace × ISA combinations using Python threads
-        collection = _EstimationCollection()
+        # Phase 1: Run all estimates in Rust (parallel, fast).
+        traces_only = [trace for _, trace in params_and_traces]
+        collection = _estimate_parallel(cast(list[Trace], traces_only), isas, max_error)
+        successful = collection.successful_estimates
+        summaries = collection.all_summaries  # (trace_idx, isa_idx, qubits, runtime)
 
-        def _estimate_one(params, trace, isa):
-            result = trace.estimate(isa, max_error)
+        # Phase 2: Learn per-trace runtime multiplier and qubit multiplier from
+        # one sample each: if post_process changes runtime or qubit count it
+        # will affect the Pareto optimality, but the changes depend only on the
+        # trace, not on the ISA.
+        trace_multipliers: dict[int, tuple[float, float]] = {}
+        trace_sample_isa: dict[int, int] = {}
+        for t_idx, i_idx, _q, r in summaries:
+            if t_idx not in trace_sample_isa:
+                trace_sample_isa[t_idx] = i_idx
+        for t_idx, i_idx in trace_sample_isa.items():
+            params, trace = params_and_traces[t_idx]
+            sample = trace.estimate(isas[i_idx], max_error)
+            if sample is not None:
+                pre_q = sample.qubits
+                pre_r = sample.runtime
+                pp = app_ctx.application.post_process(params, sample)
+                if pp is not None and pre_r > 0 and pre_q > 0:
+                    trace_multipliers[t_idx] = (pp.qubits / pre_q, pp.runtime / pre_r)
+
+        # Phase 3: Estimate post-pp values and filter to Pareto candidates.
+        estimated_pp: list[tuple[int, int, int, int]] = []  # (t, i, q, est_r)
+        for t_idx, i_idx, q, r in summaries:
+            mult_q, mult_r = trace_multipliers.get(t_idx, (0.0, 0.0))
+            est_q = int(q * mult_q) if mult_q > 0 else q
+            est_r = int(r * mult_r) if mult_r > 0 else r
+            estimated_pp.append((t_idx, i_idx, est_q, est_r))
+
+        # Build approximate post-pp Pareto frontier to identify candidates.
+        estimated_pp.sort(key=lambda x: (x[2], x[3]))  # sort by qubits, then runtime
+        approx_pareto: list[tuple[int, int, int, int]] = []
+        min_r = float("inf")
+        for item in estimated_pp:
+            if item[3] < min_r:
+                approx_pareto.append(item)
+                min_r = item[3]
+
+        # Phase 4: Re-estimate and post-process only the Pareto candidates.
+        pp_collection = _EstimationCollection()
+        for t_idx, i_idx, _q, _r in approx_pareto:
+            params, trace = params_and_traces[t_idx]
+            result = trace.estimate(isas[i_idx], max_error)
             if result is not None:
-                result = app_ctx.application.post_process(params, result)
-            return result
-
-        successful = 0
-        with ThreadPoolExecutor() as executor:
-            futures = [
-                executor.submit(_estimate_one, params, trace, isa)
-                for params, trace in cast(list[tuple[Any, Trace]], params_and_traces)
-                for isa in isas
-            ]
-            for future in futures:
-                result = future.result()
-                if result is not None:
-                    successful += 1
-                    collection.insert(result)
+                pp_result = app_ctx.application.post_process(params, result)
+                if pp_result is not None:
+                    pp_collection.insert(pp_result)
+        collection = pp_collection
     else:
         traces = list(trace_query.enumerate(app_ctx))
         isas = list(isa_query.enumerate(arch_ctx))

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Error, EstimationCollection, EstimationResult, FactoryResult, ISA, Instruction, LockedISA,
-    ProvenanceGraph,
+    ProvenanceGraph, ResultSummary,
     property_keys::{PHYSICAL_COMPUTE_QUBITS, PHYSICAL_FACTORY_QUBITS, PHYSICAL_MEMORY_QUBITS},
 };
 
@@ -722,7 +722,7 @@ pub fn estimate_parallel<'a>(
 
     // Shared atomic counter acts as a lock-free work queue.  Workers call
     // fetch_add to claim the next job index.
-    let next_job = std::sync::atomic::AtomicUsize::new(0);
+    let next_job = AtomicUsize::new(0);
 
     let mut collection = EstimationCollection::new();
     collection.set_total_jobs(total_jobs);
@@ -757,6 +757,8 @@ pub fn estimate_parallel<'a>(
                     if let Ok(mut estimation) = traces[trace_idx].estimate(isas[isa_idx], max_error)
                     {
                         estimation.set_isa_index(isa_idx);
+                        estimation.set_trace_index(trace_idx);
+
                         local_results.push(estimation);
                     }
                 }
@@ -771,6 +773,14 @@ pub fn estimate_parallel<'a>(
         // Collect results from all workers into the shared collection.
         let mut successful = 0;
         for local_results in rx {
+            for result in &local_results {
+                collection.push_summary(ResultSummary {
+                    trace_index: result.trace_index().unwrap_or(0),
+                    isa_index: result.isa_index().unwrap_or(0),
+                    qubits: result.qubits(),
+                    runtime: result.runtime(),
+                });
+            }
             successful += local_results.len();
             collection.extend(local_results.into_iter());
         }
@@ -1002,6 +1012,10 @@ pub fn estimate_with_graph(
 
                     if let Ok(mut result) = traces[*trace_idx].estimate(&isa, Some(max_error)) {
                         result.set_isa(isa);
+                        // TODO: There is no natural ISA index when creating ISAs on the fly like this
+                        // result.set_isa_index(isa_idx);
+                        result.set_trace_index(*trace_idx);
+
                         local_results.push(result);
                         record_success(combination, &pruning_witnesses[*trace_idx]);
                     }
@@ -1013,6 +1027,16 @@ pub fn estimate_with_graph(
 
         let mut successful = 0;
         for local_results in rx {
+            for result in &local_results {
+                collection.push_summary(ResultSummary {
+                    trace_index: result.trace_index().unwrap_or(0),
+                    // TODO: This will always be 0 because we are not setting
+                    // the ISA index yet.
+                    isa_index: result.isa_index().unwrap_or(0),
+                    qubits: result.qubits(),
+                    runtime: result.runtime(),
+                });
+            }
             successful += local_results.len();
             collection.extend(local_results.into_iter());
         }
