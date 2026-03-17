@@ -401,7 +401,8 @@ export async function buildCircuitApp() {
   // in the JS/CSS being interpreted by String.prototype.replace().
   const html = template.replace(
     "</head>",
-    () => `<style>${css}</style>\n<script type="module">${js}</script>\n</head>`,
+    () =>
+      `<style>${css}</style>\n<script type="module">${js}</script>\n</head>`,
   );
 
   const outDir = join(thisDir, "out", "desktop", "mcp");

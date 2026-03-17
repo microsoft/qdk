@@ -51,17 +51,17 @@ counter += 1;                      // Mutation
 
 ### Primitive Types
 
-| Type | Examples | Notes |
-|------|----------|-------|
-| `Int` | `42`, `0xFF`, `0b1010`, `0o52` | 64-bit signed |
-| `BigInt` | `42L`, `0xFFL` | Arbitrary precision, `L` suffix |
-| `Double` | `3.14`, `1.0e-3` | 64-bit floating point |
-| `Bool` | `true`, `false` | |
-| `String` | `"hello"`, `$"x={x}"` | String interpolation with `$` |
-| `Result` | `Zero`, `One` | Measurement outcome |
-| `Pauli` | `PauliI`, `PauliX`, `PauliY`, `PauliZ` | Pauli basis |
-| `Range` | `1..10`, `0..2..8`, `10..-1..0` | start..step..end |
-| `Unit` | `()` | No value |
+| Type     | Examples                               | Notes                           |
+| -------- | -------------------------------------- | ------------------------------- |
+| `Int`    | `42`, `0xFF`, `0b1010`, `0o52`         | 64-bit signed                   |
+| `BigInt` | `42L`, `0xFFL`                         | Arbitrary precision, `L` suffix |
+| `Double` | `3.14`, `1.0e-3`                       | 64-bit floating point           |
+| `Bool`   | `true`, `false`                        |                                 |
+| `String` | `"hello"`, `$"x={x}"`                  | String interpolation with `$`   |
+| `Result` | `Zero`, `One`                          | Measurement outcome             |
+| `Pauli`  | `PauliI`, `PauliX`, `PauliY`, `PauliZ` | Pauli basis                     |
+| `Range`  | `1..10`, `0..2..8`, `10..-1..0`        | start..step..end                |
+| `Unit`   | `()`                                   | No value                        |
 
 ### Aggregate Types
 
@@ -226,18 +226,18 @@ ApplyControlledOnInt(3, X, [c1, c2], target);
 
 **Always call `qsharpGetLibraryDescriptions`** for authoritative signatures. Key namespaces:
 
-| Namespace | Purpose | Key Items |
-|-----------|---------|-----------|
-| `Std.Arrays` | Array ops | `Length`, `Mapped`, `Fold`, `Zipped`, `Enumerated`, `Reversed`, `Sorted`, `Head`, `Tail`, `Rest`, `Most`, `Chunks`, `All`, `Any` |
-| `Std.Math` | Math | `PI()`, `E()`, `Sin`, `Cos`, `Sqrt`, `Log`, `Exp`, `AbsD`, `AbsI`, `Min`, `Max`, `BitSizeI`, `GreatestCommonDivisorI` |
-| `Std.Convert` | Type conversion | `IntAsDouble`, `IntAsBigInt`, `BoolArrayAsInt`, `IntAsBoolArray`, `ResultAsBool` |
-| `Std.Diagnostics` | Debug/test | `Message`, `DumpMachine`, `DumpRegister`, `Fact`, `CheckZero`, `CheckOperationsAreEqual` |
-| `Std.Measurement` | Measurement | `MResetZ`, `MResetEachZ`, `MeasureAllZ`, `MeasureEachZ` |
-| `Std.Canon` | Patterns | `ApplyToEach`, `ApplyToEachA`, `ApplyToEachCA` |
-| `Std.Random` | RNG | `DrawRandomInt`, `DrawRandomDouble`, `DrawRandomBool` |
-| `Std.StatePreparation` | State prep | `PreparePureStateD`, `PrepareUniformSuperposition` |
-| `Std.Arithmetic` | Quantum arith | `IncByI`, `IncByLE`, `AddLE`, `ReflectAboutInteger` |
-| `Std.ResourceEstimation` | RE hints | `AccountForEstimates`, `BeginEstimateCaching`, `AuxQubitCount` |
+| Namespace                | Purpose         | Key Items                                                                                                                        |
+| ------------------------ | --------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `Std.Arrays`             | Array ops       | `Length`, `Mapped`, `Fold`, `Zipped`, `Enumerated`, `Reversed`, `Sorted`, `Head`, `Tail`, `Rest`, `Most`, `Chunks`, `All`, `Any` |
+| `Std.Math`               | Math            | `PI()`, `E()`, `Sin`, `Cos`, `Sqrt`, `Log`, `Exp`, `AbsD`, `AbsI`, `Min`, `Max`, `BitSizeI`, `GreatestCommonDivisorI`            |
+| `Std.Convert`            | Type conversion | `IntAsDouble`, `IntAsBigInt`, `BoolArrayAsInt`, `IntAsBoolArray`, `ResultAsBool`                                                 |
+| `Std.Diagnostics`        | Debug/test      | `Message`, `DumpMachine`, `DumpRegister`, `Fact`, `CheckZero`, `CheckOperationsAreEqual`                                         |
+| `Std.Measurement`        | Measurement     | `MResetZ`, `MResetEachZ`, `MeasureAllZ`, `MeasureEachZ`                                                                          |
+| `Std.Canon`              | Patterns        | `ApplyToEach`, `ApplyToEachA`, `ApplyToEachCA`                                                                                   |
+| `Std.Random`             | RNG             | `DrawRandomInt`, `DrawRandomDouble`, `DrawRandomBool`                                                                            |
+| `Std.StatePreparation`   | State prep      | `PreparePureStateD`, `PrepareUniformSuperposition`                                                                               |
+| `Std.Arithmetic`         | Quantum arith   | `IncByI`, `IncByLE`, `AddLE`, `ReflectAboutInteger`                                                                              |
+| `Std.ResourceEstimation` | RE hints        | `AccountForEstimates`, `BeginEstimateCaching`, `AuxQubitCount`                                                                   |
 
 ## Algorithm Patterns
 
@@ -346,11 +346,13 @@ project_root/
 ```
 
 Minimal `qsharp.json`:
+
 ```json
 {}
 ```
 
 Cross-file imports:
+
 ```qsharp
 // In Tests.qs — import from Helpers.qs
 import Helpers.MyOperation;
@@ -384,12 +386,12 @@ Set in `qsharp.json` to constrain operations for specific hardware:
 { "profile": "adaptive_ri" }
 ```
 
-| Profile | Description |
-|---------|------------|
-| `unrestricted` | Full simulation (default) |
-| `adaptive_ri` | Mid-circuit measurement + classical feed-forward |
+| Profile        | Description                                                                    |
+| -------------- | ------------------------------------------------------------------------------ |
+| `unrestricted` | Full simulation (default)                                                      |
+| `adaptive_ri`  | Mid-circuit measurement + classical feed-forward                               |
 | `adaptive_rif` | Adds floating-point computation; required for `CircuitGenerationMethod.Static` |
-| `base` | No mid-circuit measurement, no classical branching |
+| `base`         | No mid-circuit measurement, no classical branching                             |
 
 ## Jupyter Notebook Integration
 

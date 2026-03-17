@@ -28,24 +28,24 @@ Always start with the version declaration, then include the standard gates.
 
 ### OpenQASM 3.0 — `stdgates.inc`
 
-| Gate | Signature | Description |
-|------|-----------|-------------|
-| `p` | `p(λ) q` | Phase gate |
-| `x`, `y`, `z` | `x q` | Pauli gates |
-| `h` | `h q` | Hadamard |
-| `s`, `sdg` | `s q` | S and S-dagger |
-| `t`, `tdg` | `t q` | T and T-dagger |
-| `sx` | `sx q` | √X gate |
-| `rx`, `ry`, `rz` | `rx(θ) q` | Rotation gates |
-| `cx` | `cx c, t` | CNOT |
-| `cy`, `cz` | `cy c, t` | Controlled-Y/Z |
-| `cp` | `cp(λ) c, t` | Controlled phase |
-| `crx`, `cry`, `crz` | `crx(θ) c, t` | Controlled rotations |
-| `ch` | `ch c, t` | Controlled Hadamard |
-| `swap` | `swap a, b` | SWAP |
-| `ccx` | `ccx c1, c2, t` | Toffoli |
-| `cswap` | `cswap c, a, b` | Fredkin |
-| `cu` | `cu(θ,φ,λ,γ) c, t` | Controlled-U |
+| Gate                | Signature          | Description          |
+| ------------------- | ------------------ | -------------------- |
+| `p`                 | `p(λ) q`           | Phase gate           |
+| `x`, `y`, `z`       | `x q`              | Pauli gates          |
+| `h`                 | `h q`              | Hadamard             |
+| `s`, `sdg`          | `s q`              | S and S-dagger       |
+| `t`, `tdg`          | `t q`              | T and T-dagger       |
+| `sx`                | `sx q`             | √X gate              |
+| `rx`, `ry`, `rz`    | `rx(θ) q`          | Rotation gates       |
+| `cx`                | `cx c, t`          | CNOT                 |
+| `cy`, `cz`          | `cy c, t`          | Controlled-Y/Z       |
+| `cp`                | `cp(λ) c, t`       | Controlled phase     |
+| `crx`, `cry`, `crz` | `crx(θ) c, t`      | Controlled rotations |
+| `ch`                | `ch c, t`          | Controlled Hadamard  |
+| `swap`              | `swap a, b`        | SWAP                 |
+| `ccx`               | `ccx c1, c2, t`    | Toffoli              |
+| `cswap`             | `cswap c, a, b`    | Fredkin              |
+| `cu`                | `cu(θ,φ,λ,γ) c, t` | Controlled-U         |
 
 Compatibility gates (from 2.0): `CX`, `phase`, `cphase`, `id`, `u1`, `u2`, `u3`.
 

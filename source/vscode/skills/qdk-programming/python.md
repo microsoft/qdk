@@ -45,12 +45,12 @@ qsharp.init(project_root="./my_project")
 
 ### Target Profiles
 
-| Profile | Use Case |
-|---------|----------|
-| `TargetProfile.Unrestricted` | Local simulation with full Q# features (default) |
-| `TargetProfile.Base` | No mid-circuit measurement; broadest hardware compatibility |
-| `TargetProfile.Adaptive_RI` | Mid-circuit measurement and classical feedback |
-| `TargetProfile.Adaptive_RIF` | Advanced adaptive with float/int classical compute |
+| Profile                      | Use Case                                                    |
+| ---------------------------- | ----------------------------------------------------------- |
+| `TargetProfile.Unrestricted` | Local simulation with full Q# features (default)            |
+| `TargetProfile.Base`         | No mid-circuit measurement; broadest hardware compatibility |
+| `TargetProfile.Adaptive_RI`  | Mid-circuit measurement and classical feedback              |
+| `TargetProfile.Adaptive_RIF` | Advanced adaptive with float/int classical compute          |
 
 ## Running Q# Code
 
@@ -103,16 +103,16 @@ result = GenerateRandomBits(5)  # pass Q# function arguments directly
 
 ### Working with Q# Types in Python
 
-| Q# Type | Python Type |
-|---------|-------------|
-| `Int` | `int` |
-| `Double` | `float` |
-| `Bool` | `bool` |
-| `String` | `str` |
+| Q# Type  | Python Type                                |
+| -------- | ------------------------------------------ |
+| `Int`    | `int`                                      |
+| `Double` | `float`                                    |
+| `Bool`   | `bool`                                     |
+| `String` | `str`                                      |
 | `Result` | `qsharp.Result.Zero` / `qsharp.Result.One` |
-| `Pauli` | `qsharp.Pauli.I` / `.X` / `.Y` / `.Z` |
-| `Array` | `list` |
-| `Tuple` | `tuple` |
+| `Pauli`  | `qsharp.Pauli.I` / `.X` / `.Y` / `.Z`      |
+| `Array`  | `list`                                     |
+| `Tuple`  | `tuple`                                    |
 
 ### Inspecting Quantum State
 
@@ -269,14 +269,14 @@ result = qsharp.estimate("Main()", {
 
 ### Predefined Qubit Models
 
-| Name | Description |
-|------|-------------|
-| `qubit_gate_ns_e3` | Gate-based, nanosecond, 10⁻³ error rate |
-| `qubit_gate_ns_e4` | Gate-based, nanosecond, 10⁻⁴ error rate |
+| Name               | Description                              |
+| ------------------ | ---------------------------------------- |
+| `qubit_gate_ns_e3` | Gate-based, nanosecond, 10⁻³ error rate  |
+| `qubit_gate_ns_e4` | Gate-based, nanosecond, 10⁻⁴ error rate  |
 | `qubit_gate_us_e3` | Gate-based, microsecond, 10⁻³ error rate |
 | `qubit_gate_us_e4` | Gate-based, microsecond, 10⁻⁴ error rate |
-| `qubit_maj_ns_e4` | Majorana, nanosecond, 10⁻⁴ error rate |
-| `qubit_maj_ns_e6` | Majorana, nanosecond, 10⁻⁶ error rate |
+| `qubit_maj_ns_e4`  | Majorana, nanosecond, 10⁻⁴ error rate    |
+| `qubit_maj_ns_e6`  | Majorana, nanosecond, 10⁻⁶ error rate    |
 
 ### Visualization (Jupyter)
 
@@ -495,17 +495,17 @@ for outcome, count in counts.most_common():
 
 ## Quick Reference
 
-| Task | Function |
-|------|----------|
-| Initialize runtime | `qsharp.init()` |
-| Evaluate Q# expression | `qsharp.eval("...")` |
-| Run N shots | `qsharp.run("...", shots)` |
-| Run with noise | `qsharp.run("...", shots, noise=DepolarizingNoise(p))` |
-| Compile to QIR | `qsharp.compile("...")` |
-| Generate circuit | `qsharp.circuit("...")` |
-| Estimate resources | `qsharp.estimate("...", params)` |
-| Dump quantum state | `qsharp.dump_machine()` |
-| Run OpenQASM | `from qsharp.openqasm import run` |
-| Qiskit backend | `from qsharp.interop.qiskit import QSharpBackend` |
-| Device simulation | `from qdk.simulation import NeutralAtomDevice` |
-| Submit to Azure | `target.submit(qir, "name", shots=N)` |
+| Task                   | Function                                               |
+| ---------------------- | ------------------------------------------------------ |
+| Initialize runtime     | `qsharp.init()`                                        |
+| Evaluate Q# expression | `qsharp.eval("...")`                                   |
+| Run N shots            | `qsharp.run("...", shots)`                             |
+| Run with noise         | `qsharp.run("...", shots, noise=DepolarizingNoise(p))` |
+| Compile to QIR         | `qsharp.compile("...")`                                |
+| Generate circuit       | `qsharp.circuit("...")`                                |
+| Estimate resources     | `qsharp.estimate("...", params)`                       |
+| Dump quantum state     | `qsharp.dump_machine()`                                |
+| Run OpenQASM           | `from qsharp.openqasm import run`                      |
+| Qiskit backend         | `from qsharp.interop.qiskit import QSharpBackend`      |
+| Device simulation      | `from qdk.simulation import NeutralAtomDevice`         |
+| Submit to Azure        | `target.submit(qir, "name", shots=N)`                  |

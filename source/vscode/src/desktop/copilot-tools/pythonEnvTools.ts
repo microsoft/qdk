@@ -36,8 +36,12 @@ interface PythonPackage {
 }
 
 interface PythonEnvironmentApi {
-  getEnvironment(scope: vscode.Uri | undefined): Promise<PythonEnvironment | undefined>;
-  getPackages(environment: PythonEnvironment): Promise<PythonPackage[] | undefined>;
+  getEnvironment(
+    scope: vscode.Uri | undefined,
+  ): Promise<PythonEnvironment | undefined>;
+  getPackages(
+    environment: PythonEnvironment,
+  ): Promise<PythonPackage[] | undefined>;
 }
 
 const PYTHON_ENVS_EXTENSION_ID = "ms-python.vscode-python-envs";
@@ -76,10 +80,9 @@ type InitPythonResult =
  * QDK Python tooling.
  */
 export async function initPythonQdkEnvironment(): Promise<InitPythonResult> {
-  const pyEnvsExtension =
-    vscode.extensions.getExtension<PythonEnvironmentApi>(
-      PYTHON_ENVS_EXTENSION_ID,
-    );
+  const pyEnvsExtension = vscode.extensions.getExtension<PythonEnvironmentApi>(
+    PYTHON_ENVS_EXTENSION_ID,
+  );
 
   if (pyEnvsExtension) {
     return await initWithPythonEnvsExtension(pyEnvsExtension);

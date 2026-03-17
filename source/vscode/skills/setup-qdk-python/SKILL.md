@@ -47,6 +47,7 @@ python -m venv .venv
 ```
 
 Activate it:
+
 - **Windows (PowerShell)**: `.venv\Scripts\Activate.ps1`
 - **Windows (cmd)**: `.venv\Scripts\activate.bat`
 - **macOS/Linux**: `source .venv/bin/activate`
@@ -71,14 +72,14 @@ Install extras using bracket syntax. Multiple extras can be combined with commas
 pip install "qdk[jupyter,qiskit,azure]"
 ```
 
-| Extra | Command | What It Adds |
-|-------|---------|-------------|
-| `jupyter` | `pip install "qdk[jupyter]"` | Jupyter widgets, syntax highlighting, `%%qsharp` magic |
-| `azure` | `pip install "qdk[azure]"` | Azure Quantum workspace connectivity and job submission |
-| `qiskit` | `pip install "qdk[qiskit]"` | Qiskit interop — run Qiskit circuits on Azure Quantum |
-| `cirq` | `pip install "qdk[cirq]"` | Cirq interop — run Cirq circuits on Azure Quantum |
-| `mcp` | `pip install "qdk[mcp]"` | QDK MCP server for LLM tool integration |
-| `all` | `pip install "qdk[all]"` | All of the above |
+| Extra     | Command                      | What It Adds                                            |
+| --------- | ---------------------------- | ------------------------------------------------------- |
+| `jupyter` | `pip install "qdk[jupyter]"` | Jupyter widgets, syntax highlighting, `%%qsharp` magic  |
+| `azure`   | `pip install "qdk[azure]"`   | Azure Quantum workspace connectivity and job submission |
+| `qiskit`  | `pip install "qdk[qiskit]"`  | Qiskit interop — run Qiskit circuits on Azure Quantum   |
+| `cirq`    | `pip install "qdk[cirq]"`    | Cirq interop — run Cirq circuits on Azure Quantum       |
+| `mcp`     | `pip install "qdk[mcp]"`     | QDK MCP server for LLM tool integration                 |
+| `all`     | `pip install "qdk[all]"`     | All of the above                                        |
 
 ### Choosing Extras
 
@@ -104,6 +105,7 @@ These QDK packages are versioned together and must be kept in sync:
 These all share the same version number (e.g., `1.26.1234`). **Never mix versions** across these packages — if `qsharp` is at `1.26.x` but `qdk-mcp` is at `1.25.x`, things may break.
 
 Third-party and external dependencies have their own versioning:
+
 - `azure-quantum` — separate Microsoft product, versioned independently
 - `qiskit`, `cirq-core` — third-party frameworks with their own release cycles
 - `pyqir` — versioned independently
@@ -156,10 +158,10 @@ qdk (metapackage)
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `ModuleNotFoundError: No module named 'qsharp'` | Package not installed | `pip install qdk` |
-| `ModuleNotFoundError: No module named 'qdk.azure'` | Missing extra | `pip install "qdk[azure]"` |
-| Import errors after upgrade | Version mismatch | `pip install --upgrade qdk` (reinstalls all) |
-| `pip install qdk` fails on build | Missing Rust toolchain (rare, only building from source) | Install from PyPI wheels: `pip install --only-binary=:all: qdk` |
-| Wrong Python version | Python < 3.10 | Install Python 3.10+ |
+| Symptom                                            | Cause                                                    | Fix                                                             |
+| -------------------------------------------------- | -------------------------------------------------------- | --------------------------------------------------------------- |
+| `ModuleNotFoundError: No module named 'qsharp'`    | Package not installed                                    | `pip install qdk`                                               |
+| `ModuleNotFoundError: No module named 'qdk.azure'` | Missing extra                                            | `pip install "qdk[azure]"`                                      |
+| Import errors after upgrade                        | Version mismatch                                         | `pip install --upgrade qdk` (reinstalls all)                    |
+| `pip install qdk` fails on build                   | Missing Rust toolchain (rare, only building from source) | Install from PyPI wheels: `pip install --only-binary=:all: qdk` |
+| Wrong Python version                               | Python < 3.10                                            | Install Python 3.10+                                            |

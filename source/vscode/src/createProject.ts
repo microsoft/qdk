@@ -62,7 +62,6 @@ export async function initProjectCreator(context: vscode.ExtensionContext) {
             "Unable to create the project. Check the project files don't already exist and that the file system is writable",
           );
         }
-
       },
     ),
   );

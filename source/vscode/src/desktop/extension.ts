@@ -23,7 +23,9 @@ export async function activate(
   const serverPath = context.asAbsolutePath("out/desktop/mcp/server.js");
   const disposable = vscode.lm.registerMcpServerDefinitionProvider("qdk", {
     provideMcpServerDefinitions: () => [
-      new vscode.McpStdioServerDefinition("QDK", process.execPath, [serverPath]),
+      new vscode.McpStdioServerDefinition("QDK", process.execPath, [
+        serverPath,
+      ]),
     ],
     onDidChangeMcpServerDefinitions: new vscode.EventEmitter<void>().event,
   });

@@ -14,8 +14,8 @@ import { EventType, sendTelemetryEvent, UserFlowStatus } from "../telemetry";
  * in the same release.
  */
 export async function updateCopilotInstructions(
-  _trigger: "Command" | "Project" | "Activation" | "ChatToolCall",
-  _context: vscode.ExtensionContext,
+  _trigger: "Command" | "Project" | "Activation" | "ChatToolCall", // eslint-disable-line @typescript-eslint/no-unused-vars
+  _context: vscode.ExtensionContext, // eslint-disable-line @typescript-eslint/no-unused-vars
 ): Promise<void> {
   // No-op: instructions are now provided via extension skills.
 }
