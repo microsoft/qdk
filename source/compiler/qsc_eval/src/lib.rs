@@ -1326,30 +1326,50 @@ impl State {
         let name = &callee.name.name;
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
-                let q = sim.qubit_allocate(&call_stack);
-                let q = Rc::new(Qubit(q));
-                env.track_qubit(Rc::clone(&q));
-                if let Some(counter) = &mut self.qubit_counter {
-                    counter.allocated(q.0);
-                }
-                if name.as_ref() == "__quantum__rt__qubit_borrow" {
-                    self.dirty_qubits.insert(q.0);
-                }
-                Value::Qubit(q.into())
+                self.allocate_qubit(env, sim, &call_stack, name)
+            }
+            "Allocate" => {
+                let q_val = self.allocate_qubit(env, sim, &call_stack, name);
+                sim.custom_intrinsic("__set_memory_qubit", q_val.clone(), &call_stack);
+                let Value::Qubit(q) = q_val else {
+                    panic!("qubit allocation should return a qubit value")
+                };
+                Value::QMem(q)
+            }
+            "Free" => {
+                let Value::QMem(q) = arg else {
+                    panic!("qubit release should be called with a quantum memory reference")
+                };
+                let q_val = Value::Qubit(q);
+                self.release_qubit(env, sim, q_val, arg_span, &call_stack)?
+            }
+            "Clear" => {
+                let Value::QMem(q) = arg else {
+                    panic!("qubit release should be called with a quantum memory reference")
+                };
+                let qubit = q.try_deref().ok_or(Error::QubitDoubleRelease(arg_span))?;
+                sim.reset(qubit.0, &call_stack);
+                Value::unit()
+            }
+            "Exchange" => {
+                let [qmem, qubit] = val::unwrap_tuple(arg);
+                let Value::QMem(qmem) = qmem else {
+                    panic!("first argument of Exchange should be a quantum memory reference")
+                };
+                let Value::Qubit(qubit) = qubit else {
+                    panic!("second argument of Exchange should be a qubit reference")
+                };
+                let qmem_ref = qmem
+                    .try_deref()
+                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?;
+                let qubit_ref = qubit
+                    .try_deref()
+                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?;
+                sim.swap(qmem_ref.0, qubit_ref.0, &call_stack);
+                Value::unit()
             }
             "__quantum__rt__qubit_release" => {
-                let qubit = arg
-                    .unwrap_qubit()
-                    .try_deref()
-                    .ok_or(Error::QubitDoubleRelease(arg_span))?;
-                env.release_qubit(&qubit);
-                let is_zero = sim.qubit_release(qubit.0, &call_stack);
-                let is_borrowed = self.dirty_qubits.remove(&qubit.0);
-                if is_zero || is_borrowed {
-                    Value::unit()
-                } else {
-                    return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
-                }
+                self.release_qubit(env, sim, arg, arg_span, &call_stack)?
             }
             _ => {
                 let val = intrinsic::call(
@@ -1374,6 +1394,47 @@ impl State {
         self.set_val_register(val);
         self.leave_frame();
         Ok(())
+    }
+
+    fn allocate_qubit<B: Backend>(
+        &mut self,
+        env: &mut Env,
+        sim: &mut TracingBackend<'_, B>,
+        call_stack: &[Frame],
+        name: &Rc<str>,
+    ) -> Value {
+        let q = sim.qubit_allocate(call_stack);
+        let q = Rc::new(Qubit(q));
+        env.track_qubit(Rc::clone(&q));
+        if let Some(counter) = &mut self.qubit_counter {
+            counter.allocated(q.0);
+        }
+        if name.as_ref() == "__quantum__rt__qubit_borrow" {
+            self.dirty_qubits.insert(q.0);
+        }
+        Value::Qubit(q.into())
+    }
+
+    fn release_qubit<B: Backend>(
+        &mut self,
+        env: &mut Env,
+        sim: &mut TracingBackend<'_, B>,
+        arg: Value,
+        arg_span: PackageSpan,
+        call_stack: &[Frame],
+    ) -> Result<Value, Error> {
+        let qubit = arg
+            .unwrap_qubit()
+            .try_deref()
+            .ok_or(Error::QubitDoubleRelease(arg_span))?;
+        env.release_qubit(&qubit);
+        let is_zero = sim.qubit_release(qubit.0, call_stack);
+        let is_borrowed = self.dirty_qubits.remove(&qubit.0);
+        Ok(if is_zero || is_borrowed {
+            Value::unit()
+        } else {
+            return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
+        })
     }
 
     fn eval_field(&mut self, field: Field) {

@@ -25,6 +25,7 @@ pub enum Value {
     Int(i64),
     Pauli(Pauli),
     Qubit(QubitRef),
+    QMem(QubitRef),
     Range(Box<Range>),
     Result(Result),
     String(Rc<str>),
@@ -193,6 +194,12 @@ impl Display for Value {
             Value::Qubit(v) => write!(
                 f,
                 "Qubit{}",
+                (v.try_deref()
+                    .map_or_else(|| "<released>".to_string(), |v| v.0.to_string()))
+            ),
+            Value::QMem(v) => write!(
+                f,
+                "QMem{}",
                 (v.try_deref()
                     .map_or_else(|| "<released>".to_string(), |v| v.0.to_string()))
             ),
@@ -448,6 +455,7 @@ impl Value {
             Value::Int(_) => "Int",
             Value::Pauli(_) => "Pauli",
             Value::Qubit(_) => "Qubit",
+            Value::QMem(_) => "QMem",
             Value::Range(..) => "Range",
             Value::Result(_) => "Result",
             Value::String(_) => "String",
@@ -464,7 +472,7 @@ impl Value {
         match self {
             Value::Array(arr) => arr.iter().flat_map(Value::qubits).collect(),
             Value::Closure(closure) => closure.fixed_args.iter().flat_map(Value::qubits).collect(),
-            Value::Qubit(q) => vec![q.clone()],
+            Value::Qubit(q) | Value::QMem(q) => vec![q.clone()],
             Value::Tuple(tup, _) => tup.iter().flat_map(Value::qubits).collect(),
 
             Value::BigInt(_)

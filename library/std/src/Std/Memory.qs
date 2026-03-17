@@ -26,3 +26,5 @@ operation Load(qmem : QMem, qubit : Qubit) : Unit {
     Exchange(qmem, qubit);
     Clear(qmem);
 }
+
+export Allocate, Free, Clear, Exchange, Store, Load;

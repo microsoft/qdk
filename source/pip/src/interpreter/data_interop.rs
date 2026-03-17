@@ -480,7 +480,7 @@ pub(crate) fn value_to_pyobj(
             let closure: Closure = value.clone().into();
             closure.into_py_any(py)
         }
-        Value::Qubit(..) | Value::Range(..) | Value::Var(..) => {
+        Value::Qubit(..) | Value::QMem(..) | Value::Range(..) | Value::Var(..) => {
             format!("<{}> {}", value.type_name(), value).into_py_any(py)
         }
     }

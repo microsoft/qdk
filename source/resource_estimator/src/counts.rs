@@ -10,7 +10,7 @@ use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc::{Backend, BackendResult, interpret::Value};
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::{array, cell::RefCell, f64::consts::PI, fmt::Debug, iter::Sum};
 
 use crate::{counts::memory_compute::CachingStrategy, system::LogicalResourceCounts};
@@ -50,6 +50,12 @@ pub struct LogicalCounter {
     memory_compute: Option<MemoryComputeInfo>,
     /// Random number generator
     rnd: RefCell<StdRng>,
+
+    // Manual memory management tracking
+    all_manual_memory_qubits: FxHashSet<usize>,
+    current_memory_qubits: FxHashSet<usize>,
+    manual_memory_writes: usize,
+    manual_memory_reads: usize,
 }
 
 impl Default for LogicalCounter {
@@ -69,6 +75,10 @@ impl Default for LogicalCounter {
             repeats: vec![],
             memory_compute: None,
             rnd: RefCell::new(StdRng::seed_from_u64(0)),
+            all_manual_memory_qubits: FxHashSet::default(),
+            current_memory_qubits: FxHashSet::default(),
+            manual_memory_writes: 0,
+            manual_memory_reads: 0,
         }
     }
 }
@@ -84,7 +94,11 @@ impl LogicalCounter {
                     Some(memory_compute.write_to_memory_count() as u64),
                 )
             } else {
-                (None, None, None)
+                (
+                    Some((self.next_free - self.all_manual_memory_qubits.len()) as u64),
+                    Some(self.manual_memory_reads as u64),
+                    Some(self.manual_memory_writes as u64),
+                )
             };
 
         LogicalResourceCounts {
@@ -570,6 +584,10 @@ impl Backend for LogicalCounter {
 
     fn swap(&mut self, q0: usize, q1: usize) {
         self.assert_compute_qubits([q0, q1]);
+        if self.current_memory_qubits.contains(&q0) {
+            self.manual_memory_reads += 1;
+            self.manual_memory_writes += 1;
+        }
         self.schedule_two_qubit_clifford(q0, q1);
     }
 
@@ -606,6 +624,7 @@ impl Backend for LogicalCounter {
 
     fn qubit_release(&mut self, q: usize) -> bool {
         self.free_list.push(q);
+        self.current_memory_qubits.remove(&q);
         true
     }
 
@@ -675,6 +694,12 @@ impl Backend for LogicalCounter {
                 Some(Ok(Value::unit()))
             }
             "GlobalPhase" | "ConfigurePauliNoise" | "ConfigureQubitLoss" | "ApplyIdleNoise" => {
+                Some(Ok(Value::unit()))
+            }
+            "__set_memory_qubit" => {
+                let q = arg.unwrap_qubit();
+                self.all_manual_memory_qubits.insert(q.deref().0);
+                self.current_memory_qubits.insert(q.deref().0);
                 Some(Ok(Value::unit()))
             }
             _ => None,
