@@ -2,7 +2,6 @@
 // Licensed under the MIT license.
 
 import { ComponentGrid, Qubit } from "./circuit.js";
-import { Register, RegisterMap } from "./register.js";
 
 /**
  * Information about a single measurement result wire.
