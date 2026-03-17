@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::tests::test_expression_fails;
+
 use super::test_expression;
 use expect_test::expect;
 use qsc::interpret::Value;
@@ -516,4 +518,52 @@ fn check_no_noise_values() {
             None,
         ),
     );
+}
+
+#[test]
+fn check_post_select_collapses_superposition_to_zero() {
+    test_expression(
+        "{
+            import Std.Diagnostics.PostSelectZ;
+            import Std.Diagnostics.CheckZero;
+            use q = Qubit();
+            H(q);
+            PostSelectZ(Zero, q);
+            CheckZero(q)
+        }",
+        &Value::Bool(true),
+    );
+}
+
+#[test]
+fn check_post_select_collapses_superposition_to_one() {
+    test_expression(
+        "{
+            import Std.Diagnostics.PostSelectZ;
+            import Std.Diagnostics.CheckZero;
+            use q = Qubit();
+            H(q);
+            PostSelectZ(One, q);
+            let check = CheckZero(q);
+            Reset(q);
+            check
+        }",
+        &Value::Bool(false),
+    );
+}
+
+#[test]
+fn check_post_select_fails_with_non_existent_state() {
+    let err = test_expression_fails(
+        "{
+            import Std.Diagnostics.PostSelectZ;
+            import Std.Diagnostics.CheckZero;
+            use q = Qubit();
+            PostSelectZ(One, q);
+        }",
+    );
+    expect![
+        "intrinsic callable `PostSelectZ` failed: post-selection condition has zero probability"
+    ]
+    .assert_eq(&err);
 }
