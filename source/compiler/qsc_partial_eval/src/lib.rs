@@ -1776,7 +1776,8 @@ impl<'a> PartialEvaluator<'a> {
             | "EnableMemoryComputeArchitecture"
             | "ApplyIdleNoise"
             | "GlobalPhase"
-            | "Message" => Ok(Value::unit()),
+            | "Message"
+            | "PostSelectZ" => Ok(Value::unit()),
             "CheckZero" => Err(Error::UnsupportedSimulationIntrinsic(
                 "CheckZero".to_string(),
                 callee_expr_span,
