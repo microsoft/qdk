@@ -582,5 +582,6 @@ fn convert_integer_variable_to_double() {
             ty: rir::Ty::Double,
         },
     );
-    expect!["  %var_0 = sitofp i64 %var_1 to double"].assert_eq(&inst.to_qir(&rir::Program::default()));
+    expect!["  %var_0 = sitofp i64 %var_1 to double"]
+        .assert_eq(&inst.to_qir(&rir::Program::default()));
 }
