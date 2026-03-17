@@ -760,6 +760,17 @@ impl EstimationCollection {
         self.0.successful_estimates()
     }
 
+    /// Returns lightweight summaries of ALL successful estimates as a list
+    /// of (trace index, isa index, qubits, runtime) tuples.
+    #[getter]
+    pub fn all_summaries(&self) -> Vec<(usize, usize, u64, u64)> {
+        self.0
+            .all_summaries()
+            .iter()
+            .map(|s| (s.trace_index, s.isa_index, s.qubits, s.runtime))
+            .collect()
+    }
+
     #[allow(clippy::needless_pass_by_value)]
     pub fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<EstimationCollectionIterator>> {
         let iter = EstimationCollectionIterator {

@@ -1,13 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt::{Display, Formatter},
+    sync::atomic::AtomicUsize,
+};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     Error, EstimationCollection, EstimationResult, FactoryResult, ISA, Instruction, LockedISA,
+    ResultSummary,
     property_keys::{PHYSICAL_COMPUTE_QUBITS, PHYSICAL_FACTORY_QUBITS, PHYSICAL_MEMORY_QUBITS},
 };
 
@@ -665,7 +669,7 @@ pub fn estimate_parallel<'a>(
 
     // Shared atomic counter acts as a lock-free work queue.  Workers call
     // fetch_add to claim the next job index.
-    let next_job = std::sync::atomic::AtomicUsize::new(0);
+    let next_job = AtomicUsize::new(0);
 
     let mut collection = EstimationCollection::new();
     collection.set_total_jobs(total_jobs);
@@ -700,6 +704,8 @@ pub fn estimate_parallel<'a>(
                     if let Ok(mut estimation) = traces[trace_idx].estimate(isas[isa_idx], max_error)
                     {
                         estimation.set_isa_index(isa_idx);
+                        estimation.set_trace_index(trace_idx);
+
                         local_results.push(estimation);
                     }
                 }
@@ -714,6 +720,14 @@ pub fn estimate_parallel<'a>(
         // Collect results from all workers into the shared collection.
         let mut successful = 0;
         for local_results in rx {
+            for result in &local_results {
+                collection.push_summary(ResultSummary {
+                    trace_index: result.trace_index().unwrap_or(0),
+                    isa_index: result.isa_index().unwrap_or(0),
+                    qubits: result.qubits(),
+                    runtime: result.runtime(),
+                });
+            }
             successful += local_results.len();
             collection.extend(local_results.into_iter());
         }

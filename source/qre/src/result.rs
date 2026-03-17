@@ -18,6 +18,7 @@ pub struct EstimationResult {
     factories: FxHashMap<u64, FactoryResult>,
     isa: ISA,
     isa_index: Option<usize>,
+    trace_index: Option<usize>,
     properties: FxHashMap<u64, Property>,
 }
 
@@ -99,6 +100,15 @@ impl EstimationResult {
         self.isa_index
     }
 
+    pub fn set_trace_index(&mut self, index: usize) {
+        self.trace_index = Some(index);
+    }
+
+    #[must_use]
+    pub fn trace_index(&self) -> Option<usize> {
+        self.trace_index
+    }
+
     pub fn set_property(&mut self, key: u64, value: Property) {
         self.properties.insert(key, value);
     }
@@ -155,9 +165,21 @@ impl ParetoItem2D for EstimationResult {
     }
 }
 
+/// Lightweight summary of a successful estimation, used to identify
+/// post-processing candidates without storing full results.
+#[derive(Clone, Copy)]
+pub struct ResultSummary {
+    pub trace_index: usize,
+    pub isa_index: usize,
+    pub qubits: u64,
+    pub runtime: u64,
+}
+
 #[derive(Default)]
 pub struct EstimationCollection {
     frontier: ParetoFrontier2D<EstimationResult>,
+    /// Lightweight summaries of ALL successful estimates (not just Pareto).
+    all_summaries: Vec<ResultSummary>,
     total_jobs: usize,
     successful_estimates: usize,
 }
@@ -184,6 +206,15 @@ impl EstimationCollection {
 
     pub fn set_successful_estimates(&mut self, successful_estimates: usize) {
         self.successful_estimates = successful_estimates;
+    }
+
+    pub fn push_summary(&mut self, summary: ResultSummary) {
+        self.all_summaries.push(summary);
+    }
+
+    #[must_use]
+    pub fn all_summaries(&self) -> &[ResultSummary] {
+        &self.all_summaries
     }
 }
 
