@@ -3,7 +3,11 @@
 
 import { IQSharpError, TargetProfile } from "qsharp-lang";
 import vscode from "vscode";
-
+import {
+  CircuitOrError,
+  showCircuitCommand,
+  getConfig as getCircuitConfig,
+} from "../../circuit";
 import { loadCompilerWorker, toVsCodeDiagnostic } from "../../common";
 import { resourceEstimateTool } from "../../estimate";
 import { FullProgramConfig, getProgramForDocument } from "../../programConfig";
@@ -155,7 +159,47 @@ export class QSharpTools {
     }
   }
 
+  /**
+   * Implements the `qdk-generate-circuit` tool call.
+   */
+  async generateCircuit(input: { filePath: string }): Promise<
+    ProjectInfo &
+      CircuitOrError & {
+        message?: string;
+      }
+  > {
+    const circuitConfig = getCircuitConfig();
+    const targetProfileFallback =
+      circuitConfig.generationMethod === "static" ? "adaptive_rif" : undefined;
+    const program = await this.getProgram(input.filePath, {
+      targetProfileFallback,
+    });
+    const programConfig = program.config;
 
+    const circuitOrError = await showCircuitCommand(
+      this.extensionUri,
+      undefined,
+      UserTaskInvocationType.ChatToolCall,
+      program.telemetryDocumentType,
+      programConfig,
+    );
+
+    const result = {
+      ...program.additionalContextForModel,
+      ...circuitOrError,
+    };
+
+    if (circuitOrError.result === "success") {
+      return {
+        ...result,
+        message: "Circuit is displayed in the Circuit panel.",
+      };
+    } else {
+      return {
+        ...result,
+      };
+    }
+  }
 
   /**
    * Implements the `qdk-run-resource-estimator` tool call.
