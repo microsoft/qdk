@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    ApplicationGeneratorSet, ComputeKind, QuantumProperties, RuntimeFeatureFlags, ValueKind,
+    ApplicationGeneratorSet, ComputeKind, RuntimeFeatureFlags, ValueKind,
     common::{Local, LocalKind, LocalsLookup, initialize_locals_map},
     scaffolding::InternalPackageComputeProperties,
 };
@@ -47,7 +47,7 @@ impl GeneratorSetsBuilder {
         for input_param in input_params {
             let input_param_variants = match input_param.ty {
                 Ty::Array(_) => {
-                    // For parameters of type array, two dynamic variants exit. Each
+                    // For parameters of type array, two dynamic variants exist:
                     // - An array with dynamic content and static size.
                     // - An array with dynamic content and dynamic size.
                     let dynamic_content_static_size = ApplicationInstance::new(
@@ -56,10 +56,10 @@ impl GeneratorSetsBuilder {
                         return_type,
                         Some((
                             input_param.index,
-                            ComputeKind::new_with_runtime_features(
-                                RuntimeFeatureFlags::empty(),
-                                ValueKind::Dynamic,
-                            ),
+                            ComputeKind::Dynamic {
+                                runtime_features: RuntimeFeatureFlags::empty(),
+                                value_kind: ValueKind::Variable,
+                            },
                         )),
                     );
                     let dynamic_content_dynamic_size = ApplicationInstance::new(
@@ -68,10 +68,10 @@ impl GeneratorSetsBuilder {
                         return_type,
                         Some((
                             input_param.index,
-                            ComputeKind::new_with_runtime_features(
-                                RuntimeFeatureFlags::UseOfDynamicallySizedArray,
-                                ValueKind::Dynamic,
-                            ),
+                            ComputeKind::Dynamic {
+                                runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
+                                value_kind: ValueKind::Variable,
+                            },
                         )),
                     );
                     vec![dynamic_content_static_size, dynamic_content_dynamic_size]
@@ -84,10 +84,10 @@ impl GeneratorSetsBuilder {
                         return_type,
                         Some((
                             input_param.index,
-                            ComputeKind::new_with_runtime_features(
-                                RuntimeFeatureFlags::empty(),
-                                ValueKind::Dynamic,
-                            ),
+                            ComputeKind::Dynamic {
+                                runtime_features: RuntimeFeatureFlags::empty(),
+                                value_kind: ValueKind::Variable,
+                            },
                         )),
                     )]
                 }
@@ -450,12 +450,12 @@ impl ApplicationInstance {
         // Initialize the locals map with the specialization controls (if any).
         let mut locals_map = LocalsComputeKindMap::default();
         if let Some(controls) = controls {
-            // Controls compute properties are handled at the call expression, so just use quantum compute kind with
-            // no runtime features here.
-            let compute_kind = ComputeKind::Quantum(QuantumProperties {
+            // Controls compute properties are handled at the call expression, so just use dynamic compute kind with
+            // no runtime features and constant value kind here.
+            let compute_kind = ComputeKind::Dynamic {
                 runtime_features: RuntimeFeatureFlags::empty(),
-                value_kind: ValueKind::Static,
-            });
+                value_kind: ValueKind::Constant,
+            };
             locals_map.insert(
                 controls.var,
                 LocalComputeKind {
@@ -472,7 +472,7 @@ impl ApplicationInstance {
             };
 
             // If a dynamic application is provided, set the compute kind associated to the parameter accordingly.
-            let mut compute_kind = ComputeKind::Classical;
+            let mut compute_kind = ComputeKind::Static;
             if let Some((dynamic_param_index, dynamic_param_compute_kind)) = dynamic_param
                 && input_param_index == dynamic_param_index
             {
@@ -507,35 +507,36 @@ impl ApplicationInstance {
             let return_expr_compute_kind = self.get_expr_compute_kind(return_expr_id);
 
             // There are two scenarios in which a value kind is considered, and both of them only happen if the return
-            // expression is quantum.
-            if let ComputeKind::Quantum(return_quantum_properties) = return_expr_compute_kind {
-                let return_value_kind = if return_quantum_properties
-                    .runtime_features
+            // expression is dynamic.
+            if let ComputeKind::Dynamic {
+                runtime_features, ..
+            } = return_expr_compute_kind
+            {
+                let return_value_kind = if runtime_features
                     .contains(RuntimeFeatureFlags::ReturnWithinDynamicScope)
                 {
-                    // The return expression happens within a dynamic scope so the value kind is dynamic.
-                    ValueKind::new_dynamic_from_type(&self.return_type)
+                    // The return expression happens within a dynamic scope so the value kind is variable.
+                    ValueKind::new_variable_from_type(&self.return_type)
                 } else {
                     // What we actually want here is the value kind of the returned value expression.
                     let returned_value_expr_compute_kind =
                         self.get_expr_compute_kind(returned_value_expr_id);
-                    let ComputeKind::Quantum(returned_value_quantum_properties) =
-                        returned_value_expr_compute_kind
+                    let ComputeKind::Dynamic { value_kind, .. } = returned_value_expr_compute_kind
                     else {
-                        panic!("returned value expression is expected to be quantum");
+                        panic!("returned value expression is expected to be dynamic");
                     };
-                    returned_value_quantum_properties.value_kind
+                    *value_kind
                 };
                 value_kinds.push(return_value_kind);
             }
         }
 
-        // An application instance does not always have a value kind, only when there is at least one quantum return
+        // An application instance does not always have a value kind, only when there is at least one dynamic return
         // expression.
         let value_kind = if value_kinds.is_empty() {
             None
         } else {
-            let initial_value_kind = ValueKind::Static;
+            let initial_value_kind = ValueKind::Constant;
             let value_kind = value_kinds.iter().fold(
                 initial_value_kind,
                 |aggregated_value_kind, return_value_kind| {
