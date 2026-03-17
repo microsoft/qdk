@@ -118,6 +118,8 @@ class NeutralAtomBackend(BackendBase):
                 circuit is already expressed in terms of the target gate set.
             **fields: Additional backend options. Common options:
 
+                - ``name`` (str): Backend name for job metadata. Defaults to the circuit
+                  name.
                 - ``shots`` (int): Number of shots. Defaults to 1024.
                 - ``seed`` (int): Random seed for reproducibility. Defaults to None.
                 - ``noise`` (NoiseConfig): Optional per-gate noise model. Defaults to
@@ -128,7 +130,7 @@ class NeutralAtomBackend(BackendBase):
                 - ``target_profile`` (TargetProfile): Must be ``Base``. Defaults to
                   ``Base``.
                 - ``output_semantics`` (OutputSemantics): QIR output encoding. Defaults
-                  to ``OpenQasm``.
+                  to ``Qiskit``.
                 - ``executor``: Executor for async job submission.
         """
         self._device = device
@@ -152,14 +154,13 @@ class NeutralAtomBackend(BackendBase):
     @classmethod
     def _default_options(cls):
         return Options(
-            name="program",
             search_path=".",
             shots=1024,
             seed=None,
             noise=None,
             simulator_type=None,
             target_profile=TargetProfile.Base,
-            output_semantics=OutputSemantics.OpenQasm,
+            output_semantics=OutputSemantics.Qiskit,
             executor=DetaultExecutor(),
         )
 
@@ -193,20 +194,18 @@ class NeutralAtomBackend(BackendBase):
     def _execute(self, programs: List[Compilation], **input_params) -> Dict[str, Any]:
         device = self._get_device()
 
-        shots = input_params.get("shots", 1024)
+        shots = input_params.get("shots")
         if shots is None:
             raise ValueError(str(Errors.MISSING_NUMBER_OF_SHOTS))
 
-        noise = input_params.get("noise", None)
+        noise = input_params.get("noise")
         simulator_type: Optional[Literal["clifford", "cpu", "gpu"]] = input_params.get(
-            "simulator_type", None
+            "simulator_type"
         )
-        seed: Optional[int] = input_params.get("seed", None)
+        seed: Optional[int] = input_params.get("seed")
         search_path: str = input_params.get("search_path", ".")
-        target_profile = input_params.get("target_profile", TargetProfile.Base)
-        output_semantics = input_params.get(
-            "output_semantics", OutputSemantics.OpenQasm
-        )
+        target_profile = input_params.get("target_profile")
+        output_semantics = input_params.get("output_semantics")
 
         if target_profile == TargetProfile.Unrestricted:
             raise ValueError(str(Errors.UNRESTRICTED_INVALID_QIR_TARGET))
