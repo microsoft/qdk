@@ -14,6 +14,33 @@ from ..instruction_ids import CCX, MEAS_Z, RZ, T, READ_FROM_MEMORY, WRITE_TO_MEM
 from ..property_keys import EVALUATION_TIME
 
 
+def _bucketize_rotation_counts(
+    rotation_count: int, rotation_depth: int
+) -> list[tuple[int, int]]:
+    """
+    Returns a list of (count, depth) pairs representing the rotation layers in
+    the trace.  The following properties must hold for the returned list
+    `result`:
+        - sum(depth for _, depth in result) == rotation_depth
+        - sum(count * depth for count, depth in result) == rotation_count
+        - count > 0 for each (count, _) in result
+        - count <= qubit_count for each (count, _) in result holds by definition
+          when rotation_count <= rotation_depth * qubit_count
+    """
+    if rotation_depth == 0:
+        return []
+
+    base = rotation_count // rotation_depth
+    extra = rotation_count % rotation_depth
+
+    result: list[tuple[int, int]] = []
+    if extra > 0:
+        result.append((base + 1, extra))
+    if rotation_depth - extra > 0:
+        result.append((base, rotation_depth - extra))
+    return result
+
+
 def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts) -> Trace:
 
     start = time.time_ns()
@@ -37,21 +64,11 @@ def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts) -> Trace:
     rotation_count = counts.get("rotationCount", 0)
     rotation_depth = counts.get("rotationDepth", rotation_count)
 
-    if rotation_count != 0:
-        if rotation_depth > 1:
-            rotations_per_layer = rotation_count // (rotation_depth - 1)
-        else:
-            rotations_per_layer = 0
-
-        last_layer = rotation_count - (rotations_per_layer * (rotation_depth - 1))
-
-        if rotations_per_layer != 0:
-            block = trace.add_block(repetitions=rotation_depth - 1)
-            for i in range(rotations_per_layer):
+    if rotation_count != 0 and rotation_depth != 0:
+        for count, depth in _bucketize_rotation_counts(rotation_count, rotation_depth):
+            block = trace.add_block(repetitions=depth)
+            for i in range(count):
                 block.add_operation(RZ, [i])
-        block = trace.add_block()
-        for i in range(last_layer):
-            block.add_operation(RZ, [i])
 
     if t_count := counts.get("tCount", 0):
         block = trace.add_block(repetitions=t_count)
