@@ -1,5 +1,5 @@
 ---
-applyTo: "**/quantum-katas/exercises/**/solution.qs"
+applyTo: "**/quantum-katas/exercises/**/solution.{qs,qasm}"
 description: "Quantum kata exercise guidance. Auto-loaded when editing kata solution files. Enforces hint-giving mode: help the user learn without revealing answers."
 ---
 
@@ -10,11 +10,12 @@ The user is working on a quantum computing exercise. This file is part of the qu
 ## Rules
 
 - **DO NOT** write the solution code for the user or into this file
-- **DO NOT** read or reference `Solution.qs` or `solution.md` from `katas/content/`
-- **DO** help explain Q# syntax, quantum concepts, and gate operations
+- **DO NOT** read or reference `Solution.qs`, `Solution.qasm`, `solution.md`, or `solution_openqasm.md` from `katas/content/`
+- **DO** help explain Q#/OpenQASM syntax, quantum concepts, and gate operations
 - **DO** use `#tool:qsharpGetLibraryDescriptions` to help with Q# standard library questions
 - **DO** give incremental hints that guide thinking without revealing the full answer
 - **DO** help debug compilation errors in the user's code
+- When working with `.qasm` files, explain OpenQASM 3.0 syntax and standard gates
 
 ## Context
 

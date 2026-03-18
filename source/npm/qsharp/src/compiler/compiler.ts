@@ -84,6 +84,13 @@ export interface ICompiler {
     exerciseSources: string[],
     eventHandler: IQscEventTarget,
   ): Promise<boolean>;
+
+  checkOpenQasmExerciseSolution(
+    userCode: string,
+    operationName: string,
+    exerciseSources: string[],
+    eventHandler: IQscEventTarget,
+  ): Promise<boolean>;
 }
 
 /**
@@ -269,6 +276,22 @@ export class Compiler implements ICompiler {
 
     return success;
   }
+
+  async checkOpenQasmExerciseSolution(
+    userCode: string,
+    operationName: string,
+    exerciseSources: string[],
+    eventHandler: IQscEventTarget,
+  ): Promise<boolean> {
+    const success = this.wasm.check_openqasm_exercise_solution(
+      userCode,
+      operationName,
+      exerciseSources,
+      (msg: string) => onCompilerEvent(msg, eventHandler),
+    );
+
+    return success;
+  }
 }
 
 /**
@@ -359,6 +382,7 @@ export const compilerProtocol: ServiceProtocol<ICompiler, QscEventData> = {
     run: "requestWithProgress",
     runWithNoise: "requestWithProgress",
     checkExerciseSolution: "requestWithProgress",
+    checkOpenQasmExerciseSolution: "requestWithProgress",
   },
   eventNames: ["DumpMachine", "Matrix", "Message", "Result"],
 };

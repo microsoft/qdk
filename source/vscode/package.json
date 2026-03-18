@@ -1066,6 +1066,11 @@
         "path": "./skills/quantum-tutor/SKILL.md"
       }
     ],
+    "chatAgents": [
+      {
+        "path": "./agents/quantum-tutor-setup.agent.md"
+      }
+    ],
     "chatInstructions": [
       {
         "path": "./instructions/quantum-katas.instructions.md"

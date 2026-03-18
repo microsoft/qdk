@@ -231,13 +231,20 @@ export function createServer(): McpServer {
 
         const prefix = `${kata.id}__`;
         const exercises = kata.sections
-          .filter((s) => s.type === "exercise")
-          .map((s) => ({
-            exerciseId: s.id.trim().startsWith(prefix)
-              ? s.id.trim().slice(prefix.length)
-              : s.id.trim(),
-            title: s.title,
-          }));
+          .filter((s): s is Exercise => s.type === "exercise")
+          .map((s) => {
+            const availableLanguages: string[] = ["qsharp"];
+            if (s.openQasm) {
+              availableLanguages.push("openqasm");
+            }
+            return {
+              exerciseId: s.id.trim().startsWith(prefix)
+                ? s.id.trim().slice(prefix.length)
+                : s.id.trim(),
+              title: s.title,
+              availableLanguages,
+            };
+          });
 
         results.push({ id: kata.id, title: kata.title, exercises });
       }
@@ -285,11 +292,19 @@ export function createServer(): McpServer {
       inputSchema: z.object({
         kataId: z.string().describe("The kata ID, e.g. 'single_qubit_gates'."),
         exerciseId: z.string().describe("The exercise ID, e.g. 'flip_qubit'."),
+        language: z
+          .enum(["qsharp", "openqasm"])
+          .optional()
+          .default("qsharp")
+          .describe(
+            "Programming language for the exercise. Defaults to 'qsharp'.",
+          ),
       }),
     },
     async (args: {
       kataId: string;
       exerciseId: string;
+      language: "qsharp" | "openqasm";
     }): Promise<CallToolResult> => {
       let kata: Kata;
       let exercise: Exercise;
@@ -299,6 +314,18 @@ export function createServer(): McpServer {
         return {
           isError: true,
           content: [{ type: "text", text: (e as Error).message }],
+        };
+      }
+
+      if (args.language === "openqasm" && !exercise.openQasm) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Exercise ${args.exerciseId} does not have an OpenQASM variant.`,
+            },
+          ],
         };
       }
 
@@ -340,12 +367,18 @@ export function createServer(): McpServer {
         ? exercise.id.slice(kata.id.length + 2)
         : exercise.id;
 
+      const placeholderCode =
+        args.language === "openqasm" && exercise.openQasm
+          ? exercise.openQasm.placeholderCode
+          : exercise.placeholderCode;
+
       const result = {
         exercise: {
           id: shortExId,
           title: exercise.title,
           description: exercise.description,
-          placeholderCode: exercise.placeholderCode,
+          placeholderCode,
+          language: args.language,
         },
         prerequisiteLessons,
         exerciseIndex,
@@ -370,9 +403,10 @@ export function createServer(): McpServer {
     {
       title: "Check Exercise Solution",
       description:
-        "Verify a user's Q# solution against the exercise test harness. " +
+        "Verify a user's solution against the exercise test harness. " +
         "Reads the solution from the exercise folder on disk and updates " +
         "progress.json automatically on success. " +
+        "Supports both Q# (.qs) and OpenQASM (.qasm) solutions. " +
         "Returns pass/fail with diagnostic messages and the user's code.",
       inputSchema: z.object({
         kataId: z.string().describe("The kata ID, e.g. 'single_qubit_gates'."),
@@ -388,12 +422,20 @@ export function createServer(): McpServer {
               "The tool reads the solution from the exercise folder and updates " +
               "progress.json automatically on success.",
           ),
+        language: z
+          .enum(["qsharp", "openqasm"])
+          .optional()
+          .default("qsharp")
+          .describe(
+            "Programming language of the solution. Defaults to 'qsharp'.",
+          ),
       }),
     },
     async (args: {
       kataId: string;
       exerciseId: string;
       workspaceRoot: string;
+      language: "qsharp" | "openqasm";
     }): Promise<CallToolResult> => {
       let exercise: Exercise;
       try {
@@ -458,11 +500,13 @@ export function createServer(): McpServer {
       }
 
       // Read the user's solution from the exercise folder
+      const solutionFile =
+        args.language === "openqasm" ? "solution.qasm" : "solution.qs";
       const solutionPath = path.join(
         baseDir,
         "exercises",
         progressEntry.folder,
-        "solution.qs",
+        solutionFile,
       );
       let userCode: string;
       try {
@@ -483,11 +527,21 @@ export function createServer(): McpServer {
       const sources = await getExerciseSources(exercise);
       const eventTarget = new QscEventTarget(true);
 
-      const passed = await ensureCompiler().checkExerciseSolution(
-        userCode,
-        sources,
-        eventTarget,
-      );
+      let passed: boolean;
+      if (args.language === "openqasm" && exercise.openQasm) {
+        passed = await ensureCompiler().checkOpenQasmExerciseSolution(
+          userCode,
+          exercise.openQasm.operationName,
+          sources,
+          eventTarget,
+        );
+      } else {
+        passed = await ensureCompiler().checkExerciseSolution(
+          userCode,
+          sources,
+          eventTarget,
+        );
+      }
 
       const results = eventTarget.getResults();
       const messages: string[] = [];
@@ -574,11 +628,17 @@ export function createServer(): McpServer {
           .describe(
             "The exercise ID as returned by getKataExercises, e.g. 'flip_qubit'.",
           ),
+        language: z
+          .enum(["qsharp", "openqasm"])
+          .optional()
+          .default("qsharp")
+          .describe("Programming language for the hint. Defaults to 'qsharp'."),
       }),
     },
     async (args: {
       kataId: string;
       exerciseId: string;
+      language: "qsharp" | "openqasm";
     }): Promise<CallToolResult> => {
       let exercise: Exercise;
       try {
@@ -590,11 +650,16 @@ export function createServer(): McpServer {
         };
       }
 
+      const explainedSolution =
+        args.language === "openqasm" && exercise.openQasm
+          ? exercise.openQasm.explainedSolution
+          : exercise.explainedSolution;
+
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(exercise.explainedSolution, null, 2),
+            text: JSON.stringify(explainedSolution, null, 2),
           },
         ],
       };
@@ -608,7 +673,8 @@ export function createServer(): McpServer {
       description:
         "Creates the quantum-katas workspace folder structure on disk. " +
         "Accepts a curated list of exercises and creates the directory layout, " +
-        "progress.json, and solution.qs files initialized from placeholder code.",
+        "progress.json, and solution files initialized from placeholder code. " +
+        "Supports both Q# (.qs) and OpenQASM (.qasm) exercises.",
       inputSchema: z.object({
         workspaceRoot: z
           .string()
@@ -619,6 +685,13 @@ export function createServer(): McpServer {
           .string()
           .describe(
             "The learning path level: beginner, intermediate, advanced, or custom.",
+          ),
+        language: z
+          .enum(["qsharp", "openqasm"])
+          .optional()
+          .default("qsharp")
+          .describe(
+            "Programming language for exercises. Defaults to 'qsharp'.",
           ),
         exercises: z
           .array(
@@ -645,6 +718,7 @@ export function createServer(): McpServer {
     async (args: {
       workspaceRoot: string;
       level: string;
+      language: "qsharp" | "openqasm";
       exercises: {
         sequence: number;
         kataId: string;
@@ -685,11 +759,20 @@ export function createServer(): McpServer {
           const folderPath = path.join(exercisesDir, folderName);
 
           await fs.mkdir(folderPath, { recursive: true });
-          await fs.writeFile(
-            path.join(folderPath, "solution.qs"),
-            exercise.placeholderCode,
-            "utf-8",
-          );
+
+          if (args.language === "openqasm" && exercise.openQasm) {
+            await fs.writeFile(
+              path.join(folderPath, "solution.qasm"),
+              exercise.openQasm.placeholderCode,
+              "utf-8",
+            );
+          } else {
+            await fs.writeFile(
+              path.join(folderPath, "solution.qs"),
+              exercise.placeholderCode,
+              "utf-8",
+            );
+          }
 
           exerciseEntries.push({
             sequence: ex.sequence,
@@ -719,7 +802,15 @@ export function createServer(): McpServer {
           content: [
             {
               type: "text",
-              text: `Created workspace at ${baseDir} with ${exerciseEntries.length} exercises.`,
+              text: JSON.stringify(
+                {
+                  workspacePath: baseDir,
+                  exerciseCount: exerciseEntries.length,
+                  exercises: exerciseEntries,
+                },
+                null,
+                2,
+              ),
             },
           ],
         };

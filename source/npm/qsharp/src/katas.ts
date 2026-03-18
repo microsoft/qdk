@@ -37,6 +37,11 @@ export type Exercise = {
   sourceIds: string[];
   placeholderCode: string;
   explainedSolution: ExplainedSolution;
+  openQasm?: {
+    placeholderCode: string;
+    explainedSolution: ExplainedSolution;
+    operationName: string;
+  };
 };
 
 export type Answer = {

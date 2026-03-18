@@ -1143,6 +1143,8 @@ name = "katas"
 version = "0.0.0"
 dependencies = [
  "qsc",
+ "qsc_codegen",
+ "qsc_openqasm_compiler",
 ]
 
 [[package]]

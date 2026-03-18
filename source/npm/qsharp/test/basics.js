@@ -212,6 +212,41 @@ async function runExerciseSolutionCheck(exercise, solution) {
   };
 }
 
+async function runOpenQasmExerciseSolutionCheck(
+  exercise,
+  openQasmCode,
+  operationName,
+) {
+  const evtTarget = new QscEventTarget(true);
+  const compiler = getCompiler();
+  const sources = await getExerciseSources(exercise);
+  const success = await compiler.checkOpenQasmExerciseSolution(
+    openQasmCode,
+    operationName,
+    sources,
+    evtTarget,
+  );
+
+  const unsuccessful_events = evtTarget
+    .getResults()
+    .filter((evt) => !evt.success);
+  let errorMsg = "";
+  for (const event of unsuccessful_events) {
+    const error = event.result;
+    if (typeof error === "string") {
+      errorMsg += "Result = " + error + "\n";
+    } else {
+      errorMsg += "Message = " + error.message + "\n";
+    }
+  }
+
+  return {
+    success: success,
+    errorCount: unsuccessful_events.length,
+    errorMsg: errorMsg,
+  };
+}
+
 async function getAllKataExamples(kata) {
   let examples = [];
 
@@ -236,7 +271,7 @@ async function getAllKataExamples(kata) {
   return examples;
 }
 
-async function validateExercise(
+async function validateQSharpExercise(
   exercise,
   validatePlaceholder,
   validateSolutions,
@@ -297,7 +332,67 @@ async function validateExercise(
   }
 }
 
+async function validateOpenQasmExercise(
+  exercise,
+  validatePlaceholder,
+  validateSolutions,
+) {
+  const oq = exercise.openQasm;
+
+  if (validatePlaceholder) {
+    const placeholderResult = await runOpenQasmExerciseSolutionCheck(
+      exercise,
+      oq.placeholderCode,
+      oq.operationName,
+    );
+
+    // Check that there are no compilation or runtime errors.
+    assert(
+      placeholderResult.errorCount === 0,
+      `OpenQASM placeholder for exercise "${exercise.id}" has compilation or runtime errors. ` +
+        `Errors:\n${placeholderResult.errorMsg}`,
+    );
+
+    // Check that the placeholder is an incorrect solution.
+    assert(
+      !placeholderResult.success,
+      `OpenQASM placeholder for exercise "${exercise.id}" is a correct solution but it is expected to be incorrect`,
+    );
+  }
+
+  if (validateSolutions) {
+    const oqSolutions = oq.explainedSolution.items.filter(
+      (item) => item.type === "solution",
+    );
+
+    assert(
+      oqSolutions.length > 0,
+      `OpenQASM variant for exercise "${exercise.id}" does not have solutions`,
+    );
+
+    for (const solution of oqSolutions) {
+      const solutionResult = await runOpenQasmExerciseSolutionCheck(
+        exercise,
+        solution.code,
+        oq.operationName,
+      );
+
+      assert(
+        solutionResult.errorCount === 0,
+        `OpenQASM solution "${solution.id}" for exercise "${exercise.id}" has compilation or runtime errors. ` +
+          `Errors:\n${solutionResult.errorMsg}`,
+      );
+
+      assert(
+        solutionResult.success,
+        `OpenQASM solution "${solution.id}" for exercise "${exercise.id}" is incorrect`,
+      );
+    }
+  }
+}
+
 async function validateKata(
+  t,
   kata,
   validateExamples,
   validateExercisePlaceholder,
@@ -308,11 +403,23 @@ async function validateKata(
     (section) => section.type === "exercise",
   );
   for (const exercise of exercises) {
-    await validateExercise(
-      exercise,
-      validateExercisePlaceholder,
-      validateExerciseSolutions,
-    );
+    await t.test(`${exercise.id} (Q#)`, async () => {
+      await validateQSharpExercise(
+        exercise,
+        validateExercisePlaceholder,
+        validateExerciseSolutions,
+      );
+    });
+
+    if (exercise.openQasm) {
+      await t.test(`${exercise.id} (OpenQASM)`, async () => {
+        await validateOpenQasmExercise(
+          exercise,
+          validateExercisePlaceholder,
+          validateExerciseSolutions,
+        );
+      });
+    }
   }
 
   if (validateExamples) {
@@ -344,9 +451,9 @@ test("all katas", async (t) => {
   const katasList = await getAllKatas({ includeUnpublished: true });
 
   for (const kataDesc of katasList) {
-    await t.test(`${kataDesc.id} kata is valid`, async () => {
+    await t.test(`${kataDesc.id} kata is valid`, async (t) => {
       const kata = await getKata(kataDesc.id);
-      await validateKata(kata, true, true, true);
+      await validateKata(t, kata, true, true, true);
     });
   }
 });

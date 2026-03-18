@@ -5,6 +5,7 @@
 #![allow(non_snake_case)]
 
 use diagnostic::interpret_errors_into_qsharp_errors;
+use katas::check_openqasm_solution;
 use katas::check_solution;
 use language_service::IOperationInfo;
 use num_bigint::BigUint;
@@ -632,6 +633,52 @@ pub fn check_exercise_solution(
     check_exercise_solution_internal(solution_code, exercise_sources, |msg: &str| {
         let _ = event_cb.call1(&JsValue::null(), &JsValue::from_str(msg));
     })
+}
+
+fn check_openqasm_exercise_solution_internal(
+    openqasm_code: &str,
+    operation_name: &str,
+    exercise_sources: Vec<(SourceName, SourceContents)>,
+    event_cb: impl Fn(&str),
+) -> bool {
+    let mut out = CallbackReceiver { event_cb };
+    let result = check_openqasm_solution(openqasm_code, operation_name, exercise_sources, &mut out);
+    let mut runtime_success = true;
+    let (exercise_success, msg) = match result {
+        Ok(value) => (value, serde_json::Value::String(value.to_string())),
+        Err(errors) => {
+            runtime_success = false;
+            (false, interpret_errors_to_run_result(&errors))
+        }
+    };
+    let msg_string =
+        json!({"type": "Result", "success": runtime_success, "result": msg}).to_string();
+    (out.event_cb)(&msg_string);
+    exercise_success
+}
+
+#[wasm_bindgen]
+#[must_use]
+pub fn check_openqasm_exercise_solution(
+    openqasm_code: &str,
+    operation_name: &str,
+    exercise_sources_js: JsValue,
+    event_cb: &js_sys::Function,
+) -> bool {
+    let exercise_sources_strs: Vec<String> = serde_wasm_bindgen::from_value(exercise_sources_js)
+        .expect("Deserializing code dependencies should succeed");
+    let mut exercise_sources: Vec<(SourceName, SourceContents)> = vec![];
+    for (index, code) in exercise_sources_strs.into_iter().enumerate() {
+        exercise_sources.push((index.to_string().into(), code.into()));
+    }
+    check_openqasm_exercise_solution_internal(
+        openqasm_code,
+        operation_name,
+        exercise_sources,
+        |msg: &str| {
+            let _ = event_cb.call1(&JsValue::null(), &JsValue::from_str(msg));
+        },
+    )
 }
 
 serializable_type! {

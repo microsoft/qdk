@@ -475,6 +475,34 @@ function createExerciseSection(kataPath, properties, globalCodeSources) {
     join(exercisePath, "solution.md"),
   );
 
+  // Check for OpenQASM variant files
+  let openQasm = undefined;
+  const openQasmPlaceholderPath = join(exercisePath, "Placeholder.qasm");
+  const exerciseJsonPath = join(exercisePath, "exercise.json");
+  if (existsSync(openQasmPlaceholderPath) && existsSync(exerciseJsonPath)) {
+    const openQasmPlaceholderCode = tryReadFile(
+      openQasmPlaceholderPath,
+      `Could not read Placeholder.qasm file for exercise '${properties.id}'`,
+    );
+
+    const exerciseJsonRaw = tryReadFile(
+      exerciseJsonPath,
+      `Could not read exercise.json file for exercise '${properties.id}'`,
+    );
+    const exerciseJson = JSON.parse(exerciseJsonRaw);
+
+    const openQasmSolutionMdPath = join(exercisePath, "solution_openqasm.md");
+    const openQasmExplainedSolution = existsSync(openQasmSolutionMdPath)
+      ? createExplainedSolution(openQasmSolutionMdPath)
+      : explainedSolution;
+
+    openQasm = {
+      placeholderCode: openQasmPlaceholderCode,
+      explainedSolution: openQasmExplainedSolution,
+      operationName: exerciseJson.operationName,
+    };
+  }
+
   return {
     type: "exercise",
     id: properties.id,
@@ -483,6 +511,7 @@ function createExerciseSection(kataPath, properties, globalCodeSources) {
     sourceIds,
     placeholderCode,
     explainedSolution,
+    ...(openQasm ? { openQasm } : {}),
   };
 }
 
