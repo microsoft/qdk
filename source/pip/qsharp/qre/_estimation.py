@@ -196,13 +196,28 @@ def estimate_with_graph(
     trace × ISA combination independently, this function populates a provenance
     graph from the ISA query and builds a Pareto index over it. The graph-based
     approach can prune dominated ISA combinations early, reducing the number of
-    estimations that need to be performed.
+    estimations that need to be performed. This makes ``estimate_with_graph``
+    typically much faster than `estimate`.
 
     The application instance might return multiple traces.  Each of the traces
     is transformed by the trace query, which applies several trace transforms in
     sequence.  Each transform may return multiple traces.  The collection only
     contains the results that are optimal with respect to the total number of
     qubits and the total runtime.
+
+    Note:
+        The pruning strategy used by the Pareto index filters ISA instructions
+        by comparing their per-instruction space, time, and error independently.
+        However, the total qubit count of a result depends on the interaction
+        between factory space and runtime: ``factory_qubits = copies ×
+        factory_space`` where copies are determined by
+        ``count.div_ceil(runtime / factory_time)``. Because of this, an ISA
+        instruction that is dominated on per-instruction metrics can still
+        contribute to a globally Pareto-optimal result (e.g., a factory with
+        higher time may need fewer copies, leading to fewer total qubits).
+        As a consequence, ``estimate_with_graph`` may miss some results that
+        `estimate` would find. Use `estimate` when completeness of the Pareto
+        frontier is required.
 
     Note:
         The ``post_process`` parameter is accepted for API compatibility with
