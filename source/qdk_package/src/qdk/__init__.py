@@ -34,6 +34,10 @@ from qsharp import (
     DepolarizingNoise,
     BitFlipNoise,
     PhaseFlipNoise,
+    QdkContext,
+    new_context,
+    get_context,
+    context_of,
 )
 
 # utilities lifted from qsharp
@@ -51,4 +55,8 @@ __all__ = [
     "DepolarizingNoise",
     "BitFlipNoise",
     "PhaseFlipNoise",
+    "QdkContext",
+    "new_context",
+    "get_context",
+    "context_of",
 ]
