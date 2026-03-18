@@ -390,3 +390,62 @@ def test_loss_shots_excluded_from_accepted_fields(backend) -> None:
     from collections import Counter
 
     assert Counter(data["raw_memory"]) == Counter(data["raw_counts"])
+
+
+# ---------------------------------------------------------------------------
+# User-initiated transpilation (skip_transpilation=True)
+# ---------------------------------------------------------------------------
+
+NATIVE_GATES = {"rz", "sx", "cz", "measure", "reset"}
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+def test_native_target_gate_set(backend) -> None:
+    """backend.target must advertise exactly the NeutralAtomDevice native gate set."""
+    assert set(backend.target.operation_names) == NATIVE_GATES
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+def test_transpile_produces_native_gates_only(backend) -> None:
+    """After transpiling against the backend target, no non-native gates remain."""
+    from qiskit import transpile
+
+    circuit = create_bell_circuit()
+    native_circuit = transpile(circuit, backend=backend)
+    ops = set(native_circuit.count_ops().keys())
+    non_native = ops - NATIVE_GATES
+    assert non_native == set(), f"Non-native gates after transpilation: {non_native}"
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+def test_skip_transpilation_gives_correct_results(backend) -> None:
+    """Pre-transpiled circuit run with skip_transpilation=True must produce valid Bell outcomes."""
+    from qiskit import transpile
+
+    circuit = create_bell_circuit()
+    native_circuit = transpile(circuit, backend=backend)
+    counts = (
+        backend.run(native_circuit, shots=200, seed=77, skip_transpilation=True)
+        .result()
+        .get_counts()
+    )
+    for bitstring in counts:
+        assert bitstring in ("00", "11"), f"Unexpected outcome: {bitstring}"
+    assert sum(counts.values()) == 200
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+def test_pretranspiled_matches_backend_transpiled(backend) -> None:
+    """Pre-transpiled + skip_transpilation=True must give the same counts as a normal run with the same seed."""
+    from qiskit import transpile
+
+    circuit = create_bell_circuit()
+    native_circuit = transpile(circuit, backend=backend)
+
+    counts_normal = backend.run(circuit, shots=300, seed=55).result().get_counts()
+    counts_pretranspiled = (
+        backend.run(native_circuit, shots=300, seed=55, skip_transpilation=True)
+        .result()
+        .get_counts()
+    )
+    assert counts_normal == counts_pretranspiled
