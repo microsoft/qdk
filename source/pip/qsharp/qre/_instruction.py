@@ -267,6 +267,23 @@ class InstructionSource:
 
         raise KeyError(f"Instruction ID {id} not found in instruction source graph.")
 
+    def __contains__(self, id: int) -> bool:
+        """
+        Checks if there is an instruction source root node with the given
+        instruction ID.
+
+        Args:
+            id (int): The instruction ID to search for.
+
+        Returns:
+            bool: True if a node with the given instruction ID exists, False otherwise.
+        """
+        for root in self.roots:
+            if self.nodes[root].instruction.id == id:
+                return True
+
+        return False
+
     def get(
         self, id: int, default: Optional[_InstructionSourceNodeReference] = None
     ) -> Optional[_InstructionSourceNodeReference]:
