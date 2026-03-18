@@ -413,7 +413,7 @@ def test_transpile_produces_native_gates_only(backend) -> None:
     circuit = create_bell_circuit()
     native_circuit = transpile(circuit, backend=backend)
     ops = set(native_circuit.count_ops().keys())
-    non_native = ops - NATIVE_GATES
+    non_native = ops - NATIVE_GATES - {"barrier"}
     assert non_native == set(), f"Non-native gates after transpilation: {non_native}"
 
 
