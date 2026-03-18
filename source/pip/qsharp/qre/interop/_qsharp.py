@@ -19,13 +19,22 @@ def _bucketize_rotation_counts(
 ) -> list[tuple[int, int]]:
     """
     Returns a list of (count, depth) pairs representing the rotation layers in
-    the trace.  The following properties must hold for the returned list
-    `result`:
+    the trace.
+
+    The following properties hold for the returned list `result`:
         - sum(depth for _, depth in result) == rotation_depth
         - sum(count * depth for count, depth in result) == rotation_count
         - count > 0 for each (count, _) in result
         - count <= qubit_count for each (count, _) in result holds by definition
           when rotation_count <= rotation_depth * qubit_count
+
+    Args:
+        rotation_count: Total number of rotations.
+        rotation_depth: Total depth of the rotation layers.
+
+    Returns:
+        A list of (count, depth) pairs, where 'count' is the number of
+        rotations in a layer and 'depth' is the depth of that layer.
     """
     if rotation_depth == 0:
         return []
