@@ -60,6 +60,40 @@ impl Program {
     }
 
     #[must_use]
+    pub fn with_blocks(blocks: Vec<(BlockId, Block)>) -> Self {
+        let mut program = Self::new();
+        let mut entry_block_id = None;
+        for (id, block) in blocks {
+            if entry_block_id.is_none() {
+                entry_block_id = Some(id);
+            }
+            program.blocks.insert(id, block);
+        }
+
+        if let Some(entry_block_id) = entry_block_id {
+            const ENTRY: CallableId = CallableId(0);
+            program.entry = ENTRY;
+            program.callables.insert(
+                ENTRY,
+                Callable {
+                    name: "entry".into(),
+                    input_type: vec![],
+                    output_type: None,
+                    body: Some(entry_block_id),
+                    call_type: CallableType::Regular,
+                },
+            );
+        }
+
+        program
+    }
+
+    #[must_use]
+    pub fn all_callable_ids(&self) -> Vec<CallableId> {
+        self.callables.iter().map(|(id, _)| id).collect()
+    }
+
+    #[must_use]
     pub fn get_callable(&self, id: CallableId) -> &Callable {
         self.callables.get(id).expect("callable should be present")
     }
@@ -347,6 +381,7 @@ pub enum Instruction {
     BitwiseXor(Operand, Operand, Variable),
     Phi(Vec<(Operand, BlockId)>, Variable),
     Convert(Operand, Variable),
+    Advanced(AdvancedInstr),
     Return,
 }
 
@@ -361,106 +396,7 @@ impl Instruction {
 }
 
 impl Display for Instruction {
-    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        fn write_binary_instruction(
-            f: &mut Formatter,
-            instruction: &str,
-            lhs: &Operand,
-            rhs: &Operand,
-            variable: Variable,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "{variable} = {instruction} {lhs}, {rhs}")?;
-            Ok(())
-        }
-
-        fn write_branch(
-            f: &mut Formatter,
-            condition: Variable,
-            if_true: BlockId,
-            if_false: BlockId,
-            metadata: Option<&InstructionDbgMetadata>,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "Branch {condition}, {}, {}", if_true.0, if_false.0)?;
-            if let Some(metadata) = metadata {
-                write!(f, " {metadata}")?;
-            }
-            Ok(())
-        }
-
-        fn write_call(
-            f: &mut Formatter,
-            callable_id: CallableId,
-            args: &[Operand],
-            variable: Option<Variable>,
-            metadata: Option<&InstructionDbgMetadata>,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            if let Some(variable) = variable {
-                write!(indent, "{variable} = ")?;
-            }
-            write!(indent, "Call id({}), args( ", callable_id.0)?;
-            for arg in args {
-                write!(indent, "{arg}, ")?;
-            }
-            write!(indent, ")")?;
-            if let Some(metadata) = metadata {
-                write!(f, " {metadata}")?;
-            }
-            Ok(())
-        }
-
-        fn write_unary_instruction(
-            f: &mut Formatter,
-            instruction: &str,
-            value: &Operand,
-            variable: Variable,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "{variable} = {instruction} {value}")?;
-            Ok(())
-        }
-
-        fn write_fcmp_instruction(
-            f: &mut Formatter,
-            condition: FcmpConditionCode,
-            lhs: &Operand,
-            rhs: &Operand,
-            variable: Variable,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "{variable} = Fcmp {condition}, {lhs}, {rhs}")?;
-            Ok(())
-        }
-
-        fn write_icmp_instruction(
-            f: &mut Formatter,
-            condition: ConditionCode,
-            lhs: &Operand,
-            rhs: &Operand,
-            variable: Variable,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "{variable} = Icmp {condition}, {lhs}, {rhs}")?;
-            Ok(())
-        }
-
-        fn write_phi_instruction(
-            f: &mut Formatter,
-            args: &[(Operand, BlockId)],
-            variable: Variable,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "{variable} = Phi ( ")?;
-            for (val, block_id) in args {
-                write!(indent, "[{val}, {}], ", block_id.0)?;
-            }
-            write!(indent, ")")?;
-            Ok(())
-        }
-
         match &self {
             Self::Store(value, variable) => write_unary_instruction(f, "Store", value, *variable)?,
             Self::Jump(block_id) => write!(f, "Jump({})", block_id.0)?,
@@ -537,7 +473,48 @@ impl Display for Instruction {
                 let mut indent = set_indentation(indented(f), 0);
                 write!(indent, "{variable} = Convert {operand}")?;
             }
+            Self::Advanced(instr) => {
+                write!(f, "{instr}")?;
+            }
             Self::Return => write!(f, "Return")?,
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AdvancedInstr {
+    Load(Variable, Variable),
+    Alloca(Variable),
+}
+
+impl From<AdvancedInstr> for Instruction {
+    fn from(instr: AdvancedInstr) -> Self {
+        Self::Advanced(instr)
+    }
+}
+
+impl TryFrom<Instruction> for AdvancedInstr {
+    type Error = ();
+
+    fn try_from(instr: Instruction) -> Result<Self, Self::Error> {
+        match instr {
+            Instruction::Advanced(adv_instr) => Ok(adv_instr),
+            _ => Err(()),
+        }
+    }
+}
+
+impl Display for AdvancedInstr {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match &self {
+            Self::Load(lhs, rhs) => {
+                write_unary_instruction(f, "Load", &Operand::Variable(*lhs), *rhs)?;
+            }
+            Self::Alloca(variable) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{variable} = Alloca")?;
+            }
         }
         Ok(())
     }
@@ -601,6 +578,14 @@ impl Variable {
         Self {
             variable_id: id,
             ty: Ty::Double,
+        }
+    }
+
+    #[must_use]
+    pub fn new_ptr(id: VariableId) -> Self {
+        Self {
+            variable_id: id,
+            ty: Ty::Pointer,
         }
     }
 }
@@ -751,4 +736,102 @@ fn set_indentation<'a, 'b>(
         2 => indent.with_str("        "),
         _ => unimplemented!("indentation level not supported"),
     }
+}
+
+fn write_binary_instruction(
+    f: &mut Formatter,
+    instruction: &str,
+    lhs: &Operand,
+    rhs: &Operand,
+    variable: Variable,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "{variable} = {instruction} {lhs}, {rhs}")?;
+    Ok(())
+}
+
+fn write_branch(
+    f: &mut Formatter,
+    condition: Variable,
+    if_true: BlockId,
+    if_false: BlockId,
+    metadata: Option<&InstructionDbgMetadata>,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "Branch {condition}, {}, {}", if_true.0, if_false.0)?;
+    if let Some(metadata) = metadata {
+        write!(f, " {metadata}")?;
+    }
+    Ok(())
+}
+
+fn write_call(
+    f: &mut Formatter,
+    callable_id: CallableId,
+    args: &[Operand],
+    variable: Option<Variable>,
+    metadata: Option<&InstructionDbgMetadata>,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    if let Some(variable) = variable {
+        write!(indent, "{variable} = ")?;
+    }
+    write!(indent, "Call id({}), args( ", callable_id.0)?;
+    for arg in args {
+        write!(indent, "{arg}, ")?;
+    }
+    write!(indent, ")")?;
+    if let Some(metadata) = metadata {
+        write!(f, " {metadata}")?;
+    }
+    Ok(())
+}
+
+fn write_unary_instruction(
+    f: &mut Formatter,
+    instruction: &str,
+    value: &Operand,
+    variable: Variable,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "{variable} = {instruction} {value}")?;
+    Ok(())
+}
+
+fn write_fcmp_instruction(
+    f: &mut Formatter,
+    condition: FcmpConditionCode,
+    lhs: &Operand,
+    rhs: &Operand,
+    variable: Variable,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "{variable} = Fcmp {condition}, {lhs}, {rhs}")?;
+    Ok(())
+}
+
+fn write_icmp_instruction(
+    f: &mut Formatter,
+    condition: ConditionCode,
+    lhs: &Operand,
+    rhs: &Operand,
+    variable: Variable,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "{variable} = Icmp {condition}, {lhs}, {rhs}")?;
+    Ok(())
+}
+
+fn write_phi_instruction(
+    f: &mut Formatter,
+    args: &[(Operand, BlockId)],
+    variable: Variable,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "{variable} = Phi ( ")?;
+    for (val, block_id) in args {
+        write!(indent, "[{val}, {}], ", block_id.0)?;
+    }
+    write!(indent, ")")?;
+    Ok(())
 }

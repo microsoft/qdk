@@ -226,6 +226,10 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
                 Instruction::Store(..) => {
                     panic!("Unexpected Store at {block_id:?}, instruction {idx}")
                 }
+
+                Instruction::Advanced(..) => {
+                    panic!("Unexpected Advanced instruction at {block_id:?}, instruction {idx}")
+                }
             }
         }
     }
