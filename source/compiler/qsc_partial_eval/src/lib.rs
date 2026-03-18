@@ -33,14 +33,15 @@ use qsc_fir::{
         self, BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraph, ExecGraphConfig, Expr,
         ExprId, ExprKind, Field, Global, Ident, LocalVarId, Mutability, PackageId, PackageStore,
         PackageStoreLookup, Pat, PatId, PatKind, PrimField, Res, SpecDecl, SpecImpl, Stmt, StmtId,
-        StmtKind, StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId, UnOp,
+        StmtKind, StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId, StringComponent,
+        UnOp,
     },
     ty::{Prim, Ty},
 };
 use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
-    QuantumProperties, RuntimeFeatureFlags, RuntimeKind, ValueKind,
+    RuntimeFeatureFlags, ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
@@ -633,6 +634,18 @@ impl<'a> PartialEvaluator<'a> {
             Value::Var(lhs_eval_var) => {
                 self.eval_bin_op_with_lhs_var(bin_op, lhs_eval_var, rhs_expr_id, bin_op_expr_span)
             }
+            Value::String(_) => {
+                // Strings are a special case that we always treat as empty string during partial evaluation,
+                // but we still need to evaluate the RHS expression in case it contains side effects.
+                let rhs_control_flow = self.try_eval_expr(rhs_expr_id)?;
+                let EvalControlFlow::Continue(rhs_value) = rhs_control_flow else {
+                    return Err(Error::Unexpected(
+                        "embedded return in RHS expression".to_string(),
+                        self.get_expr_package_span(rhs_expr_id),
+                    ));
+                };
+                Ok(EvalControlFlow::Continue(rhs_value))
+            }
             _ => Err(Error::Unexpected(
                 format!("unsupported LHS value: {lhs_value}"),
                 lhs_span,
@@ -1145,7 +1158,7 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
-    fn eval_classical_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
+    fn eval_static_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
         let current_package_id = self.get_current_package_id();
         let store_expr_id = StoreExprId::from((current_package_id, expr_id));
         let expr = self.package_store.get_expr(store_expr_id);
@@ -1201,7 +1214,7 @@ impl<'a> PartialEvaluator<'a> {
         eval_result
     }
 
-    fn eval_hybrid_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
+    fn eval_dynamic_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
         let expr = self.get_expr(expr_id);
         let expr_package_span = self.get_expr_package_span(expr_id);
         match &expr.kind {
@@ -1276,10 +1289,7 @@ impl<'a> PartialEvaluator<'a> {
                 "instruction generation for struct constructor expressions is invalid".to_string(),
                 expr_package_span,
             )),
-            ExprKind::String(_) => Err(Error::Unexpected(
-                "dynamic strings are invalid".to_string(),
-                expr_package_span,
-            )),
+            ExprKind::String(components) => self.eval_expr_string(components),
             ExprKind::Tuple(exprs) => self.eval_expr_tuple(exprs),
             ExprKind::UnOp(un_op, value_expr_id) => {
                 self.eval_expr_unary(*un_op, *value_expr_id, expr_package_span)
@@ -1296,6 +1306,30 @@ impl<'a> PartialEvaluator<'a> {
                 self.eval_expr_while(expr_id, *condition_expr_id, *body_block_id)
             }
         }
+    }
+
+    fn eval_expr_string(
+        &mut self,
+        components: &Vec<StringComponent>,
+    ) -> Result<EvalControlFlow, Error> {
+        // To ensure any dynamic nested expressions are evaluated, we loop through them here.
+        for component in components {
+            match component {
+                StringComponent::Lit(_) => (),
+                StringComponent::Expr(expr_id) => {
+                    let control_flow = self.try_eval_expr(*expr_id)?;
+                    if control_flow.is_return() {
+                        return Err(Error::Unexpected(
+                            "embedded return in string expression".to_string(),
+                            self.get_expr_package_span(*expr_id),
+                        ));
+                    }
+                }
+            }
+        }
+        // All dynamic strings are treated as the empty string for the purpose of partial evaluation since RCA prevents
+        // any dynamic string from affecting control flow.
+        Ok(EvalControlFlow::Continue(Value::String("".into())))
     }
 
     fn eval_expr_array_repeat(
@@ -1558,10 +1592,10 @@ impl<'a> PartialEvaluator<'a> {
         // by the target.
         if self.is_unresolved_callee_expr(callee_expr_id) {
             let call_compute_kind = self.get_call_compute_kind(call_scope);
-            if let ComputeKind::Quantum(QuantumProperties {
+            if let ComputeKind::Dynamic {
                 runtime_features,
                 value_kind,
-            }) = call_compute_kind
+            } = call_compute_kind
             {
                 let missing_features = get_missing_runtime_features(
                     runtime_features,
@@ -1578,10 +1612,10 @@ impl<'a> PartialEvaluator<'a> {
                     return Err(Error::CapabilityError(error));
                 }
 
-                // If the call produces a dynamic value, we treat it as an error because we know that later
-                // analysis has not taken that dynamism into account and further partial evaluation may fail
+                // If the call produces a variable value, we treat it as an error because we know that later
+                // analysis has not taken that variable into account and further partial evaluation may fail
                 // when it encounters that value.
-                if value_kind.is_dynamic() {
+                if value_kind == ValueKind::Variable {
                     return Err(Error::UnexpectedDynamicValue(
                         self.get_expr_package_span(call_expr_id),
                     ));
@@ -1741,7 +1775,9 @@ impl<'a> PartialEvaluator<'a> {
             | "EndRepeatEstimatesInternal"
             | "EnableMemoryComputeArchitecture"
             | "ApplyIdleNoise"
-            | "GlobalPhase" => Ok(Value::unit()),
+            | "GlobalPhase"
+            | "Message"
+            | "PostSelectZ" => Ok(Value::unit()),
             "CheckZero" => Err(Error::UnsupportedSimulationIntrinsic(
                 "CheckZero".to_string(),
                 callee_expr_span,
@@ -1892,21 +1928,22 @@ impl<'a> PartialEvaluator<'a> {
         // Since the if expression can represent a dynamic value, create a variable to store it if the expression is
         // non-unit.
         let if_expr = self.get_expr(if_expr_id);
-        let maybe_if_expr_var = if if_expr.ty == Ty::UNIT {
-            None
-        } else {
-            let variable_id = self.resource_manager.next_var();
-            let variable_ty = map_fir_type_to_rir_type(&if_expr.ty).map_err(|msg| {
-                Error::Unexpected(
-                    format!("unsupported if-expression output type `{msg}`"),
-                    self.get_expr_package_span(if_expr_id),
-                )
-            })?;
-            Some(rir::Variable {
-                variable_id,
-                ty: variable_ty,
-            })
-        };
+        let maybe_if_expr_var =
+            if if_expr.ty == Ty::UNIT || matches!(if_expr.ty, Ty::Prim(Prim::String)) {
+                None
+            } else {
+                let variable_id = self.resource_manager.next_var();
+                let variable_ty = map_fir_type_to_rir_type(&if_expr.ty).map_err(|msg| {
+                    Error::Unexpected(
+                        format!("unsupported if-expression output type `{msg}`"),
+                        self.get_expr_package_span(if_expr_id),
+                    )
+                })?;
+                Some(rir::Variable {
+                    variable_id,
+                    ty: variable_ty,
+                })
+            };
 
         // Evaluate the body expression.
         // First, we cache the current static variable mappings so that we can restore them later.
@@ -1963,6 +2000,10 @@ impl<'a> PartialEvaluator<'a> {
                     self.get_expr_package_span(if_expr_id),
                 )
             })?)
+        } else if matches!(if_expr.ty, Ty::Prim(Prim::String)) {
+            // Dynamic strings are treated as the empty string for the purpose of partial evaluation since RCA prevents
+            // any dynamic string from affecting control flow.
+            Value::String("".into())
         } else {
             Value::unit()
         };
@@ -2288,18 +2329,13 @@ impl<'a> PartialEvaluator<'a> {
         condition_expr_id: ExprId,
         body_block_id: BlockId,
     ) -> Result<EvalControlFlow, Error> {
-        // Verify assumptions: the condition expression must either classical (such that it can be fully evaluated) or
-        // quantum but statically known at runtime (such that it can be partially evaluated to a known value).
+        // Verify assumptions: the condition expression must either static (such that it can be fully evaluated) or
+        // dynamic but constant at runtime (such that it can be partially evaluated to a known value).
         assert!(
-            matches!(
-                self.get_expr_compute_kind(condition_expr_id),
-                ComputeKind::Classical
-                    | ComputeKind::Quantum(QuantumProperties {
-                        runtime_features: _,
-                        value_kind: ValueKind::Element(RuntimeKind::Static),
-                    })
-            ),
-            "loop conditions must be purely classical"
+            !self
+                .get_expr_compute_kind(condition_expr_id)
+                .is_variable_value_kind(),
+            "loop conditions must be known at code generation time."
         );
 
         // Evaluate the block until the loop condition is false.
@@ -2734,7 +2770,7 @@ impl<'a> PartialEvaluator<'a> {
         let store_expr_id = StoreExprId::from((current_package_id, expr_id));
         let expr_generator_set = self.compute_properties.get_expr(store_expr_id);
         let callable_scope = self.eval_context.get_current_scope();
-        expr_generator_set.generate_application_compute_kind(&callable_scope.args_value_kind)
+        expr_generator_set.generate_application_compute_kind(&callable_scope.args_compute_kind)
     }
 
     fn is_unresolved_callee_expr(&self, expr_id: ExprId) -> bool {
@@ -2775,7 +2811,7 @@ impl<'a> PartialEvaluator<'a> {
             },
             None => panic!("call compute kind should have callable"),
         };
-        callable_generator_set.generate_application_compute_kind(&callable_scope.args_value_kind)
+        callable_generator_set.generate_application_compute_kind(&callable_scope.args_compute_kind)
     }
 
     fn try_create_mutable_variable(
@@ -2833,9 +2869,9 @@ impl<'a> PartialEvaluator<'a> {
             .expect("program block does not exist")
     }
 
-    fn is_classical_expr(&self, expr_id: ExprId) -> bool {
+    fn is_static_expr(&self, expr_id: ExprId) -> bool {
         let compute_kind = self.get_expr_compute_kind(expr_id);
-        matches!(compute_kind, ComputeKind::Classical)
+        matches!(compute_kind, ComputeKind::Static)
     }
 
     fn allocate_qubit(&mut self) -> Value {
@@ -3078,11 +3114,13 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn try_eval_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
-        // An expression is evaluated differently depending on whether it is purely classical or hybrid.
-        if self.is_classical_expr(expr_id) {
-            self.eval_classical_expr(expr_id)
+        // An expression is evaluated differently depending on whether it is purely static or dynamic,
+        // since static expressions can be fully evaluated and do not need to generate any instructions,
+        // while dynamic expressions may need to generate instructions and map their value to a variable.
+        if self.is_static_expr(expr_id) {
+            self.eval_static_expr(expr_id)
         } else {
-            self.eval_hybrid_expr(expr_id)
+            self.eval_dynamic_expr(expr_id)
         }
     }
 

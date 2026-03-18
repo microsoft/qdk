@@ -5,8 +5,8 @@ version.workspace = true
 authors.workspace = true
 edition.workspace = true
 # wasm-pack doesn't like the workspace format for the below, so copied in for now.
-homepage = "https://github.com/microsoft/qsharp"
-repository = "https://github.com/microsoft/qsharp"
+homepage = "https://github.com/microsoft/qdk"
+repository = "https://github.com/microsoft/qdk"
 license = "MIT"
 description = "Wasm module for the qsc compiler"
 

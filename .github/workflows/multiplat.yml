@@ -55,6 +55,7 @@ jobs:
       - name: File issue on failure
         if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
         id: create-issue
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

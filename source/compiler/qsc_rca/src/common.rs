@@ -9,7 +9,7 @@ use qsc_fir::{
         Block, BlockId, Expr, ExprId, ExprKind, Functor, ItemId, LocalItemId, LocalVarId, Package,
         PackageId, PackageLookup, Pat, PatId, Res, Stmt, StmtId, StoreItemId, UnOp,
     },
-    ty::{FunctorSetValue, Ty},
+    ty::FunctorSetValue,
     visit::{Visitor, walk_expr, walk_stmt},
 };
 use rustc_hash::FxHashMap;
@@ -116,25 +116,6 @@ impl FunctorAppExt for FunctorApp {
             (true, false) => FunctorSetValue::Adj,
             (false, true) => FunctorSetValue::Ctl,
             (true, true) => FunctorSetValue::CtlAdj,
-        }
-    }
-}
-
-pub trait TyExt {
-    fn has_type_parameters(&self) -> bool;
-}
-
-impl TyExt for Ty {
-    fn has_type_parameters(&self) -> bool {
-        match self {
-            Self::Array(ty) => ty.has_type_parameters(),
-            Self::Arrow(arrow) => {
-                arrow.input.has_type_parameters() || arrow.output.has_type_parameters()
-            }
-            Self::Infer(_) | Self::Prim(_) | Self::Udt(_) => false,
-            Self::Param(_) => true,
-            Self::Tuple(types) => types.iter().any(TyExt::has_type_parameters),
-            Self::Err => panic!("unexpected type error"),
         }
     }
 }

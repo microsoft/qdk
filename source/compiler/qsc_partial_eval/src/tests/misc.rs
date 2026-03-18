@@ -620,3 +620,101 @@ fn evaluation_error_within_stdlib_yield_correct_package_span() {
         ],
     );
 }
+
+#[test]
+fn string_interpolation_with_side_effects_captures_side_effects() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            operation Main() : Unit {
+                use q = Qubit();
+                let s = $"Measurement result: {MResetZ(q)}";
+                Message(s);
+            }
+        }
+        "#,
+    });
+
+    // Verify the callables added to the program.
+    let mresetz_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        mresetz_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Call id(3), args( Integer(0), Tag(0, 3), )
+                Return"#]],
+    );
+}
+
+#[test]
+fn string_concatenation_with_side_effects_captures_side_effects() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            operation Main() : Unit {
+                use q = Qubit();
+                let s = $"{H(q)}" + $"{MResetZ(q)}";
+                Message(s);
+            }
+        }
+        "#,
+    });
+
+    // Verify the callables added to the program.
+    let h_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        h_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__h__body
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let mresetz_callable_id = CallableId(3);
+    assert_callable(
+        &program,
+        mresetz_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(0), Result(0), )
+                Call id(4), args( Integer(0), Tag(0, 3), )
+                Return"#]],
+    );
+}

@@ -465,6 +465,13 @@ class CircuitGenerationMethod(Enum):
     Use simulation to generate the circuit.
     """
 
+    Static: CircuitGenerationMethod
+    """
+    Compile the program and transform to a circuit using partial evaluation.
+    Only works for AdaptiveRIF-compliant programs.
+    Requires a non-Unrestricted target profile (e.g. TargetProfile.Adaptive_RIF).
+    """
+
 class Circuit:
     def json(self) -> str: ...
     def __repr__(self) -> str: ...
