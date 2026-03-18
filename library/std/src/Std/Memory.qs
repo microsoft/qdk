@@ -9,22 +9,12 @@ operation Free(qmem : QMem) : Unit {
     body intrinsic;
 }
 
-operation Clear(qmem : QMem) : Unit {
-    body intrinsic;
-}
-
-operation Exchange(qmem : QMem, qubit : Qubit) : Unit {
-    body intrinsic;
-}
-
 operation Store(qubit : Qubit, qmem : QMem) : Unit {
-    Clear(qmem);
-    Exchange(qmem, qubit);
+    body intrinsic;
 }
 
 operation Load(qmem : QMem, qubit : Qubit) : Unit {
-    Exchange(qmem, qubit);
-    Clear(qmem);
+    body intrinsic;
 }
 
-export Allocate, Free, Clear, Exchange, Store, Load;
+export Allocate, Free, Store, Load;

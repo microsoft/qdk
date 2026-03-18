@@ -586,6 +586,7 @@ impl Backend for LogicalCounter {
         self.assert_compute_qubits([q0, q1]);
         if self.current_memory_qubits.contains(&q0) {
             self.manual_memory_reads += 1;
+        } else if self.current_memory_qubits.contains(&q1) {
             self.manual_memory_writes += 1;
         }
         self.schedule_two_qubit_clifford(q0, q1);

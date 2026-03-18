@@ -1343,15 +1343,25 @@ impl State {
                 let q_val = Value::Qubit(q);
                 self.release_qubit(env, sim, q_val, arg_span, &call_stack)?
             }
-            "Clear" => {
-                let Value::QMem(q) = arg else {
-                    panic!("qubit release should be called with a quantum memory reference")
+            "Store" => {
+                let [qubit, qmem] = val::unwrap_tuple(arg);
+                let Value::QMem(qmem) = qmem else {
+                    panic!("first argument of Exchange should be a quantum memory reference")
                 };
-                let qubit = q.try_deref().ok_or(Error::QubitDoubleRelease(arg_span))?;
-                sim.reset(qubit.0, &call_stack);
+                let Value::Qubit(qubit) = qubit else {
+                    panic!("second argument of Exchange should be a qubit reference")
+                };
+                let qmem_ref = qmem
+                    .try_deref()
+                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?;
+                let qubit_ref = qubit
+                    .try_deref()
+                    .ok_or(Error::QubitUsedAfterRelease(arg_span))?;
+                sim.reset(qmem_ref.0, &call_stack);
+                sim.swap(qubit_ref.0, qmem_ref.0, &call_stack);
                 Value::unit()
             }
-            "Exchange" => {
+            "Load" => {
                 let [qmem, qubit] = val::unwrap_tuple(arg);
                 let Value::QMem(qmem) = qmem else {
                     panic!("first argument of Exchange should be a quantum memory reference")
@@ -1366,6 +1376,7 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitUsedAfterRelease(arg_span))?;
                 sim.swap(qmem_ref.0, qubit_ref.0, &call_stack);
+                sim.reset(qmem_ref.0, &call_stack);
                 Value::unit()
             }
             "__quantum__rt__qubit_release" => {
