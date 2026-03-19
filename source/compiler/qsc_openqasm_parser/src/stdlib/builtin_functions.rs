@@ -156,9 +156,8 @@ fn try_implicit_cast_inputs(
             // `coerce_literal_expr_to_type` expects a value expression.
             // So, we build an adhoc expression where `Expr::Kind` is a
             // `LiteralKind` to satisfy this method.
-            value_expr.kind = Box::new(ExprKind::Lit(
-                input.get_const_value().expect("input should be const"),
-            ));
+            *value_expr.kind =
+                ExprKind::Lit(input.get_const_value().expect("input should be const"));
             match Lowerer::try_coerce_literal_expr_to_type(ty, &value_expr, &value) {
                 Ok(coerced_input) => new_inputs.push(coerced_input.with_const_value(ctx)),
                 Err(err) => return Err(err),
