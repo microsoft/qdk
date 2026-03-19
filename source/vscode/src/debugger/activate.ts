@@ -71,7 +71,6 @@ function registerCommands(context: vscode.ExtensionContext) {
         }
         startQdkDebugging(resource, {
           name: "QDK: Debug Program",
-          stopOnEntry: true,
           entry: expr,
         });
       },
@@ -83,7 +82,6 @@ function registerCommands(context: vscode.ExtensionContext) {
           resource,
           {
             name: "QDK: Run and Show Circuit",
-            stopOnEntry: false,
             showCircuit: true,
           },
           { noDebug: true },
@@ -201,9 +199,9 @@ class QsDebugConfigProvider implements vscode.DebugConfigurationProvider {
     // noDebug is set to true when the user runs the program without debugging.
     // otherwise it usually isn't set, but we default to false.
     config.noDebug = config.noDebug ?? false;
-    // stopOnEntry is set to true when the user runs the program with debugging.
+    // stopOnEntry is set to false when the user runs the program with debugging.
     // unless overridden.
-    config.stopOnEntry = config.stopOnEntry ?? !config.noDebug;
+    config.stopOnEntry = config.stopOnEntry ?? false;
 
     return config;
   }
