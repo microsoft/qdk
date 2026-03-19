@@ -149,7 +149,7 @@ impl LanguageService {
             .and_then(|manifest| serde_json::from_str(&manifest).ok());
 
         // If no features were passed in as an argument, use the features from the manifest.
-        // this way we prefer the features from the argument over those from the manifest.
+        // This way we prefer the features from the argument over those from the manifest.
         let language_features: Vec<String> = match (notebook_metadata.languageFeatures, &manifest) {
             (Some(language_features), _) => language_features,
             (_, Some(manifest)) => manifest.language_features.clone(),
