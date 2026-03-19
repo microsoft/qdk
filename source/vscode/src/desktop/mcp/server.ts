@@ -33,6 +33,38 @@ function ensureCompiler(): Compiler {
   return compiler;
 }
 
+/**
+ * Generate a circuit diagram from Q# exercise code.
+ * Extracts the operation name from the code, compiles it, and returns
+ * the circuit data as a plain object. Returns null if generation fails.
+ */
+async function generateCircuitFromQSharp(
+  code: string,
+): Promise<Record<string, unknown> | null> {
+  const match = code.match(/operation\s+(\w+)\s*\(/);
+  if (!match) return null;
+  const operationName = match[1];
+
+  try {
+    const circuitData = await ensureCompiler().getCircuit(
+      {
+        sources: [["solution.qs", code]],
+        languageFeatures: [],
+      },
+      {
+        generationMethod: "static",
+        maxOperations: 10001,
+        groupByScope: true,
+        sourceLocations: false,
+      },
+      { operation: `Kata.${operationName}`, totalNumQubits: 0 },
+    );
+    return circuitData as unknown as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 async function findExercise(
   kataId: string,
   exerciseId: string,
@@ -407,7 +439,10 @@ export function createServer(): McpServer {
         "Reads the solution from the exercise folder on disk and updates " +
         "progress.json automatically on success. " +
         "Supports both Q# (.qs) and OpenQASM (.qasm) solutions. " +
-        "Returns pass/fail with diagnostic messages and the user's code.",
+        "Returns pass/fail with diagnostic messages and the user's code. " +
+        "On success for Q# solutions, also returns a circuit field containing " +
+        "the circuit diagram JSON for the solution, which can be rendered " +
+        "using the renderCircuit tool.",
       inputSchema: z.object({
         kataId: z.string().describe("The kata ID, e.g. 'single_qubit_gates'."),
         exerciseId: z
@@ -553,6 +588,12 @@ export function createServer(): McpServer {
         }
       }
 
+      // On success, generate a circuit from the user's Q# code (best-effort)
+      let circuit: Record<string, unknown> | null = null;
+      if (passed && args.language === "qsharp") {
+        circuit = await generateCircuitFromQSharp(userCode);
+      }
+
       // On success, update progress.json
       if (passed) {
         progressEntry.status = "completed";
@@ -573,37 +614,38 @@ export function createServer(): McpServer {
           );
         } catch {
           // Non-fatal: report the pass but note that progress wasn't saved
+          const result: Record<string, unknown> = {
+            passed,
+            messages,
+            userCode,
+            progressUpdated: false,
+            warning:
+              "Solution passed but progress.json could not be updated.",
+          };
+          if (circuit) result.circuit = circuit;
           return {
             content: [
               {
                 type: "text",
-                text: JSON.stringify(
-                  {
-                    passed,
-                    messages,
-                    userCode,
-                    progressUpdated: false,
-                    warning:
-                      "Solution passed but progress.json could not be updated.",
-                  },
-                  null,
-                  2,
-                ),
+                text: JSON.stringify(result, null, 2),
               },
             ],
           };
         }
       }
 
+      const result: Record<string, unknown> = {
+        passed,
+        messages,
+        userCode,
+        progressUpdated: passed,
+      };
+      if (circuit) result.circuit = circuit;
       return {
         content: [
           {
             type: "text",
-            text: JSON.stringify(
-              { passed, messages, userCode, progressUpdated: passed },
-              null,
-              2,
-            ),
+            text: JSON.stringify(result, null, 2),
           },
         ],
       };
@@ -665,6 +707,86 @@ export function createServer(): McpServer {
       };
     },
   );
+
+  // --- getExerciseCircuit tool ---
+
+  server.registerTool(
+    "getExerciseCircuit",
+    {
+      title: "Get Exercise Circuit",
+      description:
+        "Generate a circuit diagram from the reference solution of an exercise. " +
+        "Returns circuit JSON that can be rendered using the renderCircuit tool. " +
+        "Use this during lesson demonstrations to show the circuit for a concept " +
+        "before the user attempts the exercise. Only supports Q# exercises.",
+      inputSchema: z.object({
+        kataId: z.string().describe("The kata ID, e.g. 'single_qubit_gates'."),
+        exerciseId: z
+          .string()
+          .describe(
+            "The exercise ID as returned by getKataExercises, e.g. 'flip_qubit'.",
+          ),
+      }),
+    },
+    async (args: {
+      kataId: string;
+      exerciseId: string;
+    }): Promise<CallToolResult> => {
+      let exercise: Exercise;
+      try {
+        ({ exercise } = await findExercise(args.kataId, args.exerciseId));
+      } catch (e) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: (e as Error).message }],
+        };
+      }
+
+      // Find the solution code from the explained solution items
+      const items = exercise.explainedSolution.items as Array<{
+        type: string;
+        code?: string;
+      }>;
+      const solutionItem = items.find(
+        (item) => item.type === "solution" && item.code,
+      );
+      if (!solutionItem?.code) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: "No reference solution found for this exercise.",
+            },
+          ],
+        };
+      }
+
+      const circuit = await generateCircuitFromQSharp(solutionItem.code);
+      if (!circuit) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: "Could not generate circuit for this exercise.",
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(circuit, null, 2),
+          },
+        ],
+      };
+    },
+  );
+
+  // --- createExerciseWorkspace tool ---
 
   server.registerTool(
     "createExerciseWorkspace",

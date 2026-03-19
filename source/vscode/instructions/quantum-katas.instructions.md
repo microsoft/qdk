@@ -23,4 +23,4 @@ To understand what this exercise asks, call the `getExerciseBriefing` MCP tool w
 
 The user's progress is tracked in `quantum-katas/progress.json`.
 
-When the user asks to check their solution, use the `checkExerciseSolution` MCP tool with the kata ID, exercise ID, and the user's code.
+When the user asks to check their solution, use the `checkExerciseSolution` MCP tool with the kata ID, exercise ID, and the user's code. If the result includes a `circuit` field (Q# exercises), render it using the `renderCircuit` MCP tool to show the user a circuit diagram of their solution.
