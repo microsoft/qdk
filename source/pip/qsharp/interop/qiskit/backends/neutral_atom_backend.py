@@ -133,8 +133,6 @@ class NeutralAtomBackend(BackendBase):
                 - ``simulator_type`` (str): Simulator to use — ``"clifford"`` (Clifford
                   only), ``"cpu"`` (CPU full-state), ``"gpu"`` (GPU full-state), or
                   None to auto-select (GPU if available, CPU otherwise).
-                - ``target_profile`` (TargetProfile): Must be ``Base``. Defaults to
-                  ``Base``.
                 - ``output_semantics`` (OutputSemantics): QIR output encoding. Defaults
                   to ``Qiskit``.
                 - ``executor``: Executor for async job submission.
@@ -174,7 +172,6 @@ class NeutralAtomBackend(BackendBase):
             seed=None,
             noise=None,
             simulator_type=None,
-            target_profile=TargetProfile.Base,
             output_semantics=OutputSemantics.Qiskit,
             executor=DetaultExecutor(),
         )
@@ -189,15 +186,14 @@ class NeutralAtomBackend(BackendBase):
         Args:
             run_input: A single ``QuantumCircuit`` or a list of them.
             **options: Per-call option overrides (``shots``, ``seed``, ``noise``,
-                ``simulator_type``, ``target_profile``, etc.). See class docstring
-                for the full list.
+                ``simulator_type``, etc.). See class docstring for the full list.
 
         Returns:
             QsSimJob: A job object whose ``.result()`` returns a Qiskit ``Result``.
 
         Raises:
             ValueError: If ``run_input`` is not a ``QuantumCircuit`` or list thereof,
-                or if ``target_profile`` is set to ``Unrestricted``.
+                or if a ``target_profile`` option is provided that is not ``TargetProfile.Base``.
         """
         if not isinstance(run_input, list):
             run_input = [run_input]
@@ -219,11 +215,19 @@ class NeutralAtomBackend(BackendBase):
         )
         seed: Optional[int] = input_params.get("seed")
         search_path: str = input_params.get("search_path", ".")
-        target_profile = input_params.get("target_profile")
         output_semantics = input_params.get("output_semantics")
 
-        if target_profile == TargetProfile.Unrestricted:
-            raise ValueError(str(Errors.UNRESTRICTED_INVALID_QIR_TARGET))
+        # NeutralAtomDevice always requires base-profile QIR — the device's
+        # compilation pipeline validates that no conditional branches exist.
+        # Raise explicitly if the caller passed a non-Base profile so the
+        # error is immediate and clear rather than silently ignored.
+        target_profile = input_params.get("target_profile")
+        if target_profile is not None and target_profile != TargetProfile.Base:
+            raise ValueError(
+                "NeutralAtomBackend only supports TargetProfile.Base. "
+                "The NeutralAtomDevice compilation pipeline does not support "
+                f"conditional branches produced by {target_profile}."
+            )
 
         job_results = []
         for program in programs:
@@ -233,7 +237,7 @@ class NeutralAtomBackend(BackendBase):
             qir = self._qasm_to_qir(
                 program.qasm,
                 name=name,
-                target_profile=target_profile,
+                target_profile=TargetProfile.Base,
                 output_semantics=output_semantics,
                 search_path=search_path,
             )

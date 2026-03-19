@@ -449,3 +449,13 @@ def test_pretranspiled_matches_backend_transpiled(backend) -> None:
         .get_counts()
     )
     assert counts_normal == counts_pretranspiled
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+def test_non_base_target_profile_raises(backend) -> None:
+    """Passing a non-Base target_profile must raise ValueError immediately."""
+    from qsharp import TargetProfile
+
+    circuit = create_bell_circuit()
+    with pytest.raises(ValueError, match="TargetProfile.Base"):
+        backend.run(circuit, shots=10, target_profile=TargetProfile.Adaptive_RI).result()
