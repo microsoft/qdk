@@ -7,6 +7,8 @@
 //! For example, a rule might say that if a statement is an expression, it must
 //! return `Unit`. The inferrer would then be used to get the inferred type out of
 //! the expression, giving us a type id, which we can then constrain to `Unit`.
+#![allow(unused_assignments)]
+// clippy false positive bug: https://github.com/rust-lang/rust/issues/147648. Remove when fixed.
 mod check;
 pub(super) mod convert;
 mod infer;
