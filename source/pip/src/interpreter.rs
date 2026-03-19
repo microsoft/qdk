@@ -147,7 +147,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
 
 // This ordering must match the _native.pyi file.
 #[derive(Clone, Copy, Default, PartialEq)]
-#[pyclass(eq, eq_int, module = "qsharp._native")]
+#[pyclass(eq, eq_int, from_py_object, module = "qsharp._native")]
 #[allow(non_camel_case_types)]
 /// A Q# target profile.
 ///
@@ -247,7 +247,7 @@ impl From<TargetProfile> for Profile {
 
 // This ordering must match the _native.pyi file.
 #[derive(Clone, Copy, Default, PartialEq)]
-#[pyclass(eq, eq_int, module = "qsharp._native")]
+#[pyclass(eq, eq_int, from_py_object, module = "qsharp._native")]
 #[allow(non_camel_case_types)]
 /// Represents the output semantics for OpenQASM 3 compilation.
 /// Each has implications on the output of the compilation
@@ -311,7 +311,7 @@ impl From<OutputSemantics> for qsc::openqasm::OutputSemantics {
 
 // This ordering must match the _native.pyi file.
 #[derive(Clone, Copy, Default, PartialEq)]
-#[pyclass(eq, eq_int, module = "qsharp._native")]
+#[pyclass(eq, eq_int, from_py_object, module = "qsharp._native")]
 #[allow(non_camel_case_types)]
 /// Represents the type of compilation output to create
 pub enum ProgramType {
@@ -1234,7 +1234,7 @@ impl StateDumpData {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[pyclass(eq, eq_int, ord)]
+#[pyclass(eq, eq_int, from_py_object, ord)]
 /// A Q# measurement result.
 pub(crate) enum Result {
     Zero,
@@ -1278,7 +1278,7 @@ impl Result {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-#[pyclass(eq, eq_int)]
+#[pyclass(eq, eq_int, from_py_object)]
 /// A Q# Pauli operator.
 pub(crate) enum Pauli {
     I,
@@ -1395,7 +1395,7 @@ impl CircuitConfig {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Copy)]
 pub(crate) enum CircuitGenerationMethod {
     ClassicalEval,
@@ -1459,7 +1459,7 @@ where
     }
 }
 
-#[pyclass(unsendable)]
+#[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 struct GlobalCallable(Value);
 
@@ -1478,7 +1478,7 @@ impl From<GlobalCallable> for Value {
     }
 }
 
-#[pyclass(unsendable)]
+#[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 struct Closure(Value);
 
