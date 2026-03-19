@@ -1,32 +1,56 @@
+// See source/vscode/BUILDING.md for more details.
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Run VS Code extension",
-            "type": "extensionHost",
-            "debugWebWorkerHost": true,
-            "request": "launch",
-            "runtimeExecutable": "${execPath}",
-            "args": [
-                "--profile=dev",
-                "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
-                "${workspaceFolder}/samples/"
-            ]
-        },
-        {
-            // https://code.visualstudio.com/api/extension-guides/web-extensions#test-your-web-extension-in-vs-code-running-on-desktop
-            "name": "Run VS Code Web Extension",
-            "type": "pwa-extensionHost",
-            "debugWebWorkerHost": true,
-            "request": "launch",
-            "args": [
-                "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
-                "--extensionDevelopmentKind=web",
-                "${workspaceFolder}/samples/"
-            ]
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug VS Code Extension",
+      "type": "extensionHost",
+      "debugWebWorkerHost": true,
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--profile=dev",
+        "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
+        "${workspaceFolder}/samples/"
+      ]
+    },
+    // Requires: code --profile=dev --install-extension github.codespaces
+    {
+      "name": "Debug VS Code Extension (Codespaces)",
+      "type": "extensionHost",
+      "debugWebWorkerHost": true,
+      "request": "launch",
+      "args": [
+        "--profile=dev",
+        "--remote=codespaces+${env:CODESPACE_NAME}",
+        "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
+        "${workspaceFolder}/samples/"
+      ]
+    },
+    // Requires: code --profile=dev --install-extension ms-vscode-remote.remote-wsl
+    {
+      "name": "Debug VS Code Extension (WSL)",
+      "type": "extensionHost",
+      "debugWebWorkerHost": true,
+      "request": "launch",
+      "args": [
+        "--profile=dev",
+        "--remote=wsl+${env:WSL_DISTRO_NAME}",
+        "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
+        "${workspaceFolder}/samples/"
+      ]
+    },
+    {
+      "name": "Debug VS Code Extension (Web)",
+      "type": "extensionHost",
+      "debugWebWorkerHost": true,
+      "request": "launch",
+      "args": [
+        "--profile=dev",
+        "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
+        "--extensionDevelopmentKind=web",
+        "${workspaceFolder}/samples/"
+      ]
+    }
+  ]
 }
