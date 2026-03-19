@@ -182,6 +182,7 @@ pub struct EstimationCollection {
     all_summaries: Vec<ResultSummary>,
     total_jobs: usize,
     successful_estimates: usize,
+    isas: Vec<ISA>,
 }
 
 impl EstimationCollection {
@@ -215,6 +216,20 @@ impl EstimationCollection {
     #[must_use]
     pub fn all_summaries(&self) -> &[ResultSummary] {
         &self.all_summaries
+    }
+
+    pub fn push_isa(&mut self, isa: ISA) -> usize {
+        self.isas.push(isa);
+        self.isas.len() - 1
+    }
+
+    pub fn set_isas(&mut self, isas: Vec<ISA>) {
+        self.isas = isas;
+    }
+
+    #[must_use]
+    pub fn isas(&self) -> &[ISA] {
+        &self.isas
     }
 }
 

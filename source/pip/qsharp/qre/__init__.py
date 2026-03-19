@@ -5,7 +5,6 @@ from ._application import Application
 from ._architecture import Architecture
 from ._estimation import (
     estimate,
-    estimate_with_graph,
     EstimationTable,
     EstimationTableColumn,
     EstimationTableEntry,
@@ -42,7 +41,6 @@ __all__ = [
     "constant_function",
     "constraint",
     "estimate",
-    "estimate_with_graph",
     "linear_function",
     "Application",
     "Architecture",

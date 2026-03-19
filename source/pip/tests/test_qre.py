@@ -5,10 +5,12 @@ from dataclasses import KW_ONLY, dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import cast, Generator
+import os
 import pytest
 
 import pandas as pd
 import qsharp
+from qsharp.estimator import LogicalCounts
 from qsharp.qre import (
     Application,
     ISA,
@@ -29,6 +31,8 @@ from qsharp.qre.application import QSharpApplication
 from qsharp.qre.models import (
     SurfaceCode,
     AQREGateBased,
+    RoundBasedFactory,
+    TwoDimensionalYokedSurfaceCode,
 )
 from qsharp.qre.interop import trace_from_qir
 from qsharp.qre._architecture import _Context, _make_instruction
@@ -1470,3 +1474,62 @@ def test_trace_from_qir_handles_all_instruction_ids():
     # -- Run trace_from_qir and verify it succeeds -------------------------
     trace = trace_from_qir(simple.ir())
     assert trace is not None
+
+
+@pytest.mark.skipif(
+    "SLOW_TESTS" not in os.environ,
+    reason="turn on slow tests by setting SLOW_TESTS=1 in the environment",
+)
+@pytest.mark.parametrize(
+    "post_process, use_graph",
+    [
+        (False, False),
+        (True, False),
+        (False, True),
+        (True, True),
+    ],
+)
+def test_estimation_methods(post_process, use_graph):
+    counts = LogicalCounts(
+        {
+            "numQubits": 1000,
+            "tCount": 1_500_000,
+            "rotationCount": 0,
+            "rotationDepth": 0,
+            "cczCount": 1_000_000_000,
+            "ccixCount": 0,
+            "measurementCount": 25_000_000,
+            "numComputeQubits": 200,
+            "readFromMemoryCount": 30_000_000,
+            "writeToMemoryCount": 30_000_000,
+        }
+    )
+
+    trace_query = PSSPC.q() * LatticeSurgery.q(slow_down_factor=[1.0, 2.0])
+    isa_query = (
+        SurfaceCode.q()
+        * RoundBasedFactory.q()
+        * TwoDimensionalYokedSurfaceCode.q(source=SurfaceCode.q())
+    )
+
+    app = QSharpApplication(counts)
+    arch = AQREGateBased(gate_time=50, measurement_time=100)
+
+    results = estimate(
+        app,
+        arch,
+        isa_query,
+        trace_query,
+        max_error=1 / 3,
+        post_process=post_process,
+        use_graph=use_graph,
+    )
+    results.add_factory_summary_column()
+
+    assert [(result.qubits, result.runtime) for result in results] == [
+        (238707, 23997050000000),
+        (240407, 11998525000000),
+    ]
+
+    print()
+    print(results.stats)

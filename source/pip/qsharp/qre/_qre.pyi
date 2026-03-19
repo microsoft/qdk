@@ -1014,6 +1014,16 @@ class _EstimationCollection:
         """
         ...
 
+    @property
+    def isas(self) -> list[ISA]:
+        """
+        Returns the list of ISAs for which estimates were performed.
+
+        Returns:
+            list[ISA]: The list of ISAs.
+        """
+        ...
+
 class FactoryResult:
     """
     Represents the result of a factory used in resource estimation.
@@ -1427,7 +1437,10 @@ class InstructionFrontier:
         ...
 
 def _estimate_parallel(
-    traces: list[Trace], isas: list[ISA], max_error: float = 1.0
+    traces: list[Trace],
+    isas: list[ISA],
+    max_error: float = 1.0,
+    post_process: bool = False,
 ) -> _EstimationCollection:
     """
     Estimates resources for multiple traces and ISAs in parallel.
@@ -1436,6 +1449,8 @@ def _estimate_parallel(
         traces (list[Trace]): The list of traces.
         isas (list[ISA]): The list of ISAs.
         max_error (float): The maximum allowed error. The default is 1.0.
+        post_process (bool): If True, computes auxiliary data such as result
+            summaries needed for post-processing after estimation.
 
     Returns:
         _EstimationCollection: The estimation collection.
@@ -1443,7 +1458,10 @@ def _estimate_parallel(
     ...
 
 def _estimate_with_graph(
-    traces: list[Trace], graph: _ProvenanceGraph, max_error: float = 1.0
+    traces: list[Trace],
+    graph: _ProvenanceGraph,
+    max_error: float = 1.0,
+    post_process: bool = False,
 ) -> _EstimationCollection:
     """
     Estimates resources using a Pareto-filtered provenance graph.
@@ -1456,6 +1474,8 @@ def _estimate_with_graph(
         traces (list[Trace]): The list of traces to estimate.
         graph (_ProvenanceGraph): The provenance graph to use for estimation.
         max_error (float): The maximum allowed error. The default is 1.0.
+        post_process (bool): If True, computes auxiliary data such as result
+            summaries and ISAs needed for post-processing after estimation.
 
     Returns:
         _EstimationCollection: The estimation collection.

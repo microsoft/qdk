@@ -825,6 +825,13 @@ impl EstimationCollection {
             .collect()
     }
 
+    /// Returns the set of ISAs for which this collection contains successful
+    /// estimates.
+    #[getter]
+    pub fn isas(&self) -> Vec<ISA> {
+        self.0.isas().iter().cloned().map(ISA).collect()
+    }
+
     #[allow(clippy::needless_pass_by_value)]
     pub fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<EstimationCollectionIterator>> {
         let iter = EstimationCollectionIterator {
@@ -1319,12 +1326,13 @@ impl InstructionFrontierIterator {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-#[pyfunction(name = "_estimate_parallel", signature = (traces, isas, max_error = 1.0))]
+#[pyfunction(name = "_estimate_parallel", signature = (traces, isas, max_error = 1.0, post_process = false))]
 pub fn estimate_parallel(
     py: Python<'_>,
     traces: Vec<PyRef<'_, Trace>>,
     isas: Vec<PyRef<'_, ISA>>,
     max_error: f64,
+    post_process: bool,
 ) -> EstimationCollection {
     let traces: Vec<_> = traces.iter().map(|t| &t.0).collect();
     let isas: Vec<_> = isas.iter().map(|i| &i.0).collect();
@@ -1335,23 +1343,24 @@ pub fn estimate_parallel(
     // If the calling thread holds the GIL while blocked in
     // std::thread::scope, the worker threads deadlock.
     let collection = release_gil(py, || {
-        qre::estimate_parallel(&traces, &isas, Some(max_error))
+        qre::estimate_parallel(&traces, &isas, Some(max_error), post_process)
     });
     EstimationCollection(collection)
 }
 
 #[allow(clippy::needless_pass_by_value)]
-#[pyfunction(name = "_estimate_with_graph", signature = (traces, graph, max_error = 1.0))]
+#[pyfunction(name = "_estimate_with_graph", signature = (traces, graph, max_error = 1.0, post_process = false))]
 pub fn estimate_with_graph(
     py: Python<'_>,
     traces: Vec<PyRef<'_, Trace>>,
     graph: &ProvenanceGraph,
     max_error: f64,
+    post_process: bool,
 ) -> PyResult<EstimationCollection> {
     let traces: Vec<_> = traces.iter().map(|t| &t.0).collect();
 
     let collection = release_gil(py, || {
-        qre::estimate_with_graph(&traces, &graph.0, Some(max_error))
+        qre::estimate_with_graph(&traces, &graph.0, Some(max_error), post_process)
     });
     Ok(EstimationCollection(collection))
 }

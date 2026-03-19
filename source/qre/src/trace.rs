@@ -473,7 +473,7 @@ impl Block {
 
                     let duration = match duration_fn {
                         Some(f) => f(gate)?,
-                        None => 1,
+                        _ => 1,
                     };
 
                     let end_time = start_time + duration;
@@ -561,7 +561,7 @@ impl<'a> Iterator for TraceIterator<'a> {
                         self.stack.push((block.operations.iter(), new_multiplier));
                     }
                 },
-                None => {
+                _ => {
                     self.stack.pop();
                 }
             }
@@ -716,6 +716,7 @@ pub fn estimate_parallel<'a>(
     traces: &[&'a Trace],
     isas: &[&'a ISA],
     max_error: Option<f64>,
+    post_process: bool,
 ) -> EstimationCollection {
     let total_jobs = traces.len() * isas.len();
     let num_isas = isas.len();
@@ -773,13 +774,15 @@ pub fn estimate_parallel<'a>(
         // Collect results from all workers into the shared collection.
         let mut successful = 0;
         for local_results in rx {
-            for result in &local_results {
-                collection.push_summary(ResultSummary {
-                    trace_index: result.trace_index().unwrap_or(0),
-                    isa_index: result.isa_index().unwrap_or(0),
-                    qubits: result.qubits(),
-                    runtime: result.runtime(),
-                });
+            if post_process {
+                for result in &local_results {
+                    collection.push_summary(ResultSummary {
+                        trace_index: result.trace_index().unwrap_or(0),
+                        isa_index: result.isa_index().unwrap_or(0),
+                        qubits: result.qubits(),
+                        runtime: result.runtime(),
+                    });
+                }
             }
             successful += local_results.len();
             collection.extend(local_results.into_iter());
@@ -799,7 +802,7 @@ pub fn estimate_parallel<'a>(
 }
 
 /// A single entry in a combination of instruction choices for estimation.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
 struct CombinationEntry {
     instruction_id: u64,
     node_index: usize,
@@ -860,12 +863,38 @@ fn record_success(combination: &[CombinationEntry], trace_pruning: &[SlotWitness
     }
 }
 
+#[derive(Default)]
+struct ISAIndex {
+    index: FxHashMap<Vec<CombinationEntry>, usize>,
+    isas: Vec<ISA>,
+}
+
+impl From<ISAIndex> for Vec<ISA> {
+    fn from(value: ISAIndex) -> Self {
+        value.isas
+    }
+}
+
+impl ISAIndex {
+    pub fn push(&mut self, combination: &Vec<CombinationEntry>, isa: &ISA) -> usize {
+        if let Some(&idx) = self.index.get(combination) {
+            idx
+        } else {
+            let idx = self.isas.len();
+            self.isas.push(isa.clone());
+            self.index.insert(combination.clone(), idx);
+            idx
+        }
+    }
+}
+
 #[must_use]
 #[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
 pub fn estimate_with_graph(
     traces: &[&Trace],
     graph: &Arc<RwLock<ProvenanceGraph>>,
     max_error: Option<f64>,
+    post_process: bool,
 ) -> EstimationCollection {
     let max_error = max_error.unwrap_or(1.0);
 
@@ -974,6 +1003,13 @@ pub fn estimate_with_graph(
     .take(traces.len())
     .collect();
 
+    // There are no explicit ISAs in this estimation function, as we create them
+    // on the fly from the graph nodes.  For successful jobs, we will attach the
+    // ISAs to the results collection in a vector with the ISA index addressing
+    // that vector.  In order to avoid storing duplicate ISAs we hash the ISA
+    // index.
+    let isa_index = Arc::new(RwLock::new(ISAIndex::default()));
+
     let mut collection = EstimationCollection::new();
     collection.set_total_jobs(total_jobs);
 
@@ -989,6 +1025,7 @@ pub fn estimate_with_graph(
             let next_job = &next_job;
             let jobs = &jobs;
             let pruning_witnesses = &pruning_witnesses;
+            let isa_index = Arc::clone(&isa_index);
             scope.spawn(move || {
                 let mut local_results = Vec::new();
                 loop {
@@ -1011,9 +1048,12 @@ pub fn estimate_with_graph(
                     }
 
                     if let Ok(mut result) = traces[*trace_idx].estimate(&isa, Some(max_error)) {
-                        result.set_isa(isa);
-                        // TODO: There is no natural ISA index when creating ISAs on the fly like this
-                        // result.set_isa_index(isa_idx);
+                        let isa_idx = isa_index
+                            .write()
+                            .expect("RwLock should not be poisoned")
+                            .push(combination, &isa);
+                        result.set_isa_index(isa_idx);
+
                         result.set_trace_index(*trace_idx);
 
                         local_results.push(result);
@@ -1027,21 +1067,37 @@ pub fn estimate_with_graph(
 
         let mut successful = 0;
         for local_results in rx {
-            for result in &local_results {
-                collection.push_summary(ResultSummary {
-                    trace_index: result.trace_index().unwrap_or(0),
-                    // TODO: This will always be 0 because we are not setting
-                    // the ISA index yet.
-                    isa_index: result.isa_index().unwrap_or(0),
-                    qubits: result.qubits(),
-                    runtime: result.runtime(),
-                });
+            if post_process {
+                for result in &local_results {
+                    collection.push_summary(ResultSummary {
+                        trace_index: result.trace_index().unwrap_or(0),
+                        isa_index: result.isa_index().unwrap_or(0),
+                        qubits: result.qubits(),
+                        runtime: result.runtime(),
+                    });
+                }
             }
             successful += local_results.len();
             collection.extend(local_results.into_iter());
         }
         collection.set_successful_estimates(successful);
     });
+
+    let isa_index = Arc::try_unwrap(isa_index)
+        .ok()
+        .expect("all threads joined; Arc refcount should be 1")
+        .into_inner()
+        .expect("RwLock should not be poisoned");
+
+    // Attach ISAs only to Pareto-surviving results, avoiding O(M) HashMap
+    // clones for discarded results.
+    for result in collection.iter_mut() {
+        if let Some(idx) = result.isa_index() {
+            result.set_isa(isa_index.isas[idx].clone());
+        }
+    }
+
+    collection.set_isas(isa_index.into());
 
     collection
 }
