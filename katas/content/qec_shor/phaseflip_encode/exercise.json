@@ -1,4 +1,5 @@
 {
   "operationName": "PhaseflipEncode",
-  "qubitCount": 3
+  "qubitCount": 3,
+  "circuitEntryPoint": "@EntryPoint() operation ShowCircuit() : Unit { use qs = Qubit[3]; Kata.PhaseflipEncode(qs); }"
 }

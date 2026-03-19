@@ -13,7 +13,7 @@ import {
   registerAppResource,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
-import { getCompiler, QscEventTarget } from "qsharp-lang";
+import { getCompiler, QscEventTarget, QdkDiagnostics } from "qsharp-lang";
 import {
   getAllKatas,
   getExerciseSources,
@@ -34,34 +34,63 @@ function ensureCompiler(): Compiler {
 }
 
 /**
- * Generate a circuit diagram from Q# exercise code.
- * Extracts the operation name from the code, compiles it, and returns
- * the circuit data as a plain object. Returns null if generation fails.
+ * Generate a circuit diagram from a Q# exercise solution.
+ * Compiles the user code together with the exercise sources and a
+ * circuit entry point wrapper, then returns the circuit data as a
+ * plain object.  Returns null if for any reason the circuit cannot
+ * be generated (missing entry point, compilation failure, etc.).
  */
 async function generateCircuitFromQSharp(
-  code: string,
-): Promise<Record<string, unknown> | null> {
-  const match = code.match(/operation\s+(\w+)\s*\(/);
-  if (!match) return null;
-  const operationName = match[1];
+  userCode: string,
+  circuitEntryPoint: string | undefined,
+): Promise<{ circuit: Record<string, unknown> | null; error?: string }> {
+  if (!circuitEntryPoint) {
+    const msg = "No circuitEntryPoint defined for this exercise";
+    console.error(`[circuit] ${msg}`);
+    return { circuit: null, error: msg };
+  }
 
   try {
+    const sources: [string, string][] = [
+      ["solution.qs", userCode],
+      ["circuit_entry.qs", circuitEntryPoint],
+    ];
+
+    console.error(
+      `[circuit] Generating circuit with entry point: ${circuitEntryPoint}`,
+    );
+
     const circuitData = await ensureCompiler().getCircuit(
       {
-        sources: [["solution.qs", code]],
+        sources,
         languageFeatures: [],
+        profile: "adaptive_rif",
       },
       {
         generationMethod: "static",
         maxOperations: 10001,
-        groupByScope: true,
+        groupByScope: false,
         sourceLocations: false,
       },
-      { operation: `Kata.${operationName}`, totalNumQubits: 0 },
+      undefined,
     );
-    return circuitData as unknown as Record<string, unknown>;
-  } catch {
-    return null;
+    return { circuit: circuitData as unknown as Record<string, unknown> };
+  } catch (e) {
+    let msg: string;
+    if (e instanceof QdkDiagnostics) {
+      const details = e.diagnostics
+        .map((d) => {
+          const loc = `${d.document}:${d.diagnostic.range.start.line + 1}:${d.diagnostic.range.start.character + 1}`;
+          return `  [${d.diagnostic.severity}] ${loc}: ${d.diagnostic.message}`;
+        })
+        .join("\n");
+      msg = `QdkDiagnostics (${e.diagnostics.length} errors):\n${details}`;
+    } else {
+      msg =
+        e instanceof Error ? e.message : typeof e === "string" ? e : String(e);
+    }
+    console.error(`[circuit] Circuit generation failed:\n${msg}`);
+    return { circuit: null, error: msg };
   }
 }
 
@@ -111,7 +140,9 @@ export function createServer(): McpServer {
         "Accepts either a CircuitGroup object ({ circuits: [...] }) or " +
         "a bare Circuit object ({ qubits: [...], componentGrid: [...] }). " +
         "Use this to visualize circuit data obtained from the QDK Python library " +
-        "(e.g. qsharp.circuit(...).json()).",
+        "(e.g. qsharp.circuit(...).json()). This tool displays a circuit diagram directly in the conversation. " +
+        "Do **NOT** draw the circuit diagram as ASCII art, generate an image, or try to render it yourself. " +
+        "The user interface will handle rendering the circuit from the structured JSON data that this tool returns. ",
       inputSchema: z.object({
         circuitJson: z
           .string()
@@ -442,7 +473,7 @@ export function createServer(): McpServer {
         "Returns pass/fail with diagnostic messages and the user's code. " +
         "On success for Q# solutions, also returns a circuit field containing " +
         "the circuit diagram JSON for the solution, which can be rendered " +
-        "using the renderCircuit tool.",
+        "using the renderCircuit tool. ",
       inputSchema: z.object({
         kataId: z.string().describe("The kata ID, e.g. 'single_qubit_gates'."),
         exerciseId: z
@@ -590,8 +621,14 @@ export function createServer(): McpServer {
 
       // On success, generate a circuit from the user's Q# code (best-effort)
       let circuit: Record<string, unknown> | null = null;
+      let circuitError: string | undefined;
       if (passed && args.language === "qsharp") {
-        circuit = await generateCircuitFromQSharp(userCode);
+        const circuitResult = await generateCircuitFromQSharp(
+          userCode,
+          exercise.circuitEntryPoint,
+        );
+        circuit = circuitResult.circuit;
+        circuitError = circuitResult.error;
       }
 
       // On success, update progress.json
@@ -619,10 +656,10 @@ export function createServer(): McpServer {
             messages,
             userCode,
             progressUpdated: false,
-            warning:
-              "Solution passed but progress.json could not be updated.",
+            warning: "Solution passed but progress.json could not be updated.",
           };
           if (circuit) result.circuit = circuit;
+          if (circuitError) result.circuitError = circuitError;
           return {
             content: [
               {
@@ -641,6 +678,7 @@ export function createServer(): McpServer {
         progressUpdated: passed,
       };
       if (circuit) result.circuit = circuit;
+      if (circuitError) result.circuitError = circuitError;
       return {
         content: [
           {
@@ -762,14 +800,17 @@ export function createServer(): McpServer {
         };
       }
 
-      const circuit = await generateCircuitFromQSharp(solutionItem.code);
-      if (!circuit) {
+      const circuitResult = await generateCircuitFromQSharp(
+        solutionItem.code,
+        exercise.circuitEntryPoint,
+      );
+      if (!circuitResult.circuit) {
         return {
           isError: true,
           content: [
             {
               type: "text",
-              text: "Could not generate circuit for this exercise.",
+              text: `Could not generate circuit for this exercise.${circuitResult.error ? ` Error: ${circuitResult.error}` : ""}`,
             },
           ],
         };
@@ -779,7 +820,7 @@ export function createServer(): McpServer {
         content: [
           {
             type: "text",
-            text: JSON.stringify(circuit, null, 2),
+            text: JSON.stringify(circuitResult.circuit, null, 2),
           },
         ],
       };
@@ -947,6 +988,72 @@ export function createServer(): McpServer {
           ],
         };
       }
+    },
+  );
+
+  // --- promptExerciseAction tool ---
+
+  server.registerTool(
+    "promptExerciseAction",
+    {
+      title: "Prompt Exercise Action",
+      description:
+        "Present an interactive prompt to the user while they work on a " +
+        "quantum kata exercise. Shows a form with predefined actions " +
+        "(check solution, get a hint, explain the problem again). " +
+        "Call this after presenting an exercise to let the user choose " +
+        "their next action instead of waiting for a free-form chat message.",
+      inputSchema: z.object({
+        exerciseTitle: z
+          .string()
+          .describe("The title of the current exercise, for display context."),
+      }),
+    },
+    async (args: { exerciseTitle: string }): Promise<CallToolResult> => {
+      const result = await server.server.elicitInput({
+        message: `You're working on: **${args.exerciseTitle}**\n\nEdit the solution file, then choose an action:`,
+        requestedSchema: {
+          type: "object" as const,
+          properties: {
+            action: {
+              type: "string",
+              title: "What would you like to do?",
+              enum: [
+                "Check my solution",
+                "Give me a hint",
+                "Explain the problem again",
+              ],
+            },
+          },
+          required: ["action"],
+        },
+      });
+
+      if (result.action === "accept" && result.content) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                action: "accept",
+                choice: result.content.action,
+              }),
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              action: result.action,
+              choice: null,
+            }),
+          },
+        ],
+      };
     },
   );
 

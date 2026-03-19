@@ -1,4 +1,5 @@
 {
   "operationName": "CreateEntangledPair",
-  "qubitCount": 2
+  "qubitCount": 2,
+  "circuitEntryPoint": "@EntryPoint() operation ShowCircuit() : Unit { use (qAlice, qBob) = (Qubit(), Qubit()); Kata.CreateEntangledPair(qAlice, qBob); }"
 }

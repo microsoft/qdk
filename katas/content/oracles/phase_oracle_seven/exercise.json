@@ -1,4 +1,5 @@
 {
   "operationName": "IsSeven_PhaseOracle",
-  "qubitCount": 3
+  "qubitCount": 3,
+  "circuitEntryPoint": "@EntryPoint() operation ShowCircuit() : Unit { use x = Qubit[3]; Kata.IsSeven_PhaseOracle(x); }"
 }

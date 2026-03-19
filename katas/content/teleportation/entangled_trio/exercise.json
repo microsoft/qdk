@@ -1,4 +1,5 @@
 {
   "operationName": "EntangleThreeQubits",
-  "qubitCount": 3
+  "qubitCount": 3,
+  "circuitEntryPoint": "@EntryPoint() operation ShowCircuit() : Unit { use (qAlice, qBob, qCharlie) = (Qubit(), Qubit(), Qubit()); Kata.EntangleThreeQubits(qAlice, qBob, qCharlie); }"
 }

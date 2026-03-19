@@ -4,3 +4,10 @@ namespace Kata {
         X(q);
     }
 }
+namespace Foo {
+    @EntryPoint()
+    operation ShowCircuit() : Unit {
+        use q = Qubit();
+        Kata.FlipQubit(q);
+    }
+}

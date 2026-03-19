@@ -475,21 +475,25 @@ function createExerciseSection(kataPath, properties, globalCodeSources) {
     join(exercisePath, "solution.md"),
   );
 
-  // Check for OpenQASM variant files
-  let openQasm = undefined;
-  const openQasmPlaceholderPath = join(exercisePath, "Placeholder.qasm");
+  // Read exercise.json for metadata (circuitEntryPoint, OpenQASM operationName)
   const exerciseJsonPath = join(exercisePath, "exercise.json");
-  if (existsSync(openQasmPlaceholderPath) && existsSync(exerciseJsonPath)) {
-    const openQasmPlaceholderCode = tryReadFile(
-      openQasmPlaceholderPath,
-      `Could not read Placeholder.qasm file for exercise '${properties.id}'`,
-    );
-
+  let exerciseJson = undefined;
+  if (existsSync(exerciseJsonPath)) {
     const exerciseJsonRaw = tryReadFile(
       exerciseJsonPath,
       `Could not read exercise.json file for exercise '${properties.id}'`,
     );
-    const exerciseJson = JSON.parse(exerciseJsonRaw);
+    exerciseJson = JSON.parse(exerciseJsonRaw);
+  }
+
+  // Check for OpenQASM variant files
+  let openQasm = undefined;
+  const openQasmPlaceholderPath = join(exercisePath, "Placeholder.qasm");
+  if (existsSync(openQasmPlaceholderPath) && exerciseJson) {
+    const openQasmPlaceholderCode = tryReadFile(
+      openQasmPlaceholderPath,
+      `Could not read Placeholder.qasm file for exercise '${properties.id}'`,
+    );
 
     const openQasmSolutionMdPath = join(exercisePath, "solution_openqasm.md");
     const openQasmExplainedSolution = existsSync(openQasmSolutionMdPath)
@@ -512,6 +516,9 @@ function createExerciseSection(kataPath, properties, globalCodeSources) {
     placeholderCode,
     explainedSolution,
     ...(openQasm ? { openQasm } : {}),
+    ...(exerciseJson?.circuitEntryPoint
+      ? { circuitEntryPoint: exerciseJson.circuitEntryPoint }
+      : {}),
   };
 }
 

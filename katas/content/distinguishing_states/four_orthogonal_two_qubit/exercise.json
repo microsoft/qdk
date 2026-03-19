@@ -1,4 +1,5 @@
 {
   "operationName": "TwoQubitState",
-  "qubitCount": 2
+  "qubitCount": 2,
+  "circuitEntryPoint": "@EntryPoint() operation ShowCircuit() : Unit { use qs = Qubit[2]; Kata.TwoQubitState(qs); }"
 }

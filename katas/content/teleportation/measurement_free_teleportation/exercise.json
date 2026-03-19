@@ -1,4 +1,5 @@
 {
   "operationName": "MeasurementFreeTeleport",
-  "qubitCount": 3
+  "qubitCount": 3,
+  "circuitEntryPoint": "@EntryPoint() operation ShowCircuit() : Unit { use (qAlice, qBob, qMessage) = (Qubit(), Qubit(), Qubit()); Kata.MeasurementFreeTeleport(qAlice, qBob, qMessage); }"
 }

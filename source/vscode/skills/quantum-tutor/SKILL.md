@@ -51,7 +51,11 @@ A guided, hands-on quantum computing learning experience built on the QDK katas 
    - Confirm the workspace is set up and ready.
    - Teach the **prerequisite lesson content** from the first exercise briefing in a clear, conversational way.
    - Present the **first exercise** with its description, progress indicator, and the full absolute path to the solution file.
-   - Tell the user to edit the file and let you know when they want to check their answer.
+   - **Call `promptExerciseAction`** with the exercise title. Handle the response:
+     - `"Check my solution"` → go to Phase 4
+     - `"Give me a hint"` → go to Phase 3
+     - `"Explain the problem again"` → re-present the exercise
+     - If the user declines or cancels, continue the conversation normally
 
 ### Phase 2: Exercise Presentation
 
@@ -67,14 +71,17 @@ For each exercise, in order:
    - Include worked examples from the lessons — these are specifically designed to build up to the exercise.
    - If a lesson includes code examples, show them and explain what they demonstrate. Note: lesson examples are always in Q#, even when the user is working in OpenQASM — explain the equivalent OpenQASM syntax where helpful.
    - Keep it engaging — you're a tutor, not a textbook. Ask if the user has questions before moving on.
-   - **Circuit demo (Q# gate exercises only):** For katas that teach gates (e.g., `single_qubit_gates`, `multi_qubit_gates`, `preparing_states`), call `getExerciseCircuit` with the kata and exercise IDs, then render the returned circuit JSON using `renderCircuit`. Show this alongside the lesson to give the user a visual preview of what the exercise's circuit looks like. Say something like: *"Here's the circuit for this exercise — your goal is to write the code that produces it."* Skip this for math-only katas (e.g., `complex_arithmetic`, `linear_algebra`).
 3. **Then present the exercise** in a clear, encouraging way. Include:
    - The exercise title and which kata it belongs to
    - The problem statement (from `exercise.description`)
    - Their progress (e.g., "Exercise {exerciseIndex} of {totalExercises}")
    - If using OpenQASM and this exercise has an OpenQASM variant, mention that they're writing OpenQASM. If this exercise is Q#-only, let the user know.
 4. **Show the full absolute path** to the exercise's solution file so the user can click it. Build it as: `{workspaceRoot}/quantum-katas/exercises/{folder}/solution.qs` (or `solution.qasm` for OpenQASM exercises). Always display the complete path — never use just `solution.qs` or a relative path, because VS Code can only linkify absolute paths.
-5. Tell the user to edit the file and let you know when they want to check their answer.
+5. **Call `promptExerciseAction`** with the exercise title. Handle the response:
+   - `"Check my solution"` → go to Phase 4
+   - `"Give me a hint"` → go to Phase 3
+   - `"Explain the problem again"` → re-present the exercise
+   - If the user declines or cancels, continue the conversation normally
 
 ### Phase 3: Guided Practice (Hint Mode)
 
@@ -105,7 +112,7 @@ When the user says they're done or asks to check their solution:
    - The tool automatically reads the solution file (`solution.qs` or `solution.qasm`) from the exercise folder and, on success, updates `progress.json` (marks the exercise completed and advances `currentExercise`).
 2. **Report the result:**
    - **Pass** (`progressUpdated: true`): Congratulate the user. If the response includes a `circuit` field, render it by calling `renderCircuit` with the circuit JSON (stringify the `circuit` object and pass it as `circuitJson`). Present it with: *"Here's what your solution looks like as a circuit:"* This gives the user a visual "show me what I built" moment. Then present the next exercise.
-   - **Fail**: Analyze the `messages` and `userCode` from the response to provide targeted guidance WITHOUT revealing the solution. Offer hints.
+   - **Fail**: Analyze the `messages` and `userCode` from the response to provide targeted guidance WITHOUT revealing the solution. Offer hints, then call `promptExerciseAction` again so the user can retry or ask for more help.
 
 ### Phase 5: Progress & Completion
 
@@ -139,5 +146,6 @@ If the user returns and `quantum-katas/progress.json` already exists:
 | `getExerciseHint` (MCP)              | Get explained solution content for progressive hints; pass `language` for OpenQASM hints        |
 | `getExerciseCircuit` (MCP)           | Generate a circuit from the reference solution; use during lessons to preview what the user will build |
 | `renderCircuit` (MCP)                | Render a circuit diagram from JSON data; use to display circuits from checkExerciseSolution or getExerciseCircuit |
+| `promptExerciseAction` (MCP)         | Present an interactive prompt with predefined actions (check, hint, explain); replaces free-form waiting |
 | `#tool:qsharpGetLibraryDescriptions` | Get Q# standard library API for helping users (Q# exercises only)                               |
 | `#tool:qdkRunProgram`                | Run Q# code for demonstrations                                                                  |

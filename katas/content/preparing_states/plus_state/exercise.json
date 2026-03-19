@@ -1,4 +1,5 @@
 {
   "operationName": "PlusState",
-  "qubitCount": 1
+  "qubitCount": 1,
+  "circuitEntryPoint": "@EntryPoint() operation ShowCircuit() : Unit { use q = Qubit(); Kata.PlusState(q); }"
 }

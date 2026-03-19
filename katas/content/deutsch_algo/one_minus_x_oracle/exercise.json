@@ -1,4 +1,5 @@
 {
   "operationName": "PhaseOracle_OneMinusX",
-  "qubitCount": 1
+  "qubitCount": 1,
+  "circuitEntryPoint": "@EntryPoint() operation ShowCircuit() : Unit { use x = Qubit(); Kata.PhaseOracle_OneMinusX(x); }"
 }

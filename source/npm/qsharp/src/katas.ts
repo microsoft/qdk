@@ -42,6 +42,7 @@ export type Exercise = {
     explainedSolution: ExplainedSolution;
     operationName: string;
   };
+  circuitEntryPoint?: string;
 };
 
 export type Answer = {

@@ -1,4 +1,5 @@
 {
   "operationName": "ShorEncode",
-  "qubitCount": 9
+  "qubitCount": 9,
+  "circuitEntryPoint": "@EntryPoint() operation ShowCircuit() : Unit { use qs = Qubit[9]; Kata.ShorEncode(qs); }"
 }
