@@ -159,18 +159,11 @@ class QsDebugConfigProvider implements vscode.DebugConfigurationProvider {
           path: fileUri.path,
         })
         .toString();
-    } else {
-      // if launch.json is missing or empty, try to launch the active Q# document
+    } else if (!config.programUri) {
+      // if config.programUri is not already set, try to default to the currently active document
       const docUri = getActiveQdkDocumentUri();
       if (docUri) {
-        config.type = "qsharp";
-        config.name = "Launch";
-        config.request = "launch";
         config.programUri = docUri.toString();
-        config.shots = 1;
-        config.noDebug = "noDebug" in config ? config.noDebug : false;
-        config.stopOnEntry = !config.noDebug;
-        config.entry = config.entry ?? "";
       }
     }
 
