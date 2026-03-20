@@ -5,13 +5,15 @@ use std::cmp::min;
 
 use bytemuck::cast_slice;
 
+use crate::bytecode::AdaptiveProgram;
 use crate::correlated_noise::NoiseTables;
 use crate::gpu_resources::GpuResources;
 use crate::noise_config::NoiseConfig;
 use crate::noise_mapping::get_noise_ops;
 use crate::shader_types::{
-    DiagnosticsData, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT, MAX_QUBITS_PER_WORKGROUP, MAX_SHOT_ENTRIES,
-    MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT, Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms,
+    DiagnosticsData, INTERP_STATE_STRIDE, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT,
+    MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOT_ENTRIES, MAX_SHOTS_PER_BATCH,
+    MIN_QUBIT_COUNT, Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms,
     WorkgroupCollationBuffer, ops,
 };
 
@@ -29,6 +31,9 @@ pub struct GpuContext {
     noise_tables: NoiseTables,
 
     run_params: RunParams,
+
+    // Adaptive program data (set via set_adaptive_program)
+    adaptive_program: Option<AdaptiveProgram>,
 
     // Indicates if items impacting the Ops have changed and need to be re-uploaded / recompiled
     program_is_dirty: bool,
@@ -87,6 +92,7 @@ impl GpuContext {
         // If qubit or result count changed, mark pipeline as dirty, as it needs to be recreated
         if qubit_count != self.run_params.qubit_count
             || result_count != self.run_params.result_count
+            || self.adaptive_program.is_some()
         {
             self.pipeline_is_dirty = true;
         }
@@ -433,6 +439,274 @@ impl GpuContext {
     }
 }
 
+// Adaptive Profile implementations.
+impl GpuContext {
+    #[must_use]
+    pub fn adaptive() -> Self {
+        Self {
+            resources: GpuResources::adaptive(),
+            ..Default::default()
+        }
+    }
+
+    pub fn set_adaptive_program(&mut self, program: AdaptiveProgram) {
+        self.program.clear();
+        let num_qubits = u32_to_i32(program.num_qubits);
+
+        // Always allocate a minumum number of qubits to ensure good data alignment, GPU thread usage, etc.
+        let qubit_count = num_qubits.max(MIN_QUBIT_COUNT);
+        let result_count = u32_to_i32(program.num_results);
+
+        if qubit_count != self.run_params.qubit_count
+            || result_count != self.run_params.result_count
+            || self.adaptive_program.is_none()
+        {
+            self.pipeline_is_dirty = true;
+        }
+
+        self.run_params.qubit_count = qubit_count;
+        self.run_params.result_count = result_count;
+
+        self.adaptive_program = Some(program);
+        self.program_is_dirty = true;
+    }
+
+    fn update_run_params_adaptive(&mut self, shot_count: i32) {
+        self.update_run_params(shot_count);
+    }
+
+    /// Upload adaptive program buffers to the GPU.
+    ///
+    /// Uploads bytecode, block table, function table, quantum op pool,
+    /// and side tables (phi, switch, call args) to their respective GPU bindings.
+    fn upload_adaptive_program_buffers(&mut self) -> Result<(), String> {
+        let program = self
+            .adaptive_program
+            .as_ref()
+            .ok_or("No adaptive program has been set")?;
+        self.resources
+            .upload_bytecode(cast_slice(&program.instructions))?;
+        self.resources
+            .upload_block_table(cast_slice(&program.block_table))?;
+        self.resources
+            .upload_function_table(cast_slice(&program.function_table))?;
+        self.resources
+            .upload_ops_data(cast_slice(&program.quantum_ops))?;
+        // Side tables
+        self.resources
+            .upload_phi_table(cast_slice(&program.phi_entries))?;
+        self.resources
+            .upload_switch_table(cast_slice(&program.switch_cases))?;
+        self.resources
+            .upload_call_arg_table(cast_slice(&program.call_args))?;
+
+        Ok(())
+    }
+
+    /// Prepares the GPU for running multiple instances of adaptive simulations in parallel.
+    async fn ready_gpu_resources_adaptive(&mut self) -> Result<(), String> {
+        // Ensure the device is initialized
+        let dbg_capture = std::env::var("QDK_GPU_CAPTURE").is_ok();
+        self.resources.ensure_device(dbg_capture).await?;
+
+        if self.program_is_dirty || self.noise_config_is_dirty {
+            // Rebuild the program (with noise if needed) and upload to GPU
+            if let Some(_noise) = &self.noise_config {
+                unimplemented!("noise is not currently supported for adaptive profile")
+            } else {
+                self.program_with_noise = None;
+            }
+            self.upload_adaptive_program_buffers()?;
+            self.program_is_dirty = false;
+        }
+
+        if self.noise_tables_is_dirty {
+            // Re-upload noise tables to GPU (if any)
+            let tables = &self.noise_tables;
+
+            if tables.metadata.is_empty() {
+                self.resources.free_noise_buffers()?;
+            } else {
+                self.resources
+                    .upload_noise_metadata(cast_slice(&tables.metadata))?;
+                self.resources
+                    .upload_noise_entries(cast_slice(&tables.entries))?;
+            }
+        }
+
+        let params = &self.run_params;
+
+        if self.pipeline_is_dirty {
+            // The pipeline is marked as dirty if the qubit or result count changed (shot count doesn't impact it)
+            self.resources.create_shaders_adaptive(
+                params.qubit_count,
+                params.result_count,
+                // The next two params are derived from qubit count and result count, so will only change if those do
+                params.workgroups_per_shot,
+                params.entries_per_thread,
+                // The below are constants so will not change from run to run
+                THREADS_PER_WORKGROUP,
+                MAX_QUBIT_COUNT,
+                MAX_QUBITS_PER_WORKGROUP,
+                MAX_REGISTERS,
+            )?;
+        }
+
+        let shots_usize = i32_to_usize(self.run_params.shots_per_batch);
+        let interp_state_size = shots_usize * INTERP_STATE_STRIDE * 4;
+        let register_file_size = shots_usize * MAX_REGISTERS * 4;
+        self.resources
+            .ensure_adaptive_run_buffers(interp_state_size, register_file_size)?;
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_lines)]
+    pub async fn run_adaptive_shots(
+        &mut self,
+        shot_count: i32,
+        seed: u32,
+        start_shot_id: i32,
+    ) -> Result<RunResults, String> {
+        const MAX_ROUNDS_PER_BATCH: u32 = 100_000;
+
+        // 1. Update run params.
+        self.update_run_params_adaptive(shot_count);
+
+        // 2. Prepare GPU resources.
+        self.ready_gpu_resources_adaptive().await?;
+
+        // Get the GPU resources we need for the entire run
+        let bind_group = self.resources.get_bind_group()?;
+        let kernels = self.resources.get_kernels()?;
+
+        let mut results: Vec<u32> = Vec::new();
+        let mut diagnostics: Option<Box<DiagnosticsData>> = None;
+        let mut shots_remaining = self.run_params.shot_count;
+
+        // 3. For each batch:
+        for batch_idx in 0..self.run_params.batch_count {
+            // 3.1 Schedule batch of shots.
+            let shots_this_batch = min(shots_remaining, self.run_params.shots_per_batch);
+            let execute_workgroup_count =
+                u32::try_from(self.run_params.workgroups_per_shot * shots_this_batch)
+                    .expect("workgroups_per_shot * shots_per_batch should fit in u32");
+            let shots_this_batch: u32 = shots_this_batch
+                .try_into()
+                .expect("the number of shots in this batch should fit in a u32");
+            shots_remaining -= self.run_params.shots_per_batch;
+
+            // Update the uniforms for this batch
+            // When this is put directly on the queue, it will be submitted when the next submit occurs, but will run before that submit's work
+            self.resources.upload_uniform(&Uniforms {
+                batch_start_shot_id: batch_idx * self.run_params.shots_per_batch + start_shot_id,
+                rng_seed: seed,
+            })?;
+
+            // Initialize state vectors and shot data via the init kernel
+            {
+                let kernels = self.resources.get_kernels()?;
+                let mut encoder = self.resources.get_encoder("Adaptive Init Encoder")?;
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("Adaptive Init Pass"),
+                    timestamp_writes: None,
+                });
+                compute_pass.set_bind_group(0, &bind_group, &[]);
+                compute_pass.set_pipeline(&kernels.init_op);
+                compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                drop(compute_pass);
+                self.resources.submit_command_buffer(encoder.finish())?;
+            }
+
+            // 3.2 Wait until the batch is finished.
+            //     We try to resume the computation `ROUNDS_PER_BATCH` times.
+            for _ in 0..MAX_ROUNDS_PER_BATCH {
+                let mut encoder = self.resources.get_encoder("Adaptive Batch Encoder")?;
+
+                // Dispatch a round of computation.
+                // Phase 1: interpret classical bytecode (1 thread per shot)
+                {
+                    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                        label: Some("Adaptive Classical Pass"),
+                        timestamp_writes: None,
+                    });
+                    pass.set_bind_group(0, &bind_group, &[]);
+                    pass.set_pipeline(&kernels.interpret_classical);
+                    pass.dispatch_workgroups(shots_this_batch, 1, 1);
+                }
+
+                // Phase 2: prepare the pending quantum op per shot
+                {
+                    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                        label: Some("Adaptive Prepare Pass"),
+                        timestamp_writes: None,
+                    });
+                    pass.set_bind_group(0, &bind_group, &[]);
+                    pass.set_pipeline(&kernels.prepare_op);
+                    pass.dispatch_workgroups(shots_this_batch, 1, 1);
+                }
+
+                // Phase 3: execute the quantum op (parallel state-vector kernel)
+                {
+                    let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                        label: Some("Adaptive Execute Pass"),
+                        timestamp_writes: None,
+                    });
+                    pass.set_bind_group(0, &bind_group, &[]);
+                    pass.set_pipeline(&kernels.execute_op);
+                    pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
+                }
+
+                // Check for termination.
+                let terminated = self.resources.download_termination_counter().await?;
+                if terminated >= shots_this_batch {
+                    break;
+                }
+
+                self.resources.submit_command_buffer(encoder.finish())?;
+            }
+
+            // 3.3 Aggregate results.
+            let (batch_results, batch_diagnostics) =
+                self.resources.download_batch_results().await?;
+
+            results.extend(batch_results);
+            if batch_diagnostics.error_code != 0 && diagnostics.is_none() {
+                diagnostics = Some(batch_diagnostics);
+            }
+        }
+
+        // We may have had extra shots if the last batch was not full. Truncate if so.
+        let result_count = self.run_params.result_count;
+        let expected_results: usize = (self.run_params.shot_count * (result_count + 1)) // +1 for the error code per shot
+            .try_into()
+            .expect("Total expected result count should fit in usize");
+        results.truncate(expected_results);
+
+        // Split results into measurements and result codes
+        let result_count_usize: usize = result_count
+            .try_into()
+            .expect("Result count should fit in usize");
+        let shot_results = results
+            .chunks(result_count_usize + 1)
+            .map(|chunk| chunk[..result_count_usize].to_vec())
+            .collect::<Vec<Vec<u32>>>();
+
+        // Separate out every 3rd entry from results into 'error_codes'
+        let shot_result_codes = results
+            .chunks(result_count_usize + 1)
+            .map(|chunk| chunk[result_count_usize])
+            .collect::<Vec<u32>>();
+        let success = shot_result_codes.iter().all(|&code| code == 0);
+
+        Ok(RunResults {
+            shot_results,
+            shot_result_codes,
+            diagnostics,
+            success,
+        })
+    }
+}
+
 fn add_noise_config_to_ops(ops: &[Op], noise: &NoiseConfig<f32, f64>) -> Vec<Op> {
     let mut noisy_ops: Vec<Op> = Vec::with_capacity(ops.len() + 1);
 
@@ -472,4 +746,10 @@ fn usize_to_i32(value: usize) -> i32 {
 
 fn i32_to_usize(value: i32) -> usize {
     usize::try_from(value).expect("Value {value} can't convert to usize")
+}
+
+fn u32_to_i32(value: u32) -> i32 {
+    value
+        .try_into()
+        .unwrap_or_else(|_| panic!("{value} should fit in a i32"))
 }

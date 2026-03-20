@@ -32,6 +32,7 @@ pub struct GpuKernels {
     pub init_op: ComputePipeline,
     pub prepare_op: ComputePipeline,
     pub execute_op: ComputePipeline,
+    pub interpret_classical: ComputePipeline,
 }
 
 #[derive(Debug)]
@@ -53,6 +54,18 @@ const DIAGNOSTICS_BUF_IDX: usize = 5;
 const UNIFORM_BUF_IDX: usize = 6;
 const CORRELATED_NOISE_TABLES_BUF_IDX: usize = 7;
 const CORRELATED_NOISE_ENTRIES_BUF_IDX: usize = 8;
+
+// Adaptive interpreter buffer indices.
+// Adaptive interpreter buffer indices (bindings 9-17)
+const BYTECODE_BUF_IDX: usize = 9;
+const BLOCK_TABLE_BUF_IDX: usize = 10;
+const FUNCTION_TABLE_BUF_IDX: usize = 11;
+const PHI_TABLE_BUF_IDX: usize = 12;
+const SWITCH_TABLE_BUF_IDX: usize = 13;
+const CALL_ARG_TABLE_BUF_IDX: usize = 14;
+const INTERPRETER_STATE_BUF_IDX: usize = 15;
+const REGISTER_FILE_BUF_IDX: usize = 16;
+const TERMINATION_COUNTER_BUF_IDX: usize = 17;
 
 impl Default for GpuDeviceResources {
     fn default() -> Self {
@@ -121,6 +134,163 @@ impl Default for GpuDeviceResources {
                     is_uniform: false,
                     read_only: true,
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+            ],
+        }
+    }
+}
+
+impl GpuDeviceResources {
+    #[allow(clippy::too_many_lines)]
+    fn adaptive() -> Self {
+        Self {
+            kernels: None,
+            bind_group: None,
+            // --------------------------------------------------------------
+            // Bind group layout: 18 bindings in @group(0)
+            // --------------------------------------------------------------
+            // Bindings 0-8:  quantum ops (ops, state vector, results, noise, etc.)
+            // Bindings 9-17: Adaptive interpreter (bytecode, block/function/phi/switch
+            //                tables, interpreter state, register file, termination counter)
+            //
+            // This exceeds the WebGPU minimum of 8 storage buffers per shader stage
+            // but is within the limits of all tested desktop GPUs (typically 24-32+).
+            // The create_device() function validates adapter support at startup.
+            //
+            // If targeting backends with < 17 storage buffer support (web, mobile),
+            // split adaptive bindings into @group(1) @binding(0..8). This requires:
+            //   1. simulator_adaptive.wgsl: Change bindings 9-17 to @group(1) @binding(0..8)
+            //   2. gpu_resources.rs: Create separate BindGroupLayout and BindGroup
+            //      for the adaptive bindings
+            //   3. gpu_context.rs: Bind both groups via compute_pass.set_bind_group()
+            // --------------------------------------------------------------
+            bound_buffers: vec![
+                BufferBinding {
+                    name: "WorkgroupCollation",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "ShotState",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "Ops",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "StateVector",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "Results",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "Diagnostics",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "Uniforms",
+                    is_uniform: true,
+                    read_only: false,
+                    usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "CorrelatedNoiseTables",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "CorrelatedNoiseEntries",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                // Adaptive interpreter buffers (bindings 9-17)
+                BufferBinding {
+                    name: "Bytecode",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "BlockTable",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "FunctionTable",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "PhiTable",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "SwitchTable",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "CallArgTable",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "InterpreterState",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "RegisterFile",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "TerminationCounter",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
                     buffer: None,
                 },
             ],
@@ -365,10 +535,94 @@ impl GpuResources {
             })
         };
 
+        let dummy_kernel = device.create_compute_pipeline(&ComputePipelineDescriptor {
+            label: Some("Dummy kernel"),
+            layout: None,
+            module: &shader_module,
+            entry_point: None,
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
         self.device_resources.kernels = Some(GpuKernels {
             init_op: get_kernel("initialize"),
             prepare_op: get_kernel("prepare_op"),
             execute_op: get_kernel("execute"),
+            interpret_classical: dummy_kernel,
+        });
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_shaders_adaptive(
+        &mut self,
+        qubit_count: i32,
+        result_count: i32,
+        workgroups_per_shot: i32,
+        entries_per_thread: i32,
+        threads_per_workgroup: i32,
+        max_qubit_count: i32,
+        max_qubits_per_workgroup: i32,
+        max_registers: usize,
+    ) -> Result<(), String> {
+        let adapter = self.adapter.as_ref().ok_or("GPU adapter not initialized")?;
+        let device = self.device.as_ref().ok_or("GPU device not initialized")?;
+        let bind_group_layout = self
+            .bind_group_layout
+            .as_ref()
+            .ok_or("Bind group layout not initialized")?; // This is created with the device, so should exist here
+
+        // Create the shader module and bind group layout
+        let raw_shader_src = include_str!("simulator_adaptive.wgsl");
+        let mut shader_src = raw_shader_src
+            .replace("{{QUBIT_COUNT}}", &qubit_count.to_string())
+            .replace("{{RESULT_COUNT}}", &(result_count + 1).to_string()) // +1 for result code per shot
+            .replace("{{WORKGROUPS_PER_SHOT}}", &workgroups_per_shot.to_string())
+            .replace("{{ENTRIES_PER_THREAD}}", &entries_per_thread.to_string())
+            .replace(
+                "{{THREADS_PER_WORKGROUP}}",
+                &threads_per_workgroup.to_string(),
+            )
+            .replace("{{MAX_QUBIT_COUNT}}", &max_qubit_count.to_string())
+            .replace(
+                "{{MAX_QUBITS_PER_WORKGROUP}}",
+                &max_qubits_per_workgroup.to_string(),
+            )
+            .replace("{{MAX_REGISTERS}}", &max_registers.to_string());
+
+        // Strip out DX12-incompatible code sections if needed
+        if adapter.get_info().backend == wgpu::Backend::Dx12 {
+            shader_src = strip_dx12_sections(&shader_src);
+        }
+
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("GPU Simulator Shader Module"),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("GPU simulator pipeline layout"),
+            bind_group_layouts: &[bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let get_kernel = |name: &str| -> ComputePipeline {
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some(&format!("GPU kernel - {name}")),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some(name),
+                compilation_options: Default::default(),
+                cache: None,
+            })
+        };
+
+        self.device_resources.kernels = Some(GpuKernels {
+            init_op: get_kernel("initialize"),
+            prepare_op: get_kernel("prepare_adaptive_op"),
+            execute_op: get_kernel("execute"),
+            interpret_classical: get_kernel("interpret_classical"),
         });
 
         Ok(())
@@ -612,6 +866,122 @@ impl GpuResources {
         download.unmap();
 
         Ok((batch_results, diagnostics))
+    }
+}
+
+// Adaptive Profile implementations.
+impl GpuResources {
+    #[must_use]
+    pub fn adaptive() -> Self {
+        Self {
+            adapter: None,
+            device: None,
+            bind_group_layout: None,
+            dbg_capture: false,
+            queue: None,
+            device_resources: GpuDeviceResources::adaptive(),
+        }
+    }
+
+    // --- Adaptive interpreter buffer uploads ---
+
+    pub fn upload_bytecode(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, BYTECODE_BUF_IDX)
+    }
+
+    pub fn upload_block_table(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, BLOCK_TABLE_BUF_IDX)
+    }
+
+    pub fn upload_function_table(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, FUNCTION_TABLE_BUF_IDX)
+    }
+
+    pub fn upload_phi_table(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, PHI_TABLE_BUF_IDX)
+    }
+
+    pub fn upload_switch_table(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, SWITCH_TABLE_BUF_IDX)
+    }
+
+    pub fn upload_call_arg_table(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, CALL_ARG_TABLE_BUF_IDX)
+    }
+
+    pub fn upload_interpreter_state(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, INTERPRETER_STATE_BUF_IDX)
+    }
+
+    pub fn upload_register_file(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, REGISTER_FILE_BUF_IDX)
+    }
+
+    pub fn upload_termination_counter(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, TERMINATION_COUNTER_BUF_IDX)
+    }
+
+    pub fn ensure_adaptive_run_buffers(
+        &mut self,
+        interpreter_state_size: usize,
+        register_file_size: usize,
+    ) -> Result<(), String> {
+        let device = self.device.as_ref().ok_or("GPU device not initialized")?;
+
+        let mut check_buffer = |idx: usize, required_size: usize| {
+            let buf_binding = &mut self.device_resources.bound_buffers[idx];
+            if let Some(ref buffer) = buf_binding.buffer
+                && buffer.size() == required_size as u64
+            {
+                // Buffer is already the correct size
+            } else {
+                let new_buffer =
+                    create_dst_buffer(device, required_size, buf_binding.usage, buf_binding.name);
+                buf_binding.buffer = Some(new_buffer);
+                self.device_resources.bind_group = None;
+            }
+        };
+
+        check_buffer(INTERPRETER_STATE_BUF_IDX, interpreter_state_size);
+        check_buffer(REGISTER_FILE_BUF_IDX, register_file_size);
+        check_buffer(TERMINATION_COUNTER_BUF_IDX, 4);
+        Ok(())
+    }
+
+    /// Download the termination counter (single u32) from the GPU.
+    pub async fn download_termination_counter(&self) -> Result<u32, String> {
+        let device = self.device.as_ref().ok_or("GPU device not initialized")?;
+        let counter_buf = self.try_get_buffer(TERMINATION_COUNTER_BUF_IDX)?;
+
+        let download = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Termination Counter Download"),
+            size: 4,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.get_encoder("Termination Counter Copy Encoder")?;
+        encoder.copy_buffer_to_buffer(counter_buf, 0, &download, 0, 4);
+        self.submit_command_buffer(encoder.finish())?;
+
+        let buffer_slice = download.slice(..);
+        let (sender, receiver) = futures::channel::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        device
+            .poll(PollType::wait_indefinitely())
+            .expect("GPU poll failed");
+        receiver
+            .await
+            .expect("Failed to receive map completion")
+            .expect("Buffer mapping failed");
+
+        let data = buffer_slice.get_mapped_range();
+        let value = *from_bytes::<u32>(&data);
+        drop(data);
+        download.unmap();
+        Ok(value)
     }
 }
 

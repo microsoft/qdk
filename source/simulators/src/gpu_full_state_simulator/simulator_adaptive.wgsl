@@ -1,0 +1,2436 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+// See https://webgpufundamentals.org/webgpu/lessons/webgpu-wgsl.html for an overview
+// See https://www.w3.org/TR/WGSL/ for the details
+// See https://webgpu.github.io/webgpu-samples/ for examples
+
+// WGSL has pipeline overridables, but they're a pain and limited, so just string replace constants here
+const QUBIT_COUNT: i32 = {{QUBIT_COUNT}};
+const RESULT_COUNT: u32 = {{RESULT_COUNT}};
+const WORKGROUPS_PER_SHOT: i32 = {{WORKGROUPS_PER_SHOT}};
+const ENTRIES_PER_THREAD: i32 = {{ENTRIES_PER_THREAD}};
+const THREADS_PER_WORKGROUP: i32 = {{THREADS_PER_WORKGROUP}};
+const MAX_QUBIT_COUNT: i32 = {{MAX_QUBIT_COUNT}};
+const MAX_QUBITS_PER_WORKGROUP: i32 = {{MAX_QUBITS_PER_WORKGROUP}};
+
+const ERR_INVALID_PROBS = 1u;
+const ERR_INVALID_THREAD_TOTAL = 2u;
+const ERR_CALL_STACK_OVERFLOW = 3u;
+const ERR_CALL_STACK_UNDERFLOW = 4u;
+const ERR_INVALID_INSTRUCTION = 5u;
+
+const PROB_THRESHOLD: f32 = 0.0001; // Tolerance for probabilities to sum to 1.0
+
+
+// Always use 32 threads per workgroup for max concurrency on most current GPU hardware
+const MAX_WORKGROUP_SUM_PARTITIONS: i32 = 1 << u32(MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);
+
+// Operation IDs
+const OPID_ID      = 0u;
+const OPID_RESETZ  = 1u;
+const OPID_X       = 2u;
+const OPID_Y       = 3u;
+const OPID_Z       = 4u;
+const OPID_H       = 5u;
+const OPID_S       = 6u;
+const OPID_SAdj    = 7u;
+const OPID_T       = 8u;
+const OPID_TAdj    = 9u;
+const OPID_RZ      = 14u;
+const OPID_CX      = 15u;
+const OPID_CZ      = 16u;
+const OPID_RXX     = 17u;
+const OPID_RYY     = 18u;
+const OPID_RZZ     = 19u;
+const OPID_MZ      = 21u;
+const OPID_MRESETZ = 22u;
+const OPID_SWAP    = 24u;
+const OPID_MAT1Q   = 25u;
+const OPID_MAT2Q   = 26u;
+const OPID_CY      = 29u;
+
+const OPID_PAULI_NOISE_1Q = 128u;
+const OPID_PAULI_NOISE_2Q = 129u;
+const OPID_LOSS_NOISE = 130u;
+const OPID_CORRELATED_NOISE = 131u;
+
+// If the application of noise results in a custom matrix, it will have been stored in the shot buffer
+// These OPIDs indicate to use that matrix and for how many qubits. (The qubit ids are in the original Op)
+const OPID_SHOT_BUFF_1Q = 256u;
+const OPID_SHOT_BUFF_2Q = 257u;
+
+// The below is used when an operation is to be applied to all qubits - such as a system reset.
+const ALL_QUBITS: u32 = 0xFFFFFFFFu;
+
+struct WorkgroupSums {
+    qubits: array<vec2f, MAX_QUBIT_COUNT>, // Each vec2f holds (zero_probability, one_probability)
+};
+
+struct WorkgroupCollationBuffer {
+    sums: array<WorkgroupSums, MAX_WORKGROUP_SUM_PARTITIONS>,
+};
+
+@group(0) @binding(0)
+var<storage, read_write> workgroup_collation: WorkgroupCollationBuffer;
+// Around 128 max partitions times 27 qubits times 8 bytes = 27 KB max size
+
+struct QubitState {
+    zero_probability: f32,
+    one_probability: f32,
+    heat: f32, // -1.0 = lost
+    idle_since: f32,
+}
+
+// Used to track state for the random number generator per shot. See `next_rand_f32` later for details.
+struct xorwow_state {
+    counter: u32,
+    x: array<u32, 5>
+}
+
+// Buffer containing the state for each shot to execute per kernel dispatch
+// An instance of this is tracked on the GPU for every active shot
+struct ShotData {
+    shot_id: u32,
+    next_op_idx: u32,
+
+    // The below random numbers will be initialized from the RNG per operation in the 'prepare_op' stage
+    // Then the 'execute_op' stage will read these precomputed random numbers for noise modeling
+    rng_state: xorwow_state, // 6 x u32
+    rand_pauli: f32,
+    rand_damping: f32,
+    rand_dephase: f32,
+    rand_measure: f32,
+    rand_loss: f32,
+
+    // The type of the next operation to execute. This will be OPID_SHOT_BUFF_* if it should use the unitary from the op buffer
+    op_type: u32,
+    op_idx: u32,
+
+    duration: f32, // Total duration of the shot so far, used for time-dependent noise modeling and shot estimations
+    renormalize: f32, // Value to renormalize the state vector by on next execute (1.0 = no renormalization needed)
+
+    // For quick testing during execution to enable skipping blocks of entries
+    // TODO: Actually use these masks during execution to skip unneeded work
+    qubit_is_0_mask: u32, // Bitmask for which qubits are currently in |0> state
+    qubit_is_1_mask: u32, // Bitmask for which qubits are currently in |1> state
+
+    // Track which qubit probabilities were updated in the last operation (to collate on next prepare_op)
+    qubits_updated_last_op_mask: u32,
+
+    // Per-shot qubit indices for the current operation (set by prepare_adaptive_op for dynamic qubits)
+    q1: u32,
+    q2: u32,
+    // 22 x 4 bytes to this point = 88 bytes
+
+    // Track the per-qubit probabilities for optimization of measurement sampling and noise modeling
+    qubit_state: array<QubitState, MAX_QUBIT_COUNT>, // 27 x 16 bytes = 432 bytes
+    // 520 bytes to this point
+
+    // Map this to the Op structure for ease of use
+    unitary: array<vec2f, 16>, // For MAT1Q and MAT2Q ops.
+}
+// Total struct size = 648 bytes
+// See https://www.w3.org/TR/WGSL/#structure-member-layout for alignment rules
+
+@group(0) @binding(1)
+var<storage, read_write> shots: array<ShotData>;
+
+// Buffer containing the list of operations (gates and noise) that make up the program to simulate
+struct Op {
+    id: u32,
+    q1: u32,
+    q2: u32,
+    q3: u32,
+    // Entries in the unitary are: 00, 01, 02, 03, 10, 11, 12, 13, 20, ..., 32, 33
+    // 1q matrix elements are stored in: 00, 01, 10, 11 (i.e., indices 0, 1, 4, and 5)
+    unitary: array<vec2f, 16>,
+} // Struct size: 4 * 4 + 16 * 8 = 144 bytes (which is aligned to 16 bytes)
+
+@group(0) @binding(2)
+var<storage, read> ops: array<Op>;
+
+// The one large buffer of state vector amplitudes. (Partitioned into multiple shots)
+@group(0) @binding(3)
+var<storage, read_write> stateVector: array<vec2f>;
+
+// Buffer for storing measurement results per shot
+@group(0) @binding(4)
+var<storage, read_write> results: array<atomic<u32>>;
+
+// When an error occurs, the below diagnostic data structure is used to store information about the error
+struct DiagnosticData {
+    error_code: atomic<u32>,
+    extra1: u32,
+    extra2: f32,
+    extra3: f32,
+    shot: ShotData, // 640 bytes
+    op: Op,         // 144 bytes
+    // Below is usually 6,912 bytes (size = THREADS_PER_WORKGROUP (32) * (8 * MAX_QUBIT_COUNT (27))
+    workgroup_probabilities: array<QubitProbabilityPerThread, THREADS_PER_WORKGROUP>,
+    // Below is usually 27,648 bytes (1 << u32(MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP)) * (8 * MAX_QUBIT_COUNT) bytes
+    collation_buffer: WorkgroupCollationBuffer,
+};
+
+@group(0) @binding(5)
+var<storage, read_write> diagnostics: DiagnosticData;
+
+struct Uniforms {
+    batch_start_shot_id: i32,
+    rng_seed: u32,
+}
+
+@group(0) @binding(6)
+var<uniform> uniforms: Uniforms;
+
+struct NoiseTableMetadata {
+    /// The total probability of any noise (i.e. sum of all noise entries) in `Q1.63` format
+    noise_probability_lo: u32,
+    noise_probability_hi: u32,
+    /// The start offset of this table's entries in the global `NoiseTableEntry` array
+    start_offset: u32,
+    /// The number of entries in this noise table
+    entry_count: u32,
+}
+
+struct NoiseTableEntry {
+    /// The correlated pauli string as bits (2 bits per qubit). If bit 0 is set, then it has bit-flip
+    /// noise, and if bit 1 is set then it has phase-flip noise. e.g., `110001 == "YIX"`
+    paulis_lo: u32,
+    paulis_hi: u32,
+    /// The probability of the noise occurring in `Q1_63` format. This is a float format where the high
+    /// order bit (bit 63) has the value 1.0 (`2^0 / 1`), bit 62 has the value 0.5 (`2^1 / 1`), etc.
+    /// all the way to bit 63 with a value of approx 1.0842e-19 (`2^63 / 1`). This gives a range of
+    /// values from [0..2) with equal spacing of 1.0842e-19 between values (unlike float or double),
+    /// which makes it more suitable for random numbers used to select between a large number of small
+    /// probability entries.
+    probability_lo: u32,
+    probability_hi: u32,
+}
+
+@group(0) @binding(7)
+var<storage, read> correlated_noise_tables: array<NoiseTableMetadata>;
+
+@group(0) @binding(8)
+var<storage, read> correlated_noise_entries: array<NoiseTableEntry>;
+
+// -----------------------------------------------------------------------------
+// Adaptive interpreter buffer bindings (9-17)
+// -----------------------------------------------------------------------------
+
+@group(0) @binding(9)
+var<storage, read> bytecode: array<vec4<u32>>;  // Instruction pairs (each instruction = 2 × vec4<u32>)
+
+@group(0) @binding(10)
+var<storage, read> block_table: array<vec2<u32>>;  // (instruction_offset, instruction_count) per block
+
+@group(0) @binding(11)
+var<storage, read> function_table: array<vec4<u32>>;  // (entry_block, param_count, param_base_reg, reserved)
+
+@group(0) @binding(12)
+var<storage, read> phi_table: array<vec2<u32>>;  // (predecessor_block_id, value_register) entries
+
+@group(0) @binding(13)
+var<storage, read> switch_table: array<vec2<u32>>;  // (match_value, target_block) entries
+
+@group(0) @binding(14)
+var<storage, read> call_arg_table: array<u32>;  // register indices
+
+@group(0) @binding(15)
+var<storage, read_write> interpreter_state: array<u32>;  // Per-shot interpreter state (flattened)
+
+@group(0) @binding(16)
+var<storage, read_write> shot_registers: array<u32>;  // Per-shot register files (flattened)
+
+@group(0) @binding(17)
+var<storage, read_write> termination_counter: atomic<u32>;  // Count of halted shots
+
+// -----------------------------------------------------------------------------
+// Adaptive interpreter constants
+// -----------------------------------------------------------------------------
+
+const MAX_REGISTERS: u32 = {{MAX_REGISTERS}};
+const MAX_CLASSICAL_STEPS: u32 = 4096u;
+
+const INTERP_STATE_STRIDE: u32 = 48u;
+
+// Status codes
+const STATUS_RUNNING:          u32 = 0u;
+const STATUS_QUANTUM_PENDING:  u32 = 1u;
+const STATUS_TERMINATED:       u32 = 2u;
+const STATUS_ERROR:            u32 = 3u;
+const STATUS_YIELD:            u32 = 4u;
+
+// Per-shot interpreter state offsets
+const INTERP_PC:               u32 = 0u;   // Instruction index (absolute), PC stands for Program Counter
+const INTERP_BLOCK:            u32 = 1u;   // Current block ID
+const INTERP_PREV_BLOCK:       u32 = 2u;   // Previous block ID (for phi resolution)
+const INTERP_STATUS:           u32 = 3u;   // 0=running, 1=quantum_pending, 2=terminated, 3=error, 4=yield
+const INTERP_PENDING_OP_IDX:   u32 = 4u;   // Quantum op table index
+const INTERP_PENDING_OP_TYPE:  u32 = 5u;   // 0=gate, 1=measure, 2=reset
+const INTERP_PENDING_Q1:       u32 = 6u;   // Resolved qubit 1
+const INTERP_PENDING_Q2:       u32 = 7u;   // Resolved qubit 2
+const INTERP_EXIT_CODE:        u32 = 8u;   // From ret instruction
+const INTERP_CALL_SP:          u32 = 9u;   // Call stack pointer (0–7)
+const INTERP_CALL_STACK:       u32 = 10u;  // Base for call frames (4 u32 per frame × 8 frames = 32)
+
+// -----------------------------------------------------------------------------
+// Adaptive interpreter — opcodes
+// -----------------------------------------------------------------------------
+
+// Shared opcode constants for the Adaptive Profile QIR bytecode interpreter.
+//
+// These constants define the bytecode encoding used by the Python AdaptiveProfilePass
+// (emitter). Values must stay in sync with the Python ``_adaptive_opcodes.py`` file.
+//
+// Opcode word layout::
+//
+//     bits [7:0]   = primary opcode
+//     bits [15:8]  = sub-opcode / condition code
+//     bits [23:16] = flags
+//
+// Compose via bitwise OR: ``opcode | (sub << 8) | flag``
+// Example: ``OP_ICMP | (ICMP_SLE << 8) | FLAG_SRC1_IMM``
+
+// -- Flags (pre-shifted to bit 16+) ------------------------------------------
+const FLAG_SRC0_IMM:    u32 = 1 << 16;  // src0 field is an immediate value, not a register
+const FLAG_SRC1_IMM:    u32 = 1 << 17;  // src1 field is an immediate value, not a register
+const FLAG_WIDE_IMM:    u32 = 1 << 18;  // wide immediate (reserved for future i64)
+const FLAG_FLOAT:       u32 = 1 << 19;  // operation uses float semantics
+const FLAG_64BIT:       u32 = 1 << 21;  // reserved for future i64 support
+
+// -- Control Flow -------------------------------------------------------------
+const OP_NOP:           u32 = 0x00;
+const OP_RET:           u32 = 0x02;
+const OP_JUMP:          u32 = 0x04;
+const OP_BRANCH:        u32 = 0x05;
+const OP_SWITCH:        u32 = 0x06;
+const OP_CALL:          u32 = 0x07;
+const OP_CALL_RETURN:   u32 = 0x08;
+
+// -- Quantum ------------------------------------------------------------------
+const OP_QUANTUM_GATE:  u32 = 0x10;
+const OP_MEASURE:       u32 = 0x11;
+const OP_RESET:         u32 = 0x12;
+const OP_READ_RESULT:   u32 = 0x13;
+const OP_RECORD_OUTPUT: u32 = 0x14;
+
+// -- Integer Arithmetic -------------------------------------------------------
+const OP_ADD:           u32 = 0x20;
+const OP_SUB:           u32 = 0x21;
+const OP_MUL:           u32 = 0x22;
+const OP_UDIV:          u32 = 0x23;
+const OP_SDIV:          u32 = 0x24;
+const OP_UREM:          u32 = 0x25;
+const OP_SREM:          u32 = 0x26;
+
+// -- Bitwise / Shift ---------------------------------------------------------
+const OP_AND:           u32 = 0x28;
+const OP_OR:            u32 = 0x29;
+const OP_XOR:           u32 = 0x2A;
+const OP_SHL:           u32 = 0x2B;
+const OP_LSHR:          u32 = 0x2C;
+const OP_ASHR:          u32 = 0x2D;
+
+// -- Comparison ---------------------------------------------------------------
+const OP_ICMP:          u32 = 0x30;
+const OP_FCMP:          u32 = 0x31;
+
+// -- Float Arithmetic ---------------------------------------------------------
+const OP_FADD:          u32 = 0x38;
+const OP_FSUB:          u32 = 0x39;
+const OP_FMUL:          u32 = 0x3A;
+const OP_FDIV:          u32 = 0x3B;
+
+// -- Type Conversion ----------------------------------------------------------
+const OP_ZEXT:          u32 = 0x40;
+const OP_SEXT:          u32 = 0x41;
+const OP_TRUNC:         u32 = 0x42;
+const OP_FPEXT:         u32 = 0x43;
+const OP_FPTRUNC:       u32 = 0x44;
+const OP_INTTOPTR:      u32 = 0x45;
+const OP_FPTOSI:        u32 = 0x46;
+const OP_SITOFP:        u32 = 0x47;
+
+// -- SSA / Data Movement -----------------------------------------------------
+const OP_PHI:           u32 = 0x50;
+const OP_SELECT:        u32 = 0x51;
+const OP_MOV:           u32 = 0x52;
+const OP_CONST:         u32 = 0x53;
+
+// -- ICmp condition codes (sub-opcode, placed in bits[15:8] via << 8) ---------
+// Reference: https://llvm.org/docs/LangRef.html#icmp-instruction
+const ICMP_EQ:          u32 = 0;
+const ICMP_NE:          u32 = 1;
+const ICMP_SLT:         u32 = 2;
+const ICMP_SLE:         u32 = 3;
+const ICMP_SGT:         u32 = 4;
+const ICMP_SGE:         u32 = 5;
+const ICMP_ULT:         u32 = 6;
+const ICMP_ULE:         u32 = 7;
+const ICMP_UGT:         u32 = 8;
+const ICMP_UGE:         u32 = 9;
+
+// -- FCmp condition codes -----------------------------------------------------
+// Reference: https://llvm.org/docs/LangRef.html#fcmp-instruction
+const FCMP_FALSE:       u32 = 0;
+const FCMP_OEQ:         u32 = 1;
+const FCMP_OGT:         u32 = 2;
+const FCMP_OGE:         u32 = 3;
+const FCMP_OLT:         u32 = 4;
+const FCMP_OLE:         u32 = 5;
+const FCMP_ONE:         u32 = 6;
+const FCMP_ORD:         u32 = 7;
+const FCMP_UNO:         u32 = 8;
+const FCMP_UEQ:         u32 = 9;
+const FCMP_UGT:         u32 = 10;
+const FCMP_UGE:         u32 = 11;
+const FCMP_ULT:         u32 = 12;
+const FCMP_ULE:         u32 = 13;
+const FCMP_UNE:         u32 = 14;
+const FCMP_TRUE:        u32 = 15;
+
+// -- Register type tags -------------------------------------------------------
+const REG_TYPE_BOOL:    u32 = 0;
+const REG_TYPE_I32:     u32 = 1;
+const REG_TYPE_I64:     u32 = 2;
+const REG_TYPE_F32:     u32 = 3;
+const REG_TYPE_F64:     u32 = 4;
+const REG_TYPE_PTR:     u32 = 5;
+
+// -- Sentinel values ----------------------------------------------------------
+const DYN_QUBIT_SENTINEL: u32 = 0xFFFFFFFF;  // "use static qubit from quantum op pool"
+
+
+// -----------------------------------------------------------------------------
+// Adaptive interpreter — register file access
+// -----------------------------------------------------------------------------
+
+fn read_reg(shot_idx: u32, reg: u32) -> u32 {
+    return shot_registers[shot_idx * MAX_REGISTERS + reg];
+}
+
+fn write_reg(shot_idx: u32, reg: u32, val: u32) {
+    shot_registers[shot_idx * MAX_REGISTERS + reg] = val;
+}
+
+fn read_reg_i32(shot_idx: u32, reg: u32) -> i32 {
+    return bitcast<i32>(read_reg(shot_idx, reg));
+}
+
+fn write_reg_i32(shot_idx: u32, reg: u32, val: i32) {
+    write_reg(shot_idx, reg, bitcast<u32>(val));
+}
+
+fn read_reg_f32(shot_idx: u32, reg: u32) -> f32 {
+    return bitcast<f32>(read_reg(shot_idx, reg));
+}
+
+fn write_reg_f32(shot_idx: u32, reg: u32, val: f32) {
+    write_reg(shot_idx, reg, bitcast<u32>(val));
+}
+
+// -----------------------------------------------------------------------------
+// Adaptive interpreter — instruction fetch and opcode extraction
+// -----------------------------------------------------------------------------
+
+struct Instr {
+    opcode: u32, dst: u32, src0: u32, src1: u32,
+    aux0: u32, aux1: u32, aux2: u32, aux3: u32,
+}
+
+fn fetch_instr(pc: u32) -> Instr {
+    let base = pc * 2u;  // 2 × vec4<u32> per instruction
+    let w0 = bytecode[base];
+    let w1 = bytecode[base + 1u];
+    return Instr(w0.x, w0.y, w0.z, w0.w, w1.x, w1.y, w1.z, w1.w);
+}
+
+fn get_opcode(packed: u32) -> u32   { return packed & 0xFFu; }
+fn get_subcond(packed: u32) -> u32  { return (packed >> 8u) & 0xFFu; }
+fn get_flags(packed: u32) -> u32    { return (packed >> 16u) & 0xFFu; }
+fn is_src0_imm(flags: u32) -> bool  { return (flags & 1u) != 0u; }
+fn is_src1_imm(flags: u32) -> bool  { return (flags & 2u) != 0u; }
+
+fn resolve_i32(shot_idx: u32, operand: u32, flags: u32, operand_idx: u32) -> i32 {
+    if (flags & (1u << operand_idx)) != 0u {
+        return bitcast<i32>(operand);  // immediate
+    }
+    return read_reg_i32(shot_idx, operand);  // register
+}
+
+fn resolve_u32(shot_idx: u32, operand: u32, flags: u32, operand_idx: u32) -> u32 {
+    if (flags & (1u << operand_idx)) != 0u {
+        return operand;
+    }
+    return read_reg(shot_idx, operand);
+}
+
+// Read a measurement result from the existing results buffer.
+// Results are stored as atomic<u32> at shot_idx * RESULT_COUNT + result_id.
+fn read_measurement_result(shot_idx: u32, result_id: u32) -> bool {
+    return atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]) == 1u;
+}
+
+// For every qubit, each 'execute' kernel thread will update its own workgroup storage location for accumulating probabilities
+// The final probabilities will be reduced and written back to the shot state after the parallel execution completes.
+struct QubitProbabilityPerThread {
+    zero: array<f32, MAX_QUBIT_COUNT>,
+    one: array<f32, MAX_QUBIT_COUNT>,
+}; // size: 216 bytes
+
+var<workgroup> qubitProbabilities: array<QubitProbabilityPerThread, THREADS_PER_WORKGROUP>;
+// Workgroup memory size: THREADS_PER_WORKGROUP (32) * 216 = 6,912 bytes.
+
+fn is_1q_phase_gate(op_id: u32) -> bool {
+    return (op_id == OPID_S || op_id == OPID_SAdj || op_id == OPID_T || op_id == OPID_TAdj || op_id == OPID_RZ);
+}
+
+fn is_1q_op(op_id: u32) -> bool {
+    return ((op_id >= OPID_ID && op_id <= OPID_RZ) ||
+        op_id == OPID_MZ || op_id == OPID_MRESETZ ||
+        op_id == OPID_MAT1Q || op_id == OPID_SHOT_BUFF_1Q);
+}
+
+fn shot_init_per_op(shot_idx: u32) {
+    let shot = &shots[shot_idx];
+
+    // Default to 1.0 renormalization (i.e., no renormalization needed). MResetZ or noise affecting the
+    // overall probability distribution (e.g. loss or amplitude damping) will update this if needed.
+    shot.renormalize = 1.0;
+    shot.qubits_updated_last_op_mask = 0u;
+
+    // Generate the next set of random numbers to use for noise and measurement
+    shot.rand_pauli = next_rand_f32(shot_idx);
+    shot.rand_damping = next_rand_f32(shot_idx);
+    shot.rand_dephase = next_rand_f32(shot_idx);
+    shot.rand_measure = next_rand_f32(shot_idx);
+    shot.rand_loss = next_rand_f32(shot_idx);
+}
+
+// Resets the entire shot state, including RNG, probabilities, and per-qubit tracking.
+fn reset_all(shot_idx: i32) {
+    let shot = &shots[shot_idx];
+
+    // One of the main goals of the shot_id is to seed the RNG state uniquely per shot
+    let rng_seed = uniforms.rng_seed;
+    let shot_id = u32(uniforms.batch_start_shot_id + shot_idx);
+
+    // Due to DX12 backend issues, we can't just assign a zeroed struct, so manually reset all fields
+    // DX12-start-strip
+    *shot = ShotData();
+    // DX12-end-strip
+    shot.shot_id = shot_id;
+
+    // After init, start execution from the first op
+    shot.next_op_idx = 0u;
+
+    shot.rng_state.x[0] = rng_seed ^ hash_pcg(shot_id);
+    shot.rng_state.x[1] = rng_seed ^ hash_pcg(shot_id + 1);
+    shot.rng_state.x[2] = rng_seed ^ hash_pcg(shot_id + 2);
+    shot.rng_state.x[3] = rng_seed ^ hash_pcg(shot_id + 3);
+    shot.rng_state.x[4] = rng_seed ^ hash_pcg(shot_id + 4);
+
+    shot.op_type = 0;
+    shot.op_idx = 0;
+
+    // rand_* will be initialized in shot_init_per_op when preparing the first op
+    shot.duration = 0.0;
+    shot.renormalize = 1.0;
+
+    shot.qubit_is_0_mask = (1u << u32(QUBIT_COUNT)) - 1u; // All qubits are |0>
+    shot.qubit_is_1_mask = 0u;
+    shot.qubits_updated_last_op_mask = 0;
+
+    // Initialize all qubit probabilities to 100% |0>
+    for (var i: i32 = 0; i < QUBIT_COUNT; i++) {
+        shot.qubit_state[i].zero_probability = 1.0;
+        shot.qubit_state[i].one_probability = 0.0;
+        shot.qubit_state[i].heat = 0.0;
+        shot.qubit_state[i].idle_since = 0.0;
+    }
+
+    // unitary will be set in prepare_op
+}
+
+fn update_qubit_state(shot_idx: u32) {
+    let shot = &shots[shot_idx];
+
+    // If any qubits were updated in the last op, we may need to sum workgroup probabilities into the shot state
+    // This is only needed if multiple workgroups were used for the shot execution. If not, then the
+    // single workgroup for the shot would have written directly to the shot state already.
+
+    // For each qubit that was updated in the last op
+    for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
+        let qubit_mask: u32 = 1u << q;
+        if ((shot.qubits_updated_last_op_mask & qubit_mask) != 0u) {
+            // Sum the workgroup collation entries for this qubit into the shot state
+            // Note: We ignore the fact a qubit may be 'lost' here. It should already be
+            // in the |0> state if lost, so summing the probabilities is still valid.
+            var total_zero: f32 = 0.0;
+            var total_one: f32 = 0.0;
+
+            if (WORKGROUPS_PER_SHOT > 1) {
+                // Offset into workgroup collation buffer based on shot index
+                let offset = shot_idx * u32(WORKGROUPS_PER_SHOT);
+                for (var wkg_idx: u32 = 0u; wkg_idx < u32(WORKGROUPS_PER_SHOT); wkg_idx++) {
+                    let sums = workgroup_collation.sums[wkg_idx + offset];
+                    total_zero = total_zero + sums.qubits[q].x;
+                    total_one = total_one + sums.qubits[q].y;
+                }
+            } else {
+                // Single workgroup per shot case - just read directly from the shot
+                total_zero = shot.qubit_state[q].zero_probability;
+                total_one = shot.qubit_state[q].one_probability;
+            }
+
+            // Update the shot state with the summed probabilities
+            // Round to 0 or 1 if extremely close to mitigate minor floating point errors
+            // TODO: Use PROB_THRESHOLD constant here?
+            if (total_zero < 0.000001) { total_zero = 0.0; }
+            if (total_one < 0.000001) { total_one = 0.0; }
+            if (total_zero > 0.999999) { total_zero = 1.0; }
+            if (total_one > 0.999999) { total_one = 1.0; }
+
+            shot.qubit_state[q].zero_probability = total_zero;
+            shot.qubit_state[q].one_probability = total_one;
+
+            // NOTE: Any kind of operation with a NaN float value results in a NaN, or false for logical comparisons
+            // So beware of conditions that may not behave as expected if NaN values are possible.
+            let within_threshold = abs(1.0 - (total_zero + total_one)) < PROB_THRESHOLD;
+            if !within_threshold {
+                // Populate the diagnostics buffer, if not already set
+                let old_value = atomicCompareExchangeWeak(
+                    &diagnostics.error_code,
+                    0u,
+                    ERR_INVALID_PROBS);
+                if old_value.exchanged {
+                    // This is the first error - fill in the details
+                    diagnostics.extra1 = q;
+                    diagnostics.extra2 = total_zero;
+                    diagnostics.extra3 = total_one;
+                    // DX12 backend has issues assigning structs. See https://github.com/gfx-rs/wgpu/issues/8552
+                    // DX12-start-strip
+                    diagnostics.shot = *shot;
+                    diagnostics.op = ops[shot.op_idx];
+                    // DX12-end-strip
+                }
+                // Store the error value (if none set already)
+                let err_index = (shot_idx + 1) * RESULT_COUNT - 1;
+                atomicCompareExchangeWeak(
+                    &results[err_index],
+                    0u,
+                    ERR_INVALID_PROBS);
+            }
+
+            // Update the masks for definite states
+            shot.qubit_is_0_mask = select(
+                shot.qubit_is_0_mask & ~qubit_mask,
+                shot.qubit_is_0_mask | qubit_mask,
+                total_zero == 1.0);
+            shot.qubit_is_1_mask = select(
+                shot.qubit_is_1_mask & ~qubit_mask,
+                shot.qubit_is_1_mask | qubit_mask,
+                total_one == 1.0);
+        }
+    }
+}
+
+fn prep_measure_reset(shot_idx: u32, op_idx: u32, is_loss: bool, stores_result: bool, resets_to_zero: bool) {
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+
+    // Choose measurement result based on qubit probabilities and random number
+    let qubit = shot.q1;
+    let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
+
+    // If this is being called due to loss noise, we don't write the result back to the results buffer
+    // Instead, mark the qubit as lost by setting the heat to -1.0
+    if !is_loss {
+        if stores_result {
+            let result_id = shot.q2; // Result id to store the measurement result in is stored in q2
+
+            // If the qubit is already marked as lost, just report that and exit. It's already in the zero
+            // state so nothing to update or renormalize. The execute op should be a no-op (ID)
+            if shot.qubit_state[qubit].heat == -1.0 {
+                atomicStore(&results[(shot_idx * RESULT_COUNT) + result_id], 2u);
+                shot.op_type = OPID_ID;
+                shot.op_idx = op_idx;
+                // Qubit get reloaded after a Measurement, so set the heat back to 0.0
+                shot.qubit_state[qubit].heat = 0.0;
+                return;
+            } else {
+                atomicStore(&results[(shot_idx * RESULT_COUNT) + result_id], result);
+            }
+        } else {
+            // No result to store (e.g. ResetZ). If the qubit is lost, it's already in the zero
+            // state so nothing to update. Just set to ID and return.
+            if shot.qubit_state[qubit].heat == -1.0 {
+                shot.op_type = OPID_ID;
+                shot.op_idx = op_idx;
+                return;
+            }
+        }
+    } else {
+        shot.qubit_state[qubit].heat = -1.0;
+    }
+
+    // Construct the measurement/reset instrument based on the measured result
+    // Put the instrument into the shot buffer for the execute_op stage to apply
+    if resets_to_zero {
+        // Reset variants (MResetZ, ResetZ):
+        // Result=0: [[1,0],[0,0]] - project onto |0⟩ (already there)
+        // Result=1: [[0,1],[0,0]] - swap |1⟩ into |0⟩ slot (reset)
+        shot.unitary[0] = select(vec2f(1.0, 0.0), vec2f(0.0, 0.0), result == 1u);
+        shot.unitary[1] = select(vec2f(0.0, 0.0), vec2f(1.0, 0.0), result == 1u);
+        shot.unitary[4] = vec2f();
+        shot.unitary[5] = vec2f();
+    } else {
+        // Measure-only (MZ):
+        // Result=0: [[1,0],[0,0]] - project onto |0⟩
+        // Result=1: [[0,0],[0,1]] - project onto |1⟩ (keep in place)
+        shot.unitary[0] = select(vec2f(1.0, 0.0), vec2f(0.0, 0.0), result == 1u);
+        shot.unitary[1] = vec2f();
+        shot.unitary[4] = vec2f();
+        shot.unitary[5] = select(vec2f(0.0, 0.0), vec2f(1.0, 0.0), result == 1u);
+    }
+
+    shot.renormalize = select(
+        1.0 / sqrt(shot.qubit_state[qubit].zero_probability),
+        1.0 / sqrt(shot.qubit_state[qubit].one_probability),
+        result == 1u);
+
+    // We don't want the measurement pass to skip over this qubit, so ensure it's marked as not in a definite state
+    shot.qubit_is_1_mask = shot.qubit_is_1_mask & ~(1u << qubit);
+    shot.qubit_is_0_mask = shot.qubit_is_0_mask & ~(1u << qubit);
+
+    // Set the qubits_updated_last_op_mask to all except those that were already in a definite
+    // state (so we don't waste time updating probabilities that are already known). Note that
+    // next 'prepare_op' should set the just measured qubit into a definite 0 or 1 state.
+    shot.qubits_updated_last_op_mask =
+        // A mask with all qubits set
+        ((1u << u32(QUBIT_COUNT)) - 1u)
+        // Exclude qubits already in definite states
+            & ~(shot.qubit_is_0_mask | shot.qubit_is_1_mask);
+
+    shot.op_idx = op_idx;
+    // Use OPID_MRESETZ as the op_type for all three variants in execute stage
+    // (they all use the same matrix-apply + update_all_qubit_probs path)
+    shot.op_type = OPID_MRESETZ;
+}
+
+// Starting from the given index, return the next index if pauli noise, else 0
+fn get_pauli_noise_idx(op_idx: u32) -> u32 {
+    if (arrayLength(&ops) > (op_idx + 1)) {
+        let op = &ops[op_idx + 1];
+        if (op.id == OPID_PAULI_NOISE_1Q || op.id == OPID_PAULI_NOISE_2Q) {
+            return op_idx + 1u;
+        }
+    }
+    return 0u;
+}
+
+// From the starting index given, return the next index if loss noise, else 0
+fn get_loss_idx(op_idx: u32) -> u32 {
+    if (arrayLength(&ops) > (op_idx + 1)) {
+        let op = &ops[op_idx + 1];
+        if (op.id == OPID_LOSS_NOISE) {
+            return op_idx + 1u;
+        }
+    }
+    return 0u;
+}
+
+fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
+    // NOTE: Assumes that whatever prepared the program ensured that noise_op.q1 matches op.q1 and
+    // that op is a 1-qubit gate
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+    let noise_op = &ops[noise_idx];
+
+    // Apply 1-qubit Pauli noise based on the probabilities in the op data, which are stored in
+    // the real part (x) of the first 4 vec2 entries of the unitary array (ignore [0] which is "I")
+    let p_x = noise_op.unitary[1].x;
+    let p_y = noise_op.unitary[2].x;
+    let p_z = noise_op.unitary[3].x;
+
+    shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
+
+    let rand = shot.rand_pauli;
+    if (rand < p_x) {
+        // Apply the X permutation (basically swap the rows)
+        shot.unitary[0] = op.unitary[4];
+        shot.unitary[1] = op.unitary[5];
+        shot.unitary[4] = op.unitary[0];
+        shot.unitary[5] = op.unitary[1];
+    } else if (rand < (p_x + p_y)) {
+        // Apply the Y permutation (swap rows with negated |0> state)
+        shot.unitary[0] = cplxNeg(op.unitary[4]);
+        shot.unitary[1] = cplxNeg(op.unitary[5]);
+        shot.unitary[4] = op.unitary[0];
+        shot.unitary[5] = op.unitary[1];
+    } else if (rand < (p_x + p_y + p_z)) {
+        // Apply Z error (negate |1> state)
+        shot.unitary[0] = op.unitary[0];
+        shot.unitary[1] = op.unitary[1];
+        shot.unitary[4] = cplxNeg(op.unitary[4]);
+        shot.unitary[5] = cplxNeg(op.unitary[5]);
+    } else {
+        // No noise. Set the op_type back to the op.id value if it's Id, MResetZ, MZ, or ResetZ, as they get handled specially in execute_op
+        if (op.id == OPID_ID || op.id == OPID_MRESETZ || op.id == OPID_MZ || op.id == OPID_RESETZ) {
+            shot.op_type = op.id;
+        }
+        if (is_1q_phase_gate(op.id)) {
+            // For phase gates, treat everything as RZ for execution purposes
+            shot.op_type = OPID_RZ;
+        }
+    }
+
+    shot.op_idx = op_idx;
+    if (shot.op_type == OPID_ID || shot.op_type == OPID_RZ) {
+        shot.qubits_updated_last_op_mask = 0u;
+    } else {
+        shot.qubits_updated_last_op_mask = 1u << op.q1;
+    };
+}
+
+fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+    let noise_op = &ops[noise_idx];
+
+    // Correlated noise is stored in the real parts of the unitary.
+    // unitary[0] = II, unitary[1] = IX, unitary[2] = IY, unitary[3] = IZ
+    // unitary[4] = XI, unitary[5] = XX, unitary[6] = XY, unitary[7] = XZ
+    // unitary[8] = YI, unitary[9] = YX, unitary[10]= YY, unitary[11]= YZ
+    // unitary[12]= ZI, unitary[13]= ZX, unitary[14]= ZY, unitary[15]= ZZ
+
+    var rand = shot.rand_pauli;
+    var q1_pauli = 0;
+    var q2_pauli = 0;
+
+    // Find the paulis to apply based on the random number and the probabilities
+    for (var i = 0; i < 4; i = i + 1) {
+        for (var j = 0; j < 4; j = j + 1) {
+            let p_ij = noise_op.unitary[i * 4 + j].x;
+            if (rand < p_ij) {
+                q1_pauli = i;
+                q2_pauli = j;
+                // Break out of both loops
+                i = 4;
+                j = 4;
+            } else {
+                rand = rand - p_ij;
+            }
+        }
+    }
+
+    // Only apply noise if needed
+    if (q1_pauli != 0 || q2_pauli != 0) {
+        // Get the rows of the 2 qubit unitary
+        var op_row_0 = getOpRow(op_idx, 0);
+        var op_row_1 = getOpRow(op_idx, 1);
+        var op_row_2 = getOpRow(op_idx, 2);
+        var op_row_3 = getOpRow(op_idx, 3);
+
+        // Apply the Paulis to the matrices. Note this is just permuting the rows, and appliction
+        // commutes, so we can apply them in any order. High order bit is q1. Low order bit is q2.
+        //   X on q1 is rows  2<>0 and  3<>1, X on q2 is rows  1<>0 and  3<>2, etc.
+        //   Y on q1 is rows -2<>0 and -3<>1, Y on q2 is rows -1<>0 and -3<>2
+        //   Z on q1 is -2 and -3, Z on q2 is -1 and -3
+
+        // Apply the q1 permutations as needed
+        if (q1_pauli == 1) {
+            // Apply the X permutation
+            let old_row_0 = op_row_0;
+            let old_row_1 = op_row_1;
+            op_row_0 = op_row_2;
+            op_row_1 = op_row_3;
+            op_row_2 = old_row_0;
+            op_row_3 = old_row_1;
+        } else if (q1_pauli == 2) {
+            // Apply the Y permutation
+            let old_row_0 = op_row_0;
+            let old_row_1 = op_row_1;
+            op_row_0 = rowNeg(op_row_2);
+            op_row_1 = rowNeg(op_row_3);
+            op_row_2 = old_row_0;
+            op_row_3 = old_row_1;
+        } else if (q1_pauli == 3) {
+            // Apply Z permutation
+            op_row_2 = rowNeg(op_row_2);
+            op_row_3 = rowNeg(op_row_3);
+        }
+        // Apply the q2 permutations as needed
+        if (q2_pauli == 1) {
+            // Apply the X permutation
+            let old_row_0 = op_row_0;
+            let old_row_2 = op_row_2;
+            op_row_0 = op_row_1;
+            op_row_2 = op_row_3;
+            op_row_1 = old_row_0;
+            op_row_3 = old_row_2;
+        } else if (q2_pauli == 2) {
+            // Apply the Y permutation
+            let old_row_0 = op_row_0;
+            let old_row_2 = op_row_2;
+            op_row_0 = rowNeg(op_row_1);
+            op_row_2 = rowNeg(op_row_3);
+            op_row_1 = old_row_0;
+            op_row_3 = old_row_2;
+        } else if (q2_pauli == 3) {
+            // Apply Z permutation
+            op_row_1 = rowNeg(op_row_1);
+            op_row_3 = rowNeg(op_row_3);
+        }
+        // Write the rows back to the shot buffer unitary
+        setUnitaryRow(shot_idx, 0u, op_row_0);
+        setUnitaryRow(shot_idx, 1u, op_row_1);
+        setUnitaryRow(shot_idx, 2u, op_row_2);
+        setUnitaryRow(shot_idx, 3u, op_row_3);
+        shot.op_type = OPID_SHOT_BUFF_2Q;
+    } else {
+        // No noise to apply. Leave if CX, CY, CZ, or RZZ as they get handled specially in execute_op
+        if (op.id == OPID_CX || op.id == OPID_CY || op.id == OPID_CZ || op.id == OPID_RZZ) {
+            shot.op_type = op.id;
+        } else {
+            shot.op_type = OPID_SHOT_BUFF_2Q;
+        }
+    }
+    shot.op_idx = op_idx;
+    if (shot.op_type == OPID_CZ || shot.op_type == OPID_RZZ) {
+        shot.qubits_updated_last_op_mask = 0u;
+    } else  {
+        shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
+    }
+}
+
+// Get the qubit id at the given index from the correlated noise op's qubit args
+// Qubit args are stored in the unitary matrix elements as f32 values
+fn get_correlated_noise_qubit(op_idx: u32, index: u32) -> u32 {
+    // Qubit ids are stored in the unitary as f32 values, starting at unitary[0].x, unitary[0].y, etc.
+    let vec_idx = index / 2u;
+    let component = index % 2u;
+    if (component == 0u) {
+        return u32(ops[op_idx].unitary[vec_idx].x);
+    } else {
+        return u32(ops[op_idx].unitary[vec_idx].y);
+    }
+}
+
+// Prepare the shot state for executing a correlated noise operation
+fn prep_correlated_noise(shot_idx: u32, op_idx: u32) {
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+
+    // The noise table index is stored in op.q1, and the qubit count is stored in op.q2
+    let noise_table_idx = op.q1;
+    let qubit_count = op.q2;
+    let table = &correlated_noise_tables[noise_table_idx];
+
+    // Generate a Q1.63 random number (two u32 values for lo and hi 32 bits)
+    // Mask off the high bit of rand_hi to ensure the value is in [0, 1) range
+    let rand_lo = next_rand_u32(shot_idx);
+    let rand_hi = next_rand_u32(shot_idx) & 0x7FFFFFFFu;
+
+    // Get the total noise probability from the table metadata
+    let noise_prob_lo = table.noise_probability_lo;
+    let noise_prob_hi = table.noise_probability_hi;
+
+    // Check if noise should be applied at all by comparing the random number against the total noise probability
+    // If rand >= noise_probability, then no noise is applied
+    if (rand_hi > noise_prob_hi || (rand_hi == noise_prob_hi && rand_lo >= noise_prob_lo)) {
+        // No noise to apply - set the op to ID and return
+        shot.op_type = OPID_ID;
+        shot.op_idx = op_idx;
+        shot.qubits_updated_last_op_mask = 0u;
+        return;
+    }
+
+    // Noise should be applied - binary search to find which Pauli string to apply
+    let start = i32(table.start_offset);
+    let count = i32(table.entry_count);
+    let entry_idx = binary_search_noise_table(rand_lo, rand_hi, start, count);
+    let entry = &correlated_noise_entries[start + entry_idx];
+
+    // Extract the Pauli string (2 bits per qubit: bit 0 = X flip, bit 1 = Z flip)
+    let paulis_lo = entry.paulis_lo;
+    let paulis_hi = entry.paulis_hi;
+
+    // Build bit-flip and phase-flip masks based on the Pauli string and qubit arguments
+    // For each qubit in the correlated noise op, check its Pauli type and set the corresponding mask bits
+    var bit_flip_mask: u32 = 0u;
+    var phase_flip_mask: u32 = 0u;
+
+    for (var i: u32 = 0u; i < qubit_count; i++) {
+        // Get the 2-bit Pauli value for this qubit position in the Pauli string
+        // The Rust parsing stores paulis with the rightmost (last) character at the lowest bits,
+        // but we want string position i (leftmost = 0) to map to qubit arg i.
+        // So for position i, we need bits at (qubit_count - 1 - i) * 2.
+        let bit_position = qubit_count - 1u - i;
+        var pauli_bits: u32;
+        if (bit_position < 16u) {
+            pauli_bits = (paulis_lo >> (bit_position * 2u)) & 0x3u;
+        } else {
+            pauli_bits = (paulis_hi >> ((bit_position - 16u) * 2u)) & 0x3u;
+        }
+
+        // Get the actual qubit id from the op's qubit arguments
+        let qubit_id = get_correlated_noise_qubit(op_idx, i);
+        let qubit_mask = 1u << qubit_id;
+
+        // Pauli encoding: 0=I, 1=X, 2=Z, 3=Y (X and Z)
+        let has_bit_flip = (pauli_bits & 0x1u) != 0u;   // X or Y
+        let has_phase_flip = (pauli_bits & 0x2u) != 0u; // Z or Y
+
+        if (has_bit_flip) {
+            bit_flip_mask |= qubit_mask;
+        }
+        if (has_phase_flip) {
+            phase_flip_mask |= qubit_mask;
+        }
+    }
+
+    // Store the masks in the shot buffer for the execute stage
+    // We use the unitary entries to store these masks (reinterpreted as floats)
+    shot.unitary[0] = vec2f(bitcast<f32>(bit_flip_mask), bitcast<f32>(phase_flip_mask));
+
+    // For bit-flipped qubits, we need to swap the 0 and 1 probabilities and masks
+    // This is done in prepare_op, not execute_op, since it's a simple swap
+    for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
+        let qubit_mask = 1u << q;
+        if ((bit_flip_mask & qubit_mask) != 0u) {
+            // Swap the probabilities
+            let temp = shot.qubit_state[q].zero_probability;
+            shot.qubit_state[q].zero_probability = shot.qubit_state[q].one_probability;
+            shot.qubit_state[q].one_probability = temp;
+
+            // Swap the bits in qubit_is_0_mask and qubit_is_1_mask
+            let was_0 = (shot.qubit_is_0_mask & qubit_mask) != 0u;
+            let was_1 = (shot.qubit_is_1_mask & qubit_mask) != 0u;
+            if (was_0) {
+                shot.qubit_is_0_mask &= ~qubit_mask;
+                shot.qubit_is_1_mask |= qubit_mask;
+            } else if (was_1) {
+                shot.qubit_is_1_mask &= ~qubit_mask;
+                shot.qubit_is_0_mask |= qubit_mask;
+            }
+        }
+    }
+
+    // Set up the shot state for the correlated noise execution
+    shot.op_type = OPID_CORRELATED_NOISE;
+    shot.op_idx = op_idx;
+    // No probabilities need to be recomputed in execute_op since we've already swapped them here
+    shot.qubits_updated_last_op_mask = 0u;
+}
+
+struct ShotParams {
+    shot_idx: i32,
+    shot_state_vector_start: i32,
+    workgroup_collation_idx: i32,
+    workgroup_idx_in_shot: i32,
+    thread_idx_in_shot: i32,
+    total_threads_per_shot: i32,
+    zero_entry_count: i32,
+    op_iterations: i32,
+}
+
+fn get_shot_params(
+        workgroupId: u32,
+        tid: u32,
+        op_qubit_count: i32) -> ShotParams {
+    // Workgroups are per shot if 22 or less qubits, else 2 workgroups for 23 qubits, 4 for 24, etc..
+    let shot_idx: i32 = i32(workgroupId) / WORKGROUPS_PER_SHOT;
+    let shot_state_vector_start: i32 = shot_idx * (1 << u32(QUBIT_COUNT));
+    let workgroup_idx_in_shot: i32 = i32(workgroupId) % WORKGROUPS_PER_SHOT;
+    let thread_idx_in_shot: i32 = workgroup_idx_in_shot * THREADS_PER_WORKGROUP + i32(tid);
+    let total_threads_per_shot: i32 = WORKGROUPS_PER_SHOT * THREADS_PER_WORKGROUP;
+
+    // If using multiple workgroups per shot, each workgroup will write its partial sums to the collation
+    // buffer for later summing by the prepare_op stage. If single workgroup per shot, no collation needed.
+    // Use -1 as a marker for single workgroup per shot case (in which case we should write directly to the shot).
+    let workgroup_collation_idx: i32 = select(-1, i32(workgroupId), WORKGROUPS_PER_SHOT > 1);
+
+    let zero_entry_count: i32 = (1 << u32(QUBIT_COUNT)) >> u32(op_qubit_count);
+    let op_iterations: i32 = zero_entry_count / total_threads_per_shot;
+
+    return ShotParams(
+        shot_idx,
+        shot_state_vector_start,
+        workgroup_collation_idx,
+        workgroup_idx_in_shot,
+        thread_idx_in_shot,
+        total_threads_per_shot,
+        zero_entry_count,
+        op_iterations
+    );
+}
+
+fn apply_1q_op(workgroupId: u32, tid: u32) {
+    let params = get_shot_params(workgroupId, tid, 1 /* qubits per op */);
+    let shot = &shots[params.shot_idx];
+    let op = &ops[shot.op_idx];
+    let q1 = shot.q1;
+    let scale = shot.renormalize;
+    let lowMask = (1 << q1) - 1;
+    let highMask = (1 << u32(QUBIT_COUNT)) - 1 - lowMask;
+    let qubit_is_0_mask = i32(shots[params.shot_idx].qubit_is_0_mask);
+    let qubit_is_1_mask = i32(shots[params.shot_idx].qubit_is_1_mask);
+
+    var summed_probs: vec4f = vec4f();
+
+    /* This loop is where all the real work happens. Try to keep this tight and efficient.
+
+    We want a 'structure of arrays' like access pattern here for efficiency, so we process the state vector
+    in blocks where each thread in the workgroup(s) handle an adjacent entry to be processed.
+
+    Each thread should start at the state vector shot start + 'thread_idx_in_shot', which is sequential across the workgroup threads
+    Each next entry for the thread is WORKGROUPS_PER_SHOT * THREADS_PER_WORKGROUP away.
+    */
+    var entry_index = params.thread_idx_in_shot;
+
+    for (var i = 0; i < params.op_iterations; i++) {
+        let offset0: i32 = (entry_index & lowMask) | ((entry_index & highMask) << 1);
+        let offset1: i32 = offset0 | (1 << q1);
+
+        // See if we can skip doing any work for this pair, because the state vector entries to processes
+        // are both definitely 0.0, as we know they are for states where other qubits are in definite opposite state.
+        let skip_processing = ((offset0 & qubit_is_0_mask) != 0) || ((~offset1 & qubit_is_1_mask) != 0);
+
+        if (!skip_processing) {
+            if shot.op_type == OPID_RZ {
+                // For RZ, we can skip reading/writing the |0> amplitude, as it is unchanged.
+                // Just apply the phase to the |1> amplitude. Probabilities also don't change.
+                let amp1: vec2f = stateVector[params.shot_state_vector_start + offset1];
+                let new1 = cplxMul(amp1, shot.unitary[5]);
+                stateVector[params.shot_state_vector_start + offset1] = new1;
+            } else {
+                let amp0: vec2f = stateVector[params.shot_state_vector_start + offset0];
+                let amp1: vec2f = stateVector[params.shot_state_vector_start + offset1];
+
+                let new0 = scale * (cplxMul(amp0, shot.unitary[0]) + cplxMul(amp1, shot.unitary[1]));
+                let new1 = scale * (cplxMul(amp0, shot.unitary[4]) + cplxMul(amp1, shot.unitary[5]));
+
+                stateVector[params.shot_state_vector_start + offset0] = new0;
+                stateVector[params.shot_state_vector_start + offset1] = new1;
+
+                if shot.op_type == OPID_MRESETZ || scale != 1.0 {
+                    // For MResetZ or renormalization, we need to update the probabilities for all qubits
+                    update_all_qubit_probs(u32(offset0), new0, tid);
+                    update_all_qubit_probs(u32(offset1), new1, tid);
+                } else {
+                    summed_probs[0] += cplxMag2(new0);
+                    summed_probs[1] += cplxMag2(new1);
+                }
+            }
+        }
+        entry_index += params.total_threads_per_shot;
+    }
+
+    if scale == 1.0 && shot.op_type != OPID_RZ && shot.op_type != OPID_MRESETZ {
+        // Update this thread's totals for the two qubits in the workgroup storage
+        qubitProbabilities[tid].zero[q1] = summed_probs[0];
+        qubitProbabilities[tid].one[q1]  = summed_probs[1];
+    }
+}
+
+fn apply_2q_op(workgroupId: u32, tid: u32) {
+    let params = get_shot_params(workgroupId, tid, 2 /* qubits per op */);
+    let shot = &shots[params.shot_idx];
+    let op = &ops[shot.op_idx];
+    let q1 = shot.q1;
+    let q2 = shot.q2;
+
+    let update_probs = shot.op_type != OPID_CZ && shot.op_type != OPID_RZZ;
+
+    // Sometimes a 2-qubit op may be converted to a no-op (ID) due to qubit loss etc., so skip processing in that case
+    // Calculate masks to split the index into low, mid, and high bits around the two qubits
+    let lowQubit = select(q1, q2, q1 > q2);
+    let hiQubit = select(q1, q2, q1 < q2);
+
+    // Number of bits in each section
+    let lowBitCount = lowQubit;
+    let midBitCount = hiQubit - lowQubit - 1;
+    let hiBitCount = u32(QUBIT_COUNT) - hiQubit - 1;
+
+    // The masks below help extract the low, mid, and high bits from the counter to use around the two qubits locations
+    let lowMask = (1 << lowBitCount) - 1;
+    let midMask = (1 << (lowBitCount + midBitCount)) - 1 - lowMask;
+    let hiMask = (1 << u32(QUBIT_COUNT)) - 1 - midMask - lowMask;
+
+    // Each iteration processes 4 amplitudes (the four affected by the 2-qubit gate), so quarter as many iterations as chunk size
+    var entry_index = params.thread_idx_in_shot;
+    var summed_probs: vec4f = vec4f();
+
+    for (var i = 0; i < params.op_iterations; i++) {
+        // q1 is the control, q2 is the target
+        let offset00: i32 = (entry_index & lowMask) | ((entry_index & midMask) << 1) | ((entry_index & hiMask) << 2);
+        let offset01: i32 = offset00 | (1 << q2);
+        let offset10: i32 = offset00 | (1 << q1);
+        let offset11: i32 = offset10 | (1 << q2);
+
+        let can_skip_processing =
+            (((u32(offset00) & shot.qubit_is_0_mask) != 0) ||
+            ((~(u32(offset11)) & shot.qubit_is_1_mask) != 0));
+        if !can_skip_processing {
+            switch shot.op_type {
+            case OPID_CZ {
+                let amp11: vec2f = stateVector[params.shot_state_vector_start + offset11];
+                stateVector[params.shot_state_vector_start + offset11] = cplxNeg(amp11);
+                // CZ doesn't change any probabilities, so no need to update summed_probs
+            }
+            case OPID_RZZ {
+                // Firt and last entries are unchanged, only need to update the middle two
+                let amp01: vec2f = stateVector[params.shot_state_vector_start + offset01];
+                let amp10: vec2f = stateVector[params.shot_state_vector_start + offset10];
+                // Unitary matrix second entry in the second row is 5, third entry in the third row is 10
+                stateVector[params.shot_state_vector_start + offset01] = cplxMul(amp01, shot.unitary[5]);
+                stateVector[params.shot_state_vector_start + offset10] = cplxMul(amp10, shot.unitary[10]);
+            }
+            case OPID_CX {
+                // Need to read all 4 to update the probabilities correctly, but only swap the |10> and |11> entries
+                let amp00: vec2f = stateVector[params.shot_state_vector_start + offset00];
+                let amp01: vec2f = stateVector[params.shot_state_vector_start + offset01];
+                let amp10: vec2f = stateVector[params.shot_state_vector_start + offset10];
+                let amp11: vec2f = stateVector[params.shot_state_vector_start + offset11];
+                stateVector[params.shot_state_vector_start + offset10] = amp11;
+                stateVector[params.shot_state_vector_start + offset11] = amp10;
+                summed_probs[0] += (cplxMag2(amp00) + cplxMag2(amp01));
+                summed_probs[1] += (cplxMag2(amp11) + cplxMag2(amp10));
+                summed_probs[2] += (cplxMag2(amp00) + cplxMag2(amp11));
+                summed_probs[3] += (cplxMag2(amp01) + cplxMag2(amp10));
+            }
+            case OPID_CY {
+                // Like CX, but swap |10> and |11> with +/- i phases.
+                let amp00: vec2f = stateVector[params.shot_state_vector_start + offset00];
+                let amp01: vec2f = stateVector[params.shot_state_vector_start + offset01];
+                let amp10: vec2f = stateVector[params.shot_state_vector_start + offset10];
+                let amp11: vec2f = stateVector[params.shot_state_vector_start + offset11];
+                stateVector[params.shot_state_vector_start + offset10] = vec2f(amp11.y, -amp11.x); // -i * |11>
+                stateVector[params.shot_state_vector_start + offset11] = vec2f(-amp10.y, amp10.x); // i * |10>
+                summed_probs[0] += (cplxMag2(amp00) + cplxMag2(amp01));
+                summed_probs[1] += (cplxMag2(amp11) + cplxMag2(amp10));
+                summed_probs[2] += (cplxMag2(amp00) + cplxMag2(amp11));
+                summed_probs[3] += (cplxMag2(amp01) + cplxMag2(amp10));
+            }
+            default {
+                // Assume OPID_SHOT_BUFF_2Q
+                // Get the state vector entries
+                let states = array<vec2f,4>(
+                    stateVector[params.shot_state_vector_start + offset00],
+                    stateVector[params.shot_state_vector_start + offset01],
+                    stateVector[params.shot_state_vector_start + offset10],
+                    stateVector[params.shot_state_vector_start + offset11]
+                );
+                // Apply the unitary from the shot buffer
+                let result00 = innerProduct(getUnitaryRow(params.shot_idx, 0), states);
+                let result01 = innerProduct(getUnitaryRow(params.shot_idx, 1), states);
+                let result10 = innerProduct(getUnitaryRow(params.shot_idx, 2), states);
+                let result11 = innerProduct(getUnitaryRow(params.shot_idx, 3), states);
+                // Write back the results
+                stateVector[params.shot_state_vector_start + offset00] = result00;
+                stateVector[params.shot_state_vector_start + offset01] = result01;
+                stateVector[params.shot_state_vector_start + offset10] = result10;
+                stateVector[params.shot_state_vector_start + offset11] = result11;
+                // Update the probabilities for the acted on qubits
+                summed_probs[0] += (cplxMag2(result00) + cplxMag2(result01));
+                summed_probs[1] += (cplxMag2(result10) + cplxMag2(result11));
+                summed_probs[2] += (cplxMag2(result00) + cplxMag2(result10));
+                summed_probs[3] += (cplxMag2(result01) + cplxMag2(result11));
+            }
+            }
+        }
+
+        entry_index += params.total_threads_per_shot;
+    }
+
+    // Update this thread's totals for the two qubits in the workgroup storage
+    if (update_probs) {
+        // Update all for other 2-qubit gates
+        qubitProbabilities[tid].zero[q1] = summed_probs[0];
+        qubitProbabilities[tid].one[q1]  = summed_probs[1];
+        qubitProbabilities[tid].zero[q2] = summed_probs[2];
+        qubitProbabilities[tid].one[q2]  = summed_probs[3];
+    }
+}
+
+fn apply_correlated_noise(workgroupId: u32, tid: u32) {
+    let params = get_shot_params(workgroupId, tid, 0 /* need to walk all entries */);
+    // Probabilities are already updated in the prepare_op stage
+    // Here we just need to apply the bit-flips and phase-flips to the state vector amplitudes
+
+    let shot = &shots[params.shot_idx];
+
+    // Get the bit-flip and phase-flip masks from the shot buffer (stored by prep_correlated_noise)
+    let bit_flip_mask = bitcast<u32>(shot.unitary[0].x);
+    let phase_flip_mask = bitcast<u32>(shot.unitary[0].y);
+
+    // If no flips to apply, early exit
+    if (bit_flip_mask == 0u && phase_flip_mask == 0u) {
+        return;
+    }
+
+    var entry_index = params.thread_idx_in_shot;
+
+    for (var i = 0; i < params.op_iterations; i++) {
+        // Get the target index to swap the state with by flipping the bits as indicated in the bit_flip_mask
+        let target_index = entry_index ^ i32(bit_flip_mask);
+
+        // If there are an odd number of phase flips for the entry, we need to negate the amplitude
+        let negate_index: f32 = select(1.0, -1.0, (countOneBits(entry_index & i32(phase_flip_mask)) & 1) != 0);
+
+        if (bit_flip_mask == 0u && negate_index == -1.0) {
+            // No bit flips to perform, but need to negate this entry (phase flip only)
+            stateVector[params.shot_state_vector_start + entry_index] = cplxNeg(stateVector[params.shot_state_vector_start + entry_index]);
+        } else if (entry_index < target_index) {
+            // Bit flips are happening (as the indices are different), but to avoid double swapping only handle the swap
+            // when entry_index < target_index (avoid reprocessing when later we encounter the target_index entry as the entry_index)
+
+            let amp_entry: vec2f = stateVector[params.shot_state_vector_start + entry_index];
+            let amp_target: vec2f = stateVector[params.shot_state_vector_start + target_index];
+
+            // If there are an odd number of phase flips for the target, we need to negate that amplitude too
+            let negate_target: f32 = select(1.0, -1.0, (countOneBits(target_index & i32(phase_flip_mask)) & 1) != 0);
+
+            // Swap and apply any negations for phase flips.
+            // Note this only applies -1 & 1 to the phase, not -i and i as the 'canonical' Y gate does.
+            // However, this is sufficient for simulating noise, as the global phase doesn't matter.
+            stateVector[params.shot_state_vector_start + entry_index] = cplxMul(amp_target, vec2f(negate_index, 0.0));
+            stateVector[params.shot_state_vector_start + target_index] = cplxMul(amp_entry, vec2f(negate_target, 0.0));
+        }
+
+        // Jump ahead to the next entry to process
+        entry_index += params.total_threads_per_shot;
+    }
+}
+
+// For the state vector index and amplitude probability, update all the qubit probabilities for this thread
+fn update_all_qubit_probs(stateVectorIndex: u32, amplitude: vec2f, tid: u32) {
+    var mask: u32 = 1u;
+    for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
+        let is_one: bool = (stateVectorIndex & mask) != 0u;
+        let prob: f32 = cplxMag2(amplitude);
+        if (is_one) {
+            qubitProbabilities[tid].one[q] += prob;
+        } else {
+            qubitProbabilities[tid].zero[q] += prob;
+        }
+        mask = mask << 1u;
+    }
+}
+
+fn sum_thread_totals_to_shot(q: u32, shot_idx: i32, wkg_collation_idx: i32) {
+    var total_zero: f32 = 0.0;
+    var total_one: f32 = 0.0;
+    for (var j = 0; j < THREADS_PER_WORKGROUP; j++) {
+        total_zero += qubitProbabilities[j].zero[q];
+        total_one += qubitProbabilities[j].one[q];
+    }
+    if (wkg_collation_idx >= 0) {
+        // Write to the workgroup collation buffer for later summation into the shot state
+        workgroup_collation.sums[wkg_collation_idx].qubits[q] = vec2f(total_zero, total_one);
+    } else {
+        // Single workgroup per shot case - write directly to the shot state
+        let within_threshold = abs(1.0 - (total_zero + total_one)) < PROB_THRESHOLD;
+        if !within_threshold {
+            // Populate the diagnostics buffer, if not already set
+            let old_value = atomicCompareExchangeWeak(
+                &diagnostics.error_code,
+                0u,
+                ERR_INVALID_THREAD_TOTAL);
+            if old_value.exchanged {
+                // This is the first error - fill in the details
+                let shot = &shots[shot_idx];
+                diagnostics.extra1 = q;
+                diagnostics.extra2 = total_zero;
+                diagnostics.extra3 = total_one;
+                // DX12 backend has issues copying structs. See https://github.com/gfx-rs/wgpu/issues/8552
+                // DX12-start-strip
+                diagnostics.shot = *shot;
+                diagnostics.op = ops[shot.op_idx];
+                // DX12-end-strip
+            }
+            let err_index = (shot_idx + 1) * i32(RESULT_COUNT) - 1;
+            atomicCompareExchangeWeak(
+                    &results[err_index],
+                    0u,
+                    ERR_INVALID_THREAD_TOTAL);
+        } else {
+            shots[shot_idx].qubit_state[q].zero_probability = total_zero;
+            shots[shot_idx].qubit_state[q].one_probability = total_one;
+        }
+    }
+}
+
+// Complex number utilities
+
+// Get the magnitude squared of a complex number
+fn cplxMag2(a: vec2f) -> f32 {
+    return (a.x * a.x + a.y * a.y);
+}
+
+// Complex multiplication
+fn cplxMul(a: vec2f, b: vec2f) -> vec2f {
+    return vec2f(
+        a.x * b.x - a.y * b.y,
+        a.x * b.y + a.y * b.x
+    );
+}
+
+// Complex negation
+fn cplxNeg(a: vec2f) -> vec2f {
+    return vec2f(-a.x, -a.y);
+}
+
+// Negate all elements in a 4-element row of complex numbers
+fn rowNeg(a: array<vec2f, 4>) -> array<vec2f, 4> {
+    return array<vec2f, 4>(
+        cplxNeg(a[0]),
+        cplxNeg(a[1]),
+        cplxNeg(a[2]),
+        cplxNeg(a[3]));
+}
+
+// Compute the inner product of two 4-element rows of complex numbers
+fn innerProduct(a: array<vec2f, 4>, b: array<vec2f, 4>) -> vec2f {
+    var result: vec2f = vec2f(0.0, 0.0);
+    for (var i: u32 = 0u; i < 4u; i++) {
+        result += cplxMul(a[i], b[i]);
+    }
+    return result;
+}
+
+fn getOpRow(op_idx: u32, row: u32) -> array<vec2f, 4> {
+    let op = &ops[op_idx];
+    return array<vec2f, 4>(
+        op.unitary[row * 4 + 0],
+        op.unitary[row * 4 + 1],
+        op.unitary[row * 4 + 2],
+        op.unitary[row * 4 + 3]);
+}
+
+fn getUnitaryRow(shot_idx: i32, row: u32) -> array<vec2f, 4> {
+    let shot = &shots[shot_idx];
+    return array<vec2f, 4>(
+        shot.unitary[row * 4 + 0],
+        shot.unitary[row * 4 + 1],
+        shot.unitary[row * 4 + 2],
+        shot.unitary[row * 4 + 3]);
+}
+
+fn setUnitaryRow(shot_idx: u32, row: u32, newRow: array<vec2f, 4>) {
+    let shot = &shots[shot_idx];
+    shot.unitary[row * 4 + 0] = newRow[0];
+    shot.unitary[row * 4 + 1] = newRow[1];
+    shot.unitary[row * 4 + 2] = newRow[2];
+    shot.unitary[row * 4 + 3] = newRow[3];
+}
+
+// Performas a binary search on a correlated noise probability table
+//
+// Preconditions:
+// - table is sorted ascending, with every entry higher than the prior
+// - table entries are cumulative probabilities totaling <= 1.0
+// - 'start' is the offset into the buffer array where this table's entries begin
+// - 'count' is the number of entries in this table
+// - 'rand_lo' and 'rand_hi' form a Q1.63 format random number in [0.0, 1.0) to use for the search
+// - This will only called if a result should be found, i.e.,
+//   - count > 0
+//   - rand < table[start + count - 1].probability
+//
+// Returns the index of the found entry relative to 'start', which is the smallest index where "rand < table[start + index].probability"
+fn binary_search_noise_table(rand_lo: u32, rand_hi: u32, start: i32, count: i32) -> i32 {
+    var low: i32 = 0;
+    var high: i32 = count;
+
+    while (low < high) {
+        let mid: i32 = low + (high - low) / 2;
+
+        let p_lo = correlated_noise_entries[start + mid].probability_lo;
+        let p_hi = correlated_noise_entries[start + mid].probability_hi;
+
+        if (rand_hi < p_hi || (rand_hi == p_hi && rand_lo < p_lo)) {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+    return low;
+}
+
+// Hash and random number generation functions
+
+// See https://www.reedbeta.com/blog/hash-functions-for-gpu-rendering/
+// Use PCG hash function to generate a well-distributed hash from a simple integer input (e.g., shot id)
+fn hash_pcg(input: u32) -> u32 {
+    var state = input * 747796405u + 2891336453u;
+    var word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+// Returns a random u32 value based on the xorwow algorithm
+fn next_rand_u32(shot_idx: u32) -> u32 {
+    // Based on https://en.wikipedia.org/wiki/Xorshift
+    let rng_state = &shots[shot_idx].rng_state;
+
+    var t: u32 = rng_state.x[4];
+    let s: u32 = rng_state.x[0];
+    rng_state.x[4] = rng_state.x[3];
+    rng_state.x[3] = rng_state.x[2];
+    rng_state.x[2] = rng_state.x[1];
+    rng_state.x[1] = s;
+
+    t = t ^ (t >> 2u);
+    t = t ^ (t << 1u);
+    t = t ^ s ^ (s << 4u);
+    rng_state.x[0] = t;
+    rng_state.counter = rng_state.counter + 362437u;
+    return t + rng_state.counter;
+}
+
+fn next_rand_f32(shot_idx: u32) -> f32 {
+    let rand_u32: u32 = next_rand_u32(shot_idx);
+
+    // Convert the 32 random bits to a float in the [0.0, 1.0) range
+
+    // Keep only the lower 23 bits (the fraction portion of a float) with a 0 exponent biased to 127
+    let rand_f32_bits = (rand_u32 & 0x7FFFFF) | (127 << 23);
+    // Bitcast to an f32 in the [1.0, 2.0) range
+    let f: f32 = bitcast<f32>(rand_f32_bits);
+    // And decrement by 1 to return values from [0..1)
+    return f - 1.0;
+}
+
+@compute @workgroup_size(THREADS_PER_WORKGROUP)
+fn initialize(
+        @builtin(workgroup_id) workgroupId: vec3<u32>,
+        @builtin(local_invocation_index) tid: u32) {
+    // Get the params
+    let params = get_shot_params(workgroupId.x, tid, 0 /* qubits per op */);
+
+    // We want every thread to zero out its portion of the state vector for the shot
+    // We also want threads executing in lockstep to update adjacent entries for better memory access patterns
+    for (var i = 0; i < params.op_iterations; i++) {
+        let entry_index: i32 = params.thread_idx_in_shot + i * params.total_threads_per_shot;
+        stateVector[params.shot_state_vector_start + entry_index] = vec2f(0.0, 0.0);
+    }
+
+    // NOTE: No need to synchronize here, as each thread is writing to unique locations
+    if (params.thread_idx_in_shot == 0) {
+        // Set the |0...0> amplitude to 1.0 from the first workgroup & thread for the shot
+        stateVector[params.shot_state_vector_start] = vec2f(1.0, 0.0);
+        reset_all(params.shot_idx);
+    }
+}
+
+
+// -----------------------------------------------------------------------------
+// Adaptive interpreter — interpret_classical entry point
+// -----------------------------------------------------------------------------
+//
+// This is the main classical bytecode interpreter for the GPU-based adaptive
+// quantum simulator. It implements a register-based virtual machine that
+// executes classical (non-quantum) instructions on the GPU, one thread per
+// shot. Each shot has its own independent interpreter state (program counter,
+// registers, call stack) allowing many shots to run in parallel with
+// potentially divergent control flow paths (e.g., after mid-circuit
+// measurements).
+//
+// ## Execution Model
+//
+// The interpreter runs cooperatively with the quantum simulation pipeline:
+//
+//   1. The host dispatches `interpret_classical` for all shots.
+//   2. Each shot executes classical instructions in a loop until one of:
+//      (a) A quantum operation is encountered → status = QUANTUM_PENDING,
+//          which tells the host to run the quantum simulation kernels
+//          (prepare_adaptive_op → execute) before re-entering this function.
+//      (b) A `ret` instruction terminates the shot → status = TERMINATED.
+//      (c) The step limit (MAX_CLASSICAL_STEPS) is hit → status = YIELD,
+//          which prevents any single dispatch from running forever; the host
+//          simply re-dispatches to continue.
+//      (d) An unknown opcode is hit → status = ERROR.
+//
+// ## Instruction Encoding
+//
+// Each instruction occupies 2 × vec4<u32> (8 u32 words) in the `bytecode`
+// buffer, fetched by `fetch_instr(pc)` into the `Instr` struct with fields:
+//
+//   opcode : packed opcode word (bits [7:0] = primary op, [15:8] = sub-
+//            condition for comparisons, [23:16] = flags for immediates)
+//   dst    : destination register index (or immediate for RET)
+//   src0   : first source operand (register index or immediate)
+//   src1   : second source operand (register index or immediate)
+//   aux0–3 : auxiliary fields whose meaning varies per opcode (e.g., block
+//            IDs, function IDs, qubit indices, phi-table offsets, etc.)
+//
+// The `resolve_u32` / `resolve_i32` helpers read an operand as either a
+// register value or an inline immediate based on the FLAG_SRC0_IMM /
+// FLAG_SRC1_IMM bits in the flags byte. This lets the compiler embed small
+// constants directly in the instruction stream without extra CONST ops.
+//
+// ## Per-Shot State Layout (`interpreter_state` buffer)
+//
+// Each shot occupies INTERP_STATE_STRIDE (48) u32 slots at offset
+// `shot_idx * INTERP_STATE_STRIDE`. Key fields:
+//   [0] PC              — current instruction index, a.k.a. program counter
+//                         (absolute into bytecode)
+//   [1] BLOCK           — current basic block ID (for jump targets)
+//   [2] PREV_BLOCK      — previous block ID (needed for PHI resolution)
+//   [3] STATUS          — one of RUNNING / QUANTUM_PENDING / TERMINATED /
+//                         ERROR / YIELD
+//   [4] PENDING_OP_IDX  — quantum op index when pausing for quantum work
+//   [5] PENDING_OP_TYPE — 0=gate, 1=measure, 2=reset
+//   [6] PENDING_Q1      — resolved qubit 1 for the pending quantum op
+//   [7] PENDING_Q2      — resolved qubit 2 (or DYN_QUBIT_SENTINEL if unused)
+//   [8] EXIT_CODE       — exit code stored by RET
+//   [9] CALL_SP         — call stack pointer (0–7 frames deep)
+//   [10..41] CALL_STACK — 8 call frames × 4 u32 each (return_block,
+//                         return_pc, return_reg, reserved)
+
+@compute @workgroup_size(1)
+fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
+    // Each GPU thread handles exactly one shot. The global invocation ID
+    // maps directly to the shot index.
+    let shot_idx = gid.x;
+
+    // Compute the base offset into the interpreter_state buffer for this
+    // shot. All per-shot fields are accessed as interpreter_state[state_base + FIELD_OFFSET].
+    let state_base = shot_idx * INTERP_STATE_STRIDE;
+
+    // -- Early-exit for shots that already finished or errored --
+    let status = interpreter_state[state_base + INTERP_STATUS];
+    if status == STATUS_TERMINATED || status == STATUS_ERROR {
+        return;
+    }
+
+    // If we were paused (QUANTUM_PENDING after a quantum op, or YIELD after
+    // hitting the step limit), transition back to RUNNING so the main loop
+    // resumes executing instructions from where it left off.
+    if status != STATUS_RUNNING {
+        interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+    }
+
+    // -- Load interpreter registers from GPU memory into local variables --
+    // Using local vars for the hot-path state avoids repeated global memory
+    // loads/stores on every instruction. They are written back at the end.
+    var pc: u32 = interpreter_state[state_base + INTERP_PC];          // program counter
+    var block_id: u32 = interpreter_state[state_base + INTERP_BLOCK]; // current basic block
+    var prev_block: u32 = interpreter_state[state_base + INTERP_PREV_BLOCK]; // previous block (for PHI)
+    var steps: u32 = 0u;            // counts instructions executed this dispatch
+    var should_break: bool = false;  // set to true to exit the main loop
+
+    // -- Main interpreter loop --
+    // Fetches and executes one instruction per iteration. Exits when the
+    // shot terminates, yields for quantum work, hits the step limit, or
+    // encounters an error.
+    loop {
+        // Guard against infinite loops in classical code: after executing
+        // MAX_CLASSICAL_STEPS instructions, yield back to the host which
+        // will re-dispatch this kernel to continue.
+        if steps >= MAX_CLASSICAL_STEPS {
+            // Only yield if the shot hasn't already errored (an error
+            // status must not be overwritten by a yield).
+            if interpreter_state[state_base + INTERP_STATUS] != STATUS_ERROR {
+                interpreter_state[state_base + INTERP_STATUS] = STATUS_YIELD;
+            }
+            break;
+        }
+
+        // Fetch the instruction at the current PC. Each instruction is
+        // 2 × vec4<u32> (8 words) in the bytecode buffer.
+        let instr = fetch_instr(pc);
+
+        // Unpack the opcode word into its three components:
+        //   op      — primary opcode (bits 7:0), determines which case below runs
+        //   subcond — sub-condition code (bits 15:8), used only by ICMP/FCMP to
+        //             select the specific comparison predicate (eq, ne, slt, etc.)
+        //   flags   — immediate-mode flags (bits 23:16), tells resolve_* whether
+        //             src0/src1 are register indices or inline immediates
+        let op = get_opcode(instr.opcode);
+        let subcond = get_subcond(instr.opcode);
+        let flags = get_flags(instr.opcode);
+
+        // -- Opcode dispatch --
+        // The switch below implements every bytecode instruction. Instructions
+        // are grouped by category. Most follow a common pattern:
+        //   1. Read operands via resolve_u32/i32 (register or immediate)
+        //   2. Compute the result
+        //   3. Write back to the destination register via write_reg*
+        //   4. Advance pc++
+        //
+        // Control-flow ops (JUMP, BRANCH, SWITCH, CALL) modify pc and
+        // block_id directly instead of incrementing pc.
+        //
+        // Quantum ops (QUANTUM_GATE, MEASURE, RESET) write pending-op
+        // metadata to the interpreter state and set should_break=true to
+        // pause execution and hand control back to the host for quantum
+        // kernel dispatch.
+        switch op {
+
+            // -------------------------------------------------------------
+            // CONTROL FLOW
+            // -------------------------------------------------------------
+
+            // NOP: No operation. Simply advances the program counter.
+            case OP_NOP {
+                pc++;
+            }
+
+            // RET: Terminates this shot's execution.
+            // The exit code (from dst, which may be an immediate) is stored
+            // both in the per-shot interpreter state and atomically into the
+            // results buffer. The atomic-compare-exchange ensures only the
+            // first non-zero exit code is recorded for this shot (useful for
+            // error reporting). The termination_counter is incremented so the
+            // host can detect when all shots have finished.
+            case OP_RET {
+                let exit_code = resolve_u32(shot_idx, instr.dst, flags, 0u);
+                interpreter_state[state_base + INTERP_EXIT_CODE] = exit_code;
+                // Atomically store exit code into the last slot of this shot's
+                // result region, but only if it has not already been set.
+                let err_index = (shot_idx + 1) * RESULT_COUNT - 1;
+                atomicCompareExchangeWeak(&results[err_index], 0u, exit_code);
+                interpreter_state[state_base + INTERP_STATUS] = STATUS_TERMINATED;
+                atomicAdd(&termination_counter, 1u);
+                should_break = true;
+            }
+
+            // JUMP: Unconditional branch to a target block.
+            // Encoding: dst = target block ID.
+            // Updates prev_block (needed by subsequent PHI instructions in
+            // the target block) and sets pc to the first instruction of the
+            // target block via the block_table lookup.
+            case OP_JUMP {
+                prev_block = block_id;
+                block_id = instr.dst;
+                pc = block_table[instr.dst].x;  // .x = instruction_offset
+            }
+
+            // BRANCH: Conditional branch (if/else).
+            // Encoding: src0 = condition (register or immediate),
+            //           aux0 = true-branch block ID,
+            //           aux1 = false-branch block ID.
+            // Evaluates the condition: if non-zero, jumps to aux0; otherwise
+            // jumps to aux1. Like JUMP, updates prev_block for PHI nodes.
+            case OP_BRANCH {
+                let cond = resolve_u32(shot_idx, instr.src0, flags, 0u) != 0u;
+                prev_block = block_id;
+                if cond {
+                    block_id = instr.aux0;
+                    pc = block_table[instr.aux0].x;
+                } else {
+                    block_id = instr.aux1;
+                    pc = block_table[instr.aux1].x;
+                }
+            }
+
+            // SWITCH: Multi-way branch (like a C switch statement).
+            // Encoding: src0 = value to match,
+            //           aux0 = default block ID,
+            //           aux1 = offset into switch_table,
+            //           aux2 = number of case entries.
+            // Each switch_table entry is a vec2<u32>(match_value, target_block).
+            // Linearly scans the case table; if a match is found, jumps to
+            // that block. If no match, falls through to the default block.
+            case OP_SWITCH {
+                let val = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                let default_block = instr.aux0;
+                let case_offset = instr.aux1;
+                let case_count = instr.aux2;
+                var target_block = default_block;
+                for (var i = 0u; i < case_count; i++) {
+                    let entry = switch_table[case_offset + i];
+                    if entry.x == val {
+                        target_block = entry.y;
+                        break;
+                    }
+                }
+                prev_block = block_id;
+                block_id = target_block;
+                pc = block_table[target_block].x;
+            }
+
+            // CALL: Invokes a function.
+            // Encoding: dst = register to receive the return value,
+            //           aux0 = function ID (index into function_table),
+            //           aux1 = argument count,
+            //           aux2 = offset into call_arg_table.
+            //
+            // The function_table entry is vec4(entry_block, param_count,
+            // param_base_reg, reserved).
+            //
+            // Steps:
+            //   1. Push a return frame onto the per-shot call stack. Each
+            //      frame stores: (return_block, return_pc, return_reg,
+            //      reserved) — 4 u32 words. The stack supports up to 8 frames.
+            //   2. Copy each argument from caller registers (looked up via
+            //      call_arg_table) into callee parameter registers starting
+            //      at param_base_reg.
+            //   3. Jump to the function's entry block.
+            case OP_CALL {
+                let func_id = instr.aux0;
+                let arg_count = instr.aux1;
+                let arg_offset = instr.aux2;
+                let func = function_table[func_id];
+                // Push return info onto the call stack
+                let sp = interpreter_state[state_base + INTERP_CALL_SP];
+                // Guard: prevent call stack overflow (max 8 frames)
+                if sp >= 8u {
+                    interpreter_state[state_base + INTERP_EXIT_CODE] = ERR_CALL_STACK_OVERFLOW;
+                    let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
+                    atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_CALL_STACK_OVERFLOW);
+                    interpreter_state[state_base + INTERP_STATUS] = STATUS_ERROR;
+                    atomicAdd(&termination_counter, 1u);
+                    should_break = true;
+                    break;
+                }
+                let frame_base = state_base + INTERP_CALL_STACK + sp * 4u;
+                interpreter_state[frame_base + 0u] = block_id;      // return_block — resume here on return
+                interpreter_state[frame_base + 1u] = pc + 1u;       // return_pc — instruction after the CALL
+                interpreter_state[frame_base + 2u] = instr.dst;     // return_reg — where to write result
+                interpreter_state[frame_base + 3u] = 0u;            // reserved
+                interpreter_state[state_base + INTERP_CALL_SP] = sp + 1u;
+                // Copy caller arguments into the callee's parameter registers
+                let param_base = func.z;  // param_base_reg in function_table
+                for (var i = 0u; i < arg_count; i++) {
+                    let arg_reg = call_arg_table[arg_offset + i];
+                    write_reg(shot_idx, param_base + i, read_reg(shot_idx, arg_reg));
+                }
+                // Transfer control to the function entry block
+                block_id = func.x;  // entry_block in function_table
+                pc = block_table[func.x].x;
+            }
+
+            // CALL_RETURN: Returns from a function call.
+            // Encoding: src0 = register holding the return value.
+            //
+            // Pops the top frame from the call stack to restore block_id and
+            // pc to the instruction after the CALL. If the caller specified a
+            // return register (not 0xFFFFFFFF), copies the return value into
+            // that register.
+            case OP_CALL_RETURN {
+                let raw_sp = interpreter_state[state_base + INTERP_CALL_SP];
+                if raw_sp == 0u {
+                    interpreter_state[state_base + INTERP_EXIT_CODE] = ERR_CALL_STACK_UNDERFLOW;
+                    let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
+                    atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_CALL_STACK_UNDERFLOW);
+                    interpreter_state[state_base + INTERP_STATUS] = STATUS_ERROR;
+                    atomicAdd(&termination_counter, 1u);
+                    should_break = true;
+                    break;
+                }
+                let sp = raw_sp - 1u;
+                interpreter_state[state_base + INTERP_CALL_SP] = sp;
+                let frame_base = state_base + INTERP_CALL_STACK + sp * 4u;
+                block_id = interpreter_state[frame_base + 0u];    // restore return_block
+                pc = interpreter_state[frame_base + 1u];          // restore return_pc
+                let return_reg = interpreter_state[frame_base + 2u];
+                // 0xFFFFFFFF signals "void" — no return value expected
+                if return_reg != 0xFFFFFFFFu {
+                    write_reg(shot_idx, return_reg, read_reg(shot_idx, instr.src0));
+                }
+            }
+
+            // -------------------------------------------------------------
+            // QUANTUM OPERATIONS — pause the interpreter, yield to the host
+            // -------------------------------------------------------------
+            // When the interpreter hits a quantum instruction, it cannot
+            // execute it directly (quantum simulation runs in separate GPU
+            // kernels with parallel state-vector processing). Instead, it
+            // writes the pending operation details into the interpreter
+            // state for the host to read, sets status = QUANTUM_PENDING,
+            // advances pc past the instruction, and breaks out of the loop.
+            //
+            // The host then dispatches prepare_adaptive_op (which reads the
+            // pending op metadata and configures the shot for the quantum
+            // kernel) followed by the execute kernel (which applies the
+            // gate/measurement/reset to the state vector). After that, the
+            // host re-dispatches interpret_classical to continue.
+            //
+            // Qubit IDs may be static (embedded in aux1/aux2 by the
+            // compiler) or dynamic (computed at runtime and stored in
+            // registers). The DYN_QUBIT_SENTINEL value (0xFFFFFFFF) in
+            // aux1/aux2 means "use the static qubit from the quantum op
+            // table"; otherwise the value is a register index holding the
+            // dynamically-resolved qubit ID.
+
+            // QUANTUM_GATE: Request a 1- or 2-qubit gate.
+            // Encoding: aux0 = quantum op table index,
+            //           aux1 = qubit 1 (or register if not sentinel),
+            //           aux2 = qubit 2 (or register if not sentinel).
+            case OP_QUANTUM_GATE {
+                interpreter_state[state_base + INTERP_PENDING_OP_IDX] = instr.aux0;
+                interpreter_state[state_base + INTERP_PENDING_OP_TYPE] = 0u; // type 0 = gate
+                // Resolve qubit IDs: if the encoded value is not the sentinel,
+                // it is a register index whose contents give the actual qubit ID.
+                var q1 = instr.aux1;
+                if q1 != DYN_QUBIT_SENTINEL { q1 = read_reg(shot_idx, q1); }
+                var q2 = instr.aux2;
+                if q2 != DYN_QUBIT_SENTINEL { q2 = read_reg(shot_idx, q2); }
+                interpreter_state[state_base + INTERP_PENDING_Q1] = q1;
+                interpreter_state[state_base + INTERP_PENDING_Q2] = q2;
+                interpreter_state[state_base + INTERP_STATUS] = STATUS_QUANTUM_PENDING;
+                pc++;
+                should_break = true;
+            }
+
+            // MEASURE: Request a qubit measurement.
+            // Encoding: aux0 = quantum op table index,
+            //           aux1 = qubit to measure (or register).
+            // Only q1 is used; q2 is set to sentinel (unused).
+            case OP_MEASURE {
+                interpreter_state[state_base + INTERP_PENDING_OP_IDX] = instr.aux0;
+                interpreter_state[state_base + INTERP_PENDING_OP_TYPE] = 1u; // type 1 = measure
+                var q1 = instr.aux1;
+                if q1 != DYN_QUBIT_SENTINEL { q1 = read_reg(shot_idx, q1); }
+                interpreter_state[state_base + INTERP_PENDING_Q1] = q1;
+                interpreter_state[state_base + INTERP_PENDING_Q2] = DYN_QUBIT_SENTINEL;
+                interpreter_state[state_base + INTERP_STATUS] = STATUS_QUANTUM_PENDING;
+                pc++;
+                should_break = true;
+            }
+
+            // RESET: Request a qubit reset (measure + conditional X).
+            // Encoding: aux0 = quantum op table index,
+            //           aux1 = qubit to reset (or register).
+            case OP_RESET {
+                interpreter_state[state_base + INTERP_PENDING_OP_IDX] = instr.aux0;
+                interpreter_state[state_base + INTERP_PENDING_OP_TYPE] = 2u; // type 2 = reset
+                var q1 = instr.aux1;
+                if q1 != DYN_QUBIT_SENTINEL { q1 = read_reg(shot_idx, q1); }
+                interpreter_state[state_base + INTERP_PENDING_Q1] = q1;
+                interpreter_state[state_base + INTERP_PENDING_Q2] = DYN_QUBIT_SENTINEL;
+                interpreter_state[state_base + INTERP_STATUS] = STATUS_QUANTUM_PENDING;
+                pc++;
+                should_break = true;
+            }
+
+            // -------------------------------------------------------------
+            // QUANTUM RESULT ACCESS
+            // -------------------------------------------------------------
+
+            // READ_RESULT: Load a prior measurement outcome into a register.
+            // Encoding: src0 = result ID (index into the results buffer),
+            //           dst  = destination register.
+            // The measurement result (0 or 1) was written by an earlier
+            // MEASURE quantum op. This reads it atomically from the shared
+            // results buffer and stores 0u or 1u into the destination
+            // register, allowing classical code to branch on measurement
+            // outcomes.
+            case OP_READ_RESULT {
+                let result_id = instr.src0;
+                let result_val = read_measurement_result(shot_idx, result_id);
+                write_reg(shot_idx, instr.dst, select(0u, 1u, result_val));
+                pc++;
+            }
+
+            // RECORD_OUTPUT: Marker for output recording.
+            // On the GPU this is a no-op — the host reads the results buffer
+            // directly after all shots terminate. The instruction exists to
+            // maintain compatibility with the QIR adaptive profile bytecode.
+            case OP_RECORD_OUTPUT {
+                pc++;
+            }
+
+            // -------------------------------------------------------------
+            // INTEGER ARITHMETIC
+            // -------------------------------------------------------------
+            // All integer arithmetic ops follow the pattern:
+            //   dst = src0 <op> src1
+            // Operands are resolved via resolve_i32/u32, which checks the
+            // FLAG_SRC0_IMM / FLAG_SRC1_IMM bits to determine if the field
+            // is a register index or an inline immediate constant.
+
+            // ADD: Signed integer addition. dst = src0 + src1.
+            case OP_ADD {
+                let a = resolve_i32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_i32(shot_idx, instr.src1, flags, 1u);
+                write_reg_i32(shot_idx, instr.dst, a + b);
+                pc++;
+            }
+
+            // SUB: Signed integer subtraction. dst = src0 - src1.
+            case OP_SUB {
+                let a = resolve_i32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_i32(shot_idx, instr.src1, flags, 1u);
+                write_reg_i32(shot_idx, instr.dst, a - b);
+                pc++;
+            }
+
+            // MUL: Signed integer multiplication. dst = src0 * src1.
+            case OP_MUL {
+                let a = resolve_i32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_i32(shot_idx, instr.src1, flags, 1u);
+                write_reg_i32(shot_idx, instr.dst, a * b);
+                pc++;
+            }
+
+            // UDIV: Unsigned integer division. dst = src0 / src1.
+            case OP_UDIV {
+                let a = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_u32(shot_idx, instr.src1, flags, 1u);
+                write_reg(shot_idx, instr.dst, a / b);
+                pc++;
+            }
+
+            // SDIV: Signed integer division (truncates toward zero). dst = src0 / src1.
+            case OP_SDIV {
+                let a = resolve_i32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_i32(shot_idx, instr.src1, flags, 1u);
+                write_reg_i32(shot_idx, instr.dst, a / b);
+                pc++;
+            }
+
+            // UREM: Unsigned integer remainder. dst = src0 % src1.
+            case OP_UREM {
+                let a = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_u32(shot_idx, instr.src1, flags, 1u);
+                write_reg(shot_idx, instr.dst, a % b);
+                pc++;
+            }
+
+            // SREM: Signed integer remainder.
+            // Computes a - b * trunc(a/b) manually rather than using the %
+            // operator, because WGSL i32 division truncates toward zero but
+            // the built-in % may not preserve the sign of the dividend on
+            // all GPU backends. This matches LLVM's srem semantics.
+            case OP_SREM {
+                let a = resolve_i32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_i32(shot_idx, instr.src1, flags, 1u);
+                write_reg_i32(shot_idx, instr.dst, a - b * (a / b));
+                pc++;
+            }
+
+            // -------------------------------------------------------------
+            // BITWISE / SHIFT OPERATIONS
+            // -------------------------------------------------------------
+            // Operate on the raw u32 bit pattern of the register values.
+
+            // AND: Bitwise AND. dst = src0 & src1.
+            case OP_AND {
+                write_reg(shot_idx, instr.dst,
+                    resolve_u32(shot_idx, instr.src0, flags, 0u) & resolve_u32(shot_idx, instr.src1, flags, 1u));
+                pc++;
+            }
+
+            // OR: Bitwise OR. dst = src0 | src1.
+            case OP_OR {
+                write_reg(shot_idx, instr.dst,
+                    resolve_u32(shot_idx, instr.src0, flags, 0u) | resolve_u32(shot_idx, instr.src1, flags, 1u));
+                pc++;
+            }
+
+            // XOR: Bitwise exclusive OR. dst = src0 ^ src1.
+            case OP_XOR {
+                write_reg(shot_idx, instr.dst,
+                    resolve_u32(shot_idx, instr.src0, flags, 0u) ^ resolve_u32(shot_idx, instr.src1, flags, 1u));
+                pc++;
+            }
+
+            // SHL: Logical shift left. dst = src0 << src1.
+            case OP_SHL {
+                write_reg(shot_idx, instr.dst,
+                    resolve_u32(shot_idx, instr.src0, flags, 0u) << resolve_u32(shot_idx, instr.src1, flags, 1u));
+                pc++;
+            }
+
+            // LSHR: Logical shift right (zero-fill). dst = src0 >> src1.
+            case OP_LSHR {
+                write_reg(shot_idx, instr.dst,
+                    resolve_u32(shot_idx, instr.src0, flags, 0u) >> resolve_u32(shot_idx, instr.src1, flags, 1u));
+                pc++;
+            }
+
+            // ASHR: Arithmetic shift right (sign-extending). dst = src0 >> src1.
+            // Uses i32 to preserve the sign bit during the shift.
+            case OP_ASHR {
+                let a = resolve_i32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_u32(shot_idx, instr.src1, flags, 1u);
+                write_reg_i32(shot_idx, instr.dst, a >> b);
+                pc++;
+            }
+
+            // -------------------------------------------------------------
+            // INTEGER COMPARISON (ICMP)
+            // -------------------------------------------------------------
+            // Compares two integer operands using the sub-condition code
+            // encoded in bits [15:8] of the opcode word. The result is
+            // written as 0u (false) or 1u (true) to the destination register.
+            // Signed comparisons (SLT, SLE, SGT, SGE) use i32 directly;
+            // unsigned comparisons (ULT, ULE, UGT, UGE) bitcast to u32.
+            // These mirror LLVM icmp predicates.
+            case OP_ICMP {
+                let a = resolve_i32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_i32(shot_idx, instr.src1, flags, 1u);
+                var result: bool = false;
+                switch subcond {
+                    case ICMP_EQ  { result = (a == b); }
+                    case ICMP_NE  { result = (a != b); }
+                    case ICMP_SLT { result = (a < b); }
+                    case ICMP_SLE { result = (a <= b); }
+                    case ICMP_SGT { result = (a > b); }
+                    case ICMP_SGE { result = (a >= b); }
+                    case ICMP_ULT { result = (bitcast<u32>(a) < bitcast<u32>(b)); }
+                    case ICMP_ULE { result = (bitcast<u32>(a) <= bitcast<u32>(b)); }
+                    case ICMP_UGT { result = (bitcast<u32>(a) > bitcast<u32>(b)); }
+                    case ICMP_UGE { result = (bitcast<u32>(a) >= bitcast<u32>(b)); }
+                    default {
+                        interpreter_state[state_base + INTERP_EXIT_CODE] = ERR_INVALID_INSTRUCTION;
+                        let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
+                        atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_INVALID_INSTRUCTION);
+                        interpreter_state[state_base + INTERP_STATUS] = STATUS_ERROR;
+                        atomicAdd(&termination_counter, 1u);
+                        should_break = true;
+                    }
+                }
+                write_reg(shot_idx, instr.dst, select(0u, 1u, result));
+                pc++;
+            }
+
+            // -------------------------------------------------------------
+            // FLOAT COMPARISON (FCMP)
+            // -------------------------------------------------------------
+            // Compares two f32 operands using the sub-condition code.
+            // "O" prefix = ordered (both operands are not NaN). The result
+            // is written as 0u/1u. Mirrors LLVM fcmp ordered predicates.
+            case OP_FCMP {
+                let a = read_reg_f32(shot_idx, instr.src0);
+                let b = read_reg_f32(shot_idx, instr.src1);
+                var result: bool = false;
+                switch subcond {
+                    case FCMP_OEQ { result = (a == b); }
+                    case FCMP_ONE { result = (a != b); }
+                    case FCMP_OLT { result = (a < b); }
+                    case FCMP_OLE { result = (a <= b); }
+                    case FCMP_OGT { result = (a > b); }
+                    case FCMP_OGE { result = (a >= b); }
+                    default {
+                        interpreter_state[state_base + INTERP_EXIT_CODE] = ERR_INVALID_INSTRUCTION;
+                        let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
+                        atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_INVALID_INSTRUCTION);
+                        interpreter_state[state_base + INTERP_STATUS] = STATUS_ERROR;
+                        atomicAdd(&termination_counter, 1u);
+                        should_break = true;
+                    }
+                }
+                write_reg(shot_idx, instr.dst, select(0u, 1u, result));
+                pc++;
+            }
+
+            // -------------------------------------------------------------
+            // FLOAT ARITHMETIC
+            // -------------------------------------------------------------
+            // These operate on f32 values stored in registers via bitcast.
+            // Operands are always register-based (no immediate flags for
+            // float ops).
+
+            // FADD: Float addition. dst = src0 + src1.
+            case OP_FADD {
+                write_reg_f32(shot_idx, instr.dst,
+                    read_reg_f32(shot_idx, instr.src0) + read_reg_f32(shot_idx, instr.src1));
+                pc++;
+            }
+
+            // FSUB: Float subtraction. dst = src0 - src1.
+            case OP_FSUB {
+                write_reg_f32(shot_idx, instr.dst,
+                    read_reg_f32(shot_idx, instr.src0) - read_reg_f32(shot_idx, instr.src1));
+                pc++;
+            }
+
+            // FMUL: Float multiplication. dst = src0 * src1.
+            case OP_FMUL {
+                write_reg_f32(shot_idx, instr.dst,
+                    read_reg_f32(shot_idx, instr.src0) * read_reg_f32(shot_idx, instr.src1));
+                pc++;
+            }
+
+            // FDIV: Float division. dst = src0 / src1.
+            case OP_FDIV {
+                write_reg_f32(shot_idx, instr.dst,
+                    read_reg_f32(shot_idx, instr.src0) / read_reg_f32(shot_idx, instr.src1));
+                pc++;
+            }
+
+            // -------------------------------------------------------------
+            // TYPE CONVERSIONS
+            // -------------------------------------------------------------
+            // Maps LLVM-style type conversion instructions. Many are
+            // identity ops on the GPU since all integer registers are 32-bit
+            // and all floats are f32. They exist to keep the bytecode in
+            // 1:1 correspondence with the compiled QIR instructions.
+
+            // ZEXT: Zero-extend — identity on 32-bit GPU (values already u32).
+            case OP_ZEXT {
+                write_reg(shot_idx, instr.dst, resolve_u32(shot_idx, instr.src0, flags, 0u));
+                pc++;
+            }
+
+            // SEXT: Sign-extend from a narrower bit width to i32.
+            // aux0 encodes the source bit width (e.g., 1 for i1→i32).
+            // The shift-left then arithmetic-shift-right trick propagates
+            // the sign bit from position (src_bits-1) into all higher bits.
+            case OP_SEXT {
+                let val = resolve_i32(shot_idx, instr.src0, flags, 0u);
+                let src_bits = instr.aux0;  // source type bit width
+                if src_bits > 0u && src_bits < 32u {
+                    let shift = 32u - src_bits;
+                    write_reg_i32(shot_idx, instr.dst, (val << shift) >> shift);
+                } else {
+                    write_reg_i32(shot_idx, instr.dst, val);
+                }
+                pc++;
+            }
+
+            // TRUNC: Truncate — identity on 32-bit GPU (already the target width).
+            case OP_TRUNC {
+                write_reg(shot_idx, instr.dst, resolve_u32(shot_idx, instr.src0, flags, 0u));
+                pc++;
+            }
+
+            // FPEXT: Float widen (e.g., f32→f64) — identity since GPU only uses f32.
+            case OP_FPEXT {
+                write_reg_f32(shot_idx, instr.dst, read_reg_f32(shot_idx, instr.src0));
+                pc++;
+            }
+
+            // FPTRUNC: Float narrow (e.g., f64→f32) — identity since GPU only uses f32.
+            case OP_FPTRUNC {
+                write_reg_f32(shot_idx, instr.dst, read_reg_f32(shot_idx, instr.src0));
+                pc++;
+            }
+
+            // INTTOPTR: Integer to pointer cast — identity, pointers are u32 on GPU.
+            case OP_INTTOPTR {
+                write_reg(shot_idx, instr.dst, resolve_u32(shot_idx, instr.src0, flags, 0u));
+                pc++;
+            }
+
+            // FPTOSI: Float to signed integer conversion. dst = i32(src0).
+            case OP_FPTOSI {
+                write_reg_i32(shot_idx, instr.dst, i32(read_reg_f32(shot_idx, instr.src0)));
+                pc++;
+            }
+
+            // SITOFP: Signed integer to float conversion. dst = f32(src0).
+            case OP_SITOFP {
+                write_reg_f32(shot_idx, instr.dst, f32(read_reg_i32(shot_idx, instr.src0)));
+                pc++;
+            }
+
+            // -------------------------------------------------------------
+            // PHI NODE (SSA resolution at runtime)
+            // -------------------------------------------------------------
+            // In SSA form, PHI nodes select a value based on which
+            // predecessor block the control flow came from. The compiler
+            // emits a phi_table with (predecessor_block_id, value_register)
+            // pairs for each PHI instruction.
+            //
+            // Encoding: dst  = destination register,
+            //           aux0 = offset into phi_table,
+            //           aux1 = number of predecessor entries.
+            //
+            // At runtime, we scan the entries to find the one whose block
+            // ID matches prev_block, then copy that register's value into
+            // the destination. This is how the interpreter handles SSA
+            // control-flow merges without explicit move instructions on
+            // every edge.
+            case OP_PHI {
+                let offset = instr.aux0;
+                let count = instr.aux1;
+                for (var i = 0u; i < count; i++) {
+                    let entry = phi_table[offset + i];
+                    if entry.x == prev_block {
+                        write_reg(shot_idx, instr.dst, read_reg(shot_idx, entry.y));
+                        break;
+                    }
+                }
+                pc++;
+            }
+
+            // -------------------------------------------------------------
+            // DATA MOVEMENT
+            // -------------------------------------------------------------
+
+            // SELECT: Conditional move (ternary operator).
+            // Encoding: src0 = condition, aux0 = true-value register,
+            //           aux1 = false-value register, dst = destination.
+            // dst = cond ? reg[aux0] : reg[aux1]
+            case OP_SELECT {
+                let cond = resolve_u32(shot_idx, instr.src0, flags, 0u) != 0u;
+                write_reg(shot_idx, instr.dst,
+                    select(read_reg(shot_idx, instr.aux1), read_reg(shot_idx, instr.aux0), cond));
+                pc++;
+            }
+
+            // MOV: Register-to-register move (or immediate-to-register if flagged).
+            // dst = src0 (resolved through flags for possible immediate).
+            case OP_MOV {
+                write_reg(shot_idx, instr.dst, resolve_u32(shot_idx, instr.src0, flags, 0u));
+                pc++;
+            }
+
+            // CONST: Load an immediate constant into a register.
+            // dst = src0 (always treated as a literal value, not a register).
+            case OP_CONST {
+                write_reg(shot_idx, instr.dst, instr.src0);
+                pc++;
+            }
+
+            // Unknown opcode — flag the shot as errored.
+            default {
+                interpreter_state[state_base + INTERP_STATUS] = STATUS_ERROR;
+                atomicAdd(&termination_counter, 1u);
+                should_break = true;
+            }
+        }
+        steps++;
+        if should_break { break; }
+    }
+
+    // -- Persist interpreter state back to GPU memory --
+    // Write the local variables back so the next dispatch (after quantum ops
+    // or a yield) can resume exactly where this invocation left off.
+    interpreter_state[state_base + INTERP_PC] = pc;
+    interpreter_state[state_base + INTERP_BLOCK] = block_id;
+    interpreter_state[state_base + INTERP_PREV_BLOCK] = prev_block;
+}
+
+// -----------------------------------------------------------------------------
+// Adaptive interpreter — prepare_adaptive_op entry point
+// -----------------------------------------------------------------------------
+// Prepares a quantum operation for shots that have STATUS_QUANTUM_PENDING.
+// Shots not in that state are set to OPID_ID so execute is a no-op.
+
+@compute @workgroup_size(1)
+fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
+    let shot_idx = globalId.x;
+    let shot = &shots[shot_idx];
+    let state_base = shot_idx * INTERP_STATE_STRIDE;
+    let status = interpreter_state[state_base + INTERP_STATUS];
+
+    // Only process shots that are quantum-pending
+    if status != STATUS_QUANTUM_PENDING {
+        // Set op_type to ID so execute is a no-op for this shot
+        shot.op_type = OPID_ID;
+        shot.renormalize = 1.0;
+        shot.qubits_updated_last_op_mask = 0u;
+        return;
+    }
+
+    // Update shot state from prior op execution
+    if shot.qubits_updated_last_op_mask != 0 {
+        update_qubit_state(shot_idx);
+    }
+    shot_init_per_op(shot_idx);
+
+    let op_idx = interpreter_state[state_base + INTERP_PENDING_OP_IDX];
+    let op_type = interpreter_state[state_base + INTERP_PENDING_OP_TYPE];
+    let dyn_q1 = interpreter_state[state_base + INTERP_PENDING_Q1];
+    let dyn_q2 = interpreter_state[state_base + INTERP_PENDING_Q2];
+
+    let op = &ops[op_idx];
+    shot.unitary = op.unitary;
+
+    // Override qubit IDs if dynamic values are provided
+    var q1 = op.q1;
+    var q2 = op.q2;
+    if dyn_q1 != DYN_QUBIT_SENTINEL { q1 = dyn_q1; }
+    if dyn_q2 != DYN_QUBIT_SENTINEL { q2 = dyn_q2; }
+
+    // Store resolved qubit indices in per-shot data for execute to use
+    shot.q1 = q1;
+    shot.q2 = q2;
+
+    switch op_type {
+        case 0u { // Gate
+            shot.op_idx = op_idx;
+            shot.op_type = op.id;
+
+            // Turn multi-qubit matrix ops into shot buffer ops
+            if op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_MAT2Q || op.id == OPID_SWAP {
+                shot.op_type = OPID_SHOT_BUFF_2Q;
+            }
+
+            // Turn 1Q matrix ops into shot buffer ops
+            if op.id >= OPID_X && op.id < OPID_CX {
+                shot.op_type = OPID_SHOT_BUFF_1Q;
+            }
+
+            // Phase gates all execute as RZ
+            if is_1q_phase_gate(op.id) {
+                shot.op_type = OPID_RZ;
+            }
+
+            // Set qubits_updated mask so next round knows which probabilities to update
+            switch shot.op_type {
+                case OPID_ID, OPID_CZ, OPID_RZ, OPID_RZZ {
+                    shot.qubits_updated_last_op_mask = 0u;
+                }
+                case OPID_SHOT_BUFF_1Q {
+                    shot.qubits_updated_last_op_mask = 1u << q1;
+                }
+                case OPID_CX, OPID_CY, OPID_SHOT_BUFF_2Q {
+                    shot.qubits_updated_last_op_mask = (1u << q1) | (1u << q2);
+                }
+                default {}
+            }
+        }
+        case 1u { // Measure
+            // Determine whether this is mresetz (resets qubit to |0⟩) or mz (measure only)
+            let resets = op.id == OPID_MRESETZ;
+            prep_measure_reset(shot_idx, op_idx, false, true, resets);
+        }
+        case 2u { // Reset
+            prep_measure_reset(shot_idx, op_idx, false, false, true);
+        }
+        default {
+            shot.op_type = OPID_ID;
+        }
+    }
+
+    // Mark shot as running so interpret_classical resumes next round
+    interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+}
+
+@compute @workgroup_size(THREADS_PER_WORKGROUP)
+fn execute(
+        @builtin(workgroup_id) workgroupId: vec3<u32>,
+        @builtin(local_invocation_index) tid: u32) {
+    let shot_idx: i32 = i32(workgroupId.x) / WORKGROUPS_PER_SHOT;
+    let shot = &shots[shot_idx];
+
+    // If it's an ID gate, or a pure phase gate (including CZ) then probabilities don't need updating
+    // Correlated noise also updates probabilities in prepare_op, so can skip doing that here
+    let update_probs = shot.op_type != OPID_ID && shot.op_type != OPID_CORRELATED_NOISE &&
+            shot.op_type != OPID_RZ && shot.op_type != OPID_CZ && shot.op_type != OPID_RZZ;
+
+    if (shot.op_type == OPID_ID) {
+        // IGNORE
+    } else if (shot.op_type == OPID_CORRELATED_NOISE) {
+        apply_correlated_noise(workgroupId.x, tid);
+    } else if (is_1q_op(shot.op_type)) {
+        apply_1q_op(workgroupId.x, tid);
+    } else /* 2 qubit op */ {
+        apply_2q_op(workgroupId.x, tid);
+    }
+
+    // workgroupBarrier can't be conditional in DX12 backend, so we have to do an unconditional one here
+    // outside of the skip_work conditional above.
+    workgroupBarrier();
+
+    // If the workgroup is done updating, have the first thread reduce the per-thread probabilities into the
+    // totals for this workgroup. The subsequent 'prepare_op' will sum the workgroup entries into the shot state.
+    // Skip for correlated noise since probabilities were already updated in prepare_op.
+    if (tid == 0 && update_probs) {
+        let shot_idx: i32 = i32(workgroupId.x) / WORKGROUPS_PER_SHOT;
+        let workgroup_collation_idx: i32 = select(-1, i32(workgroupId.x), WORKGROUPS_PER_SHOT > 1);
+        for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
+            if (shot.qubits_updated_last_op_mask & (1u << q)) != 0u {
+                sum_thread_totals_to_shot(q, shot_idx, workgroup_collation_idx);
+            }
+        }
+    }
+}

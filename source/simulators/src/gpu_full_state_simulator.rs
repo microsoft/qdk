@@ -11,11 +11,14 @@ pub mod noise_mapping;
 pub mod shader_types;
 
 use crate::{
-    gpu_context::RunResults, gpu_full_state_simulator::shader_types::Op, noise_config::NoiseConfig,
+    bytecode::AdaptiveProgram,
+    gpu_context::{GpuContext, RunResults},
+    gpu_full_state_simulator::shader_types::Op,
+    noise_config::NoiseConfig,
 };
 
 pub fn try_create_gpu_adapter() -> Result<String, String> {
-    gpu_context::GpuContext::try_create_adapter()
+    GpuContext::try_create_adapter()
 }
 
 pub fn run_shots_sync(
@@ -28,7 +31,7 @@ pub fn run_shots_sync(
     start_shot_id: i32,
 ) -> Result<RunResults, String> {
     futures::executor::block_on(async {
-        let mut context = gpu_context::GpuContext::default();
+        let mut context = GpuContext::default();
 
         if let Some(noise_config) = noise {
             context.set_noise_config(noise_config.clone());
@@ -37,5 +40,24 @@ pub fn run_shots_sync(
         context.set_program(ops, qubit_count, result_count);
 
         context.run_shots(shot_count, rng_seed, start_shot_id).await
+    })
+}
+
+pub fn run_adaptive_shots_sync(
+    program: AdaptiveProgram,
+    noise: &Option<NoiseConfig<f32, f64>>,
+    shot_count: i32,
+    rng_seed: u32,
+    start_shot_id: i32,
+) -> Result<RunResults, String> {
+    futures::executor::block_on(async {
+        let mut context: GpuContext = GpuContext::adaptive();
+        if let Some(noise_config) = noise {
+            context.set_noise_config(noise_config.clone());
+        }
+        context.set_adaptive_program(program);
+        context
+            .run_adaptive_shots(shot_count, rng_seed, start_shot_id)
+            .await
     })
 }

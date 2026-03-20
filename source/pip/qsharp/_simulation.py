@@ -24,6 +24,7 @@ from pyqir import (
 )
 from ._qsharp import QirInputData, Result
 from typing import TYPE_CHECKING
+from ._adaptive_pass import AdaptiveProfilePass, OP_RECORD_OUTPUT
 
 if TYPE_CHECKING:  # This is in the pyi file only
     from ._native import GpuShotResults
@@ -472,6 +473,17 @@ def preprocess_simulation_input(
     return (mod, shots, noise, seed)
 
 
+def is_adaptive(mod: pyqir.Module) -> bool:
+    """Check if the QIR module uses the Adaptive Profile."""
+    entry = next(filter(pyqir.is_entry_point, mod.functions), None)
+    if entry is None:
+        return False
+    func_attrs = entry.attributes.func
+    if "qir_profiles" not in func_attrs:
+        return False
+    return func_attrs["qir_profiles"].string_value == "adaptive_profile"
+
+
 def run_qir_clifford(
     input: Union[QirInputData, str, bytes],
     shots: Optional[int] = 1,
@@ -516,28 +528,56 @@ def run_qir_cpu(
     )
 
 
+def str_to_result(result: str):
+    match result:
+        case "0":
+            return Result.Zero
+        case "1":
+            return Result.One
+        case "L":
+            return Result.Loss
+        case _:
+            raise ValueError(f"Invalid result {result}")
+
+
 def run_qir_gpu(
     input: Union[QirInputData, str, bytes],
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
-) -> List[str]:
+) -> List[List[Result]]:
     (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
-    if noise is None:
-        (gates, num_qubits, num_results) = AggregateGatesPass().run(mod)
-    else:
-        (gates, num_qubits, num_results) = CorrelatedNoisePass(noise).run(mod)
-    recorder = OutputRecordingPass()
-    recorder.run(mod)
+    if is_adaptive(mod):
+        program = AdaptiveProfilePass().run(mod)
+        results = run_adaptive_parallel_shots(program, shots, noise, seed)
 
-    return list(
-        map(
-            recorder.process_output,
-            run_parallel_shots(gates, shots, num_qubits, num_results, noise, seed),
+        # Extract recorded output result indices from the bytecode.
+        # OP_RECORD_OUTPUT with aux1=0 is result_record_output where
+        # src0 is the result index in the results buffer.
+        recorded_result_indices = []
+        for ins in program.instructions:
+            if ins.opcode == OP_RECORD_OUTPUT and ins.aux1 == 0:
+                recorded_result_indices.append(ins.src0)
+        # Filter shot_results to only include recorded output indices
+        filtered = []
+        for s in results:
+            filtered.append([str_to_result(s[i]) for i in recorded_result_indices])
+        return filtered
+    else:
+        if noise is None:
+            (gates, num_qubits, num_results) = AggregateGatesPass().run(mod)
+        else:
+            (gates, num_qubits, num_results) = CorrelatedNoisePass(noise).run(mod)
+        recorder = OutputRecordingPass()
+        recorder.run(mod)
+        return list(
+            map(
+                recorder.process_output,
+                run_parallel_shots(gates, shots, num_qubits, num_results, noise, seed),
+            )
         )
-    )
 
 
 def prepare_qir_with_correlated_noise(

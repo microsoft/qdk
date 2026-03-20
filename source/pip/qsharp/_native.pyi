@@ -1027,6 +1027,25 @@ def run_parallel_shots(
     """ """
     ...
 
+def run_adaptive_parallel_shots(
+    input: dict,
+    shots: int,
+    noise: Optional[NoiseConfig],
+    seed: Optional[int],
+) -> List[str]:
+    """
+    Run the given list of QIR instructions in a CPU full-state simulator,
+    using the given `NoiseConfig`, if any.
+
+    The input is an `AdaptiveProgram` converted to a dict using the
+    .as_dict() method.
+
+    Returns a list of result strings. Each result string is composed
+    of '0's, '1's, and 'L's, representing if each measurement result
+    was a Zero, One, or Loss respectively.
+    """
+    ...
+
 # This is a little clunky, but until we move to Python 3.11 as a minimum, the NotRequired annotation
 # for Dict fields that may be missing is not availalble. See https://peps.python.org/pep-0655/#motivation
 class _GpuShotResultsBase(TypedDict):

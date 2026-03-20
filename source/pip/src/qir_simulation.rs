@@ -13,9 +13,12 @@ use pyo3::{
     exceptions::{PyAttributeError, PyKeyError, PyTypeError, PyValueError},
     pybacked::PyBackedStr,
     pyclass, pymethods,
-    types::{PyAnyMethods, PyTuple},
+    types::{PyAnyMethods, PyDict, PyTuple},
 };
-use qdk_simulators::noise_config::{encode_pauli, is_pauli_identity};
+use qdk_simulators::{
+    bytecode,
+    noise_config::{encode_pauli, is_pauli_identity},
+};
 use rustc_hash::FxHashMap;
 
 type Probability = f64;
@@ -743,4 +746,102 @@ fn from_intrinsics_table_ref<T: Float>(
         .values()
         .map(|(k, v)| (*k, from_noise_table_ref(v.borrow(py))))
         .collect()
+}
+
+fn pydict_to_adaptive_program(program: &Bound<'_, PyDict>) -> PyResult<bytecode::AdaptiveProgram> {
+    use bytecode::{AdaptiveProgram, Block, Function, Instruction, PhiNodeEntry, SwitchCase};
+    use pyo3::types::PyDictMethods;
+
+    // Extract scalar fields
+    let num_qubits: u32 = program
+        .get_item("num_qubits")?
+        .ok_or_else(|| PyKeyError::new_err("num_qubits"))?
+        .extract()?;
+    let num_results: u32 = program
+        .get_item("num_results")?
+        .ok_or_else(|| PyKeyError::new_err("num_results"))?
+        .extract()?;
+    let num_registers: u32 = program
+        .get_item("num_registers")?
+        .ok_or_else(|| PyKeyError::new_err("num_registers"))?
+        .extract()?;
+    let entry_block: u32 = program
+        .get_item("entry_block")?
+        .ok_or_else(|| PyKeyError::new_err("entry_block"))?
+        .extract()?;
+
+    // Extract array fields
+    let blocks: Vec<(u32, u32, u32)> = program
+        .get_item("blocks")?
+        .ok_or_else(|| PyKeyError::new_err("blocks"))?
+        .extract()?;
+    #[allow(clippy::type_complexity)]
+    let instructions: Vec<(u32, u32, u32, u32, u32, u32, u32, u32)> = program
+        .get_item("instructions")?
+        .ok_or_else(|| PyKeyError::new_err("instructions"))?
+        .extract()?;
+    let quantum_ops_raw: Vec<(u32, u32, u32, u32, f64)> = program
+        .get_item("quantum_ops")?
+        .ok_or_else(|| PyKeyError::new_err("quantum_ops"))?
+        .extract()?;
+    let functions: Vec<(u32, u32, u32)> = program
+        .get_item("functions")?
+        .ok_or_else(|| PyKeyError::new_err("functions"))?
+        .extract()?;
+    let phi_entries: Vec<(u32, u32)> = program
+        .get_item("phi_entries")?
+        .ok_or_else(|| PyKeyError::new_err("phi_entries"))?
+        .extract()?;
+    let switch_cases: Vec<(u32, u32)> = program
+        .get_item("switch_cases")?
+        .ok_or_else(|| PyKeyError::new_err("switch_cases"))?
+        .extract()?;
+    let call_args: Vec<u32> = program
+        .get_item("call_args")?
+        .ok_or_else(|| PyKeyError::new_err("call_args"))?
+        .extract()?;
+
+    // Build quantum Op pool using existing gate constructors
+    let quantum_ops = bytecode::build_op_pool(&quantum_ops_raw);
+
+    // Convert instructions to Instruction structs
+    let bytecode: Vec<Instruction> = instructions
+        .iter()
+        .map(|t| Instruction::from_tuple(*t))
+        .collect();
+
+    // Convert block table: strip block_id and pred_count, keep (instr_offset, instr_count)
+    let block_table: Vec<Block> = blocks
+        .iter()
+        .map(|&(_block_id, instr_offset, instr_count)| (instr_offset, instr_count))
+        .map(Block::from_tuple)
+        .collect();
+
+    // Convert function table
+    let function_table: Vec<Function> =
+        functions.iter().map(|&t| Function::from_tuple(t)).collect();
+
+    // Convert phi entries and switch cases
+    let phi_entries: Vec<PhiNodeEntry> = phi_entries
+        .iter()
+        .map(|&t| PhiNodeEntry::from_tuple(t))
+        .collect();
+    let switch_cases: Vec<SwitchCase> = switch_cases
+        .iter()
+        .map(|&t| SwitchCase::from_tuple(t))
+        .collect();
+
+    Ok(AdaptiveProgram {
+        instructions: bytecode,
+        block_table,
+        function_table,
+        quantum_ops,
+        phi_entries,
+        switch_cases,
+        call_args,
+        num_qubits,
+        num_results,
+        num_registers,
+        entry_block,
+    })
 }
