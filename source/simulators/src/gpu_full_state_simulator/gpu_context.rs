@@ -603,16 +603,25 @@ impl GpuContext {
 
         // Get the GPU resources we need for the entire run
         let bind_group = self.resources.get_adaptive_bind_group()?;
-        let kernels = self.resources.get_kernels()?;
 
         let mut results: Vec<u32> = Vec::new();
         let mut diagnostics: Option<Box<DiagnosticsData>> = None;
         let mut shots_remaining = self.run_params.shot_count;
 
+        let program = self
+            .adaptive_program
+            .as_ref()
+            .ok_or("No adaptive program has been set")?;
+
+        let entry_block = program.entry_block;
+        // Entry instruction offset. PC stands for Program Counter, aka Instruction Pointer.
+        let entry_pc = program.block_table[entry_block as usize].instr_offset;
+
         // 3. For each batch:
         for batch_idx in 0..self.run_params.batch_count {
             // 3.1 Schedule batch of shots.
             let shots_this_batch = min(shots_remaining, self.run_params.shots_per_batch);
+            let shots_usize = i32_to_usize(shots_this_batch);
             let execute_workgroup_count =
                 u32::try_from(self.run_params.workgroups_per_shot * shots_this_batch)
                     .expect("workgroups_per_shot * shots_per_batch should fit in u32");
@@ -627,6 +636,30 @@ impl GpuContext {
                 batch_start_shot_id: batch_idx * self.run_params.shots_per_batch + start_shot_id,
                 rng_seed: seed,
             })?;
+
+            // Initialize interpreter state: zeroed array with pc and block set per shot
+            let mut interp_state_data = vec![0u32; shots_usize * INTERP_STATE_STRIDE];
+            for shot in 0..shots_usize {
+                let base = shot * INTERP_STATE_STRIDE;
+                interp_state_data[base] = entry_pc; // INTERP_PC
+                interp_state_data[base + 1] = entry_block; // INTERP_BLOCK
+                // INTERP_STATUS = 0 (STATUS_RUNNING) already from zeroed init
+            }
+
+            // Initialize interpreter state
+            self.resources
+                .upload_interpreter_state(cast_slice(&interp_state_data))?;
+
+            // Initialize register file: zeroed
+            let register_data = vec![0u32; shots_usize * MAX_REGISTERS];
+            self.resources
+                .upload_register_file(cast_slice(&register_data))?;
+
+            // Initialize termination counter: zeroed u32
+            self.resources
+                .upload_termination_counter(cast_slice(&[0u32]))?;
+
+            let kernels = self.resources.get_kernels()?;
 
             // Initialize state vectors and shot data via the init kernel
             {
@@ -775,7 +808,5 @@ fn i32_to_usize(value: i32) -> usize {
 }
 
 fn u32_to_i32(value: u32) -> i32 {
-    value
-        .try_into()
-        .unwrap_or_else(|_| panic!("{value} should fit in a i32"))
+    i32::try_from(value).unwrap_or_else(|_| panic!("{value} should fit in a i32"))
 }

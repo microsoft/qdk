@@ -128,23 +128,28 @@ impl Block {
 
 /// An IR-defined function descriptor.
 ///
-/// `(entry_block_id, param_count, param_base_reg)`
+/// `(entry_block_id, param_count, param_base_reg, reserved)`
+///
+/// The `reserved` field pads the struct to 16 bytes so it matches
+/// the GPU shader layout (`vec4<u32>`).
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Pod, Zeroable)]
 pub struct Function {
     pub entry_block_id: u32,
     pub param_count: u32,
     pub param_base_reg: u32,
+    pub reserved: u32,
 }
 
 impl Function {
-    /// Create a [`Function`] from an 3-tuple (matching Python emission format).
+    /// Create a [`Function`] from a 3-tuple (matching Python emission format).
     #[must_use]
     pub const fn from_tuple(t: (u32, u32, u32)) -> Self {
         Self {
             entry_block_id: t.0,
             param_count: t.1,
             param_base_reg: t.2,
+            reserved: 0,
         }
     }
 }

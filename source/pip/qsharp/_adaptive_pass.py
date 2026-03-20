@@ -698,9 +698,9 @@ class AdaptiveProfilePass:
             qop_idx = self._emit_quantum_op(op_id, q.val, r.val)
             self._emit(
                 OP_MEASURE,
-                src0=qop_idx,
-                aux0=q,
-                aux1=r,
+                aux0=qop_idx,
+                aux1=q,
+                aux2=r,
             )
         if gate_name in ROTATION_GATES:
             qubit_arg_offset = 1
@@ -713,8 +713,7 @@ class AdaptiveProfilePass:
         qop_idx = self._emit_quantum_op(op_id, q1.val, q2.val, q3.val, angle.val)
         self._emit(
             OP_QUANTUM_GATE,
-            src0=qop_idx,
-            aux0=angle,
+            aux0=qop_idx,
             aux1=q1,
             aux2=q2,
             aux3=q3,
@@ -857,10 +856,17 @@ class AdaptiveProfilePass:
         func_id = self._func_to_id[func_name]
         arg_offset = len(self.call_args)
         for arg in call.args:
-            self.call_args.append(self._resolve_operand(arg).val)
+            operand = self._resolve_operand(arg)
+            if isinstance(operand, Reg):
+                self.call_args.append(operand.val)
+            else:
+                # Immediate values must be materialized into a register
+                # because the GPU call_arg_table stores register indices.
+                reg = self._alloc_reg(None, REG_TYPE_PTR)
+                self._emit(OP_MOV | FLAG_SRC0_IMM, dst=reg, src0=operand.val)
+                self.call_args.append(reg.val)
         # Allocate return register if function has non-void return type
-        type_str = str(call.type)
-        if "void" in type_str:
+        if call.type.is_void:
             return_reg = VOID_RETURN  # no return
         else:
             return_reg = self._alloc_reg(call, REG_TYPE_I32)

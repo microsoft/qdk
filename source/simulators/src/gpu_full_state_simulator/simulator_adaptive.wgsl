@@ -117,20 +117,16 @@ struct ShotData {
 
     // Track which qubit probabilities were updated in the last operation (to collate on next prepare_op)
     qubits_updated_last_op_mask: u32,
-
-    // Per-shot qubit indices for the current operation (set by prepare_op for dynamic qubits)
-    q1: u32,
-    q2: u32,
-    // 22 x 4 bytes to this point = 88 bytes
+    // 20 x 4 bytes to this point = 80 bytes
 
     // Track the per-qubit probabilities for optimization of measurement sampling and noise modeling
     qubit_state: array<QubitState, MAX_QUBIT_COUNT>, // 27 x 16 bytes = 432 bytes
-    // 520 bytes to this point
+    // 512 bytes to this point
 
     // Map this to the Op structure for ease of use
     unitary: array<vec2f, 16>, // For MAT1Q and MAT2Q ops.
 }
-// Total struct size = 648 bytes
+// Total struct size = 640 bytes (which is aligned to 128 bytes)
 // See https://www.w3.org/TR/WGSL/#structure-member-layout for alignment rules
 
 @group(0) @binding(1)
@@ -470,6 +466,30 @@ fn resolve_u32(shot_idx: u32, operand: u32, flags: u32, operand_idx: u32) -> u32
     return read_reg(shot_idx, operand);
 }
 
+// Resolves q1 for the current quantum instruction.
+fn resolve_q1(shot_idx: u32) -> u32 {
+    let shot = &shots[shot_idx];
+    let state_base = shot_idx * INTERP_STATE_STRIDE;
+    let pc: u32 = interpreter_state[state_base + INTERP_PC];
+    let instr = fetch_instr(pc - 1);
+    if (instr.opcode & FLAG_AUX1_IMM) != 0 {
+        return instr.aux1;
+    }
+    return read_reg(shot_idx, instr.aux1);
+}
+
+// Resolves q2 for the current quantum instruction.
+fn resolve_q2(shot_idx: u32) -> u32 {
+    let shot = &shots[shot_idx];
+    let state_base = shot_idx * INTERP_STATE_STRIDE;
+    let pc: u32 = interpreter_state[state_base + INTERP_PC];
+    let instr = fetch_instr(pc - 1);
+    if (instr.opcode & FLAG_AUX2_IMM) != 0 {
+        return instr.aux2;
+    }
+    return read_reg(shot_idx, instr.aux2);
+}
+
 // Read a measurement result from the existing results buffer.
 // Results are stored as atomic<u32> at shot_idx * RESULT_COUNT + result_id.
 fn read_measurement_result(shot_idx: u32, result_id: u32) -> bool {
@@ -645,14 +665,14 @@ fn prep_measure_reset(shot_idx: u32, op_idx: u32, is_loss: bool, stores_result: 
     let op = &ops[op_idx];
 
     // Choose measurement result based on qubit probabilities and random number
-    let qubit = shot.q1;
+    let qubit = resolve_q1(shot_idx);
     let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
 
     // If this is being called due to loss noise, we don't write the result back to the results buffer
     // Instead, mark the qubit as lost by setting the heat to -1.0
     if !is_loss {
         if stores_result {
-            let result_id = shot.q2; // Result id to store the measurement result in is stored in q2
+            let result_id = resolve_q2(shot_idx); // Result id to store the measurement result in is stored in q2
 
             // If the qubit is already marked as lost, just report that and exit. It's already in the zero
             // state so nothing to update or renormalize. The execute op should be a no-op (ID)
@@ -1073,9 +1093,10 @@ fn get_shot_params(
 
 fn apply_1q_op(workgroupId: u32, tid: u32) {
     let params = get_shot_params(workgroupId, tid, 1 /* qubits per op */);
+    let shot_idx: u32 = u32(params.shot_idx);
     let shot = &shots[params.shot_idx];
     let op = &ops[shot.op_idx];
-    let q1 = shot.q1;
+    let q1 = resolve_q1(shot_idx);
     let scale = shot.renormalize;
     let lowMask = (1 << q1) - 1;
     let highMask = (1 << u32(QUBIT_COUNT)) - 1 - lowMask;
@@ -1141,10 +1162,11 @@ fn apply_1q_op(workgroupId: u32, tid: u32) {
 
 fn apply_2q_op(workgroupId: u32, tid: u32) {
     let params = get_shot_params(workgroupId, tid, 2 /* qubits per op */);
+    let shot_idx: u32 = u32(params.shot_idx);
     let shot = &shots[params.shot_idx];
     let op = &ops[shot.op_idx];
-    let q1 = shot.q1;
-    let q2 = shot.q2;
+    let q1 = resolve_q1(shot_idx);
+    let q2 = resolve_q2(shot_idx);
 
     let update_probs = shot.op_type != OPID_CZ && shot.op_type != OPID_RZZ;
 
@@ -2332,21 +2354,11 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     let op_idx = interpreter_state[state_base + INTERP_PENDING_OP_IDX];
     let op_type = interpreter_state[state_base + INTERP_PENDING_OP_TYPE];
-    let dyn_q1 = interpreter_state[state_base + INTERP_PENDING_Q1];
-    let dyn_q2 = interpreter_state[state_base + INTERP_PENDING_Q2];
-
     let op = &ops[op_idx];
+    let q1 = resolve_q1(shot_idx);
+    let q2 = resolve_q2(shot_idx);
+
     shot.unitary = op.unitary;
-
-    // Override qubit IDs if dynamic values are provided
-    var q1 = op.q1;
-    var q2 = op.q2;
-    if dyn_q1 != DYN_QUBIT_SENTINEL { q1 = dyn_q1; }
-    if dyn_q2 != DYN_QUBIT_SENTINEL { q2 = dyn_q2; }
-
-    // Store resolved qubit indices in per-shot data for execute to use
-    shot.q1 = q1;
-    shot.q2 = q2;
 
     switch op_type {
         case 0u { // Gate

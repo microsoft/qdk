@@ -930,14 +930,6 @@ impl GpuResources {
             Self::ensure_buffer(device, &mut bound_buffers[idx], 16);
         }
 
-        dbg!("binding adaptive group");
-        dbg!(bound_buffers.len());
-        let ub: Vec<_> = bound_buffers
-            .iter()
-            .map(|entry| entry.buffer.is_none())
-            .collect();
-        dbg!(ub);
-
         // Ensure all buffers are created
         if bound_buffers.iter().any(|entry| entry.buffer.is_none()) {
             return Err(
