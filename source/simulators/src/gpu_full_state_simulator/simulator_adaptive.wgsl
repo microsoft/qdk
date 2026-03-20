@@ -1877,10 +1877,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             //
             // Qubit IDs may be static (embedded in aux1/aux2 by the
             // compiler) or dynamic (computed at runtime and stored in
-            // registers). The DYN_QUBIT_SENTINEL value (0xFFFFFFFF) in
-            // aux1/aux2 means "use the static qubit from the quantum op
-            // table"; otherwise the value is a register index holding the
-            // dynamically-resolved qubit ID.
+            // registers).
 
             // QUANTUM_GATE: Request a 1- or 2-qubit gate.
             // Encoding: aux0 = quantum op table index,
@@ -1889,14 +1886,9 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             case OP_QUANTUM_GATE {
                 interpreter_state[state_base + INTERP_PENDING_OP_IDX] = instr.aux0;
                 interpreter_state[state_base + INTERP_PENDING_OP_TYPE] = 0u; // type 0 = gate
-                // Resolve qubit IDs: if the encoded value is not the sentinel,
-                // it is a register index whose contents give the actual qubit ID.
-                var q1 = instr.aux1;
-                if q1 != DYN_QUBIT_SENTINEL { q1 = read_reg(shot_idx, q1); }
-                var q2 = instr.aux2;
-                if q2 != DYN_QUBIT_SENTINEL { q2 = read_reg(shot_idx, q2); }
-                interpreter_state[state_base + INTERP_PENDING_Q1] = q1;
-                interpreter_state[state_base + INTERP_PENDING_Q2] = q2;
+                // Qubit IDs are resolved in prepare_op via resolve_q1/resolve_q2,
+                // which use the FLAG_AUX1_IMM / FLAG_AUX2_IMM bits to decide
+                // between immediate values and register lookups.
                 interpreter_state[state_base + INTERP_STATUS] = STATUS_QUANTUM_PENDING;
                 pc++;
                 should_break = true;
@@ -1909,10 +1901,8 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             case OP_MEASURE {
                 interpreter_state[state_base + INTERP_PENDING_OP_IDX] = instr.aux0;
                 interpreter_state[state_base + INTERP_PENDING_OP_TYPE] = 1u; // type 1 = measure
-                var q1 = instr.aux1;
-                if q1 != DYN_QUBIT_SENTINEL { q1 = read_reg(shot_idx, q1); }
-                interpreter_state[state_base + INTERP_PENDING_Q1] = q1;
-                interpreter_state[state_base + INTERP_PENDING_Q2] = DYN_QUBIT_SENTINEL;
+                // Qubit and result IDs are resolved in prepare_op via
+                // resolve_q1 (aux1) and resolve_q2 (aux2).
                 interpreter_state[state_base + INTERP_STATUS] = STATUS_QUANTUM_PENDING;
                 pc++;
                 should_break = true;
@@ -1924,10 +1914,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             case OP_RESET {
                 interpreter_state[state_base + INTERP_PENDING_OP_IDX] = instr.aux0;
                 interpreter_state[state_base + INTERP_PENDING_OP_TYPE] = 2u; // type 2 = reset
-                var q1 = instr.aux1;
-                if q1 != DYN_QUBIT_SENTINEL { q1 = read_reg(shot_idx, q1); }
-                interpreter_state[state_base + INTERP_PENDING_Q1] = q1;
-                interpreter_state[state_base + INTERP_PENDING_Q2] = DYN_QUBIT_SENTINEL;
+                // Qubit ID is resolved in prepare_op via resolve_q1 (aux1).
                 interpreter_state[state_base + INTERP_STATUS] = STATUS_QUANTUM_PENDING;
                 pc++;
                 should_break = true;

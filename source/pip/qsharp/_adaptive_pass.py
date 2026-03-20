@@ -53,6 +53,9 @@ GATE_MAP: Dict[str, int] = {
 # Gates that take a result ID as a second argument
 MEASURE_GATES = {"m", "mz", "mresetz"}
 
+# Gates that reset a qubit (single qubit argument, no result)
+RESET_GATES = {"reset"}
+
 # Rotation gates that take an angle parameter as first argument
 ROTATION_GATES = {"rx", "ry", "rz", "rxx", "ryy", "rzz"}
 
@@ -702,6 +705,16 @@ class AdaptiveProfilePass:
                 aux1=q,
                 aux2=r,
             )
+            return
+        if gate_name in RESET_GATES:
+            q = self._resolve_qubit_operand(call.args[0])
+            qop_idx = self._emit_quantum_op(op_id, q.val)
+            self._emit(
+                OP_RESET,
+                aux0=qop_idx,
+                aux1=q,
+            )
+            return
         if gate_name in ROTATION_GATES:
             qubit_arg_offset = 1
             angle = self._resolve_angle_operand(call.args[0])
