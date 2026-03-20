@@ -488,12 +488,12 @@ def test_reset_instruction():
     """Reset gate emits OP_RESET."""
     r = _run_pass(RESET_QIR)
     quantum_instrs = [
-        inst for inst in r.instructions if _primary(inst.opcode) == OP_QUANTUM_GATE
+        inst for inst in r.instructions if _primary(inst.opcode) == OP_RESET
     ]
-    assert len(quantum_instrs) == 2
-    for inst in quantum_instrs:
-        assert inst.opcode & FLAG_AUX1_IMM, "Qubit argument should be static"
-        assert inst.aux1 == 0
+    assert len(quantum_instrs) == 1
+    reset = quantum_instrs[0]
+    assert reset.opcode & FLAG_AUX1_IMM, "Qubit argument should be static"
+    assert reset.aux1 == 0
 
 
 # ---------------------------------------------------------------------------
