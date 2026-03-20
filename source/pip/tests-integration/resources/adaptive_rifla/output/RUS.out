@@ -2,9 +2,9 @@ START
 METADATA	entry_point
 METADATA	output_labeling_schema
 METADATA	qir_profiles	adaptive_profile
-METADATA	required_num_qubits	5
+METADATA	required_num_qubits	3
 METADATA	required_num_results	3
-OUTPUT	TUPLE	2	0_t
-OUTPUT	BOOL	true	1_t0b
-OUTPUT	INT	0	2_t1i
+OUTPUT	ARRAY	2	0_a
+OUTPUT	RESULT	0	1_a0r
+OUTPUT	RESULT	0	2_a1r
 END	0
