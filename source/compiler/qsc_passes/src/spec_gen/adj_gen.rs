@@ -41,12 +41,12 @@ impl MutVisitor for AdjDistrib {
                             .expect_value("arrow type should have known functors");
 
                         if functors.contains(&Functor::Adj) {
-                            *op = Box::new(Expr {
+                            **op = Expr {
                                 id: NodeId::default(),
                                 span: op.span,
                                 ty: op.ty.clone(),
                                 kind: ExprKind::UnOp(UnOp::Functor(Functor::Adj), op.clone()),
-                            });
+                            };
                         } else {
                             self.errors.push(Error::MissingAdjFunctor(op.span));
                         }

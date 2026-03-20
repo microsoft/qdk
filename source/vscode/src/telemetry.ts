@@ -57,8 +57,7 @@ export enum EventType {
   CircuitEnd = "Qsharp.CircuitEnd",
   LanguageModelToolStart = "Qsharp.LanguageModelToolStart",
   LanguageModelToolEnd = "Qsharp.LanguageModelToolEnd",
-  UpdateCopilotInstructionsStart = "Qsharp.UpdateCopilotInstructionsStart",
-  UpdateCopilotInstructionsEnd = "Qsharp.UpdateCopilotInstructionsEnd",
+  RemoveOldCopilotInstructions = "Qsharp.RemoveOldCopilotInstructions",
   ChangelogPromptStart = "Qsharp.ChangelogPromptStart",
   ChangelogPromptEnd = "Qsharp.ChangelogPromptEnd",
 }
@@ -312,17 +311,8 @@ type EventTypes = {
     };
     measurements: { timeToCompleteMs: number };
   };
-  [EventType.UpdateCopilotInstructionsStart]: {
-    properties: {
-      trigger: "Command" | "Project" | "Activation" | "ChatToolCall";
-    };
-    measurements: Empty;
-  };
-  [EventType.UpdateCopilotInstructionsEnd]: {
-    properties: {
-      reason?: string;
-      flowStatus: UserFlowStatus;
-    };
+  [EventType.RemoveOldCopilotInstructions]: {
+    properties: Empty;
     measurements: Empty;
   };
   [EventType.ChangelogPromptStart]: {

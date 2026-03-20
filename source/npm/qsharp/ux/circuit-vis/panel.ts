@@ -285,6 +285,7 @@ const toRenderData = (
   const target = y + 1 + gateHeight / 2; // offset by 1 for top padding
   const renderData: GateRenderData = {
     type: GateType.Invalid,
+    isExpanded: false,
     x: x + 1 + minGateWidth / 2, // offset by 1 for left padding
     controlsY: [],
     targetsY: [target],

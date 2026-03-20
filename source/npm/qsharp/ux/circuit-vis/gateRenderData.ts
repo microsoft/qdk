@@ -2,6 +2,7 @@
 // Licensed under the MIT license.
 
 import { DataAttributes } from "./circuit.js";
+import { Register } from "./register.js";
 
 /**
  * Enum for the various gate operations handled.
@@ -21,8 +22,6 @@ export enum GateType {
   Unitary,
   /** Single/multi controlled unitary gate. */
   ControlledUnitary,
-  /** Nested group of classically-controlled gates. */
-  ClassicalControlled,
   /** Group of nested gates */
   Group,
   /** Invalid gate. */
@@ -36,6 +35,8 @@ export enum GateType {
 export interface GateRenderData {
   /** Gate type. */
   type: GateType;
+  /** Whether this group gate is currently expanded. Always false for non-group gates. */
+  isExpanded: boolean;
   /** Centre x coord for gate position. */
   x: number;
   /** Array of y coords of control registers. */
@@ -61,7 +62,7 @@ export interface GateRenderData {
   dataAttributes?: DataAttributes;
   /** Link href and title for clickable gate. */
   link?: { href: string; title: string };
-  /** Labels for the classical control registers (applicable only for GateType.ClassicalControlled). */
+  /** Labels for the classical control registers (when present, this group is rendered with classical controls). */
   classicalControlIds?: (number | null)[];
   /** Wire keys ("qubit-result") for each classical control (applicable only for GateType.ClassicalControlled). */
   controlWireKeys?: string[];
@@ -69,4 +70,10 @@ export interface GateRenderData {
    *  For GateType.Measure: single-element array.
    *  For collapsed unitary/ket ops that contain inner measurements: one entry per result target. */
   resultWireKeys?: string[];
+  /**
+   * Classical control registers used by this operation or any descendant.
+   * Used by processOperations to decide which classical wires may pass through
+   * this gate body without forcing a split.
+   */
+  classicalControlRegs?: Register[];
 }

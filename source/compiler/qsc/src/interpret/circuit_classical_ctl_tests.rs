@@ -83,7 +83,7 @@ fn result_comparison_to_literal_zero() {
             q_0    ─ X@test.qs:5:8 ─
 
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn else_block_only() {
             q_0    ─ X@test.qs:6:8 ─
 
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn result_comparison_to_result() {
             q_1    ─────────────────
 
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -187,7 +187,7 @@ fn result_comparison_empty_block() {
             q_1    ─ H@test.qs:4:4 ── M@test.qs:6:13 ──── |0〉@test.qs:11:4 ───
                                              ╘════════════════════════════════
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -309,7 +309,7 @@ fn sequential_ifs() {
             q_2    ─ Y@test.qs:16:8 ──
 
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -424,7 +424,7 @@ fn variable_double_in_unitary_arg() {
             q_1    ─ Rx(f(c_0))@qsharp-library-source:Std/Intrinsic.qs:510:8 ─
 
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -548,7 +548,7 @@ fn branch_on_dynamic_bool() {
             q_1    ─ X@test.qs:15:8 ──
 
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }
 
 #[test]
@@ -589,5 +589,5 @@ fn nested_callables_in_branch() {
             q_1    ────────────────────────────────────────────────────────────────────────────────────────────────────
 
     "#]]
-    .assert_eq(&circ.to_string());
+    .assert_eq(&circ);
 }

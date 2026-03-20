@@ -17,7 +17,7 @@ fn check_rca_for_classical_lambda_one_parameter() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -35,7 +35,7 @@ fn check_rca_for_classical_lambda_two_parameters() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -54,7 +54,7 @@ fn check_rca_for_classical_lambda_one_parameter_one_capture() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -74,7 +74,7 @@ fn check_rca_for_classical_lambda_one_parameter_two_captures() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -93,7 +93,7 @@ fn check_rca_for_classical_lambda_two_parameters_one_capture() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -113,7 +113,7 @@ fn check_rca_for_classical_lambda_two_parameters_two_captures() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -139,9 +139,9 @@ fn check_rca_for_dynamic_lambda_two_classical_parameters_one_dynamic_capture() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicDouble)
-                    value_kind: Element(Dynamic)
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -168,9 +168,9 @@ fn check_rca_for_dynamic_lambda_two_dynamic_parameters_one_classical_capture() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble)
-                    value_kind: Element(Dynamic)
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -189,9 +189,9 @@ fn check_rca_for_operation_lambda_two_parameters() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Array(Content: Dynamic, Size: Static)
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -211,9 +211,9 @@ fn check_rca_for_operation_lambda_two_parameters_with_controls() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Element(Static)
+                    value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -232,7 +232,7 @@ fn check_rca_for_function_lambda_using_array_slicing_with_explicit_return() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -251,7 +251,7 @@ fn check_rca_for_function_lambda_using_array_slicing_with_implicit_return() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
