@@ -28,7 +28,7 @@ type Probability = f64;
     reason = "these gates are named as in the rest of our stack"
 )]
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[pyclass(eq, eq_int)]
+#[pyclass(eq, eq_int, from_py_object)]
 pub enum QirInstructionId {
     I,
     H,
@@ -308,7 +308,7 @@ fn unbind_noise_config<T: Float, Q: Float>(
 }
 
 #[derive(Clone, Copy, Debug)]
-#[pyclass(module = "qsharp._native")]
+#[pyclass(from_py_object, module = "qsharp._native")]
 pub struct IdleNoiseParams {
     #[pyo3(get, set)]
     pub s_probability: Probability,
@@ -350,7 +350,7 @@ impl From<qdk_simulators::noise_config::IdleNoiseParams> for IdleNoiseParams {
 }
 
 #[derive(Clone, Debug)]
-#[pyclass(module = "qsharp._native")]
+#[pyclass(from_py_object, module = "qsharp._native")]
 pub struct NoiseTable {
     qubits: u32,
     pauli_noise: FxHashMap<u64, Probability>,
@@ -665,7 +665,7 @@ impl<T: Float> From<qdk_simulators::noise_config::NoiseTable<T>> for NoiseTable 
 }
 
 #[derive(Debug, Default)]
-#[pyclass(module = "qsharp._native")]
+#[pyclass(from_py_object, module = "qsharp._native")]
 pub struct NoiseIntrinsicsTable {
     next_id: u32,
     table: FxHashMap<String, (u32, Py<NoiseTable>)>,
