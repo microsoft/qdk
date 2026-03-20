@@ -67,7 +67,7 @@ fn nalgebra_matrix_to_python_matrix(matrix: &SquareMatrix) -> PythonMatrix {
 
 pyo3::create_exception!(qsharp.noisy_sim, NoisySimulatorError, PyException);
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub(crate) struct Operation(noisy_simulator::Operation);
 
@@ -119,7 +119,7 @@ impl Instrument {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub(crate) struct DensityMatrix {
     /// Dimension of the matrix. E.g.: If the matrix is 5 x 5, then dimension is 5.
@@ -261,7 +261,7 @@ impl DensityMatrixSimulator {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub(crate) struct StateVector {
     /// Dimension of the matrix. E.g.: If the matrix is 5 x 5, then dimension is 5.

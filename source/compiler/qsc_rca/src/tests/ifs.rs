@@ -25,7 +25,7 @@ fn check_rca_for_if_stmt_with_classic_condition_and_classic_if_true_block() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Classical
+                    inherent: Static
                     dynamic_param_applications: <empty>
                 adj: <none>
                 ctl: <none>
@@ -53,9 +53,9 @@ fn check_rca_for_if_stmt_with_dynamic_condition_and_classic_if_true_block() {
         &expect![[r#"
             Callable: CallableComputeProperties:
                 body: ApplicationsGeneratorSet:
-                    inherent: Quantum: QuantumProperties:
+                    inherent: Dynamic:
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                        value_kind: Static
+                        value_kind: Constant
                     dynamic_param_applications: <empty>
                 adj: <none>
                 ctl: <none>
@@ -80,7 +80,7 @@ fn check_rca_for_if_else_expr_with_classic_condition_and_classic_branch_blocks()
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -103,9 +103,9 @@ fn check_rca_for_if_else_expr_with_dynamic_condition_and_classic_branch_blocks()
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt)
-                    value_kind: Dynamic
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }

@@ -144,10 +144,10 @@ impl Scope {
                     Arg::Discard(value) => value,
                     Arg::Var(_, var) => &var.value,
                 };
-                ComputeKind::new_with_runtime_features(
-                    RuntimeFeatureFlags::empty(),
-                    map_eval_value_to_value_kind(value),
-                )
+                ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::empty(),
+                    value_kind: map_eval_value_to_value_kind(value),
+                }
             })
             .collect();
 
@@ -159,10 +159,8 @@ impl Scope {
             env.bind_variable_in_top_frame(local_var_id, var);
         }
 
-        // Add the values to both the classical environment and the hybrid variables depending on whether the value is
-        // static or dynamic.
-        let arg_runtime_kind_tuple = args.into_iter().zip(args_compute_kind.iter());
-        for (arg, _) in arg_runtime_kind_tuple {
+        // Add the values to both environments.
+        for arg in args {
             let Arg::Var(local_var_id, var) = arg else {
                 continue;
             };
@@ -303,23 +301,23 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         Value::Array(elements) => {
             for element in elements.iter() {
                 let element_runtime_kind = map_eval_value_to_value_kind(element);
-                if element_runtime_kind == ValueKind::Dynamic {
-                    return ValueKind::Dynamic;
+                if element_runtime_kind == ValueKind::Variable {
+                    return ValueKind::Variable;
                 }
             }
 
-            ValueKind::Static
+            ValueKind::Constant
         }
         Value::Tuple(elements, _) => {
             for element in elements.iter() {
                 let element_runtime_kind = map_eval_value_to_value_kind(element);
-                if element_runtime_kind == ValueKind::Dynamic {
-                    return ValueKind::Dynamic;
+                if element_runtime_kind == ValueKind::Variable {
+                    return ValueKind::Variable;
                 }
             }
-            ValueKind::Static
+            ValueKind::Constant
         }
-        Value::Result(Result::Id(_) | Result::Loss) | Value::Var(_) => ValueKind::Dynamic,
+        Value::Result(Result::Id(_) | Result::Loss) | Value::Var(_) => ValueKind::Variable,
         Value::BigInt(_)
         | Value::Bool(_)
         | Value::Closure(_)
@@ -331,6 +329,6 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         | Value::QMem(_)
         | Value::Range(_)
         | Value::Result(Result::Val(_))
-        | Value::String(_) => ValueKind::Static,
+        | Value::String(_) => ValueKind::Constant,
     }
 }

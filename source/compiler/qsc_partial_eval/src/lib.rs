@@ -41,7 +41,7 @@ use qsc_fir::{
 use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
-    QuantumProperties, RuntimeFeatureFlags, ValueKind,
+    RuntimeFeatureFlags, ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
@@ -1158,7 +1158,7 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
-    fn eval_classical_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
+    fn eval_static_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
         let current_package_id = self.get_current_package_id();
         let store_expr_id = StoreExprId::from((current_package_id, expr_id));
         let expr = self.package_store.get_expr(store_expr_id);
@@ -1214,7 +1214,7 @@ impl<'a> PartialEvaluator<'a> {
         eval_result
     }
 
-    fn eval_hybrid_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
+    fn eval_dynamic_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
         let expr = self.get_expr(expr_id);
         let expr_package_span = self.get_expr_package_span(expr_id);
         match &expr.kind {
@@ -1592,10 +1592,10 @@ impl<'a> PartialEvaluator<'a> {
         // by the target.
         if self.is_unresolved_callee_expr(callee_expr_id) {
             let call_compute_kind = self.get_call_compute_kind(call_scope);
-            if let ComputeKind::Quantum(QuantumProperties {
+            if let ComputeKind::Dynamic {
                 runtime_features,
                 value_kind,
-            }) = call_compute_kind
+            } = call_compute_kind
             {
                 let missing_features = get_missing_runtime_features(
                     runtime_features,
@@ -1612,10 +1612,10 @@ impl<'a> PartialEvaluator<'a> {
                     return Err(Error::CapabilityError(error));
                 }
 
-                // If the call produces a dynamic value, we treat it as an error because we know that later
-                // analysis has not taken that dynamism into account and further partial evaluation may fail
+                // If the call produces a variable value, we treat it as an error because we know that later
+                // analysis has not taken that variable into account and further partial evaluation may fail
                 // when it encounters that value.
-                if value_kind == ValueKind::Dynamic {
+                if value_kind == ValueKind::Variable {
                     return Err(Error::UnexpectedDynamicValue(
                         self.get_expr_package_span(call_expr_id),
                     ));
@@ -1776,7 +1776,8 @@ impl<'a> PartialEvaluator<'a> {
             | "EnableMemoryComputeArchitecture"
             | "ApplyIdleNoise"
             | "GlobalPhase"
-            | "Message" => Ok(Value::unit()),
+            | "Message"
+            | "PostSelectZ" => Ok(Value::unit()),
             "CheckZero" => Err(Error::UnsupportedSimulationIntrinsic(
                 "CheckZero".to_string(),
                 callee_expr_span,
@@ -2328,11 +2329,13 @@ impl<'a> PartialEvaluator<'a> {
         condition_expr_id: ExprId,
         body_block_id: BlockId,
     ) -> Result<EvalControlFlow, Error> {
-        // Verify assumptions: the condition expression must either classical (such that it can be fully evaluated) or
-        // quantum but statically known at runtime (such that it can be partially evaluated to a known value).
+        // Verify assumptions: the condition expression must either static (such that it can be fully evaluated) or
+        // dynamic but constant at runtime (such that it can be partially evaluated to a known value).
         assert!(
-            !self.get_expr_compute_kind(condition_expr_id).is_dynamic(),
-            "loop conditions must be purely classical"
+            !self
+                .get_expr_compute_kind(condition_expr_id)
+                .is_variable_value_kind(),
+            "loop conditions must be known at code generation time."
         );
 
         // Evaluate the block until the loop condition is false.
@@ -2866,9 +2869,9 @@ impl<'a> PartialEvaluator<'a> {
             .expect("program block does not exist")
     }
 
-    fn is_classical_expr(&self, expr_id: ExprId) -> bool {
+    fn is_static_expr(&self, expr_id: ExprId) -> bool {
         let compute_kind = self.get_expr_compute_kind(expr_id);
-        matches!(compute_kind, ComputeKind::Classical)
+        matches!(compute_kind, ComputeKind::Static)
     }
 
     fn allocate_qubit(&mut self) -> Value {
@@ -3111,11 +3114,13 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn try_eval_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
-        // An expression is evaluated differently depending on whether it is purely classical or hybrid.
-        if self.is_classical_expr(expr_id) {
-            self.eval_classical_expr(expr_id)
+        // An expression is evaluated differently depending on whether it is purely static or dynamic,
+        // since static expressions can be fully evaluated and do not need to generate any instructions,
+        // while dynamic expressions may need to generate instructions and map their value to a variable.
+        if self.is_static_expr(expr_id) {
+            self.eval_static_expr(expr_id)
         } else {
-            self.eval_hybrid_expr(expr_id)
+            self.eval_dynamic_expr(expr_id)
         }
     }
 

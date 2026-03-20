@@ -51,6 +51,10 @@ pub struct LogicalCounter {
     /// Random number generator
     rnd: RefCell<StdRng>,
 
+    /// Map to track any post-select measurements by their associated qubit.
+    /// This value is used in a measurement, if present, before generating a random result.
+    post_select_measurements: FxHashMap<usize, bool>,
+
     // Manual memory management tracking
     all_manual_memory_qubits: FxHashSet<usize>,
     current_memory_qubits: FxHashSet<usize>,
@@ -76,6 +80,7 @@ impl Default for LogicalCounter {
             memory_compute: None,
             rnd: RefCell::new(StdRng::seed_from_u64(0)),
             all_manual_memory_qubits: FxHashSet::default(),
+            post_select_measurements: FxHashMap::default(),
             current_memory_qubits: FxHashSet::default(),
             manual_memory_writes: 0,
             manual_memory_reads: 0,
@@ -524,7 +529,11 @@ impl Backend for LogicalCounter {
 
         self.m_count += 1;
 
-        self.rnd.borrow_mut().gen_bool(0.5).into()
+        if let Some(val) = self.post_select_measurements.remove(&q) {
+            val.into()
+        } else {
+            self.rnd.borrow_mut().gen_bool(0.5).into()
+        }
     }
 
     fn mresetz(&mut self, q: usize) -> BackendResult {
@@ -629,9 +638,19 @@ impl Backend for LogicalCounter {
         true
     }
 
-    fn qubit_swap_id(&mut self, _q0: usize, _q1: usize) {
-        // This can safely be treated as a no-op, because counts don't care which qubit is operated on,
-        // just how many operations are performed, and relabeling is non-physical.
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
+        // First swap the layer map for the qubits.
+        self.max_layer.swap(q0, q1);
+
+        // Then swap the post-select measurement map for the qubits, if present.
+        let q0_post_select = self.post_select_measurements.remove(&q0);
+        let q1_post_select = self.post_select_measurements.remove(&q1);
+        if let Some(val) = q0_post_select {
+            self.post_select_measurements.insert(q1, val);
+        }
+        if let Some(val) = q1_post_select {
+            self.post_select_measurements.insert(q0, val);
+        }
     }
 
     fn capture_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
@@ -701,6 +720,18 @@ impl Backend for LogicalCounter {
                 let q = arg.unwrap_qubit();
                 self.all_manual_memory_qubits.insert(q.deref().0);
                 self.current_memory_qubits.insert(q.deref().0);
+
+                Some(Ok(Value::unit()))
+            }
+            "PostSelectZ" => {
+                let values = arg.unwrap_tuple();
+                let [result, qubit] = array::from_fn(|i| values[i].clone());
+                let Value::Result(BackendResult::Val(val)) = result else {
+                    panic!("first argument to PostSelectZ should be a measurement result",);
+                };
+                let qubit = qubit.unwrap_qubit().deref().0;
+                self.post_select_measurements.insert(qubit, val);
+
                 Some(Ok(Value::unit()))
             }
             _ => None,

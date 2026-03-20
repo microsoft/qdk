@@ -142,15 +142,15 @@ impl<'a> Analyzer<'a> {
         let mut dynamic_param_applications =
             Vec::<ParamApplication>::with_capacity(input_params.len());
         for param in input_params {
-            // If any parameter is dynamic, we assume the output of a function with cycles is also dynamic.
-            let value_kind = ValueKind::new_dynamic_from_type(output_type);
+            // If any parameter is dynamic, we assume the output of a function with cycles requires a variable value kind.
+            let value_kind = ValueKind::new_variable_from_type(output_type);
 
             // Since using cyclic functions with dynamic parameters requires advanced runtime capabilities, we use the
             // corresponding runtime feature.
-            let param_compute_kind = ComputeKind::new_with_runtime_features(
-                RuntimeFeatureFlags::CallToCyclicFunctionWithDynamicArg,
+            let param_compute_kind = ComputeKind::Dynamic {
+                runtime_features: RuntimeFeatureFlags::CallToCyclicFunctionWithDynamicArg,
                 value_kind,
-            );
+            };
 
             // Create a parameter application depending on the parameter type.
             let param_application = match &param.ty {
@@ -164,8 +164,8 @@ impl<'a> Analyzer<'a> {
         }
 
         ApplicationGeneratorSet {
-            // Functions are inherently classically pure.
-            inherent: ComputeKind::Classical,
+            // Functions are inherently classically pure, so when passed static parameters their output is static.
+            inherent: ComputeKind::Static,
             dynamic_param_applications,
         }
     }
@@ -276,11 +276,11 @@ fn create_operation_specialization_application_generator_set(
 ) -> ApplicationGeneratorSet {
     // Since operations can allocate and measure qubits freely, we assume its compute kind is quantum and that their
     // value kind is dynamic.
-    let value_kind = ValueKind::new_dynamic_from_type(output_type);
-    let inherent_compute_kind = ComputeKind::new_with_runtime_features(
-        RuntimeFeatureFlags::CyclicOperationSpec,
+    let value_kind = ValueKind::new_variable_from_type(output_type);
+    let inherent_compute_kind = ComputeKind::Dynamic {
+        runtime_features: RuntimeFeatureFlags::CyclicOperationSpec,
         value_kind,
-    );
+    };
 
     // The compute kind of a cyclic operation for all dynamic parameter applications is the same as its inherent
     // compute kind.
