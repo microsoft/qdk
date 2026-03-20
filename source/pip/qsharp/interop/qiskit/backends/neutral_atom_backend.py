@@ -1,7 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from concurrent.futures import Executor
 import logging
 from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import uuid4
@@ -20,31 +19,6 @@ from .errors import Errors
 from .neutral_atom_target import NeutralAtomTarget
 
 logger = logging.getLogger(__name__)
-
-
-def _result_to_bitstring(value) -> str:
-    """Convert a simulation result value to a bitstring.
-
-    Handles the nested structure produced by OutputRecordingPass:
-    - tuples (multiple classical registers) -> space-joined parts
-    - lists (single register or flat results) -> concatenated bit characters
-    - Result.One/Zero -> "1"/"0"
-    - Loss -> "-"
-    """
-    if isinstance(value, tuple):
-        return " ".join(_result_to_bitstring(part) for part in value)
-    elif isinstance(value, list):
-        chars = []
-        for v in value:
-            if v == Result.One:
-                chars.append("1")
-            elif v == Result.Zero:
-                chars.append("0")
-            else:
-                chars.append("-")
-        return "".join(chars)
-    else:
-        return str(value)
 
 
 def _bitstring_has_qubit_loss(bitstring: str) -> bool:
@@ -195,12 +169,16 @@ class NeutralAtomBackend(BackendBase):
             ValueError: If ``run_input`` is not a ``QuantumCircuit`` or list thereof,
                 or if a ``target_profile`` option is provided that is not ``TargetProfile.Base``.
         """
-        if not isinstance(run_input, list):
-            run_input = [run_input]
-        for circuit in run_input:
-            if not isinstance(circuit, QuantumCircuit):
-                raise ValueError(str(Errors.INPUT_MUST_BE_QC))
+        run_input = self._validate_quantum_circuits(run_input)
         return self._run(run_input, **options)
+
+    def _map_result_bit(self, v) -> str:
+        """Override: unknown values are qubit-loss markers (``"-"``)."""
+        if v == Result.One:
+            return "1"
+        if v == Result.Zero:
+            return "0"
+        return "-"
 
     def _execute(self, programs: List[Compilation], **input_params) -> Dict[str, Any]:
         device = self._get_device()
@@ -251,7 +229,7 @@ class NeutralAtomBackend(BackendBase):
                 seed=seed,
             )
 
-            raw_memory = [_result_to_bitstring(shot) for shot in sim_results]
+            raw_memory = [self._shot_to_bitstring(shot) for shot in sim_results]
 
             # Separate accepted shots (no loss markers) from raw shots.
             # Qiskit-compatible fields (counts, memory, probabilities)
@@ -302,25 +280,4 @@ class NeutralAtomBackend(BackendBase):
                 }
             )
 
-        return {
-            "results": job_results,
-            "qobj_id": str(uuid4()),
-            "success": True,
-        }
-
-    def _create_results(self, output: Dict[str, Any]) -> Any:
-        from qiskit.result import Result
-
-        return Result.from_dict(output)
-
-    def _submit_job(
-        self, run_input: List[QuantumCircuit], **options
-    ) -> Union[QsSimJob, QsJobSet]:
-        job_id = str(uuid4())
-        executor: Executor = options.pop("executor", DetaultExecutor())
-        if len(run_input) == 1:
-            job = QsSimJob(self, job_id, self.run_job, run_input, options, executor)
-        else:
-            job = QsJobSet(self, job_id, self.run_job, run_input, options, executor)
-        job.submit()
-        return job
+        return {"results": job_results, "qobj_id": str(uuid4()), "success": True}
