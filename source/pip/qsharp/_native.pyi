@@ -1095,6 +1095,15 @@ class GpuContext:
         """
         ...
 
+    def set_adaptive_program(self, program: dict) -> None:
+        """
+        Sets an Adaptive Profile QIR program for GPU execution.
+
+        The program dict contains bytecode instructions, block/function tables,
+        quantum op pool, and side tables produced by AdaptiveProfilePass.
+        """
+        ...
+
     def set_noise(self, noise: NoiseConfig) -> None:
         """
         Sets the noise configuration for the GPU simulation.
@@ -1104,5 +1113,11 @@ class GpuContext:
     def run_shots(self, shot_count: int, seed: int) -> GpuShotResults:
         """
         Runs the specified number of shots of the loaded program on the GPU.
+        """
+        ...
+
+    def run_adaptive_shots(self, shot_count: int, seed: int) -> GpuShotResults:
+        """
+        Runs the specified number of shots of the loaded adaptive program on the GPU.
         """
         ...

@@ -371,7 +371,7 @@ impl GpuResources {
         }
     }
 
-    pub async fn create_device(&mut self, dbg_capture: bool) -> Result<(), String> {
+    pub async fn create_device(&mut self, dbg_capture: bool, adaptive: bool) -> Result<(), String> {
         // If we already had a prior device and it was capturing, stop any existing capture on it.
         self.stop_graphics_debugger_capture();
 
@@ -405,7 +405,11 @@ impl GpuResources {
             }
         }
         // Drop any resources created with a prior device, since the new device will be used now
-        self.device_resources = GpuDeviceResources::default();
+        self.device_resources = if adaptive {
+            GpuDeviceResources::adaptive()
+        } else {
+            GpuDeviceResources::default()
+        };
 
         // Create the fixed sized buffers
         self.device_resources.bound_buffers[UNIFORM_BUF_IDX].buffer = Some(create_dst_buffer(
@@ -430,9 +434,9 @@ impl GpuResources {
         self.create_bind_group_layout()
     }
 
-    pub async fn ensure_device(&mut self, dbg_capture: bool) -> Result<(), String> {
+    pub async fn ensure_device(&mut self, dbg_capture: bool, adaptive: bool) -> Result<(), String> {
         if self.device.is_none() {
-            self.create_device(dbg_capture).await?;
+            self.create_device(dbg_capture, adaptive).await?;
         }
         Ok(())
     }
@@ -620,7 +624,7 @@ impl GpuResources {
 
         self.device_resources.kernels = Some(GpuKernels {
             init_op: get_kernel("initialize"),
-            prepare_op: get_kernel("prepare_adaptive_op"),
+            prepare_op: get_kernel("prepare_op"),
             execute_op: get_kernel("execute"),
             interpret_classical: get_kernel("interpret_classical"),
         });
@@ -779,6 +783,11 @@ impl GpuResources {
         let device = self.device.as_ref().ok_or("GPU device not initialized")?;
         let queue = self.queue.as_ref().ok_or("GPU queue not initialized")?;
 
+        // Skip uploading empty data, the placeholder buffers from bind group creation suffice
+        if data.is_empty() {
+            return Ok(());
+        }
+
         let dst_buffer = &mut self.device_resources.bound_buffers[buf_idx];
 
         if let Some(ref buffer) = dst_buffer.buffer
@@ -883,6 +892,82 @@ impl GpuResources {
         }
     }
 
+    pub fn get_adaptive_bind_group(&mut self) -> Result<BindGroup, String> {
+        if let Some(ref bind_group) = self.device_resources.bind_group {
+            // Already created. BindGroup largely wraps ref-counted handles, so cloning is cheap.
+            return Ok(bind_group.clone());
+        }
+
+        let device = self.device.as_ref().ok_or("GPU device not initialized")?;
+        let bind_group_layout = self.bind_group_layout.as_ref().ok_or("Missing layout")?;
+        let bound_buffers = &mut self.device_resources.bound_buffers;
+
+        // Even if correlated noise is not used, the buffers still need to exist anyway to be bound
+        // NoiseTableMetadata is 16 bytes, NoiseTableEntry is 16 bytes
+        Self::ensure_buffer(
+            device,
+            &mut bound_buffers[CORRELATED_NOISE_TABLES_BUF_IDX],
+            16,
+        );
+        Self::ensure_buffer(
+            device,
+            &mut bound_buffers[CORRELATED_NOISE_ENTRIES_BUF_IDX],
+            16,
+        );
+
+        // Ensure adaptive interpreter buffers have at least minimum placeholder sizes
+        for idx in [
+            BYTECODE_BUF_IDX,
+            BLOCK_TABLE_BUF_IDX,
+            FUNCTION_TABLE_BUF_IDX,
+            PHI_TABLE_BUF_IDX,
+            SWITCH_TABLE_BUF_IDX,
+            CALL_ARG_TABLE_BUF_IDX,
+            INTERPRETER_STATE_BUF_IDX,
+            REGISTER_FILE_BUF_IDX,
+            TERMINATION_COUNTER_BUF_IDX,
+        ] {
+            Self::ensure_buffer(device, &mut bound_buffers[idx], 16);
+        }
+
+        dbg!("binding adaptive group");
+        dbg!(bound_buffers.len());
+        let ub: Vec<_> = bound_buffers
+            .iter()
+            .map(|entry| entry.buffer.is_none())
+            .collect();
+        dbg!(ub);
+
+        // Ensure all buffers are created
+        if bound_buffers.iter().any(|entry| entry.buffer.is_none()) {
+            return Err(
+                "All buffers to bind must be created before creating the bind group".to_string(),
+            );
+        }
+
+        #[allow(clippy::cast_possible_truncation)]
+        let entries: Vec<BindGroupEntry> = bound_buffers
+            .iter()
+            .enumerate()
+            .map(|(idx, buffer_bindings)| BindGroupEntry {
+                binding: idx as u32,
+                resource: buffer_bindings
+                    .buffer
+                    .as_ref()
+                    .expect("Buffer should exist")
+                    .as_entire_binding(),
+            })
+            .collect();
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Simulator Bind Group"),
+            layout: bind_group_layout,
+            entries: &entries,
+        });
+        self.device_resources.bind_group = Some(bind_group.clone());
+        Ok(bind_group)
+    }
+
     // --- Adaptive interpreter buffer uploads ---
 
     pub fn upload_bytecode(&mut self, data: &[u8]) -> Result<(), String> {
@@ -923,6 +1008,10 @@ impl GpuResources {
 
     pub fn ensure_adaptive_run_buffers(
         &mut self,
+        shot_state_buffer_size: usize,
+        state_vector_buffer_size: usize,
+        results_buffer_size: usize,
+        diagnostics_buffer_size: usize,
         interpreter_state_size: usize,
         register_file_size: usize,
     ) -> Result<(), String> {
@@ -941,6 +1030,15 @@ impl GpuResources {
                 self.device_resources.bind_group = None;
             }
         };
+
+        for (idx, size) in [
+            (SHOT_STATE_BUF_IDX, shot_state_buffer_size),
+            (STATE_VECTOR_BUF_IDX, state_vector_buffer_size),
+            (RESULTS_BUF_IDX, results_buffer_size),
+            (DIAGNOSTICS_BUF_IDX, diagnostics_buffer_size),
+        ] {
+            check_buffer(idx, size);
+        }
 
         check_buffer(INTERPRETER_STATE_BUF_IDX, interpreter_state_size);
         check_buffer(REGISTER_FILE_BUF_IDX, register_file_size);

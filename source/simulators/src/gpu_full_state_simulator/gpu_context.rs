@@ -43,6 +43,8 @@ pub struct GpuContext {
     noise_config_is_dirty: bool,
     // Indicates if the noise tables have changed and need to be re-uploaded to the GPU
     noise_tables_is_dirty: bool,
+    // Indicates if the context is for an adaptive program.
+    is_adaptive: bool,
 }
 
 #[derive(Debug, Default)]
@@ -335,7 +337,7 @@ impl GpuContext {
     async fn ready_gpu_resources(&mut self) -> Result<(), String> {
         // Ensure the device is initialized
         let dbg_capture = std::env::var("QDK_GPU_CAPTURE").is_ok();
-        self.resources.ensure_device(dbg_capture).await?;
+        self.resources.ensure_device(dbg_capture, false).await?;
 
         if self.program_is_dirty || self.noise_config_is_dirty {
             // Rebuild the program (with noise if needed) and upload to GPU
@@ -445,8 +447,14 @@ impl GpuContext {
     pub fn adaptive() -> Self {
         Self {
             resources: GpuResources::adaptive(),
+            is_adaptive: true,
             ..Default::default()
         }
+    }
+
+    #[must_use]
+    pub fn is_adaptive(&self) -> bool {
+        self.is_adaptive
     }
 
     pub fn set_adaptive_program(&mut self, program: AdaptiveProgram) {
@@ -507,18 +515,7 @@ impl GpuContext {
     async fn ready_gpu_resources_adaptive(&mut self) -> Result<(), String> {
         // Ensure the device is initialized
         let dbg_capture = std::env::var("QDK_GPU_CAPTURE").is_ok();
-        self.resources.ensure_device(dbg_capture).await?;
-
-        if self.program_is_dirty || self.noise_config_is_dirty {
-            // Rebuild the program (with noise if needed) and upload to GPU
-            if let Some(_noise) = &self.noise_config {
-                unimplemented!("noise is not currently supported for adaptive profile")
-            } else {
-                self.program_with_noise = None;
-            }
-            self.upload_adaptive_program_buffers()?;
-            self.program_is_dirty = false;
-        }
+        self.resources.ensure_device(dbg_capture, true).await?;
 
         if self.noise_tables_is_dirty {
             // Re-upload noise tables to GPU (if any)
@@ -534,9 +531,8 @@ impl GpuContext {
             }
         }
 
-        let params = &self.run_params;
-
         if self.pipeline_is_dirty {
+            let params = &self.run_params;
             // The pipeline is marked as dirty if the qubit or result count changed (shot count doesn't impact it)
             self.resources.create_shaders_adaptive(
                 params.qubit_count,
@@ -552,12 +548,42 @@ impl GpuContext {
             )?;
         }
 
+        if self.program_is_dirty || self.noise_config_is_dirty {
+            // Rebuild the program (with noise if needed) and upload to GPU
+            if let Some(_noise) = &self.noise_config {
+                unimplemented!("noise is not currently supported for adaptive profile")
+            } else {
+                self.program_with_noise = None;
+            }
+            self.upload_adaptive_program_buffers()?;
+            self.program_is_dirty = false;
+        }
+
+        let params = &self.run_params;
         let shots_usize = i32_to_usize(self.run_params.shots_per_batch);
         let interp_state_size = shots_usize * INTERP_STATE_STRIDE * 4;
         let register_file_size = shots_usize * MAX_REGISTERS * 4;
-        self.resources
-            .ensure_adaptive_run_buffers(interp_state_size, register_file_size)?;
+
+        self.resources.ensure_adaptive_run_buffers(
+            params.shots_buffer_size,
+            params.state_vector_buffer_size,
+            params.results_buffer_size,
+            params.diagnostics_buffer_size,
+            interp_state_size,
+            register_file_size,
+        )?;
+
         Ok(())
+    }
+
+    /// Run the adaptive program for the given number of shots (blocking)
+    pub fn run_adaptive_shots_sync(
+        &mut self,
+        shot_count: i32,
+        seed: u32,
+        start_shot_id: i32,
+    ) -> Result<RunResults, String> {
+        futures::executor::block_on(self.run_adaptive_shots(shot_count, seed, start_shot_id))
     }
 
     #[allow(clippy::too_many_lines)]
@@ -576,7 +602,7 @@ impl GpuContext {
         self.ready_gpu_resources_adaptive().await?;
 
         // Get the GPU resources we need for the entire run
-        let bind_group = self.resources.get_bind_group()?;
+        let bind_group = self.resources.get_adaptive_bind_group()?;
         let kernels = self.resources.get_kernels()?;
 
         let mut results: Vec<u32> = Vec::new();

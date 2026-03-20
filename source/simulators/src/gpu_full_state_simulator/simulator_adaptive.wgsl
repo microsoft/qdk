@@ -118,7 +118,7 @@ struct ShotData {
     // Track which qubit probabilities were updated in the last operation (to collate on next prepare_op)
     qubits_updated_last_op_mask: u32,
 
-    // Per-shot qubit indices for the current operation (set by prepare_adaptive_op for dynamic qubits)
+    // Per-shot qubit indices for the current operation (set by prepare_op for dynamic qubits)
     q1: u32,
     q2: u32,
     // 22 x 4 bytes to this point = 88 bytes
@@ -293,11 +293,15 @@ const INTERP_CALL_STACK:       u32 = 10u;  // Base for call frames (4 u32 per fr
 // Example: ``OP_ICMP | (ICMP_SLE << 8) | FLAG_SRC1_IMM``
 
 // -- Flags (pre-shifted to bit 16+) ------------------------------------------
-const FLAG_SRC0_IMM:    u32 = 1 << 16;  // src0 field is an immediate value, not a register
-const FLAG_SRC1_IMM:    u32 = 1 << 17;  // src1 field is an immediate value, not a register
-const FLAG_WIDE_IMM:    u32 = 1 << 18;  // wide immediate (reserved for future i64)
-const FLAG_FLOAT:       u32 = 1 << 19;  // operation uses float semantics
-const FLAG_64BIT:       u32 = 1 << 21;  // reserved for future i64 support
+const FLAG_SRC0_IMM: u32 = 1 << 16;  // src0 field is an immediate value, not a register
+const FLAG_SRC1_IMM: u32 = 1 << 17;  // src1 field is an immediate value, not a register
+const FLAG_DST_IMM:  u32 = 1 << 18;  // dst  field is an immediate value, not a register
+const FLAG_AUX0_IMM: u32 = 1 << 19;  // aux0 field is an immediate value, not a register
+const FLAG_AUX1_IMM: u32 = 1 << 20;  // aux1 field is an immediate value, not a register
+const FLAG_AUX2_IMM: u32 = 1 << 21;  // aux2 field is an immediate value, not a register
+const FLAG_AUX3_IMM: u32 = 1 << 22;  // aux3 field is an immediate value, not a register
+
+const FLAG_FLOAT: u32 = 1 << 23;  // operation uses float semantics
 
 // -- Control Flow -------------------------------------------------------------
 const OP_NOP:           u32 = 0x00;
@@ -399,8 +403,8 @@ const REG_TYPE_F64:     u32 = 4;
 const REG_TYPE_PTR:     u32 = 5;
 
 // -- Sentinel values ----------------------------------------------------------
-const DYN_QUBIT_SENTINEL: u32 = 0xFFFFFFFF;  // "use static qubit from quantum op pool"
-
+const DYN_QUBIT_SENTINEL: u32 = 0xFFFFFFFF;  // Value is *not* dynamic. Use static value.
+const VOID_RETURN:        u32 = 0xFFFFFFFF;  // Function does not have a return value.
 
 // -----------------------------------------------------------------------------
 // Adaptive interpreter — register file access
@@ -1545,7 +1549,7 @@ fn initialize(
 //   2. Each shot executes classical instructions in a loop until one of:
 //      (a) A quantum operation is encountered → status = QUANTUM_PENDING,
 //          which tells the host to run the quantum simulation kernels
-//          (prepare_adaptive_op → execute) before re-entering this function.
+//          (prepare_op → execute) before re-entering this function.
 //      (b) A `ret` instruction terminates the shot → status = TERMINATED.
 //      (c) The step limit (MAX_CLASSICAL_STEPS) is hit → status = YIELD,
 //          which prevents any single dispatch from running forever; the host
@@ -1843,7 +1847,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // state for the host to read, sets status = QUANTUM_PENDING,
             // advances pc past the instruction, and breaks out of the loop.
             //
-            // The host then dispatches prepare_adaptive_op (which reads the
+            // The host then dispatches prepare_op (which reads the
             // pending op metadata and configures the shot for the quantum
             // kernel) followed by the execute kernel (which applies the
             // gate/measurement/reset to the state vector). After that, the
@@ -2299,7 +2303,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 // -----------------------------------------------------------------------------
-// Adaptive interpreter — prepare_adaptive_op entry point
+// Adaptive interpreter — prepare_op entry point
 // -----------------------------------------------------------------------------
 // Prepares a quantum operation for shots that have STATUS_QUANTUM_PENDING.
 // Shots not in that state are set to OPID_ID so execute is a no-op.
