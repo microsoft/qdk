@@ -2268,13 +2268,14 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // -------------------------------------------------------------
 
             // SELECT: Conditional move (ternary operator).
-            // Encoding: src0 = condition, aux0 = true-value register,
-            //           aux1 = false-value register, dst = destination.
-            // dst = cond ? reg[aux0] : reg[aux1]
+            // Encoding: src0 = condition, aux0 = true-value,
+            //           aux1 = false-value, dst = destination.
+            // dst = cond ? aux0 : aux1
             case OP_SELECT {
                 let cond = resolve_u32(shot_idx, instr.src0, flags, 0u) != 0u;
-                write_reg(shot_idx, instr.dst,
-                    select(read_reg(shot_idx, instr.aux1), read_reg(shot_idx, instr.aux0), cond));
+                let true_val = resolve_u32(shot_idx, instr.aux0, flags, 3u);
+                let false_val = resolve_u32(shot_idx, instr.aux1, flags, 4u);
+                write_reg(shot_idx, instr.dst, select(false_val, true_val, cond));
                 pc++;
             }
 

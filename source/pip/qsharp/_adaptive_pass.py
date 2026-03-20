@@ -756,7 +756,15 @@ class AdaptiveProfilePass:
         dst_reg = self._alloc_reg(phi_instr, self._type_tag(phi_instr.type))
         phi_offset = len(self.phi_entries)
         for value, block in phi_instr.incoming:
-            val_reg = self._resolve_operand(value).val
+            operand = self._resolve_operand(value)
+            if isinstance(operand, Reg):
+                val_reg = operand.val
+            else:
+                # Immediate values must be materialized into a register
+                # because the GPU phi_table stores register indices.
+                reg = self._alloc_reg(None, self._type_tag(phi_instr.type))
+                self._emit(OP_MOV | FLAG_SRC0_IMM, dst=reg, src0=operand.val)
+                val_reg = reg.val
             block_id = self._block_to_id[block]
             phi_entry = PhiNodeEntry(block_id, val_reg)
             self.phi_entries.append(phi_entry)
