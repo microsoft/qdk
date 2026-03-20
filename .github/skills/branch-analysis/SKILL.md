@@ -29,7 +29,7 @@ Audit all local git branches to find unmerged work, identify branches already sq
 - **"Toss" is reserved for branches with ZERO unique value** — i.e., the exact same work (not just similar work) already landed in main via a squash-merge PR.
 - **Exploration branches are valuable.** A branch called "refactoring-adventure" or "sized-array" with WIP commits still contains design ideas, experiments, and approaches worth preserving. Label these as **Keep (exploration)** not "Toss".
 - **When in doubt, recommend Keep or Evaluate**, not Toss.
-- **Even for landed work**, if the branch has *additional* commits beyond what was merged, note them specifically — don't blanket-toss the whole branch.
+- **Even for landed work**, if the branch has _additional_ commits beyond what was merged, note them specifically — don't blanket-toss the whole branch.
 
 ## Procedure
 
@@ -49,15 +49,18 @@ Audit all local git branches to find unmerged work, identify branches already sq
 For each branch with commits ahead of `origin/main`:
 
 1. **Check remote tracking**: Does `origin/<branch>` exist?
+
    - If no → mark as **LOCAL ONLY** (highest risk — exists nowhere else)
    - If yes → compare local vs remote SHA:
      - Same SHA → **Pushed (up-to-date)**
      - Different → count unpushed commits: `git rev-list --count origin/<branch>..<branch>`
 
 2. **Check if squash-merged**: Use three-dot diff to see if any actual changes remain:
+
    ```
    git diff origin/main...<branch> --stat | tail -1
    ```
+
    If empty → branch was squash-merged, mark as **Already in main**.
 
 3. **Search for matching PRs**: Search `origin/main` log for keywords from the branch's commit messages:
@@ -83,10 +86,13 @@ For each branch that has a non-empty diff vs main:
    git log -1 --format='%as' <branch>
    ```
 4. **Read the actual diff in detail.** Don't just rely on commit messages or `--stat` — actually read the code:
+
    ```
    git diff origin/main...<branch>
    ```
+
    For large diffs, read at least the first 200 lines and sample key files. Look at:
+
    - New files added (these are often the most interesting part)
    - New test cases (they reveal intent)
    - Structural changes (new modules, new types, new traits)
@@ -94,11 +100,12 @@ For each branch that has a non-empty diff vs main:
    - Configuration/manifest changes that reveal scope
 
 5. **Describe each branch substantively.** The description should be 2-4 sentences covering:
+
    - What technical problem the branch addresses
    - What approach or design it takes
    - What specific new code structures it introduces (types, modules, algorithms)
    - What state the work is in (complete, WIP, exploring)
-   
+
    Bad: "WIP circuit work. Superseded."
    Good: "Introduces a `rir_to_circuit` module that reconstructs structured control flow from RIR basic blocks using dominator/post-dominator analysis. Adds `ControlFlowReconstructor` type and 968 lines of control flow analysis in `control_flow.rs`. WIP — the nesting logic for RIR→circuit conversion has a known bug (per commit message). Contains unique algorithmic work not present in main."
 
@@ -132,18 +139,23 @@ Create a markdown file (default: `branch-analysis.md` in repo root) with the fol
 # Local Branch Analysis — <date>
 
 ## Legend
+
 - Status, Merge result, Recommendation definitions
 
 ## Already Landed in Main (safe to toss)
+
 | # | Branch | Commits | Last Date | Merged As | Merge w/ main | Recommendation |
 
 ## Branches With Unique Remaining Value
+
 | # | Branch | Commits | Last Date | Local Only? | Merge | Description | Recommendation |
 
 ## Branches to Toss (WIP / experimental / superseded)
+
 | # | Branch | Commits | Last Date | Description | Recommendation |
 
 ## Priority Actions
+
 1. Branches to push to remote (local-only with significant work)
 2. Branches ready for PRs (clean merge, unique value)
 3. Branches needing decisions
@@ -163,6 +175,7 @@ Create a markdown file (default: `branch-analysis.md` in repo root) with the fol
 #### Description Quality
 
 For **every** branch (not just ones with "unique work"), the description should:
+
 - Explain **what** the branch does (not just repeat the branch name)
 - Note specific new files, modules, types, or algorithms introduced
 - Quote interesting commit messages or code comments that reveal intent
@@ -170,11 +183,12 @@ For **every** branch (not just ones with "unique work"), the description should:
 - For large branches, list the top 3-5 most interesting files added or significantly modified
 - Call out relationships between branches (e.g., "evolution of Y", "shares commits with Z")
 - Flag identical branches (same HEAD SHA)
-- **Never say "superseded" without evidence.** A branch is only superseded if the *same approach* landed in main. If main took a *different approach* to solve the same problem, the branch's approach is still interesting and unique.
+- **Never say "superseded" without evidence.** A branch is only superseded if the _same approach_ landed in main. If main took a _different approach_ to solve the same problem, the branch's approach is still interesting and unique.
 
 ### Phase 6: Summary
 
 After creating the report, give a brief verbal summary highlighting:
+
 - Total branches analyzed
 - How many are already in main vs have unique work
 - Any **LOCAL ONLY** branches that need immediate backup

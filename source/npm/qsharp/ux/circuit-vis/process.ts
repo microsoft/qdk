@@ -327,8 +327,7 @@ const _opToRenderData = (
   // so the box stretches to include those wire endpoints.
   // For expanded groups (AsGroup) and classically-controlled ops, keep full
   // target span so the dashed border encompasses all children.
-  const isCollapsed =
-    !isConditional && conditionalRender !== ConditionalRender.AsGroup;
+  const isCollapsed = !(hasClassicalControls && isExpanded);
   renderData.targetsY = targets.map((reg) => {
     if (isCollapsed && op.kind !== "measurement" && reg.result != null) {
       // Keep the real y for results consumed as controls by this op's children.

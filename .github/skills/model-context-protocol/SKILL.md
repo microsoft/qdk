@@ -1,6 +1,6 @@
 ---
 name: model-context-protocol
-description: 'Build, maintain, and debug MCP (Model Context Protocol) servers. Use when: creating an MCP server, adding tools/resources/prompts to an MCP server, implementing MCP transports (stdio, Streamable HTTP), debugging MCP server issues, configuring MCP server security, writing MCP tool definitions, setting up MCP server projects with Python or TypeScript SDKs, testing MCP servers with the Inspector.'
+description: "Build, maintain, and debug MCP (Model Context Protocol) servers. Use when: creating an MCP server, adding tools/resources/prompts to an MCP server, implementing MCP transports (stdio, Streamable HTTP), debugging MCP server issues, configuring MCP server security, writing MCP tool definitions, setting up MCP server projects with Python or TypeScript SDKs, testing MCP servers with the Inspector."
 ---
 
 # Model Context Protocol (MCP) Server Development
@@ -19,13 +19,14 @@ description: 'Build, maintain, and debug MCP (Model Context Protocol) servers. U
 
 MCP servers expose three core primitives to AI applications:
 
-| Primitive     | Purpose                                    | Control    |
-|---------------|--------------------------------------------|------------|
-| **Tools**     | Functions the LLM can call to take actions | Model      |
-| **Resources** | Read-only data sources for context         | Application|
-| **Prompts**   | Reusable interaction templates             | User       |
+| Primitive     | Purpose                                    | Control     |
+| ------------- | ------------------------------------------ | ----------- |
+| **Tools**     | Functions the LLM can call to take actions | Model       |
+| **Resources** | Read-only data sources for context         | Application |
+| **Prompts**   | Reusable interaction templates             | User        |
 
 Servers communicate via JSON-RPC 2.0 over two transport mechanisms:
+
 - **stdio**: Local subprocess, newline-delimited messages on stdin/stdout. Never write non-MCP output to stdout.
 - **Streamable HTTP**: Remote HTTP POST/GET with optional SSE streaming. Validate `Origin` header, bind to localhost when local.
 
@@ -34,6 +35,7 @@ Servers communicate via JSON-RPC 2.0 over two transport mechanisms:
 ### 1. Choose SDK and Set Up Project
 
 **Python** (requires Python 3.10+, MCP SDK 1.2.0+):
+
 ```bash
 uv init my-server && cd my-server
 uv venv && source .venv/bin/activate
@@ -41,6 +43,7 @@ uv add "mcp[cli]" httpx
 ```
 
 **TypeScript** (requires Node.js 16+):
+
 ```bash
 mkdir my-server && cd my-server
 npm init -y
@@ -50,6 +53,7 @@ npm install @modelcontextprotocol/sdk zod
 ### 2. Implement the Server
 
 **Python — FastMCP pattern:**
+
 ```python
 from mcp.server.fastmcp import FastMCP
 
@@ -74,6 +78,7 @@ if __name__ == "__main__":
 ```
 
 **TypeScript — McpServer pattern:**
+
 ```typescript
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -100,11 +105,13 @@ await server.connect(transport);
 ### 4. Handle Transport Correctly
 
 **stdio servers:**
+
 - NEVER write to stdout except valid MCP JSON-RPC messages
 - Use stderr or a logging library for debug output
 - `print("debug", file=sys.stderr)` is safe; bare `print()` is not
 
 **Streamable HTTP servers:**
+
 - Validate `Origin` header on all requests; return 403 if invalid
 - Bind to `127.0.0.1` (not `0.0.0.0`) for local servers
 - Implement authentication for all connections

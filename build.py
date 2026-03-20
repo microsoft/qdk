@@ -542,7 +542,7 @@ if build_qdk:
 if build_mcp:
     step_start("Building the qdk-mcp package (Python)")
 
-    python_bin = use_python_env(qdk_python_src)
+    (python_bin, _) = use_python_env(qdk_python_src)
 
     mcp_build_args = [
         python_bin,

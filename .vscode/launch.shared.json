@@ -16,6 +16,19 @@
     },
     // Requires: code --profile=dev --install-extension github.codespaces
     {
+      "name": "Debug VS Code Extension (tmp ws - Codespaces)",
+      "type": "extensionHost",
+      "debugWebWorkerHost": true,
+      "request": "launch",
+      "args": [
+        "--profile=dev",
+        "--remote=codespaces+${env:CODESPACE_NAME}",
+        "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
+        "/tmp/ws-scratch/"
+      ]
+    },
+    // Requires: code --profile=dev --install-extension github.codespaces
+    {
       "name": "Debug VS Code Extension (Codespaces)",
       "type": "extensionHost",
       "debugWebWorkerHost": true,

@@ -64,7 +64,7 @@ export interface GateRenderData {
   link?: { href: string; title: string };
   /** Labels for the classical control registers (when present, this group is rendered with classical controls). */
   classicalControlIds?: (number | null)[];
-  /** Wire keys ("qubit-result") for each classical control (applicable only for GateType.ClassicalControlled). */
+  /** Wire keys ("qubit-result") for each classical control (applicable only for classically-controlled Group gates). */
   controlWireKeys?: string[];
   /** Wire keys ("qubit-result") identifying the results this gate produces.
    *  For GateType.Measure: single-element array.

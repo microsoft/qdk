@@ -1010,24 +1010,29 @@ export function createServer(): McpServer {
       }),
     },
     async (args: { exerciseTitle: string }): Promise<CallToolResult> => {
-      const result = await server.server.elicitInput({
-        message: `You're working on: **${args.exerciseTitle}**\n\nEdit the solution file, then choose an action:`,
-        requestedSchema: {
-          type: "object" as const,
-          properties: {
-            action: {
-              type: "string",
-              title: "What would you like to do?",
-              enum: [
-                "Check my solution",
-                "Give me a hint",
-                "Explain the problem again",
-              ],
+      const result = await server.server.elicitInput(
+        {
+          message: `You're working on: **${args.exerciseTitle}**\n\nEdit the solution file, then choose an action:`,
+          requestedSchema: {
+            type: "object" as const,
+            properties: {
+              action: {
+                type: "string",
+                title: "What would you like to do?",
+                enum: [
+                  "Check my solution",
+                  "Give me a hint",
+                  "Explain the problem again",
+                ],
+              },
             },
+            required: ["action"],
           },
-          required: ["action"],
         },
-      });
+        {
+          timeout: 600000, // 10 minutes - give the user time to complete the exercise
+        },
+      );
 
       if (result.action === "accept" && result.content) {
         return {

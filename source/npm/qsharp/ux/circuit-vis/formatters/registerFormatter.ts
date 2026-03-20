@@ -104,7 +104,7 @@ const formatRegisters = (
             let maxCtrlX = gate.x;
             for (const ctrlGate of allGates.flat()) {
               if (ctrlGate.controlWireKeys?.includes(wireKey)) {
-                if (ctrlGate.type === GateType.ClassicalControlled) {
+                if (ctrlGate.type === GateType.Group) {
                   // The control circle is at the left edge of the gate
                   // bounding box + controlCircleRadius.
                   const circleX =

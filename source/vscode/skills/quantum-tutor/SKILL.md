@@ -111,7 +111,7 @@ When the user says they're done or asks to check their solution:
 1. **Call the `checkExerciseSolution` MCP tool** with the `kataId`, `exerciseId`, `workspaceRoot`, and `language` (pass `"openqasm"` for OpenQASM exercises).
    - The tool automatically reads the solution file (`solution.qs` or `solution.qasm`) from the exercise folder and, on success, updates `progress.json` (marks the exercise completed and advances `currentExercise`).
 2. **Report the result:**
-   - **Pass** (`progressUpdated: true`): Congratulate the user. If the response includes a `circuit` field, render it by calling `renderCircuit` with the circuit JSON (stringify the `circuit` object and pass it as `circuitJson`). Present it with: *"Here's what your solution looks like as a circuit:"* This gives the user a visual "show me what I built" moment. Then present the next exercise.
+   - **Pass** (`progressUpdated: true`): Congratulate the user. If the response includes a `circuit` field, render it by calling `renderCircuit` with the circuit JSON (stringify the `circuit` object and pass it as `circuitJson`). Present it with: _"Here's what your solution looks like as a circuit:"_ This gives the user a visual "show me what I built" moment. Then present the next exercise.
    - **Fail**: Analyze the `messages` and `userCode` from the response to provide targeted guidance WITHOUT revealing the solution. Offer hints, then call `promptExerciseAction` again so the user can retry or ask for more help.
 
 ### Phase 5: Progress & Completion
@@ -135,17 +135,17 @@ If the user returns and `quantum-katas/progress.json` already exists:
 
 ## Tools
 
-| Tool                                 | Purpose                                                                                         |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `#agent:quantum-tutor-setup`         | Subagent that handles workspace setup (hides MCP tool calls from the user)                      |
-| `listKatas` (MCP)                    | Browse available katas and their exercise counts                                                |
-| `getKataExercises` (MCP)             | Get exercise IDs, titles, and `availableLanguages` for workspace scaffolding (up to 5 katas)    |
-| `getExerciseBriefing` (MCP)          | Get prerequisite lessons and exercise details; pass `language` for OpenQASM placeholders        |
-| `createExerciseWorkspace` (MCP)      | Scaffold the workspace — folders, solution files (.qs or .qasm), progress.json                  |
-| `checkExerciseSolution` (MCP)        | Read solution from disk, verify against test harness, update progress; returns circuit on success |
-| `getExerciseHint` (MCP)              | Get explained solution content for progressive hints; pass `language` for OpenQASM hints        |
-| `getExerciseCircuit` (MCP)           | Generate a circuit from the reference solution; use during lessons to preview what the user will build |
+| Tool                                 | Purpose                                                                                                           |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `#agent:quantum-tutor-setup`         | Subagent that handles workspace setup (hides MCP tool calls from the user)                                        |
+| `listKatas` (MCP)                    | Browse available katas and their exercise counts                                                                  |
+| `getKataExercises` (MCP)             | Get exercise IDs, titles, and `availableLanguages` for workspace scaffolding (up to 5 katas)                      |
+| `getExerciseBriefing` (MCP)          | Get prerequisite lessons and exercise details; pass `language` for OpenQASM placeholders                          |
+| `createExerciseWorkspace` (MCP)      | Scaffold the workspace — folders, solution files (.qs or .qasm), progress.json                                    |
+| `checkExerciseSolution` (MCP)        | Read solution from disk, verify against test harness, update progress; returns circuit on success                 |
+| `getExerciseHint` (MCP)              | Get explained solution content for progressive hints; pass `language` for OpenQASM hints                          |
+| `getExerciseCircuit` (MCP)           | Generate a circuit from the reference solution; use during lessons to preview what the user will build            |
 | `renderCircuit` (MCP)                | Render a circuit diagram from JSON data; use to display circuits from checkExerciseSolution or getExerciseCircuit |
-| `promptExerciseAction` (MCP)         | Present an interactive prompt with predefined actions (check, hint, explain); replaces free-form waiting |
-| `#tool:qsharpGetLibraryDescriptions` | Get Q# standard library API for helping users (Q# exercises only)                               |
-| `#tool:qdkRunProgram`                | Run Q# code for demonstrations                                                                  |
+| `promptExerciseAction` (MCP)         | Present an interactive prompt with predefined actions (check, hint, explain); replaces free-form waiting          |
+| `#tool:qsharpGetLibraryDescriptions` | Get Q# standard library API for helping users (Q# exercises only)                                                 |
+| `#tool:qdkRunProgram`                | Run Q# code for demonstrations                                                                                    |
