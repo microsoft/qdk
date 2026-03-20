@@ -191,6 +191,11 @@ RegisterType: TypeAlias = int
 class IntOperand:
     val: int = 0
 
+    def __post_init__(self):
+        # Mask to u32 range so negative Python ints become their
+        # two's-complement u32 representation (e.g. -7 → 0xFFFFFFF9).
+        self.val = self.val & 0xFFFFFFFF
+
 
 class FloatOperand:
     def __init__(self, val: float = 0.0) -> None:
@@ -432,14 +437,10 @@ class AdaptiveProfilePass:
             return REG_TYPE_I64
         if isinstance(ty, pyqir.PointerType):
             return REG_TYPE_PTR
-        type_str = str(ty)
-        if "float" in type_str:
-            return REG_TYPE_F32
-        if "double" in type_str:
+        if ty.is_double:
             return REG_TYPE_F64
-        if "ptr" in type_str or "*" in type_str:
-            return REG_TYPE_PTR
-        raise TypeError(f"Unsupported type: {type_str}")
+        # Remaining floating-point types (e.g. float/f32)
+        return REG_TYPE_F32
 
     # ------------------------------------------------------------------
     # Binary / unary helpers
@@ -824,7 +825,7 @@ class AdaptiveProfilePass:
                 self._emit(OP_RET, dst=ret_reg)
             else:
                 # Void return — use immediate 0 as exit code.
-                self._emit(OP_RET | FLAG_SRC0_IMM, dst=0)
+                self._emit(OP_RET, dst=IntOperand(0))
 
     # ------------------------------------------------------------------
     # Comparison emitters

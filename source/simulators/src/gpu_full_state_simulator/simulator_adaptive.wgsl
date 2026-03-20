@@ -466,6 +466,13 @@ fn resolve_u32(shot_idx: u32, operand: u32, flags: u32, operand_idx: u32) -> u32
     return read_reg(shot_idx, operand);
 }
 
+fn resolve_f32(shot_idx: u32, operand: u32, flags: u32, operand_idx: u32) -> f32 {
+    if (flags & (1u << operand_idx)) != 0u {
+        return bitcast<f32>(operand);  // immediate (IEEE 754 bit pattern)
+    }
+    return read_reg_f32(shot_idx, operand);
+}
+
 // Resolves q1 for the current quantum instruction.
 fn resolve_q1(shot_idx: u32) -> u32 {
     let shot = &shots[shot_idx];
@@ -1712,7 +1719,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // error reporting). The termination_counter is incremented so the
             // host can detect when all shots have finished.
             case OP_RET {
-                let exit_code = resolve_u32(shot_idx, instr.dst, flags, 0u);
+                let exit_code = resolve_u32(shot_idx, instr.dst, flags, 2u);
                 interpreter_state[state_base + INTERP_EXIT_CODE] = exit_code;
                 // Atomically store exit code into the last slot of this shot's
                 // result region, but only if it has not already been set.
@@ -2109,8 +2116,8 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // "O" prefix = ordered (both operands are not NaN). The result
             // is written as 0u/1u. Mirrors LLVM fcmp ordered predicates.
             case OP_FCMP {
-                let a = read_reg_f32(shot_idx, instr.src0);
-                let b = read_reg_f32(shot_idx, instr.src1);
+                let a = resolve_f32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_f32(shot_idx, instr.src1, flags, 1u);
                 var result: bool = false;
                 switch subcond {
                     case FCMP_OEQ { result = (a == b); }
@@ -2142,28 +2149,28 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // FADD: Float addition. dst = src0 + src1.
             case OP_FADD {
                 write_reg_f32(shot_idx, instr.dst,
-                    read_reg_f32(shot_idx, instr.src0) + read_reg_f32(shot_idx, instr.src1));
+                    resolve_f32(shot_idx, instr.src0, flags, 0u) + resolve_f32(shot_idx, instr.src1, flags, 1u));
                 pc++;
             }
 
             // FSUB: Float subtraction. dst = src0 - src1.
             case OP_FSUB {
                 write_reg_f32(shot_idx, instr.dst,
-                    read_reg_f32(shot_idx, instr.src0) - read_reg_f32(shot_idx, instr.src1));
+                    resolve_f32(shot_idx, instr.src0, flags, 0u) - resolve_f32(shot_idx, instr.src1, flags, 1u));
                 pc++;
             }
 
             // FMUL: Float multiplication. dst = src0 * src1.
             case OP_FMUL {
                 write_reg_f32(shot_idx, instr.dst,
-                    read_reg_f32(shot_idx, instr.src0) * read_reg_f32(shot_idx, instr.src1));
+                    resolve_f32(shot_idx, instr.src0, flags, 0u) * resolve_f32(shot_idx, instr.src1, flags, 1u));
                 pc++;
             }
 
             // FDIV: Float division. dst = src0 / src1.
             case OP_FDIV {
                 write_reg_f32(shot_idx, instr.dst,
-                    read_reg_f32(shot_idx, instr.src0) / read_reg_f32(shot_idx, instr.src1));
+                    resolve_f32(shot_idx, instr.src0, flags, 0u) / resolve_f32(shot_idx, instr.src1, flags, 1u));
                 pc++;
             }
 
@@ -2205,13 +2212,13 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
 
             // FPEXT: Float widen (e.g., f32→f64) — identity since GPU only uses f32.
             case OP_FPEXT {
-                write_reg_f32(shot_idx, instr.dst, read_reg_f32(shot_idx, instr.src0));
+                write_reg_f32(shot_idx, instr.dst, resolve_f32(shot_idx, instr.src0, flags, 0u));
                 pc++;
             }
 
             // FPTRUNC: Float narrow (e.g., f64→f32) — identity since GPU only uses f32.
             case OP_FPTRUNC {
-                write_reg_f32(shot_idx, instr.dst, read_reg_f32(shot_idx, instr.src0));
+                write_reg_f32(shot_idx, instr.dst, resolve_f32(shot_idx, instr.src0, flags, 0u));
                 pc++;
             }
 
@@ -2223,13 +2230,13 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
 
             // FPTOSI: Float to signed integer conversion. dst = i32(src0).
             case OP_FPTOSI {
-                write_reg_i32(shot_idx, instr.dst, i32(read_reg_f32(shot_idx, instr.src0)));
+                write_reg_i32(shot_idx, instr.dst, i32(resolve_f32(shot_idx, instr.src0, flags, 0u)));
                 pc++;
             }
 
             // SITOFP: Signed integer to float conversion. dst = f32(src0).
             case OP_SITOFP {
-                write_reg_f32(shot_idx, instr.dst, f32(read_reg_i32(shot_idx, instr.src0)));
+                write_reg_f32(shot_idx, instr.dst, f32(resolve_i32(shot_idx, instr.src0, flags, 0u)));
                 pc++;
             }
 
