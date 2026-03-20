@@ -78,6 +78,7 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
         for (idx, instr) in block.0.iter().enumerate() {
             match instr {
                 Instruction::Call(_, _, Some(var), _)
+                | Instruction::Convert(_, var)
                 | Instruction::Add(_, _, var)
                 | Instruction::Sub(_, _, var)
                 | Instruction::Mul(_, _, var)

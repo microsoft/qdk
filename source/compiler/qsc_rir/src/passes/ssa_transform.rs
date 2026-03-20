@@ -228,6 +228,11 @@ fn map_variable_use_in_block(block: &mut Block, var_map: &mut FxHashMap<Variable
                 *operand = operand.mapped(var_map);
             }
 
+            Instruction::Convert(operand, var) => {
+                *operand = operand.mapped(var_map);
+                *var = var.map_to_variable(var_map);
+            }
+
             // Phi nodes are handled separately in the SSA transformation, but need to be passed through
             // like the unconditional terminators.
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return => {}

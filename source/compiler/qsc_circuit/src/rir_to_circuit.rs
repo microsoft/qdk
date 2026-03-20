@@ -365,6 +365,10 @@ fn process_variables(
         Instruction::LogicalNot(operand, variable) => {
             process_logical_not_variables(&mut state.variables, operand, *variable)?;
         }
+        Instruction::Convert(operand, variable) => {
+            let expr = expr_from_operand(&state.variables, operand)?;
+            store_expr_in_variable(&mut state.variables, *variable, expr)?;
+        }
         instruction @ (Instruction::Store(..) | Instruction::BitwiseNot(..)) => {
             return Err(Error::UnsupportedFeature(format!(
                 "unsupported instruction in block: {instruction:?}"
