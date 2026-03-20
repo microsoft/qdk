@@ -4,6 +4,8 @@
 from __future__ import annotations
 from typing import Any, Callable, Iterator, Optional, overload
 
+import pandas as pd
+
 class ISA:
     def __add__(self, other: ISA) -> ISA:
         """
@@ -87,6 +89,19 @@ class ISA:
         Args:
             instruction_id (int): The instruction ID.
             node_index (int): The node index in the provenance graph.
+        """
+        ...
+
+    def as_frame(self) -> pd.DataFrame:
+        """
+        Returns a pandas DataFrame representation of the ISA.
+
+        The DataFrame will have one row per instruction, with columns for
+        instruction properties such as time, space, and error rate. The exact
+        columns may vary based on the properties of the instructions in the ISA.
+
+        Returns:
+            pd.DataFrame: A DataFrame representation of the ISA.
         """
         ...
 
