@@ -129,5 +129,4 @@ REG_TYPE_F64 = 4
 REG_TYPE_PTR = 5
 
 # ── Sentinel values ──────────────────────────────────────────────────────────
-DYN_SENTINEL = 0xFFFFFFFF  # Value is *not* dynamic. Use static value.
 VOID_RETURN = 0xFFFFFFFF  # Function does not have a return value.

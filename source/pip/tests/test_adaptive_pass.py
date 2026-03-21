@@ -596,20 +596,21 @@ attributes #1 = { "irreversible" }
 """
 
 
-def test_bell_loop_dynamic_qubit_no_sentinel():
+def test_bell_loop_dynamic_qubit():
     """Dynamic qubits from inttoptr use register index (not DYN_QUBIT_SENTINEL) in aux1."""
     r = _run_pass(BELL_LOOP_QIR)
     # bell_loop has dynamic qubits via inttoptr of loop variable
     # At least one OP_QUANTUM_GATE should have aux1 != DYN_QUBIT_SENTINEL
     has_dynamic = False
     for inst in r.instructions:
-        if _primary(inst.opcode) == OP_QUANTUM_GATE:
-            if inst.aux1 != DYN_SENTINEL:
-                has_dynamic = True
-                # The dynamic reg must be a valid register index
-                assert (
-                    0 <= inst.aux1 < r.num_registers
-                ), f"Invalid dynamic qubit register: {inst.aux1}"
+        if _primary(inst.opcode) == OP_QUANTUM_GATE and not (
+            OP_QUANTUM_GATE & FLAG_AUX1_IMM
+        ):
+            has_dynamic = True
+            # The dynamic reg must be a valid register index
+            assert (
+                0 <= inst.aux1 < r.num_registers
+            ), f"Invalid dynamic qubit register: {inst.aux1}"
     assert has_dynamic, "Expected at least one dynamic qubit gate in bell_loop"
 
 
