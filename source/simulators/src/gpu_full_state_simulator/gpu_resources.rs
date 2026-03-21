@@ -539,14 +539,7 @@ impl GpuResources {
             })
         };
 
-        let dummy_kernel = device.create_compute_pipeline(&ComputePipelineDescriptor {
-            label: Some("Dummy kernel"),
-            layout: None,
-            module: &shader_module,
-            entry_point: None,
-            compilation_options: Default::default(),
-            cache: None,
-        });
+        let dummy_kernel = get_kernel("initialize");
 
         self.device_resources.kernels = Some(GpuKernels {
             init_op: get_kernel("initialize"),

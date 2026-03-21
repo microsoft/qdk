@@ -229,6 +229,11 @@ pub fn build_op_pool(compact_ops: &[(u32, u32, u32, u32, f64)]) -> Vec<Op> {
                 ops::MZ => Op::new_mz_gate(q1, q2),
                 ops::MRESETZ => Op::new_mresetz_gate(q1, q2),
                 ops::MOVE => Op::new_move_gate(q1),
+                ops::CORRELATED_NOISE => {
+                    // For adaptive path: q1 = noise_table_idx, q2 = qubit_count.
+                    // Qubit IDs are resolved at runtime from instruction aux fields.
+                    Op::new_2q_gate(ops::CORRELATED_NOISE, q1, q2)
+                }
                 _ => panic!("Unknown op_id in adaptive quantum op pool: {op_id}"),
             }
         })

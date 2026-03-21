@@ -551,7 +551,7 @@ def run_qir_gpu(
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
     if is_adaptive(mod):
-        program = AdaptiveProfilePass().run(mod)
+        program = AdaptiveProfilePass().run(mod, noise)
         results = run_adaptive_parallel_shots(program.as_dict(), shots, noise, seed)
 
         # Extract recorded output result indices from the bytecode.
@@ -609,6 +609,7 @@ class GpuSimulator:
         self.gpu_context = GpuContext()
         self._is_adaptive = False
         self._recorded_result_indices = []
+        self.tables = None
 
     def load_noise_tables(
         self,
@@ -641,7 +642,11 @@ class GpuSimulator:
         (mod, _, _, _) = preprocess_simulation_input(input, None, None, None)
         if is_adaptive(mod):
             self._is_adaptive = True
-            program = AdaptiveProfilePass().run(mod)
+            # Build noise_intrinsics dict from loaded noise tables (if any)
+            noise_intrinsics = None
+            if self.tables is not None:
+                noise_intrinsics = {name: table_id for table_id, name, _ in self.tables}
+            program = AdaptiveProfilePass().run(mod, noise_intrinsics=noise_intrinsics)
             self.gpu_context.set_adaptive_program(program.as_dict())
 
             # Extract recorded output result indices from the bytecode.

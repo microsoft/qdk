@@ -915,7 +915,7 @@ def test_output_schema_keys():
         "labels",
         "register_types",
     }
-    assert set(asdict(r).keys()) == expected_keys
+    assert set(r.as_dict().keys()) == expected_keys
 
 
 def test_instruction_tuple_length():

@@ -439,6 +439,17 @@ impl GpuContext {
         // Finally, the download buffer needs to hold both results and diagnostics
         params.download_buffer_size = params.results_buffer_size + params.diagnostics_buffer_size;
     }
+
+    pub fn switch_to_base(&mut self) {
+        if self.is_adaptive {
+            // Preserve noise tables loaded before the mode switch
+            let noise_tables = std::mem::take(&mut self.noise_tables);
+            let noise_tables_is_dirty = self.noise_tables_is_dirty;
+            *self = Self::default();
+            self.noise_tables = noise_tables;
+            self.noise_tables_is_dirty = noise_tables_is_dirty;
+        }
+    }
 }
 
 // Adaptive Profile implementations.
@@ -455,6 +466,17 @@ impl GpuContext {
     #[must_use]
     pub fn is_adaptive(&self) -> bool {
         self.is_adaptive
+    }
+
+    pub fn swith_to_adaptive(&mut self) {
+        if !self.is_adaptive {
+            // Preserve noise tables loaded before the mode switch
+            let noise_tables = std::mem::take(&mut self.noise_tables);
+            let noise_tables_is_dirty = self.noise_tables_is_dirty;
+            *self = Self::adaptive();
+            self.noise_tables = noise_tables;
+            self.noise_tables_is_dirty = noise_tables_is_dirty;
+        }
     }
 
     pub fn set_adaptive_program(&mut self, program: AdaptiveProgram) {
@@ -555,8 +577,7 @@ impl GpuContext {
                     .adaptive_program
                     .as_mut()
                     .ok_or("No adaptive program has been set")?;
-                let (noisy_ops, index_map) =
-                    add_noise_to_adaptive_ops(&program.quantum_ops, noise);
+                let (noisy_ops, index_map) = add_noise_to_adaptive_ops(&program.quantum_ops, noise);
                 // Patch bytecode instructions that reference quantum op indices.
                 // OP_QUANTUM_GATE (0x10), OP_MEASURE (0x11), OP_RESET (0x12)
                 // all store the op pool index in `aux0`.

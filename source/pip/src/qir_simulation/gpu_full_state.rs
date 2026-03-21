@@ -157,9 +157,7 @@ impl GpuContext {
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?;
 
-        if gpu_context.is_adaptive() {
-            *gpu_context = NativeGpuContext::default();
-        }
+        gpu_context.switch_to_base();
 
         let mut ops: Vec<Op> = Vec::with_capacity(input.len());
         for intr in input {
@@ -200,6 +198,12 @@ impl GpuContext {
             .native_context
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?;
+
+        if gpu_context.is_adaptive() {
+            return Err(PyRuntimeError::new_err(
+                "Context should be non-adaptive. Try setting a base profile program first with `.set_program()`",
+            ));
+        }
 
         let results = gpu_context
             .run_shots_sync(shot_count, seed, 0)
@@ -248,9 +252,7 @@ impl GpuContext {
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?;
 
-        if !gpu_context.is_adaptive() {
-            *gpu_context = NativeGpuContext::adaptive();
-        }
+        gpu_context.swith_to_adaptive();
 
         let adaptive_program = pydict_to_adaptive_program(program)?;
         let num_results = adaptive_program.num_results;

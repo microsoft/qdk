@@ -949,14 +949,15 @@ fn get_correlated_noise_qubit(op_idx: u32, index: u32) -> u32 {
     }
 }
 
-// Prepare the shot state for executing a correlated noise operation
-fn prep_correlated_noise(shot_idx: u32, op_idx: u32) {
+// Prepare correlated noise for the adaptive path.
+// Qubit IDs are read from call_arg_table (register indices), following the same
+// pattern as OP_CALL argument passing.
+fn prep_correlated_noise(shot_idx: u32, op_idx: u32, qubit_count: u32, arg_offset: u32) {
     let shot = &shots[shot_idx];
     let op = &ops[op_idx];
 
-    // The noise table index is stored in op.q1, and the qubit count is stored in op.q2
+    // The noise table index is stored in op.q1
     let noise_table_idx = op.q1;
-    let qubit_count = op.q2;
     let table = &correlated_noise_tables[noise_table_idx];
 
     // Generate a Q1.63 random number (two u32 values for lo and hi 32 bits)
@@ -1006,8 +1007,9 @@ fn prep_correlated_noise(shot_idx: u32, op_idx: u32) {
             pauli_bits = (paulis_hi >> ((bit_position - 16u) * 2u)) & 0x3u;
         }
 
-        // Get the actual qubit id from the op's qubit arguments
-        let qubit_id = get_correlated_noise_qubit(op_idx, i);
+        // Read qubit ID from register via call_arg_table
+        let arg_reg = call_arg_table[arg_offset + i];
+        let qubit_id = read_reg(shot_idx, arg_reg);
         let qubit_mask = 1u << qubit_id;
 
         // Pauli encoding: 0=I, 1=X, 2=Z, 3=Y (X and Z)
@@ -2350,6 +2352,22 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     let op_idx = interpreter_state[state_base + INTERP_PENDING_OP_IDX];
     let op_type = interpreter_state[state_base + INTERP_PENDING_OP_TYPE];
     let op = &ops[op_idx];
+
+    // Correlated noise: qubit IDs are stored as register indices in
+    // call_arg_table; read aux1 (qubit count) and aux2 (arg offset)
+    // from the instruction that triggered this quantum op.
+    if op_type == 0u && op.id == OPID_CORRELATED_NOISE {
+        let pc = interpreter_state[state_base + INTERP_PC];
+        let noise_instr = fetch_instr(pc - 1u);
+        let qubit_count = noise_instr.aux1;
+        let arg_offset = noise_instr.aux2;
+        shot.op_idx = op_idx;
+        shot.op_type = op.id;
+        prep_correlated_noise(shot_idx, op_idx, qubit_count, arg_offset);
+        interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+        return;
+    }
+
     let q1 = resolve_q1(shot_idx);
     let q2 = resolve_q2(shot_idx);
 

@@ -182,6 +182,9 @@ class SwitchCase:
     target_block: int
 
 
+# OpID for correlated noise (must match shader_types.rs OpID::CorrelatedNoise)
+CORRELATED_NOISE_OP_ID = 131
+
 CallArg: TypeAlias = int
 Label: TypeAlias = str
 RegisterType: TypeAlias = int
@@ -279,9 +282,34 @@ class AdaptiveProfilePass:
         self._block_to_id: Dict[Any, int] = {}  # pyqir.BasicBlock id → block ID
         self._func_to_id: Dict[str, int] = {}  # function name → function ID
         self._current_func_is_entry: bool = True
+        self._noise_intrinsics: Optional[Dict[str, int]] = None
 
-    def run(self, mod: pyqir.Module) -> AdaptiveProgram:
-        """Process module and return the AdaptiveProgram."""
+    def run(
+        self,
+        mod: pyqir.Module,
+        noise=None,
+        noise_intrinsics: Optional[Dict[str, int]] = None,
+    ) -> AdaptiveProgram:
+        """Process module and return the AdaptiveProgram.
+
+        Args:
+            mod: The QIR module to process.
+            noise: Optional NoiseConfig. When provided, noise intrinsic calls
+                are resolved to correlated noise ops using the intrinsics table.
+            noise_intrinsics: Optional dict mapping noise intrinsic callee names
+                to noise table IDs. Takes precedence over ``noise`` if both are
+                given.
+        """
+        if noise_intrinsics is not None:
+            self._noise_intrinsics = noise_intrinsics
+        elif noise is not None:
+            # Build {name: table_id} mapping from the NoiseConfig intrinsics
+            intrinsics = noise.intrinsics
+            self._noise_intrinsics = {}
+            for callee_name in mod.functions:
+                name = callee_name.name
+                if name in intrinsics:
+                    self._noise_intrinsics[name] = intrinsics.get_intrinsic_id(name)
 
         errors = mod.verify()
         if errors is not None:
@@ -661,6 +689,9 @@ class AdaptiveProfilePass:
                 pass  # No-op
             case _ if callee in self._func_to_id:
                 self._emit_ir_function_call(call)
+            case _ if "qdk_noise" in call.callee.attributes.func:
+                # Check if this is a noise intrinsic (custom gate with qdk_noise attribute)
+                self._emit_noise_intrinsic_call(call)
             case _:
                 raise ValueError(f"Unsupported call: {callee}")
 
@@ -732,6 +763,49 @@ class AdaptiveProfilePass:
             aux2=q2,
             aux3=q3,
         )
+
+    def _emit_noise_intrinsic_call(self, call: pyqir.Call) -> None:
+        """Emit a noise intrinsic call.
+
+        When a noise config is provided and the callee is a known intrinsic,
+        store qubit register indices in ``call_args`` (following the same
+        pattern as ``_emit_ir_function_call``), then emit a single
+        ``OP_QUANTUM_GATE`` whose ``aux1`` = qubit count and ``aux2`` =
+        offset into ``call_args``.  The shader reads qubit IDs from
+        ``call_arg_table`` at runtime, supporting arbitrarily many qubits.
+
+        When no noise config is provided, emit an identity gate (no-op).
+        """
+        callee_name = call.callee.name
+        if self._noise_intrinsics is not None and callee_name in self._noise_intrinsics:
+            table_id = self._noise_intrinsics[callee_name]
+            qubit_count = len(call.args)
+            # Store qubit register indices in call_args, materializing
+            # immediates into registers (same pattern as _emit_ir_function_call).
+            arg_offset = len(self.call_args)
+            for arg in call.args:
+                operand = self._resolve_qubit_operand(arg)
+                if isinstance(operand, Reg):
+                    self.call_args.append(operand.val)
+                else:
+                    reg = self._alloc_reg(None, REG_TYPE_PTR)
+                    self._emit(OP_MOV | FLAG_SRC0_IMM, dst=reg, src0=operand.val)
+                    self.call_args.append(reg.val)
+            # QuantumOp stores table_id in q1 and qubit_count in q2.
+            qop_idx = self._emit_quantum_op(
+                CORRELATED_NOISE_OP_ID, table_id, qubit_count
+            )
+            self._emit(
+                OP_QUANTUM_GATE,
+                aux0=qop_idx,
+                aux1=IntOperand(qubit_count),
+                aux2=IntOperand(arg_offset),
+            )
+        elif self._noise_intrinsics is not None:
+            raise ValueError(f"Missing noise intrinsic: {callee_name}")
+        else:
+            # No noise config — no-op
+            pass
 
     # ------------------------------------------------------------------
     # Control flow emitters
