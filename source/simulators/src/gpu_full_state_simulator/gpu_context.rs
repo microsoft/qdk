@@ -549,14 +549,28 @@ impl GpuContext {
         }
 
         if self.program_is_dirty || self.noise_config_is_dirty {
-            // Rebuild the program (with noise if needed) and upload to GPU
-            if let Some(_noise) = &self.noise_config {
-                unimplemented!("noise is not currently supported for adaptive profile")
-            } else {
-                self.program_with_noise = None;
+            // Rebuild the quantum ops pool (with noise if needed) and upload to GPU
+            if let Some(noise) = &self.noise_config {
+                let program = self
+                    .adaptive_program
+                    .as_mut()
+                    .ok_or("No adaptive program has been set")?;
+                let (noisy_ops, index_map) =
+                    add_noise_to_adaptive_ops(&program.quantum_ops, noise);
+                // Patch bytecode instructions that reference quantum op indices.
+                // OP_QUANTUM_GATE (0x10), OP_MEASURE (0x11), OP_RESET (0x12)
+                // all store the op pool index in `aux0`.
+                for instr in &mut program.instructions {
+                    let primary = instr.opcode & 0xFF;
+                    if primary == 0x10 || primary == 0x11 || primary == 0x12 {
+                        instr.aux0 = index_map[instr.aux0 as usize];
+                    }
+                }
+                program.quantum_ops = noisy_ops;
             }
             self.upload_adaptive_program_buffers()?;
             self.program_is_dirty = false;
+            self.noise_config_is_dirty = false;
         }
 
         let params = &self.run_params;
@@ -796,6 +810,40 @@ fn add_noise_config_to_ops(ops: &[Op], noise: &NoiseConfig<f32, f64>) -> Vec<Op>
     }
 
     noisy_ops
+}
+
+/// Expand the adaptive quantum op pool with noise ops.
+///
+/// For each original op, this emits the op itself and then any Pauli/loss
+/// noise ops from the `NoiseConfig`.  Unlike `add_noise_config_to_ops` used
+/// by the non-adaptive path, this does *not* reorder measure/reset ops or
+/// drop identity gates, because the adaptive bytecode interpreter references
+/// each op by index and handles measure/reset at the instruction level.
+///
+/// Returns `(expanded_ops, index_map)` where `index_map[old_idx]` gives
+/// the new index of the original op in the expanded pool.
+fn add_noise_to_adaptive_ops(
+    ops_pool: &[Op],
+    noise: &NoiseConfig<f32, f64>,
+) -> (Vec<Op>, Vec<u32>) {
+    let mut noisy_ops: Vec<Op> = Vec::with_capacity(ops_pool.len() * 2);
+    let mut index_map: Vec<u32> = Vec::with_capacity(ops_pool.len());
+
+    for op in ops_pool {
+        // Record the new index for this original op
+        #[allow(clippy::cast_possible_truncation)]
+        let new_idx = noisy_ops.len() as u32;
+        index_map.push(new_idx);
+
+        noisy_ops.push(*op);
+
+        // Append any noise ops (pauli + loss) from the config
+        if let Some(noise_ops) = get_noise_ops(op, noise) {
+            noisy_ops.extend(noise_ops);
+        }
+    }
+
+    (noisy_ops, index_map)
 }
 
 // Helpers to ease conversion boilerplate where it should always succeed

@@ -2360,6 +2360,34 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             shot.op_idx = op_idx;
             shot.op_type = op.id;
 
+            // Check for noise ops after this gate in the ops pool
+            let pauli_op_idx = get_pauli_noise_idx(op_idx);
+            let loss_op_idx = get_loss_idx(select(op_idx, pauli_op_idx, pauli_op_idx != 0u));
+
+            // Handle loss noise first (if qubit is lost, gate doesn't matter)
+            if loss_op_idx != 0u {
+                let loss_op = &ops[loss_op_idx];
+                let p_loss = loss_op.unitary[0].x;
+                if shot.rand_loss < p_loss {
+                    prep_measure_reset(shot_idx, op_idx, true, false, true);
+                    interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+                    return;
+                }
+            }
+
+            // Handle Pauli noise
+            if pauli_op_idx != 0u {
+                if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
+                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                } else {
+                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                }
+                interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+                return;
+            }
+
+            // No noise — set up the op for execution
+
             // Turn multi-qubit matrix ops into shot buffer ops
             if op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_MAT2Q || op.id == OPID_SWAP {
                 shot.op_type = OPID_SHOT_BUFF_2Q;
@@ -2390,7 +2418,35 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             }
         }
         case 1u { // Measure
-            // Determine whether this is mresetz (resets qubit to |0⟩) or mz (measure only)
+            // Check for noise ops before the measure op
+            // (noise is applied as Id+noise, then original measure, matching non-adaptive pattern)
+            let pauli_op_idx = get_pauli_noise_idx(op_idx);
+            let loss_op_idx = get_loss_idx(select(op_idx, pauli_op_idx, pauli_op_idx != 0u));
+
+            if loss_op_idx != 0u {
+                let loss_op = &ops[loss_op_idx];
+                let p_loss = loss_op.unitary[0].x;
+                if shot.rand_loss < p_loss {
+                    prep_measure_reset(shot_idx, op_idx, true, false, true);
+                    interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+                    return;
+                }
+            }
+
+            if pauli_op_idx != 0u {
+                // Apply noise to the Id gate before measure, then the measure itself
+                // The non-adaptive path inserts Id+noise before measure; here the Id
+                // is at op_idx and the original measure op follows after noise ops
+                if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
+                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                } else {
+                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                }
+                interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+                return;
+            }
+
+            // No noise — standard measure
             let resets = op.id == OPID_MRESETZ;
             prep_measure_reset(shot_idx, op_idx, false, true, resets);
         }

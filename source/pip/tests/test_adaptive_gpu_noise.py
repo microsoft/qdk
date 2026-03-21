@@ -35,7 +35,7 @@ try:
 except OSError as e:
     SKIP_REASON = str(e)
 
-from qsharp._simulation import GpuSimulator, run_qir, NoiseConfig, Result
+from qsharp._simulation import run_qir, NoiseConfig, Result
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -44,15 +44,6 @@ from qsharp._simulation import GpuSimulator, run_qir, NoiseConfig, Result
 # Deterministic programs need a single shot but we run multiple shots
 # to verify that multiple shots yield the same result.
 SHOTS = 100
-
-sim = GpuSimulator()
-
-
-def _run(qir: str, shots: int = SHOTS, seed: int = 42):
-    """Run *qir* on the GPU and return the shot_results list."""
-    global sim
-    sim.set_program(qir)
-    return sim.run_shots(shots, seed=seed)
 
 
 def map_result_list_to_str(results: List[Result]):
@@ -68,6 +59,29 @@ def map_result_list_to_str(results: List[Result]):
     return results_str
 
 
+def get_histogram(
+    qir_fragment: str,
+    *,
+    extra_decls: str = "",
+    num_qubits: int = 1,
+    num_results: int = 1,
+    noise: Optional[NoiseConfig] = None,
+    record: Optional[List[int]] = None,
+    shots=SHOTS,
+):
+    qir = format_qir(
+        qir_fragment,
+        extra_decls=extra_decls,
+        num_qubits=num_qubits,
+        num_results=num_results,
+        record=record,
+    )
+    results = map(
+        map_result_list_to_str, run_qir(qir, shots, noise, seed=42, type="gpu")
+    )
+    return Counter(results)
+
+
 def check_result(
     qir_fragment: str,
     expected: str,
@@ -79,18 +93,15 @@ def check_result(
     record: Optional[List[int]] = None,
 ):
     """Assert every shot produces *expected*."""
-    qir = format_qir(
+    counts = get_histogram(
         qir_fragment,
         extra_decls=extra_decls,
         num_qubits=num_qubits,
         num_results=num_results,
+        noise=noise,
         record=record,
     )
-    results = map(
-        map_result_list_to_str, run_qir(qir, SHOTS, noise, seed=42, type="gpu")
-    )
-    # results = _run(qir, SHOTS)
-    counts = Counter(results)
+
     assert counts == {
         expected: SHOTS
     }, f"Expected all {SHOTS} shots to be '{expected}', got {counts}"
@@ -210,3 +221,13 @@ def test_z_noise_on_h_i_h_yields_1():
     noise = NoiseConfig()
     noise.cx.iz = 1.0
     check_result(H_I_H_QIR, "1", num_qubits=2, noise=noise)
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_probabilistic_x_noise():
+    noise = NoiseConfig()
+    noise.cx.ix = 0.5
+    counts = get_histogram(I_QIR, shots=1000, noise=noise)
+
+    assert counts["0"] > 400, f"Expected ~500 '0' results, got {counts['0']}"
+    assert counts["1"] > 400, f"Expected ~500 '1' results, got {counts['1']}"

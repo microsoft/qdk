@@ -559,7 +559,7 @@ def run_qir_gpu(
         # src0 is the result index in the results buffer.
         recorded_result_indices = []
         for ins in program.instructions:
-            if ins.opcode == OP_RECORD_OUTPUT and ins.aux1 == 0:
+            if (ins.opcode & 0xFF) == OP_RECORD_OUTPUT and ins.aux1 == 0:
                 recorded_result_indices.append(ins.src0)
         # Filter shot_results to only include recorded output indices
         filtered = []
