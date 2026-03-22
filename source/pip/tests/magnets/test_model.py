@@ -75,6 +75,45 @@ def test_model_add_interaction_with_term():
     assert model._terms[3] == {0: [0]}
 
 
+def test_model_term_color_query_methods():
+    edge = Hyperedge([0, 1])
+    model = Model(Hypergraph([edge]))
+    model.add_interaction(edge, "ZZ", -1.0, term=1, color=2)
+    model.add_interaction(edge, "XX", -0.5, term=1, color=2)
+    model.add_interaction(edge, "YY", -0.25, term=1, color=3)
+
+    assert model.terms == [1]
+    assert model.ncolors(1) == 2
+    assert set(model.colors(1)) == {2, 3}
+    assert model.nops(1, 2) == 2
+    assert model.nops(1, 3) == 1
+    assert model.ops(1, 2) == [
+        PauliString.from_qubits((0, 1), "ZZ", -1.0),
+        PauliString.from_qubits((0, 1), "XX", -0.5),
+    ]
+    assert model.ops(1, 3) == [PauliString.from_qubits((0, 1), "YY", -0.25)]
+
+
+def test_model_query_methods_raise_for_missing_term_and_color():
+    edge = Hyperedge([0, 1])
+    model = Model(Hypergraph([edge]))
+    model.add_interaction(edge, "ZZ", -1.0, term=0, color=0)
+
+    with pytest.raises(ValueError, match="Term 99 does not exist in the model"):
+        model.ncolors(99)
+    with pytest.raises(ValueError, match="Term 99 does not exist in the model"):
+        model.colors(99)
+    with pytest.raises(ValueError, match="Term 99 does not exist in the model"):
+        model.nops(99, 0)
+    with pytest.raises(ValueError, match="Term 99 does not exist in the model"):
+        model.ops(99, 0)
+
+    with pytest.raises(ValueError, match="Color 7 does not exist in term 0"):
+        model.nops(0, 7)
+    with pytest.raises(ValueError, match="Color 7 does not exist in term 0"):
+        model.ops(0, 7)
+
+
 def test_model_add_interaction_rejects_edge_not_in_geometry():
     model = Model(Hypergraph([Hyperedge([0, 1])]))
     with pytest.raises(ValueError, match="Edge is not part of the model geometry"):

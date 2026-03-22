@@ -101,6 +101,18 @@ def test_pauli_string_equality_and_hash_include_coefficient():
     assert p1 != p3
 
 
+def test_pauli_string_mul_scales_coefficient_and_preserves_terms():
+    """Test PauliString.__mul__ returns scaled coefficient with same operators."""
+    ps = PauliString.from_qubits((0, 2), "XZ", coefficient=2.0)
+
+    scaled = ps * (-0.25j)
+
+    assert scaled.qubits == ps.qubits
+    assert list(scaled) == list(ps)
+    assert scaled.coefficient == -0.5j
+    assert ps.coefficient == 2.0
+
+
 def test_pauli_string_cirq_property_preserves_terms_and_coefficient():
     """Test PauliString.cirq conversion with coefficient."""
     ps = PauliString.from_qubits((0, 2), "XZ", coefficient=-0.5j)

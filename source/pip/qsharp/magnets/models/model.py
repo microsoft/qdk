@@ -97,12 +97,6 @@ class Model:
                 self._terms[term][color] = []
             self._terms[term][color].append(len(self._ops) - 1)
 
-    def terms(self, t: int) -> Iterator[PauliString]:
-        """Get the list of PauliStrings corresponding to a term group."""
-        if t not in self._terms:
-            raise ValueError("Term group does not exist.")
-        return iter([self._ops[i] for i in self._terms[t]])
-
     @property
     def nqubits(self) -> int:
         """Return the number of qubits in the model."""
@@ -112,6 +106,39 @@ class Model:
     def nterms(self) -> int:
         """Return the number of term groups in the model."""
         return len(self._terms)
+
+    @property
+    def terms(self) -> list[int]:
+        """Get the list of term indices in the model."""
+        return list(self._terms.keys())
+
+    def ncolors(self, term: int) -> int:
+        """Return the number of colors in a given term."""
+        if term not in self._terms:
+            raise ValueError(f"Term {term} does not exist in the model.")
+        return len(self._terms[term])
+
+    def colors(self, term: int) -> list[int]:
+        """Return the list of colors in a given term."""
+        if term not in self._terms:
+            raise ValueError(f"Term {term} does not exist in the model.")
+        return list(self._terms[term].keys())
+
+    def nops(self, term: int, color: int) -> int:
+        """Return the number of operators in a given term and color."""
+        if term not in self._terms:
+            raise ValueError(f"Term {term} does not exist in the model.")
+        if color not in self._terms[term]:
+            raise ValueError(f"Color {color} does not exist in term {term}.")
+        return len(self._terms[term][color])
+
+    def ops(self, term: int, color: int) -> list[PauliString]:
+        """Return the list of operators in a given term and color."""
+        if term not in self._terms:
+            raise ValueError(f"Term {term} does not exist in the model.")
+        if color not in self._terms[term]:
+            raise ValueError(f"Color {color} does not exist in term {term}.")
+        return [self._ops[i] for i in self._terms[term][color]]
 
     def __str__(self) -> str:
         """String representation of the model."""

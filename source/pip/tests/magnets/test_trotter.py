@@ -3,6 +3,11 @@
 
 """Unit tests for Trotter-Suzuki decomposition classes and factory functions."""
 
+import pytest
+
+from qsharp.magnets.models import Model
+from qsharp.magnets.utilities import Hyperedge, Hypergraph, PauliString
+
 from qsharp.magnets.trotter import (
     TrotterStep,
     TrotterExpansion,
@@ -13,7 +18,15 @@ from qsharp.magnets.trotter import (
 )
 
 
-# TrotterStep base class tests
+def make_two_term_model() -> Model:
+    edge = Hyperedge([0, 1])
+    model = Model(Hypergraph([edge]))
+    model.add_interaction(edge, "ZZ", -2.0, term=0, color=0)
+    model.add_interaction(edge, "XX", -0.5, term=1, color=0)
+    return model
+
+
+# TrotterStep tests
 
 
 def test_trotter_step_empty_init():
@@ -51,64 +64,64 @@ def test_trotter_step_reduce_empty():
 # first-order TrotterStep constructor tests
 
 
-def test_trotter_step_first_order_basic():
-    """Test basic first-order TrotterStep creation."""
-    trotter = TrotterStep(num_terms=3, time_step=0.5)
+def test_trotter_step_from_explicit_terms_basic():
+    """Test basic TrotterStep creation from explicit term indices."""
+    trotter = TrotterStep(terms=[0, 1, 2], time_step=0.5)
     assert trotter.nterms == 3
     assert trotter.time_step == 0.5
     assert trotter.order == 1
 
 
 def test_trotter_step_first_order_single_term():
-    """Test first-order TrotterStep with a single term."""
-    trotter = TrotterStep(num_terms=1, time_step=1.0)
+    """Test TrotterStep with a single explicit term."""
+    trotter = TrotterStep(terms=[7], time_step=1.0)
     result = list(trotter.step())
-    assert result == [(1.0, 0)]
+    assert result == [(1.0, 7)]
 
 
 def test_trotter_step_first_order_multiple_terms():
-    """Test first-order TrotterStep with multiple terms."""
-    trotter = TrotterStep(num_terms=3, time_step=0.5)
+    """Test TrotterStep with multiple explicit terms."""
+    trotter = TrotterStep(terms=[0, 1, 2], time_step=0.5)
     result = list(trotter.step())
     assert result == [(0.5, 0), (0.5, 1), (0.5, 2)]
 
 
 def test_trotter_step_first_order_zero_time():
-    """Test first-order TrotterStep with zero time."""
-    trotter = TrotterStep(num_terms=2, time_step=0.0)
+    """Test TrotterStep with zero time."""
+    trotter = TrotterStep(terms=[0, 1], time_step=0.0)
     result = list(trotter.step())
     assert result == [(0.0, 0), (0.0, 1)]
 
 
 def test_trotter_step_first_order_returns_all_terms():
-    """Test that first-order TrotterStep returns all term indices."""
-    num_terms = 5
-    trotter = TrotterStep(num_terms=num_terms, time_step=1.0)
+    """Test that TrotterStep returns all provided term indices in order."""
+    terms = [2, 4, 7, 11, 15]
+    trotter = TrotterStep(terms=terms, time_step=1.0)
     result = list(trotter.step())
-    assert len(result) == num_terms
+    assert len(result) == len(terms)
     term_indices = [idx for _, idx in result]
-    assert term_indices == list(range(num_terms))
+    assert term_indices == terms
 
 
 def test_trotter_step_first_order_uniform_time():
-    """Test that all terms have the same time in first-order TrotterStep."""
+    """Test that all entries have the same configured time."""
     time = 0.25
-    trotter = TrotterStep(num_terms=4, time_step=time)
+    trotter = TrotterStep(terms=[0, 1, 2, 3], time_step=time)
     result = list(trotter.step())
     for t, _ in result:
         assert t == time
 
 
 def test_trotter_step_first_order_str():
-    """Test string representation of first-order TrotterStep."""
-    trotter = TrotterStep(num_terms=3, time_step=0.5)
+    """Test string representation of TrotterStep."""
+    trotter = TrotterStep(terms=[0, 1, 2], time_step=0.5)
     result = str(trotter)
     assert "order" in result.lower() or "1" in result
 
 
 def test_trotter_step_first_order_repr():
-    """Test repr representation of first-order TrotterStep."""
-    trotter = TrotterStep(num_terms=3, time_step=0.5)
+    """Test repr representation of TrotterStep."""
+    trotter = TrotterStep(terms=[0, 1, 2], time_step=0.5)
     assert "TrotterStep" in repr(trotter)
 
 
@@ -117,7 +130,7 @@ def test_trotter_step_first_order_repr():
 
 def test_strang_splitting_basic():
     """Test basic strang_splitting creation."""
-    strang = strang_splitting(num_terms=3, time=0.5)
+    strang = strang_splitting(terms=[0, 1, 2], time=0.5)
     assert strang.nterms == 3
     assert strang.time_step == 0.5
     assert strang.order == 2
@@ -125,7 +138,7 @@ def test_strang_splitting_basic():
 
 def test_strang_splitting_single_term():
     """Test strang_splitting with a single term."""
-    strang = strang_splitting(num_terms=1, time=1.0)
+    strang = strang_splitting(terms=[0], time=1.0)
     result = list(strang.step())
     # Single term: just full time on term 0
     assert result == [(1.0, 0)]
@@ -133,7 +146,7 @@ def test_strang_splitting_single_term():
 
 def test_strang_splitting_two_terms():
     """Test strang_splitting with two terms."""
-    strang = strang_splitting(num_terms=2, time=1.0)
+    strang = strang_splitting(terms=[0, 1], time=1.0)
     result = list(strang.step())
     # Forward: half on term 0, full on term 1, backward: half on term 0
     assert result == [(0.5, 0), (1.0, 1), (0.5, 0)]
@@ -141,7 +154,7 @@ def test_strang_splitting_two_terms():
 
 def test_strang_splitting_three_terms():
     """Test strang_splitting with three terms (example from docstring)."""
-    strang = strang_splitting(num_terms=3, time=0.5)
+    strang = strang_splitting(terms=[0, 1, 2], time=0.5)
     result = list(strang.step())
     expected = [(0.25, 0), (0.25, 1), (0.5, 2), (0.25, 1), (0.25, 0)]
     assert result == expected
@@ -149,7 +162,7 @@ def test_strang_splitting_three_terms():
 
 def test_strang_splitting_symmetric():
     """Test that strang_splitting produces symmetric sequence."""
-    strang = strang_splitting(num_terms=4, time=1.0)
+    strang = strang_splitting(terms=[0, 1, 2, 3], time=1.0)
     result = list(strang.step())
     # Check symmetry: term indices should be palindromic
     term_indices = [idx for _, idx in result]
@@ -159,18 +172,18 @@ def test_strang_splitting_symmetric():
 def test_strang_splitting_time_sum():
     """Test that total time in strang_splitting equals expected value."""
     time = 1.0
-    num_terms = 3
-    strang = strang_splitting(num_terms=num_terms, time=time)
+    terms = [0, 1, 2]
+    strang = strang_splitting(terms=terms, time=time)
     result = list(strang.step())
     total_time = sum(t for t, _ in result)
     # Each term appears once with full time equivalent
     # (half + half for outer terms, full for middle)
-    assert abs(total_time - time * num_terms) < 1e-10
+    assert abs(total_time - time * len(terms)) < 1e-10
 
 
 def test_strang_splitting_middle_term_full_time():
     """Test that the middle term gets full time step."""
-    strang = strang_splitting(num_terms=5, time=2.0)
+    strang = strang_splitting(terms=[0, 1, 2, 3, 4], time=2.0)
     result = list(strang.step())
     # Middle term (index 4, the last term) should have full time
     middle_entries = [(t, idx) for t, idx in result if idx == 4]
@@ -180,7 +193,7 @@ def test_strang_splitting_middle_term_full_time():
 
 def test_strang_splitting_outer_terms_half_time():
     """Test that outer terms get half time steps."""
-    strang = strang_splitting(num_terms=4, time=2.0)
+    strang = strang_splitting(terms=[0, 1, 2, 3], time=2.0)
     result = list(strang.step())
     # Term 0 should appear twice with half time each
     term_0_entries = [(t, idx) for t, idx in result if idx == 0]
@@ -191,7 +204,7 @@ def test_strang_splitting_outer_terms_half_time():
 
 def test_strang_splitting_repr():
     """Test repr representation of strang_splitting result."""
-    strang = strang_splitting(num_terms=3, time=0.5)
+    strang = strang_splitting(terms=[0, 1, 2], time=0.5)
     assert "StrangSplitting" in repr(strang)
 
 
@@ -200,7 +213,7 @@ def test_strang_splitting_repr():
 
 def test_suzuki_recursion_from_strang():
     """Test Suzuki recursion applied to Strang splitting produces 4th order."""
-    strang = strang_splitting(num_terms=2, time=1.0)
+    strang = strang_splitting(terms=[0, 1], time=1.0)
     suzuki = suzuki_recursion(strang)
     assert suzuki.order == 4
     assert suzuki.nterms == 2
@@ -209,7 +222,7 @@ def test_suzuki_recursion_from_strang():
 
 def test_suzuki_recursion_from_first_order():
     """Test Suzuki recursion applied to first-order Trotter produces 3rd order."""
-    trotter = TrotterStep(num_terms=2, time_step=1.0)
+    trotter = TrotterStep(terms=[0, 1], time_step=1.0)
     suzuki = suzuki_recursion(trotter)
     assert suzuki.order == 3
     assert suzuki.nterms == 2
@@ -217,28 +230,28 @@ def test_suzuki_recursion_from_first_order():
 
 def test_suzuki_recursion_preserves_nterms():
     """Test that Suzuki recursion preserves number of terms."""
-    base = strang_splitting(num_terms=5, time=0.5)
+    base = strang_splitting(terms=[0, 1, 2, 3, 4], time=0.5)
     suzuki = suzuki_recursion(base)
     assert suzuki.nterms == base.nterms
 
 
 def test_suzuki_recursion_preserves_time_step():
     """Test that Suzuki recursion preserves time step."""
-    base = strang_splitting(num_terms=3, time=0.75)
+    base = strang_splitting(terms=[0, 1, 2], time=0.75)
     suzuki = suzuki_recursion(base)
     assert suzuki.time_step == base.time_step
 
 
 def test_suzuki_recursion_repr():
     """Test repr of Suzuki recursion result."""
-    base = strang_splitting(num_terms=2, time=1.0)
+    base = strang_splitting(terms=[0, 1], time=1.0)
     suzuki = suzuki_recursion(base)
     assert "SuzukiRecursion" in repr(suzuki)
 
 
 def test_suzuki_recursion_time_weights_sum():
     """Test that time weights in Suzuki recursion sum correctly."""
-    base = TrotterStep(num_terms=2, time_step=1.0)
+    base = TrotterStep(terms=[0, 1], time_step=1.0)
     suzuki = suzuki_recursion(base)
     # The total scaled time should equal the original total time * nterms
     # because we're scaling times, not adding them
@@ -255,7 +268,7 @@ def test_suzuki_recursion_time_weights_sum():
 
 def test_yoshida_recursion_from_strang():
     """Test Yoshida recursion applied to Strang splitting produces 4th order."""
-    strang = strang_splitting(num_terms=2, time=1.0)
+    strang = strang_splitting(terms=[0, 1], time=1.0)
     yoshida = yoshida_recursion(strang)
     assert yoshida.order == 4
     assert yoshida.nterms == 2
@@ -264,7 +277,7 @@ def test_yoshida_recursion_from_strang():
 
 def test_yoshida_recursion_from_first_order():
     """Test Yoshida recursion applied to first-order Trotter produces 3rd order."""
-    trotter = TrotterStep(num_terms=2, time_step=1.0)
+    trotter = TrotterStep(terms=[0, 1], time_step=1.0)
     yoshida = yoshida_recursion(trotter)
     assert yoshida.order == 3
     assert yoshida.nterms == 2
@@ -272,28 +285,28 @@ def test_yoshida_recursion_from_first_order():
 
 def test_yoshida_recursion_preserves_nterms():
     """Test that Yoshida recursion preserves number of terms."""
-    base = strang_splitting(num_terms=5, time=0.5)
+    base = strang_splitting(terms=[0, 1, 2, 3, 4], time=0.5)
     yoshida = yoshida_recursion(base)
     assert yoshida.nterms == base.nterms
 
 
 def test_yoshida_recursion_preserves_time_step():
     """Test that Yoshida recursion preserves time step."""
-    base = strang_splitting(num_terms=3, time=0.75)
+    base = strang_splitting(terms=[0, 1, 2], time=0.75)
     yoshida = yoshida_recursion(base)
     assert yoshida.time_step == base.time_step
 
 
 def test_yoshida_recursion_repr():
     """Test repr of Yoshida recursion result."""
-    base = strang_splitting(num_terms=2, time=1.0)
+    base = strang_splitting(terms=[0, 1], time=1.0)
     yoshida = yoshida_recursion(base)
     assert "YoshidaRecursion" in repr(yoshida)
 
 
 def test_yoshida_recursion_time_weights_sum():
     """Test that time weights in Yoshida recursion sum correctly."""
-    base = TrotterStep(num_terms=2, time_step=1.0)
+    base = TrotterStep(terms=[0, 1], time_step=1.0)
     yoshida = yoshida_recursion(base)
     # The total scaled time should equal the original total time * nterms
     # because weights w1 + w0 + w1 = 2*w1 + w0 = 2*w1 + (1 - 2*w1) = 1
@@ -305,7 +318,7 @@ def test_yoshida_recursion_time_weights_sum():
 
 def test_yoshida_fewer_terms_than_suzuki():
     """Test that Yoshida produces fewer terms than Suzuki (3x vs 5x)."""
-    base = strang_splitting(num_terms=3, time=1.0)
+    base = strang_splitting(terms=[0, 1, 2], time=1.0)
     suzuki = suzuki_recursion(base)
     yoshida = yoshida_recursion(base)
     # Yoshida uses 3 copies, Suzuki uses 5 copies
@@ -318,7 +331,7 @@ def test_yoshida_fewer_terms_than_suzuki():
 
 def test_fourth_order_trotter_suzuki_basic():
     """Test fourth_order_trotter_suzuki factory function."""
-    fourth = fourth_order_trotter_suzuki(num_terms=2, time=1.0)
+    fourth = fourth_order_trotter_suzuki(terms=[0, 1], time=1.0)
     assert fourth.order == 4
     assert fourth.nterms == 2
     assert fourth.time_step == 1.0
@@ -326,8 +339,8 @@ def test_fourth_order_trotter_suzuki_basic():
 
 def test_fourth_order_trotter_suzuki_equals_suzuki_of_strang():
     """Test that fourth_order_trotter_suzuki equals suzuki_recursion(strang_splitting)."""
-    fourth = fourth_order_trotter_suzuki(num_terms=3, time=0.5)
-    manual = suzuki_recursion(strang_splitting(num_terms=3, time=0.5))
+    fourth = fourth_order_trotter_suzuki(terms=[0, 1, 2], time=0.5)
+    manual = suzuki_recursion(strang_splitting(terms=[0, 1, 2], time=0.5))
     assert list(fourth.step()) == list(manual.step())
     assert fourth.order == manual.order
 
@@ -335,146 +348,103 @@ def test_fourth_order_trotter_suzuki_equals_suzuki_of_strang():
 # TrotterExpansion tests
 
 
-def test_trotter_expansion_init_basic():
-    """Test basic TrotterExpansion initialization."""
-    step = TrotterStep(num_terms=2, time_step=0.25)
-    expansion = TrotterExpansion(step, num_steps=4)
-    assert expansion._trotter_step is step
-    assert expansion._num_steps == 4
-
-
-def test_trotter_expansion_get_single_step():
-    """Test TrotterExpansion with a single step."""
-    step = TrotterStep(num_terms=2, time_step=1.0)
-    expansion = TrotterExpansion(step, num_steps=1)
-    result = expansion.get()
-    assert len(result) == 1
-    terms, count = result[0]
-    assert count == 1
-    assert terms == [(1.0, 0), (1.0, 1)]
-
-
-def test_trotter_expansion_get_multiple_steps():
-    """Test TrotterExpansion with multiple steps."""
-    step = TrotterStep(num_terms=2, time_step=0.25)
-    expansion = TrotterExpansion(step, num_steps=4)
-    result = expansion.get()
-    assert len(result) == 1
-    terms, count = result[0]
-    assert count == 4
-    assert terms == [(0.25, 0), (0.25, 1)]
-
-
-def test_trotter_expansion_with_strang():
-    """Test TrotterExpansion using strang_splitting."""
-    step = strang_splitting(num_terms=2, time=0.5)
-    expansion = TrotterExpansion(step, num_steps=2)
-    result = expansion.get()
-    assert len(result) == 1
-    terms, count = result[0]
-    assert count == 2
-    # strang_splitting with 2 terms: [(0.25, 0), (0.5, 1), (0.25, 0)]
-    assert terms == [(0.25, 0), (0.5, 1), (0.25, 0)]
-
-
-def test_trotter_expansion_total_time():
-    """Test that total evolution time is correct."""
-    total_time = 1.0
-    num_steps = 4
-    step = TrotterStep(num_terms=3, time_step=total_time / num_steps)
-    expansion = TrotterExpansion(step, num_steps=num_steps)
-    result = expansion.get()
-    terms, count = result[0]
-    # Total time = sum of times in one step * count
-    step_time = sum(t for t, _ in terms)
-    total = step_time * count
-    # For first-order Trotter, step_time = time * num_terms
-    assert abs(total - total_time * 3) < 1e-10
-
-
-def test_trotter_expansion_preserves_step():
-    """Test that expansion preserves the original step."""
-    step = TrotterStep(num_terms=3, time_step=0.5)
-    expansion = TrotterExpansion(step, num_steps=10)
-    result = expansion.get()
-    terms, _ = result[0]
-    assert terms == list(step.step())
-
-
-def test_trotter_expansion_with_fourth_order():
-    """Test TrotterExpansion with fourth-order Trotter-Suzuki."""
-    step = fourth_order_trotter_suzuki(num_terms=2, time=0.25)
-    expansion = TrotterExpansion(step, num_steps=4)
-    result = expansion.get()
-    terms, count = result[0]
-    assert count == 4
-    assert step.order == 4
-
-
 def test_trotter_expansion_order_property():
     """Test TrotterExpansion order property."""
-    step = strang_splitting(num_terms=3, time=0.5)
-    expansion = TrotterExpansion(step, num_steps=4)
+    model = make_two_term_model()
+    expansion = TrotterExpansion(strang_splitting, model, time=1.0, num_steps=4)
     assert expansion.order == 2
 
 
 def test_trotter_expansion_nterms_property():
     """Test TrotterExpansion nterms property."""
-    step = TrotterStep(num_terms=5, time_step=0.5)
-    expansion = TrotterExpansion(step, num_steps=4)
-    assert expansion.nterms == 5
+    model = make_two_term_model()
+    expansion = TrotterExpansion(TrotterStep, model, time=1.0, num_steps=4)
+    assert expansion.nterms == 2
 
 
 def test_trotter_expansion_num_steps_property():
     """Test TrotterExpansion num_steps property."""
-    step = TrotterStep(num_terms=2, time_step=0.25)
-    expansion = TrotterExpansion(step, num_steps=8)
+    model = make_two_term_model()
+    expansion = TrotterExpansion(TrotterStep, model, time=1.0, num_steps=8)
     assert expansion.nsteps == 8
 
 
 def test_trotter_expansion_total_time_property():
     """Test TrotterExpansion total_time property."""
-    step = TrotterStep(num_terms=2, time_step=0.25)
-    expansion = TrotterExpansion(step, num_steps=4)
+    model = make_two_term_model()
+    expansion = TrotterExpansion(TrotterStep, model, time=1.0, num_steps=4)
     assert expansion.total_time == 1.0
 
 
 def test_trotter_expansion_step_iterator():
-    """Test TrotterExpansion step() iterator yields full expansion."""
-    step = TrotterStep(num_terms=2, time_step=0.5)
-    expansion = TrotterExpansion(step, num_steps=3)
+    """Test TrotterExpansion.step() yields scaled PauliStrings."""
+    model = make_two_term_model()
+    expansion = TrotterExpansion(TrotterStep, model, time=1.2, num_steps=3)
     result = list(expansion.step())
-    # Should yield 3 repetitions of [(0.5, 0), (0.5, 1)]
-    expected = [(0.5, 0), (0.5, 1), (0.5, 0), (0.5, 1), (0.5, 0), (0.5, 1)]
-    assert result == expected
+
+    # dt = 1.2 / 3 = 0.4 and model terms are 0->ZZ(-2.0), 1->XX(-0.5)
+    expected = [
+        ((0, 1), "ZZ", -0.8),
+        ((0, 1), "XX", -0.2),
+        ((0, 1), "ZZ", -0.8),
+        ((0, 1), "XX", -0.2),
+        ((0, 1), "ZZ", -0.8),
+        ((0, 1), "XX", -0.2),
+    ]
+    assert len(result) == len(expected)
+    for op, (qubits, paulis, coefficient) in zip(result, expected):
+        assert op.qubits == qubits
+        assert op.paulis == paulis
+        assert op.coefficient == pytest.approx(coefficient)
 
 
 def test_trotter_expansion_step_iterator_with_strang():
-    """Test TrotterExpansion step() with Strang splitting."""
-    step = strang_splitting(num_terms=2, time=1.0)
-    expansion = TrotterExpansion(step, num_steps=2)
+    """Test TrotterExpansion.step() with Strang splitting schedule."""
+    model = make_two_term_model()
+    expansion = TrotterExpansion(strang_splitting, model, time=2.0, num_steps=2)
     result = list(expansion.step())
-    # Strang with 2 terms: [(0.5, 0), (1.0, 1), (0.5, 0)]
-    # Repeated twice
-    expected = [(0.5, 0), (1.0, 1), (0.5, 0), (0.5, 0), (1.0, 1), (0.5, 0)]
+
+    # dt = 1.0; one Strang step over terms [0,1] is:
+    # (0.5,0), (1.0,1), (0.5,0)
+    expected_single = [
+        PauliString.from_qubits((0, 1), "ZZ", -1.0),
+        PauliString.from_qubits((0, 1), "XX", -0.5),
+        PauliString.from_qubits((0, 1), "ZZ", -1.0),
+    ]
+    expected = expected_single * 2
     assert result == expected
 
 
 def test_trotter_expansion_str():
     """Test TrotterExpansion string representation."""
-    step = strang_splitting(num_terms=3, time=0.25)
-    expansion = TrotterExpansion(step, num_steps=4)
+    model = make_two_term_model()
+    expansion = TrotterExpansion(strang_splitting, model, time=1.0, num_steps=4)
     result = str(expansion)
     assert "order=2" in result
     assert "num_steps=4" in result
     assert "total_time=1.0" in result
-    assert "num_terms=3" in result
+    assert "num_terms=2" in result
 
 
 def test_trotter_expansion_repr():
     """Test TrotterExpansion repr representation."""
-    step = TrotterStep(num_terms=2, time_step=0.5)
-    expansion = TrotterExpansion(step, num_steps=4)
+    model = make_two_term_model()
+    expansion = TrotterExpansion(TrotterStep, model, time=1.0, num_steps=4)
     result = repr(expansion)
     assert "TrotterExpansion" in result
     assert "num_steps=4" in result
+
+
+def test_trotter_expansion_cirq_repetitions():
+    """Test that TrotterExpansion.cirq repeats one-step circuit num_steps times."""
+    model = make_two_term_model()
+    expansion = TrotterExpansion(TrotterStep, model, time=1.0, num_steps=5)
+
+    op = expansion.cirq()
+    assert op.repetitions == 5
+
+
+def test_strang_splitting_rejects_empty_terms():
+    """Test strang_splitting raises for empty term list."""
+    with pytest.raises(IndexError):
+        strang_splitting([], time=1.0)
