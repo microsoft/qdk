@@ -13,7 +13,7 @@ use crate::noise_mapping::get_noise_ops;
 use crate::shader_types::{
     DiagnosticsData, INTERP_STATE_STRIDE, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT,
     MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOT_ENTRIES, MAX_SHOTS_PER_BATCH,
-    MIN_QUBIT_COUNT, Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms,
+    MIN_QUBIT_COUNT, MIN_REGISTERS, Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms,
     WorkgroupCollationBuffer, ops,
 };
 
@@ -61,6 +61,7 @@ struct RunParams {
     results_buffer_size: usize,
     diagnostics_buffer_size: usize,
     download_buffer_size: usize,
+    num_registers: usize,
 }
 
 #[derive(Debug)]
@@ -479,7 +480,7 @@ impl GpuContext {
         }
     }
 
-    pub fn set_adaptive_program(&mut self, program: AdaptiveProgram) {
+    pub fn set_adaptive_program(&mut self, program: AdaptiveProgram) -> Result<(), String> {
         self.program.clear();
         let num_qubits = u32_to_i32(program.num_qubits);
 
@@ -487,8 +488,19 @@ impl GpuContext {
         let qubit_count = num_qubits.max(MIN_QUBIT_COUNT);
         let result_count = u32_to_i32(program.num_results);
 
+        // Dynamic register file sizing: use at least MIN_REGISTERS to avoid
+        // tiny buffers, but grow to match the program's actual requirement.
+        let num_registers = (program.num_registers as usize).max(MIN_REGISTERS);
+
+        if program.num_registers > MAX_REGISTERS {
+            return Err(format!(
+                "MAX_REGISTERS for adaptive program exceeded: {num_registers} > {MAX_REGISTERS}"
+            ));
+        }
+
         if qubit_count != self.run_params.qubit_count
             || result_count != self.run_params.result_count
+            || num_registers != self.run_params.num_registers
             || self.adaptive_program.is_none()
         {
             self.pipeline_is_dirty = true;
@@ -496,9 +508,11 @@ impl GpuContext {
 
         self.run_params.qubit_count = qubit_count;
         self.run_params.result_count = result_count;
+        self.run_params.num_registers = num_registers;
 
         self.adaptive_program = Some(program);
         self.program_is_dirty = true;
+        Ok(())
     }
 
     fn update_run_params_adaptive(&mut self, shot_count: i32) {
@@ -566,7 +580,7 @@ impl GpuContext {
                 THREADS_PER_WORKGROUP,
                 MAX_QUBIT_COUNT,
                 MAX_QUBITS_PER_WORKGROUP,
-                MAX_REGISTERS,
+                self.run_params.num_registers,
             )?;
         }
 
@@ -597,7 +611,7 @@ impl GpuContext {
         let params = &self.run_params;
         let shots_usize = i32_to_usize(self.run_params.shots_per_batch);
         let interp_state_size = shots_usize * INTERP_STATE_STRIDE * 4;
-        let register_file_size = shots_usize * MAX_REGISTERS * 4;
+        let register_file_size = shots_usize * self.run_params.num_registers * 4;
 
         self.resources.ensure_adaptive_run_buffers(
             params.shots_buffer_size,
@@ -686,7 +700,7 @@ impl GpuContext {
                 .upload_interpreter_state(cast_slice(&interp_state_data))?;
 
             // Initialize register file: zeroed
-            let register_data = vec![0u32; shots_usize * MAX_REGISTERS];
+            let register_data = vec![0u32; shots_usize * self.run_params.num_registers];
             self.resources
                 .upload_register_file(cast_slice(&register_data))?;
 

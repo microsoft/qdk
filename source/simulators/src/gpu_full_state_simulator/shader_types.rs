@@ -13,7 +13,7 @@ pub const MAX_BUFFER_SIZE: usize = 1 << 30; // 1 GB limit due to some wgpu restr
 pub const MAX_QUBIT_COUNT: i32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buffer limit
 pub const MAX_QUBITS_PER_WORKGROUP: i32 = 18; // Max qubits to be processed by a single workgroup
 pub const THREADS_PER_WORKGROUP: i32 = 32; // 32 gives good occupancy across various GPUs
-pub const MAX_REGISTERS: usize = 128;
+pub const MAX_REGISTERS: u32 = 4096; // 4096 * 4 bytes = 16 KB of register file size per interpreter
 pub const INTERP_STATE_STRIDE: usize = 48;
 
 // Once a shot is big enough to need multiple workgroups, what's the max number of workgroups possible
@@ -25,6 +25,9 @@ pub const MAX_SHOTS_PER_BATCH: i32 = 65535; // To align with max workgroups per 
 // With each iteration in each thread processing 2 or 4 entries, that means 2 or 4 iterations per thread minimum.
 pub const MIN_QUBIT_COUNT: i32 = 8;
 pub const SIZEOF_SHOTDATA: usize = std::mem::size_of::<ShotData>(); // Size of ShotData struct on the GPU in bytes
+
+// Minimum register file size; actual size is max(program.num_registers, MIN_REGISTERS)
+pub const MIN_REGISTERS: usize = 128;
 
 #[allow(clippy::cast_possible_truncation)]
 #[allow(clippy::cast_possible_wrap)]

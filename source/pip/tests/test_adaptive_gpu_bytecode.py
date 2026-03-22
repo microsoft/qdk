@@ -17,6 +17,7 @@ import os
 import sys
 from collections import Counter
 import pytest
+import qsharp.openqasm
 
 # Skip the whole module when GPU tests aren't requested.
 if not os.environ.get("QDK_GPU_TESTS"):
@@ -1593,3 +1594,73 @@ def test_call_stack_overflow_guard():
     assert all(
         c == 3 for c in codes
     ), f"Expected all error codes to be 3 (stack overflow), got {codes}"
+
+
+# #########################################################################
+#  Dynamic register file sizing (programs exceeding 128 registers)
+# #########################################################################
+
+
+def _run_openqasm(qasm_src: str, shots: int = SHOTS, seed: int = 42):
+    """Compile OpenQASM source via the adaptive pass and run on the GPU."""
+    global sim
+    qir = qsharp.openqasm.compile(
+        qasm_src,
+        output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
+        target_profile=qsharp.TargetProfile.Adaptive_RIF,
+    )
+    sim.set_program(qir)
+    return sim.run_shots(shots, seed=seed)
+
+
+# =========================================================================
+# Complex RUS loop — requires >128 registers after loop unrolling
+# =========================================================================
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_complex_rus_exceeds_128_registers():
+    """A complex repeat-until-success pattern with 50 iterations.
+
+    The Q# compiler fully unrolls the loop for the Adaptive_RIF profile,
+    producing ~301 registers — well above the old fixed limit of 128.
+    This validates that dynamic register file sizing works correctly.
+    """
+    qasm_src = """\
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[4] q;
+bit c;
+int total = 0;
+int i = 0;
+while (i < 50) {
+    h q[0];
+    cx q[0], q[1];
+    c = measure q[0];
+    if (c) {
+        x q[1];
+        reset q[0];
+        total = total + 1;
+    }
+    h q[2];
+    cx q[2], q[3];
+    c = measure q[2];
+    if (c) {
+        x q[3];
+        reset q[2];
+        total = total + 1;
+    }
+    i = i + 1;
+}
+bit[4] result = measure q;
+"""
+    results = _run_openqasm(qasm_src, shots=100)
+    shot_results = results["shot_results"]
+    # Results include the mid-circuit measurement bit plus 4 final qubits
+    assert all(
+        len(r) >= 4 and all(c in "01" for c in r) for r in shot_results
+    ), f"Unexpected result format: {shot_results[:5]}"
+    # All shots should succeed (result code 0)
+    assert all(
+        c == 0 for c in results["shot_result_codes"]
+    ), f"Some shots failed: {results['shot_result_codes']}"

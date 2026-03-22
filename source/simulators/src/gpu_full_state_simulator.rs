@@ -55,7 +55,7 @@ pub fn run_adaptive_shots_sync(
         if let Some(noise_config) = noise {
             context.set_noise_config(noise_config.clone());
         }
-        context.set_adaptive_program(program);
+        context.set_adaptive_program(program)?;
         context
             .run_adaptive_shots(shot_count, rng_seed, start_shot_id)
             .await

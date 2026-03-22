@@ -257,7 +257,9 @@ impl GpuContext {
         let adaptive_program = pydict_to_adaptive_program(program)?;
         let num_results = adaptive_program.num_results;
 
-        gpu_context.set_adaptive_program(adaptive_program);
+        gpu_context
+            .set_adaptive_program(adaptive_program)
+            .map_err(PyValueError::new_err)?;
 
         // Save the result count for formatting later
         self.last_set_result_count = num_results.try_into().map_err(|e| {
