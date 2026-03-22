@@ -393,8 +393,8 @@ class AdaptiveProfilePass:
         self.instructions.append(ins)
 
     # TODO: Could this be encoded as an Instruction?
-    #       The angle could be casted to bytes and stored as an int,
-    #       then casted back float at runtime.
+    #       The angle could be cast to bytes and stored as an int,
+    #       then cast back float at runtime.
     def _emit_quantum_op(
         self,
         op_id: int,
