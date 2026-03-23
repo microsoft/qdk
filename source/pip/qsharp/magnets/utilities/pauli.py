@@ -230,6 +230,10 @@ class PauliString:
     def __getitem__(self, index: int) -> Pauli:
         return self._paulis[index]
 
+    def __mul__(self, scalar: complex) -> "PauliString":
+        """Scale the coefficient of this PauliString by a complex scalar."""
+        return PauliString(self._paulis, coefficient=self._coefficient * scalar)
+
     def __str__(self) -> str:
         labels = {0: "I", 1: "X", 2: "Z", 3: "Y"}
         s = "".join(map(str, self._paulis))
