@@ -257,12 +257,12 @@ def test_raw_measurements_returns_dict(sampler) -> None:
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_loss_shots_excluded_from_measurements(device) -> None:
     """With high loss noise, some raw shots must carry loss markers and be excluded."""
-    circuit = create_deterministic_circuit()
+    circuit = create_bell_circuit()
     noise = NoiseConfig()
-    # Use mresetz loss: every shot goes through an mresetz gate (measurement
-    # + reset) so this reliably triggers loss regardless of which gates X
-    # decomposes into on the Cirq path.
-    noise.mresetz.loss = 0.5
+    # Use rz loss on the Bell circuit: the H gate always decomposes to Rz in
+    # the {Rz, SX, CZ} native gate set, so every shot unconditionally passes
+    # through at least one Rz gate.
+    noise.rz.loss = 0.5
     result = NeutralAtomSampler(noise=noise, seed=42, device=device).run(
         circuit, repetitions=100
     )
