@@ -10,7 +10,7 @@ pub use pareto::{
 };
 mod result;
 pub use isa::property_keys;
-pub use isa::property_keys::property_name_to_key;
+pub use isa::property_keys::{property_name, property_name_to_key};
 pub use isa::{
     ConstraintBound, Encoding, ISA, ISARequirements, Instruction, InstructionConstraint, LockedISA,
     ProvenanceGraph, VariableArityFunction,

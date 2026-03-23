@@ -31,6 +31,17 @@ macro_rules! define_properties {
                 _ => None
             }
         }
+
+        /// Integer key → property name mapping
+        #[must_use]
+        pub fn property_name(id: u64) -> Option<&'static str> {
+            match id {
+                $(
+                    $name => Some(stringify!($name)),
+                )*
+                _ => None,
+            }
+        }
     };
 }
 
@@ -47,4 +58,8 @@ define_properties! {
     PHYSICAL_FACTORY_QUBITS,
     PHYSICAL_MEMORY_QUBITS,
     MOLECULE,
+    LOGICAL_COMPUTE_QUBITS,
+    LOGICAL_MEMORY_QUBITS,
+    ALGORITHM_COMPUTE_QUBITS,
+    ALGORITHM_MEMORY_QUBITS,
 }

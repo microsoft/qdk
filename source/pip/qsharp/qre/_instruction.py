@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from typing import Generator, Iterable, Optional
 from enum import IntEnum
 
+import pandas as pd
+
 from ._architecture import _Context, Architecture
 from ._enumeration import _enumerate_instances
 from ._isa_enumeration import (
@@ -372,3 +374,25 @@ class _InstructionSourceNodeReference:
                 return _InstructionSourceNodeReference(self.graph, child_id)
 
         return default
+
+
+def _isa_as_frame(self: ISA) -> pd.DataFrame:
+    data = {
+        "id": [instruction_name(inst.id) for inst in self],
+        "encoding": [Encoding(inst.encoding).name for inst in self],
+        "arity": [inst.arity for inst in self],
+        "space": [
+            inst.expect_space() if inst.arity is not None else None for inst in self
+        ],
+        "time": [
+            inst.expect_time() if inst.arity is not None else None for inst in self
+        ],
+        "error": [
+            inst.expect_error_rate() if inst.arity is not None else None
+            for inst in self
+        ],
+    }
+
+    df = pd.DataFrame(data)
+    df.set_index("id", inplace=True)
+    return df
