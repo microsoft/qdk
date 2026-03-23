@@ -177,7 +177,7 @@ def test_noiseless_noiseconfig_is_identity(device) -> None:
 def test_bitflip_noise_introduces_errors(device) -> None:
     """Heavy SX bit-flip must flip some outcomes in the deterministic circuit.
 
-    When a Cirq ``X`` gate is compiled via QASM 2.0 → QIR →
+    When a Cirq ``X`` gate is compiled via QASM 3.0 → QIR →
     ``NeutralAtomDevice.compile()``, the device decomposer represents X as
     SX·SX (two SX gates) rather than Rz + SX.  Noise must therefore be
     configured on ``noise.sx`` (not ``noise.rz``) to affect X-gate circuits
