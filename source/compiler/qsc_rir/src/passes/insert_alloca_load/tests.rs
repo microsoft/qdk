@@ -4,8 +4,7 @@
 use expect_test::expect;
 
 use crate::rir::{
-    AdvancedInstr, Block, BlockId, CallableId, Instruction, Literal, Operand, Program, Variable,
-    VariableId,
+    Block, BlockId, CallableId, Instruction, Literal, Operand, Program, Variable, VariableId,
 };
 
 use super::insert_alloca_load_instrs;
@@ -90,7 +89,7 @@ fn reuses_single_load_within_block() {
     let load_count = block
         .0
         .iter()
-        .filter(|instr| matches!(instr, Instruction::Advanced(AdvancedInstr::Load(..))))
+        .filter(|instr| matches!(instr, Instruction::Load(..)))
         .count();
     assert_eq!(
         load_count, 1,
@@ -194,7 +193,7 @@ fn leaves_unrelated_operands_unloaded() {
         block
             .0
             .iter()
-            .all(|instr| !matches!(instr, Instruction::Advanced(AdvancedInstr::Load(..)))),
+            .all(|instr| !matches!(instr, Instruction::Load(..))),
         "no loads should be inserted for operands unrelated to stored variables",
     );
 

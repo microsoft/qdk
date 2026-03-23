@@ -381,7 +381,8 @@ pub enum Instruction {
     BitwiseXor(Operand, Operand, Variable),
     Phi(Vec<(Operand, BlockId)>, Variable),
     Convert(Operand, Variable),
-    Advanced(AdvancedInstr),
+    Load(Variable, Variable),
+    Alloca(Variable),
     Return,
 }
 
@@ -473,41 +474,6 @@ impl Display for Instruction {
                 let mut indent = set_indentation(indented(f), 0);
                 write!(indent, "{variable} = Convert {operand}")?;
             }
-            Self::Advanced(instr) => {
-                write!(f, "{instr}")?;
-            }
-            Self::Return => write!(f, "Return")?,
-        }
-        Ok(())
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AdvancedInstr {
-    Load(Variable, Variable),
-    Alloca(Variable),
-}
-
-impl From<AdvancedInstr> for Instruction {
-    fn from(instr: AdvancedInstr) -> Self {
-        Self::Advanced(instr)
-    }
-}
-
-impl TryFrom<Instruction> for AdvancedInstr {
-    type Error = ();
-
-    fn try_from(instr: Instruction) -> Result<Self, Self::Error> {
-        match instr {
-            Instruction::Advanced(adv_instr) => Ok(adv_instr),
-            _ => Err(()),
-        }
-    }
-}
-
-impl Display for AdvancedInstr {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match &self {
             Self::Load(lhs, rhs) => {
                 write_unary_instruction(f, "Load", &Operand::Variable(*lhs), *rhs)?;
             }
@@ -515,6 +481,7 @@ impl Display for AdvancedInstr {
                 let mut indent = set_indentation(indented(f), 0);
                 write!(indent, "{variable} = Alloca")?;
             }
+            Self::Return => write!(f, "Return")?,
         }
         Ok(())
     }

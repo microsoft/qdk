@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir::{AdvancedInstr, Callable, Instruction, Operand, Program, Ty, Variable};
+use crate::rir::{Callable, Instruction, Operand, Program, Ty, Variable};
 
 #[cfg(test)]
 mod tests;
@@ -61,7 +61,8 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
 
         Instruction::Convert(_, _)
         | Instruction::Jump(_)
-        | Instruction::Advanced(AdvancedInstr::Alloca(..) | AdvancedInstr::Load(..))
+        | Instruction::Alloca(..)
+        | Instruction::Load(..)
         | Instruction::Return => {}
     }
 }

@@ -1,9 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir::{
-    AdvancedInstr, Block, BlockId, Instruction, Operand, Program, Variable, VariableId,
-};
+use crate::rir::{Block, BlockId, Instruction, Operand, Program, Variable, VariableId};
 use qsc_data_structures::index_map::IndexMap;
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -111,8 +109,8 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
                 Instruction::Store(_, var)
-                | Instruction::Advanced(AdvancedInstr::Alloca(var) | AdvancedInstr::Load(_, var)) =>
-                {
+                | Instruction::Alloca(var)
+                | Instruction::Load(_, var) => {
                     has_store = true;
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
@@ -214,10 +212,10 @@ pub(crate) fn map_variable_use_in_block(
             // like the unconditional terminators.
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return => {}
 
-            Instruction::Advanced(AdvancedInstr::Alloca(..)) => {
+            Instruction::Alloca(..) => {
                 panic!("alloca not supported in ssa transformation")
             }
-            Instruction::Advanced(AdvancedInstr::Load(..)) => {
+            Instruction::Load(..) => {
                 panic!("load not supported in ssa transformation")
             }
         }

@@ -210,16 +210,8 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Sub(lhs, rhs, variable) => {
                 binop_to_qir("sub", lhs, rhs, *variable, program)
             }
-            rir::Instruction::Advanced(instr) => ToQir::<String>::to_qir(instr, program),
-        }
-    }
-}
-
-impl ToQir<String> for rir::AdvancedInstr {
-    fn to_qir(&self, program: &rir::Program) -> String {
-        match self {
-            rir::AdvancedInstr::Alloca(variable) => alloca_to_qir(*variable, program),
-            rir::AdvancedInstr::Load(var_from, var_to) => load_to_qir(*var_from, *var_to, program),
+            rir::Instruction::Alloca(variable) => alloca_to_qir(*variable, program),
+            rir::Instruction::Load(var_from, var_to) => load_to_qir(*var_from, *var_to, program),
         }
     }
 }

@@ -371,7 +371,8 @@ fn process_variables(
         }
         instruction @ (Instruction::Store(..)
         | Instruction::BitwiseNot(..)
-        | Instruction::Advanced(..)) => {
+        | Instruction::Alloca(..)
+        | Instruction::Load(..)) => {
             return Err(Error::UnsupportedFeature(format!(
                 "unsupported instruction in block: {instruction:?}"
             )));
