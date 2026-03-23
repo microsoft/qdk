@@ -16,6 +16,8 @@ from typing import Iterator, Optional
 from qsharp.magnets.models import Model
 from qsharp.magnets.utilities import PauliString
 
+import math
+
 try:
     import cirq
 except Exception as ex:
@@ -125,9 +127,7 @@ class TrotterStep:
                             for p in op._paulis
                         },
                     )
-                    oper = cirq.PauliStringPhasor(
-                        pauli, exponent_neg=time / 3.141592653589793
-                    )
+                    oper = cirq.PauliStringPhasor(pauli, exponent_neg=time / math.pi)
                     circuit.append(oper)
         return circuit
 
