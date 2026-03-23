@@ -60,9 +60,6 @@ const OPID_CORRELATED_NOISE = 131u;
 const OPID_SHOT_BUFF_1Q = 256u;
 const OPID_SHOT_BUFF_2Q = 257u;
 
-// The below is used when an operation is to be applied to all qubits - such as a system reset.
-const ALL_QUBITS: u32 = 0xFFFFFFFFu;
-
 struct WorkgroupSums {
     qubits: array<vec2f, MAX_QUBIT_COUNT>, // Each vec2f holds (zero_probability, one_probability)
 };
@@ -210,6 +207,40 @@ var<storage, read> correlated_noise_tables: array<NoiseTableMetadata>;
 @group(0) @binding(8)
 var<storage, read> correlated_noise_entries: array<NoiseTableEntry>;
 
+struct CallStackFrame {
+    /// Resume on this block on return.
+    block_id: u32,
+    /// Instruction after the call.
+    return_pc: u32,
+    /// Where to write the return value.
+    return_reg: u32,
+    /// This is for alignment.
+    reserved: u32,
+}
+
+/// Per-shot interpreter state.
+struct InterpreterState {
+    /// Instruction index (absolute), PC stands for Program Counter.
+    pc: u32,
+    /// Current block ID.
+    current_block_id: u32,
+    ///Previous block ID (for phi resolution).
+    previous_block_id: u32,
+    /// 0=running, 1=quantum_pending, 2=terminated, 3=error, 4=yield.
+    status: u32,
+    /// Quantum op table index.
+    pending_op_idx: u32,
+    /// 0=gate, 1=measure, 2=reset.
+    pending_op_type: u32,
+    /// From ret instruction
+    exit_code: u32,
+    /// Call stack pointer.
+    call_sp: u32,
+    /// Call stack frames (4 u32 per frame × 14 frames = 56).
+    call_stack_frames: array<CallStackFrame, 14>,
+}
+// Total struct size = 64 u32 = 256 bytes (which is aligned to 128 bytes)
+
 // -----------------------------------------------------------------------------
 // Adaptive interpreter buffer bindings (9-17)
 // -----------------------------------------------------------------------------
@@ -233,7 +264,7 @@ var<storage, read> switch_table: array<vec2<u32>>;  // (match_value, target_bloc
 var<storage, read> call_arg_table: array<u32>;  // register indices
 
 @group(0) @binding(15)
-var<storage, read_write> interpreter_state: array<u32>;  // Per-shot interpreter state (flattened)
+var<storage, read_write> interpreter_state: array<InterpreterState>;  // Per-shot interpreter state
 
 @group(0) @binding(16)
 var<storage, read_write> shot_registers: array<u32>;  // Per-shot register files (flattened)
@@ -248,27 +279,12 @@ var<storage, read_write> termination_counter: atomic<u32>;  // Count of halted s
 const MAX_REGISTERS: u32 = {{MAX_REGISTERS}};
 const MAX_CLASSICAL_STEPS: u32 = 4096u;
 
-const INTERP_STATE_STRIDE: u32 = 48u;
-
 // Status codes
 const STATUS_RUNNING:          u32 = 0u;
 const STATUS_QUANTUM_PENDING:  u32 = 1u;
 const STATUS_TERMINATED:       u32 = 2u;
 const STATUS_ERROR:            u32 = 3u;
 const STATUS_YIELD:            u32 = 4u;
-
-// Per-shot interpreter state offsets
-const INTERP_PC:               u32 = 0u;   // Instruction index (absolute), PC stands for Program Counter
-const INTERP_BLOCK:            u32 = 1u;   // Current block ID
-const INTERP_PREV_BLOCK:       u32 = 2u;   // Previous block ID (for phi resolution)
-const INTERP_STATUS:           u32 = 3u;   // 0=running, 1=quantum_pending, 2=terminated, 3=error, 4=yield
-const INTERP_PENDING_OP_IDX:   u32 = 4u;   // Quantum op table index
-const INTERP_PENDING_OP_TYPE:  u32 = 5u;   // 0=gate, 1=measure, 2=reset
-const INTERP_PENDING_Q1:       u32 = 6u;   // Resolved qubit 1
-const INTERP_PENDING_Q2:       u32 = 7u;   // Resolved qubit 2
-const INTERP_EXIT_CODE:        u32 = 8u;   // From ret instruction
-const INTERP_CALL_SP:          u32 = 9u;   // Call stack pointer (0–7)
-const INTERP_CALL_STACK:       u32 = 10u;  // Base for call frames (4 u32 per frame × 8 frames = 32)
 
 // -----------------------------------------------------------------------------
 // Adaptive interpreter — opcodes
@@ -296,8 +312,6 @@ const FLAG_AUX0_IMM: u32 = 1 << 19;  // aux0 field is an immediate value, not a 
 const FLAG_AUX1_IMM: u32 = 1 << 20;  // aux1 field is an immediate value, not a register
 const FLAG_AUX2_IMM: u32 = 1 << 21;  // aux2 field is an immediate value, not a register
 const FLAG_AUX3_IMM: u32 = 1 << 22;  // aux3 field is an immediate value, not a register
-
-const FLAG_FLOAT: u32 = 1 << 23;  // operation uses float semantics
 
 // -- Control Flow -------------------------------------------------------------
 const OP_NOP:           u32 = 0x00;
@@ -390,16 +404,7 @@ const FCMP_ULE:         u32 = 13;
 const FCMP_UNE:         u32 = 14;
 const FCMP_TRUE:        u32 = 15;
 
-// -- Register type tags -------------------------------------------------------
-const REG_TYPE_BOOL:    u32 = 0;
-const REG_TYPE_I32:     u32 = 1;
-const REG_TYPE_I64:     u32 = 2;
-const REG_TYPE_F32:     u32 = 3;
-const REG_TYPE_F64:     u32 = 4;
-const REG_TYPE_PTR:     u32 = 5;
-
 // -- Sentinel values ----------------------------------------------------------
-const DYN_QUBIT_SENTINEL: u32 = 0xFFFFFFFF;  // Value is *not* dynamic. Use static value.
 const VOID_RETURN:        u32 = 0xFFFFFFFF;  // Function does not have a return value.
 
 // -----------------------------------------------------------------------------
@@ -475,10 +480,8 @@ fn resolve_f32(shot_idx: u32, operand: u32, flags: u32, operand_idx: u32) -> f32
 
 // Resolves q1 for the current quantum instruction.
 fn resolve_q1(shot_idx: u32) -> u32 {
-    let shot = &shots[shot_idx];
-    let state_base = shot_idx * INTERP_STATE_STRIDE;
-    let pc: u32 = interpreter_state[state_base + INTERP_PC];
-    let instr = fetch_instr(pc - 1);
+    let state = interpreter_state[shot_idx];
+    let instr = fetch_instr(state.pc - 1);
     if (instr.opcode & FLAG_AUX1_IMM) != 0 {
         return instr.aux1;
     }
@@ -487,10 +490,8 @@ fn resolve_q1(shot_idx: u32) -> u32 {
 
 // Resolves q2 for the current quantum instruction.
 fn resolve_q2(shot_idx: u32) -> u32 {
-    let shot = &shots[shot_idx];
-    let state_base = shot_idx * INTERP_STATE_STRIDE;
-    let pc: u32 = interpreter_state[state_base + INTERP_PC];
-    let instr = fetch_instr(pc - 1);
+    let state = interpreter_state[shot_idx];
+    let instr = fetch_instr(state.pc - 1);
     if (instr.opcode & FLAG_AUX2_IMM) != 0 {
         return instr.aux2;
     }
@@ -933,19 +934,6 @@ fn apply_2q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32) {
         shot.qubits_updated_last_op_mask = 0u;
     } else  {
         shot.qubits_updated_last_op_mask = (1u << op.q1 ) | (1u << op.q2);
-    }
-}
-
-// Get the qubit id at the given index from the correlated noise op's qubit args
-// Qubit args are stored in the unitary matrix elements as f32 values
-fn get_correlated_noise_qubit(op_idx: u32, index: u32) -> u32 {
-    // Qubit ids are stored in the unitary as f32 values, starting at unitary[0].x, unitary[0].y, etc.
-    let vec_idx = index / 2u;
-    let component = index % 2u;
-    if (component == 0u) {
-        return u32(ops[op_idx].unitary[vec_idx].x);
-    } else {
-        return u32(ops[op_idx].unitary[vec_idx].y);
     }
 }
 
@@ -1604,38 +1592,17 @@ fn initialize(
 // register value or an inline immediate based on the FLAG_SRC0_IMM /
 // FLAG_SRC1_IMM bits in the flags byte. This lets the compiler embed small
 // constants directly in the instruction stream without extra CONST ops.
-//
-// ## Per-Shot State Layout (`interpreter_state` buffer)
-//
-// Each shot occupies INTERP_STATE_STRIDE (48) u32 slots at offset
-// `shot_idx * INTERP_STATE_STRIDE`. Key fields:
-//   [0] PC              — current instruction index, a.k.a. program counter
-//                         (absolute into bytecode)
-//   [1] BLOCK           — current basic block ID (for jump targets)
-//   [2] PREV_BLOCK      — previous block ID (needed for PHI resolution)
-//   [3] STATUS          — one of RUNNING / QUANTUM_PENDING / TERMINATED /
-//                         ERROR / YIELD
-//   [4] PENDING_OP_IDX  — quantum op index when pausing for quantum work
-//   [5] PENDING_OP_TYPE — 0=gate, 1=measure, 2=reset
-//   [6] PENDING_Q1      — resolved qubit 1 for the pending quantum op
-//   [7] PENDING_Q2      — resolved qubit 2 (or DYN_QUBIT_SENTINEL if unused)
-//   [8] EXIT_CODE       — exit code stored by RET
-//   [9] CALL_SP         — call stack pointer (0–7 frames deep)
-//   [10..41] CALL_STACK — 8 call frames × 4 u32 each (return_block,
-//                         return_pc, return_reg, reserved)
+
 
 @compute @workgroup_size(1)
 fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Each GPU thread handles exactly one shot. The global invocation ID
     // maps directly to the shot index.
     let shot_idx = gid.x;
-
-    // Compute the base offset into the interpreter_state buffer for this
-    // shot. All per-shot fields are accessed as interpreter_state[state_base + FIELD_OFFSET].
-    let state_base = shot_idx * INTERP_STATE_STRIDE;
+    let state = interpreter_state[shot_idx];
 
     // -- Early-exit for shots that already finished or errored --
-    let status = interpreter_state[state_base + INTERP_STATUS];
+    let status = state.status;
     if status == STATUS_TERMINATED || status == STATUS_ERROR {
         return;
     }
@@ -1644,16 +1611,16 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
     // hitting the step limit), transition back to RUNNING so the main loop
     // resumes executing instructions from where it left off.
     if status != STATUS_RUNNING {
-        interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+        interpreter_state[shot_idx].status = STATUS_RUNNING;
     }
 
     // -- Load interpreter registers from GPU memory into local variables --
     // Using local vars for the hot-path state avoids repeated global memory
     // loads/stores on every instruction. They are written back at the end.
-    var pc: u32 = interpreter_state[state_base + INTERP_PC];          // program counter
-    var block_id: u32 = interpreter_state[state_base + INTERP_BLOCK]; // current basic block
-    var prev_block: u32 = interpreter_state[state_base + INTERP_PREV_BLOCK]; // previous block (for PHI)
-    var steps: u32 = 0u;            // counts instructions executed this dispatch
+    var pc: u32 = state.pc;  // program counter
+    var block_id: u32 = state.current_block_id;
+    var prev_block: u32 = state.previous_block_id; // for PHI
+    var steps: u32 = 0u;             // counts instructions executed this dispatch
     var should_break: bool = false;  // set to true to exit the main loop
 
     // -- Main interpreter loop --
@@ -1667,8 +1634,8 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
         if steps >= MAX_CLASSICAL_STEPS {
             // Only yield if the shot hasn't already errored (an error
             // status must not be overwritten by a yield).
-            if interpreter_state[state_base + INTERP_STATUS] != STATUS_ERROR {
-                interpreter_state[state_base + INTERP_STATUS] = STATUS_YIELD;
+            if state.status != STATUS_ERROR {
+                interpreter_state[shot_idx].status = STATUS_YIELD;
             }
             break;
         }
@@ -1722,12 +1689,12 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // host can detect when all shots have finished.
             case OP_RET {
                 let exit_code = resolve_u32(shot_idx, instr.dst, flags, 2u);
-                interpreter_state[state_base + INTERP_EXIT_CODE] = exit_code;
+                interpreter_state[shot_idx].exit_code = exit_code;
                 // Atomically store exit code into the last slot of this shot's
                 // result region, but only if it has not already been set.
                 let err_index = (shot_idx + 1) * RESULT_COUNT - 1;
                 atomicCompareExchangeWeak(&results[err_index], 0u, exit_code);
-                interpreter_state[state_base + INTERP_STATUS] = STATUS_TERMINATED;
+                interpreter_state[shot_idx].status = STATUS_TERMINATED;
                 atomicAdd(&termination_counter, 1u);
                 should_break = true;
             }
@@ -1810,23 +1777,21 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let arg_offset = instr.aux2;
                 let func = function_table[func_id];
                 // Push return info onto the call stack
-                let sp = interpreter_state[state_base + INTERP_CALL_SP];
+                let sp = state.call_sp;
                 // Guard: prevent call stack overflow (max 8 frames)
                 if sp >= 8u {
-                    interpreter_state[state_base + INTERP_EXIT_CODE] = ERR_CALL_STACK_OVERFLOW;
+                    interpreter_state[shot_idx].exit_code = ERR_CALL_STACK_OVERFLOW;
                     let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                     atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_CALL_STACK_OVERFLOW);
-                    interpreter_state[state_base + INTERP_STATUS] = STATUS_ERROR;
+                    interpreter_state[shot_idx].status = STATUS_ERROR;
                     atomicAdd(&termination_counter, 1u);
                     should_break = true;
                     break;
                 }
-                let frame_base = state_base + INTERP_CALL_STACK + sp * 4u;
-                interpreter_state[frame_base + 0u] = block_id;      // return_block — resume here on return
-                interpreter_state[frame_base + 1u] = pc + 1u;       // return_pc — instruction after the CALL
-                interpreter_state[frame_base + 2u] = instr.dst;     // return_reg — where to write result
-                interpreter_state[frame_base + 3u] = 0u;            // reserved
-                interpreter_state[state_base + INTERP_CALL_SP] = sp + 1u;
+                interpreter_state[shot_idx].call_stack_frames[sp].block_id = block_id;    // return_block — resume here on return
+                interpreter_state[shot_idx].call_stack_frames[sp].return_pc = pc + 1u;    // return_pc — instruction after the CALL
+                interpreter_state[shot_idx].call_stack_frames[sp].return_reg = instr.dst; // return_reg — where to write result
+                interpreter_state[shot_idx].call_sp = sp + 1u;
                 // Copy caller arguments into the callee's parameter registers
                 let param_base = func.z;  // param_base_reg in function_table
                 for (var i = 0u; i < arg_count; i++) {
@@ -1846,24 +1811,22 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // return register (not 0xFFFFFFFF), copies the return value into
             // that register.
             case OP_CALL_RETURN {
-                let raw_sp = interpreter_state[state_base + INTERP_CALL_SP];
-                if raw_sp == 0u {
-                    interpreter_state[state_base + INTERP_EXIT_CODE] = ERR_CALL_STACK_UNDERFLOW;
+                if state.call_sp == 0u {
+                    interpreter_state[shot_idx].exit_code = ERR_CALL_STACK_UNDERFLOW;
                     let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                     atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_CALL_STACK_UNDERFLOW);
-                    interpreter_state[state_base + INTERP_STATUS] = STATUS_ERROR;
+                    interpreter_state[shot_idx].status = STATUS_ERROR;
                     atomicAdd(&termination_counter, 1u);
                     should_break = true;
                     break;
                 }
-                let sp = raw_sp - 1u;
-                interpreter_state[state_base + INTERP_CALL_SP] = sp;
-                let frame_base = state_base + INTERP_CALL_STACK + sp * 4u;
-                block_id = interpreter_state[frame_base + 0u];    // restore return_block
-                pc = interpreter_state[frame_base + 1u];          // restore return_pc
-                let return_reg = interpreter_state[frame_base + 2u];
-                // 0xFFFFFFFF signals "void" — no return value expected
-                if return_reg != 0xFFFFFFFFu {
+
+                let sp = state.call_sp - 1;
+                interpreter_state[shot_idx].call_sp = sp;
+                block_id = state.call_stack_frames[sp].block_id;  // go back to the callers block
+                pc = state.call_stack_frames[sp].return_pc;       // restore pc
+                let return_reg = state.call_stack_frames[sp].return_reg;
+                if return_reg != VOID_RETURN {
                     write_reg(shot_idx, return_reg, read_reg(shot_idx, instr.src0));
                 }
             }
@@ -1893,12 +1856,12 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             //           aux1 = qubit 1 (or register if not sentinel),
             //           aux2 = qubit 2 (or register if not sentinel).
             case OP_QUANTUM_GATE {
-                interpreter_state[state_base + INTERP_PENDING_OP_IDX] = instr.aux0;
-                interpreter_state[state_base + INTERP_PENDING_OP_TYPE] = 0u; // type 0 = gate
+                interpreter_state[shot_idx].pending_op_idx = instr.aux0;
+                interpreter_state[shot_idx].pending_op_type = 0u; // type 0 = gate
                 // Qubit IDs are resolved in prepare_op via resolve_q1/resolve_q2,
                 // which use the FLAG_AUX1_IMM / FLAG_AUX2_IMM bits to decide
                 // between immediate values and register lookups.
-                interpreter_state[state_base + INTERP_STATUS] = STATUS_QUANTUM_PENDING;
+                interpreter_state[shot_idx].status = STATUS_QUANTUM_PENDING;
                 pc++;
                 should_break = true;
             }
@@ -1908,11 +1871,11 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             //           aux1 = qubit to measure (or register).
             // Only q1 is used; q2 is set to sentinel (unused).
             case OP_MEASURE {
-                interpreter_state[state_base + INTERP_PENDING_OP_IDX] = instr.aux0;
-                interpreter_state[state_base + INTERP_PENDING_OP_TYPE] = 1u; // type 1 = measure
+                interpreter_state[shot_idx].pending_op_idx = instr.aux0;
+                interpreter_state[shot_idx].pending_op_type = 1u; // type 1 = gate
                 // Qubit and result IDs are resolved in prepare_op via
                 // resolve_q1 (aux1) and resolve_q2 (aux2).
-                interpreter_state[state_base + INTERP_STATUS] = STATUS_QUANTUM_PENDING;
+                interpreter_state[shot_idx].status = STATUS_QUANTUM_PENDING;
                 pc++;
                 should_break = true;
             }
@@ -1921,10 +1884,10 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // Encoding: aux0 = quantum op table index,
             //           aux1 = qubit to reset (or register).
             case OP_RESET {
-                interpreter_state[state_base + INTERP_PENDING_OP_IDX] = instr.aux0;
-                interpreter_state[state_base + INTERP_PENDING_OP_TYPE] = 2u; // type 2 = reset
+                interpreter_state[shot_idx].pending_op_idx = instr.aux0;
+                interpreter_state[shot_idx].pending_op_type = 2u; // type 2 = reset
                 // Qubit ID is resolved in prepare_op via resolve_q1 (aux1).
-                interpreter_state[state_base + INTERP_STATUS] = STATUS_QUANTUM_PENDING;
+                interpreter_state[shot_idx].status = STATUS_QUANTUM_PENDING;
                 pc++;
                 should_break = true;
             }
@@ -2099,10 +2062,11 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                     case ICMP_UGT { result = (bitcast<u32>(a) > bitcast<u32>(b)); }
                     case ICMP_UGE { result = (bitcast<u32>(a) >= bitcast<u32>(b)); }
                     default {
-                        interpreter_state[state_base + INTERP_EXIT_CODE] = ERR_INVALID_INSTRUCTION;
+                        interpreter_state[shot_idx].status = ERR_INVALID_INSTRUCTION;
+                        interpreter_state[shot_idx].exit_code = ERR_INVALID_INSTRUCTION;
                         let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                         atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_INVALID_INSTRUCTION);
-                        interpreter_state[state_base + INTERP_STATUS] = STATUS_ERROR;
+                        interpreter_state[shot_idx].status = STATUS_ERROR;
                         atomicAdd(&termination_counter, 1u);
                         should_break = true;
                     }
@@ -2129,10 +2093,10 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                     case FCMP_OGT { result = (a > b); }
                     case FCMP_OGE { result = (a >= b); }
                     default {
-                        interpreter_state[state_base + INTERP_EXIT_CODE] = ERR_INVALID_INSTRUCTION;
+                        interpreter_state[shot_idx].exit_code = ERR_INVALID_INSTRUCTION;
                         let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                         atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_INVALID_INSTRUCTION);
-                        interpreter_state[state_base + INTERP_STATUS] = STATUS_ERROR;
+                        interpreter_state[shot_idx].status = STATUS_ERROR;
                         atomicAdd(&termination_counter, 1u);
                         should_break = true;
                     }
@@ -2304,7 +2268,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
 
             // Unknown opcode — flag the shot as errored.
             default {
-                interpreter_state[state_base + INTERP_STATUS] = STATUS_ERROR;
+                interpreter_state[shot_idx].status = STATUS_ERROR;
                 atomicAdd(&termination_counter, 1u);
                 should_break = true;
             }
@@ -2316,9 +2280,9 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
     // -- Persist interpreter state back to GPU memory --
     // Write the local variables back so the next dispatch (after quantum ops
     // or a yield) can resume exactly where this invocation left off.
-    interpreter_state[state_base + INTERP_PC] = pc;
-    interpreter_state[state_base + INTERP_BLOCK] = block_id;
-    interpreter_state[state_base + INTERP_PREV_BLOCK] = prev_block;
+    interpreter_state[shot_idx].pc = pc;
+    interpreter_state[shot_idx].current_block_id = block_id;
+    interpreter_state[shot_idx].previous_block_id = prev_block;
 }
 
 // -----------------------------------------------------------------------------
@@ -2331,8 +2295,8 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
 fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     let shot_idx = globalId.x;
     let shot = &shots[shot_idx];
-    let state_base = shot_idx * INTERP_STATE_STRIDE;
-    let status = interpreter_state[state_base + INTERP_STATUS];
+    let state = interpreter_state[shot_idx];
+    let status = state.status;
 
     // Only process shots that are quantum-pending
     if status != STATUS_QUANTUM_PENDING {
@@ -2349,22 +2313,22 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     }
     shot_init_per_op(shot_idx);
 
-    let op_idx = interpreter_state[state_base + INTERP_PENDING_OP_IDX];
-    let op_type = interpreter_state[state_base + INTERP_PENDING_OP_TYPE];
+    let op_idx = state.pending_op_idx;
+    let op_type = state.pending_op_type;
     let op = &ops[op_idx];
 
     // Correlated noise: qubit IDs are stored as register indices in
     // call_arg_table; read aux1 (qubit count) and aux2 (arg offset)
     // from the instruction that triggered this quantum op.
     if op_type == 0u && op.id == OPID_CORRELATED_NOISE {
-        let pc = interpreter_state[state_base + INTERP_PC];
+        let pc = state.pc;
         let noise_instr = fetch_instr(pc - 1u);
         let qubit_count = noise_instr.aux1;
         let arg_offset = noise_instr.aux2;
         shot.op_idx = op_idx;
         shot.op_type = op.id;
         prep_correlated_noise(shot_idx, op_idx, qubit_count, arg_offset);
-        interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+        interpreter_state[shot_idx].status = STATUS_RUNNING;
         return;
     }
 
@@ -2388,7 +2352,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
                 let p_loss = loss_op.unitary[0].x;
                 if shot.rand_loss < p_loss {
                     prep_measure_reset(shot_idx, op_idx, true, false, true);
-                    interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+                    interpreter_state[shot_idx].status = STATUS_RUNNING;
                     return;
                 }
             }
@@ -2400,7 +2364,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
                 } else {
                     apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
                 }
-                interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+                interpreter_state[shot_idx].status = STATUS_RUNNING;
                 return;
             }
 
@@ -2446,7 +2410,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
                 let p_loss = loss_op.unitary[0].x;
                 if shot.rand_loss < p_loss {
                     prep_measure_reset(shot_idx, op_idx, true, false, true);
-                    interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+                    interpreter_state[shot_idx].status = STATUS_RUNNING;
                     return;
                 }
             }
@@ -2460,7 +2424,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
                 } else {
                     apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
                 }
-                interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+                interpreter_state[shot_idx].status = STATUS_RUNNING;
                 return;
             }
 
@@ -2477,7 +2441,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     }
 
     // Mark shot as running so interpret_classical resumes next round
-    interpreter_state[state_base + INTERP_STATUS] = STATUS_RUNNING;
+    interpreter_state[shot_idx].status = STATUS_RUNNING;
 }
 
 @compute @workgroup_size(THREADS_PER_WORKGROUP)

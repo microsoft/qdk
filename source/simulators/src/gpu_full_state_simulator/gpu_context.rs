@@ -3,7 +3,7 @@
 
 use std::cmp::min;
 
-use bytemuck::cast_slice;
+use bytemuck::{Zeroable, cast_slice};
 
 use crate::bytecode::AdaptiveProgram;
 use crate::correlated_noise::NoiseTables;
@@ -11,10 +11,9 @@ use crate::gpu_resources::GpuResources;
 use crate::noise_config::NoiseConfig;
 use crate::noise_mapping::get_noise_ops;
 use crate::shader_types::{
-    DiagnosticsData, INTERP_STATE_STRIDE, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT,
-    MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOT_ENTRIES, MAX_SHOTS_PER_BATCH,
-    MIN_QUBIT_COUNT, MIN_REGISTERS, Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms,
-    WorkgroupCollationBuffer, ops,
+    DiagnosticsData, InterpreterState, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT, MAX_QUBITS_PER_WORKGROUP,
+    MAX_REGISTERS, MAX_SHOT_ENTRIES, MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT, MIN_REGISTERS, Op,
+    SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms, WorkgroupCollationBuffer, ops,
 };
 
 // On Windows, running larger circuits/shots can hit TDR issues if too many ops are dispatched in one go.
@@ -610,7 +609,7 @@ impl GpuContext {
 
         let params = &self.run_params;
         let shots_usize = i32_to_usize(self.run_params.shots_per_batch);
-        let interp_state_size = shots_usize * INTERP_STATE_STRIDE * 4;
+        let interp_state_size = shots_usize * size_of::<InterpreterState>();
         let register_file_size = shots_usize * self.run_params.num_registers * 4;
 
         self.resources.ensure_adaptive_run_buffers(
@@ -687,11 +686,10 @@ impl GpuContext {
             })?;
 
             // Initialize interpreter state: zeroed array with pc and block set per shot
-            let mut interp_state_data = vec![0u32; shots_usize * INTERP_STATE_STRIDE];
-            for shot in 0..shots_usize {
-                let base = shot * INTERP_STATE_STRIDE;
-                interp_state_data[base] = entry_pc; // INTERP_PC
-                interp_state_data[base + 1] = entry_block; // INTERP_BLOCK
+            let mut interp_state_data = vec![InterpreterState::zeroed(); shots_usize];
+            for shot_state in &mut interp_state_data {
+                shot_state.pc = entry_pc; // INTERP_PC
+                shot_state.current_block_id = entry_block; // INTERP_BLOCK
                 // INTERP_STATUS = 0 (STATUS_RUNNING) already from zeroed init
             }
 

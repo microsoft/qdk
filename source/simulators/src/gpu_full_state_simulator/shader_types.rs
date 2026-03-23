@@ -14,7 +14,6 @@ pub const MAX_QUBIT_COUNT: i32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buff
 pub const MAX_QUBITS_PER_WORKGROUP: i32 = 18; // Max qubits to be processed by a single workgroup
 pub const THREADS_PER_WORKGROUP: i32 = 32; // 32 gives good occupancy across various GPUs
 pub const MAX_REGISTERS: u32 = 4096; // 4096 * 4 bytes = 16 KB of register file size per interpreter
-pub const INTERP_STATE_STRIDE: usize = 48;
 
 // Once a shot is big enough to need multiple workgroups, what's the max number of workgroups possible
 pub const MAX_PARTITIONED_WORKGROUPS: i32 = 1 << (MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);
@@ -1053,3 +1052,43 @@ pub struct Result {
     pub entry_idx: u32,
     pub probability: f32,
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct CallStackFrame {
+    /// Resume on this block on return.
+    block_id: u32,
+    /// Instruction after the call.
+    return_pc: u32,
+    /// Where to write the return value.
+    return_reg: u32,
+    /// This is for alignment.
+    reserved: u32,
+}
+
+/// Per-shot interpreter state.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct InterpreterState {
+    /// Instruction index (absolute), PC stands for Program Counter.
+    pub pc: u32,
+    /// Current block ID.
+    pub current_block_id: u32,
+    ///Previous block ID (for phi resolution).
+    pub previous_block_id: u32,
+    /// `0=running, 1=quantum_pending, 2=terminated, 3=error, 4=yield`.
+    pub status: u32,
+    /// Quantum op table index.
+    pub pending_op_idx: u32,
+    /// `0=gate, 1=measure, 2=reset`.
+    pub pending_op_type: u32,
+    /// From ret instruction
+    pub exit_code: u32,
+    /// Call stack pointer.
+    pub call_sp: u32,
+    /// Call stack frames (4 u32 per frame × 14 frames = 56).
+    pub call_stack_frames: [CallStackFrame; 14],
+}
+// Total struct size = 64 u32 = 256 bytes (which is aligned to 128 bytes)
+// safety check to make sure Op is the correct size with padding at compile time
+const _: () = assert!(std::mem::size_of::<InterpreterState>() == 256);
