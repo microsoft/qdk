@@ -11,7 +11,11 @@ from ..._qsharp import logical_counts
 from ...estimator import LogicalCounts
 from .._qre import Trace
 from ..instruction_ids import CCX, MEAS_Z, RZ, T, READ_FROM_MEMORY, WRITE_TO_MEMORY
-from ..property_keys import EVALUATION_TIME
+from ..property_keys import (
+    EVALUATION_TIME,
+    ALGORITHM_COMPUTE_QUBITS,
+    ALGORITHM_MEMORY_QUBITS,
+)
 
 
 def _bucketize_rotation_counts(
@@ -103,6 +107,8 @@ def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts) -> Trace:
             block.add_operation(WRITE_TO_MEMORY, [0, compute_qubits])
 
     trace.set_property(EVALUATION_TIME, evaluation_time)
+    trace.set_property(ALGORITHM_COMPUTE_QUBITS, compute_qubits)
+    trace.set_property(ALGORITHM_MEMORY_QUBITS, memory_qubits)
     return trace
 
 
