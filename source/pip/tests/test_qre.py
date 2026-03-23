@@ -1470,3 +1470,27 @@ def test_trace_from_qir_handles_all_instruction_ids():
     # -- Run trace_from_qir and verify it succeeds -------------------------
     trace = trace_from_qir(simple.ir())
     assert trace is not None
+
+
+def test_rotation_buckets():
+    from qsharp.qre.interop._qsharp import _bucketize_rotation_counts
+
+    print()
+
+    r_count = 15066
+    r_depth = 14756
+    q_count = 291
+
+    result = _bucketize_rotation_counts(r_count, r_depth)
+
+    a_count = 0
+    a_depth = 0
+    for c, d in result:
+        print(c, d)
+        assert c <= q_count
+        assert c > 0
+        a_count += c * d
+        a_depth += d
+
+    assert a_count == r_count
+    assert a_depth == r_depth
