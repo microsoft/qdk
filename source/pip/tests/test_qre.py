@@ -25,6 +25,8 @@ from qsharp.qre import (
     estimate,
     linear_function,
     generic_function,
+    property_name,
+    property_name_to_key,
 )
 from qsharp.qre._qre import _ProvenanceGraph
 from qsharp.qre.application import QSharpApplication
@@ -188,6 +190,24 @@ def test_instruction_constraints():
     # ISA with distance property
     assert isa_with_dist.satisfies(reqs_no_prop) is True
     assert isa_with_dist.satisfies(reqs_with_prop) is True
+
+
+def test_property_names():
+    assert property_name(DISTANCE) == "DISTANCE"
+
+    # An unregistered property
+    UNKNOWN = 10_000
+    assert property_name(UNKNOWN) is None
+
+    # But using an existing property key with a different variable name will
+    # still return something
+    UNKNOWN = 0
+    assert property_name(UNKNOWN) == "DISTANCE"
+
+    assert property_name_to_key("DISTANCE") == DISTANCE
+
+    # But we also allow case-insensitive lookup
+    assert property_name_to_key("distance") == DISTANCE
 
 
 def test_generic_function():

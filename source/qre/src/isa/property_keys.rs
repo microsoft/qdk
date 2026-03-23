@@ -31,6 +31,17 @@ macro_rules! define_properties {
                 _ => None
             }
         }
+
+        /// Integer key → property name mapping
+        #[must_use]
+        pub fn property_name(id: u64) -> Option<&'static str> {
+            match id {
+                $(
+                    $name => Some(stringify!($name)),
+                )*
+                _ => None,
+            }
+        }
     };
 }
 

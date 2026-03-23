@@ -33,6 +33,8 @@ from ._qre import (
     generic_function,
     linear_function,
     instruction_name,
+    property_name,
+    property_name_to_key,
 )
 from ._trace import LatticeSurgery, PSSPC, TraceQuery, TraceTransform
 
@@ -70,6 +72,8 @@ __all__ = [
     "ISATransform",
     "LatticeSurgery",
     "PSSPC",
+    "property_name",
+    "property_name_to_key",
     "Trace",
     "TraceQuery",
     "TraceTransform",

@@ -1539,3 +1539,15 @@ def property_name_to_key(name: str) -> Optional[int]:
         Optional[int]: The property key, or None if the name is not recognized.
     """
     ...
+
+def property_name(id: int) -> Optional[str]:
+    """
+    Converts a property key to its corresponding name, if known.
+
+    Args:
+        id (int): The property key.
+
+    Returns:
+        Optional[str]: The property name, or None if the key is not recognized.
+    """
+    ...
