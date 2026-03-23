@@ -402,6 +402,7 @@ def _requirements_as_frame(self: ISARequirements) -> pd.DataFrame:
     data = {
         "id": [instruction_name(inst.id) for inst in self],
         "encoding": [Encoding(inst.encoding).name for inst in self],
+        "arity": [inst.arity for inst in self],
     }
 
     df = pd.DataFrame(data)

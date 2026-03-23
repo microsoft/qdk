@@ -564,6 +564,26 @@ class Constraint:
         """
         ...
 
+    @property
+    def arity(self) -> Optional[int]:
+        """
+        The instruction arity.
+
+        Returns:
+            Optional[int]: The instruction arity.
+        """
+        ...
+
+    @property
+    def error_rate(self) -> Optional[ConstraintBound]:
+        """
+        The constraint on the instruction error rate.
+
+        Returns:
+            Optional[ConstraintBound]: The constraint on the instruction error rate.
+        """
+        ...
+
     def add_property(self, property: int) -> None:
         """
         Adds a property requirement to the constraint.

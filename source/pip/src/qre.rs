@@ -418,6 +418,16 @@ impl Constraint {
         }
     }
 
+    #[getter]
+    pub fn arity(&self) -> Option<u64> {
+        self.0.arity()
+    }
+
+    #[getter]
+    pub fn error_rate(&self) -> Option<ConstraintBound> {
+        self.0.error_rate().copied().map(ConstraintBound)
+    }
+
     pub fn add_property(&mut self, property: u64) {
         self.0.add_property(property);
     }
