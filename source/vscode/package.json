@@ -371,12 +371,9 @@
         "contents": "Connect to Azure Quantum\n[Connect to an existing workspace](command:qsharp-vscode.workspacesAdd)\nNote: For the first workspace added there may be several consent prompts to grant VS Code access.\nFor more information about the QDK and Azure Quantum, visit [https://aka.ms/AQ/Documentation](https://aka.ms/AQ/Documentation)."
       }
     ],
-    "chatInstructions": [
+    "chatSkills": [
       {
-        "path": "./resources/chat-instructions/qsharp.instructions.md"
-      },
-      {
-        "path": "./resources/chat-instructions/openqasm.instructions.md"
+        "path": "./skills/qdk-programming/SKILL.md"
       }
     ],
     "commands": [
