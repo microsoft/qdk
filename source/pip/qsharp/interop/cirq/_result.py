@@ -21,7 +21,7 @@ import numpy as np
 class NeutralAtomCirqResult(cirq.ResultDict):
     """A ``cirq.ResultDict`` that also carries raw (loss-inclusive) shot data.
 
-    The inherited ``measurements`` field contains only *accepted* shots — those
+    The inherited ``measurements`` field contains only *accepted* shots - those
     where every measured qubit returned a clean ``{0, 1}`` outcome.  Shots in
     which one or more qubits were lost during the simulation are excluded from
     ``measurements`` but are preserved in ``raw_shots``.
@@ -152,11 +152,11 @@ def _qir_display_to_bitstring(obj: Any) -> str:
     """Convert a raw QIR simulation result value to a flat bitstring.
 
     Handles the various formats the NeutralAtomDevice simulator may emit:
-    - ``qsharp.Result`` enum values (``Result.One`` → ``"1"``, ``Result.Zero`` → ``"0"``)
-    - ``tuple`` — multiple classical registers, joined with spaces
-    - ``list``  — single register bits, each element processed recursively
-    - ``str``   — already a representation, parsed with ``ast.literal_eval`` if needed
-    - other scalar — converted with ``str()``; non-``{0,1,space,dash}`` values become loss markers
+    - ``qsharp.Result`` enum values (``Result.One`` -> ``"1"``, ``Result.Zero`` -> ``"0"``)
+    - ``tuple`` - multiple classical registers, joined with spaces
+    - ``list``  - single register bits, each element processed recursively
+    - ``str``   - already a representation, parsed with ``ast.literal_eval`` if needed
+    - other     - converted to string with ``str()``
     """
     # Handle qsharp.Result enum values produced by the local simulator.
     try:
@@ -166,6 +166,8 @@ def _qir_display_to_bitstring(obj: Any) -> str:
             return "1"
         if obj == _Result.Zero:
             return "0"
+        if obj == _Result.Loss:
+            return "-"
     except ImportError:
         pass
 
@@ -229,7 +231,7 @@ def _shots_to_rows(
 
     Args:
         shots: Raw simulation output, one entry per shot.
-        measurement_dict_data: ``{key: [qubit_indices]}`` — the measurement
+        measurement_dict_data: ``{key: [qubit_indices]}`` - the measurement
             register layout. Defaults to a single key ``"m"`` with no qubits.
 
     Returns:
