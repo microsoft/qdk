@@ -2,8 +2,12 @@
 // Licensed under the MIT License.
 
 use std::{
+    collections::hash_map::DefaultHasher,
     fmt::{Display, Formatter},
-    sync::atomic::AtomicUsize,
+    hash::{Hash, Hasher},
+    iter::repeat_with,
+    sync::{Arc, RwLock, atomic::AtomicUsize},
+    vec,
 };
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -11,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Error, EstimationCollection, EstimationResult, FactoryResult, ISA, Instruction, LockedISA,
-    ResultSummary,
+    ProvenanceGraph, ResultSummary,
     property_keys::{PHYSICAL_COMPUTE_QUBITS, PHYSICAL_FACTORY_QUBITS, PHYSICAL_MEMORY_QUBITS},
 };
 
@@ -143,6 +147,31 @@ impl Trace {
     #[must_use]
     pub fn deep_iter(&self) -> TraceIterator<'_> {
         TraceIterator::new(&self.block)
+    }
+
+    /// Returns the set of used instruction IDs in the trace including their volume
+    #[must_use]
+    pub fn required_instruction_ids(&self) -> FxHashMap<u64, u64> {
+        let mut ids = FxHashMap::default();
+        for (gate, mult) in self.deep_iter() {
+            let arity = gate.qubits.len() as u64;
+            ids.entry(gate.id)
+                .and_modify(|c| *c += mult * arity)
+                .or_insert(mult * (gate.qubits.len() as u64));
+        }
+        if let Some(ref rs) = self.resource_states {
+            for (res_id, count) in rs {
+                ids.entry(*res_id)
+                    .and_modify(|c| *c += *count)
+                    .or_insert(*count);
+            }
+        }
+        if let Some(memory_qubits) = self.memory_qubits {
+            ids.entry(instruction_ids::MEMORY)
+                .and_modify(|c| *c += memory_qubits)
+                .or_insert(memory_qubits);
+        }
+        ids
     }
 
     #[must_use]
@@ -327,7 +356,11 @@ impl Display for Trace {
         }
         if let Some(resource_states) = &self.resource_states {
             for (res_id, amount) in resource_states {
-                writeln!(f, "@resource_state({res_id}, {amount})")?;
+                writeln!(
+                    f,
+                    "@resource_state({}, {amount})",
+                    instruction_name(*res_id).unwrap_or("??")
+                )?;
             }
         }
         write!(f, "{}", self.block)
@@ -390,7 +423,27 @@ impl Block {
             match op {
                 Operation::GateOperation(Gate { id, qubits, params }) => {
                     let name = instruction_name(*id).unwrap_or("??");
-                    writeln!(f, "{indent_str}  {name}({params:?})({qubits:?})")?;
+                    write!(f, "{indent_str}  {name}")?;
+                    if !params.is_empty() {
+                        write!(
+                            f,
+                            "({})",
+                            params
+                                .iter()
+                                .map(f64::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )?;
+                    }
+                    writeln!(
+                        f,
+                        "({})",
+                        qubits
+                            .iter()
+                            .map(u64::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )?;
                 }
                 Operation::BlockOperation(b) => {
                     b.write(f, indent + 2)?;
@@ -420,7 +473,7 @@ impl Block {
 
                     let duration = match duration_fn {
                         Some(f) => f(gate)?,
-                        None => 1,
+                        _ => 1,
                     };
 
                     let end_time = start_time + duration;
@@ -508,7 +561,7 @@ impl<'a> Iterator for TraceIterator<'a> {
                         self.stack.push((block.operations.iter(), new_multiplier));
                     }
                 },
-                None => {
+                _ => {
                     self.stack.pop();
                 }
             }
@@ -663,6 +716,7 @@ pub fn estimate_parallel<'a>(
     traces: &[&'a Trace],
     isas: &[&'a ISA],
     max_error: Option<f64>,
+    post_process: bool,
 ) -> EstimationCollection {
     let total_jobs = traces.len() * isas.len();
     let num_isas = isas.len();
@@ -720,13 +774,15 @@ pub fn estimate_parallel<'a>(
         // Collect results from all workers into the shared collection.
         let mut successful = 0;
         for local_results in rx {
-            for result in &local_results {
-                collection.push_summary(ResultSummary {
-                    trace_index: result.trace_index().unwrap_or(0),
-                    isa_index: result.isa_index().unwrap_or(0),
-                    qubits: result.qubits(),
-                    runtime: result.runtime(),
-                });
+            if post_process {
+                for result in &local_results {
+                    collection.push_summary(ResultSummary {
+                        trace_index: result.trace_index().unwrap_or(0),
+                        isa_index: result.isa_index().unwrap_or(0),
+                        qubits: result.qubits(),
+                        runtime: result.runtime(),
+                    });
+                }
             }
             successful += local_results.len();
             collection.extend(local_results.into_iter());
@@ -741,6 +797,307 @@ pub fn estimate_parallel<'a>(
             result.set_isa(isas[idx].clone());
         }
     }
+
+    collection
+}
+
+/// A single entry in a combination of instruction choices for estimation.
+#[derive(Clone, Copy, Hash, Eq, PartialEq)]
+struct CombinationEntry {
+    instruction_id: u64,
+    node_index: usize,
+    space: u64,
+    time: u64,
+}
+
+/// Per-slot pruning witnesses: maps a context hash to the `(space, time)`
+/// pairs observed in successful estimations.
+type SlotWitnesses = RwLock<FxHashMap<u64, Vec<(u64, u64)>>>;
+
+/// Computes a hash of the combination context (all slots except the excluded
+/// one).  Two combinations that agree on every slot except `exclude_idx`
+/// produce the same context hash.
+fn combination_context_hash(combination: &[CombinationEntry], exclude_idx: usize) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for (i, entry) in combination.iter().enumerate() {
+        if i != exclude_idx {
+            entry.instruction_id.hash(&mut hasher);
+            entry.node_index.hash(&mut hasher);
+        }
+    }
+    hasher.finish()
+}
+
+/// Checks whether a combination is dominated by a previously successful one.
+///
+/// A combination is prunable if, for any instruction slot, there exists a
+/// successful combination with the same instructions in all other slots and
+/// an instruction at that slot with `space <=` and `time <=`.
+fn is_dominated(combination: &[CombinationEntry], trace_pruning: &[SlotWitnesses]) -> bool {
+    for (slot_idx, entry) in combination.iter().enumerate() {
+        let ctx_hash = combination_context_hash(combination, slot_idx);
+        let map = trace_pruning[slot_idx]
+            .read()
+            .expect("Pruning lock poisoned");
+        if map.get(&ctx_hash).is_some_and(|w| {
+            w.iter()
+                .any(|&(ws, wt)| ws <= entry.space && wt <= entry.time)
+        }) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Records a successful estimation as a pruning witness for future
+/// combinations.
+fn record_success(combination: &[CombinationEntry], trace_pruning: &[SlotWitnesses]) {
+    for (slot_idx, entry) in combination.iter().enumerate() {
+        let ctx_hash = combination_context_hash(combination, slot_idx);
+        let mut map = trace_pruning[slot_idx]
+            .write()
+            .expect("Pruning lock poisoned");
+        map.entry(ctx_hash)
+            .or_default()
+            .push((entry.space, entry.time));
+    }
+}
+
+#[derive(Default)]
+struct ISAIndex {
+    index: FxHashMap<Vec<CombinationEntry>, usize>,
+    isas: Vec<ISA>,
+}
+
+impl From<ISAIndex> for Vec<ISA> {
+    fn from(value: ISAIndex) -> Self {
+        value.isas
+    }
+}
+
+impl ISAIndex {
+    pub fn push(&mut self, combination: &Vec<CombinationEntry>, isa: &ISA) -> usize {
+        if let Some(&idx) = self.index.get(combination) {
+            idx
+        } else {
+            let idx = self.isas.len();
+            self.isas.push(isa.clone());
+            self.index.insert(combination.clone(), idx);
+            idx
+        }
+    }
+}
+
+#[must_use]
+#[allow(clippy::cast_precision_loss, clippy::too_many_lines)]
+pub fn estimate_with_graph(
+    traces: &[&Trace],
+    graph: &Arc<RwLock<ProvenanceGraph>>,
+    max_error: Option<f64>,
+    post_process: bool,
+) -> EstimationCollection {
+    let max_error = max_error.unwrap_or(1.0);
+
+    // Phase 1: Pre-compute all (trace_index, combination) jobs sequentially.
+    // This reads the provenance graph once per trace and generates the
+    // cartesian product of Pareto-filtered nodes.  Each node carries
+    // pre-computed (space, time) values for dominance pruning in Phase 2.
+    let mut jobs: Vec<(usize, Vec<CombinationEntry>)> = Vec::new();
+
+    // Use the maximum number of instruction slots across all combinations to
+    // size the pruning witness structure.  This will updated while we generate
+    // jobs.
+    let mut max_slots = 0;
+
+    for (trace_idx, trace) in traces.iter().enumerate() {
+        if trace.base_error() > max_error {
+            continue;
+        }
+
+        let required = trace.required_instruction_ids();
+
+        let graph_lock = graph.read().expect("Graph lock poisoned");
+        let id_and_nodes: Vec<_> = required
+            .iter()
+            .filter_map(|(&id, &volume)| {
+                let max_error_rate = max_error / (volume as f64);
+                graph_lock.pareto_nodes(id).map(|nodes| {
+                    (
+                        id,
+                        nodes
+                            .iter()
+                            .filter(|&&node| {
+                                let instruction = graph_lock.instruction(node);
+                                instruction.error_rate(Some(1)).unwrap_or(0.0) <= max_error_rate
+                            })
+                            .map(|&node| {
+                                let instruction = graph_lock.instruction(node);
+                                let space = instruction.space(Some(1)).unwrap_or(0);
+                                let time = instruction.time(Some(1)).unwrap_or(0);
+                                (node, space, time)
+                            })
+                            .collect::<Vec<_>>(),
+                    )
+                })
+            })
+            .collect();
+        drop(graph_lock);
+
+        if id_and_nodes.len() != required.len() {
+            // If any required instruction is missing from the graph, we can't
+            // run any estimation for this trace.
+            continue;
+        }
+
+        let mut combinations: Vec<Vec<CombinationEntry>> = vec![Vec::new()];
+        for (id, nodes) in id_and_nodes {
+            let mut new_combinations = Vec::new();
+            for (node, space, time) in nodes {
+                for combo in &combinations {
+                    let mut new_combo = combo.clone();
+                    new_combo.push(CombinationEntry {
+                        instruction_id: id,
+                        node_index: node,
+                        space,
+                        time,
+                    });
+                    new_combinations.push(new_combo);
+                }
+            }
+            combinations = new_combinations;
+        }
+
+        for combination in combinations {
+            max_slots = max_slots.max(combination.len());
+            jobs.push((trace_idx, combination));
+        }
+    }
+
+    // Sort jobs so that combinations with smaller total (space + time) are
+    // processed first.  This maximises the effectiveness of dominance pruning
+    // because successful "cheap" combinations establish witnesses that let us
+    // skip more expensive ones.
+    jobs.sort_by_key(|(_, combo)| {
+        combo
+            .iter()
+            .map(|entry| entry.space + entry.time)
+            .sum::<u64>()
+    });
+
+    let total_jobs = jobs.len();
+
+    // Phase 2: Run estimations in parallel with dominance-based pruning.
+    //
+    // For each instruction slot in a combination, we track (space, time)
+    // witnesses from successful estimations keyed by the "context", which is a
+    // hash of the node indices in all *other* slots.  Before running an
+    // estimation, we check every slot: if a witness with space ≤ and time ≤
+    // exists for that context, the combination is dominated and skipped.
+    let next_job = AtomicUsize::new(0);
+
+    let pruning_witnesses: Vec<Vec<_>> = repeat_with(|| {
+        repeat_with(|| RwLock::new(FxHashMap::default()))
+            .take(max_slots)
+            .collect()
+    })
+    .take(traces.len())
+    .collect();
+
+    // There are no explicit ISAs in this estimation function, as we create them
+    // on the fly from the graph nodes.  For successful jobs, we will attach the
+    // ISAs to the results collection in a vector with the ISA index addressing
+    // that vector.  In order to avoid storing duplicate ISAs we hash the ISA
+    // index.
+    let isa_index = Arc::new(RwLock::new(ISAIndex::default()));
+
+    let mut collection = EstimationCollection::new();
+    collection.set_total_jobs(total_jobs);
+
+    std::thread::scope(|scope| {
+        let num_threads = std::thread::available_parallelism()
+            .map(std::num::NonZero::get)
+            .unwrap_or(1);
+
+        let (tx, rx) = std::sync::mpsc::sync_channel(num_threads);
+
+        for _ in 0..num_threads {
+            let tx = tx.clone();
+            let next_job = &next_job;
+            let jobs = &jobs;
+            let pruning_witnesses = &pruning_witnesses;
+            let isa_index = Arc::clone(&isa_index);
+            scope.spawn(move || {
+                let mut local_results = Vec::new();
+                loop {
+                    let job_idx = next_job.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if job_idx >= total_jobs {
+                        break;
+                    }
+
+                    let (trace_idx, combination) = &jobs[job_idx];
+
+                    // Dominance pruning: skip if a cheaper instruction at any
+                    // slot already succeeded with the same surrounding context.
+                    if is_dominated(combination, &pruning_witnesses[*trace_idx]) {
+                        continue;
+                    }
+
+                    let mut isa = ISA::with_graph(graph.clone());
+                    for entry in combination {
+                        isa.add_node(entry.instruction_id, entry.node_index);
+                    }
+
+                    if let Ok(mut result) = traces[*trace_idx].estimate(&isa, Some(max_error)) {
+                        let isa_idx = isa_index
+                            .write()
+                            .expect("RwLock should not be poisoned")
+                            .push(combination, &isa);
+                        result.set_isa_index(isa_idx);
+
+                        result.set_trace_index(*trace_idx);
+
+                        local_results.push(result);
+                        record_success(combination, &pruning_witnesses[*trace_idx]);
+                    }
+                }
+                let _ = tx.send(local_results);
+            });
+        }
+        drop(tx);
+
+        let mut successful = 0;
+        for local_results in rx {
+            if post_process {
+                for result in &local_results {
+                    collection.push_summary(ResultSummary {
+                        trace_index: result.trace_index().unwrap_or(0),
+                        isa_index: result.isa_index().unwrap_or(0),
+                        qubits: result.qubits(),
+                        runtime: result.runtime(),
+                    });
+                }
+            }
+            successful += local_results.len();
+            collection.extend(local_results.into_iter());
+        }
+        collection.set_successful_estimates(successful);
+    });
+
+    let isa_index = Arc::try_unwrap(isa_index)
+        .ok()
+        .expect("all threads joined; Arc refcount should be 1")
+        .into_inner()
+        .expect("RwLock should not be poisoned");
+
+    // Attach ISAs only to Pareto-surviving results, avoiding O(M) HashMap
+    // clones for discarded results.
+    for result in collection.iter_mut() {
+        if let Some(idx) = result.isa_index() {
+            result.set_isa(isa_index.isas[idx].clone());
+        }
+    }
+
+    collection.set_isas(isa_index.into());
 
     collection
 }

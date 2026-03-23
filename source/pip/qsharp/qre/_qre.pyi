@@ -751,6 +751,63 @@ class _ProvenanceGraph:
         """
         ...
 
+    def build_pareto_index(self) -> None:
+        """
+        Builds the per-instruction-ID Pareto index.
+
+        For each instruction ID, retains only the Pareto-optimal nodes w.r.t.
+        (space, time, error_rate) evaluated at arity 1. Must be called after
+        all nodes have been added.
+        """
+        ...
+
+    def query_satisfying(
+        self,
+        requirements: ISARequirements,
+        min_node_idx: Optional[int] = None,
+    ) -> list[ISA]:
+        """
+        Returns ISAs formed from Pareto-optimal graph nodes satisfying the
+        given requirements.
+
+        For each constraint in requirements, selects matching Pareto-optimal
+        nodes. Returns the Cartesian product of per-constraint matches,
+        augmented with one representative node per unconstrained instruction
+        ID.
+
+        Must be called after ``build_pareto_index``.
+
+        Args:
+            requirements: The ISA requirements to satisfy.
+            min_node_idx: If provided, only consider Pareto nodes at or above
+                this index for constrained groups.
+
+        Returns:
+            list[ISA]: ISAs formed from matching Pareto-optimal nodes.
+        """
+        ...
+
+    def raw_node_count(self) -> int:
+        """
+        Returns the raw node count (including the sentinel at index 0).
+
+        Returns:
+            int: The number of nodes in the graph.
+        """
+        ...
+
+    def total_isa_count(self) -> int:
+        """
+        Returns the total number of ISAs that can be formed from Pareto-optimal
+        nodes.
+
+        Requires ``build_pareto_index`` to have been called.
+
+        Returns:
+            int: The total number of ISAs that can be formed.
+        """
+        ...
+
 class EstimationResult:
     """
     Represents the result of a resource estimation.
@@ -954,6 +1011,16 @@ class _EstimationCollection:
         Returns:
             list[tuple[int, int, int, int]]: List of (trace_index, isa_index,
                 qubits, runtime) for every successful estimation.
+        """
+        ...
+
+    @property
+    def isas(self) -> list[ISA]:
+        """
+        Returns the list of ISAs for which estimates were performed.
+
+        Returns:
+            list[ISA]: The list of ISAs.
         """
         ...
 
@@ -1370,7 +1437,10 @@ class InstructionFrontier:
         ...
 
 def _estimate_parallel(
-    traces: list[Trace], isas: list[ISA], max_error: float = 1.0
+    traces: list[Trace],
+    isas: list[ISA],
+    max_error: float = 1.0,
+    post_process: bool = False,
 ) -> _EstimationCollection:
     """
     Estimates resources for multiple traces and ISAs in parallel.
@@ -1379,6 +1449,33 @@ def _estimate_parallel(
         traces (list[Trace]): The list of traces.
         isas (list[ISA]): The list of ISAs.
         max_error (float): The maximum allowed error. The default is 1.0.
+        post_process (bool): If True, computes auxiliary data such as result
+            summaries needed for post-processing after estimation.
+
+    Returns:
+        _EstimationCollection: The estimation collection.
+    """
+    ...
+
+def _estimate_with_graph(
+    traces: list[Trace],
+    graph: _ProvenanceGraph,
+    max_error: float = 1.0,
+    post_process: bool = False,
+) -> _EstimationCollection:
+    """
+    Estimates resources using a Pareto-filtered provenance graph.
+
+    Instead of forming the full Cartesian product of ISAs × traces, this
+    function enumerates per-trace instruction combinations from the
+    Pareto-optimal subsets in the frozen graph.
+
+    Args:
+        traces (list[Trace]): The list of traces to estimate.
+        graph (_ProvenanceGraph): The provenance graph to use for estimation.
+        max_error (float): The maximum allowed error. The default is 1.0.
+        post_process (bool): If True, computes auxiliary data such as result
+            summaries and ISAs needed for post-processing after estimation.
 
     Returns:
         _EstimationCollection: The estimation collection.

@@ -19,7 +19,10 @@ pub use result::{EstimationCollection, EstimationResult, FactoryResult, ResultSu
 mod trace;
 pub use trace::instruction_ids;
 pub use trace::instruction_ids::instruction_name;
-pub use trace::{Block, LatticeSurgery, PSSPC, Property, Trace, TraceTransform, estimate_parallel};
+pub use trace::{
+    Block, LatticeSurgery, PSSPC, Property, Trace, TraceTransform, estimate_parallel,
+    estimate_with_graph,
+};
 mod utils;
 pub use utils::{binom_ppf, float_from_bits, float_to_bits};
 

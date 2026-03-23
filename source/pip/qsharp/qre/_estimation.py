@@ -12,6 +12,7 @@ from ._application import Application
 from ._architecture import Architecture
 from ._qre import (
     _estimate_parallel,
+    _estimate_with_graph,
     _EstimationCollection,
     Trace,
     FactoryResult,
@@ -35,6 +36,7 @@ def estimate(
     *,
     max_error: float = 1.0,
     post_process: bool = False,
+    use_graph: bool = True,
     name: Optional[str] = None,
 ) -> EstimationTable:
     """
@@ -52,6 +54,20 @@ def estimate(
     The collection only contains the results that are optimal with respect to
     the total number of qubits and the total runtime.
 
+    Note:
+        The pruning strategy used when `use_graph` is set to True (default)
+        filters ISA instructions by comparing their per-instruction space, time,
+        and error independently. However, the total qubit count of a result
+        depends on the interaction between factory space and runtime:
+        ``factory_qubits = copies × factory_space`` where copies are determined
+        by ``count.div_ceil(runtime / factory_time)``. Because of this, an ISA
+        instruction that is dominated on per-instruction metrics can still
+        contribute to a globally Pareto-optimal result (e.g., a factory with
+        higher time may need fewer copies, leading to fewer total qubits). As a
+        consequence, `use_graph=True` may miss some results that
+        `use_graph=False` would find. Use `use_graph=False` when completeness of
+        the Pareto frontier is required.
+
     Args:
         application (Application): The quantum application to be estimated.
         architecture (Architecture): The target quantum architecture.
@@ -62,6 +78,10 @@ def estimate(
         post_process (bool): If True, use the Python-threaded estimation path
             (intended for future post-processing logic).  If False (default),
             use the Rust parallel estimation path.
+        use_graph (bool): If True (default), use the Rust estimation path that
+            builds a graph of ISAs and prunes suboptimal ISAs during estimation.
+            If False, use the Rust estimation path that does not perform any
+            pruning and simply enumerates all ISAs for each trace.
         name (Optional[str]): An optional name for the estimation.  If give, this
             will be added as a first column to the results table for all entries.
 
@@ -81,14 +101,31 @@ def estimate(
             list[tuple[Any, Trace]],
             list(trace_query.enumerate(app_ctx, track_parameters=True)),
         )
-        isas = list(isa_query.enumerate(arch_ctx))
-
         num_traces = len(params_and_traces)
-        num_isas = len(isas)
 
         # Phase 1: Run all estimates in Rust (parallel, fast).
         traces_only = [trace for _, trace in params_and_traces]
-        collection = _estimate_parallel(cast(list[Trace], traces_only), isas, max_error)
+
+        if use_graph:
+            isa_query.populate(arch_ctx)
+            arch_ctx._provenance.build_pareto_index()
+
+            num_isas = arch_ctx._provenance.total_isa_count()
+
+            collection = _estimate_with_graph(
+                cast(list[Trace], traces_only), arch_ctx._provenance, max_error, True
+            )
+            isas = collection.isas
+        else:
+            isas = list(isa_query.enumerate(arch_ctx))
+
+            num_isas = len(isas)
+
+            collection = _estimate_parallel(
+                cast(list[Trace], traces_only), isas, max_error, True
+            )
+
+        total_jobs = collection.total_jobs
         successful = collection.successful_estimates
         summaries = collection.all_summaries  # (trace_idx, isa_idx, qubits, runtime)
 
@@ -140,13 +177,28 @@ def estimate(
         collection = pp_collection
     else:
         traces = list(trace_query.enumerate(app_ctx))
-        isas = list(isa_query.enumerate(arch_ctx))
-
         num_traces = len(traces)
-        num_isas = len(isas)
 
-        # Use the Rust parallel estimation path
-        collection = _estimate_parallel(cast(list[Trace], traces), isas, max_error)
+        if use_graph:
+            isa_query.populate(arch_ctx)
+            arch_ctx._provenance.build_pareto_index()
+
+            num_isas = arch_ctx._provenance.total_isa_count()
+
+            collection = _estimate_with_graph(
+                cast(list[Trace], traces), arch_ctx._provenance, max_error, False
+            )
+        else:
+            isas = list(isa_query.enumerate(arch_ctx))
+
+            num_isas = len(isas)
+
+            # Use the Rust parallel estimation path
+            collection = _estimate_parallel(
+                cast(list[Trace], traces), isas, max_error, False
+            )
+
+        total_jobs = collection.total_jobs
         successful = collection.successful_estimates
 
     # Post-process the results and add them to a results table
@@ -170,7 +222,7 @@ def estimate(
     # Fill in the stats for this estimation run
     table.stats.num_traces = num_traces
     table.stats.num_isas = num_isas
-    table.stats.total_jobs = num_traces * num_isas
+    table.stats.total_jobs = total_jobs
     table.stats.successful_estimates = successful
     table.stats.pareto_results = len(collection)
 
