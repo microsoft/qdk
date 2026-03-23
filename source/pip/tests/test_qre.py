@@ -816,6 +816,8 @@ def test_qsharp_application():
     assert trace.depth == 3
     assert trace.resource_states == {}
 
+    assert {c.id for c in trace.required_isa} == {CCX, T, RZ}
+
     graph = _ProvenanceGraph()
     isa = graph.make_isa(
         [
@@ -865,10 +867,12 @@ def test_qsharp_application():
                 T: num_ts + psspc.num_ts_per_rotation * num_rotations,
                 CCX: num_ccx,
             }
+            assert {c.id for c in trace2.required_isa} == {CCX, T, LATTICE_SURGERY}
         else:
             assert trace2.resource_states == {
                 T: num_ts + psspc.num_ts_per_rotation * num_rotations + 4 * num_ccx
             }
+            assert {c.id for c in trace2.required_isa} == {T, LATTICE_SURGERY}
         assert trace2.get_property(ALGORITHM_COMPUTE_QUBITS) == 3
         assert trace2.get_property(ALGORITHM_MEMORY_QUBITS) == 0
         result = trace2.estimate(isa, max_error=float("inf"))
