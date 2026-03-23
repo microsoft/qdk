@@ -36,6 +36,11 @@ from ._qre import (
 )
 from ._trace import LatticeSurgery, PSSPC, TraceQuery, TraceTransform
 
+# Extend Rust Python types with additional Python-side functionality
+from ._instruction import _isa_as_frame
+
+ISA.as_frame = _isa_as_frame
+
 __all__ = [
     "block_linear_function",
     "constant_function",
