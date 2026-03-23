@@ -110,7 +110,9 @@ class RoundBasedFactory(ISATransform):
         if self.use_cache and cache_path.exists():
             cached_states = InstructionFrontier.load(str(cache_path))
             for state in cached_states:
-                yield ctx.make_isa(ctx.add_instruction(state))
+                yield ctx.make_isa(
+                    ctx.add_instruction(state, transform=self, source=[impl_isa[T]])
+                )
             return
 
         # 2) Compute as before
