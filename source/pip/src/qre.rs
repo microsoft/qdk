@@ -1522,7 +1522,11 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         PHYSICAL_COMPUTE_QUBITS,
         PHYSICAL_FACTORY_QUBITS,
         PHYSICAL_MEMORY_QUBITS,
-        MOLECULE
+        MOLECULE,
+        LOGICAL_COMPUTE_QUBITS,
+        LOGICAL_MEMORY_QUBITS,
+        ALGORITHM_COMPUTE_QUBITS,
+        ALGORITHM_MEMORY_QUBITS,
     );
 
     m.add_submodule(&property_keys)?;

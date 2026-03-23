@@ -45,7 +45,14 @@ from qsharp.qre._isa_enumeration import (
     ISARefNode,
 )
 from qsharp.qre.instruction_ids import CCX, CCZ, LATTICE_SURGERY, T, RZ
-from qsharp.qre.property_keys import DISTANCE, NUM_TS_PER_ROTATION
+from qsharp.qre.property_keys import (
+    DISTANCE,
+    NUM_TS_PER_ROTATION,
+    ALGORITHM_COMPUTE_QUBITS,
+    ALGORITHM_MEMORY_QUBITS,
+    LOGICAL_COMPUTE_QUBITS,
+    LOGICAL_MEMORY_QUBITS,
+)
 
 # NOTE These classes will be generalized as part of the QRE API in the following
 # pull requests and then moved out of the tests.
@@ -842,8 +849,14 @@ def test_qsharp_application():
             assert trace2.resource_states == {
                 T: num_ts + psspc.num_ts_per_rotation * num_rotations + 4 * num_ccx
             }
+        assert trace2.get_property(ALGORITHM_COMPUTE_QUBITS) == 3
+        assert trace2.get_property(ALGORITHM_MEMORY_QUBITS) == 0
         result = trace2.estimate(isa, max_error=float("inf"))
         assert result is not None
+        assert result.properties[ALGORITHM_COMPUTE_QUBITS] == 3
+        assert result.properties[ALGORITHM_MEMORY_QUBITS] == 0
+        assert result.properties[LOGICAL_COMPUTE_QUBITS] == 12
+        assert result.properties[LOGICAL_MEMORY_QUBITS] == 0
         _assert_estimation_result(trace2, result, isa)
     assert counter == 32
 

@@ -16,7 +16,10 @@ use serde::{Deserialize, Serialize};
 use crate::{
     Error, EstimationCollection, EstimationResult, FactoryResult, ISA, Instruction, LockedISA,
     ProvenanceGraph, ResultSummary,
-    property_keys::{PHYSICAL_COMPUTE_QUBITS, PHYSICAL_FACTORY_QUBITS, PHYSICAL_MEMORY_QUBITS},
+    property_keys::{
+        LOGICAL_COMPUTE_QUBITS, LOGICAL_MEMORY_QUBITS, PHYSICAL_COMPUTE_QUBITS,
+        PHYSICAL_FACTORY_QUBITS, PHYSICAL_MEMORY_QUBITS,
+    },
 };
 
 pub mod instruction_ids;
@@ -334,6 +337,16 @@ impl Trace {
                 });
             }
         }
+
+        // Make main trace metrics properties to access them from the result
+        result.set_property(
+            LOGICAL_COMPUTE_QUBITS,
+            Property::Int(self.compute_qubits.cast_signed()),
+        );
+        result.set_property(
+            LOGICAL_MEMORY_QUBITS,
+            Property::Int(self.memory_qubits.unwrap_or(0).cast_signed()),
+        );
 
         // Copy properties from the trace to the result
         for (key, value) in &self.properties {
