@@ -30,6 +30,7 @@ from .._native import (
     PSSPC,
     Trace,
     property_name_to_key,
+    property_name,
     _float_to_bits,
     _float_from_bits,
 )

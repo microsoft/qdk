@@ -43,6 +43,7 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(float_from_bits, m)?)?;
     m.add_function(wrap_pyfunction!(instruction_name, m)?)?;
     m.add_function(wrap_pyfunction!(property_name_to_key, m)?)?;
+    m.add_function(wrap_pyfunction!(property_name, m)?)?;
 
     m.add("EstimationError", m.py().get_type::<EstimationError>())?;
 
@@ -1496,6 +1497,11 @@ fn add_instruction_ids(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[pyfunction]
 pub fn property_name_to_key(name: &str) -> Option<u64> {
     qre::property_name_to_key(&name.to_ascii_uppercase())
+}
+
+#[pyfunction]
+pub fn property_name(id: u64) -> Option<String> {
+    qre::property_name(id).map(String::from)
 }
 
 fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
