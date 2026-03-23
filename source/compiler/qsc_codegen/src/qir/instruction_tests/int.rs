@@ -557,3 +557,31 @@ fn sub_integer_variables() {
     );
     expect!["  %var_0 = sub i64 %var_1, %var_2"].assert_eq(&inst.to_qir(&rir::Program::default()));
 }
+
+#[test]
+fn convert_integer_literal_to_double() {
+    let inst = rir::Instruction::Convert(
+        rir::Operand::Literal(rir::Literal::Integer(2)),
+        rir::Variable {
+            variable_id: rir::VariableId(0),
+            ty: rir::Ty::Double,
+        },
+    );
+    expect!["  %var_0 = sitofp i64 2 to double"].assert_eq(&inst.to_qir(&rir::Program::default()));
+}
+
+#[test]
+fn convert_integer_variable_to_double() {
+    let inst = rir::Instruction::Convert(
+        rir::Operand::Variable(rir::Variable {
+            variable_id: rir::VariableId(1),
+            ty: rir::Ty::Integer,
+        }),
+        rir::Variable {
+            variable_id: rir::VariableId(0),
+            ty: rir::Ty::Double,
+        },
+    );
+    expect!["  %var_0 = sitofp i64 %var_1 to double"]
+        .assert_eq(&inst.to_qir(&rir::Program::default()));
+}
