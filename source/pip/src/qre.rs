@@ -1185,16 +1185,7 @@ impl Trace {
 
     #[getter]
     pub fn required_isa(&self) -> ISARequirements {
-        let constraints = self
-            .0
-            .required_instruction_ids()
-            .keys()
-            .map(|id|
-                // NOTE: Retrieve more precise arity information from the trace
-                qre::InstructionConstraint::new(*id, qre::Encoding::Logical, None, None))
-            .collect();
-
-        ISARequirements(constraints)
+        ISARequirements(self.0.required_instruction_ids(None))
     }
 }
 
