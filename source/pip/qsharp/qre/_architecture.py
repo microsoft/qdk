@@ -14,7 +14,6 @@ from ._qre import (
     _IntFunction,
     _FloatFunction,
     constant_function,
-    instruction_name,
     property_name_to_key,
 )
 
