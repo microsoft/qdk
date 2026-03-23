@@ -8,13 +8,13 @@ from interop_cirq import CIRQ_AVAILABLE, SKIP_REASON
 if CIRQ_AVAILABLE:
     import cirq
     import numpy as np
-    from qsharp.interop.cirq import NeutralAtomCirqResult, simulate_with_neutral_atom
+    from qsharp.interop.cirq import NeutralAtomCirqResult, NeutralAtomSampler
     from qsharp._simulation import NoiseConfig
     from qsharp._device._atom import NeutralAtomDevice
 
 
 # ---------------------------------------------------------------------------
-# Module-scoped fixture — one NeutralAtomDevice shared across all tests.
+# Module-scoped fixtures — one device and default sampler shared across tests.
 # ---------------------------------------------------------------------------
 
 
@@ -25,13 +25,19 @@ def device():
     return NeutralAtomDevice()
 
 
+@pytest.fixture(scope="module")
+def sampler(device):
+    """A NeutralAtomSampler backed by the shared device (noiseless, unseeded)."""
+    return NeutralAtomSampler(device=device)
+
+
 # ---------------------------------------------------------------------------
 # Circuit helpers
 # ---------------------------------------------------------------------------
 
 
 def create_bell_circuit() -> "cirq.Circuit":
-    """Two-qubit Bell state — should produce only |00⟩ or |11⟩."""
+    """Two-qubit Bell state — should produce only |⟨00⟩ or |⟨11⟩."""
     q0, q1 = cirq.LineQubit.range(2)
     return cirq.Circuit(
         [
@@ -73,31 +79,31 @@ def create_multi_key_circuit() -> "cirq.Circuit":
 
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_run_smoke(device) -> None:
+def test_run_smoke(sampler) -> None:
     circuit = create_bell_circuit()
-    result = simulate_with_neutral_atom(circuit, shots=10, device=device)
+    result = sampler.run(circuit, repetitions=10)
     assert result is not None
 
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_returns_neutral_atom_cirq_result(device) -> None:
+def test_returns_neutral_atom_cirq_result(sampler) -> None:
     circuit = create_bell_circuit()
-    result = simulate_with_neutral_atom(circuit, shots=10, device=device)
+    result = sampler.run(circuit, repetitions=10)
     assert isinstance(result, NeutralAtomCirqResult)
 
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_returns_cirq_result_dict(device) -> None:
+def test_returns_cirq_result_dict(sampler) -> None:
     """NeutralAtomCirqResult must be a cirq.ResultDict for full Cirq compatibility."""
     circuit = create_bell_circuit()
-    result = simulate_with_neutral_atom(circuit, shots=10, device=device)
+    result = sampler.run(circuit, repetitions=10)
     assert isinstance(result, cirq.ResultDict)
 
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_run_deterministic_circuit(device) -> None:
+def test_run_deterministic_circuit(sampler) -> None:
     circuit = create_deterministic_circuit()
-    result = simulate_with_neutral_atom(circuit, shots=10, device=device)
+    result = sampler.run(circuit, repetitions=10)
     measurements = result.measurements["m"]
     # Every shot must be [1, 1].
     assert measurements.shape == (10, 2)
@@ -112,16 +118,16 @@ def test_run_deterministic_circuit(device) -> None:
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_seed_produces_reproducible_results(device) -> None:
     circuit = create_bell_circuit()
-    r1 = simulate_with_neutral_atom(circuit, shots=200, seed=42, device=device)
-    r2 = simulate_with_neutral_atom(circuit, shots=200, seed=42, device=device)
+    r1 = NeutralAtomSampler(seed=42, device=device).run(circuit, repetitions=200)
+    r2 = NeutralAtomSampler(seed=42, device=device).run(circuit, repetitions=200)
     assert np.array_equal(r1.measurements["m"], r2.measurements["m"])
 
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_different_seeds_produce_different_results(device) -> None:
     circuit = create_bell_circuit()
-    r1 = simulate_with_neutral_atom(circuit, shots=500, seed=1, device=device)
-    r2 = simulate_with_neutral_atom(circuit, shots=500, seed=2, device=device)
+    r1 = NeutralAtomSampler(seed=1, device=device).run(circuit, repetitions=500)
+    r2 = NeutralAtomSampler(seed=2, device=device).run(circuit, repetitions=500)
     assert not np.array_equal(r1.measurements["m"], r2.measurements["m"])
 
 
@@ -132,9 +138,9 @@ def test_different_seeds_produce_different_results(device) -> None:
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_bell_state_outcomes_are_correlated(device) -> None:
-    """Bell circuit must produce only |00⟩ or |11⟩."""
+    """Bell circuit must produce only |⟨00⟩ or |⟨11⟩."""
     circuit = create_bell_circuit()
-    result = simulate_with_neutral_atom(circuit, shots=200, seed=99, device=device)
+    result = NeutralAtomSampler(seed=99, device=device).run(circuit, repetitions=200)
     measurements = result.measurements["m"]
     for row in measurements:
         bits = tuple(int(b) for b in row)
@@ -145,10 +151,12 @@ def test_bell_state_outcomes_are_correlated(device) -> None:
 def test_histogram_counts_sum_to_shots(device) -> None:
     """result.histogram() must account for all accepted shots."""
     circuit = create_bell_circuit()
-    shots = 200
-    result = simulate_with_neutral_atom(circuit, shots=shots, seed=7, device=device)
+    repetitions = 200
+    result = NeutralAtomSampler(seed=7, device=device).run(
+        circuit, repetitions=repetitions
+    )
     hist = result.histogram(key="m")
-    assert sum(hist.values()) == shots
+    assert sum(hist.values()) == repetitions
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +169,7 @@ def test_noiseless_noiseconfig_is_identity(device) -> None:
     """An empty NoiseConfig must give the same result as no noise."""
     circuit = create_deterministic_circuit()
     noise = NoiseConfig()
-    result = simulate_with_neutral_atom(circuit, shots=10, noise=noise, device=device)
+    result = NeutralAtomSampler(noise=noise, device=device).run(circuit, repetitions=10)
     assert np.all(result.measurements["m"] == 1)
 
 
@@ -178,8 +186,8 @@ def test_bitflip_noise_introduces_errors(device) -> None:
     circuit = create_deterministic_circuit()
     noise = NoiseConfig()
     noise.sx.set_bitflip(0.5)  # 50% bit-flip on every SX gate
-    result = simulate_with_neutral_atom(
-        circuit, shots=200, noise=noise, seed=42, device=device
+    result = NeutralAtomSampler(noise=noise, seed=42, device=device).run(
+        circuit, repetitions=200
     )
     # Without noise every shot would be [1,1]. With heavy noise some must differ.
     all_ones = np.all(result.measurements["m"] == 1, axis=1)
@@ -194,18 +202,18 @@ def test_bitflip_noise_introduces_errors(device) -> None:
 
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_multi_key_circuit_has_all_keys(device) -> None:
+def test_multi_key_circuit_has_all_keys(sampler) -> None:
     """result.measurements must contain an entry for each measurement key."""
     circuit = create_multi_key_circuit()
-    result = simulate_with_neutral_atom(circuit, shots=20, device=device)
+    result = sampler.run(circuit, repetitions=20)
     assert "a" in result.measurements
     assert "b" in result.measurements
 
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_multi_key_circuit_correct_values(device) -> None:
+def test_multi_key_circuit_correct_values(sampler) -> None:
     circuit = create_multi_key_circuit()
-    result = simulate_with_neutral_atom(circuit, shots=20, device=device)
+    result = sampler.run(circuit, repetitions=20)
     assert np.all(result.measurements["a"] == 1)
     assert np.all(result.measurements["b"] == 1)
 
@@ -216,10 +224,10 @@ def test_multi_key_circuit_correct_values(device) -> None:
 
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_raw_shots_present(device) -> None:
+def test_raw_shots_present(sampler) -> None:
     """result.raw_shots must be populated regardless of whether loss occurred."""
     circuit = create_deterministic_circuit()
-    result = simulate_with_neutral_atom(circuit, shots=10, device=device)
+    result = sampler.run(circuit, repetitions=10)
     assert hasattr(result, "raw_shots")
     assert len(result.raw_shots) == 10
 
@@ -228,17 +236,19 @@ def test_raw_shots_present(device) -> None:
 def test_raw_shots_equal_measurements_when_no_loss(device) -> None:
     """Without loss noise every raw shot must be a valid accepted shot."""
     circuit = create_deterministic_circuit()
-    shots = 20
-    result = simulate_with_neutral_atom(circuit, shots=shots, seed=0, device=device)
-    assert len(result.raw_shots) == shots
+    repetitions = 20
+    result = NeutralAtomSampler(seed=0, device=device).run(
+        circuit, repetitions=repetitions
+    )
+    assert len(result.raw_shots) == repetitions
     # All accepted — accepted row count equals total shots.
-    assert result.measurements["m"].shape[0] == shots
+    assert result.measurements["m"].shape[0] == repetitions
 
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_raw_measurements_returns_dict(device) -> None:
+def test_raw_measurements_returns_dict(sampler) -> None:
     circuit = create_deterministic_circuit()
-    result = simulate_with_neutral_atom(circuit, shots=10, device=device)
+    result = sampler.run(circuit, repetitions=10)
     raw = result.raw_measurements()
     assert isinstance(raw, dict)
     assert "m" in raw
@@ -253,8 +263,8 @@ def test_loss_shots_excluded_from_measurements(device) -> None:
     # + reset) so this reliably triggers loss regardless of which gates X
     # decomposes into on the Cirq path.
     noise.mresetz.loss = 0.5
-    result = simulate_with_neutral_atom(
-        circuit, shots=100, noise=noise, seed=42, device=device
+    result = NeutralAtomSampler(noise=noise, seed=42, device=device).run(
+        circuit, repetitions=100
     )
 
     # raw_shots includes all 100 shots.
@@ -267,9 +277,9 @@ def test_loss_shots_excluded_from_measurements(device) -> None:
 
     # At least some raw shots must contain a non-binary character (loss marker).
     has_loss = any(not all(ch in ("0", "1") for ch in row) for row in raw_m.tolist())
-    assert has_loss, "Expected loss markers in raw_measurements with loss=0.2"
+    assert has_loss, "Expected loss markers in raw_measurements with loss=0.5"
 
-    # accepted measurements must contain only 0/1 values.
+    # Accepted measurements must contain only 0/1 values.
     accepted = result.measurements["m"]
     assert accepted.dtype == np.int8
     assert np.all((accepted == 0) | (accepted == 1))
@@ -285,9 +295,9 @@ def test_loss_shots_excluded_from_measurements(device) -> None:
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_default_device_created_when_none() -> None:
-    """Passing device=None should trigger lazy device creation without error."""
+    """Passing no device should trigger lazy device creation without error."""
     circuit = create_deterministic_circuit()
-    result = simulate_with_neutral_atom(circuit, shots=5, seed=1, device=None)
+    result = NeutralAtomSampler(seed=1).run(circuit, repetitions=5)
     assert result is not None
 
 
@@ -299,8 +309,8 @@ def test_default_device_created_when_none() -> None:
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_cpu_simulator_type(device) -> None:
     circuit = create_bell_circuit()
-    result = simulate_with_neutral_atom(
-        circuit, shots=100, simulator_type="cpu", seed=7, device=device
+    result = NeutralAtomSampler(simulator_type="cpu", seed=7, device=device).run(
+        circuit, repetitions=100
     )
     for row in result.measurements["m"]:
         bits = tuple(int(b) for b in row)
@@ -310,8 +320,8 @@ def test_cpu_simulator_type(device) -> None:
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_clifford_simulator_type(device) -> None:
     circuit = create_bell_circuit()
-    result = simulate_with_neutral_atom(
-        circuit, shots=100, simulator_type="clifford", seed=7, device=device
+    result = NeutralAtomSampler(simulator_type="clifford", seed=7, device=device).run(
+        circuit, repetitions=100
     )
     for row in result.measurements["m"]:
         bits = tuple(int(b) for b in row)
@@ -324,7 +334,7 @@ def test_clifford_simulator_type(device) -> None:
 
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
-def test_unsupported_gate_raises_value_error(device) -> None:
+def test_unsupported_gate_raises_value_error(sampler) -> None:
     """A circuit containing a gate that cannot be serialized to QASM must raise ValueError."""
 
     class _NoQasmGate(cirq.Gate):
@@ -340,5 +350,5 @@ def test_unsupported_gate_raises_value_error(device) -> None:
             cirq.measure(q0, key="m"),
         ]
     )
-    with pytest.raises(ValueError, match="QASM"):
-        simulate_with_neutral_atom(circuit, shots=5, device=device)
+    with pytest.raises(ValueError, match="QASM 3.0"):
+        sampler.run(circuit, repetitions=5)

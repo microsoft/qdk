@@ -33,7 +33,7 @@ class NeutralAtomCirqResult(cirq.ResultDict):
 
     Methods:
         raw_measurements(): Return the full per-shot data (including loss markers)
-            in the same ``{key: 2D-array (shots × bits)}`` format as
+            in the same ``{key: 2D-array (shots x bits)}`` format as
             ``measurements``, but with Unicode string dtype so that non-binary
             markers are preserved.
     """
@@ -56,7 +56,7 @@ class NeutralAtomCirqResult(cirq.ResultDict):
     def raw_measurements(self) -> Dict[str, Any]:
         """Return unfiltered per-shot measurement symbols including loss markers.
 
-        The structure mirrors ``measurements``: ``{key: 2D array (shots × bits)}``,
+        The structure mirrors ``measurements``: ``{key: 2D array (shots x bits)}``,
         but the array dtype is ``"<U1"`` (single Unicode character) so that
         non-binary markers (e.g. ``"-"`` for lost qubits) are preserved.
 

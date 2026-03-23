@@ -3,24 +3,34 @@
 
 """Cirq interoperability for the Q# ecosystem.
 
-This module provides utilities for running Cirq circuits on the local
-NeutralAtomDevice simulator.
+This module provides a :class:`NeutralAtomSampler` — a standard
+``cirq.Sampler`` that runs Cirq circuits on the local NeutralAtomDevice
+simulator.
 
 Usage::
 
-    from qsharp.interop.cirq import simulate_with_neutral_atom
+    import cirq
+    from qsharp.interop.cirq import NeutralAtomSampler
 
-    result = simulate_with_neutral_atom(circuit, shots=1000, seed=42)
+    q0, q1 = cirq.LineQubit.range(2)
+    circuit = cirq.Circuit([
+        cirq.H(q0),
+        cirq.CNOT(q0, q1),
+        cirq.measure(q0, q1, key="m"),
+    ])
+
+    sampler = NeutralAtomSampler(seed=42)
+    result = sampler.run(circuit, repetitions=1000)
     print(result.histogram(key="m"))
 """
 
 try:
-    from ._neutral_atom import simulate_with_neutral_atom
+    from ._neutral_atom import NeutralAtomSampler
     from ._result import NeutralAtomCirqResult
 except ImportError:
     pass
 
 __all__ = [
-    "simulate_with_neutral_atom",
+    "NeutralAtomSampler",
     "NeutralAtomCirqResult",
 ]
