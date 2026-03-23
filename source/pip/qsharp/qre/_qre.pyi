@@ -125,8 +125,29 @@ class ISARequirements:
         constraints.
 
         Args:
-            constraints (list[InstructionConstraint] | *InstructionConstraint): The list of instruction
+            constraints (list[Constraint] | *Constraint): The list of instruction
                 constraints.
+        """
+        ...
+
+    def __len__(self) -> int:
+        """
+        Returns the number of constraints in the requirements specification.
+
+        Returns:
+            int: The number of constraints.
+        """
+        ...
+
+    def __iter__(self) -> Iterator[Constraint]:
+        """
+        Returns an iterator over the constraints.
+
+        Note:
+            The order of constraints is not guaranteed.
+
+        Returns:
+            Iterator[Constraint]: The constraint iterator.
         """
         ...
 
@@ -493,6 +514,26 @@ class Constraint:
 
         Returns:
             InstructionConstraint: The instruction constraint.
+        """
+        ...
+
+    @property
+    def id(self) -> int:
+        """
+        The instruction ID.
+
+        Returns:
+            int: The instruction ID.
+        """
+        ...
+
+    @property
+    def encoding(self) -> int:
+        """
+        The instruction encoding. 0 = Physical, 1 = Logical.
+
+        Returns:
+            int: The instruction encoding.
         """
         ...
 
@@ -1293,6 +1334,16 @@ class Trace:
 
         Returns:
             Block: The block.
+        """
+        ...
+
+    @property
+    def required_isa(self) -> ISARequirements:
+        """
+        The required ISA for the trace.
+
+        Returns:
+            ISARequirements: The required ISA for the trace.
         """
         ...
 

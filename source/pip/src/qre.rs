@@ -172,6 +172,35 @@ impl ISARequirements {
             .collect::<PyResult<qre::ISARequirements>>()
             .map(ISARequirements)
     }
+
+    pub fn __len__(&self) -> usize {
+        self.0.len()
+    }
+
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn __iter__(slf: PyRef<'_, Self>) -> PyResult<Py<ISARequirementsIterator>> {
+        let constraints: Vec<qre::InstructionConstraint> = slf.0.constraints();
+        let iter = ISARequirementsIterator {
+            iter: constraints.into_iter(),
+        };
+        Py::new(slf.py(), iter)
+    }
+}
+
+#[pyclass]
+pub struct ISARequirementsIterator {
+    iter: std::vec::IntoIter<qre::InstructionConstraint>,
+}
+
+#[pymethods]
+impl ISARequirementsIterator {
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(mut slf: PyRefMut<'_, Self>) -> Option<Constraint> {
+        slf.iter.next().map(Constraint)
+    }
 }
 
 #[allow(clippy::unsafe_derive_deserialize)]
@@ -373,6 +402,19 @@ impl Constraint {
             arity,
             error_rate.map(|error_rate| error_rate.0),
         )))
+    }
+
+    #[getter]
+    pub fn id(&self) -> u64 {
+        self.0.id()
+    }
+
+    #[getter]
+    pub fn encoding(&self) -> u64 {
+        match self.0.encoding() {
+            qre::Encoding::Physical => 0,
+            qre::Encoding::Logical => 1,
+        }
     }
 
     pub fn add_property(&mut self, property: u64) {
@@ -1138,6 +1180,20 @@ impl Trace {
 
     fn __str__(&self) -> String {
         format!("{}", self.0)
+    }
+
+    #[getter]
+    pub fn required_isa(&self) -> ISARequirements {
+        let constraints = self
+            .0
+            .required_instruction_ids()
+            .keys()
+            .map(|id|
+                // NOTE: Retrieve more precise arity information from the trace
+                qre::InstructionConstraint::new(*id, qre::Encoding::Logical, None, None))
+            .collect();
+
+        ISARequirements(constraints)
     }
 }
 

@@ -225,6 +225,22 @@ impl ISARequirements {
     pub fn add_constraint(&mut self, constraint: InstructionConstraint) {
         self.constraints.insert(constraint.id, constraint);
     }
+
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.constraints.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.constraints.is_empty()
+    }
+
+    /// Returns all instructions as owned clones.
+    #[must_use]
+    pub fn constraints(&self) -> Vec<InstructionConstraint> {
+        self.constraints.values().cloned().collect()
+    }
 }
 
 impl FromIterator<InstructionConstraint> for ISARequirements {
@@ -481,6 +497,12 @@ impl InstructionConstraint {
     #[must_use]
     pub fn id(&self) -> u64 {
         self.id
+    }
+
+    /// Returns the required encoding for this constraint.
+    #[must_use]
+    pub fn encoding(&self) -> Encoding {
+        self.encoding
     }
 
     /// Checks whether a given instruction satisfies this constraint.

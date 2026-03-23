@@ -801,13 +801,20 @@ pub fn estimate_parallel<'a>(
     collection
 }
 
+/// A node in the provenance graph along with pre-computed (space, time) values
+/// for pruning.
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct NodeProfile {
+    node_index: usize,
+    space: u64,
+    time: u64,
+}
+
 /// A single entry in a combination of instruction choices for estimation.
 #[derive(Clone, Copy, Hash, Eq, PartialEq)]
 struct CombinationEntry {
     instruction_id: u64,
-    node_index: usize,
-    space: u64,
-    time: u64,
+    node: NodeProfile,
 }
 
 /// Per-slot pruning witnesses: maps a context hash to the `(space, time)`
@@ -822,7 +829,7 @@ fn combination_context_hash(combination: &[CombinationEntry], exclude_idx: usize
     for (i, entry) in combination.iter().enumerate() {
         if i != exclude_idx {
             entry.instruction_id.hash(&mut hasher);
-            entry.node_index.hash(&mut hasher);
+            entry.node.node_index.hash(&mut hasher);
         }
     }
     hasher.finish()
@@ -841,7 +848,7 @@ fn is_dominated(combination: &[CombinationEntry], trace_pruning: &[SlotWitnesses
             .expect("Pruning lock poisoned");
         if map.get(&ctx_hash).is_some_and(|w| {
             w.iter()
-                .any(|&(ws, wt)| ws <= entry.space && wt <= entry.time)
+                .any(|&(ws, wt)| ws <= entry.node.space && wt <= entry.node.time)
         }) {
             return true;
         }
@@ -859,7 +866,7 @@ fn record_success(combination: &[CombinationEntry], trace_pruning: &[SlotWitness
             .expect("Pruning lock poisoned");
         map.entry(ctx_hash)
             .or_default()
-            .push((entry.space, entry.time));
+            .push((entry.node.space, entry.node.time));
     }
 }
 
@@ -885,6 +892,54 @@ impl ISAIndex {
             self.index.insert(combination.clone(), idx);
             idx
         }
+    }
+}
+
+/// Generates the cartesian product of `id_and_nodes` and pushes each
+/// combination directly into `jobs`, avoiding intermediate allocations.
+///
+/// The cartesian product is enumerated using mixed-radix indexing.  Given
+/// dimensions with sizes `[n0, n1, n2, …]`, the total number of combinations
+/// is `n0 * n1 * n2 * …`.  Each combination index `i` in `0..total` uniquely
+/// identifies one element from every dimension: the index into dimension `d` is
+/// `(i / (n0 * n1 * … * n(d-1))) % nd`, which we compute incrementally by
+/// repeatedly taking `i % nd` and then dividing `i` by `nd`.  This is
+/// analogous to extracting digits from a number in a mixed-radix system.
+fn push_cartesian_product(
+    id_and_nodes: &[(u64, Vec<NodeProfile>)],
+    trace_idx: usize,
+    jobs: &mut Vec<(usize, Vec<CombinationEntry>)>,
+    max_slots: &mut usize,
+) {
+    // The product of all dimension sizes gives the total number of
+    // combinations.  If any dimension is empty the product is zero and there
+    // are no valid combinations to generate.
+    let total: usize = id_and_nodes.iter().map(|(_, nodes)| nodes.len()).product();
+    if total == 0 {
+        return;
+    }
+
+    *max_slots = (*max_slots).max(id_and_nodes.len());
+    jobs.reserve(total);
+
+    // Enumerate every combination by treating the combination index `i` as a
+    // mixed-radix number.  The inner loop "peels off" one digit per dimension:
+    //   node_idx = i % nodes.len()   — selects this dimension's element
+    //   i       /= nodes.len()       — shifts to the next dimension's digit
+    // After processing all dimensions, `i` is exhausted (becomes 0), and
+    // `combo` contains exactly one entry per instruction id.
+    for mut i in 0..total {
+        let mut combo = Vec::with_capacity(id_and_nodes.len());
+        for (id, nodes) in id_and_nodes {
+            let node_idx = i % nodes.len();
+            i /= nodes.len();
+            let profile = nodes[node_idx];
+            combo.push(CombinationEntry {
+                instruction_id: *id,
+                node: profile,
+            });
+        }
+        jobs.push((trace_idx, combo));
     }
 }
 
@@ -934,7 +989,11 @@ pub fn estimate_with_graph(
                                 let instruction = graph_lock.instruction(node);
                                 let space = instruction.space(Some(1)).unwrap_or(0);
                                 let time = instruction.time(Some(1)).unwrap_or(0);
-                                (node, space, time)
+                                NodeProfile {
+                                    node_index: node,
+                                    space,
+                                    time,
+                                }
                             })
                             .collect::<Vec<_>>(),
                     )
@@ -949,28 +1008,7 @@ pub fn estimate_with_graph(
             continue;
         }
 
-        let mut combinations: Vec<Vec<CombinationEntry>> = vec![Vec::new()];
-        for (id, nodes) in id_and_nodes {
-            let mut new_combinations = Vec::new();
-            for (node, space, time) in nodes {
-                for combo in &combinations {
-                    let mut new_combo = combo.clone();
-                    new_combo.push(CombinationEntry {
-                        instruction_id: id,
-                        node_index: node,
-                        space,
-                        time,
-                    });
-                    new_combinations.push(new_combo);
-                }
-            }
-            combinations = new_combinations;
-        }
-
-        for combination in combinations {
-            max_slots = max_slots.max(combination.len());
-            jobs.push((trace_idx, combination));
-        }
+        push_cartesian_product(&id_and_nodes, trace_idx, &mut jobs, &mut max_slots);
     }
 
     // Sort jobs so that combinations with smaller total (space + time) are
@@ -980,7 +1018,7 @@ pub fn estimate_with_graph(
     jobs.sort_by_key(|(_, combo)| {
         combo
             .iter()
-            .map(|entry| entry.space + entry.time)
+            .map(|entry| entry.node.space + entry.node.time)
             .sum::<u64>()
     });
 
@@ -1044,7 +1082,7 @@ pub fn estimate_with_graph(
 
                     let mut isa = ISA::with_graph(graph.clone());
                     for entry in combination {
-                        isa.add_node(entry.instruction_id, entry.node_index);
+                        isa.add_node(entry.instruction_id, entry.node.node_index);
                     }
 
                     if let Ok(mut result) = traces[*trace_idx].estimate(&isa, Some(max_error)) {
