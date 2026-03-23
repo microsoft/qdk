@@ -166,6 +166,18 @@ class ISARequirements:
         """
         ...
 
+    def as_frame(self) -> pd.DataFrame:
+        """
+        Returns a pandas DataFrame representation of the ISA requirements.
+
+        The DataFrame will have one row per instruction, with columns for
+        constraint properties such as encoding.
+
+        Returns:
+            pd.DataFrame: A DataFrame representation of the ISA requirements.
+        """
+        ...
+
 class _Instruction:
     @staticmethod
     def fixed_arity(

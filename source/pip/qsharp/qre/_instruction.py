@@ -396,3 +396,14 @@ def _isa_as_frame(self: ISA) -> pd.DataFrame:
     df = pd.DataFrame(data)
     df.set_index("id", inplace=True)
     return df
+
+
+def _requirements_as_frame(self: ISARequirements) -> pd.DataFrame:
+    data = {
+        "id": [instruction_name(inst.id) for inst in self],
+        "encoding": [Encoding(inst.encoding).name for inst in self],
+    }
+
+    df = pd.DataFrame(data)
+    df.set_index("id", inplace=True)
+    return df
