@@ -4,7 +4,7 @@
 from dataclasses import KW_ONLY, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import cast, Generator
+from typing import cast, Generator, Sized
 import os
 import pytest
 
@@ -1293,6 +1293,76 @@ def test_estimation_table_computed_column():
     frame = table.as_frame()
     assert frame["qubit_error_product"][0] == pytest.approx(1.0)
     assert frame["qubit_error_product"][1] == pytest.approx(4.0)
+
+
+def test_estimation_table_plot_returns_figure():
+    """Test that plot() returns a matplotlib Figure with correct axes."""
+    from matplotlib.figure import Figure
+
+    table = EstimationTable()
+    table.append(_make_entry(100, 5_000_000_000, 0.01))
+    table.append(_make_entry(200, 10_000_000_000, 0.02))
+    table.append(_make_entry(50, 50_000_000_000, 0.005))
+
+    fig = table.plot()
+
+    assert isinstance(fig, Figure)
+    ax = fig.axes[0]
+    assert ax.get_ylabel() == "Physical qubits"
+    assert ax.get_xlabel() == "Runtime"
+    assert ax.get_xscale() == "log"
+    assert ax.get_yscale() == "log"
+
+    # Verify data points
+    offsets = ax.collections[0].get_offsets()
+    assert len(cast(Sized, offsets)) == 3
+
+
+def test_estimation_table_plot_empty_raises():
+    """Test that plot() raises ValueError on an empty table."""
+    table = EstimationTable()
+    with pytest.raises(ValueError, match="Cannot plot an empty EstimationTable"):
+        table.plot()
+
+
+def test_estimation_table_plot_single_entry():
+    """Test that plot() works with a single entry."""
+    from matplotlib.figure import Figure
+
+    table = EstimationTable()
+    table.append(_make_entry(100, 1_000_000, 0.01))
+
+    fig = table.plot()
+    assert isinstance(fig, Figure)
+
+    offsets = fig.axes[0].collections[0].get_offsets()
+    assert len(cast(Sized, offsets)) == 1
+
+
+def test_estimation_table_plot_with_runtime_unit():
+    """Test that plot(runtime_unit=...) scales x values and labels the axis."""
+    table = EstimationTable()
+    # 1 hour = 3600e9 ns, 2 hours = 7200e9 ns
+    table.append(_make_entry(100, int(3600e9), 0.01))
+    table.append(_make_entry(200, int(7200e9), 0.02))
+
+    fig = table.plot(runtime_unit="hours")
+
+    ax = fig.axes[0]
+    assert ax.get_xlabel() == "Runtime (hours)"
+
+    # Verify the x data is scaled: should be 1.0 and 2.0 hours
+    offsets = cast(list, ax.collections[0].get_offsets())
+    assert offsets[0][0] == pytest.approx(1.0)
+    assert offsets[1][0] == pytest.approx(2.0)
+
+
+def test_estimation_table_plot_invalid_runtime_unit():
+    """Test that plot() raises ValueError for an unknown runtime_unit."""
+    table = EstimationTable()
+    table.append(_make_entry(100, 1000, 0.01))
+    with pytest.raises(ValueError, match="Unknown runtime_unit"):
+        table.plot(runtime_unit="fortnights")
 
 
 def _ll_files():
