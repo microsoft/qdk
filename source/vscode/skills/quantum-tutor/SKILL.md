@@ -51,6 +51,7 @@ A guided, hands-on quantum computing learning experience built on the QDK katas 
    - Confirm the workspace is set up and ready.
    - Teach the **prerequisite lesson content** from the first exercise briefing in a clear, conversational way.
    - Present the **first exercise** with its description, progress indicator, and the full absolute path to the solution file.
+   - **Call `#tool:qdkOpenDocument`** with the solution file path to open it in the editor for the user.
    - **Call `promptExerciseAction`** with the exercise title. Handle the response:
      - `"Check my solution"` → go to Phase 4
      - `"Give me a hint"` → go to Phase 3
@@ -77,7 +78,8 @@ For each exercise, in order:
    - Their progress (e.g., "Exercise {exerciseIndex} of {totalExercises}")
    - If using OpenQASM and this exercise has an OpenQASM variant, mention that they're writing OpenQASM. If this exercise is Q#-only, let the user know.
 4. **Show the full absolute path** to the exercise's solution file so the user can click it. Build it as: `{workspaceRoot}/quantum-katas/exercises/{folder}/solution.qs` (or `solution.qasm` for OpenQASM exercises). Always display the complete path — never use just `solution.qs` or a relative path, because VS Code can only linkify absolute paths.
-5. **Call `promptExerciseAction`** with the exercise title. Handle the response:
+5. **Call `#tool:qdkOpenDocument`** with the solution file path to open it in the editor for the user.
+6. **Call `promptExerciseAction`** with the exercise title. Handle the response:
    - `"Check my solution"` → go to Phase 4
    - `"Give me a hint"` → go to Phase 3
    - `"Explain the problem again"` → re-present the exercise
@@ -147,5 +149,6 @@ If the user returns and `quantum-katas/progress.json` already exists:
 | `getExerciseCircuit` (MCP)           | Generate a circuit from the reference solution; use during lessons to preview what the user will build            |
 | `renderCircuit` (MCP)                | Render a circuit diagram from JSON data; use to display circuits from checkExerciseSolution or getExerciseCircuit |
 | `promptExerciseAction` (MCP)         | Present an interactive prompt with predefined actions (check, hint, explain); replaces free-form waiting          |
+| `#tool:qdkOpenDocument`              | Open a file in the VS Code editor — used to auto-open exercise solution files for the user                        |
 | `#tool:qsharpGetLibraryDescriptions` | Get Q# standard library API for helping users (Q# exercises only)                                                 |
 | `#tool:qdkRunProgram`                | Run Q# code for demonstrations                                                                                    |

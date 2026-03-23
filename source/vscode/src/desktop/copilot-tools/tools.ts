@@ -101,6 +101,29 @@ const toolDefinitions: {
     name: "qdk-init-python-environment",
     tool: async () => await initPythonQdkEnvironment(),
   },
+  {
+    name: "qdk-open-document",
+    tool: async (input: {
+      filePath: string;
+      line?: number;
+      column?: number;
+    }) => {
+      const uri = vscode.Uri.file(input.filePath);
+      const line = (input.line ?? 1) - 1; // convert 1-based to 0-based
+      const character = (input.column ?? 1) - 1;
+      const location = {
+        source: uri.toString(),
+        span: {
+          start: { line, character },
+          end: { line, character },
+        },
+      };
+      await vscode.commands.executeCommand("qsharp-vscode.gotoLocations", [
+        location,
+      ]);
+      return `Opened ${input.filePath}`;
+    },
+  },
 ];
 
 export function registerLanguageModelTools(context: vscode.ExtensionContext) {

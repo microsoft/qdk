@@ -376,14 +376,6 @@
         "contents": "Connect to Azure Quantum\n[Connect to an existing workspace](command:qsharp-vscode.workspacesAdd)\nNote: For the first workspace added there may be several consent prompts to grant VS Code access.\nFor more information about the QDK and Azure Quantum, visit [https://aka.ms/AQ/Documentation](https://aka.ms/AQ/Documentation)."
       }
     ],
-    "chatInstructions": [
-      {
-        "path": "./resources/chat-instructions/qsharp.instructions.md"
-      },
-      {
-        "path": "./resources/chat-instructions/openqasm.instructions.md"
-      }
-    ],
     "commands": [
       {
         "command": "qsharp-vscode.helloWorld",
@@ -1045,6 +1037,40 @@
           "type": "object",
           "properties": {},
           "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-open-document",
+        "tags": [
+          "qsharp",
+          "qdk",
+          "openqasm"
+        ],
+        "toolReferenceName": "qdkOpenDocument",
+        "displayName": "Open Document in Editor",
+        "modelDescription": "Opens a file in the VS Code editor, optionally navigating to a specific line and column. Use this tool to open a document for the user so they can view or edit it. For example, call this to open an exercise solution file when presenting a quantum kata exercise.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "filePath": {
+              "type": "string",
+              "description": "The absolute path to the file to open in the editor."
+            },
+            "line": {
+              "type": "number",
+              "description": "Optional 1-based line number to navigate to."
+            },
+            "column": {
+              "type": "number",
+              "description": "Optional 1-based column number to navigate to."
+            }
+          },
+          "required": [
+            "filePath"
+          ],
           "additionalProperties": false
         }
       }
