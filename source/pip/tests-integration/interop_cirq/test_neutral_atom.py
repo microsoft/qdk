@@ -37,7 +37,7 @@ def sampler(device):
 
 
 def create_bell_circuit() -> "cirq.Circuit":
-    """Two-qubit Bell state — should produce only |⟨00⟩ or |⟨11⟩."""
+    """Two-qubit Bell state — should produce only |00⟩ or |11⟩."""
     q0, q1 = cirq.LineQubit.range(2)
     return cirq.Circuit(
         [
@@ -138,7 +138,7 @@ def test_different_seeds_produce_different_results(device) -> None:
 
 @pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_bell_state_outcomes_are_correlated(device) -> None:
-    """Bell circuit must produce only |⟨00⟩ or |⟨11⟩."""
+    """Bell circuit must produce only |00⟩ or |11⟩."""
     circuit = create_bell_circuit()
     result = NeutralAtomSampler(seed=99, device=device).run(circuit, repetitions=200)
     measurements = result.measurements["m"]
