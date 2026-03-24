@@ -47,20 +47,28 @@ pub struct GpuContext {
 }
 
 #[derive(Debug, Default)]
-struct RunParams {
-    qubit_count: i32,
-    result_count: i32,
-    shot_count: i32,
-    shots_per_batch: i32,
-    batch_count: i32,
-    workgroups_per_shot: i32,
-    entries_per_thread: i32,
-    shots_buffer_size: usize,
-    state_vector_buffer_size: usize,
-    results_buffer_size: usize,
-    diagnostics_buffer_size: usize,
-    download_buffer_size: usize,
-    num_registers: usize,
+pub(crate) struct RunParams {
+    pub qubit_count: i32,
+    pub result_count: i32,
+    pub shot_count: i32,
+    pub shots_per_batch: i32,
+    pub batch_count: i32,
+    pub workgroups_per_shot: i32,
+    pub entries_per_thread: i32,
+    pub shots_buffer_size: usize,
+    pub state_vector_buffer_size: usize,
+    pub results_buffer_size: usize,
+    pub diagnostics_buffer_size: usize,
+    pub download_buffer_size: usize,
+
+    // Adaptive program parameters.
+    pub num_registers: usize,
+    pub num_instructions: usize,
+    pub num_blocks: usize,
+    pub num_functions: usize,
+    pub num_phi_entries: usize,
+    pub num_switch_cases: usize,
+    pub num_call_args: usize,
 }
 
 #[derive(Debug)]
@@ -491,16 +499,22 @@ impl GpuContext {
         // tiny buffers, but grow to match the program's actual requirement.
         let num_registers = (program.num_registers as usize).max(MIN_REGISTERS);
 
-        if program.num_registers > MAX_REGISTERS {
+        if num_registers > MAX_REGISTERS {
             return Err(format!(
                 "MAX_REGISTERS for adaptive program exceeded: {num_registers} > {MAX_REGISTERS}"
             ));
         }
 
-        if qubit_count != self.run_params.qubit_count
-            || result_count != self.run_params.result_count
-            || num_registers != self.run_params.num_registers
-            || self.adaptive_program.is_none()
+        if self.adaptive_program.is_none()
+            || qubit_count != self.run_params.qubit_count
+            || self.run_params.result_count != result_count
+            || self.run_params.num_registers != num_registers
+            || self.run_params.num_instructions != program.instructions.len()
+            || self.run_params.num_blocks != program.block_table.len()
+            || self.run_params.num_functions != program.function_table.len()
+            || self.run_params.num_phi_entries != program.phi_entries.len()
+            || self.run_params.num_switch_cases != program.switch_cases.len()
+            || self.run_params.num_call_args != program.call_args.len()
         {
             self.pipeline_is_dirty = true;
         }
@@ -508,6 +522,12 @@ impl GpuContext {
         self.run_params.qubit_count = qubit_count;
         self.run_params.result_count = result_count;
         self.run_params.num_registers = num_registers;
+        self.run_params.num_instructions = program.instructions.len();
+        self.run_params.num_blocks = program.block_table.len();
+        self.run_params.num_functions = program.function_table.len();
+        self.run_params.num_phi_entries = program.phi_entries.len();
+        self.run_params.num_switch_cases = program.switch_cases.len();
+        self.run_params.num_call_args = program.call_args.len();
 
         self.adaptive_program = Some(program);
         self.program_is_dirty = true;
@@ -527,21 +547,20 @@ impl GpuContext {
             .adaptive_program
             .as_ref()
             .ok_or("No adaptive program has been set")?;
-        self.resources
-            .upload_bytecode(cast_slice(&program.instructions))?;
-        self.resources
-            .upload_block_table(cast_slice(&program.block_table))?;
-        self.resources
-            .upload_function_table(cast_slice(&program.function_table))?;
+
+        let program_bytes: Vec<u8> = [
+            cast_slice(&program.instructions),
+            cast_slice(&program.block_table),
+            cast_slice(&program.function_table),
+            cast_slice(&program.phi_entries),
+            cast_slice(&program.switch_cases),
+            cast_slice(&program.call_args),
+        ]
+        .concat();
+
+        self.resources.upload_program(&program_bytes)?;
         self.resources
             .upload_ops_data(cast_slice(&program.quantum_ops))?;
-        // Side tables
-        self.resources
-            .upload_phi_table(cast_slice(&program.phi_entries))?;
-        self.resources
-            .upload_switch_table(cast_slice(&program.switch_cases))?;
-        self.resources
-            .upload_call_arg_table(cast_slice(&program.call_args))?;
 
         Ok(())
     }
@@ -569,18 +588,7 @@ impl GpuContext {
         if self.pipeline_is_dirty {
             let params = &self.run_params;
             // The pipeline is marked as dirty if the qubit or result count changed (shot count doesn't impact it)
-            self.resources.create_shaders_adaptive(
-                params.qubit_count,
-                params.result_count,
-                // The next two params are derived from qubit count and result count, so will only change if those do
-                params.workgroups_per_shot,
-                params.entries_per_thread,
-                // The below are constants so will not change from run to run
-                THREADS_PER_WORKGROUP,
-                MAX_QUBIT_COUNT,
-                MAX_QUBITS_PER_WORKGROUP,
-                self.run_params.num_registers,
-            )?;
+            self.resources.create_shaders_adaptive(params)?;
         }
 
         if self.program_is_dirty || self.noise_config_is_dirty {

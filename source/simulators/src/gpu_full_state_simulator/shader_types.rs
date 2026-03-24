@@ -13,7 +13,7 @@ pub const MAX_BUFFER_SIZE: usize = 1 << 30; // 1 GB limit due to some wgpu restr
 pub const MAX_QUBIT_COUNT: i32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buffer limit
 pub const MAX_QUBITS_PER_WORKGROUP: i32 = 18; // Max qubits to be processed by a single workgroup
 pub const THREADS_PER_WORKGROUP: i32 = 32; // 32 gives good occupancy across various GPUs
-pub const MAX_REGISTERS: u32 = 4096; // 4096 * 4 bytes = 16 KB of register file size per interpreter
+pub const MAX_REGISTERS: usize = 4096; // 4096 * 4 bytes = 16 KB of register file size per interpreter
 
 // Once a shot is big enough to need multiple workgroups, what's the max number of workgroups possible
 pub const MAX_PARTITIONED_WORKGROUPS: i32 = 1 << (MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);

@@ -12,20 +12,6 @@ use crate::shader_types::{Op, ops};
 /// Stores a parsed adaptive program.
 #[derive(Debug)]
 pub struct AdaptiveProgram {
-    /// Bytecode instructions.
-    pub instructions: Vec<Instruction>,
-    /// Block table: indexed by block ID.
-    pub block_table: Vec<Block>,
-    /// Function table.
-    pub function_table: Vec<Function>,
-    /// Quantum op pool (full `Op` structs with expanded unitaries).
-    pub quantum_ops: Vec<Op>,
-    /// Phi side table: `[predecessor_block_id, value_register]` entries.
-    pub phi_entries: Vec<PhiNodeEntry>,
-    /// Switch side table: `[match_value, target_block]` entries.
-    pub switch_cases: Vec<SwitchCase>,
-    /// Call argument register indices.
-    pub call_args: Vec<u32>,
     /// Number of qubits used by the program.
     pub num_qubits: u32,
     /// Number of result registers used by the program.
@@ -34,6 +20,20 @@ pub struct AdaptiveProgram {
     pub num_registers: u32,
     /// Entry block ID for the program.
     pub entry_block: u32,
+    /// Bytecode instructions.
+    pub instructions: Vec<Instruction>,
+    /// Block table: indexed by block ID.
+    pub block_table: Vec<Block>,
+    /// Function table.
+    pub function_table: Vec<Function>,
+    /// Phi side table: `[predecessor_block_id, value_register]` entries.
+    pub phi_entries: Vec<PhiNodeEntry>,
+    /// Switch side table: `[match_value, target_block]` entries.
+    pub switch_cases: Vec<SwitchCase>,
+    /// Call argument register indices.
+    pub call_args: Vec<u32>,
+    /// Quantum op pool (full `Op` structs with expanded unitaries).
+    pub quantum_ops: Vec<Op>,
 }
 
 // ---------------------------------------------------------------------------

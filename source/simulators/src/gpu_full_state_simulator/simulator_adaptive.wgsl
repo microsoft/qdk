@@ -207,6 +207,68 @@ var<storage, read> correlated_noise_tables: array<NoiseTableMetadata>;
 @group(0) @binding(8)
 var<storage, read> correlated_noise_entries: array<NoiseTableEntry>;
 
+/// GPU bytecode instruction.
+///
+/// Layout:
+/// - `opcode`: packed word — bits\[7:0\]=primary, bits\[15:8\]=sub/condition, bits\[23:16\]=flags
+/// - `dst`: destination register or branch target
+/// - `src0`, `src1`: source registers or immediates
+/// - `aux0`-`aux3`: auxiliary fields (gate index, block ids, side-table offsets, etc.)
+struct Instruction {
+    opcode: u32,
+    dst: u32,
+    src0: u32,
+    src1: u32,
+    aux0: u32,
+    aux1: u32,
+    aux2: u32,
+    aux3: u32,
+}
+
+struct Block {
+    instr_offset: u32,
+    instr_count: u32,
+}
+
+struct Function {
+    entry_block_id: u32,
+    param_count: u32,
+    param_base_reg: u32,
+    reserved: u32,
+}
+
+struct PhiNodeEntry {
+    block_id: u32,
+    val_reg: u32,
+}
+
+struct SwitchCase {
+    case_val: u32,
+    target_block: u32,
+}
+
+const INSTRUCTIONS_SIZE: u32 = {{INSTRUCTIONS_SIZE}};
+const BLOCK_TABLE_SIZE: u32 = {{BLOCK_TABLE_SIZE}};
+const FUNCTION_TABLE_SIZE: u32 = {{FUNCTION_TABLE_SIZE}};
+const PHI_TABLE_SIZE: u32 = {{PHI_TABLE_SIZE}};
+const SWITCH_CASES_SIZE: u32 = {{SWITCH_CASES_SIZE}};
+const CALL_ARGS_SIZE: u32 = {{CALL_ARGS_SIZE}};
+
+struct Program {
+    /// Bytecode instructions.
+    instructions: array<Instruction, INSTRUCTIONS_SIZE>,
+    /// Block table: indexed by block ID.
+    block_table: array<Block, BLOCK_TABLE_SIZE>,
+    /// Function table.
+    function_table: array<Function, FUNCTION_TABLE_SIZE>,
+    /// Phi entries table: `[predecessor_block_id, value_register]` entries.
+    phi_table: array<PhiNodeEntry, PHI_TABLE_SIZE>,
+    /// Switch cases table: `[match_value, target_block]` entries.
+    switch_table: array<SwitchCase, SWITCH_CASES_SIZE>,
+    /// Call argument register indices.
+    call_arg_table: array<u32, CALL_ARGS_SIZE>,
+}
+
 struct CallStackFrame {
     /// Resume on this block on return.
     block_id: u32,
@@ -246,30 +308,15 @@ struct InterpreterState {
 // -----------------------------------------------------------------------------
 
 @group(0) @binding(9)
-var<storage, read> bytecode: array<vec4<u32>>;  // Instruction pairs (each instruction = 2 × vec4<u32>)
+var<storage, read> program: Program;
 
 @group(0) @binding(10)
-var<storage, read> block_table: array<vec2<u32>>;  // (instruction_offset, instruction_count) per block
-
-@group(0) @binding(11)
-var<storage, read> function_table: array<vec4<u32>>;  // (entry_block, param_count, param_base_reg, reserved)
-
-@group(0) @binding(12)
-var<storage, read> phi_table: array<vec2<u32>>;  // (predecessor_block_id, value_register) entries
-
-@group(0) @binding(13)
-var<storage, read> switch_table: array<vec2<u32>>;  // (match_value, target_block) entries
-
-@group(0) @binding(14)
-var<storage, read> call_arg_table: array<u32>;  // register indices
-
-@group(0) @binding(15)
 var<storage, read_write> interpreter_state: array<InterpreterState>;  // Per-shot interpreter state
 
-@group(0) @binding(16)
+@group(0) @binding(11)
 var<storage, read_write> shot_registers: array<u32>;  // Per-shot register files (flattened)
 
-@group(0) @binding(17)
+@group(0) @binding(12)
 var<storage, read_write> termination_counter: atomic<u32>;  // Count of halted shots
 
 // -----------------------------------------------------------------------------
@@ -439,16 +486,8 @@ fn write_reg_f32(shot_idx: u32, reg: u32, val: f32) {
 // Adaptive interpreter — instruction fetch and opcode extraction
 // -----------------------------------------------------------------------------
 
-struct Instr {
-    opcode: u32, dst: u32, src0: u32, src1: u32,
-    aux0: u32, aux1: u32, aux2: u32, aux3: u32,
-}
-
-fn fetch_instr(pc: u32) -> Instr {
-    let base = pc * 2u;  // 2 × vec4<u32> per instruction
-    let w0 = bytecode[base];
-    let w1 = bytecode[base + 1u];
-    return Instr(w0.x, w0.y, w0.z, w0.w, w1.x, w1.y, w1.z, w1.w);
+fn fetch_instr(pc: u32) -> Instruction {
+    return program.instructions[pc];
 }
 
 fn get_opcode(packed: u32) -> u32   { return packed & 0xFFu; }
@@ -996,7 +1035,7 @@ fn prep_correlated_noise(shot_idx: u32, op_idx: u32, qubit_count: u32, arg_offse
         }
 
         // Read qubit ID from register via call_arg_table
-        let arg_reg = call_arg_table[arg_offset + i];
+        let arg_reg = program.call_arg_table[arg_offset + i];
         let qubit_id = read_reg(shot_idx, arg_reg);
         let qubit_mask = 1u << qubit_id;
 
@@ -1707,7 +1746,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             case OP_JUMP {
                 prev_block = block_id;
                 block_id = instr.dst;
-                pc = block_table[instr.dst].x;  // .x = instruction_offset
+                pc = program.block_table[instr.dst].instr_offset;
             }
 
             // BRANCH: Conditional branch (if/else).
@@ -1721,10 +1760,10 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 prev_block = block_id;
                 if cond {
                     block_id = instr.aux0;
-                    pc = block_table[instr.aux0].x;
+                    pc = program.block_table[instr.aux0].instr_offset;
                 } else {
                     block_id = instr.aux1;
-                    pc = block_table[instr.aux1].x;
+                    pc = program.block_table[instr.aux1].instr_offset;
                 }
             }
 
@@ -1743,15 +1782,15 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let case_count = instr.aux2;
                 var target_block = default_block;
                 for (var i = 0u; i < case_count; i++) {
-                    let entry = switch_table[case_offset + i];
-                    if entry.x == val {
-                        target_block = entry.y;
+                    let entry = program.switch_table[case_offset + i];
+                    if entry.case_val == val {
+                        target_block = entry.target_block;
                         break;
                     }
                 }
                 prev_block = block_id;
                 block_id = target_block;
-                pc = block_table[target_block].x;
+                pc = program.block_table[target_block].instr_offset;
             }
 
             // CALL: Invokes a function.
@@ -1775,7 +1814,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let func_id = instr.aux0;
                 let arg_count = instr.aux1;
                 let arg_offset = instr.aux2;
-                let func = function_table[func_id];
+                let func = program.function_table[func_id];
                 // Push return info onto the call stack
                 let sp = state.call_sp;
                 // Guard: prevent call stack overflow (max 8 frames)
@@ -1793,14 +1832,14 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 interpreter_state[shot_idx].call_stack_frames[sp].return_reg = instr.dst; // return_reg — where to write result
                 interpreter_state[shot_idx].call_sp = sp + 1u;
                 // Copy caller arguments into the callee's parameter registers
-                let param_base = func.z;  // param_base_reg in function_table
+                let param_base = func.param_base_reg;
                 for (var i = 0u; i < arg_count; i++) {
-                    let arg_reg = call_arg_table[arg_offset + i];
+                    let arg_reg = program.call_arg_table[arg_offset + i];
                     write_reg(shot_idx, param_base + i, read_reg(shot_idx, arg_reg));
                 }
                 // Transfer control to the function entry block
-                block_id = func.x;  // entry_block in function_table
-                pc = block_table[func.x].x;
+                block_id = func.entry_block_id;
+                pc = program.block_table[block_id].instr_offset;
             }
 
             // CALL_RETURN: Returns from a function call.
@@ -2227,9 +2266,9 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let offset = instr.aux0;
                 let count = instr.aux1;
                 for (var i = 0u; i < count; i++) {
-                    let entry = phi_table[offset + i];
-                    if entry.x == prev_block {
-                        write_reg(shot_idx, instr.dst, read_reg(shot_idx, entry.y));
+                    let entry = program.phi_table[offset + i];
+                    if entry.block_id == prev_block {
+                        write_reg(shot_idx, instr.dst, read_reg(shot_idx, entry.val_reg));
                         break;
                     }
                 }

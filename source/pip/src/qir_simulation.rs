@@ -796,7 +796,7 @@ fn pydict_to_adaptive_program(program: &Bound<'_, PyDict>) -> PyResult<bytecode:
         .get_item("switch_cases")?
         .ok_or_else(|| PyKeyError::new_err("switch_cases"))?
         .extract()?;
-    let call_args: Vec<u32> = program
+    let mut call_args: Vec<u32> = program
         .get_item("call_args")?
         .ok_or_else(|| PyKeyError::new_err("call_args"))?
         .extract()?;
@@ -811,25 +811,33 @@ fn pydict_to_adaptive_program(program: &Bound<'_, PyDict>) -> PyResult<bytecode:
         .collect();
 
     // Convert block table: strip block_id and pred_count, keep (instr_offset, instr_count)
-    let block_table: Vec<Block> = blocks
+    let mut block_table: Vec<Block> = blocks
         .iter()
         .map(|&(_block_id, instr_offset, instr_count)| (instr_offset, instr_count))
         .map(Block::from_tuple)
         .collect();
 
     // Convert function table
-    let function_table: Vec<Function> =
+    let mut function_table: Vec<Function> =
         functions.iter().map(|&t| Function::from_tuple(t)).collect();
 
     // Convert phi entries and switch cases
-    let phi_entries: Vec<PhiNodeEntry> = phi_entries
+    let mut phi_entries: Vec<PhiNodeEntry> = phi_entries
         .iter()
         .map(|&t| PhiNodeEntry::from_tuple(t))
         .collect();
-    let switch_cases: Vec<SwitchCase> = switch_cases
+    let mut switch_cases: Vec<SwitchCase> = switch_cases
         .iter()
         .map(|&t| SwitchCase::from_tuple(t))
         .collect();
+
+    // WebGPU requires that arrays have at least one element,
+    // so, we push a dummy element on each of these arrays if they are empty.
+    push_default_if_empty(&mut block_table);
+    push_default_if_empty(&mut function_table);
+    push_default_if_empty(&mut phi_entries);
+    push_default_if_empty(&mut switch_cases);
+    push_default_if_empty(&mut call_args);
 
     Ok(AdaptiveProgram {
         instructions: bytecode,
@@ -844,4 +852,10 @@ fn pydict_to_adaptive_program(program: &Bound<'_, PyDict>) -> PyResult<bytecode:
         num_registers,
         entry_block,
     })
+}
+
+fn push_default_if_empty<T: Default>(v: &mut Vec<T>) {
+    if v.is_empty() {
+        v.push(T::default());
+    }
 }
