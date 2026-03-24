@@ -62,7 +62,7 @@ const CORRELATED_NOISE_TABLES_BUF_IDX: usize = 7;
 const CORRELATED_NOISE_ENTRIES_BUF_IDX: usize = 8;
 
 // Adaptive interpreter buffer indices.
-// Adaptive interpreter buffer indices (bindings 9-17)
+// Adaptive interpreter buffer indices (bindings 9-13)
 const PROGRAM_IDX: usize = 9;
 const INTERPRETER_STATE_BUF_IDX: usize = 10;
 const REGISTER_FILE_BUF_IDX: usize = 11;
@@ -467,7 +467,10 @@ impl GpuResources {
             .ok_or("Bind group layout not initialized")?; // This is created with the device, so should exist here
 
         // Create the shader module and bind group layout
-        let raw_shader_src = include_str!("simulator.wgsl");
+        let raw_shader_src = concat!(
+            include_str!("common.wgsl"),
+            include_str!("simulator_base.wgsl"),
+        );
         let mut shader_src = raw_shader_src
             .replace("{{QUBIT_COUNT}}", &qubit_count.to_string())
             .replace("{{RESULT_COUNT}}", &(result_count + 1).to_string()) // +1 for result code per shot
@@ -532,7 +535,10 @@ impl GpuResources {
             .ok_or("Bind group layout not initialized")?; // This is created with the device, so should exist here
 
         // Create the shader module and bind group layout
-        let raw_shader_src = include_str!("simulator_adaptive.wgsl");
+        let raw_shader_src = concat!(
+            include_str!("common.wgsl"),
+            include_str!("simulator_adaptive.wgsl"),
+        );
         let mut shader_src = raw_shader_src
             .replace("{{QUBIT_COUNT}}", &params.qubit_count.to_string())
             .replace("{{RESULT_COUNT}}", &(params.result_count + 1).to_string()) // +1 for result code per shot
