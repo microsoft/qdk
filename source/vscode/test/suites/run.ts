@@ -13,7 +13,7 @@ require("mocha/mocha"); // eslint-disable-line @typescript-eslint/no-require-imp
 
 export function runMochaTests(
   requireTestModules: () => void,
-  options?: Mocha.MochaOptions
+  options?: Mocha.MochaOptions,
 ): Promise<void> {
   return new Promise((c, e) => {
     mocha.setup({
