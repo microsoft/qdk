@@ -74,6 +74,10 @@ impl Trace {
         self.block.add_block(repetitions)
     }
 
+    pub fn root_block_mut(&mut self) -> &mut Block {
+        &mut self.block
+    }
+
     #[must_use]
     pub fn base_error(&self) -> f64 {
         self.base_error

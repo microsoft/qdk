@@ -1148,14 +1148,23 @@ impl Trace {
         self.0.add_operation(id, qubits, params);
     }
 
-    #[pyo3(signature = (repetitions = 1))]
-    pub fn add_block(mut slf: PyRefMut<'_, Self>, repetitions: u64) -> PyResult<Block> {
-        let block = slf.0.add_block(repetitions);
+    pub fn root_block(mut slf: PyRefMut<'_, Self>) -> Block {
+        let block = slf.0.root_block_mut();
         let ptr = NonNull::from(block);
-        Ok(Block {
+        Block {
             ptr,
             parent: slf.into(),
-        })
+        }
+    }
+
+    #[pyo3(signature = (repetitions = 1))]
+    pub fn add_block(mut slf: PyRefMut<'_, Self>, repetitions: u64) -> Block {
+        let block = slf.0.add_block(repetitions);
+        let ptr = NonNull::from(block);
+        Block {
+            ptr,
+            parent: slf.into(),
+        }
     }
 
     #[getter]

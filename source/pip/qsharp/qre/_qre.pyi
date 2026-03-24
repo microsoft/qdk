@@ -1340,6 +1340,15 @@ class Trace:
         """
         ...
 
+    def root_block(self) -> Block:
+        """
+        Returns the root block of the trace.
+
+        Returns:
+            Block: The root block of the trace.
+        """
+        ...
+
     def add_block(self, repetitions: int = 1) -> Block:
         """
         Adds a block to the trace.
