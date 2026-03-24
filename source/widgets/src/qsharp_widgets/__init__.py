@@ -232,14 +232,25 @@ class MoleculeViewer(anywidget.AnyWidget):
     molecule_data = traitlets.Unicode().tag(sync=True)
     cube_data = traitlets.Dict().tag(sync=True)
     isoval = traitlets.Float(0.02).tag(sync=True)
+    data_overlay = traitlets.Dict().tag(sync=True)
 
-    def __init__(self, molecule_data, cube_data={}, isoval=0.02):
+    def __init__(self, molecule_data, cube_data={}, isoval=0.02, data_overlay={}):
         """
         This function generates a 3D molecule viewer for the provided molecular data in XYZ format.
 
         Parameters:
         - molecule_data: string containing the molecular data in XYZ format.
+        - data_overlay: dict mapping cube keys to dicts of key-value pairs to display as an overlay.
         """
+        # Format float values as scientific notation strings so they survive
+        # JSON serialization (JSON turns 1.0 into 1, losing the float type).
+        formatted_overlay = {
+            cube_key: {
+                k: f"{v:.5e}" if isinstance(v, float) else v
+                for k, v in entries.items()
+            }
+            for cube_key, entries in data_overlay.items()
+        }
         super().__init__(
-            molecule_data=molecule_data, cube_data=cube_data, isoval=isoval
+            molecule_data=molecule_data, cube_data=cube_data, isoval=isoval, data_overlay=formatted_overlay
         )

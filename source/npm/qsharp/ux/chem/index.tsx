@@ -11,6 +11,7 @@ export function MoleculeViewer(props: {
   moleculeData: string;
   cubeData: { [key: string]: string };
   isoValue?: number;
+  dataOverlay?: { [key: string]: { [key: string]: string | number } };
 }) {
   // Holds reference to the viewer div and 3Dmol viewer object.
   const viewerRef = useRef<HTMLDivElement>(null);
@@ -178,6 +179,19 @@ export function MoleculeViewer(props: {
           </div>
         </>
       ) : null}
+
+      {cubeKey && props.dataOverlay?.[cubeKey] &&
+        Object.keys(props.dataOverlay[cubeKey]).length > 0 &&
+        Object.entries(props.dataOverlay[cubeKey]).map(([key, value], i) => (
+          <div
+            class="view-option data-overlay-row"
+            key={key}
+            style={`position:absolute;top:${10 + i * 20}px;left:420px;height:20px;padding:0 10px;z-index:10;font-family:system-ui;pointer-events:none;`}
+          >
+            <label class="data-overlay-key">{key}:</label>
+            <span class="data-overlay-value">{value}</span>
+          </div>
+        ))}
     </div>
   );
 }

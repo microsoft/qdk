@@ -10,6 +10,7 @@
   height: 100%;
   margin: 0;
   overflow: hidden;
+  position: relative;
   /* border: 1px solid gray; */
 }
 
@@ -76,6 +77,17 @@
 #isovalSlider {
   width: 100px;
   outline: none;
+}
+
+.data-overlay-key {
+  font-weight: normal;
+  white-space: nowrap;
+  margin-right: 0;
+}
+
+.data-overlay-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 #isovalInput {
