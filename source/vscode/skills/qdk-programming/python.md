@@ -137,7 +137,7 @@ except QSharpError as e:
 ### Multishot Simulation
 
 ```python
-qsharp.eval("operation CNOT_Measure() : (Result, Result) { use (q1, q2) = (Qubit(), Qubit()); H(q1); CNOT(q1, q2); (M(q1), M(q2)) }")
+qsharp.eval("operation CNOT_Measure() : (Result, Result) { use (q1, q2) = (Qubit(), Qubit()); H(q1); CNOT(q1, q2); (MResetZ(q1), MResetZ(q2)) }")
 results = qsharp.run("CNOT_Measure()", 100)
 # Returns a list of 100 results
 ```
@@ -161,12 +161,11 @@ results = qsharp.run("Main()", 100)
 qsharp.init(project_root="./my_project")  # directory with qsharp.json
 
 # Import Q# callables as Python objects
-from qdk.code import Main
-result = Main()
+from qdk import code
+result = code.Main()
 
-# Namespaced imports
-from qdk.code.MyNamespace import MyOperation
-result = MyOperation(42)
+# Namespaced callables
+result = code.MyNamespace.MyOperation(42)
 ```
 
 ### `%%qsharp` Magic
@@ -186,8 +185,8 @@ operation BellPair() : (Result, Result) {
 ```
 
 ```python
-from qdk.code import BellPair
-result = BellPair()
+from qdk import code
+result = code.BellPair()
 ```
 
 ### Python / Q# Interop
@@ -200,16 +199,18 @@ objects under `qdk.code`. Namespaces in Q# map to submodules:
 
 ```python
 from qdk.qsharp import init, eval
-from qdk.code import Main                        # top-level callable
-from qdk.code.MyNamespace import MyOperation      # namespaced callable
-from qdk.code.qasm_import import MyImportedGate   # imported OpenQASM gate
+from qdk import code
+
+code.Main                        # top-level callable
+code.MyNamespace.MyOperation     # namespaced callable
+code.qasm_import.MyImportedGate  # imported OpenQASM gate
 ```
 
 #### Passing Arguments to Callables
 
 ```python
-from qdk.code import GenerateRandomBits
-result = GenerateRandomBits(5)  # pass Q# function arguments directly
+from qdk import code
+result = code.GenerateRandomBits(5)  # pass Q# function arguments directly
 ```
 
 #### Working with Q# Types in Python
@@ -247,7 +248,7 @@ result = Bell()
 
 # Import as an operation (qubits become parameters)
 import_openqasm(source, name="MyGate", program_type=ProgramType.Operation)
-qsharp.eval("{ use q = Qubit(); MyGate(q) }")
+qsharp.eval("{ use q = Qubit(); MyGate(q); Reset(q) }")
 ```
 
 ## Simulation
@@ -453,8 +454,8 @@ qir = qsharp.compile("Main()")
 With arguments:
 
 ```python
-from qdk.code import RunExperiment
-qir = qsharp.compile(RunExperiment, 100, qsharp.Pauli.Z)
+from qdk import code
+qir = qsharp.compile(code.RunExperiment, 100, qsharp.Pauli.Z)
 ```
 
 ### OpenQASM
@@ -483,10 +484,11 @@ circuit = qsharp.circuit(operation="PrepareCatState")
 Import an OpenQASM program, then generate a circuit diagram via the Q# circuit API:
 
 ```python
+import qdk
 from qdk.openqasm import import_openqasm, ProgramType
 
 import_openqasm(source, name="Bell", program_type=ProgramType.File)
-circuit = qsharp.circuit(qsharp.code.qasm_import.Bell)
+circuit = qsharp.circuit(qdk.code.qasm_import.Bell)
 print(circuit)
 ```
 
@@ -512,9 +514,10 @@ circuit = qsharp.circuit("MyOp()", generation_method=CircuitGenerationMethod.Sta
 Static generation also works with Q# callables:
 
 ```python
+import qdk
 qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
 qsharp.eval("operation Foo() : Unit { use q = Qubit(); H(q); if M(q) == One { X(q); } Reset(q); }")
-circuit = qsharp.circuit(qsharp.code.Foo, generation_method=CircuitGenerationMethod.Static)
+circuit = qsharp.circuit(qdk.code.Foo, generation_method=CircuitGenerationMethod.Static)
 ```
 
 ## Resource Estimation
