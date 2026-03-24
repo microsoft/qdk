@@ -12,24 +12,17 @@ const thisDir = dirname(fileURLToPath(import.meta.url));
 const libsDir = join(thisDir, "..", "..", "node_modules");
 
 /** @type {import("esbuild").BuildOptions} */
-const buildOptions = {
+const commonBuildOptions = {
   entryPoints: [
     join(thisDir, "src", "extension.ts"),
     join(thisDir, "src", "compilerWorker.ts"),
     join(thisDir, "src", "debugger/debug-service-worker.ts"),
-    join(thisDir, "src", "webview/webview.tsx"),
-    join(thisDir, "src", "webview/editor.tsx"),
   ],
-  outdir: join(thisDir, "out"),
   bundle: true,
-  // minify: true,
-  mainFields: ["browser", "module", "main"],
   external: ["vscode"],
   format: "cjs",
-  platform: "browser",
   target: ["es2020"],
   sourcemap: "linked",
-  //logLevel: "debug",
   define: { "import.meta.url": "undefined" },
 };
 
@@ -57,15 +50,14 @@ const inlineStateComputeWorkerPlugin = {
         );
 
         const result = await esbuildBuild({
+          ...commonBuildOptions,
           entryPoints: [workerEntry],
           bundle: true,
           write: false,
           platform: "browser",
           // Blob workers are classic scripts by default (not ESM), so emit an IIFE.
           format: "iife",
-          target: buildOptions.target,
           sourcemap: false,
-          define: buildOptions.define,
           logLevel: "silent",
         });
 
@@ -81,29 +73,25 @@ const inlineStateComputeWorkerPlugin = {
   },
 };
 
-function getTimeStr() {
-  const now = new Date();
-
-  const hh = now.getHours().toString().padStart(2, "0");
-  const mm = now.getMinutes().toString().padStart(2, "0");
-  const ss = now.getSeconds().toString().padStart(2, "0");
-  const mil = now.getMilliseconds().toString().padStart(3, "0");
-
-  return `${hh}:${mm}:${ss}.${mil}`;
-}
-
-export function copyWasmToVsCode() {
+/**
+ *
+ * @param {string} [platform]
+ */
+export function copyWasmToVsCode(platform) {
+  if (platform !== "browser" && platform !== "node") {
+    throw new Error(`Invalid platform: ${platform}`);
+  }
   // Copy the wasm module into the extension directory
-  let qsharpWasm = join(
+  const qsharpWasm = join(
     thisDir,
     "..",
     "npm",
     "qsharp",
     "lib",
-    "web",
+    platform === "browser" ? "web" : "nodejs",
     "qsc_wasm_bg.wasm",
   );
-  let qsharpDest = join(thisDir, `wasm`);
+  const qsharpDest = join(thisDir, platform, `wasm`);
 
   console.log("Copying the wasm file to VS Code from: " + qsharpWasm);
   mkdirSync(qsharpDest, { recursive: true });
@@ -115,8 +103,8 @@ export function copyWasmToVsCode() {
  * @param {string} [destDir]
  */
 export function copyKatex(destDir) {
-  let katexBase = join(libsDir, `katex/dist`);
-  let katexDest = destDir ?? join(thisDir, `out/katex`);
+  const katexBase = join(libsDir, `katex/dist`);
+  const katexDest = destDir ?? join(thisDir, `out/katex`);
 
   console.log("Copying the Katex files over from: " + katexBase);
   mkdirSync(katexDest, { recursive: true });
@@ -167,15 +155,80 @@ export function copyKatex(destDir) {
   }
 }
 
-function buildBundle() {
-  console.log("Running esbuild");
-
-  esbuildBuild({
-    ...buildOptions,
-    plugins: [inlineStateComputeWorkerPlugin],
-  }).then(() => console.log(`Built bundle to ${join(thisDir, "out")}`));
+/**
+ * @param {boolean} [onlyUI]
+ * @param {string} [platform]
+ * @returns {import("esbuild").BuildOptions}
+ */
+function getBuildOptions(onlyUI, platform) {
+  if (onlyUI) {
+    return {
+      ...commonBuildOptions,
+      platform: "browser",
+      outdir: join(thisDir, "out", "browser"),
+      entryPoints: [
+        join(thisDir, "src", "webview/webview.tsx"),
+        join(thisDir, "src", "webview/editor.tsx"),
+      ],
+      plugins: [inlineStateComputeWorkerPlugin],
+    };
+  } else if (platform === "browser") {
+    return {
+      ...commonBuildOptions,
+      platform: "browser",
+      outdir: join(thisDir, "out", "browser"),
+    };
+  } else if (platform === "node") {
+    return {
+      ...commonBuildOptions,
+      platform: "node",
+      outdir: join(thisDir, "out", "nodejs"),
+    };
+  } else {
+    throw new Error(`Invalid platform: ${platform}`);
+  }
 }
 
+/**
+ * @param {boolean} [onlyUI]
+ * @param {string} [platform]
+ */
+function buildBundle(onlyUI, platform) {
+  console.log("Running esbuild for platform: " + platform);
+  const buildOptions = getBuildOptions(onlyUI, platform);
+  esbuildBuild(buildOptions)
+    .catch((err) => {
+      console.error("Build failed:", err);
+      process.exit(1);
+    })
+    .then(() => console.log(`Built bundle to ${buildOptions.outdir}`));
+}
+
+function buildUI() {
+  copyKatex();
+  buildBundle(true, "browser");
+}
+
+/**
+ * @param {string} [platform]
+ */
+function buildExtensionHost(platform) {
+  copyWasmToVsCode(platform);
+  buildBundle(false, platform);
+}
+
+function getTimeStr() {
+  const now = new Date();
+
+  const hh = now.getHours().toString().padStart(2, "0");
+  const mm = now.getMinutes().toString().padStart(2, "0");
+  const ss = now.getSeconds().toString().padStart(2, "0");
+  const mil = now.getMilliseconds().toString().padStart(3, "0");
+
+  return `${hh}:${mm}:${ss}.${mil}`;
+}
+
+// This only watches for platform = "browser" for the sake of simplicity, so make sure to run a full build first to catch any errors in the node build before pushing code changes
 export async function watchVsCode() {
   console.log("Building vscode extension in watch mode");
 
@@ -192,8 +245,17 @@ export async function watchVsCode() {
       );
     },
   };
-  let ctx = await context({
-    ...buildOptions,
+  const ctx = await context({
+    ...commonBuildOptions,
+    entryPoints: [
+      join(thisDir, "src", "extension.ts"),
+      join(thisDir, "src", "compilerWorker.ts"),
+      join(thisDir, "src", "debugger/debug-service-worker.ts"),
+      join(thisDir, "src", "webview/webview.tsx"),
+      join(thisDir, "src", "webview/editor.tsx"),
+    ],
+    platform: "browser",
+    outdir: join(thisDir, "out", "web"),
     plugins: [inlineStateComputeWorkerPlugin, buildPlugin],
     color: false,
   });
@@ -208,8 +270,8 @@ if (thisFilePath === resolve(process.argv[1])) {
   if (isWatch) {
     watchVsCode();
   } else {
-    copyWasmToVsCode();
-    copyKatex();
-    buildBundle();
+    buildUI();
+    buildExtensionHost("browser");
+    buildExtensionHost("node");
   }
 }

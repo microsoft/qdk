@@ -17,7 +17,8 @@
     "Programming Languages",
     "Notebooks"
   ],
-  "browser": "./out/extension.js",
+  "browser": "./out/browser/extension.js",
+  "main": "./out/main/extension.js",
   "virtualWorkspaces": true,
   "activationEvents": [
     "onNotebook:jupyter-notebook",
@@ -26,6 +27,10 @@
     "onDebugDynamicConfigurations:qsharp",
     "onFileSystem:qsharp-vfs",
     "onWebviewPanel:qsharp-webview"
+  ],
+  "extensionKind": [
+    "workspace",
+    "ui"
   ],
   "contributes": {
     "walkthroughs": [

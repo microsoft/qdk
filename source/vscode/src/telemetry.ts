@@ -402,6 +402,9 @@ export function sendTelemetryEvent<E extends keyof EventTypes>(
 }
 
 function getBrowserRelease(): string {
+  if (typeof navigator === "undefined") {
+    return `Node/${process.versions.node}`;
+  }
   if (navigator.userAgentData?.brands) {
     const browser =
       navigator.userAgentData.brands[navigator.userAgentData.brands.length - 1];
@@ -412,6 +415,9 @@ function getBrowserRelease(): string {
 }
 
 export function getUserAgent(): string {
+  if (typeof navigator === "undefined") {
+    return userAgentString || `Node/${process.versions.node}`;
+  }
   return userAgentString || navigator.userAgent;
 }
 
