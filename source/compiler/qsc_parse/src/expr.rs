@@ -359,7 +359,25 @@ fn expr_array_core(s: &mut ParserContext) -> Result<Box<ExprKind>> {
     };
 
     if token(s, TokenKind::Comma).is_err() {
-        return Ok(Box::new(ExprKind::Array(vec![first].into_boxed_slice())));
+        match s.peek().kind {
+            TokenKind::Close(Delim::Bracket) => {
+                return Ok(Box::new(ExprKind::Array(vec![first].into_boxed_slice())));
+            }
+            TokenKind::Semi => {
+                return Err(Error::new(ErrorKind::Token(
+                    TokenKind::Close(Delim::Bracket),
+                    s.peek().kind,
+                    s.peek().span,
+                )));
+            }
+            _ => {
+                return Err(Error::new(ErrorKind::Token(
+                    TokenKind::Comma,
+                    s.peek().kind,
+                    s.peek().span,
+                )));
+            }
+        }
     }
 
     s.expect(WordKinds::Size);
@@ -495,6 +513,14 @@ fn lit_token(lexeme: &str, token: Token) -> Result<Option<Lit>> {
                 .parse()
                 .map_err(|_| Error::new(ErrorKind::Lit("floating-point", token.span)))?;
             Ok(Some(Lit::Double(value)))
+        }
+        TokenKind::Imaginary => {
+            let lexeme = &lexeme[..lexeme.len() - 1]; // Slice suffix.
+            let lexeme = lexeme.replace('_', "");
+            let value = lexeme
+                .parse()
+                .map_err(|_| Error::new(ErrorKind::Lit("complex", token.span)))?;
+            Ok(Some(Lit::Imaginary(value)))
         }
         TokenKind::Int(radix) => {
             let offset = if radix == Radix::Decimal { 0 } else { 2 };

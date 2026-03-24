@@ -221,12 +221,6 @@ fn use_of_dynamic_string_yields_errors() {
                         hi: 144,
                     },
                 ),
-                UseOfDynamicString(
-                    Span {
-                        lo: 130,
-                        hi: 144,
-                    },
-                ),
             ]
         "#]],
     );

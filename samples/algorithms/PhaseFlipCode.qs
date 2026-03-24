@@ -19,10 +19,7 @@
 /// with one of the qubits being phase-flipped. It then identifies and corrects
 /// the flipped qubit.
 import Std.Math.*;
-import Std.Random.*;
-import Std.Arrays.*;
 import Std.Diagnostics.*;
-import Std.Measurement.*;
 
 operation Main() : Result {
     use logicalQubit = Qubit[3];
@@ -34,8 +31,8 @@ operation Main() : Result {
     // logical qubit.
     EncodeAsLogicalQubit(logicalQubit[0], logicalQubit[1...]);
 
-    // Induce a phase-flip error on a random qubit.
-    Z(logicalQubit[DrawRandomInt(0, 2)]);
+    // Induce a phase-flip error on the second qubit.
+    Z(logicalQubit[1]);
 
     // Show the logical qubit with the error state.
     DumpMachine();
@@ -121,7 +118,7 @@ operation ChangeBasis(qs : Qubit[]) : Unit is Adj {
 operation CorrectError(logicalQubit : Qubit[]) : Unit {
     Fact(Length(logicalQubit) == 3, "`logicalQubit` must be length 3");
 
-    // Entangle the parity of the physical qubits into two auxillary qubits.
+    // Entangle the parity of the physical qubits into two auxiliary qubits.
     use aux = Qubit[2];
     ChangeBasis(logicalQubit);
     CNOT(logicalQubit[0], aux[0]);
@@ -130,24 +127,23 @@ operation CorrectError(logicalQubit : Qubit[]) : Unit {
     CNOT(logicalQubit[2], aux[1]);
     ChangeBasis(logicalQubit);
 
-    // Measure the parity information from the auxillary qubits.
+    // Measure the parity information from the auxiliary qubits.
     let (parity01, parity12) = (M(aux[0]), M(aux[1]));
     ResetAll(aux);
 
     // Determine which of the three qubits is has the error based on the
     // parity measurements.
-    let indexOfError = if (parity01, parity12) == (One, Zero) {
-        0
-    } elif (parity01, parity12) == (One, One) {
-        1
-    } elif (parity01, parity12) == (Zero, One) {
-        2
+    if parity01 == One {
+        if parity12 == One {
+            Z(logicalQubit[1]);
+        } else {
+            Z(logicalQubit[0]);
+        }
     } else {
-            -1
-    };
-
-    // If an error was detected, correct that qubit.
-    if indexOfError > -1 {
-        Z(logicalQubit[indexOfError]);
+        if parity12 == One {
+            Z(logicalQubit[2]);
+        } else {
+            // No error was detected.
+        }
     }
 }

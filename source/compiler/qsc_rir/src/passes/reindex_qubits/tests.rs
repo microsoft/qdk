@@ -26,10 +26,10 @@ fn qubit_reindexed_after_reset_removes_reset() {
     program.blocks.insert(
         BlockId(0),
         Block(vec![
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
-            Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None),
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
-            Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
+            Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None, None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
+            Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Return,
         ]),
     );
@@ -61,6 +61,46 @@ fn qubit_reindexed_after_reset_removes_reset() {
 }
 
 #[test]
+fn qubit_reindex_removes_initial_reset_without_reindexing() {
+    const X: CallableId = CallableId(0);
+    const RESET: CallableId = CallableId(1);
+    let mut program = Program::new();
+    program.num_qubits = 1;
+    program.callables.insert(X, x_decl());
+    program.callables.insert(RESET, reset_decl());
+    program.blocks.insert(
+        BlockId(0),
+        Block(vec![
+            Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None, None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
+            Instruction::Return,
+        ]),
+    );
+
+    // Before
+    expect![[r#"
+        Block:
+            Call id(1), args( Qubit(0), )
+            Call id(0), args( Qubit(0), )
+            Return"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+
+    // After
+    reindex_qubits(&mut program);
+    expect![[r#"
+        Block:
+            Call id(0), args( Qubit(0), )
+            Return"#]]
+    .assert_eq(&program.get_block(BlockId(0)).to_string());
+    assert_eq!(program.num_qubits, 1);
+
+    // Reset callable should be removed.
+    for callable in program.callables.values() {
+        assert_ne!(callable.call_type, CallableType::Reset);
+    }
+}
+
+#[test]
 fn qubit_reindexed_after_mz() {
     const X: CallableId = CallableId(0);
     const M: CallableId = CallableId(1);
@@ -71,7 +111,7 @@ fn qubit_reindexed_after_mz() {
     program.blocks.insert(
         BlockId(0),
         Block(vec![
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(
                 M,
                 vec![
@@ -79,14 +119,16 @@ fn qubit_reindexed_after_mz() {
                     Operand::Literal(Literal::Result(0)),
                 ],
                 None,
+                None,
             ),
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(
                 M,
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Result(1)),
                 ],
+                None,
                 None,
             ),
             Instruction::Return,
@@ -128,7 +170,7 @@ fn qubit_reindexed_after_mresetz_and_changed_to_mz() {
     program.blocks.insert(
         BlockId(0),
         Block(vec![
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(
                 MRESETZ,
                 vec![
@@ -136,14 +178,16 @@ fn qubit_reindexed_after_mresetz_and_changed_to_mz() {
                     Operand::Literal(Literal::Result(0)),
                 ],
                 None,
+                None,
             ),
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(
                 MRESETZ,
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Result(1)),
                 ],
+                None,
                 None,
             ),
             Instruction::Return,
@@ -186,13 +230,14 @@ fn multiple_qubit_reindex() {
     program.blocks.insert(
         BlockId(0),
         Block(vec![
-            Instruction::Call(H, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(H, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(
                 MRESETZ,
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Result(0)),
                 ],
+                None,
                 None,
             ),
             Instruction::Call(
@@ -201,6 +246,7 @@ fn multiple_qubit_reindex() {
                     Operand::Literal(Literal::Qubit(1)),
                     Operand::Literal(Literal::Qubit(0)),
                 ],
+                None,
                 None,
             ),
             Instruction::Return,
@@ -239,7 +285,7 @@ fn qubit_reindexed_multiple_times_with_mz_inserts_multiple_cx() {
     program.blocks.insert(
         BlockId(0),
         Block(vec![
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(
                 M,
                 vec![
@@ -247,8 +293,9 @@ fn qubit_reindexed_multiple_times_with_mz_inserts_multiple_cx() {
                     Operand::Literal(Literal::Result(0)),
                 ],
                 None,
+                None,
             ),
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(
                 M,
                 vec![
@@ -256,8 +303,9 @@ fn qubit_reindexed_multiple_times_with_mz_inserts_multiple_cx() {
                     Operand::Literal(Literal::Result(1)),
                 ],
                 None,
+                None,
             ),
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(
                 M,
                 vec![
@@ -265,14 +313,16 @@ fn qubit_reindexed_multiple_times_with_mz_inserts_multiple_cx() {
                     Operand::Literal(Literal::Result(2)),
                 ],
                 None,
+                None,
             ),
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(
                 M,
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Result(3)),
                 ],
+                None,
                 None,
             ),
             Instruction::Return,
@@ -329,13 +379,14 @@ fn qubit_reindexed_across_branches() {
     program.blocks.insert(
         BlockId(0),
         Block(vec![
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(
                 M,
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Result(0)),
                 ],
+                None,
                 None,
             ),
             Instruction::Call(
@@ -345,6 +396,7 @@ fn qubit_reindexed_across_branches() {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -353,19 +405,21 @@ fn qubit_reindexed_across_branches() {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
     program.blocks.insert(
         BlockId(1),
         Block(vec![
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(
                 M,
                 vec![
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Result(1)),
                 ],
+                None,
                 None,
             ),
             Instruction::Jump(BlockId(3)),
@@ -381,6 +435,7 @@ fn qubit_reindexed_across_branches() {
                     Operand::Literal(Literal::Result(2)),
                 ],
                 None,
+                None,
             ),
             Instruction::Jump(BlockId(3)),
         ]),
@@ -388,7 +443,7 @@ fn qubit_reindexed_across_branches() {
     program.blocks.insert(
         BlockId(3),
         Block(vec![
-            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None),
+            Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Return,
         ]),
     );
@@ -414,7 +469,7 @@ fn qubit_reindexed_across_branches() {
                     output_type: <VOID>
                     body: <NONE>
                 Callable 2: Callable:
-                    name: __quantum__qis__read_result__body
+                    name: __quantum__rt__read_result
                     call_type: Readout
                     input_type:
                         [0]: Result
@@ -439,7 +494,9 @@ fn qubit_reindexed_across_branches() {
             config: Config:
                 capabilities: Base
             num_qubits: 1
-            num_results: 3"#]]
+            num_results: 3
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After

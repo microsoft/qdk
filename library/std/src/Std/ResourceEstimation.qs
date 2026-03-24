@@ -178,6 +178,39 @@ operation RepeatEstimates(count : Int) : Unit is Adj {
         EndRepeatEstimates();
     }
 }
+
+/// # Summary
+/// Instructs the resource estimator to assume a memory/compute architecture,
+/// in which computation can only happen on compute qubits.  The estimator will
+/// automatically move qubits from and back into the memory such that never
+/// more than `computeCapacity` qubits are used to compute at any time.
+///
+/// # Input
+/// ## computeCapacity
+/// The maximum number of compute qubits which can be used to perform
+/// operations.
+/// ## strategy
+/// The strategy applied when evicting qubits from the compute qubits in case
+/// of maximum capacity: 0 = LRU (least recently used), 1 = LFU (least
+/// frequently used)
+function EnableMemoryComputeArchitecture(computeCapacity : Int, strategy : Int) : Unit {
+    body intrinsic;
+}
+
+/// # Summary
+/// The LRU (least recently used) strategy that can be used as input to
+/// `EnableMemoryComputeArchitecture`.
+function LeastRecentlyUsed() : Int {
+    return 0;
+}
+
+/// # Summary
+/// The LFU (least frequently used) strategy that can be used as input to
+/// `EnableMemoryComputeArchitecture`.
+function LeastFrequentlyUsed() : Int {
+    return 1;
+}
+
 export
     SingleVariant,
     BeginEstimateCaching,
@@ -192,4 +225,7 @@ export
     AccountForEstimates,
     BeginRepeatEstimates,
     EndRepeatEstimates,
-    RepeatEstimates;
+    RepeatEstimates,
+    EnableMemoryComputeArchitecture,
+    LeastRecentlyUsed,
+    LeastFrequentlyUsed;

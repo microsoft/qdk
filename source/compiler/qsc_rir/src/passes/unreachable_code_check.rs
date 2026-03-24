@@ -73,7 +73,7 @@ pub fn check_unreachable_blocks(program: &Program) {
 
 /// Checks for unreachable callables in a program.
 /// Specifically, this function checks that all callables are reachable from the entry point of the program.
-/// Note that calls from unreachable blocks are not included as only succesor blocks are considered.
+/// Note that calls from unreachable blocks are not included as only successor blocks are considered.
 pub fn check_unreachable_callable(program: &Program) {
     let mut live_callables = FxHashSet::default();
     let mut callables_to_check = Vec::new();

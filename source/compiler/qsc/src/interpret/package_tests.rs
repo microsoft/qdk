@@ -3,9 +3,10 @@
 
 use crate::{interpret::Interpreter, packages::BuildableProgram};
 use indoc::indoc;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
 use qsc_eval::output::CursorReceiver;
-use qsc_frontend::compile::SourceMap;
 use qsc_passes::PackageType;
 use qsc_project::{PackageGraphSources, PackageInfo};
 use rustc_hash::FxHashMap;

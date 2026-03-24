@@ -9,7 +9,7 @@ use qsc_fir::{
         Block, BlockId, Expr, ExprId, ExprKind, Functor, ItemId, LocalItemId, LocalVarId, Package,
         PackageId, PackageLookup, Pat, PatId, Res, Stmt, StmtId, StoreItemId, UnOp,
     },
-    ty::{FunctorSetValue, Ty},
+    ty::FunctorSetValue,
     visit::{Visitor, walk_expr, walk_stmt},
 };
 use rustc_hash::FxHashMap;
@@ -22,7 +22,6 @@ use std::{
 #[derive(Clone, Debug)]
 pub struct Local {
     pub var: LocalVarId,
-    pub ty: Ty,
     pub kind: LocalKind,
 }
 
@@ -35,8 +34,9 @@ pub enum LocalKind {
     SpecInput,
     /// An immutable binding with the expression associated to it.
     Immutable(ExprId),
-    /// A mutable binding.
-    Mutable,
+    /// A mutable binding with the optional expression for the containing dynamic scope,
+    /// if any.
+    Mutable(Option<ExprId>),
 }
 
 pub trait LocalsLookup {
@@ -57,7 +57,6 @@ pub fn initialize_locals_map(input_params: &Vec<InputParam>) -> FxHashMap<LocalV
                 id,
                 Local {
                     var: id,
-                    ty: param.ty.clone(),
                     kind: LocalKind::InputParam(param.index),
                 },
             );
@@ -122,25 +121,6 @@ impl FunctorAppExt for FunctorApp {
     }
 }
 
-pub trait TyExt {
-    fn has_type_parameters(&self) -> bool;
-}
-
-impl TyExt for Ty {
-    fn has_type_parameters(&self) -> bool {
-        match self {
-            Self::Array(ty) => ty.has_type_parameters(),
-            Self::Arrow(arrow) => {
-                arrow.input.has_type_parameters() || arrow.output.has_type_parameters()
-            }
-            Self::Infer(_) | Self::Prim(_) | Self::Udt(_) => false,
-            Self::Param(_) => true,
-            Self::Tuple(types) => types.iter().any(TyExt::has_type_parameters),
-            Self::Err => panic!("unexpected type error"),
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct Callee {
     pub item: StoreItemId,
@@ -162,7 +142,7 @@ pub fn try_resolve_callee(
             try_resolve_un_op_callee(*operator, *operand_expr_id, package_id, package, locals_map)
         }
         ExprKind::Var(res, _) => match res {
-            Res::Item(item_id) => (Some(resolve_item_callee(package_id, *item_id)), None),
+            Res::Item(item_id) => (Some(resolve_item_callee(*item_id)), None),
             Res::Local(local_var_id) => {
                 try_resolve_local_callee(*local_var_id, package_id, package, locals_map)
             }
@@ -180,10 +160,9 @@ pub fn try_resolve_callee(
     }
 }
 
-fn resolve_item_callee(call_package_id: PackageId, item_id: ItemId) -> Callee {
-    let package_id = item_id.package.unwrap_or(call_package_id);
+fn resolve_item_callee(item_id: ItemId) -> Callee {
     Callee {
-        item: (package_id, item_id.item).into(),
+        item: (item_id.package, item_id.item).into(),
         functor_app: FunctorApp::default(),
     }
 }
@@ -314,6 +293,6 @@ pub fn set_indentation<'a, 'b>(
         0 => indent.with_str(""),
         1 => indent.with_str("    "),
         2 => indent.with_str("        "),
-        _ => unimplemented!("intentation level not supported"),
+        _ => unimplemented!("indentation level not supported"),
     }
 }

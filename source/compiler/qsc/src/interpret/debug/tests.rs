@@ -4,9 +4,10 @@
 use expect_test::expect;
 use indoc::indoc;
 use miette::Result;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
 use qsc_eval::{output::CursorReceiver, val::Value};
-use qsc_frontend::compile::SourceMap;
 use qsc_passes::PackageType;
 use std::io::Cursor;
 

@@ -22,7 +22,7 @@ namespace Test {
         let stepsInt = 8;
         let theta = rotationPeriod / stepsDouble;
         for _ in 1..stepsInt {
-            // Test both R and its correspoding axis rotation gate (Rx, Ry, Rz) using the same register.
+            // Test both R and its corresponding axis rotation gate (Rx, Ry, Rz) using the same register.
             Rx(theta, rxRegister[0]);
             R(PauliX, theta, rxRegister[1]);
             Ry(theta, ryRegister[0]);

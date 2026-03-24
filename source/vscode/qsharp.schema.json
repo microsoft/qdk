@@ -65,7 +65,9 @@
                   "needlessOperation",
                   "deprecatedFunctionConstructor",
                   "deprecatedWithOperator",
-                  "deprecatedDoubleColonOperator"
+                  "deprecatedDoubleColonOperator",
+                  "ambiguousUnaryOperatorAfterIf",
+                  "avoidNamespaceBlock"
                 ]
               },
               "level": {

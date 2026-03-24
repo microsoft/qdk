@@ -5,7 +5,9 @@ use pyo3::{
     Bound, PyAny, PyResult,
     types::{PyAnyMethods, PyDict},
 };
-use resource_estimator::estimates::{ErrorBudget, Overhead};
+use resource_estimator::estimates::{ErrorBudget, ErrorBudgetStrategy, Overhead};
+
+use crate::generic_estimator::utils::maybe_extract_and_check_method;
 
 use super::utils::extract_and_check_method;
 
@@ -62,6 +64,7 @@ pub struct PythonCounts<'py> {
     logical_qubits_method: Bound<'py, PyAny>,
     logical_depth_method: Bound<'py, PyAny>,
     num_magic_states_method: Bound<'py, PyAny>,
+    prune_error_budget: Option<Bound<'py, PyAny>>,
 }
 
 impl<'py> PythonCounts<'py> {
@@ -69,12 +72,14 @@ impl<'py> PythonCounts<'py> {
         let logical_qubits_method = extract_and_check_method(&counts, "logical_qubits")?;
         let logical_depth_method = extract_and_check_method(&counts, "logical_depth")?;
         let num_magic_states_method = extract_and_check_method(&counts, "num_magic_states")?;
+        let prune_error_budget = maybe_extract_and_check_method(&counts, "prune_error_budget")?;
 
         Ok(Self {
             counts,
             logical_qubits_method,
             logical_depth_method,
             num_magic_states_method,
+            prune_error_budget,
         })
     }
 
@@ -86,6 +91,13 @@ impl<'py> PythonCounts<'py> {
         dict.set_item("magic_states", budget.magic_states())?;
 
         Ok(dict)
+    }
+
+    fn convert_error_budget_strategy(strategy: ErrorBudgetStrategy) -> u32 {
+        match strategy {
+            ErrorBudgetStrategy::Static => 0,
+            ErrorBudgetStrategy::PruneLogicalAndRotations => 1,
+        }
     }
 
     pub fn algorithm_overhead(
@@ -110,7 +122,7 @@ impl Overhead for PythonCounts<'_> {
             .logical_qubits_method
             .call0()
             .map_err(|e| e.to_string())?;
-        result.extract().map_err(|e| e.to_string())
+        result.extract().map_err(|e: pyo3::PyErr| e.to_string())
     }
 
     fn logical_depth(&self, budget: &ErrorBudget) -> Result<u64, String> {
@@ -121,7 +133,7 @@ impl Overhead for PythonCounts<'_> {
             .call1((budget,))
             .map_err(|e| e.to_string())?;
 
-        result.extract().map_err(|e| e.to_string())
+        result.extract().map_err(|e: pyo3::PyErr| e.to_string())
     }
 
     fn num_magic_states(&self, budget: &ErrorBudget, index: usize) -> Result<u64, String> {
@@ -131,6 +143,44 @@ impl Overhead for PythonCounts<'_> {
             .call1((budget, index))
             .map_err(|e| e.to_string())?;
 
-        result.extract().map_err(|e| e.to_string())
+        result.extract().map_err(|e: pyo3::PyErr| e.to_string())
+    }
+
+    fn prune_error_budget(
+        &self,
+        budget: &mut ErrorBudget,
+        strategy: ErrorBudgetStrategy,
+    ) -> Result<(), String> {
+        if let Some(method) = &self.prune_error_budget {
+            let budget_dict = self.convert_budget(budget).map_err(|e| e.to_string())?;
+            let strategy = Self::convert_error_budget_strategy(strategy);
+
+            method
+                .call1((budget_dict.clone(), strategy))
+                .map_err(|e| e.to_string())?;
+
+            budget.set_logical(
+                budget_dict
+                    .get_item("logical")
+                    .map_err(|e| e.to_string())?
+                    .extract()
+                    .map_err(|e: pyo3::PyErr| e.to_string())?,
+            );
+            budget.set_rotations(
+                budget_dict
+                    .get_item("rotations")
+                    .map_err(|e| e.to_string())?
+                    .extract()
+                    .map_err(|e: pyo3::PyErr| e.to_string())?,
+            );
+            budget.set_magic_states(
+                budget_dict
+                    .get_item("magic_states")
+                    .map_err(|e| e.to_string())?
+                    .extract()
+                    .map_err(|e: pyo3::PyErr| e.to_string())?,
+            );
+        }
+        Ok(())
     }
 }

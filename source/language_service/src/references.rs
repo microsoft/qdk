@@ -220,14 +220,7 @@ impl<'a> ReferenceFinder<'a> {
             };
 
             if name_filter.is_none() || decl_name == name_filter {
-                locations.push(
-                    self.location(
-                        decl_span,
-                        resolved_item_id
-                            .package
-                            .expect("package id should have been resolved"),
-                    ),
-                );
+                locations.push(self.location(decl_span, resolved_item_id.package));
             }
         }
 
@@ -263,14 +256,7 @@ impl<'a> ReferenceFinder<'a> {
                 let def_span = ty_field
                     .name_span
                     .expect("field found via name should have a name");
-                locations.push(
-                    self.location(
-                        def_span,
-                        resolved_ty_item_id
-                            .package
-                            .expect("package id should have been resolved"),
-                    ),
-                );
+                locations.push(self.location(def_span, resolved_ty_item_id.package));
             } else {
                 panic!("item id resolved to non-type: {ty_item_id}");
             }
@@ -356,30 +342,26 @@ struct FindItemRefs<'a> {
 impl Visitor<'_> for FindItemRefs<'_> {
     fn visit_path(&mut self, path: &ast::Path) {
         let res = self.compilation.get_res(path.id);
-        if let Some(res) = res {
-            if let Some(ref item_id) = res.item_id() {
-                if self.eq(item_id)
-                    && (self.name_filter.is_none() || Some(&path.name.name) == self.name_filter)
-                {
-                    self.locations.push(path.name.span);
-                }
-            }
+        if let Some(res) = res
+            && let Some(ref item_id) = res.item_id()
+            && self.eq(item_id)
+            && (self.name_filter.is_none() || Some(&path.name.name) == self.name_filter)
+        {
+            self.locations.push(path.name.span);
         }
     }
 
     fn visit_import_or_export(&mut self, item: &'_ ast::ImportOrExportItem) {
-        if let ast::ImportKind::Direct { alias: Some(alias) } = &item.kind {
-            if let PathKind::Ok(path) = &item.path {
-                let res = self.compilation.get_res(path.id);
-                if let Some(res) = res {
-                    if let Some(item_id) = res.item_id() {
-                        if self.eq(&item_id)
-                            && (self.name_filter.is_none() || Some(&alias.name) == self.name_filter)
-                        {
-                            self.locations.push(alias.span);
-                        }
-                    }
-                }
+        if let ast::ImportKind::Direct { alias: Some(alias) } = &item.kind
+            && let PathKind::Ok(path) = &item.path
+        {
+            let res = self.compilation.get_res(path.id);
+            if let Some(res) = res
+                && let Some(item_id) = res.item_id()
+                && self.eq(&item_id)
+                && (self.name_filter.is_none() || Some(&alias.name) == self.name_filter)
+            {
+                self.locations.push(alias.span);
             }
         }
         walk_import_or_export(self, item);
@@ -388,9 +370,7 @@ impl Visitor<'_> for FindItemRefs<'_> {
 
 impl FindItemRefs<'_> {
     fn eq(&mut self, item_id: &hir::ItemId) -> bool {
-        item_id.item == self.item_id.item
-            && item_id.package.unwrap_or(self.compilation.user_package_id)
-                == self.item_id.package.expect("package id should be resolved")
+        item_id.item == self.item_id.item && item_id.package == self.item_id.package
     }
 }
 
@@ -412,12 +392,11 @@ impl Visitor<'_> for FindFieldRefs<'_> {
             let mut prev_id = first.id;
             // Loop through the parts of the path to find references
             for part in rest {
-                if part.name == self.field_name {
-                    if let Some(Ty::Udt(_, Res::Item(id))) = self.compilation.get_ty(prev_id) {
-                        if self.eq(id) {
-                            self.locations.push(part.span);
-                        }
-                    }
+                if part.name == self.field_name
+                    && let Some(Ty::Udt(_, Res::Item(id))) = self.compilation.get_ty(prev_id)
+                    && self.eq(id)
+                {
+                    self.locations.push(part.span);
                 }
                 prev_id = part.id;
             }
@@ -428,12 +407,11 @@ impl Visitor<'_> for FindFieldRefs<'_> {
         match &*expr.kind {
             ast::ExprKind::Field(qualifier, ast::FieldAccess::Ok(field_name)) => {
                 self.visit_expr(qualifier);
-                if field_name.name == self.field_name {
-                    if let Some(Ty::Udt(_, Res::Item(id))) = self.compilation.get_ty(qualifier.id) {
-                        if self.eq(id) {
-                            self.locations.push(field_name.span);
-                        }
-                    }
+                if field_name.name == self.field_name
+                    && let Some(Ty::Udt(_, Res::Item(id))) = self.compilation.get_ty(qualifier.id)
+                    && self.eq(id)
+                {
+                    self.locations.push(field_name.span);
                 }
             }
             ast::ExprKind::Struct(PathKind::Ok(struct_name), copy, fields) => {
@@ -442,12 +420,11 @@ impl Visitor<'_> for FindFieldRefs<'_> {
                     self.visit_expr(copy);
                 }
                 for field in fields {
-                    if field.field.name == self.field_name {
-                        if let Some(Ty::Udt(_, Res::Item(id))) = self.compilation.get_ty(expr.id) {
-                            if self.eq(id) {
-                                self.locations.push(field.field.span);
-                            }
-                        }
+                    if field.field.name == self.field_name
+                        && let Some(Ty::Udt(_, Res::Item(id))) = self.compilation.get_ty(expr.id)
+                        && self.eq(id)
+                    {
+                        self.locations.push(field.field.span);
                     }
                     self.visit_expr(&field.value);
                 }
@@ -459,12 +436,7 @@ impl Visitor<'_> for FindFieldRefs<'_> {
 
 impl FindFieldRefs<'_> {
     fn eq(&mut self, item_id: &hir::ItemId) -> bool {
-        item_id.item == self.ty_item_id.item
-            && item_id.package.unwrap_or(self.compilation.user_package_id)
-                == self
-                    .ty_item_id
-                    .package
-                    .expect("package id should be resolved")
+        item_id.item == self.ty_item_id.item && item_id.package == self.ty_item_id.package
     }
 }
 
@@ -516,10 +488,10 @@ impl Visitor<'_> for FindLocalLocations<'_> {
                 }
             }
             None => {
-                if let Some(resolve::Res::Local(node_id)) = self.compilation.get_res(path.id) {
-                    if *node_id == self.node_id {
-                        self.locations.push(path.name.span);
-                    }
+                if let Some(resolve::Res::Local(node_id)) = self.compilation.get_res(path.id)
+                    && *node_id == self.node_id
+                {
+                    self.locations.push(path.name.span);
                 }
             }
         }
@@ -538,10 +510,10 @@ impl Visitor<'_> for FindTyParamLocations<'_> {
         if self.include_declaration {
             decl.generics.iter().for_each(|p| {
                 let res = self.compilation.get_res(p.ty.id);
-                if let Some(resolve::Res::Param { id, .. }) = res {
-                    if *id == self.param_id {
-                        self.locations.push(p.ty.span);
-                    }
+                if let Some(resolve::Res::Param { id, .. }) = res
+                    && *id == self.param_id
+                {
+                    self.locations.push(p.ty.span);
                 }
             });
         }
@@ -551,10 +523,10 @@ impl Visitor<'_> for FindTyParamLocations<'_> {
     fn visit_ty(&mut self, ty: &ast::Ty) {
         if let ast::TyKind::Param(param) = &*ty.kind {
             let res = self.compilation.get_res(param.ty.id);
-            if let Some(resolve::Res::Param { id, .. }) = res {
-                if *id == self.param_id {
-                    self.locations.push(param.span);
-                }
+            if let Some(resolve::Res::Param { id, .. }) = res
+                && *id == self.param_id
+            {
+                self.locations.push(param.span);
             }
         } else {
             walk_ty(self, ty);

@@ -7,8 +7,9 @@ use crate::{
     hir::PackageId,
 };
 use qsc_circuit::circuit_to_qsharp::circuits_to_qsharp;
-use qsc_data_structures::{language_features::LanguageFeatures, target::Profile};
-use qsc_frontend::{compile::SourceMap, error::WithSource};
+use qsc_data_structures::{
+    error::WithSource, language_features::LanguageFeatures, source::SourceMap, target::Profile,
+};
 use qsc_passes::PackageType;
 use qsc_project::PackageGraphSources;
 use rustc_hash::FxHashMap;

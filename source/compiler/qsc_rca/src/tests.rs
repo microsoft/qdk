@@ -24,9 +24,11 @@ mod vars;
 use crate::{Analyzer, ComputePropertiesLookup, PackageStoreComputeProperties};
 use expect_test::Expect;
 use qsc::incremental::Compiler;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
 use qsc_fir::fir::{ItemKind, LocalItemId, Package, PackageStore, StoreItemId};
-use qsc_frontend::compile::{PackageStore as HirPackageStore, SourceMap};
+use qsc_frontend::compile::PackageStore as HirPackageStore;
 use qsc_lowerer::{Lowerer, map_hir_package_to_fir};
 use qsc_passes::PackageType;
 
@@ -117,10 +119,10 @@ pub trait PackageSearch {
 impl PackageSearch for Package {
     fn find_callable_id_by_name(&self, name: &str) -> Option<LocalItemId> {
         for (item_id, item) in &self.items {
-            if let ItemKind::Callable(callable_decl) = &item.kind {
-                if callable_decl.name.name.as_ref() == name {
-                    return Some(item_id);
-                }
+            if let ItemKind::Callable(callable_decl) = &item.kind
+                && callable_decl.name.name.as_ref() == name
+            {
+                return Some(item_id);
             }
         }
 

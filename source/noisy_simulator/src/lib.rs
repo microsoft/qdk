@@ -74,9 +74,6 @@ pub trait NoisySimulator {
     /// Apply an operation to the given qubit ids.
     fn apply_operation(&mut self, operation: &Operation, qubits: &[usize]) -> Result<(), Error>;
 
-    /// Apply non selective evolution to the given qubit ids.
-    fn apply_instrument(&mut self, instrument: &Instrument, qubits: &[usize]) -> Result<(), Error>;
-
     /// Performs selective evolution under the given instrument.
     /// Returns the index of the observed outcome.
     ///
@@ -119,7 +116,7 @@ pub enum Error {
     /// Failure when building a `DensityMatrix` from raw data.
     #[error("error when building `DensityMatrix` from raw_data: {0}")]
     DensityMatrixTryFromError(String),
-    /// Failure when buidling an instrument.
+    /// Failure when building an instrument.
     #[error("error when building instrument: {0}")]
     FailedToConstructInstrument(String),
     /// Failure when building an operation.
@@ -192,12 +189,16 @@ impl From<&mut Error> for Error {
 /// If an error is unrecoverable, it will set the state of the simulator to that error,
 /// invalidating any further evolution of the quantum system.
 macro_rules! handle_error {
-    ($self:expr, $err:expr) => {
+    ($self:expr, $err:expr) => {{
         if $err.is_unrecoverable() {
             $self.state = Err($err.clone());
         }
-        return Err($err)
-    };
+        return Err($err);
+    }};
 }
 
 pub(crate) use handle_error;
+
+pub(crate) fn eq_with_tolerance(left: f64, right: f64, tolerance: f64) -> bool {
+    (left - right).abs() <= tolerance
+}

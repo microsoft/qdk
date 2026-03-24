@@ -22,7 +22,7 @@ mod test_utils;
 mod tests;
 
 use compilation::Compilation;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use futures::channel::mpsc::{TryRecvError, UnboundedReceiver, UnboundedSender, unbounded};
 use futures_util::StreamExt;
 use log::{trace, warn};
 use protocol::{
@@ -366,10 +366,11 @@ impl UpdateWorker<'_> {
 
     async fn apply_this_and_pending(&mut self, mut updates: Vec<Update>) {
         // Consume any backed up messages in the channel as well.
-        while let Ok(update) = self.recv.try_next() {
-            match update {
-                Some(update) => push_update(&mut updates, update),
-                None => return, // channel has been closed, don't bother with updates.
+        loop {
+            match self.recv.try_recv() {
+                Ok(update) => push_update(&mut updates, update),
+                Err(TryRecvError::Closed) => return, // channel has been closed, don't bother with updates.
+                Err(TryRecvError::Empty) => break,
             }
         }
 
@@ -395,29 +396,26 @@ fn push_update(pending_updates: &mut Vec<Update>, update: Update) {
     // Dedup consecutive updates to the same document.
     match &update {
         Update::Document { uri, .. } => {
-            if let Some(last) = pending_updates.last_mut() {
-                if let Update::Document { uri: last_uri, .. } = last {
-                    if last_uri == uri {
-                        // overwrite the last element
-                        *last = update;
-                        return;
-                    }
-                }
+            if let Some(last) = pending_updates.last_mut()
+                && let Update::Document { uri: last_uri, .. } = last
+                && last_uri == uri
+            {
+                // overwrite the last element
+                *last = update;
+                return;
             }
         }
         Update::NotebookDocument { notebook_uri, .. } => {
-            if let Some(last) = pending_updates.last_mut() {
-                if let Update::NotebookDocument {
+            if let Some(last) = pending_updates.last_mut()
+                && let Update::NotebookDocument {
                     notebook_uri: last_uri,
                     ..
                 } = last
-                {
-                    if last_uri == notebook_uri {
-                        // overwrite the last element
-                        *last = update;
-                        return;
-                    }
-                }
+                && last_uri == notebook_uri
+            {
+                // overwrite the last element
+                *last = update;
+                return;
             }
         }
         Update::Configuration { .. }

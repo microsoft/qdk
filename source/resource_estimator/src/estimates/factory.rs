@@ -33,7 +33,7 @@ where
         magic_state_type: usize,
         output_error_rate: f64,
         max_code_parameter: &E::Parameter,
-    ) -> Result<Vec<Cow<Self::Factory>>, String>;
+    ) -> Result<Vec<Cow<'_, Self::Factory>>, String>;
 
     fn num_magic_state_types(&self) -> usize {
         1
@@ -56,5 +56,5 @@ where
     /// The maximum code parameter setting for a magic state factory. This is
     /// used to constrain the search space, when looking for magic state
     /// factories.
-    fn max_code_parameter(&self) -> Option<Cow<Self::Parameter>>;
+    fn max_code_parameter(&self) -> Option<Cow<'_, Self::Parameter>>;
 }

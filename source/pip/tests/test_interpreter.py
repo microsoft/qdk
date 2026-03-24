@@ -8,9 +8,11 @@ from qsharp._native import (
     Pauli,
     QSharpError,
     TargetProfile,
+    CircuitConfig,
 )
 from qsharp._qsharp import qsharp_value_to_python_value
 import pytest
+from expecttest import assert_expected_inline
 
 # Test helpers
 
@@ -44,7 +46,7 @@ def check_run(entry_expr: str, expect: str):
 
 def check_circuit(entry_expr: str, expect):
     e = Interpreter(TargetProfile.Unrestricted)
-    value = e.circuit(entry_expr)
+    value = e.circuit(CircuitConfig(), entry_expr)
     assert str(value) == expect
 
 
@@ -58,6 +60,11 @@ def check_qir(source: str, entry_expr, expect):
 def check_estimate(source: str):
     e = Interpreter(TargetProfile.Unrestricted)
     e.estimate("", source)
+
+
+def check_logical_counts(source: str):
+    e = Interpreter(TargetProfile.Unrestricted)
+    e.logical_counts(source)
 
 
 # Tests for the native Q# interpreter class
@@ -244,6 +251,7 @@ def test_value_udt() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -263,6 +271,7 @@ def test_value_nested_udts() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -279,6 +288,7 @@ def test_value_udts_with_complex_field() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -295,6 +305,7 @@ def test_value_udts_with_array_field() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -311,6 +322,7 @@ def test_value_udts_with_tuple_field() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -327,6 +339,7 @@ def test_value_array_of_udts() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -342,6 +355,7 @@ def test_value_array_of_complex() -> None:
     check_invoke("", callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(callable, "makeData()", "")
 
@@ -358,6 +372,7 @@ def test_value_tuple_of_udts() -> None:
     check_invoke(udt_def, callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
@@ -373,6 +388,7 @@ def test_value_tuple_of_complex() -> None:
     check_invoke("", callable, output)
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
+    check_logical_counts(entry_expr)
     with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(callable, "makeData()", "")
 
@@ -435,7 +451,7 @@ def test_run_with_shots() -> None:
 
 
 def test_dump_circuit() -> None:
-    e = Interpreter(TargetProfile.Unrestricted)
+    e = Interpreter(TargetProfile.Unrestricted, trace_circuit=True)
     e.interpret(
         """
     use q1 = Qubit();
@@ -464,7 +480,7 @@ def test_dump_circuit() -> None:
 def test_entry_expr_circuit() -> None:
     e = Interpreter(TargetProfile.Unrestricted)
     e.interpret("operation Foo() : Result { use q = Qubit(); H(q); return M(q) }")
-    circuit = e.circuit("Foo()")
+    circuit = e.circuit(CircuitConfig(), "Foo()")
     assert str(circuit) == dedent(
         """\
         q_0    ── H ──── M ──
@@ -478,7 +494,7 @@ def test_swap_label_circuit() -> None:
     e.interpret(
         "operation Foo() : Unit { use q1 = Qubit(); use q2 = Qubit(); X(q1); Relabel([q1, q2], [q2, q1]); X(q2); }"
     )
-    circuit = e.circuit("Foo()")
+    circuit = e.circuit(CircuitConfig(), "Foo()")
     assert str(circuit) == dedent(
         """\
         q_0    ── X ──── X ──
@@ -565,41 +581,44 @@ def test_adaptive_ri_qir_can_be_generated() -> None:
     e = Interpreter(TargetProfile.Adaptive_RI)
     e.interpret(adaptive_input)
     qir = e.qir("Test.Main()")
-    assert qir == dedent(
-        """\
-        %Result = type opaque
-        %Qubit = type opaque
+    assert_expected_inline(qir, """\
+%Result = type opaque
+%Qubit = type opaque
 
-        define void @ENTRYPOINT__main() #0 {
-        block_0:
-          call void @__quantum__qis__rz__body(double 2.0, %Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @__quantum__qis__rz__body(double 0.0, %Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @__quantum__qis__rz__body(double 1.0, %Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-          ret void
-        }
+@0 = internal constant [4 x i8] c"0_r\\00"
 
-        declare void @__quantum__qis__rz__body(double, %Qubit*)
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(i8* null)
+  call void @__quantum__qis__rz__body(double 2.0, %Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__rz__body(double 0.0, %Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__rz__body(double 1.0, %Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  ret i64 0
+}
 
-        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+declare void @__quantum__rt__initialize(i8*)
 
-        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+declare void @__quantum__qis__rz__body(double, %Qubit*)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
-        attributes #1 = { "irreversible" }
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-        ; module flags
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4}
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #1 = { "irreversible" }
 
-        !0 = !{i32 1, !"qir_major_version", i32 1}
-        !1 = !{i32 7, !"qir_minor_version", i32 0}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 1, !"int_computations", !"i64"}
-        """
-    )
+; module flags
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !{!"i64"}}
+""")
 
 
 def test_base_qir_can_be_generated() -> None:
@@ -623,46 +642,49 @@ def test_base_qir_can_be_generated() -> None:
     e = Interpreter(TargetProfile.Base)
     e.interpret(base_input)
     qir = e.qir("Test.Main()")
-    assert qir == dedent(
-        """\
-        %Result = type opaque
-        %Qubit = type opaque
+    assert_expected_inline(qir, """\
+%Result = type opaque
+%Qubit = type opaque
 
-        define void @ENTRYPOINT__main() #0 {
-        block_0:
-          call void @__quantum__qis__rz__body(double 2.0, %Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @__quantum__qis__rz__body(double 0.0, %Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @__quantum__qis__rz__body(double 1.0, %Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-          ret void
-        }
+@0 = internal constant [4 x i8] c"0_r\\00"
 
-        declare void @__quantum__qis__rz__body(double, %Qubit*)
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(i8* null)
+  call void @__quantum__qis__rz__body(double 2.0, %Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__rz__body(double 0.0, %Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__rz__body(double 1.0, %Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  ret i64 0
+}
 
-        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+declare void @__quantum__rt__initialize(i8*)
 
-        declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
+declare void @__quantum__qis__rz__body(double, %Qubit*)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="1" }
-        attributes #1 = { "irreversible" }
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-        ; module flags
+declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
 
-        !llvm.module.flags = !{!0, !1, !2, !3}
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #1 = { "irreversible" }
 
-        !0 = !{i32 1, !"qir_major_version", i32 1}
-        !1 = !{i32 7, !"qir_minor_version", i32 0}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        """
-    )
+; module flags
+
+!llvm.module.flags = !{!0, !1, !2, !3}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+""")
 
 
 def test_operation_circuit() -> None:
     e = Interpreter(TargetProfile.Unrestricted)
     e.interpret("operation Foo(q: Qubit) : Result { H(q); return M(q) }")
-    circuit = e.circuit(operation="Foo")
+    circuit = e.circuit(CircuitConfig(), operation="Foo")
     assert str(circuit) == dedent(
         """\
         q_0    ── H ──── M ──
@@ -675,7 +697,7 @@ def test_unsupported_operation_circuit() -> None:
     e = Interpreter(TargetProfile.Unrestricted)
     e.interpret("operation Foo(n: Int) : Result { return One }")
     with pytest.raises(QSharpError) as excinfo:
-        circuit = e.circuit(operation="Foo")
+        circuit = e.circuit(CircuitConfig(), operation="Foo")
     assert (
         str(excinfo.value).find(
             "expression does not evaluate to an operation that takes qubit parameters"

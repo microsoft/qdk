@@ -8,7 +8,10 @@ from interop_qiskit import QISKIT_AVAILABLE, SKIP_REASON
 
 if QISKIT_AVAILABLE:
     from qiskit import QuantumCircuit
+    from qiskit.qasm3 import dumps
     from qsharp.interop.qiskit import QSharpBackend
+    from qsharp.openqasm import run as run_qasm, OutputSemantics
+    from qsharp import set_quantum_seed, init
 
 from .test_circuits import (
     generate_repro_information,
@@ -28,7 +31,8 @@ from .test_circuits import (
     exercise_ecr,
     exercise_initialize_prepare_state,
     exercise_iswap,
-    exercise_barrier_delay,
+    exercise_barrier,
+    exercise_delay,
     exercise_ms,
     exercise_p,
     exercise_pauli,
@@ -113,13 +117,24 @@ def test_qiskit_qir_exercise_rzz() -> None:
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
-def test_qiskit_qir_exercise_barrier_delay() -> None:
-    _test_circuit(*exercise_barrier_delay())
+def test_qiskit_qir_exercise_barrier() -> None:
+    _test_circuit(*exercise_barrier())
+
+
+@pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
+def test_qiskit_qir_exercise_delay() -> None:
+    _test_circuit(
+        *exercise_delay(),
+        skip_transpilation_option_set=[False]  # Delay requires transpilation
+    )
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_qiskit_qir_exercise_initialize_prepare_state() -> None:
-    _test_circuit(*exercise_initialize_prepare_state())
+    _test_circuit(
+        *exercise_initialize_prepare_state(),
+        skip_transpilation_option_set=[False]  # prepare state requires transpilation
+    )
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -149,7 +164,10 @@ def test_qiskit_qir_exercise_p() -> None:
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_qiskit_qir_exercise_pauli() -> None:
-    _test_circuit(*exercise_pauli())
+    _test_circuit(
+        *exercise_pauli(),
+        skip_transpilation_option_set=[False]  # Pauli requires transpilation
+    )
 
 
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
@@ -238,39 +256,50 @@ def test_qiskit_qir_exercise_mcx() -> None:
 
 
 def _test_circuit(
-    circuit: "QuantumCircuit", peaks, results_len=1, num_shots=20, meas_level=2
+    circuit: "QuantumCircuit",
+    peaks,
+    results_len=1,
+    num_shots=20,
+    meas_level=2,
+    skip_transpilation_option_set=[False, True],
 ):
-    target_profile = TargetProfile.Base
-    seed = 42
-    backend = QSharpBackend(
-        target_profile=target_profile,
-        seed=seed,
-        transpile_options={
-            "optimization_level": 0  # Use no optimization to get consistent results in simulations
-        },
-    )
-    try:
-        job = backend.run(circuit, shots=num_shots)
-        result = job.result()
-    except AssertionError:
-        raise
-    except Exception as ex:
-        additional_info = generate_repro_information(circuit, backend)
-        raise RuntimeError(additional_info) from ex
+    # Test both with and without transpilation
+    for skip_transpilation in skip_transpilation_option_set:
+        target_profile = TargetProfile.Base
+        seed = 42
+        backend = QSharpBackend(
+            target_profile=target_profile,
+            seed=seed,
+            transpile_options={
+                "optimization_level": 0  # Use no optimization to get consistent results in simulations
+            },
+        )
+        try:
+            job = backend.run(
+                circuit, shots=num_shots, skip_transpilation=skip_transpilation
+            )
+            result = job.result()
+        except AssertionError:
+            raise
+        except Exception as ex:
+            additional_info = generate_repro_information(
+                circuit, backend, skip_transpilation=skip_transpilation
+            )
+            raise RuntimeError(additional_info) from ex
 
-    results = result.results
+        results = result.results
 
-    assert len(results) == results_len
-    assert results[0].shots == num_shots
-    assert results[0].success
-    assert results[0].meas_level == meas_level
-    assert hasattr(results[0].data, "counts")
-    assert hasattr(results[0].data, "probabilities")
+        assert len(results) == results_len
+        assert results[0].shots == num_shots
+        assert results[0].success
+        assert results[0].meas_level == meas_level
+        assert hasattr(results[0].data, "counts")
+        assert hasattr(results[0].data, "probabilities")
 
-    counts = result.get_counts()
+        counts = result.get_counts()
 
-    # Check if the result is as expected
-    assert _check_peaks(counts, peaks)
+        # Check if the result is as expected
+        assert _check_peaks(counts, peaks)
 
 
 def _check_peaks(counts, peaks) -> bool:

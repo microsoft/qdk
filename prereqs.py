@@ -10,14 +10,15 @@ import sys
 import subprocess
 import tempfile
 import functools
+import shutil
 from pathlib import Path
 
 python_ver = (3, 11)  # Python support for Windows on ARM64 requires v3.11 or later
-rust_ver = (1, 88, 0)  # Ensure Rust version 1.88 or later is installed
-node_ver = (20, 18, 0)
-rust_fmt_ver = (1, 8, 0)  # Current version when Rust 1.88 shipped
-clippy_ver = (0, 1, 88)
-wasm_bindgen_ver = (0, 2, 100)
+rust_ver = (1, 93, 0)  # Ensure Rust version 1.93 or later is installed
+node_ver = (22, 14, 0)
+rust_fmt_ver = (1, 8, 0)  # Current version when Rust 1.93 shipped
+clippy_ver = (0, 1, 93)
+wasm_bindgen_ver = (0, 2, 114)
 binaryen_ver = 123
 
 platform_sys = platform.system().lower()  # 'windows', 'darwin', or 'linux'
@@ -27,13 +28,36 @@ platform_arch = "arm64" if platform.machine().lower() in ["aarch64", "arm64"] el
 print = functools.partial(print, flush=True)
 
 
+def get_installed_msrust_targets() -> str:
+    if shutil.which("msrustup"):
+        try:
+            # for some reason msrustup target list --installed doesn't work, so we omit --installed
+            args = ["msrustup", "target", "list"]
+            return subprocess.check_output(args, universal_newlines=True)
+        except subprocess.CalledProcessError as e:
+            message = (
+                f"Unable to determine installed rust targets using msrustup: {str(e)}"
+            )
+            raise Exception(message) from e
+    else:
+        return ""
+
+
 def get_installed_rust_targets() -> str:
-    try:
-        args = ["rustup", "target", "list", "--installed"]
-        return subprocess.check_output(args, universal_newlines=True)
-    except subprocess.CalledProcessError as e:
-        message = f"Unable to determine installed rust targets: {str(e)}"
-        raise Exception(message)
+    msrust_targets = get_installed_msrust_targets()
+    if msrust_targets:
+        return msrust_targets
+
+    if shutil.which("rustup"):
+        try:
+            args = ["rustup", "target", "list", "--installed"]
+            return subprocess.check_output(args, universal_newlines=True)
+        except subprocess.CalledProcessError as e:
+            message = (
+                f"Unable to determine installed rust targets using rustup: {str(e)}"
+            )
+            raise Exception(message) from e
+    raise Exception("Unable to locate rustup or msrustup in PATH")
 
 
 def add_wasm_tools_to_path():
@@ -46,11 +70,11 @@ def add_wasm_tools_to_path():
 
     if bindgen_path not in os.environ["PATH"]:
         print(f"Adding {bindgen_path} to PATH")
-        os.environ["PATH"] += (os.pathsep + bindgen_path)
+        os.environ["PATH"] += os.pathsep + bindgen_path
 
     if wasmopt_path not in os.environ["PATH"]:
         print(f"Adding {wasmopt_path} to PATH")
-        os.environ["PATH"] += (os.pathsep + wasmopt_path)
+        os.environ["PATH"] += os.pathsep + wasmopt_path
 
 
 def check_prereqs(install=False, skip_wasm=False):
@@ -62,6 +86,13 @@ def check_prereqs(install=False, skip_wasm=False):
         print(
             f"Python {python_ver[0]}.{python_ver[1]} or later is required. Please update"
         )
+        exit(1)
+
+    ### Check that pip is installed ###
+    try:
+        import pip  # noqa: F401
+    except ImportError:
+        print("pip not found. Please install pip for your Python installation.")
         exit(1)
 
     ### Check the Node.js version ###
@@ -96,7 +127,7 @@ def check_prereqs(install=False, skip_wasm=False):
         found_ver = tuple(int(g) for g in ver_match.groups())
         if found_ver < rust_ver:
             print(
-                f'Rust v{rust_ver[0]}.{rust_ver[1]} or later is required. Please update with "rustup update"'
+                f'Rust v{rust_ver[0]}.{rust_ver[1]} is required. Please update with "rustup default {rust_ver[0]}.{rust_ver[1]}"'
             )
             exit(1)
     else:
@@ -142,15 +173,6 @@ def check_prereqs(install=False, skip_wasm=False):
 
     installed_rust_targets = get_installed_rust_targets()
 
-    # On MacOS, ensure the required targets are installed
-    if platform_sys == "darwin":
-        targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
-        if not all(target in installed_rust_targets for target in targets):
-            print("One or both rust targets are not installed.")
-            print("Please install the missing targets by running:")
-            print("rustup target add aarch64-apple-darwin")
-            print("rustup target add x86_64-apple-darwin")
-
     if not skip_wasm:
         wasm_checks(install, installed_rust_targets)
 
@@ -166,7 +188,9 @@ def wasm_checks(install, installed_rust_targets):
         if install == True:
             print("wasm-bindgen not found. Attempting to install...")
             install_wasm_bindgen()
-            wasm_bindgen_version = subprocess.check_output(["wasm-bindgen", "--version"])
+            wasm_bindgen_version = subprocess.check_output(
+                ["wasm-bindgen", "--version"]
+            )
         else:
             print(
                 "wasm-bindgen not found. Install via 'python ./prereqs.py --install' or see https://github.com/rustwasm/wasm-bindgen"

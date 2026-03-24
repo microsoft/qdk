@@ -126,14 +126,14 @@ function AdjustAngleSize(angle : Angle, new_size : Int, truncate : Bool) : Angle
                 upper_bits
             }
         };
-        new Angle { Value = value, Size = size }
+        new Angle { Value = value, Size = new_size }
     } elif new_size == size {
         // Same size, no change
         angle
     } else {
         // Padding with zeros
         let value = value <<< (new_size - size);
-        new Angle { Value = value, Size = size }
+        new Angle { Value = value, Size = new_size }
     }
 }
 

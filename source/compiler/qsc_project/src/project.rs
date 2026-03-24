@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(unused_assignments)]
+// clippy false positive bug: https://github.com/rust-lang/rust/issues/147648. Remove when fixed.
+
 use crate::{
     Manifest, PackageRef,
     manifest::{GitHubRef, PackageType},
@@ -201,7 +204,7 @@ type ProjectResult<T> = Result<T, Error>;
 #[async_trait(?Send)]
 pub trait FileSystemAsync {
     type Entry: DirEntry;
-    /// Given a path, parse its contents and return a tuple representing (FileName, FileContents).
+    /// Given a path, parse its contents and return a tuple representing (`FileName`, `FileContents`).
     async fn read_file(&self, path: &Path) -> miette::Result<(Arc<str>, Arc<str>)>;
 
     /// Given a path, list its directory contents (if any).
@@ -416,7 +419,7 @@ pub trait FileSystemAsync {
         })
     }
 
-    /// Given an OpenQASM file, loads the project sources
+    /// Given an `OpenQASM` file, loads the project sources
     /// and the sources for all its dependencies.
     ///
     /// Any errors that didn't block project load are contained in the
@@ -822,7 +825,7 @@ impl PackageGraphSources {
             return (Err(DependencyCycle), self.root);
         }
 
-        log::debug!("build plan: {:#?}", sorted_keys);
+        log::debug!("build plan: {sorted_keys:#?}");
 
         (Ok(sorted_packages), self.root)
     }

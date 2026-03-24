@@ -541,7 +541,7 @@ where
 }
 
 impl MeasurementErrorRate {
-    /// Normaizes the measurement error rate and returns the values for
+    /// Normalizes the measurement error rate and returns the values for
     /// process and readout
     pub fn normalize(&mut self) -> (&mut f64, &mut f64) {
         *self = match self {

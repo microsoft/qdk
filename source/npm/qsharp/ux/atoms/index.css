@@ -1,0 +1,182 @@
+/* Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License. */
+
+.qs-atoms-app {
+  background-color: var(--qdk-host-background);
+  color: var(--qdk-host-foreground);
+  font-family: var(--qdk-font-family);
+  box-sizing: border-box;
+  width: 600px;
+  border: 1px solid var(--qdk-mid-gray);
+  border-radius: 8px;
+  margin: auto;
+  margin-top: 24px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.qs-atoms-app:focus {
+  outline: none;
+}
+
+.qs-atoms-toolstrip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.qs-atoms-toolbar {
+  height: 28px;
+  user-select: none;
+}
+
+.qs-atoms-icon > circle {
+  stroke: var(--qdk-host-foreground);
+  stroke-width: 6;
+  fill: transparent;
+  cursor: pointer;
+}
+
+.qs-atoms-icon > .qs-atoms-info-dot {
+  fill: var(--qdk-host-foreground);
+  stroke: none;
+  pointer-events: none;
+}
+
+.qs-atoms-icon > circle:hover {
+  stroke-width: 10;
+}
+
+.qs-atoms-icon > path {
+  stroke: none;
+  fill: var(--qdk-host-foreground);
+  pointer-events: none;
+}
+
+.qs-atoms-icon > .qs-atoms-icon-line {
+  fill: none;
+  stroke-width: 16;
+  stroke: var(--qdk-host-foreground);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.qs-atoms-slider:focus {
+  outline: none;
+}
+
+.qs-atoms-step {
+  text-align: end;
+  margin-right: 20px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.qs-atoms-bigsmall {
+  margin-left: auto;
+}
+
+.qs-atoms-zones {
+  margin: 8px auto;
+}
+
+.qs-atoms-zone-text {
+  font-size: 8px;
+  font-family: system-ui;
+  fill: var(--qdk-mid-gray);
+  stroke-width: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.qs-atoms-label {
+  font-size: 6px;
+  font-family: system-ui;
+  fill: var(--qdk-foreground-muted);
+  stroke-width: 0;
+  user-select: none;
+  -webkit-user-select: none;
+  text-anchor: middle;
+  dominant-baseline: central;
+  width: 20px;
+}
+
+.qs-atoms-zonebox {
+  stroke: var(--qdk-host-background);
+  stroke-width: 0.75;
+  fill: var(--qdk-menu-fill);
+}
+
+.qs-atoms-qubit {
+  stroke: none;
+  fill: var(--qdk-atom-fill);
+}
+
+.qs-atoms-qubit-trail-start {
+  stroke: var(--qdk-mid-gray);
+  stroke-width: 1px;
+  fill: var(--qdk-menu-fill);
+  r: 3px;
+}
+
+.qs-atoms-qubit-trail {
+  stroke: var(--qdk-mid-gray);
+  stroke-width: 1.5px;
+  fill: none;
+  stroke-dasharray: 1, 1;
+}
+
+.qs-atoms-qubit-highlight {
+  stroke: var(--qdk-atom-trail);
+  stroke-width: 1px;
+}
+
+.qs-atoms-gate {
+  fill: var(--qdk-gate-generic);
+  stroke-width: 0;
+}
+
+.qs-atoms-gate-cz {
+  fill: var(--qdk-gate-pair);
+}
+.qs-atoms-gate-mz {
+  fill: var(--qdk-gate-measure);
+}
+
+.qs-atoms-gate-reset {
+  fill: var(--qdk-gate-reset);
+}
+
+.qs-atoms-gate-text {
+  stroke-width: 0;
+  fill: var(--qdk-host-background);
+  font-size: 5px;
+  font-family: Verdana, Geneva, Tahoma, sans-serif;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.qs-atoms-gate-text-small {
+  font-size: 4px;
+}
+
+.qs-atoms-info-box {
+  position: absolute;
+  display: none;
+  left: 40px;
+  top: 48px;
+  border: 1px solid var(--qdk-mid-gray);
+  border-radius: 8px;
+  background-color: var(--qdk-host-background);
+  color: var(--qdk-host-foreground);
+  padding: 16px;
+  width: 250px;
+}
+
+.qs-atoms-info-box-grid {
+  display: grid;
+  grid-template-columns: 50px 200px;
+  padding: 8px;
+}

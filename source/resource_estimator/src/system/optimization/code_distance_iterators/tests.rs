@@ -141,7 +141,7 @@ fn test_iterate_for_code_distances_1() {
     );
 }
 
-// always allow going right but start from left because it is greated than initial
+// always allow going right but start from left because it is greater than initial
 #[test]
 fn test_iterate_for_code_distances_2() {
     let num_rounds = 2;

@@ -1,7 +1,12 @@
 {
-  "dependencies": {
-    "Chemistry": {
-      "path": "../../../library/chemistry"
+    "dependencies": {
+        "Chemistry": {
+            "github": {
+                "ref": "v1.25.0",
+                "owner": "microsoft",
+                "repo": "qdk",
+                "path": "library/chemistry"
+            }
+        }
     }
-  }
 }

@@ -3,18 +3,18 @@
 
 use crate::{
     Env, Error, ErrorBehavior, State, StepAction, StepResult, Value,
-    backend::{Backend, SparseSim},
+    backend::{Backend, SparseSim, TracingBackend},
     debug::Frame,
-    exec_graph_section,
     output::{GenericReceiver, Receiver},
-    val,
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
-use qsc_fir::fir::{self, ExecGraph, StmtId};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
+use qsc_fir::fir::{self, ExecGraph, ExecGraphConfig, StmtId};
 use qsc_fir::fir::{PackageId, PackageStoreLookup};
-use qsc_frontend::compile::{self, PackageStore, SourceMap, compile};
+use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
 
@@ -24,15 +24,28 @@ use qsc_passes::{PackageType, run_core_passes, run_default_passes};
 /// Returns the first error encountered during execution.
 pub(super) fn eval_graph(
     graph: ExecGraph,
-    sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+    sim: &mut impl Backend,
     globals: &impl PackageStoreLookup,
+    exec_graph_config: ExecGraphConfig,
     package: PackageId,
     env: &mut Env,
     out: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
-    let mut state = State::new(package, graph, None, ErrorBehavior::FailOnError);
-    let StepResult::Return(value) =
-        state.eval(globals, env, sim, out, &[], StepAction::Continue)?
+    let mut state = State::new(
+        package,
+        graph,
+        exec_graph_config,
+        None,
+        ErrorBehavior::FailOnError,
+    );
+    let StepResult::Return(value) = state.eval(
+        globals,
+        env,
+        &mut TracingBackend::no_tracer(sim),
+        out,
+        &[],
+        StepAction::Continue,
+    )?
     else {
         unreachable!("eval_expr should always return a value");
     };
@@ -82,6 +95,7 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
         entry,
         &mut SparseSim::new(),
         &fir_store,
+        ExecGraphConfig::NoDebug,
         map_hir_package_to_fir(id),
         &mut Env::default(),
         &mut GenericReceiver::new(&mut out),
@@ -142,9 +156,10 @@ fn check_partial_eval_stmt(
     for stmt_id in most_stmts {
         let stmt = fir_store.get_stmt((id, *stmt_id).into());
         match eval_graph(
-            exec_graph_section(&entry, stmt.exec_graph_range.clone()),
+            entry.get_range(&stmt.exec_graph_range),
             &mut SparseSim::new(),
             &fir_store,
+            ExecGraphConfig::NoDebug,
             id,
             &mut env,
             &mut GenericReceiver::new(&mut out),
@@ -156,9 +171,10 @@ fn check_partial_eval_stmt(
 
     let stmt = fir_store.get_stmt((id, *last_stmt).into());
     match eval_graph(
-        exec_graph_section(&entry, stmt.exec_graph_range.clone()),
+        entry.get_range(&stmt.exec_graph_range),
         &mut SparseSim::new(),
         &fir_store,
+        ExecGraphConfig::NoDebug,
         id,
         &mut env,
         &mut GenericReceiver::new(&mut out),
@@ -471,8 +487,8 @@ fn block_qubit_use_array_invalid_count_expr() {
                         0,
                     ),
                     span: Span {
-                        lo: 2050,
-                        hi: 2107,
+                        lo: 2749,
+                        hi: 2806,
                     },
                 },
             )
@@ -3646,6 +3662,84 @@ fn controlled_operation_with_unique_controls_duplicate_targets_allowed() {
 }
 
 #[test]
+fn complex_literal_double_first_with_plus_expr() {
+    check_expr("", "3.0 + 4.0i", &expect!["(3.0, 4.0)"]);
+}
+
+#[test]
+fn complex_literal_double_second_with_plus_expr() {
+    check_expr("", "4.0i + 3.0", &expect!["(3.0, 4.0)"]);
+}
+
+#[test]
+fn complex_literal_double_first_with_minus_expr() {
+    check_expr("", "3.0 - 4.0i", &expect!["(3.0, -4.0)"]);
+}
+
+#[test]
+fn complex_literal_double_second_with_minus_expr() {
+    check_expr("", "4.0i - 3.0", &expect!["(-3.0, 4.0)"]);
+}
+
+#[test]
+fn complex_literal_double_first_with_negate_and_plus_expr() {
+    check_expr("", "-3.0 + 4.0i", &expect!["(-3.0, 4.0)"]);
+}
+
+#[test]
+fn complex_literal_double_first_with_negate_and_minus_expr() {
+    check_expr("", "-3.0 - 4.0i", &expect!["(-3.0, -4.0)"]);
+}
+
+#[test]
+fn complex_literal_double_second_with_negate_and_plus_expr() {
+    check_expr("", "-4.0i + 3.0", &expect!["(3.0, -4.0)"]);
+}
+
+#[test]
+fn complex_literals_support_equality() {
+    check_expr("", "(3.0 + 4.0i) == (3.0 + 4.0i)", &expect!["true"]);
+    check_expr("", "(3.0 + 4.0i) != (3.0 + 4.0i)", &expect!["false"]);
+    check_expr("", "(3.0 + 4.0i) == (3.0 - 4.0i)", &expect!["false"]);
+    check_expr("", "(3.0 + 4.0i) != (3.0 - 4.0i)", &expect!["true"]);
+}
+
+#[test]
+fn complex_literal_supports_addition() {
+    check_expr("", "(3.0 + 4.0i) + (1.0 + 2.0i)", &expect!["(4.0, 6.0)"]);
+}
+
+#[test]
+fn complex_literal_supports_subtraction() {
+    check_expr("", "(3.0 + 4.0i) - (1.0 + 2.0i)", &expect!["(2.0, 2.0)"]);
+}
+
+#[test]
+fn complex_literal_supports_multiplication() {
+    check_expr("", "(3.0 + 4.0i) * (1.0 + 2.0i)", &expect!["(-5.0, 10.0)"]);
+}
+
+#[test]
+fn complex_literal_supports_division() {
+    check_expr("", "(3.0 + 4.0i) / (1.0 + 2.0i)", &expect!["(2.2, -0.4)"]);
+}
+
+#[test]
+fn complex_literal_supports_negation() {
+    check_expr("", "-(3.0 + 4.0i)", &expect!["(-3.0, -4.0)"]);
+}
+
+#[test]
+fn complex_literal_supports_unary_positive() {
+    check_expr("", "+(3.0 + 4.0i)", &expect!["(3.0, 4.0)"]);
+}
+
+#[test]
+fn complex_literal_supports_exponentiation() {
+    check_expr("", "(3.0 + 0.0i) ^ (0.0 + 0.0i)", &expect!["(1.0, 0.0)"]);
+}
+
+#[test]
 fn partial_eval_simple_stmt() {
     check_partial_eval_stmt(
         "",
@@ -4062,14 +4156,14 @@ fn partial_eval_stmt_function_calls() {
                     Expr 1 [9-21] [Type Int]: Call:
                         2
                         3
-                    Expr 2 [9-18] [Type (Int -> Int)]: Var: Item 1
+                    Expr 2 [9-18] [Type (Int -> Int)]: Var: Item 1 (Package 2)
                     Expr 3 [19-20] [Type Int]: Lit: Int(4)
                     Expr 4 [23-26] [Type Int]: Expr Block: 1
                     Expr 5 [24-25] [Type Int]: Var: Local 0
                     Expr 6 [27-39] [Type Int]: Call:
                         7
                         8
-                    Expr 7 [27-36] [Type (Int -> Int)]: Var: Item 1
+                    Expr 7 [27-36] [Type (Int -> Int)]: Var: Item 1 (Package 2)
                     Expr 8 [37-38] [Type Int]: Lit: Int(3)
                     Expr 9 [93-98] [Type Int]: BinOp (Add):
                         10

@@ -133,6 +133,7 @@ macro_rules! serializable_type {
         extern "C" {
             #[wasm_bindgen(typescript_type = $typescript_type_ident)]
             #[doc=$typescript]
+            #[allow(clippy::doc_markdown)]
             pub type $typescript_type_ident;
         }
 

@@ -177,17 +177,25 @@ impl From<LocalItemId> for usize {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ItemId {
     /// The package ID or `None` for the local package.
-    pub package: Option<PackageId>,
+    pub package: PackageId,
     /// The item ID.
     pub item: LocalItemId,
 }
 
+impl ItemId {
+    /// Returns the [`ItemId`] corresponding to the Complex type in the core package.
+    #[must_use]
+    pub fn complex() -> Self {
+        Self {
+            package: PackageId::CORE,
+            item: LocalItemId(3),
+        }
+    }
+}
+
 impl Display for ItemId {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self.package {
-            None => write!(f, "Item {}", self.item),
-            Some(package) => write!(f, "Item {} (Package {package})", self.item),
-        }
+        write!(f, "Item {} (Package {})", self.item, self.package)
     }
 }
 
@@ -225,20 +233,6 @@ pub enum Res {
     Local(NodeId),
 }
 
-impl Res {
-    /// Returns an updated resolution with the given package ID.
-    #[must_use]
-    pub fn with_package(&self, package: PackageId) -> Self {
-        match self {
-            Res::Item(id) if id.package.is_none() => Res::Item(ItemId {
-                package: Some(package),
-                item: id.item,
-            }),
-            _ => *self,
-        }
-    }
-}
-
 impl Display for Res {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
@@ -250,8 +244,10 @@ impl Display for Res {
 }
 
 /// The root node of the HIR.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Package {
+    /// The ID linking this package to the package store.
+    pub package_id: PackageId,
     /// The items in the package.
     pub items: IndexMap<LocalItemId, Item>,
     /// The top-level statements in the package.
@@ -282,6 +278,17 @@ impl Display for Package {
 pub type TestCallableName = String;
 
 impl Package {
+    /// Creates an empty package given a [`PackageId`].
+    #[must_use]
+    pub fn new(package_id: PackageId) -> Self {
+        Self {
+            package_id,
+            items: Default::default(),
+            stmts: Default::default(),
+            entry: Default::default(),
+        }
+    }
+
     /// Returns a collection of the fully qualified names of any callables annotated with `@Test()`
     #[must_use]
     pub fn get_test_callables(&self) -> Vec<(TestCallableName, Span)> {
@@ -1330,7 +1337,7 @@ impl Idents {
     /// constructs an iterator over the elements of `self` as string slices.
     /// see [`Self::iter`] for an iterator over the [Ident]s.
     #[must_use]
-    pub fn str_iter(&self) -> IdentsStrIter {
+    pub fn str_iter(&self) -> IdentsStrIter<'_> {
         self.into()
     }
 
@@ -1415,6 +1422,9 @@ pub enum Attr {
     /// Indicates that an intrinsic callable is a reset. This means that the operation will be marked as
     /// "irreversible" in the generated QIR.
     Reset,
+    /// Indicates that an intrinsic callable is a noise intrinsic. This means that the operation will be marked as
+    /// `"qdk_noise"` in the generated QIR.
+    NoiseIntrinsic,
     /// Indicates that a callable is a test case.
     Test,
 }
@@ -1434,6 +1444,7 @@ The `not` operator is also supported to negate the attribute, e.g. `not Adaptive
             Attr::SimulatableIntrinsic => "Indicates that an item should be treated as an intrinsic callable for QIR code generation and any implementation should only be used during simulation.",
             Attr::Measurement => "Indicates that an intrinsic callable is a measurement. This means that the operation will be marked as \"irreversible\" in the generated QIR, and output Result types will be moved to the arguments.",
             Attr::Reset => "Indicates that an intrinsic callable is a reset. This means that the operation will be marked as \"irreversible\" in the generated QIR.",
+            Attr::NoiseIntrinsic => "Indicates that an intrinsic callable is a noise intrinsic. This means that the operation will be marked as \"qdk_noise\" in the generated QIR.",
             Attr::Test =>  "Indicates that a callable is a test case.",
         }
     }
@@ -1450,6 +1461,7 @@ impl FromStr for Attr {
             "SimulatableIntrinsic" => Ok(Self::SimulatableIntrinsic),
             "Measurement" => Ok(Self::Measurement),
             "Reset" => Ok(Self::Reset),
+            "NoiseIntrinsic" => Ok(Self::NoiseIntrinsic),
             "Test" => Ok(Self::Test),
             _ => Err(()),
         }

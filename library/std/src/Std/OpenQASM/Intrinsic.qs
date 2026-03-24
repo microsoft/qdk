@@ -214,7 +214,7 @@ operation cswap(ctrl : Qubit, qubit1 : Qubit, qubit2 : Qubit) : Unit is Adj + Ct
 
 operation cu(theta : Angle, phi : Angle, lambda : Angle, gamma : Angle, qubit1 : Qubit, qubit2 : Qubit) : Unit is Adj + Ctl {
     p(SubtractAngles(gamma, DivideAngleByInt(theta, 2)), qubit1);
-    Controlled U([qubit2], (theta, phi, lambda, qubit1));
+    Controlled U([qubit1], (theta, phi, lambda, qubit2));
 }
 
 // Gates for OpenQASM 2 backwards compatibility

@@ -1,0 +1,404 @@
+<!doctype html>
+<html
+  xmlns="http://www.w3.org/1999/xhtml"
+  style="--minToolboxHeight: 150px; --minGateWidth: 40px; --gateHeight: 40px"
+>
+  <head>
+    <link rel="stylesheet" href="../../ux/qsharp-ux.css" />
+    <link rel="stylesheet" href="../../ux/qsharp-circuit.css" />
+  </head>
+  <body>
+    <div><h2>circuit-static-collapsed</h2></div>
+    <div id="circuit-static-collapsed" class="qs-circuit">
+      <pre>
+Error generating circuit: QdkDiagnostics: circuit error: program has features that are unsupported for circuit diagrams: a measurement must have exactly one control qubit, found 0 in CustomMeasurement</pre
+      >
+    </div>
+    <div><h2>circuit-static-expanded</h2></div>
+    <div id="circuit-static-expanded" class="qs-circuit">
+      <pre>
+Error generating circuit: QdkDiagnostics: circuit error: program has features that are unsupported for circuit diagrams: a measurement must have exactly one control qubit, found 0 in CustomMeasurement</pre
+      >
+    </div>
+    <div><h2>circuit-eval-collapsed</h2></div>
+    <div id="circuit-eval-collapsed" class="qs-circuit">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="qviz"
+        width="567"
+        height="204"
+        viewBox="0 0 567 204"
+      >
+        <g class="qubit-input-states">
+          <a href="#" class="qs-circuit-source-link">
+            <title>intrinsics.qs:2:5 use q = Qubit();</title>
+            <text
+              font-size="16"
+              x="20"
+              y="92"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="0"
+              class="qs-maintext qs-qubit-label"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">0</tspan>
+              ⟩
+            </text>
+          </a>
+        </g>
+        <g class="wires">
+          <line x1="40" x2="567" y1="92" y2="92" class="qubit-wire" />
+          <g>
+            <line
+              x1="464.5"
+              x2="567"
+              y1="143"
+              y2="143"
+              class="register-classical"
+            />
+            <line
+              x1="462.5"
+              x2="567"
+              y1="145"
+              y2="145"
+              class="register-classical"
+            />
+          </g>
+        </g>
+        <g>
+          <g class="gate" data-location="0,0" data-expanded="true">
+            <rect
+              class="gate-unitary"
+              x="80"
+              y="46"
+              width="469"
+              height="128"
+              fill-opacity="0"
+              stroke-dasharray="8, 8"
+            />
+            <g>
+              <g class="gate" data-location="0,0-0,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intrinsics.qs:3:5 CustomIntrinsic(q);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="72"
+                        width="124"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="124"
+                      />
+                      <text font-size="14" x="152" y="92" class="qs-maintext">
+                        <tspan class="qs-mathtext">CustomIntrinsic</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-1,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intrinsics.qs:4:5 SimulatableIntrinsic(q);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="226"
+                        y="72"
+                        width="150"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="150"
+                      />
+                      <text font-size="14" x="301" y="92" class="qs-maintext">
+                        <tspan class="qs-mathtext">SimulatableIntrinsic</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+                <g class="gate-control gate-expand">
+                  <circle cx="228" cy="74" r="10" />
+                  <path d="M228,67 v14 M221,74 h14" />
+                </g>
+              </g>
+              <g class="gate" data-location="0,0-2,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    intrinsics.qs:5:13 let r = CustomMeasurement(q);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="388"
+                        y="72"
+                        width="151"
+                        height="92"
+                        data-wire-ys="[92,144]"
+                        data-width="151"
+                      />
+                      <text
+                        font-size="14"
+                        x="463.5"
+                        y="118"
+                        class="qs-maintext"
+                      >
+                        <tspan class="qs-mathtext">CustomMeasurement</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+                <g class="gate-control gate-expand">
+                  <circle cx="390" cy="74" r="10" />
+                  <path d="M390,67 v14 M383,74 h14" />
+                </g>
+              </g>
+            </g>
+            <text
+              font-size="14"
+              x="90"
+              y="61"
+              class="qs-maintext qs-group-label"
+            >
+              <tspan class="qs-mathtext">Main</tspan>
+            </text>
+            <g class="gate-control gate-collapse">
+              <circle cx="82" cy="48" r="10" />
+              <path d="M75,48 h14" />
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <div><h2>circuit-eval-expanded</h2></div>
+    <div id="circuit-eval-expanded" class="qs-circuit">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="qviz"
+        width="567"
+        height="240"
+        viewBox="0 0 567 240"
+      >
+        <g class="qubit-input-states">
+          <a href="#" class="qs-circuit-source-link">
+            <title>intrinsics.qs:2:5 use q = Qubit();</title>
+            <text
+              font-size="16"
+              x="20"
+              y="118"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="0"
+              class="qs-maintext qs-qubit-label"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">0</tspan>
+              ⟩
+            </text>
+          </a>
+        </g>
+        <g class="wires">
+          <line x1="40" x2="567" y1="118" y2="118" class="qubit-wire" />
+          <g>
+            <line
+              x1="419"
+              x2="419"
+              y1="118"
+              y2="169"
+              class="register-classical"
+            />
+            <line
+              x1="417"
+              x2="417"
+              y1="118"
+              y2="171"
+              class="register-classical"
+            />
+            <line
+              x1="419"
+              x2="567"
+              y1="169"
+              y2="169"
+              class="register-classical"
+            />
+            <line
+              x1="417"
+              x2="567"
+              y1="171"
+              y2="171"
+              class="register-classical"
+            />
+          </g>
+        </g>
+        <g>
+          <g class="gate" data-location="0,0" data-expanded="true">
+            <rect
+              class="gate-unitary"
+              x="80"
+              y="46"
+              width="469"
+              height="164"
+              fill-opacity="0"
+              stroke-dasharray="8, 8"
+            />
+            <g>
+              <g class="gate" data-location="0,0-0,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intrinsics.qs:3:5 CustomIntrinsic(q);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="98"
+                        width="124"
+                        height="40"
+                        data-wire-ys="[118]"
+                        data-width="124"
+                      />
+                      <text font-size="14" x="152" y="118" class="qs-maintext">
+                        <tspan class="qs-mathtext">CustomIntrinsic</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-1,0" data-expanded="true">
+                <rect
+                  class="gate-unitary"
+                  x="226"
+                  y="72"
+                  width="150"
+                  height="76"
+                  fill-opacity="0"
+                  stroke-dasharray="8, 8"
+                />
+                <g>
+                  <g class="gate" data-location="0,0-1,0-0,0">
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>intrinsics.qs:16:5 H(q);</title>
+                      <g>
+                        <g>
+                          <rect
+                            class="gate-unitary"
+                            x="236"
+                            y="98"
+                            width="40"
+                            height="40"
+                            data-wire-ys="[118]"
+                            data-width="40"
+                          />
+                          <text
+                            font-size="14"
+                            x="256"
+                            y="118"
+                            class="qs-maintext"
+                          >
+                            <tspan class="qs-mathtext">H</tspan>
+                          </text>
+                        </g>
+                      </g>
+                    </a>
+                  </g>
+                </g>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intrinsics.qs:4:5 SimulatableIntrinsic(q);</title>
+                  <text
+                    font-size="14"
+                    x="236"
+                    y="87"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">SimulatableIntrinsic</tspan>
+                  </text>
+                </a>
+                <g class="gate-control gate-collapse">
+                  <circle cx="228" cy="74" r="10" />
+                  <path d="M221,74 h14" />
+                </g>
+              </g>
+              <g class="gate" data-location="0,0-2,0" data-expanded="true">
+                <rect
+                  class="gate-unitary"
+                  x="388"
+                  y="72"
+                  width="151"
+                  height="128"
+                  fill-opacity="0"
+                  stroke-dasharray="8, 8"
+                />
+                <g>
+                  <g class="gate" data-location="0,0-2,0-0,0">
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>intrinsics.qs:23:5 M(q)</title>
+                      <g>
+                        <rect
+                          class="gate-measure"
+                          x="398"
+                          y="98"
+                          width="40"
+                          height="40"
+                          data-wire-ys="[118]"
+                          data-width="40"
+                        />
+                        <path
+                          class="arc-measure"
+                          d="M 433 120 A 15 12 0 0 0 403 120"
+                          style="pointer-events: none"
+                        />
+                        <line
+                          x1="418"
+                          x2="430"
+                          y1="126"
+                          y2="106"
+                          class="qs-line-measure"
+                          style="pointer-events: none"
+                        />
+                      </g>
+                    </a>
+                  </g>
+                </g>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    intrinsics.qs:5:13 let r = CustomMeasurement(q);
+                  </title>
+                  <text
+                    font-size="14"
+                    x="398"
+                    y="87"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">CustomMeasurement</tspan>
+                  </text>
+                </a>
+                <g class="gate-control gate-collapse">
+                  <circle cx="390" cy="74" r="10" />
+                  <path d="M383,74 h14" />
+                </g>
+              </g>
+            </g>
+            <text
+              font-size="14"
+              x="90"
+              y="61"
+              class="qs-maintext qs-group-label"
+            >
+              <tspan class="qs-mathtext">Main</tspan>
+            </text>
+            <g class="gate-control gate-collapse">
+              <circle cx="82" cy="48" r="10" />
+              <path d="M75,48 h14" />
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+  </body>
+</html>

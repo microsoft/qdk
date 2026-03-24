@@ -1,30 +1,43 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { Sqore } from "./sqore";
-import { CircuitGroup } from "./circuit";
+import { DrawOptions, Sqore } from "./sqore.js";
+import { CircuitGroup } from "./circuit.js";
 
 /**
  * Render `circuit` into `container` at the specified layer depth.
  *
  * @param circuitGroup Group of circuits to be visualized.
  * @param container HTML element for rendering visualization into.
- * @param renderDepth Initial layer depth at which to render gates.
- * @param isEditable Whether the circuit is editable.
- * @param editCallback Callback function to be called when the circuit is edited.
- * @param runCallback Callback function to be called when the circuit is run.
+ * @param options Rendering/interaction options.
+ *   - `renderDepth`: Initial layer depth at which to render gates.
+ *   - `renderLocations`: Callback to generate links for source locations.
+ *   - `editor`: When provided, enables editing behaviors and requires:
+ *       - `editCallback`: Called when the circuit is edited.
+ *       - `runCallback` (optional): When provided, enables the Run button.
+ *       - `computeStateVizColumnsForCircuitModel` (optional): When provided,
+ *         delegates async state visualization computation to the host, which
+ *         is necessary for large circuits and/or when using a Web Worker (e.g. in VS Code).
+ *         When omitted, state visualization will be computed on the main thread.
  */
 export const draw = (
   circuitGroup: CircuitGroup,
   container: HTMLElement,
-  renderDepth = 0,
-  isEditable = false,
-  editCallback?: (circuitGroup: CircuitGroup) => void,
-  runCallback?: () => void,
-): void => {
-  const sqore = new Sqore(circuitGroup, isEditable, editCallback, runCallback);
-  sqore.draw(container, renderDepth);
+  options: DrawOptions = {},
+): {
+  userSetZoomLevel: (zoomLevel: number) => void;
+} => {
+  const sqore = new Sqore(circuitGroup, options);
+  sqore.draw(container);
+  return {
+    userSetZoomLevel: (zoomLevel: number) => {
+      sqore.zoomOnResize = false;
+      sqore.updateZoomLevel(zoomLevel);
+    },
+  };
 };
+
+export type { DrawOptions, EditorHandlers } from "./sqore.js";
 
 // Export types
 export type {
@@ -34,4 +47,4 @@ export type {
   Column,
   Qubit,
   Operation,
-} from "./circuit";
+} from "./circuit.js";

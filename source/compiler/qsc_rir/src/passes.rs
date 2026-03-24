@@ -46,18 +46,8 @@ pub fn check_and_transform(program: &mut Program) {
     check_unreachable_code(program);
     check_types(program);
 
-    // Run the RIR passes that are necessary for targets with no mid-program measurement.
-    // This requires that qubits are not reused after measurement or reset, so qubit ids must be reindexed.
-    // This also requires that the program has no loops and block ids form a topological ordering on a
-    // directed acyclic graph.
-    if !program
-        .config
-        .capabilities
-        .contains(TargetCapabilityFlags::QubitReset)
-    {
-        reindex_qubits(program);
-    }
     if program.config.capabilities == TargetCapabilityFlags::empty() {
+        reindex_qubits(program);
         defer_measurements(program);
     }
 }

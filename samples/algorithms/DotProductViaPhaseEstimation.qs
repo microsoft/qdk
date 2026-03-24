@@ -124,7 +124,7 @@ operation IterativePhaseEstimation(
 }
 
 /// # Summary
-/// This is state preperation operator A for encoding the 2D vector (page 7)
+/// This is state preparation operator A for encoding the 2D vector (page 7)
 operation StateInitialisation(
     TargetReg : Qubit,
     AncilReg : Qubit,

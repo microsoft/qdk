@@ -11,6 +11,7 @@ export async function azureRequest(
   associationId?: string,
   method = "GET",
   body?: string,
+  expectResponse = true,
 ) {
   const headers: [string, string][] = [
     ["Content-Type", "application/json"],
@@ -49,10 +50,15 @@ export async function azureRequest(
     }
 
     log.debug(`Got response ${response.status} ${response.statusText}`);
-    const result = await response.json();
-    log.trace("Response value: ", result);
 
-    return result;
+    if (expectResponse) {
+      const result = await response.json();
+      log.trace("Response value: ", result);
+
+      return result;
+    } else {
+      return;
+    }
   } catch (e) {
     if (associationId) {
       sendTelemetryEvent(
@@ -180,22 +186,23 @@ function getErrorMessage(e: any): string {
 }
 
 export class AzureUris {
-  static readonly apiVersion = "2020-01-01";
+  static readonly mgmtApiVersion = "2020-01-01";
+  static readonly quantumControlPlaneApiVersion = "2025-12-15-preview";
   static readonly mgmtEndpoint = "https://management.azure.com";
 
   static tenants() {
     // https://learn.microsoft.com/en-us/rest/api/resources/tenants/list
-    return `${this.mgmtEndpoint}/tenants?api-version=${this.apiVersion}`;
+    return `${this.mgmtEndpoint}/tenants?api-version=${this.mgmtApiVersion}`;
   }
 
   static subscriptions() {
     // https://learn.microsoft.com/en-us/rest/api/resources/subscriptions/list
-    return `${this.mgmtEndpoint}/subscriptions?api-version=${this.apiVersion}`;
+    return `${this.mgmtEndpoint}/subscriptions?api-version=${this.mgmtApiVersion}`;
   }
 
   static workspaces(subscriptionId: string) {
     // https://github.com/Azure/azure-rest-api-specs/blob/main/specification/quantum/resource-manager/Microsoft.Quantum/preview/2022-01-10-preview/quantum.json#L221
-    return `${this.mgmtEndpoint}/subscriptions/${subscriptionId}/providers/Microsoft.Quantum/workspaces?api-version=2022-01-10-preview`;
+    return `${this.mgmtEndpoint}/subscriptions/${subscriptionId}/providers/Microsoft.Quantum/workspaces?api-version=${this.quantumControlPlaneApiVersion}`;
   }
 
   static listKeys(
@@ -204,12 +211,20 @@ export class AzureUris {
     workspaceName: string,
   ) {
     // https://github.com/Azure/azure-rest-api-specs/blob/main/specification/quantum/resource-manager/Microsoft.Quantum/preview/2023-11-13-preview/quantum.json#L419
-    return `${this.mgmtEndpoint}/subscriptions/${subscriptionId}/resourceGroups/${resourceGroupName}/providers/Microsoft.Quantum/workspaces/${workspaceName}/listKeys?api-version=2023-11-13-preview`;
+    return `${this.mgmtEndpoint}/subscriptions/${subscriptionId}/resourceGroups/${resourceGroupName}/providers/Microsoft.Quantum/workspaces/${workspaceName}/listKeys?api-version=${this.quantumControlPlaneApiVersion}`;
   }
 }
 
 export class QuantumUris {
-  readonly apiVersion = "2022-09-12-preview";
+  readonly apiVersion = "2026-01-15-preview";
+
+  // Regular expression to extract the first part of the endpointUri
+  // - Captures only an exact "-v2" suffix (as versionSuffix) if present
+  // - Otherwise, keeps any other suffix as part of the location
+  // e.g. "https://westus.quantum.azure.com" -> location="westus", versionSuffix=undefined
+  // e.g. "https://eastus2-v2.quantum.azure.com" -> location="eastus2", versionSuffix="-v2"
+  public static readonly endpointRegExp =
+    /https:\/\/(?<location>[^.]+?)(?<versionSuffix>-v2)?\./;
 
   constructor(
     public endpoint: string, // e.g. "https://westus.quantum.azure.com"
@@ -228,6 +243,10 @@ export class QuantumUris {
     return !jobId
       ? `${this.endpoint}${this.id}/jobs?api-version=${this.apiVersion}`
       : `${this.endpoint}${this.id}/jobs/${jobId}?api-version=${this.apiVersion}`;
+  }
+
+  cancelJobUri(jobId: string) {
+    return `${this.endpoint}${this.id}/jobs/${jobId}:cancel?api-version=${this.apiVersion}`;
   }
 
   // Needs to POST an application/json payload such as: {"containerName": "job-073064ed-2a47-11ee-b8e7-010101010000","blobName":"outputData"}
@@ -266,10 +285,6 @@ export class StorageUris {
 
   containerWithSasToken() {
     return this.sasUri;
-  }
-
-  containerPutWithSasToken() {
-    return `${this.storageAccount}/${this.containerName}?restype=container&${this.sasTokenRaw}`;
   }
 }
 
@@ -363,7 +378,16 @@ export namespace ResponseTypes {
     inputDataFormat: string;
     outputDataFormat: string;
     inputParams: any;
-    status: "Waiting" | "Executing" | "Succeeded" | "Failed" | "Cancelled";
+    status:
+      | "Waiting"
+      | "Queued"
+      | "Executing"
+      | "Completed"
+      | "Succeeded"
+      | "Failed"
+      | "CancellationRequested"
+      | "Cancelling"
+      | "Cancelled";
     creationTime: string;
     beginExecutionTime: string;
     endExecutionTime: string;

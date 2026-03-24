@@ -4,9 +4,10 @@
 use super::*;
 use expect_test::expect;
 use qsc_data_structures::{
-    functors::FunctorApp, language_features::LanguageFeatures, target::TargetCapabilityFlags,
+    functors::FunctorApp, language_features::LanguageFeatures, source::SourceMap,
+    target::TargetCapabilityFlags,
 };
-use qsc_frontend::compile::{PackageStore, SourceMap, compile, core, std};
+use qsc_frontend::compile::{PackageStore, compile, core, std};
 use qsc_hir::hir::{Item, ItemKind};
 
 fn compile_one_operation(code: &str) -> (Item, String) {

@@ -11,7 +11,6 @@ bitflags! {
         const FloatingPointComputations = 0b0000_0100;
         const BackwardsBranching = 0b0000_1000;
         const HigherLevelConstructs = 0b0001_0000;
-        const QubitReset = 0b0010_0000;
     }
 }
 
@@ -26,7 +25,6 @@ impl std::str::FromStr for TargetCapabilityFlags {
             "FloatingPointComputations" => Ok(TargetCapabilityFlags::FloatingPointComputations),
             "BackwardsBranching" => Ok(TargetCapabilityFlags::BackwardsBranching),
             "HigherLevelConstructs" => Ok(TargetCapabilityFlags::HigherLevelConstructs),
-            "QubitReset" => Ok(TargetCapabilityFlags::QubitReset),
             "Unrestricted" => Ok(TargetCapabilityFlags::all()),
             _ => Err(()),
         }
@@ -66,12 +64,9 @@ impl From<Profile> for TargetCapabilityFlags {
         match value {
             Profile::Unrestricted => Self::all(),
             Profile::Base => Self::empty(),
-            Profile::AdaptiveRI => Self::Adaptive | Self::QubitReset | Self::IntegerComputations,
+            Profile::AdaptiveRI => Self::Adaptive | Self::IntegerComputations,
             Profile::AdaptiveRIF => {
-                Self::Adaptive
-                    | Self::QubitReset
-                    | Self::IntegerComputations
-                    | Self::FloatingPointComputations
+                Self::Adaptive | Self::IntegerComputations | Self::FloatingPointComputations
             }
         }
     }

@@ -175,7 +175,7 @@ impl Default for ErrorBudgetSpecification {
     }
 }
 
-/// Logical overheads need ot implement this trait, if one wants to partition an
+/// Logical overheads need to implement this trait, if one wants to partition an
 /// error budget based on the overhead.
 pub trait PartitioningOverhead {
     /// There are T gates in the overhead
@@ -186,13 +186,9 @@ pub trait PartitioningOverhead {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all(serialize = "camelCase", deserialize = "camelCase"))]
+#[derive(Default)]
 pub enum EstimateType {
     Frontier,
+    #[default]
     SinglePoint,
-}
-
-impl Default for EstimateType {
-    fn default() -> Self {
-        Self::SinglePoint
-    }
 }

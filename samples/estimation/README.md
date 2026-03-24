@@ -1,6 +1,6 @@
 # Resource Estimation
 
-This folder contains samples that show how to use the Azure Quantum Resource Estimator.
+This folder contains samples that show how to use the Microsoft Quantum Resource Estimator.
 
 * [EkeraHastadFactoring.qs](./EkeraHastadFactoring.qs): Resource estimation for integer factorization using Ekerå-Håstad algorithm (Stand-alone Q# version).
 * [estimation-factoring.ipynb](./estimation-factoring.ipynb): Uses EkeraHastadFactoring.qs in a Jupyter notebook to pre-configure error budget.

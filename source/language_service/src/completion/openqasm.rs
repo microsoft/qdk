@@ -16,8 +16,10 @@ pub(super) fn completions(
     source_contents: &str,
     cursor_offset: u32,
 ) -> CompletionList {
-    let expected_words_at_cursor =
-        qsc::qasm::completion::possible_words_at_offset_in_source(source_contents, cursor_offset);
+    let expected_words_at_cursor = qsc::openqasm::completion::possible_words_at_offset_in_source(
+        source_contents,
+        cursor_offset,
+    );
 
     // Now that we have the information from the parser about what kinds of
     // words are expected, gather the actual words (identifiers, keywords, etc) for each kind.
@@ -34,12 +36,12 @@ pub(super) fn completions(
 
 #[allow(clippy::items_after_statements)]
 fn collect_hardcoded_words(
-    expected: qsc::qasm::completion::word_kinds::WordKinds,
+    expected: qsc::openqasm::completion::word_kinds::WordKinds,
 ) -> Vec<Completion> {
     let mut completions = Vec::new();
     for word_kind in expected.iter_hardcoded_ident_kinds() {
         match word_kind {
-            qsc::qasm::completion::word_kinds::HardcodedIdentKind::Annotation => {
+            qsc::openqasm::completion::word_kinds::HardcodedIdentKind::Annotation => {
                 completions.extend([Completion::new(
                     "SimulatableIntrinsic".to_string(),
                     CompletionItemKind::Interface,
@@ -60,12 +62,12 @@ fn collect_hardcoded_words(
 
 #[allow(clippy::items_after_statements)]
 fn collect_paths(
-    expected: qsc::qasm::completion::word_kinds::PathKind,
+    expected: qsc::openqasm::completion::word_kinds::PathKind,
     locals_at_cursor: &Locals,
 ) -> Vec<Vec<Completion>> {
     let mut locals_and_builtins = Vec::new();
     match expected {
-        qsc::qasm::completion::word_kinds::PathKind::Expr => {
+        qsc::openqasm::completion::word_kinds::PathKind::Expr => {
             locals_and_builtins.push(locals_at_cursor.expr_names());
         }
     }
@@ -74,12 +76,12 @@ fn collect_paths(
 
 #[allow(clippy::items_after_statements)]
 fn collect_names_qasm(
-    expected: qsc::qasm::completion::word_kinds::WordKinds,
+    expected: qsc::openqasm::completion::word_kinds::WordKinds,
     cursor_offset: u32,
     compilation: &Compilation,
 ) -> Vec<Vec<Completion>> {
     let mut groups = Vec::new();
-    use qsc::qasm::completion::word_kinds::NameKind;
+    use qsc::openqasm::completion::word_kinds::NameKind;
     for name_kind in expected.iter_name_kinds() {
         match name_kind {
             NameKind::Path(path_kind) => {

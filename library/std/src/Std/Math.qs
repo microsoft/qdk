@@ -250,79 +250,85 @@ function Min(values : Int[]) : Int {
 
 /// # Summary
 /// Returns the angle whose cosine is the specified number.
+/// Returned value is expressed in radians.
 function ArcCos(x : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
 /// Returns the angle whose sine is the specified number.
+/// Returned value is expressed in radians.
 function ArcSin(y : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
 /// Returns the angle whose tangent is the specified number.
+/// Returned value is expressed in radians.
 function ArcTan(d : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
 /// Returns the angle whose tangent is the quotient of two specified numbers.
+/// Returned value is expressed in radians.
 function ArcTan2(y : Double, x : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
 /// Returns the cosine of the specified angle.
+/// Angle is specified in radians.
 function Cos(theta : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
-/// Returns the hyperbolic cosine of the specified angle.
+/// Returns the hyperbolic cosine of the specified number.
 function Cosh(d : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
 /// Returns the sine of the specified angle.
+/// Angle is specified in radians.
 function Sin(theta : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
-/// Returns the hyperbolic sine of the specified angle.
+/// Returns the hyperbolic sine of the specified number.
 function Sinh(d : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
 /// Returns the tangent of the specified angle.
+/// Angle is specified in radians.
 function Tan(d : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
-/// Returns the hyperbolic tangent of the specified angle.
+/// Returns the hyperbolic tangent of the specified number.
 function Tanh(d : Double) : Double {
     body intrinsic;
 }
 
 /// # Summary
-/// Computes the inverse hyperbolic cosine of a number.
+/// Returns the inverse hyperbolic cosine of a number.
 function ArcCosh(x : Double) : Double {
     Log(x + Sqrt(x * x - 1.0))
 }
 
 /// # Summary
-/// Computes the inverse hyperbolic sine of a number.
+/// Returns the inverse hyperbolic sine of a number.
 function ArcSinh(x : Double) : Double {
     Log(x + Sqrt(x * x + 1.0))
 }
 
-
 /// # Summary
-/// Computes the inverse hyperbolic tangent of a number.
+/// Returns the inverse hyperbolic tangent of a number.
 function ArcTanh(x : Double) : Double {
     Log((1.0 + x) / (1.0 - x)) * 0.5
 }
@@ -809,7 +815,7 @@ function TrailingZeroCountL(a : BigInt) : Int {
 function HammingWeightI(n : Int) : Int {
     let i1 = n - ((n >>> 1) &&& 0x5555555555555555);
     let i2 = (i1 &&& 0x3333333333333333) + ((i1 >>> 2) &&& 0x3333333333333333);
-    // Multiplication may overflow. See https://github.com/microsoft/qsharp/issues/828
+    // Multiplication may overflow. See https://github.com/microsoft/qdk/issues/828
     (((i2 + (i2 >>> 4)) &&& 0xF0F0F0F0F0F0F0F) * 0x101010101010101) >>> 56
 }
 
@@ -1107,18 +1113,6 @@ function PNormalized(p : Double, array : Double[]) : Double[] {
 //
 
 /// # Summary
-/// Represents a complex number by its real and imaginary components.
-/// The first element of the tuple is the real component,
-/// the second one - the imaginary component.
-///
-/// # Example
-/// The following snippet defines the imaginary unit 𝑖 = 0 + 1𝑖:
-/// ```qsharp
-/// let imagUnit = Complex(0.0, 1.0);
-/// ```
-struct Complex { Real : Double, Imag : Double }
-
-/// # Summary
 /// Represents a complex number in polar form.
 /// The polar representation of a complex number is c = r⋅𝑒^(t𝑖).
 ///
@@ -1218,7 +1212,7 @@ function ArgComplexPolar(input : ComplexPolar) : Double { input.Argument }
 /// # Output
 /// The unary negation of `input`.
 function NegationC(input : Complex) : Complex {
-    Complex(-input.Real, -input.Imag)
+    -input
 }
 
 /// # Summary
@@ -1246,7 +1240,7 @@ function NegationCP(input : ComplexPolar) : ComplexPolar {
 /// # Output
 /// The sum a + b.
 function PlusC(a : Complex, b : Complex) : Complex {
-    Complex(a.Real + b.Real, a.Imag + b.Imag)
+    a + b
 }
 
 /// # Summary
@@ -1261,12 +1255,7 @@ function PlusC(a : Complex, b : Complex) : Complex {
 /// # Output
 /// The sum a + b.
 function PlusCP(a : ComplexPolar, b : ComplexPolar) : ComplexPolar {
-    ComplexAsComplexPolar(
-        PlusC(
-            ComplexPolarAsComplex(a),
-            ComplexPolarAsComplex(b)
-        )
-    )
+    ComplexAsComplexPolar(ComplexPolarAsComplex(a) + ComplexPolarAsComplex(b))
 }
 
 /// # Summary
@@ -1281,7 +1270,7 @@ function PlusCP(a : ComplexPolar, b : ComplexPolar) : ComplexPolar {
 /// # Output
 /// The difference a - b.
 function MinusC(a : Complex, b : Complex) : Complex {
-    Complex(a.Real - b.Real, a.Imag - b.Imag)
+    a - b
 }
 
 /// # Summary
@@ -1311,10 +1300,7 @@ function MinusCP(a : ComplexPolar, b : ComplexPolar) : ComplexPolar {
 /// # Output
 /// The product a⋅b.
 function TimesC(a : Complex, b : Complex) : Complex {
-    Complex(
-        a.Real * b.Real - a.Imag * b.Imag,
-        a.Real * b.Imag + a.Imag * b.Real
-    )
+    a * b
 }
 
 /// # Summary
@@ -1336,33 +1322,6 @@ function TimesCP(a : ComplexPolar, b : ComplexPolar) : ComplexPolar {
 }
 
 /// # Summary
-/// Internal. Since it is easiest to define the power of two complex numbers
-/// in Cartesian form as returning in polar form, we define that here, then
-/// convert as needed.
-/// Note that this is a multi-valued function, but only one value is returned.
-internal function PowCAsCP(base : Complex, power : Complex) : ComplexPolar {
-    let (a, b) = (base.Real, base.Imag);
-    let (c, d) = (power.Real, power.Imag);
-    let baseSqNorm = a * a + b * b;
-    let baseNorm = Sqrt(baseSqNorm);
-    let baseArg = ArgComplex(base);
-
-    // We pick the principal value of the multi-valued complex function ㏑ as
-    // ㏑(a+b𝑖) = ln(|a+b𝑖|) + 𝑖⋅arg(a+b𝑖) = ln(baseNorm) + 𝑖⋅baseArg
-    // Therefore
-    // base^power = (a+b𝑖)^(c+d𝑖) = 𝑒^( (c+d𝑖)⋅㏑(a+b𝑖) ) =
-    // = 𝑒^( (c+d𝑖)⋅(ln(baseNorm)+𝑖⋅baseArg) ) =
-    // = 𝑒^( (c⋅ln(baseNorm) - d⋅baseArg) + 𝑖⋅(c⋅baseArg + d⋅ln(baseNorm)) )
-    // magnitude = 𝑒^((c⋅ln(baseNorm) - d⋅baseArg)) = baseNorm^c / 𝑒^(d⋅baseArg)
-    // angle = d⋅ln(baseNorm) + c⋅baseArg
-
-    let magnitude = baseNorm^c / E()^(d * baseArg);
-    let angle = d * Log(baseNorm) + c * baseArg;
-
-    ComplexPolar(magnitude, angle)
-}
-
-/// # Summary
 /// Returns a number raised to a given power of type `Complex`.
 /// Note that this is a multi-valued function, but only one value is returned.
 ///
@@ -1375,7 +1334,7 @@ internal function PowCAsCP(base : Complex, power : Complex) : ComplexPolar {
 /// # Output
 /// The power a^b
 function PowC(a : Complex, power : Complex) : Complex {
-    ComplexPolarAsComplex(PowCAsCP(a, power))
+    a^power
 }
 
 /// # Summary
@@ -1391,7 +1350,7 @@ function PowC(a : Complex, power : Complex) : Complex {
 /// # Output
 /// The power a^b
 function PowCP(a : ComplexPolar, power : ComplexPolar) : ComplexPolar {
-    PowCAsCP(ComplexPolarAsComplex(a), ComplexPolarAsComplex(power))
+    ComplexAsComplexPolar(ComplexPolarAsComplex(a)^ComplexPolarAsComplex(power))
 }
 
 /// # Summary
@@ -1406,11 +1365,7 @@ function PowCP(a : ComplexPolar, power : ComplexPolar) : ComplexPolar {
 /// # Output
 /// The quotient a / b.
 function DividedByC(a : Complex, b : Complex) : Complex {
-    let sqNorm = b.Real * b.Real + b.Imag * b.Imag;
-    Complex(
-        (a.Real * b.Real + a.Imag * b.Imag) / sqNorm,
-        (a.Imag * b.Real - a.Real * b.Imag) / sqNorm
-    )
+    a / b
 }
 
 /// # Summary

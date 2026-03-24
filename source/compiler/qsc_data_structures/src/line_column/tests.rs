@@ -24,7 +24,7 @@ fn empty_string() {
 fn offset_out_of_bounds() {
     let contents = "hello";
     let pos = Position::from_utf8_byte_offset(Encoding::Utf8, contents, 10);
-    // Sould return the <eof> position
+    // Should return the <eof> position
     expect![[r"
         Position {
             line: 0,
@@ -44,7 +44,7 @@ fn position_out_of_bounds() {
         column: 10,
     };
     let offset = pos.to_utf8_byte_offset(Encoding::Utf8, contents);
-    // Sould return the <eof> offset
+    // Should return the <eof> offset
     assert!(offset == contents.len() as u32);
 }
 

@@ -52,7 +52,7 @@ pub enum InvalidInput {
     #[error("logicalCycleTime formula yields non-positive value for code distance = {0}")]
     #[diagnostic(code("Qsc.Estimates.InvalidInputError.NonPositiveLogicalCycleTime"))]
     NonPositiveLogicalCycleTime(u64),
-    /// Number of physical qubits per logial qubits is non-positive for some code distance value
+    /// Number of physical qubits per logical qubits is non-positive for some code distance value
     ///
     /// ✅ This does not contain user data and can be logged
     /// 🧑‍💻 This indicates a user error

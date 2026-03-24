@@ -43,6 +43,12 @@ pub struct LogicalResourceCounts {
     pub ccix_count: u64,
     #[serde(default)]
     pub measurement_count: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub num_compute_qubits: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_from_memory_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_to_memory_count: Option<u64>,
 }
 
 /// Models the logical resources after layout
@@ -80,20 +86,26 @@ impl Overhead for LogicalResourceCounts {
                 * self.rotation_count)
     }
 
-    fn prune_error_budget(&self, budget: &mut ErrorBudget, strategy: ErrorBudgetStrategy) {
-        if matches![strategy, ErrorBudgetStrategy::PruneLogicalAndRotations] {
-            if let Some(num_ts_per_rotation) = self.num_ts_per_rotation(budget.rotations()) {
-                let new_rotations_budget = (self.rotation_count as f64)
-                    / 2.0_f64.powf(
-                        ((num_ts_per_rotation as f64) - NUM_TS_PER_ROTATION_B_COEFFICIENT)
-                            / NUM_TS_PER_ROTATION_A_COEFFICIENT,
-                    );
+    fn prune_error_budget(
+        &self,
+        budget: &mut ErrorBudget,
+        strategy: ErrorBudgetStrategy,
+    ) -> Result<(), String> {
+        if matches![strategy, ErrorBudgetStrategy::PruneLogicalAndRotations]
+            && let Some(num_ts_per_rotation) = self.num_ts_per_rotation(budget.rotations())
+        {
+            let new_rotations_budget = (self.rotation_count as f64)
+                / 2.0_f64.powf(
+                    ((num_ts_per_rotation as f64) - NUM_TS_PER_ROTATION_B_COEFFICIENT)
+                        / NUM_TS_PER_ROTATION_A_COEFFICIENT,
+                );
 
-                let diff = budget.rotations() - new_rotations_budget;
-                budget.set_rotations(new_rotations_budget);
-                budget.set_magic_states(budget.magic_states() + diff);
-            }
+            let diff = budget.rotations() - new_rotations_budget;
+            budget.set_rotations(new_rotations_budget);
+            budget.set_magic_states(budget.magic_states() + diff);
         }
+
+        Ok(())
     }
 }
 

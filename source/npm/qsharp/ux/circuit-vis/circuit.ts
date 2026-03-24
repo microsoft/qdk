@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 export {
-  ConditionalRender,
   type CircuitGroup,
   type Circuit,
   type ComponentGrid,
@@ -15,7 +14,8 @@ export {
   type Unitary,
   type Parameter,
   type Qubit,
-} from "../../src/data-structures/circuit";
+  type SourceLocation,
+} from "../../src/data-structures/circuit.js";
 
-export { CURRENT_VERSION } from "../../src/data-structures/circuit";
-export { toCircuitGroup } from "../../src/data-structures/legacyCircuitUpdate";
+export { CURRENT_VERSION } from "../../src/data-structures/circuit.js";
+export { toCircuitGroup } from "../../src/data-structures/legacyCircuitUpdate.js";

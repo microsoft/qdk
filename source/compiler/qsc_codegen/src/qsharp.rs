@@ -196,7 +196,7 @@ impl<W: Write> Visitor<'_> for QSharpGen<W> {
 
     fn visit_ty_def(&mut self, def: &'_ TyDef) {
         match &*def.kind {
-            TyDefKind::Field(name, ty) => {
+            TyDefKind::Field(name, ty, _) => {
                 if let Some(n) = name {
                     self.visit_ident(n);
                     self.write(": ");
@@ -690,6 +690,14 @@ impl<W: Write> Visitor<'_> for QSharpGen<W> {
                         format!("{value}.")
                     } else {
                         format!("{value}")
+                    };
+                    self.write(&num_str);
+                }
+                Lit::Imaginary(value) => {
+                    let num_str = if value.fract() == 0.0 {
+                        format!("{value}.i")
+                    } else {
+                        format!("{value}i")
                     };
                     self.write(&num_str);
                 }

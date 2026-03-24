@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! This module contains the `Instrument` struct, used to make measurments
+//! This module contains the `Instrument` struct, used to make measurements
 //! in a quantum system.
 
 #[cfg(test)]

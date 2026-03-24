@@ -19,10 +19,7 @@
 /// with one of the qubits being bit-flipped. It then identifies and corrects
 /// the flipped qubit.
 import Std.Math.*;
-import Std.Random.*;
-import Std.Arrays.*;
 import Std.Diagnostics.*;
-import Std.Measurement.*;
 
 operation Main() : Result {
     use logicalQubit = Qubit[3];
@@ -34,8 +31,8 @@ operation Main() : Result {
     // logical qubit.
     EncodeAsLogicalQubit(logicalQubit[0], logicalQubit[1...]);
 
-    // Induce a bit-flip error on a random qubit.
-    X(logicalQubit[DrawRandomInt(0, 2)]);
+    // Induce a bit-flip error on the second qubit.
+    X(logicalQubit[1]);
 
     // Show the logical qubit with the error state.
     DumpMachine();
@@ -115,18 +112,17 @@ operation CorrectError(logicalQubit : Qubit[]) : Unit {
 
     // Determine which of the three qubits has the error based on the
     // parity measurements.
-    let indexOfError = if (parity01, parity12) == (One, Zero) {
-        0
-    } elif (parity01, parity12) == (One, One) {
-        1
-    } elif (parity01, parity12) == (Zero, One) {
-        2
+    if parity01 == One {
+        if parity12 == One {
+            X(logicalQubit[1]);
+        } else {
+            X(logicalQubit[0]);
+        }
     } else {
-            -1
-    };
-
-    // If an error was detected, correct that qubit.
-    if indexOfError > -1 {
-        X(logicalQubit[indexOfError]);
+        if parity12 == One {
+            X(logicalQubit[2]);
+        } else {
+            // No error was detected.
+        }
     }
 }

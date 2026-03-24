@@ -1,16 +1,25 @@
 %Result = type opaque
 %Qubit = type opaque
 
-define void @ENTRYPOINT__main() #0 {
+@0 = internal constant [4 x i8] c"0_t\00"
+@1 = internal constant [6 x i8] c"1_t0t\00"
+@2 = internal constant [8 x i8] c"2_t0t0b\00"
+@3 = internal constant [8 x i8] c"3_t0t1b\00"
+@4 = internal constant [6 x i8] c"4_t1t\00"
+@5 = internal constant [8 x i8] c"5_t1t0b\00"
+@6 = internal constant [8 x i8] c"6_t1t1b\00"
+
+define i64 @ENTRYPOINT__main() #0 {
 block_0:
+  call void @__quantum__rt__initialize(i8* null)
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-  %var_0 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+  %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-  %var_4 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 1 to %Result*))
+  %var_4 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
   br i1 %var_0, label %block_1, label %block_2
 block_1:
   call void @__quantum__qis__z__body(%Qubit* inttoptr (i64 0 to %Qubit*))
@@ -26,24 +35,26 @@ block_4:
   call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
-  %var_9 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 2 to %Result*))
+  %var_9 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 2 to %Result*))
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
   call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 3 to %Result*))
-  %var_13 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 3 to %Result*))
+  %var_13 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 3 to %Result*))
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_4, i8* null)
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_9, i8* null)
-  call void @__quantum__rt__bool_record_output(i1 %var_13, i8* null)
-  ret void
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @2, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_4, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @3, i64 0, i64 0))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_9, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @5, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_13, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @6, i64 0, i64 0))
+  ret i64 0
 }
+
+declare void @__quantum__rt__initialize(i8*)
 
 declare void @__quantum__qis__h__body(%Qubit*)
 
@@ -51,7 +62,7 @@ declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
 
 declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-declare i1 @__quantum__qis__read_result__body(%Result*)
+declare i1 @__quantum__rt__read_result(%Result*)
 
 declare void @__quantum__qis__z__body(%Qubit*)
 
@@ -76,4 +87,4 @@ attributes #1 = { "irreversible" }
 !1 = !{i32 7, !"qir_minor_version", i32 0}
 !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
 !3 = !{i32 1, !"dynamic_result_management", i1 false}
-!4 = !{i32 1, !"int_computations", !"i64"}
+!4 = !{i32 5, !"int_computations", !{!"i64"}}

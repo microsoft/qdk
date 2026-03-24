@@ -10,11 +10,12 @@ mod tests;
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
 use crate::{
-    ComplexVector, Error, NoisySimulator, SquareMatrix, TOLERANCE, handle_error,
+    ComplexVector, Error, NoisySimulator, SquareMatrix, TOLERANCE, eq_with_tolerance, handle_error,
     instrument::Instrument, kernel::apply_kernel, operation::Operation,
 };
 
 /// A vector representing the state of a quantum system.
+#[derive(Debug)]
 pub struct StateVector {
     /// Dimension of the vector.
     dimension: usize,
@@ -24,6 +25,59 @@ pub struct StateVector {
     trace_change: f64,
     /// Vector storing the entries of the density matrix.
     data: ComplexVector,
+}
+
+impl PartialEq for StateVector {
+    /// Compares two state vectors for equality up to a global phase.
+    ///
+    /// Two state vectors are considered equal if one can be obtained from the other
+    /// by multiplying by a complex number of unit magnitude (a global phase factor).
+    fn eq(&self, other: &Self) -> bool {
+        use num_complex::Complex;
+
+        if self.dimension != other.dimension || self.number_of_qubits != other.number_of_qubits {
+            return false;
+        }
+
+        if !eq_with_tolerance(self.trace_change, other.trace_change, TOLERANCE) {
+            return false;
+        }
+
+        // Find the first non-zero element in self to determine the global phase
+        let phase = self
+            .data
+            .iter()
+            .zip(other.data.iter())
+            .max_by(|pair1, pair2| pair1.0.norm().total_cmp(&pair2.0.norm()))
+            .map(|(a, b)| {
+                if b.norm() > TOLERANCE {
+                    // phase = b / a, so self * phase ≈ other
+                    b / a
+                } else {
+                    // a is non-zero but b is zero - not equal
+                    Complex::new(f64::NAN, 0.0)
+                }
+            });
+
+        match phase {
+            Some(phase) if phase.re.is_nan() => false,
+            Some(phase) => {
+                // Check that the phase has unit magnitude
+                if !eq_with_tolerance(phase.norm(), 1.0, TOLERANCE) {
+                    return false;
+                }
+                // Check that all elements match after applying the phase
+                self.data
+                    .iter()
+                    .zip(other.data.iter())
+                    .all(|(a, b)| eq_with_tolerance((a * phase - b).norm(), 0.0, TOLERANCE))
+            }
+            // The first vector is the zero vector. This case is unreachable.
+            None => unreachable!(
+                "we return an error during simulation if the norm of a state-vector is zero"
+            ),
+        }
+    }
 }
 
 impl StateVector {
@@ -141,7 +195,7 @@ impl StateVector {
         qubits: &[usize],
         renormalization_factor: f64,
         random_sample: f64,
-    ) -> Result<(), Error> {
+    ) -> Result<usize, Error> {
         let mut summed_probability = 0.0;
         let mut last_non_zero_probability = 0.0;
         let mut last_non_zero_probability_index = 0;
@@ -158,7 +212,7 @@ impl StateVector {
                 if summed_probability > random_sample {
                     self.data = state_copy;
                     self.renormalize_with_norm_squared(norm_squared)?;
-                    return Ok(());
+                    return Ok(last_non_zero_probability_index);
                 }
             }
         }
@@ -174,7 +228,9 @@ impl StateVector {
             qubits,
         )?;
 
-        self.renormalize()
+        self.renormalize()?;
+
+        Ok(last_non_zero_probability_index)
     }
 }
 
@@ -196,6 +252,31 @@ impl StateVectorSimulator {
             Err(Error::QubitIdOutOfBounds(*id))
         } else {
             Ok(())
+        }
+    }
+
+    /// Apply non selective evolution.
+    pub fn apply_instrument(
+        &mut self,
+        instrument: &Instrument,
+        qubits: &[usize],
+    ) -> Result<usize, Error> {
+        self.check_out_of_bounds_qubits(qubits)?;
+
+        let renormalization_factor = self
+            .state
+            .as_mut()?
+            .effect_probability(instrument.total_effect(), qubits)?;
+        self.state.as_mut()?.trace_change *= renormalization_factor;
+
+        match self.state.as_mut()?.sample_kraus_operators(
+            instrument.non_selective_kraus_operators(),
+            qubits,
+            renormalization_factor,
+            self.rng.r#gen(),
+        ) {
+            Ok(choice) => Ok(choice),
+            Err(err) => handle_error!(self, err),
         }
     }
 }
@@ -237,28 +318,6 @@ impl NoisySimulator for StateVectorSimulator {
 
         if let Err(err) = self.state.as_mut()?.sample_kraus_operators(
             operation.kraus_operators(),
-            qubits,
-            renormalization_factor,
-            self.rng.r#gen(),
-        ) {
-            handle_error!(self, err);
-        }
-
-        Ok(())
-    }
-
-    /// Apply non selective evolution.
-    fn apply_instrument(&mut self, instrument: &Instrument, qubits: &[usize]) -> Result<(), Error> {
-        self.check_out_of_bounds_qubits(qubits)?;
-
-        let renormalization_factor = self
-            .state
-            .as_mut()?
-            .effect_probability(instrument.total_effect(), qubits)?;
-        self.state.as_mut()?.trace_change *= renormalization_factor;
-
-        if let Err(err) = self.state.as_mut()?.sample_kraus_operators(
-            instrument.non_selective_kraus_operators(),
             qubits,
             renormalization_factor,
             self.rng.r#gen(),

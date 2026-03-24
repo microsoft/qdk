@@ -13,6 +13,7 @@ import {
 } from "../programConfig";
 import { getRandomGuid } from "../utils";
 import { QscDebugSession } from "./session";
+import { runProgramInTerminal } from "../run";
 
 let debugServiceWorkerFactory: () => IDebugServiceWorker;
 
@@ -52,10 +53,11 @@ function registerCommands(context: vscode.ExtensionContext) {
         if (typeof expr !== "string") {
           expr = undefined;
         }
-        startQdkDebugging(
-          resource,
-          { name: "QDK: Run Program", stopOnEntry: false, entry: expr },
-          { noDebug: true },
+        runProgramInTerminal(
+          context.extensionUri,
+          resource || getActiveQdkDocumentUri(),
+          "QDK: Run Program",
+          expr || "",
         );
       },
     ),

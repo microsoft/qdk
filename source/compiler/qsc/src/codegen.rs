@@ -12,12 +12,12 @@ pub mod qsharp {
 pub mod qir {
     use qsc_codegen::qir::{fir_to_qir, fir_to_rir};
 
-    use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
-    use qsc_frontend::{
-        compile::{Dependencies, PackageStore, SourceMap},
-        error::WithSource,
+    use qsc_data_structures::{
+        error::WithSource, language_features::LanguageFeatures, source::SourceMap,
+        target::TargetCapabilityFlags,
     };
-    use qsc_partial_eval::ProgramEntry;
+    use qsc_frontend::compile::{Dependencies, PackageStore};
+    use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
     use qsc_passes::{PackageType, PassContext};
 
     use crate::interpret::Error;
@@ -103,20 +103,28 @@ pub mod qir {
             dependencies,
         )?;
 
-        let (raw, ssa) = fir_to_rir(&fir_store, capabilities, Some(compute_properties), &entry)
-            .map_err(|e| {
-                let source_package_id = match e.span() {
-                    Some(span) => span.package,
-                    None => package_id,
-                };
-                let source_package = package_store
-                    .get(source_package_id)
-                    .expect("package should be in store");
-                vec![Error::PartialEvaluation(WithSource::from_map(
-                    &source_package.sources,
-                    e,
-                ))]
-            })?;
+        let (raw, ssa) = fir_to_rir(
+            &fir_store,
+            capabilities,
+            Some(compute_properties),
+            &entry,
+            PartialEvalConfig {
+                generate_debug_metadata: true,
+            },
+        )
+        .map_err(|e| {
+            let source_package_id = match e.span() {
+                Some(span) => span.package,
+                None => package_id,
+            };
+            let source_package = package_store
+                .get(source_package_id)
+                .expect("package should be in store");
+            vec![Error::PartialEvaluation(WithSource::from_map(
+                &source_package.sources,
+                e,
+            ))]
+        })?;
         Ok(vec![raw.to_string(), ssa.to_string()])
     }
 

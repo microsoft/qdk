@@ -13,7 +13,7 @@ namespace Kata.Verification {
             for _ in 1..10 {
                 use qs = Qubit[n];
                 let theta = DrawRandomDouble(0.0, 1.0);
-                within {
+                let correct = within {
                     // Prepare logical state on first qubit
                     Ry(2.0 * theta * PI(), qs[0]);
                     // Encode the state in multiple qubits
@@ -30,9 +30,14 @@ namespace Kata.Verification {
                         Message("Incorrect.");
                         let actual = err_ind == -1 ? "No error happened" | $"Error happened on qubit {err_ind}";
                         Message($"{actual}, but solution returned {detected}");
-                        ResetAll(qs);
-                        return false;
+                        false
+                    } else {
+                        true
                     }
+                };
+                if not correct {
+                    ResetAll(qs);
+                    return false;
                 }
                 // Check that the state was not modified by the solution
                 if not CheckAllZero(qs) {

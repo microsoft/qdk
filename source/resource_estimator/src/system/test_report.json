@@ -522,7 +522,7 @@
             "path": "physicalCountsFormatted/maxDuration"
           },
           {
-            "description": "The maximum number of physical qubits allowed for utilization to the algorith",
+            "description": "The maximum number of physical qubits allowed for utilization to the algorithm",
             "explanation": "This is the maximum number of physical qubits available to the algorithm. If specified, the estimator targets to minimize the runtime of the algorithm with number of physical qubits consumed not exceeding this maximum.",
             "label": "Maximum number of physical qubits",
             "path": "physicalCountsFormatted/maxPhysicalQubits"

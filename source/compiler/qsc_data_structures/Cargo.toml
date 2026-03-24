@@ -13,6 +13,7 @@ miette = { workspace = true }
 serde = { workspace = true }
 bitflags = { workspace = true }
 rustc-hash = { workspace = true }
+thiserror = { workspace = true }
 
 [dev-dependencies]
 expect-test = { workspace = true }

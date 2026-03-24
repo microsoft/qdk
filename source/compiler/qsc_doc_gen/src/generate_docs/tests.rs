@@ -181,6 +181,7 @@ fn index_file_generation() {
 
         | Name | Description |
         |------|-------------|
+        | [Complex](xref:Qdk.Std.Core.Complex) | Represents a complex number by its real and imaginary components. The real component can be accessed via the `Real` field, and the imaginary component via the `Imag` field. Complex literals can be written using the form `a + bi`, where `a` is the Double literal for the real part and `b` is the Double literal for the imaginary part. |
         | [Length](xref:Qdk.Std.Core.Length) | Returns the number of elements in the input array `a`. |
         | [Repeated](xref:Qdk.Std.Core.Repeated) | Creates an array of given `length` with all elements equal to given `value`. `length` must be a non-negative integer. |
     "#]]
@@ -199,8 +200,8 @@ fn top_index_file_generation() {
     expect![[r#"
         ---
         uid: Microsoft.Quantum.apiref-toc
-        title: Q# standard libraries for the Azure Quantum Development Kit
-        description: Table of contents for the Q# standard libraries for Azure Quantum Development Kit
+        title: Q# standard libraries for the Microsoft Quantum Development Kit
+        description: Table of contents for the Q# standard libraries for Microsoft Quantum Development Kit
         ms.date: {TIMESTAMP}
         ms.topic: landing-page
         ---
@@ -224,7 +225,7 @@ fn top_index_file_generation() {
         | [`Std.Measurement`](xref:Qdk.Std.Measurement-toc)               | Items for measuring quantum results.                                 |
         | [`Std.Random`](xref:Qdk.Std.Random-toc)                         | Items for creating random values.                                    |
         | [`Std.Range`](xref:Qdk.Std.Range-toc)                           | Items for working with ranges.                                       |
-        | [`Std.ResourceEstimation`](xref:Qdk.Std.ResourceEstimation-toc) | Items for working with the Azure Quantum Resource Estimator.         |
+        | [`Std.ResourceEstimation`](xref:Qdk.Std.ResourceEstimation-toc) | Items for working with the Microsoft Quantum Resource Estimator.     |
         | [`Std.StatePreparation`](xref:Qdk.Std.StatePreparation-toc)     | Items for preparing a quantum state.                                 |
         | [`Std.TableLookup`](xref:Qdk.Std.TableLookup-toc)               | Items for performing quantum table lookups.                          |
     "#]]
@@ -267,6 +268,16 @@ fn generates_std_core_summary() {
     let combined_summary = core_summaries.join("\n\n");
 
     expect![[r#"
+        ## Complex
+
+        ```qsharp
+        struct Complex { Real : Double, Imag : Double }
+        ```
+
+        Represents a complex number by its real and imaginary components. The real component can be accessed via the `Real` field, and the imaginary component via the `Imag` field. Complex literals can be written using the form `a + bi`, where `a` is the Double literal for the real part and `b` is the Double literal for the imaginary part.
+
+
+
         ## Length
 
         ```qsharp

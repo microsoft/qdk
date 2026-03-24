@@ -83,7 +83,9 @@ pub fn walk_spec_decl<'a>(vis: &mut impl Visitor<'a>, decl: &'a SpecDecl) {
     match &decl.body {
         SpecBody::Gen(_) => {}
         SpecBody::Impl(pat, block) => {
-            pat.iter().for_each(|pat| vis.visit_pat(pat));
+            if let Some(pat) = pat {
+                vis.visit_pat(pat);
+            }
             vis.visit_block(block);
         }
     }
@@ -104,7 +106,9 @@ pub fn walk_stmt<'a>(vis: &mut impl Visitor<'a>, stmt: &'a Stmt) {
         StmtKind::Qubit(_, pat, init, block) => {
             vis.visit_pat(pat);
             vis.visit_qubit_init(init);
-            block.iter().for_each(|b| vis.visit_block(b));
+            if let Some(b) = block {
+                vis.visit_block(b);
+            }
         }
     }
 }
@@ -150,7 +154,9 @@ pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: &'a Expr) {
         ExprKind::If(cond, body, otherwise) => {
             vis.visit_expr(cond);
             vis.visit_expr(body);
-            otherwise.iter().for_each(|e| vis.visit_expr(e));
+            if let Some(e) = otherwise {
+                vis.visit_expr(e);
+            }
         }
         ExprKind::Index(array, index) => {
             vis.visit_expr(array);
@@ -160,17 +166,27 @@ pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: &'a Expr) {
             vis.visit_expr(expr);
         }
         ExprKind::Range(start, step, end) => {
-            start.iter().for_each(|s| vis.visit_expr(s));
-            step.iter().for_each(|s| vis.visit_expr(s));
-            end.iter().for_each(|e| vis.visit_expr(e));
+            if let Some(s) = start {
+                vis.visit_expr(s);
+            }
+            if let Some(s) = step {
+                vis.visit_expr(s);
+            }
+            if let Some(e) = end {
+                vis.visit_expr(e);
+            }
         }
         ExprKind::Repeat(body, until, fixup) => {
             vis.visit_block(body);
             vis.visit_expr(until);
-            fixup.iter().for_each(|f| vis.visit_block(f));
+            if let Some(f) = fixup {
+                vis.visit_block(f);
+            }
         }
         ExprKind::Struct(_, copy, fields) => {
-            copy.iter().for_each(|c| vis.visit_expr(c));
+            if let Some(c) = copy {
+                vis.visit_expr(c);
+            }
             fields.iter().for_each(|f| vis.visit_field_assign(f));
         }
         ExprKind::String(components) => {

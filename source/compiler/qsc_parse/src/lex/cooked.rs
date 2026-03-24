@@ -121,6 +121,8 @@ pub enum TokenKind {
     FatArrow,
     /// A floating-point literal.
     Float,
+    /// A floating-point imaginary number literal.
+    Imaginary,
     /// `>`
     Gt,
     /// `>=`
@@ -182,6 +184,7 @@ impl Display for TokenKind {
             TokenKind::EqEq => f.write_str("`==`"),
             TokenKind::FatArrow => f.write_str("`=>`"),
             TokenKind::Float => f.write_str("float"),
+            TokenKind::Imaginary => f.write_str("imaginary"),
             TokenKind::Gt => f.write_str("`>`"),
             TokenKind::Gte => f.write_str("`>=`"),
             TokenKind::Ident => f.write_str("identifier"),
@@ -210,6 +213,7 @@ impl From<Number> for TokenKind {
         match value {
             Number::BigInt(radix) => Self::BigInt(radix),
             Number::Float => Self::Float,
+            Number::Imaginary => Self::Imaginary,
             Number::Int(radix) => Self::Int(radix),
         }
     }

@@ -5,9 +5,11 @@ use expect_test::Expect;
 
 use crate::capabilitiesck::check_supported_capabilities;
 use qsc::{PackageType, incremental::Compiler};
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+};
 use qsc_fir::fir::{Package, PackageId, PackageStore};
-use qsc_frontend::compile::{PackageStore as HirPackageStore, SourceMap};
+use qsc_frontend::compile::PackageStore as HirPackageStore;
 use qsc_lowerer::{Lowerer, map_hir_package_to_fir};
 use qsc_rca::{Analyzer, PackageComputeProperties, PackageStoreComputeProperties};
 

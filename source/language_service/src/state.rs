@@ -182,10 +182,10 @@ impl<'a> CompilationStateUpdater<'a> {
 
         // If a document switched compilations, we may need to remove the compilation
         // it previously belonged to.
-        if let Some(prev_compilation_uri) = prev_compilation_uri {
-            if prev_compilation_uri != compilation_uri {
-                self.maybe_close_project(&prev_compilation_uri);
-            }
+        if let Some(prev_compilation_uri) = prev_compilation_uri
+            && prev_compilation_uri != compilation_uri
+        {
+            self.maybe_close_project(&prev_compilation_uri);
         }
 
         self.insert_buffer_aware_compilation(project);
@@ -373,7 +373,7 @@ impl<'a> CompilationStateUpdater<'a> {
                 .iter()
                 .all(|(_uri, doc)| doc.compilation != *compilation_uri)
             {
-                trace!("closing project {:?}", compilation_uri);
+                trace!("closing project {compilation_uri:?}");
                 state.compilations.remove(compilation_uri);
                 return true;
             }
@@ -710,7 +710,7 @@ fn map_errors_to_docs(
     for err in project_errors {
         let doc = err
             .path()
-            .map_or(compilation_uri.clone(), |path| path.to_string().into());
+            .map_or(compilation_uri.clone(), |path| path.clone().into());
 
         map.entry(doc.clone())
             .or_insert_with(Vec::new)

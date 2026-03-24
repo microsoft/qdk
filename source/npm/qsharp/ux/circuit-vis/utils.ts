@@ -1,15 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { GateRenderData, GateType } from "./gateRenderData";
+import { GateRenderData, GateType } from "./gateRenderData.js";
 import {
   minGateWidth,
-  labelPadding,
+  labelPaddingX,
   labelFontSize,
   argsFontSize,
-} from "./constants";
-import { ComponentGrid, Operation } from "./circuit";
-import { Register } from "./register";
+  controlCircleOffset,
+} from "./constants.js";
+import { ComponentGrid, Operation } from "./circuit.js";
+import { Register } from "./register.js";
 
 /**
  * Performs a deep equality check between two objects or arrays.
@@ -50,74 +51,103 @@ const deepEqual = (obj1: unknown, obj2: unknown): boolean => {
 };
 
 /**
- * Generate a UUID using `Math.random`.
- * Note: this implementation came from https://stackoverflow.com/questions/105034/how-to-create-guid-uuid
- * and is not cryptographically secure but works for our use case.
- *
- * @returns UUID string.
- */
-const createUUID = (): string =>
-  "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
-    const r = (Math.random() * 16) | 0,
-      v = c == "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-
-/**
  * Calculate the width of a gate, given its render data.
  *
- * @param renderData - The rendering data of the gate, including its type, label, display arguments, and width.
+ * @param renderData - The rendering data of the gate, including its type, label, display arguments.
  *
  * @returns Width of given gate (in pixels).
  */
-const getGateWidth = ({
+const getMinGateWidth = ({
   type,
   label,
   displayArgs,
-  width,
+  classicalControlIds,
 }: GateRenderData): number => {
-  if (width > 0) return width;
-
   switch (type) {
     case GateType.Measure:
     case GateType.Cnot:
     case GateType.Swap:
       return minGateWidth;
     default: {
+      // Classically controlled gates are wider because of the control button on the left
+      const controlButtonWidth =
+        classicalControlIds != null ? controlCircleOffset : 0;
       const labelWidth = _getStringWidth(label);
       const argsWidth =
         displayArgs != null ? _getStringWidth(displayArgs, argsFontSize) : 0;
-      const textWidth = Math.max(labelWidth, argsWidth) + labelPadding * 2;
-      return Math.max(minGateWidth, textWidth);
+      const textWidth = Math.max(labelWidth, argsWidth) + labelPaddingX * 2;
+      return Math.max(minGateWidth, textWidth) + controlButtonWidth;
     }
   }
 };
 
 /**
- * Get the width of a string with font-size `fontSize` and font-family Arial.
+ * Estimate string width in pixels based on character types and font size.
+ * This may not match the true rendered width, but should be close enough for
+ * calculating layout.
  *
- * @param text     Input string.
- * @param fontSize Font size of `text`.
+ * @param text - The text string to measure.
+ * @param fontSize - The font size in pixels (default is labelFontSize).
  *
- * @returns Pixel width of given string.
+ * @returns Estimated width of the string in pixels.
  */
 const _getStringWidth = (
   text: string,
   fontSize: number = labelFontSize,
 ): number => {
-  const canvas: HTMLCanvasElement = document.createElement("canvas");
-  const context: CanvasRenderingContext2D | null = canvas.getContext("2d");
-  if (context == null) throw new Error("Null canvas");
-
-  context.font = `${fontSize}px Arial`;
-  const metrics: TextMetrics = context.measureText(text);
-  return metrics.width;
+  let units = 0;
+  for (const ch of Array.from(text)) {
+    if (ch === " ") {
+      units += 0.33;
+      continue;
+    }
+    if ("il.:;,'`!|".includes(ch)) {
+      units += 0.28;
+      continue;
+    }
+    if ("mw".includes(ch)) {
+      units += 0.72;
+      continue;
+    }
+    if ("MW@#%&".includes(ch)) {
+      units += 0.78;
+      continue;
+    }
+    if (/[0-9]/.test(ch)) {
+      units += 0.55;
+      continue;
+    }
+    if (/[A-Z]/.test(ch)) {
+      units += 0.56;
+      continue;
+    }
+    if (/[a-z]/.test(ch)) {
+      units += 0.5;
+      continue;
+    }
+    if (/[θπ]/.test(ch)) {
+      units += 0.56;
+      continue;
+    }
+    if (/[ψ]/.test(ch)) {
+      units += 0.6;
+      continue;
+    }
+    if ("-+*/=^~_<>".includes(ch)) {
+      units += 0.5;
+      continue;
+    }
+    units += 0.56;
+  }
+  const kerningFudge = Math.max(0, text.length - 1) * 0.005;
+  // Round to a whole number to keep it easy to read
+  return Math.floor((units + kerningFudge) * fontSize);
 };
 
 /**
  * Find targets of an operation's children by recursively walking
  * through all of its children's controls and targets.
- * Note that this intensionally ignores the direct targets of the
+ * Note that this intentionally ignores the direct targets of the
  * operation itself.
  *
  * Example:
@@ -214,10 +244,7 @@ const getGateLocationString = (operation: Operation): string | null => {
  * @param numQubits The number of qubits in the circuit.
  * @returns A tuple containing the minimum and maximum register indices.
  */
-function getMinMaxRegIdx(
-  operation: Operation,
-  numQubits: number,
-): [number, number] {
+function getMinMaxRegIdx(operation: Operation): [number, number] {
   let targets: Register[];
   let controls: Register[];
   switch (operation.kind) {
@@ -235,20 +262,9 @@ function getMinMaxRegIdx(
       break;
   }
 
-  const qRegs = [...controls, ...targets]
-    .filter(({ result }) => result === undefined)
-    .map(({ qubit }) => qubit);
-  const clsControls: Register[] = controls.filter(
-    ({ result }) => result !== undefined,
-  );
-  const isClassicallyControlled: boolean = clsControls.length > 0;
-  if (!isClassicallyControlled && qRegs.length === 0) return [-1, -1];
-  // If operation is classically-controlled, pad all qubit registers. Otherwise, only pad
-  // the contiguous range of registers that it covers.
-  const minRegIdx: number = isClassicallyControlled ? 0 : Math.min(...qRegs);
-  const maxRegIdx: number = isClassicallyControlled
-    ? numQubits - 1
-    : Math.max(...qRegs);
+  const qRegs = [...controls, ...targets].map(({ qubit }) => qubit);
+  const minRegIdx: number = Math.min(...qRegs);
+  const maxRegIdx: number = Math.max(...qRegs);
 
   return [minRegIdx, maxRegIdx];
 }
@@ -388,7 +404,7 @@ const getToolboxElems = (container: HTMLElement): SVGGraphicsElement[] => {
  * @returns An array of SVG graphics elements representing the host elements.
  */
 const getHostElems = (container: HTMLElement): SVGGraphicsElement[] => {
-  const circuitSvg = container.querySelector("svg[id]");
+  const circuitSvg = container.querySelector("svg.qviz");
   return circuitSvg != null
     ? Array.from(
         circuitSvg.querySelectorAll<SVGGraphicsElement>(
@@ -405,7 +421,7 @@ const getHostElems = (container: HTMLElement): SVGGraphicsElement[] => {
  * @returns An array of SVG graphics elements representing the gate elements.
  */
 const getGateElems = (container: HTMLElement): SVGGraphicsElement[] => {
-  const circuitSvg = container.querySelector("svg[id]");
+  const circuitSvg = container.querySelector("svg.qviz");
   return circuitSvg != null
     ? Array.from(circuitSvg.querySelectorAll<SVGGraphicsElement>(".gate"))
     : [];
@@ -418,7 +434,7 @@ const getGateElems = (container: HTMLElement): SVGGraphicsElement[] => {
  * @returns An array of SVGTextElement representing the qubit labels.
  */
 const getQubitLabelElems = (container: HTMLElement): SVGTextElement[] => {
-  const circuitSvg = container.querySelector("svg[id]");
+  const circuitSvg = container.querySelector("svg.qviz");
   if (!circuitSvg) return [];
   const labelGroup = circuitSvg.querySelector("g.qubit-input-states");
   if (!labelGroup) return [];
@@ -440,8 +456,7 @@ const mathChars = {
 
 export {
   deepEqual,
-  createUUID,
-  getGateWidth,
+  getMinGateWidth,
   getChildTargets,
   locationStringToIndexes,
   getGateLocationString,

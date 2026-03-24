@@ -50,6 +50,7 @@ fn op_string(kind: TokenKind) -> Option<String> {
         | TokenKind::DocComment
         | TokenKind::Eof
         | TokenKind::Float
+        | TokenKind::Imaginary
         | TokenKind::Ident
         | TokenKind::Int(_)
         | TokenKind::Keyword(_)
@@ -676,6 +677,86 @@ fn leading_zero_float() {
             ),
         ]
     "#]],
+    );
+}
+
+#[test]
+fn trailing_i_complex() {
+    check(
+        "4.2i",
+        &expect![[r#"
+            [
+                Ok(
+                    Token {
+                        kind: Imaginary,
+                        span: Span {
+                            lo: 0,
+                            hi: 4,
+                        },
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn trailing_dot_trailing_i_complex() {
+    check(
+        "4.i",
+        &expect![[r#"
+            [
+                Ok(
+                    Token {
+                        kind: Imaginary,
+                        span: Span {
+                            lo: 0,
+                            hi: 3,
+                        },
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn leading_dot_trailing_i_int_ident() {
+    check(
+        ".1i",
+        &expect![[r#"
+            [
+                Ok(
+                    Token {
+                        kind: Dot,
+                        span: Span {
+                            lo: 0,
+                            hi: 1,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Int(
+                            Decimal,
+                        ),
+                        span: Span {
+                            lo: 1,
+                            hi: 2,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Ident,
+                        span: Span {
+                            lo: 2,
+                            hi: 3,
+                        },
+                    },
+                ),
+            ]
+        "#]],
     );
 }
 

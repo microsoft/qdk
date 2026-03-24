@@ -110,10 +110,10 @@ impl FsNode {
         for part in file.split('/') {
             curr = curr.and_then(|curr| match curr {
                 FsNode::Dir(dir) => {
-                    if let Some(FsNode::File(_)) = dir.get("qsharp.json") {
-                        if part == "src" {
-                            last_manifest_dir = Some(curr_path.trim_end_matches('/').to_string());
-                        }
+                    if let Some(FsNode::File(_)) = dir.get("qsharp.json")
+                        && part == "src"
+                    {
+                        last_manifest_dir = Some(curr_path.trim_end_matches('/').to_string());
                     }
                     curr_path = format!("{curr_path}{part}/");
                     dir.get(part)
@@ -133,10 +133,10 @@ impl FsNode {
         let mut curr_name = None;
 
         for part in path.split('/') {
-            if let Some(name) = curr_name {
-                if let Some(FsNode::Dir(dir)) = curr_parent {
-                    curr_parent = dir.get_mut(name);
-                }
+            if let Some(name) = curr_name
+                && let Some(FsNode::Dir(dir)) = curr_parent
+            {
+                curr_parent = dir.get_mut(name);
             }
 
             curr_name = Some(part);

@@ -26,10 +26,11 @@ pub mod output;
 pub mod state;
 pub mod val;
 
+use crate::backend::{Backend, TracingBackend};
 use crate::val::{
     Value, index_array, make_range, slice_array, update_index_range, update_index_single,
 };
-use backend::Backend;
+use core::panic;
 use debug::{CallStack, Frame};
 pub use error::PackageSpan;
 use miette::Diagnostic;
@@ -37,15 +38,16 @@ use num_bigint::BigInt;
 use output::Receiver;
 use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span};
 use qsc_fir::fir::{
-    self, BinOp, BlockId, CallableImpl, ExecGraph, ExecGraphNode, Expr, ExprId, ExprKind, Field,
-    FieldAssign, Global, Lit, LocalItemId, LocalVarId, PackageId, PackageStoreLookup, PatId,
-    PatKind, PrimField, Res, StmtId, StoreItemId, StringComponent, UnOp,
+    self, BinOp, BlockId, CallableImpl, ConfiguredExecGraph, ExecGraph, ExecGraphConfig,
+    ExecGraphDebugNode, ExecGraphNode, Expr, ExprId, ExprKind, Field, FieldAssign, Global, Lit,
+    LocalItemId, LocalVarId, PackageId, PackageStoreLookup, PatId, PatKind, PrimField, Res, StmtId,
+    StoreItemId, StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
 use qsc_lowerer::map_fir_package_to_hir;
 use rand::{SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::ops;
+use std::array;
 use std::{
     cell::RefCell,
     fmt::{self, Display, Formatter},
@@ -256,41 +258,29 @@ impl Display for Spec {
     }
 }
 
-/// Utility function to identify a subset of a control flow graph corresponding to a given
-/// range.
-#[must_use]
-pub fn exec_graph_section(graph: &ExecGraph, range: ops::Range<usize>) -> ExecGraph {
-    let start: u32 = range
-        .start
-        .try_into()
-        .expect("exec graph ranges should fit into u32");
-    graph[range]
-        .iter()
-        .map(|node| match node {
-            ExecGraphNode::Jump(idx) => ExecGraphNode::Jump(idx - start),
-            ExecGraphNode::JumpIf(idx) => ExecGraphNode::JumpIf(idx - start),
-            ExecGraphNode::JumpIfNot(idx) => ExecGraphNode::JumpIfNot(idx - start),
-            _ => *node,
-        })
-        .collect::<Vec<_>>()
-        .into()
-}
-
 /// Evaluates the given code with the given context.
 /// # Errors
 /// Returns the first error encountered during execution.
 /// # Panics
 /// On internal error where no result is returned.
-pub fn eval(
+#[allow(clippy::too_many_arguments)]
+pub fn eval<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
     exec_graph: ExecGraph,
+    exec_graph_config: ExecGraphConfig,
     globals: &impl PackageStoreLookup,
     env: &mut Env,
-    sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+    sim: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
 ) -> Result<Value, (Error, Vec<Frame>)> {
-    let mut state = State::new(package, exec_graph, seed, ErrorBehavior::FailOnError);
+    let mut state = State::new(
+        package,
+        exec_graph,
+        exec_graph_config,
+        seed,
+        ErrorBehavior::FailOnError,
+    );
     let res = state.eval(globals, env, sim, receiver, &[], StepAction::Continue)?;
     let StepResult::Return(value) = res else {
         panic!("eval should always return a value");
@@ -304,17 +294,24 @@ pub fn eval(
 /// # Panics
 /// On internal error where no result is returned.
 #[allow(clippy::too_many_arguments)]
-pub fn invoke(
+pub fn invoke<B: Backend>(
     package: PackageId,
     seed: Option<u64>,
     globals: &impl PackageStoreLookup,
+    exec_graph_config: ExecGraphConfig,
     env: &mut Env,
-    sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+    sim: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
     callable: Value,
     args: Value,
 ) -> Result<Value, (Error, Vec<Frame>)> {
-    let mut state = State::new(package, Vec::new().into(), seed, ErrorBehavior::FailOnError);
+    let mut state = State::new(
+        package,
+        ExecGraph::default(),
+        exec_graph_config,
+        seed,
+        ErrorBehavior::FailOnError,
+    );
     // Push the callable value into the state stack and then the args value so they are ready for evaluation.
     state.set_val_register(callable);
     state.push_val();
@@ -332,7 +329,7 @@ pub fn invoke(
             Span::default(),
             receiver,
         )
-        .map_err(|e| (e, state.get_stack_frames()))?;
+        .map_err(|e| (e, state.capture_stack()))?;
 
     // Trigger evaluation of the state until the end of the stack is reached and a return value is obtained, which will be the final
     // result of the invocation.
@@ -464,6 +461,20 @@ impl Env {
         self.scopes.push(scope);
     }
 
+    pub fn push_loop_scope(&mut self, frame_id: usize) {
+        let scope = Scope {
+            frame_id,
+            is_loop: true,
+            ..Default::default()
+        };
+        self.scopes.push(scope);
+    }
+
+    #[must_use]
+    pub fn last_scope_is_loop(&self) -> bool {
+        self.scopes.last().is_some_and(|scope| scope.is_loop)
+    }
+
     pub fn leave_scope(&mut self) {
         // Only pop the scope if there is more than one scope in the stack,
         // because the global/top-level scope cannot be exited.
@@ -556,6 +567,7 @@ impl Env {
 struct Scope {
     bindings: IndexMap<LocalVarId, Variable>,
     frame_id: usize,
+    is_loop: bool,
 }
 
 type CallableCountKey = (StoreItemId, bool, bool);
@@ -569,7 +581,7 @@ pub enum ErrorBehavior {
 }
 
 pub struct State {
-    exec_graph_stack: Vec<ExecGraph>,
+    exec_graph_stack: Vec<ConfiguredExecGraph>,
     idx: u32,
     idx_stack: Vec<u32>,
     val_register: Option<Value>,
@@ -581,8 +593,10 @@ pub struct State {
     rng: RefCell<StdRng>,
     call_counts: FxHashMap<CallableCountKey, i64>,
     qubit_counter: Option<QubitCounter>,
+    dirty_qubits: FxHashSet<usize>,
     error_behavior: ErrorBehavior,
     last_error: Option<(Error, Vec<Frame>)>,
+    exec_graph_config: ExecGraphConfig,
 }
 
 impl State {
@@ -590,6 +604,7 @@ impl State {
     pub fn new(
         package: PackageId,
         exec_graph: ExecGraph,
+        exec_graph_config: ExecGraphConfig,
         classical_seed: Option<u64>,
         error_behavior: ErrorBehavior,
     ) -> Self {
@@ -598,7 +613,7 @@ impl State {
             None => RefCell::new(StdRng::from_entropy()),
         };
         Self {
-            exec_graph_stack: vec![exec_graph],
+            exec_graph_stack: vec![exec_graph.select(exec_graph_config)],
             idx: 0,
             idx_stack: Vec::new(),
             val_register: None,
@@ -610,8 +625,10 @@ impl State {
             rng,
             call_counts: FxHashMap::default(),
             qubit_counter: None,
+            dirty_qubits: FxHashSet::default(),
             error_behavior,
             last_error: None,
+            exec_graph_config,
         }
     }
 
@@ -619,12 +636,18 @@ impl State {
         self.call_stack.len()
     }
 
-    fn push_frame(&mut self, exec_graph: ExecGraph, id: StoreItemId, functor: FunctorApp) {
+    fn push_frame(
+        &mut self,
+        exec_graph: ConfiguredExecGraph,
+        id: StoreItemId,
+        functor: FunctorApp,
+    ) {
         self.call_stack.push_frame(Frame {
             span: self.current_span,
             id,
             caller: self.package,
             functor,
+            loop_iterations: Vec::new(),
         });
         self.exec_graph_stack.push(exec_graph);
         self.val_stack.push(Vec::new());
@@ -644,6 +667,11 @@ impl State {
 
     fn push_scope(&mut self, env: &mut Env) {
         env.push_scope(self.current_frame_id());
+    }
+
+    fn push_loop_scope(&mut self, env: &mut Env, loop_expr: ExprId) {
+        env.push_loop_scope(self.current_frame_id());
+        self.call_stack.push_loop_iteration(loop_expr);
     }
 
     fn take_val_register(&mut self) -> Value {
@@ -679,14 +707,26 @@ impl State {
     }
 
     #[must_use]
-    pub fn get_stack_frames(&self) -> Vec<Frame> {
-        let mut frames = self.call_stack.clone().into_frames();
+    pub fn capture_stack(&self) -> Vec<Frame> {
+        let mut frames = self.call_stack.to_frames();
 
         let mut span = self.current_span;
         for frame in frames.iter_mut().rev() {
             std::mem::swap(&mut frame.span, &mut span);
         }
         frames
+    }
+
+    #[must_use]
+    pub fn capture_stack_if_trace_enabled<B: Backend>(
+        &self,
+        tracing_backend: &TracingBackend<'_, B>,
+    ) -> Vec<Frame> {
+        if tracing_backend.is_stacks_enabled() {
+            self.capture_stack()
+        } else {
+            vec![]
+        }
     }
 
     fn set_last_error(&mut self, error: Error, frames: Vec<Frame>) {
@@ -711,11 +751,11 @@ impl State {
     /// # Panics
     /// When returning a value in the middle of execution.
     #[allow(clippy::too_many_lines)]
-    pub fn eval(
+    pub fn eval<B: Backend>(
         &mut self,
         globals: &impl PackageStoreLookup,
         env: &mut Env,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut TracingBackend<'_, B>,
         out: &mut impl Receiver,
         breakpoints: &[StmtId],
         step: StepAction,
@@ -739,23 +779,14 @@ impl State {
                         Err(e) => {
                             if self.error_behavior == ErrorBehavior::StopOnError {
                                 let error_str = e.to_string();
-                                self.set_last_error(e, self.get_stack_frames());
+                                self.set_last_error(e, self.capture_stack());
                                 // Clear the execution graph stack to indicate that execution has failed.
                                 // This will prevent further execution steps.
                                 self.exec_graph_stack.clear();
                                 return Ok(StepResult::Fail(error_str));
                             }
-                            return Err((e, self.get_stack_frames()));
+                            return Err((e, self.capture_stack()));
                         }
-                    }
-                }
-                Some(ExecGraphNode::Stmt(stmt)) => {
-                    self.idx += 1;
-                    self.current_span = globals.get_stmt((self.package, *stmt).into()).span;
-
-                    match self.check_for_break(breakpoints, *stmt, step, current_frame) {
-                        Some(value) => value,
-                        None => continue,
                     }
                 }
                 Some(ExecGraphNode::Jump(idx)) => {
@@ -795,31 +826,56 @@ impl State {
                     env.leave_scope();
                     continue;
                 }
-                Some(ExecGraphNode::RetFrame) => {
-                    self.leave_frame();
-                    env.leave_current_frame();
-                    continue;
-                }
-                Some(ExecGraphNode::PushScope) => {
-                    self.push_scope(env);
-                    self.idx += 1;
-                    continue;
-                }
-                Some(ExecGraphNode::PopScope) => {
-                    env.leave_scope();
-                    self.idx += 1;
-                    continue;
-                }
-                Some(ExecGraphNode::BlockEnd(id)) => {
-                    self.idx += 1;
-                    match self.check_for_block_exit_break(globals, *id, step, current_frame) {
-                        Some((result, span)) => {
-                            self.current_span = span;
-                            return Ok(result);
-                        }
-                        None => continue,
+                Some(ExecGraphNode::Debug(dbg_node)) => match dbg_node {
+                    ExecGraphDebugNode::PushScope => {
+                        self.push_scope(env);
+                        self.idx += 1;
+                        continue;
                     }
-                }
+                    ExecGraphDebugNode::PushLoopScope(expr) => {
+                        self.push_loop_scope(env, *expr);
+                        self.idx += 1;
+                        continue;
+                    }
+                    ExecGraphDebugNode::RetFrame => {
+                        self.leave_frame();
+                        env.leave_current_frame();
+                        continue;
+                    }
+                    ExecGraphDebugNode::LoopIteration => {
+                        // we're in an iteration, increment counter
+                        self.call_stack.increment_loop_iteration();
+                        self.idx += 1;
+                        continue;
+                    }
+                    ExecGraphDebugNode::PopScope => {
+                        if env.last_scope_is_loop() {
+                            self.call_stack.pop_loop_iteration();
+                        }
+                        env.leave_scope();
+                        self.idx += 1;
+                        continue;
+                    }
+                    ExecGraphDebugNode::BlockEnd(id) => {
+                        self.idx += 1;
+                        match self.check_for_block_exit_break(globals, *id, step, current_frame) {
+                            Some((result, span)) => {
+                                self.current_span = span;
+                                return Ok(result);
+                            }
+                            None => continue,
+                        }
+                    }
+                    ExecGraphDebugNode::Stmt(stmt) => {
+                        self.idx += 1;
+                        self.current_span = globals.get_stmt((self.package, *stmt).into()).span;
+
+                        match self.check_for_break(breakpoints, *stmt, step, current_frame) {
+                            Some(value) => value,
+                            None => continue,
+                        }
+                    }
+                },
                 None => {
                     // We have reached the end of the current graph without reaching an explicit return node,
                     // usually indicating the partial execution of a single sub-expression.
@@ -905,10 +961,10 @@ impl State {
     }
 
     #[allow(clippy::similar_names)]
-    fn eval_expr(
+    fn eval_expr<B: Backend>(
         &mut self,
         env: &mut Env,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut TracingBackend<'_, B>,
         globals: &impl PackageStoreLookup,
         out: &mut impl Receiver,
         expr: ExprId,
@@ -1144,10 +1200,10 @@ impl State {
         Ok(())
     }
 
-    fn eval_call(
+    fn eval_call<B: Backend>(
         &mut self,
         env: &mut Env,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut TracingBackend<'_, B>,
         globals: &impl PackageStoreLookup,
         callable_span: Span,
         arg_span: Span,
@@ -1207,7 +1263,11 @@ impl State {
                     Spec::CtlAdj => specialized_implementation.ctl_adj.as_ref(),
                 }
                 .expect("missing specialization should be a compilation error");
-                self.push_frame(spec_decl.exec_graph.clone(), callee_id, functor);
+                self.push_frame(
+                    spec_decl.exec_graph.clone().select(self.exec_graph_config),
+                    callee_id,
+                    functor,
+                );
                 self.push_scope(env);
                 self.increment_call_count(callee_id, functor);
 
@@ -1224,7 +1284,11 @@ impl State {
                 Ok(())
             }
             CallableImpl::SimulatableIntrinsic(spec_decl) => {
-                self.push_frame(spec_decl.exec_graph.clone(), callee_id, functor);
+                self.push_frame(
+                    spec_decl.exec_graph.clone().select(self.exec_graph_config),
+                    callee_id,
+                    functor,
+                );
                 self.push_scope(env);
 
                 self.bind_args_for_spec(
@@ -1243,28 +1307,33 @@ impl State {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn eval_intrinsic(
+    fn eval_intrinsic<B: Backend>(
         &mut self,
         env: &mut Env,
         callee_id: StoreItemId,
         functor: FunctorApp,
         callee: &fir::CallableDecl,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut TracingBackend<'_, B>,
         callee_span: PackageSpan,
         arg: Value,
         arg_span: PackageSpan,
         out: &mut impl Receiver,
     ) -> Result<(), Error> {
+        let call_stack = self.capture_stack_if_trace_enabled(sim);
         self.push_frame(Vec::new().into(), callee_id, functor);
         self.current_span = callee_span.span;
         self.increment_call_count(callee_id, functor);
         let name = &callee.name.name;
         let val = match name.as_ref() {
-            "__quantum__rt__qubit_allocate" => {
-                let q = Rc::new(Qubit(sim.qubit_allocate()));
+            "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
+                let q = sim.qubit_allocate(&call_stack);
+                let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
                     counter.allocated(q.0);
+                }
+                if name.as_ref() == "__quantum__rt__qubit_borrow" {
+                    self.dirty_qubits.insert(q.0);
                 }
                 Value::Qubit(q.into())
             }
@@ -1274,7 +1343,9 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                if sim.qubit_release(qubit.0) {
+                let is_zero = sim.qubit_release(qubit.0, &call_stack);
+                let is_borrowed = self.dirty_qubits.remove(&qubit.0);
+                if is_zero || is_borrowed {
                     Value::unit()
                 } else {
                     return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
@@ -1286,6 +1357,7 @@ impl State {
                     callee_span,
                     arg,
                     arg_span,
+                    &call_stack,
                     sim,
                     &mut self.rng.borrow_mut(),
                     out,
@@ -1406,7 +1478,7 @@ impl State {
 
         let store_item_id = if let Res::Item(item_id) = res {
             StoreItemId {
-                package: item_id.package.unwrap_or(self.package),
+                package: item_id.package,
                 item: item_id.item,
             }
         } else {
@@ -1512,6 +1584,15 @@ impl State {
                 Value::BigInt(v) => self.set_val_register(Value::BigInt(v.neg())),
                 Value::Double(v) => self.set_val_register(Value::Double(v.neg())),
                 Value::Int(v) => self.set_val_register(Value::Int(v.wrapping_neg())),
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    let [real, imag] = array::from_fn(|i| v[i].clone());
+                    let real = real.unwrap_double();
+                    let imag = imag.unwrap_double();
+                    self.set_val_register(Value::Tuple(
+                        vec![Value::Double(-real), Value::Double(-imag)].into(),
+                        Some(Rc::new(StoreItemId::complex())),
+                    ));
+                }
                 _ => panic!("value should be number"),
             },
             UnOp::NotB => match val {
@@ -1525,6 +1606,9 @@ impl State {
             },
             UnOp::Pos => match val {
                 Value::BigInt(_) | Value::Int(_) | Value::Double(_) => self.set_val_register(val),
+                Value::Tuple(_, Some(ref id)) if *id.as_ref() == StoreItemId::complex() => {
+                    self.set_val_register(val);
+                }
                 _ => panic!("value should be number"),
             },
             UnOp::Unwrap => self.set_val_register(val),
@@ -1772,17 +1856,17 @@ impl State {
 pub fn are_ctls_unique(ctls: &[Value], tup: &Value) -> bool {
     let mut qubits = FxHashSet::default();
     for ctl in ctls.iter().flat_map(Value::qubits) {
-        if let Some(ctl) = ctl.try_deref() {
-            if !qubits.insert(ctl) {
-                return false;
-            }
+        if let Some(ctl) = ctl.try_deref()
+            && !qubits.insert(ctl)
+        {
+            return false;
         }
     }
     for qubit in tup.qubits() {
-        if let Some(qubit) = qubit.try_deref() {
-            if qubits.contains(&qubit) {
-                return false;
-            }
+        if let Some(qubit) = qubit.try_deref()
+            && qubits.contains(&qubit)
+        {
+            return false;
         }
     }
     true
@@ -1804,7 +1888,7 @@ fn resolve_binding(env: &Env, package: PackageId, res: Res, span: Span) -> Resul
         Res::Err => panic!("resolution error"),
         Res::Item(item) => Value::Global(
             StoreItemId {
-                package: item.package.unwrap_or(package),
+                package: item.package,
                 item: item.item,
             },
             FunctorApp::default(),
@@ -1918,8 +2002,20 @@ fn eval_binop_add(lhs_val: Value, rhs_val: Value) -> Value {
             Value::BigInt(val + rhs)
         }
         Value::Double(val) => {
-            let rhs = rhs_val.unwrap_double();
-            Value::Double(val + rhs)
+            match &rhs_val {
+                Value::Double(v) => Value::Double(val + v),
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    // Special case for adding a double and a complex literal.
+                    let [real, imag] = array::from_fn(|i| v[i].clone());
+                    let real = real.unwrap_double();
+                    let imag = imag.unwrap_double();
+                    Value::Tuple(
+                        vec![Value::Double(val + real), Value::Double(imag)].into(),
+                        Some(Rc::clone(id)),
+                    )
+                }
+                _ => panic!("value is not addable: {}", rhs_val.type_name()),
+            }
         }
         Value::Int(val) => {
             let rhs = rhs_val.unwrap_int();
@@ -1928,6 +2024,32 @@ fn eval_binop_add(lhs_val: Value, rhs_val: Value) -> Value {
         Value::String(val) => {
             let rhs = rhs_val.unwrap_string();
             Value::String((val.to_string() + &rhs).into())
+        }
+        Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+            let [real, imag] = array::from_fn(|i| v[i].clone());
+            let real = real.unwrap_double();
+            let imag = imag.unwrap_double();
+            match &rhs_val {
+                // Special case for adding a complex literal and a double.
+                Value::Double(v) => Value::Tuple(
+                    vec![Value::Double(real + v), Value::Double(imag)].into(),
+                    Some(Rc::clone(&id)),
+                ),
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    let [rhs_real, rhs_imag] = array::from_fn(|i| v[i].clone());
+                    let rhs_real = rhs_real.unwrap_double();
+                    let rhs_imag = rhs_imag.unwrap_double();
+                    Value::Tuple(
+                        vec![
+                            Value::Double(real + rhs_real),
+                            Value::Double(imag + rhs_imag),
+                        ]
+                        .into(),
+                        Some(Rc::clone(id)),
+                    )
+                }
+                _ => panic!("value is not addable: {}", rhs_val.type_name()),
+            }
         }
         _ => panic!("value is not addable: {}", lhs_val.type_name()),
     }
@@ -1969,6 +2091,32 @@ fn eval_binop_div(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Resu
             let rhs = rhs_val.unwrap_double();
             Ok(Value::Double(val / rhs))
         }
+        Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+            let [real, imag] = array::from_fn(|i| v[i].clone());
+            let real = real.unwrap_double();
+            let imag = imag.unwrap_double();
+            match rhs_val {
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    let [rhs_real, rhs_imag] = array::from_fn(|i| v[i].clone());
+                    let rhs_real = rhs_real.unwrap_double();
+                    let rhs_imag = rhs_imag.unwrap_double();
+                    let denom = rhs_real * rhs_real + rhs_imag * rhs_imag;
+                    if denom == 0.0 {
+                        Err(Error::DivZero(rhs_span))
+                    } else {
+                        Ok(Value::Tuple(
+                            vec![
+                                Value::Double((real * rhs_real + imag * rhs_imag) / denom),
+                                Value::Double((imag * rhs_real - real * rhs_imag) / denom),
+                            ]
+                            .into(),
+                            Some(Rc::clone(&id)),
+                        ))
+                    }
+                }
+                _ => panic!("value should support div"),
+            }
+        }
         _ => panic!("value should support div"),
     }
 }
@@ -2000,6 +2148,32 @@ fn eval_binop_exp(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Resu
                     Err(_) => Err(Error::IntTooLarge(rhs_val, rhs_span)),
                 }?;
                 Ok(Value::Int(result))
+            }
+        }
+        Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+            let [real, imag] = array::from_fn(|i| v[i].clone());
+            let real = real.unwrap_double();
+            let imag = imag.unwrap_double();
+            match rhs_val {
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    let [rhs_real, rhs_imag] = array::from_fn(|i| v[i].clone());
+                    let rhs_real = rhs_real.unwrap_double();
+                    let rhs_imag = rhs_imag.unwrap_double();
+                    // (a + bi)^(c + di) = exp((c + di) * log(a + bi))
+                    let log_re = 0.5 * (real * real + imag * imag).ln();
+                    let log_im = imag.atan2(real);
+                    let exp_re = (rhs_real * log_re - rhs_imag * log_im).exp();
+                    let exp_im = rhs_real * log_im + rhs_imag * log_re;
+                    Ok(Value::Tuple(
+                        vec![
+                            Value::Double(exp_re * exp_im.cos()),
+                            Value::Double(exp_re * exp_im.sin()),
+                        ]
+                        .into(),
+                        Some(Rc::clone(&id)),
+                    ))
+                }
+                _ => panic!("value should support exp"),
             }
         }
         _ => panic!("value should support exp"),
@@ -2122,6 +2296,28 @@ fn eval_binop_mul(lhs_val: Value, rhs_val: Value) -> Value {
             let rhs = rhs_val.unwrap_double();
             Value::Double(val * rhs)
         }
+        Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+            // Special case for multiplying complex literals.
+            let [real, imag] = array::from_fn(|i| v[i].clone());
+            let real = real.unwrap_double();
+            let imag = imag.unwrap_double();
+            match &rhs_val {
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    let [rhs_real, rhs_imag] = array::from_fn(|i| v[i].clone());
+                    let rhs_real = rhs_real.unwrap_double();
+                    let rhs_imag = rhs_imag.unwrap_double();
+                    Value::Tuple(
+                        vec![
+                            Value::Double(real * rhs_real - imag * rhs_imag),
+                            Value::Double(real * rhs_imag + imag * rhs_real),
+                        ]
+                        .into(),
+                        Some(Rc::clone(id)),
+                    )
+                }
+                _ => panic!("value is not multipliable: {}", rhs_val.type_name()),
+            }
+        }
         _ => panic!("value should support mul"),
     }
 }
@@ -2207,12 +2403,50 @@ fn eval_binop_sub(lhs_val: Value, rhs_val: Value) -> Value {
             Value::BigInt(val - rhs)
         }
         Value::Double(val) => {
-            let rhs = rhs_val.unwrap_double();
-            Value::Double(val - rhs)
+            match &rhs_val {
+                Value::Double(v) => Value::Double(val - v),
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    // Special case for subtracting a complex literal from a double.
+                    let [real, imag] = array::from_fn(|i| v[i].clone());
+                    let real = real.unwrap_double();
+                    let imag = imag.unwrap_double();
+                    Value::Tuple(
+                        vec![Value::Double(val - real), Value::Double(-imag)].into(),
+                        Some(Rc::clone(id)),
+                    )
+                }
+                _ => panic!("value is not subtractable: {}", rhs_val.type_name()),
+            }
         }
         Value::Int(val) => {
             let rhs = rhs_val.unwrap_int();
             Value::Int(val.wrapping_sub(rhs))
+        }
+        Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+            let [real, imag] = array::from_fn(|i| v[i].clone());
+            let real = real.unwrap_double();
+            let imag = imag.unwrap_double();
+            match &rhs_val {
+                // Special case for subtracting a double from a complex literal.
+                Value::Double(v) => Value::Tuple(
+                    vec![Value::Double(real - v), Value::Double(imag)].into(),
+                    Some(Rc::clone(&id)),
+                ),
+                Value::Tuple(v, Some(id)) if *id.as_ref() == StoreItemId::complex() => {
+                    let [rhs_real, rhs_imag] = array::from_fn(|i| v[i].clone());
+                    let rhs_real = rhs_real.unwrap_double();
+                    let rhs_imag = rhs_imag.unwrap_double();
+                    Value::Tuple(
+                        vec![
+                            Value::Double(real - rhs_real),
+                            Value::Double(imag - rhs_imag),
+                        ]
+                        .into(),
+                        Some(Rc::clone(id)),
+                    )
+                }
+                _ => panic!("value is not subtractable: {}", rhs_val.type_name()),
+            }
         }
         _ => panic!("value is not subtractable"),
     }

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 // import "preact/debug"; // Include this line only when debugging rendering
+import "./kataViewer.css";
 
 import { render } from "preact";
 import { useEffect } from "preact/hooks";
@@ -14,6 +15,12 @@ import {
   Lesson,
   getAllKatas,
 } from "qsharp-lang/katas";
+
+import {
+  ensureTheme,
+  detectThemeChange,
+  updateStyleSheetTheme,
+} from "qsharp-lang/ux";
 
 declare global {
   // The below are added by the MathJax and Highlight.js scripts
@@ -167,6 +174,27 @@ function ExplainedSolution(props: { item: ExplainedSolutionItem }) {
 }
 
 async function onload() {
+  // Helper to react to theme changes by updating the GitHub and Highlightjs stylesheets
+  const onThemeChange = (isDark: boolean) => {
+    updateStyleSheetTheme(
+      isDark,
+      "gh/highlightjs",
+      /(default\.min\.css)|(dark\.min\.css)/,
+      "default.min.css",
+      "dark.min.css",
+    );
+    updateStyleSheetTheme(
+      isDark,
+      "github-markdown-css",
+      /(light\.css)|(dark\.css)/,
+      "light.css",
+      "dark.css",
+    );
+  };
+  // Ensure a theme is set on load, set the stylesheet accordingly, and react to future changes
+  onThemeChange(ensureTheme() || false);
+  detectThemeChange(document.body, onThemeChange);
+
   const katas = await getAllKatas({ includeUnpublished: true });
   const app = document.querySelector("#app") as HTMLDivElement;
 
@@ -198,13 +226,6 @@ async function onload() {
       kataIndex = katas.findIndex((kata) => kata.id === kataId);
     }
     if (kataIndex < 0) kataIndex = 0;
-
-    // Allow the user to pass ?theme={dark|light} on the URL to set the theme
-    const urlParams = new URLSearchParams(window.location.search);
-    const theme = urlParams.get("theme");
-    if (theme) {
-      document.body.setAttribute("data-theme", theme);
-    }
 
     onRender(kataIndex);
   }

@@ -1,0 +1,16 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc e62e10bef002d4cdb0b4b5c7c8b37ff3492f019b8110920239c62a1710d9fd1f # shrinks to dimension = 1
+cc 25c8e6a4aeb172c191bc4ca793ac6c8553755ad45633912a901e3f8f5730be76 # shrinks to images = [PauliUnitary { x_bits: [false], z_bits: [false], phase: u2(2) }, PauliUnitary { x_bits: [false], z_bits: [false], phase: u2(0) }]
+cc 74f6faec3da7847d211a32c4800a0c13c7fbc36efb97de0390c1af7034006971 # shrinks to images = [PauliUnitary { x_bits: [false, false], z_bits: [false, false], phase: u2(3) }, PauliUnitary { x_bits: [true, true], z_bits: [false, false], phase: u2(2) }, PauliUnitary { x_bits: [true, false], z_bits: [true, true], phase: u2(0) }, PauliUnitary { x_bits: [false, true], z_bits: [false, true], phase: u2(3) }]
+cc 9fe1a4c96512af1a78ec3c01fa33613774f6c2566ad1876187931088d34fb0c8 # shrinks to (left_pauli, right_pauli) = (PauliUnitary { x_bits: [true], z_bits: [false], phase: u2(3) }, PauliUnitary { x_bits: [false], z_bits: [false], phase: u2(1) })
+cc d1effd36661e845ccb788dfcfe0f66578c4493f44de514743db1adcd5d0a5d46 # shrinks to (left_pauli, right_pauli) = (PauliUnitary { x_bits: [false], z_bits: [true], phase: u2(2) }, PauliUnitary { x_bits: [false], z_bits: [true], phase: u2(1) })
+cc cdd6cdb5bd7b22351af88627f0c5bbeca22423a424a2c8e65e096e0eac43b5b2 # shrinks to (left_pauli, right_pauli) = (PauliUnitary { x_bits: [false], z_bits: [false], phase: u2(2) }, PauliUnitary { x_bits: [true], z_bits: [true], phase: u2(3) })
+cc 0f261b72835c28d2eb8a3a96d73f5b0690b7147f7ebb8d371630093d9ee3a5f7 # shrinks to clifford = CliffordUnitary { bits: BitMatrix { blocks: [BitBlock([1, 0, 0, 0, 0, 0, 0, 0]), BitBlock([1, 0, 0, 0, 0, 0, 0, 0]), BitBlock([0, 0, 0, 0, 0, 0, 0, 0]), BitBlock([1, 0, 0, 0, 0, 0, 0, 0])], rows: [0x7f17c0015ac0, 0x7f17c0015b00, 0x7f17c0015b40, 0x7f17c0015b80], columncount: 1 }, preimage_phase_exponents: [0, 3] }
+cc 42f84a61487df56775c19841d919e7c0767f15e0a0bc7a6d6e923505c8f085a2 # shrinks to clifford = CliffordUnitary { bits: BitMatrix { blocks: [BitBlock([0, 0, 0, 0, 0, 0, 0, 0]), BitBlock([1, 0, 0, 0, 0, 0, 0, 0]), BitBlock([1, 0, 0, 0, 0, 0, 0, 0]), BitBlock([1, 0, 0, 0, 0, 0, 0, 0])], rows: [0x7f8e5c00f300, 0x7f8e5c00f340, 0x7f8e5c00f380, 0x7f8e5c00f3c0], columncount: 1 }, preimage_phase_exponents: [0, 1] }
+cc 652ab4fcd08265ad4740cb9b591eb12f620df56c7a64410901fffaec30b89486 # shrinks to clifford = CliffordUnitary { bits: BitMatrix { blocks: [BitBlock([0, 0, 0, 0, 0, 0, 0, 0]), BitBlock([1, 0, 0, 0, 0, 0, 0, 0]), BitBlock([1, 0, 0, 0, 0, 0, 0, 0]), BitBlock([1, 0, 0, 0, 0, 0, 0, 0])], rows: [0x7ff6e400b980, 0x7ff6e400b9c0, 0x7ff6e400ba00, 0x7ff6e400ba40], columncount: 1 }, preimage_phase_exponents: [1, 2] }
+cc 513f301fe05dcee3193f50dd4e7ad6290619ca92c4bea99acdc53674b2f42246 # shrinks to clifford = CliffordUnitary { bits: BitMatrix { blocks: [], rows: [], columncount: 0 }, preimage_phase_exponents: [] }

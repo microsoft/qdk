@@ -5,10 +5,7 @@
 mod tests;
 
 use crate::{
-    compile::{
-        self, AstPackage, CompileUnit, Dependencies, Offsetter, PackageStore, SourceMap, preprocess,
-    },
-    error::WithSource,
+    compile::{self, AstPackage, CompileUnit, Dependencies, Offsetter, PackageStore, preprocess},
     lower::Lowerer,
     resolve::{self, Resolver},
     typeck::{self, Checker},
@@ -20,7 +17,10 @@ use qsc_ast::{
     validate::Validator as AstValidator,
     visit::Visitor as AstVisitor,
 };
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
+use qsc_data_structures::{
+    error::WithSource, language_features::LanguageFeatures, source::SourceMap,
+    target::TargetCapabilityFlags,
+};
 use qsc_hir::{
     assigner::Assigner as HirAssigner,
     hir::{self, PackageId},
@@ -84,11 +84,18 @@ impl Compiler {
             dropped_names.extend(unit.dropped_names.iter().cloned());
         }
 
+        // This will be the ID of the open package once the store is open.
+        let package_id = store.peek_package_id();
+
         Self {
             ast_assigner: AstAssigner::new(),
-            resolver: Resolver::with_persistent_local_scope(resolve_globals, dropped_names),
+            resolver: Resolver::with_persistent_local_scope(
+                package_id,
+                resolve_globals,
+                dropped_names,
+            ),
             checker: Checker::new(typeck_globals),
-            lowerer: Lowerer::new(),
+            lowerer: Lowerer::new(package_id),
             capabilities,
             language_features,
         }

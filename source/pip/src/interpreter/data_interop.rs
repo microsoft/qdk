@@ -4,13 +4,13 @@
 //! This module contains the types and functions used to build the
 //! data-interop layer between Python and Q#.
 
-use crate::interpreter::QasmError;
+use crate::interpreter::{Closure, GlobalCallable, QasmError};
 
 use super::{Pauli, Result};
 use num_bigint::BigInt;
 use pyo3::{
     IntoPyObjectExt,
-    conversion::FromPyObjectBound,
+    conversion::FromPyObject,
     exceptions::PyTypeError,
     prelude::*,
     types::{PyList, PyTuple},
@@ -26,7 +26,7 @@ use std::rc::Rc;
 /// Instances of this enum represent a Q# type. This is used
 /// to send the definitions of Q# UDTs defined by the user to Python
 /// and creating equivalent Python dataclasses in `qsharp.code.*`.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub(super) enum TypeIR {
     Primitive(PrimitiveKind),
@@ -80,7 +80,7 @@ impl TypeIR {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[pyclass(eq, eq_int, ord)]
+#[pyclass(eq, eq_int, from_py_object, ord)]
 pub(super) enum TypeKind {
     Primitive,
     Tuple,
@@ -89,7 +89,7 @@ pub(super) enum TypeKind {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[pyclass(eq, eq_int, ord)]
+#[pyclass(eq, eq_int, from_py_object, ord)]
 pub(super) enum PrimitiveKind {
     Bool,
     Int,
@@ -100,7 +100,7 @@ pub(super) enum PrimitiveKind {
     Result,
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub(super) struct UdtIR {
     #[pyo3(get)]
@@ -113,7 +113,7 @@ pub(super) struct UdtIR {
 /// It is a `HashMap` to make it simple checking that the
 /// objects have all the required fields to match the UDTs
 /// they represent, without considering the order of the fields.
-pub(super) type UdtFields = FxHashMap<String, PyObject>;
+pub(super) type UdtFields = FxHashMap<String, Py<PyAny>>;
 
 /// This type is used to send instances of UDTs from Q# to Python.
 /// It is a `Vec` and not a `HashMap` to preserve the order of the fields,
@@ -124,10 +124,10 @@ pub(super) struct UdtValue {
     #[pyo3(get)]
     name: String,
     #[pyo3(get)]
-    fields: Vec<(String, PyObject)>,
+    fields: Vec<(String, Py<PyAny>)>,
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub(super) enum PrimitiveValue {
     Bool(bool),
@@ -183,20 +183,21 @@ where
 }
 
 /// Gets the type name of a Python object.
-fn obj_type(py: Python, obj: &PyObject) -> PyResult<String> {
+fn obj_type(py: Python, obj: &Py<PyAny>) -> PyResult<String> {
     Ok(obj.bind(py).get_type().name()?.to_string())
 }
 
 /// A wrapper around the `obj.extract::<T>` functionality that allows to return
 /// user friendly errors when casting fails, similar to the Q# ones.
-fn extract_obj<'py, 'obj, T>(py: Python<'py>, obj: &'obj PyObject, ty: &Ty) -> PyResult<T>
+fn extract_obj<'py, 'obj, T>(py: Python<'py>, obj: &'obj Py<PyAny>, ty: &Ty) -> PyResult<T>
 where
-    T: FromPyObjectBound<'obj, 'py>,
+    T: FromPyObject<'obj, 'py>,
     'py: 'obj,
 {
     match obj.extract::<T>(py) {
         Ok(val) => Ok(val),
         Err(err) => {
+            let err = err.into();
             if err.is_instance_of::<PyTypeError>(py) {
                 // If we have a type error, we return a friendly user error.
                 Err(PyTypeError::new_err(format!(
@@ -218,7 +219,7 @@ where
 pub(super) fn pyobj_to_value(
     ctx: &interpret::Interpreter,
     py: Python,
-    obj: &PyObject,
+    obj: &Py<PyAny>,
     ty: &Ty,
 ) -> PyResult<Value> {
     match ty {
@@ -235,7 +236,7 @@ pub(super) fn pyobj_to_value(
             }
         },
         Ty::Tuple(tup) => {
-            let objs = extract_obj::<Vec<PyObject>>(py, obj, ty)?;
+            let objs = extract_obj::<Vec<Py<PyAny>>>(py, obj, ty)?;
 
             if tup.len() != objs.len() {
                 return Err(PyTypeError::new_err(format!(
@@ -255,7 +256,7 @@ pub(super) fn pyobj_to_value(
             }
         }
         Ty::Array(ty) => {
-            let objs = extract_obj::<Vec<PyObject>>(py, obj, ty)?;
+            let objs = extract_obj::<Vec<Py<PyAny>>>(py, obj, ty)?;
             let ty = &**ty;
             let mut array = Vec::new();
             for obj in &objs {
@@ -272,7 +273,8 @@ pub(super) fn pyobj_to_value(
             match kind {
                 interpret::UdtKind::Angle => {
                     let angle = extract_obj::<f64>(py, obj, ty)?;
-                    let angle = qsc::qasm::stdlib::angle::Angle::from_f64_maybe_sized(angle, None);
+                    let angle =
+                        qsc::openqasm::stdlib::angle::Angle::from_f64_maybe_sized(angle, None);
                     let value = i64::try_from(angle.value)
                         .expect("angles built with `None` size have at most 53 bits");
                     let size = i64::from(angle.size);
@@ -304,6 +306,18 @@ pub(super) fn pyobj_to_value(
                     Ok(Value::Tuple(tuple.into(), None))
                 }
             }
+        }
+        Ty::Arrow(..) => {
+            if let Ok(callable) = extract_obj::<GlobalCallable>(py, obj, ty) {
+                return Ok(callable.into());
+            }
+            if let Ok(callable) = extract_obj::<Closure>(py, obj, ty) {
+                return Ok(callable.into());
+            }
+            Err(PyTypeError::new_err(format!(
+                "expected a callable, found {}",
+                obj_type(py, obj)?
+            )))
         }
         _ => unimplemented!("input type: {ty}"),
     }
@@ -365,7 +379,7 @@ pub(crate) fn value_to_pyobj(
     ctx: &interpret::Interpreter,
     py: Python,
     value: &Value,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     match value {
         Value::Int(val) => val.into_py_any(py),
         Value::BigInt(val) => val.into_py_any(py),
@@ -414,7 +428,7 @@ pub(crate) fn value_to_pyobj(
                     let size = values[1].clone().unwrap_int();
                     let value = u64::try_from(value).expect("value should fit in u64");
                     let size = u32::try_from(size).expect("size should fit in u32");
-                    let angle = qsc::qasm::stdlib::angle::Angle::new(value, size);
+                    let angle = qsc::openqasm::stdlib::angle::Angle::new(value, size);
                     let angle: f64 = angle
                         .try_into()
                         .map_err(|_| QasmError::new_err("failed to cast angle to 64-bit float"))?;
@@ -447,10 +461,16 @@ pub(crate) fn value_to_pyobj(
             }
             PyList::new(py, array)?.into_py_any(py)
         }
-        Value::Closure(..)
-        | Value::Global(..)
-        | Value::Qubit(..)
-        | Value::Range(..)
-        | Value::Var(..) => format!("<{}> {}", value.type_name(), value).into_py_any(py),
+        Value::Global(..) => {
+            let callable: GlobalCallable = value.clone().into();
+            callable.into_py_any(py)
+        }
+        Value::Closure(..) => {
+            let closure: Closure = value.clone().into();
+            closure.into_py_any(py)
+        }
+        Value::Qubit(..) | Value::Range(..) | Value::Var(..) => {
+            format!("<{}> {}", value.type_name(), value).into_py_any(py)
+        }
     }
 }

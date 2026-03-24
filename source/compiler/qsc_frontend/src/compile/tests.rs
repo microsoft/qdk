@@ -5,13 +5,15 @@ mod multiple_packages;
 
 use std::{rc::Rc, sync::Arc};
 
-use super::{CompileUnit, Error, PackageStore, SourceMap, compile, longest_common_prefix};
+use super::{CompileUnit, Error, PackageStore, SourceMap, compile};
 use crate::compile::TargetCapabilityFlags;
 
 use expect_test::expect;
 use indoc::indoc;
 use miette::Diagnostic;
-use qsc_data_structures::{language_features::LanguageFeatures, span::Span};
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::longest_common_prefix, span::Span,
+};
 use qsc_hir::{
     global,
     hir::{
@@ -215,13 +217,7 @@ fn two_files_error() {
         .map(|error| source_span(&unit.sources, error))
         .collect();
 
-    assert_eq!(
-        vec![
-            ("test2", Span { lo: 50, hi: 51 }),
-            ("test2", Span { lo: 50, hi: 53 }),
-        ],
-        errors
-    );
+    assert_eq!(vec![("test2", Span { lo: 50, hi: 51 }),], errors);
 }
 
 #[test]
@@ -242,6 +238,7 @@ fn entry_call_operation() {
     let unit = default_compile(sources);
     assert!(unit.errors.is_empty(), "{:#?}", unit.errors);
 
+    let package = unit.package_id();
     let entry = &unit.package.entry.expect("package should have entry");
     let ExprKind::Call(callee, _) = &entry.kind else {
         panic!("entry should be a call")
@@ -251,7 +248,7 @@ fn entry_call_operation() {
     };
     assert_eq!(
         &Res::Item(ItemId {
-            package: None,
+            package,
             item: LocalItemId::from(1),
         }),
         res
@@ -416,7 +413,7 @@ fn insert_core_call() {
                     body: SpecDecl 3 [18-41]: Impl:
                         Block 4 [39-41] [Type Unit]:
                             Stmt 6 [0-0]: Semi: Expr 7 [0-0] [Type Qubit]: Call:
-                                Expr 8 [0-0] [Type (Unit => Qubit)]: Var: Item 6 (Package 0)
+                                Expr 8 [0-0] [Type (Unit => Qubit)]: Var: Item 8 (Package 0)
                                 Expr 9 [0-0] [Type Unit]: Unit
                     adj: <none>
                     ctl: <none>
@@ -567,8 +564,8 @@ fn package_dependency_internal_error() {
                     output: Int
                     functors: empty set
                     body: SpecDecl 3 [25-76]: Impl:
-                        Block 4 [46-76] [Type Int]:
-                            Stmt 5 [56-70]: Expr: Expr 6 [56-70] [Type Int]: Call:
+                        Block 4 [46-76] [Type ?]:
+                            Stmt 5 [56-70]: Expr: Expr 6 [56-70] [Type ?]: Call:
                                 Expr 7 [56-68] [Type ?]: Var: Err
                                 Expr 8 [68-70] [Type Unit]: Unit
                     adj: <none>

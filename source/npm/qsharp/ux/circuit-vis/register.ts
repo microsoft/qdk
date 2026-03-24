@@ -6,4 +6,4 @@ export {
   type Register,
   type RegisterMap,
   type RegisterRenderData,
-} from "../../src/data-structures/register";
+} from "../../src/data-structures/register.js";

@@ -61,3 +61,21 @@ fn check_select_fuzz() {
         &Value::Tuple(vec![].into(), None),
     );
 }
+
+#[test]
+fn check_select_phase() {
+    test_expression_with_lib(
+        "Test.TestSelectPhase()",
+        SELECT_TEST_LIB,
+        &Value::Tuple(vec![].into(), None),
+    );
+}
+
+#[test]
+fn check_select_longer_address() {
+    test_expression_with_lib(
+        "Test.TestSelectLongerAddress()",
+        SELECT_TEST_LIB,
+        &Value::Tuple(vec![].into(), None),
+    );
+}

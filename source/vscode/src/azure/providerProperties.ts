@@ -9,7 +9,7 @@ const excludeTargets: string[] = [
   "rigetti.qpu.ankaa-2",
 ];
 
-const excludeProviders: string[] = [];
+const excludeProviders: string[] = ["pasqal"];
 
 export function targetSupportQir(target: string) {
   // Note: Most of these should be dynamic at some point, with configuration coming
@@ -29,9 +29,11 @@ export function shouldExcludeProvider(provider: string) {
 }
 
 export function getPreferredTargetProfile(target: string): TargetProfile {
-  if (!target.startsWith("ionq") && !target.startsWith("rigetti")) {
+  if (target.startsWith("ionq") || target.startsWith("rigetti")) {
+    return "base";
+  } else if (target.startsWith("quantinuum") && target.includes(".h2")) {
     return "adaptive_ri";
   } else {
-    return "base";
+    return "adaptive_rif";
   }
 }

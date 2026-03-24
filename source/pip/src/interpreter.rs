@@ -1,6 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(
+    clippy::doc_markdown,
+    reason = "docstrings in this module conform to the python docstring format."
+)]
+
 pub(crate) mod data_interop;
 
 use crate::{
@@ -17,6 +22,11 @@ use crate::{
         pyobj_to_value, type_ir_from_qsharp_ty, value_to_pyobj,
     },
     noisy_simulator::register_noisy_simulator_submodule,
+    qir_simulation::{
+        IdleNoiseParams, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
+        cpu_simulators::{run_clifford, run_cpu_full_state},
+        gpu_full_state::{GpuContext, run_parallel_shots, try_create_gpu_adapter},
+    },
 };
 use miette::{Diagnostic, Report};
 use num_bigint::BigUint;
@@ -29,6 +39,7 @@ use pyo3::{
 };
 use qsc::{
     LanguageFeatures, PackageType, SourceMap,
+    circuit::TracerConfig,
     error::WithSource,
     fir::{self},
     hir::ty::{Prim, Ty},
@@ -36,13 +47,18 @@ use qsc::{
         self, CircuitEntryPoint, PauliNoise, TaggedItem, Value,
         output::{Error, Receiver},
     },
+    openqasm::{
+        CompilerConfig, QubitSemantics,
+        compiler::{compile_to_qsharp_ast_with_config, set_unit_entry_expr},
+    },
     packages::BuildableProgram,
     project::{FileSystem, PackageCache, PackageGraphSources, ProjectType},
-    qasm::{CompilerConfig, QubitSemantics, compiler::compile_to_qsharp_ast_with_config},
     target::Profile,
 };
 
-use resource_estimator::{self as re, estimate_call, estimate_expr};
+use resource_estimator::{
+    self as re, estimate_call, estimate_expr, logical_counts_call, logical_counts_expr,
+};
 use std::{cell::RefCell, fmt::Write, path::PathBuf, rc::Rc, str::FromStr, sync::Arc};
 
 /// If the classes are not Send, the Python interpreter
@@ -68,6 +84,8 @@ fn verify_classes_are_sendable() {
     is_send::<Pauli>();
     is_send::<Output>();
     is_send::<StateDumpData>();
+    is_send::<CircuitConfig>();
+    is_send::<CircuitGenerationMethod>();
     is_send::<Circuit>();
     is_send::<UdtValue>();
     is_send::<UdtFields>();
@@ -75,6 +93,11 @@ fn verify_classes_are_sendable() {
     is_send::<TypeKind>();
     is_send::<PrimitiveKind>();
     is_send::<UdtIR>();
+    is_send::<QirInstructionId>();
+    is_send::<QirInstruction>();
+    is_send::<NoiseConfig>();
+    is_send::<NoiseTable>();
+    is_send::<IdleNoiseParams>();
 }
 
 #[pymodule]
@@ -88,14 +111,27 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_class::<Pauli>()?;
     m.add_class::<Output>()?;
     m.add_class::<StateDumpData>()?;
+    m.add_class::<CircuitConfig>()?;
+    m.add_class::<CircuitGenerationMethod>()?;
     m.add_class::<Circuit>()?;
     m.add_class::<GlobalCallable>()?;
+    m.add_class::<Closure>()?;
     m.add_class::<UdtValue>()?;
     m.add_class::<TypeIR>()?;
     m.add_class::<TypeKind>()?;
     m.add_class::<PrimitiveKind>()?;
     m.add_class::<UdtIR>()?;
+    m.add_class::<QirInstructionId>()?;
+    m.add_class::<QirInstruction>()?;
+    m.add_class::<GpuContext>()?;
+    m.add_class::<NoiseConfig>()?;
+    m.add_class::<NoiseTable>()?;
+    m.add_class::<IdleNoiseParams>()?;
     m.add_function(wrap_pyfunction!(physical_estimates, m)?)?;
+    m.add_function(wrap_pyfunction!(run_clifford, m)?)?;
+    m.add_function(wrap_pyfunction!(try_create_gpu_adapter, m)?)?;
+    m.add_function(wrap_pyfunction!(run_cpu_full_state, m)?)?;
+    m.add_function(wrap_pyfunction!(run_parallel_shots, m)?)?;
     m.add("QSharpError", py.get_type::<QSharpError>())?;
     register_noisy_simulator_submodule(py, m)?;
     register_generic_estimator_submodule(m)?;
@@ -111,7 +147,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
 
 // This ordering must match the _native.pyi file.
 #[derive(Clone, Copy, Default, PartialEq)]
-#[pyclass(eq, eq_int, module = "qsharp._native")]
+#[pyclass(eq, eq_int, from_py_object, module = "qsharp._native")]
 #[allow(non_camel_case_types)]
 /// A Q# target profile.
 ///
@@ -211,7 +247,7 @@ impl From<TargetProfile> for Profile {
 
 // This ordering must match the _native.pyi file.
 #[derive(Clone, Copy, Default, PartialEq)]
-#[pyclass(eq, eq_int, module = "qsharp._native")]
+#[pyclass(eq, eq_int, from_py_object, module = "qsharp._native")]
 #[allow(non_camel_case_types)]
 /// Represents the output semantics for OpenQASM 3 compilation.
 /// Each has implications on the output of the compilation
@@ -261,19 +297,21 @@ impl OutputSemantics {
     }
 }
 
-impl From<OutputSemantics> for qsc::qasm::OutputSemantics {
+impl From<OutputSemantics> for qsc::openqasm::OutputSemantics {
     fn from(output_semantics: OutputSemantics) -> Self {
         match output_semantics {
-            OutputSemantics::Qiskit => qsc::qasm::OutputSemantics::Qiskit,
-            OutputSemantics::OpenQasm => qsc::qasm::OutputSemantics::OpenQasm,
-            OutputSemantics::ResourceEstimation => qsc::qasm::OutputSemantics::ResourceEstimation,
+            OutputSemantics::Qiskit => qsc::openqasm::OutputSemantics::Qiskit,
+            OutputSemantics::OpenQasm => qsc::openqasm::OutputSemantics::OpenQasm,
+            OutputSemantics::ResourceEstimation => {
+                qsc::openqasm::OutputSemantics::ResourceEstimation
+            }
         }
     }
 }
 
 // This ordering must match the _native.pyi file.
 #[derive(Clone, Copy, Default, PartialEq)]
-#[pyclass(eq, eq_int, module = "qsharp._native")]
+#[pyclass(eq, eq_int, from_py_object, module = "qsharp._native")]
 #[allow(non_camel_case_types)]
 /// Represents the type of compilation output to create
 pub enum ProgramType {
@@ -321,12 +359,12 @@ impl ProgramType {
     }
 }
 
-impl From<ProgramType> for qsc::qasm::ProgramType {
+impl From<ProgramType> for qsc::openqasm::ProgramType {
     fn from(output_semantics: ProgramType) -> Self {
         match output_semantics {
-            ProgramType::File => qsc::qasm::ProgramType::File,
-            ProgramType::Operation => qsc::qasm::ProgramType::Operation,
-            ProgramType::Fragments => qsc::qasm::ProgramType::Fragments,
+            ProgramType::File => qsc::openqasm::ProgramType::File,
+            ProgramType::Operation => qsc::openqasm::ProgramType::Operation,
+            ProgramType::Fragments => qsc::openqasm::ProgramType::Fragments,
         }
     }
 }
@@ -336,9 +374,11 @@ impl From<ProgramType> for qsc::qasm::ProgramType {
 pub(crate) struct Interpreter {
     pub(crate) interpreter: interpret::Interpreter,
     /// The Python function to call to create a new function wrapping a callable invocation.
-    pub(crate) make_callable: Option<PyObject>,
+    pub(crate) make_callable: Option<Py<PyAny>>,
     /// The Python function to call to create a class representing a qsharp struct.
-    pub(crate) make_class: Option<PyObject>,
+    pub(crate) make_class: Option<Py<PyAny>>,
+    /// Whether circuit tracing was enabled.
+    trace_circuit: bool,
 }
 
 thread_local! { static PACKAGE_CACHE: Rc<RefCell<PackageCache>> = Rc::default(); }
@@ -348,7 +388,7 @@ thread_local! { static PACKAGE_CACHE: Rc<RefCell<PackageCache>> = Rc::default();
 impl Interpreter {
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::needless_pass_by_value)]
-    #[pyo3(signature = (target_profile, language_features=None, project_root=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, make_callable=None, make_class=None))]
+    #[pyo3(signature = (target_profile, language_features=None, project_root=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, make_callable=None, make_class=None, trace_circuit=None))]
     #[new]
     /// Initializes a new Q# interpreter.
     pub(crate) fn new(
@@ -356,12 +396,13 @@ impl Interpreter {
         target_profile: TargetProfile,
         language_features: Option<Vec<String>>,
         project_root: Option<String>,
-        read_file: Option<PyObject>,
-        list_directory: Option<PyObject>,
-        resolve_path: Option<PyObject>,
-        fetch_github: Option<PyObject>,
-        make_callable: Option<PyObject>,
-        make_class: Option<PyObject>,
+        read_file: Option<Py<PyAny>>,
+        list_directory: Option<Py<PyAny>>,
+        resolve_path: Option<Py<PyAny>>,
+        fetch_github: Option<Py<PyAny>>,
+        make_callable: Option<Py<PyAny>>,
+        make_class: Option<Py<PyAny>>,
+        trace_circuit: Option<bool>,
     ) -> PyResult<Self> {
         let target = Into::<Profile>::into(target_profile).into();
 
@@ -397,43 +438,63 @@ impl Interpreter {
             BuildableProgram::new(target, graph)
         };
 
-        match interpret::Interpreter::new(
-            SourceMap::new(buildable_program.user_code.sources, None),
-            PackageType::Lib,
-            target,
-            buildable_program.user_code.language_features,
-            buildable_program.store,
-            &buildable_program.user_code_dependencies,
-        ) {
-            Ok(interpreter) => {
-                if let Some(make_callable) = &make_callable {
-                    // Add any global callables from the user source as Python functions to the environment.
-                    let exported_items = interpreter.source_globals();
-                    for (namespace, name, val) in exported_items {
-                        create_py_callable(py, make_callable, &namespace, &name, val)?;
-                    }
-                }
-                if let Some(make_class) = &make_class {
-                    // Add any global structs from the user source as Python classes to the environment.
-                    let exported_items = interpreter.source_types();
-                    for TaggedItem {
-                        item_id,
-                        name,
-                        namespace,
-                    } in exported_items
-                    {
-                        let ty = Ty::Udt(name.clone(), qsc::hir::Res::Item(item_id));
-                        create_py_class(&interpreter, py, make_class, &namespace, &name, &ty)?;
-                    }
-                }
-                Ok(Self {
-                    interpreter,
-                    make_callable,
-                    make_class,
-                })
-            }
-            Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
+        let trace_circuit = trace_circuit.unwrap_or(false);
+        let interpreter = if trace_circuit {
+            interpret::Interpreter::with_circuit_trace(
+                SourceMap::new(buildable_program.user_code.sources, None),
+                PackageType::Lib,
+                target,
+                buildable_program.user_code.language_features,
+                buildable_program.store,
+                &buildable_program.user_code_dependencies,
+                // `trace_circuit` is a deprecated option, so here we pass `false`
+                // for any newer features to discourage its use.
+                // The encouraged alternative is to use the `circuit()` method.
+                TracerConfig {
+                    max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
+                    source_locations: false,
+                    group_by_scope: false,
+                    prune_classical_qubits: false,
+                },
+            )
+        } else {
+            interpret::Interpreter::new(
+                SourceMap::new(buildable_program.user_code.sources, None),
+                PackageType::Lib,
+                target,
+                buildable_program.user_code.language_features,
+                buildable_program.store,
+                &buildable_program.user_code_dependencies,
+            )
         }
+        .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
+
+        if let Some(make_callable) = &make_callable {
+            // Add any global callables from the user source as Python functions to the environment.
+            let exported_items = interpreter.source_globals();
+            for (namespace, name, val) in exported_items {
+                create_py_callable(py, make_callable, &namespace, &name, val)?;
+            }
+        }
+        if let Some(make_class) = &make_class {
+            // Add any global structs from the user source as Python classes to the environment.
+            let exported_items = interpreter.source_types();
+            for TaggedItem {
+                item_id,
+                name,
+                namespace,
+            } in exported_items
+            {
+                let ty = Ty::Udt(name.clone(), qsc::hir::Res::Item(item_id));
+                create_py_class(&interpreter, py, make_class, &namespace, &name, &ty)?;
+            }
+        }
+        Ok(Self {
+            interpreter,
+            make_callable,
+            make_class,
+            trace_circuit,
+        })
     }
 
     /// Interprets Q# source code.
@@ -449,8 +510,8 @@ impl Interpreter {
         &mut self,
         py: Python,
         input: &str,
-        callback: Option<PyObject>,
-    ) -> PyResult<PyObject> {
+        callback: Option<Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
         let mut receiver = OptionalCallbackReceiver { callback, py };
         match self.interpreter.eval_fragments(&mut receiver, input) {
             Ok(value) => {
@@ -515,13 +576,13 @@ impl Interpreter {
         &mut self,
         py: Python,
         input: &str,
-        output_fn: Option<PyObject>,
-        read_file: Option<PyObject>,
-        list_directory: Option<PyObject>,
-        resolve_path: Option<PyObject>,
-        fetch_github: Option<PyObject>,
+        output_fn: Option<Py<PyAny>>,
+        read_file: Option<Py<PyAny>>,
+        list_directory: Option<Py<PyAny>>,
+        resolve_path: Option<Py<PyAny>>,
+        fetch_github: Option<Py<PyAny>>,
         kwargs: Option<Bound<'_, PyDict>>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
 
         let operation_name = get_operation_name(&kwargs)?;
@@ -548,9 +609,14 @@ impl Interpreter {
             Some(operation_name.into()),
             None,
         );
-        let res = qsc::qasm::semantic::parse_sources(&sources);
+        let res = qsc::openqasm::semantic::parse_sources(&sources);
         let unit = compile_to_qsharp_ast_with_config(res, config);
-        let (sources, errors, package, _, _) = unit.into_tuple();
+        let (sources, errors, mut package, _, _) = unit.into_tuple();
+
+        // Explicitly set the entry expression for the package. This avoids having the call to `eval_ast_fragments`
+        // below have the side-effect of executing the code, which might have a callable marked as `@EntryPoint`
+        // if the program type is `File` and the QASM code has no unbound inputs.
+        set_unit_entry_expr(&mut package);
 
         if !errors.is_empty() {
             let errors = errors
@@ -612,11 +678,18 @@ impl Interpreter {
         StateDumpData(DisplayableState(state, qubit_count))
     }
 
-    /// Dumps the current circuit state of the interpreter.
+    /// Dumps a circuit showing the current state of the simulator.
     ///
     /// This circuit will contain the gates that have been applied
     /// in the simulator up to the current point.
-    fn dump_circuit(&mut self, py: Python) -> PyResult<PyObject> {
+    ///
+    /// Requires the interpreter to be initialized with `trace_circuit=True`.
+    fn dump_circuit(&mut self, py: Python) -> PyResult<Py<PyAny>> {
+        if !self.trace_circuit {
+            return Err(QSharpError::new_err(
+                "to enable circuit dumping, the interpreter must be created with trace_circuit=True",
+            ));
+        }
         Circuit(self.interpreter.get_circuit()).into_py_any(py)
     }
 
@@ -626,13 +699,19 @@ impl Interpreter {
         &mut self,
         py: Python,
         entry_expr: Option<&str>,
-        callback: Option<PyObject>,
+        callback: Option<Py<PyAny>>,
         noise: Option<(f64, f64, f64)>,
         qubit_loss: Option<f64>,
-        callable: Option<GlobalCallable>,
-        args: Option<PyObject>,
-    ) -> PyResult<PyObject> {
+        callable: Option<Py<PyAny>>,
+        args: Option<Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
         let mut receiver = OptionalCallbackReceiver { callback, py };
+
+        let callable_val = if let Some(callable) = callable {
+            Some(extract_callable_value(py, &callable)?)
+        } else {
+            None
+        };
 
         let noise = match noise {
             None => None,
@@ -642,21 +721,16 @@ impl Interpreter {
             },
         };
 
-        let result = match callable {
+        let result = match callable_val {
             Some(callable) => {
                 let (input_ty, output_ty) = self
                     .interpreter
-                    .global_callable_ty(&callable.0)
+                    .global_callable_ty(&callable)
                     .ok_or(QSharpError::new_err("callable not found"))?;
                 let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
 
-                self.interpreter.invoke_with_noise(
-                    &mut receiver,
-                    callable.0,
-                    args,
-                    noise,
-                    qubit_loss,
-                )
+                self.interpreter
+                    .invoke_with_noise(&mut receiver, callable, args, noise, qubit_loss)
             }
             _ => self
                 .interpreter
@@ -670,22 +744,24 @@ impl Interpreter {
     }
 
     #[pyo3(signature=(callable, args=None, callback=None))]
+    #[allow(clippy::needless_pass_by_value)]
     fn invoke(
         &mut self,
         py: Python,
-        callable: GlobalCallable,
-        args: Option<PyObject>,
-        callback: Option<PyObject>,
-    ) -> PyResult<PyObject> {
+        callable: Py<PyAny>,
+        args: Option<Py<PyAny>>,
+        callback: Option<Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
+        let callable = extract_callable_value(py, &callable)?;
         let mut receiver = OptionalCallbackReceiver { callback, py };
         let (input_ty, output_ty) = self
             .interpreter
-            .global_callable_ty(&callable.0)
+            .global_callable_ty(&callable)
             .ok_or(QSharpError::new_err("callable not found"))?;
 
         let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
 
-        match self.interpreter.invoke(&mut receiver, callable.0, args) {
+        match self.interpreter.invoke(&mut receiver, callable, args) {
             Ok(value) => value_to_pyobj(&self.interpreter, py, &value),
             Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
         }
@@ -696,8 +772,8 @@ impl Interpreter {
         &mut self,
         py: Python,
         entry_expr: Option<&str>,
-        callable: Option<GlobalCallable>,
-        args: Option<PyObject>,
+        callable: Option<Py<PyAny>>,
+        args: Option<Py<PyAny>>,
     ) -> PyResult<String> {
         if let Some(entry_expr) = entry_expr {
             match self.interpreter.qirgen(entry_expr) {
@@ -708,13 +784,14 @@ impl Interpreter {
             let callable = callable.ok_or_else(|| {
                 QSharpError::new_err("either entry_expr or callable must be specified")
             })?;
+            let callable = extract_callable_value(py, &callable)?;
             let (input_ty, output_ty) = self
                 .interpreter
-                .global_callable_ty(&callable.0)
+                .global_callable_ty(&callable)
                 .ok_or(QSharpError::new_err("callable not found"))?;
 
             let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
-            match self.interpreter.qirgen_from_callable(&callable.0, args) {
+            match self.interpreter.qirgen_from_callable(&callable, args) {
                 Ok(qir) => Ok(qir),
                 Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
             }
@@ -723,6 +800,8 @@ impl Interpreter {
 
     /// Synthesizes a circuit for a Q# program. Either an entry
     /// expression or an operation must be provided.
+    ///
+    /// :param config: Circuit generation options.
     ///
     /// :param entry_expr: An entry expression.
     ///
@@ -735,25 +814,27 @@ impl Interpreter {
     /// :param args: The arguments to pass to the callable.
     ///
     /// :raises QSharpError: If there is an error synthesizing the circuit.
-    #[pyo3(signature=(entry_expr=None, operation=None, callable=None, args=None))]
+    #[pyo3(signature=(config, entry_expr=None,*, operation=None, callable=None, args=None))]
     fn circuit(
         &mut self,
         py: Python,
+        config: &CircuitConfig,
         entry_expr: Option<String>,
         operation: Option<String>,
-        callable: Option<GlobalCallable>,
-        args: Option<PyObject>,
-    ) -> PyResult<PyObject> {
+        callable: Option<Py<PyAny>>,
+        args: Option<Py<PyAny>>,
+    ) -> PyResult<Py<PyAny>> {
         let entrypoint = match (entry_expr, operation, callable) {
             (Some(entry_expr), None, None) => CircuitEntryPoint::EntryExpr(entry_expr),
             (None, Some(operation), None) => CircuitEntryPoint::Operation(operation),
             (None, None, Some(callable)) => {
+                let callable = extract_callable_value(py, &callable)?;
                 let (input_ty, output_ty) = self
                     .interpreter
-                    .global_callable_ty(&callable.0)
+                    .global_callable_ty(&callable)
                     .ok_or(QSharpError::new_err("callable not found"))?;
                 let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
-                CircuitEntryPoint::Callable(callable.0, args)
+                CircuitEntryPoint::Callable(callable, args)
             }
             _ => {
                 return Err(PyException::new_err(
@@ -762,7 +843,25 @@ impl Interpreter {
             }
         };
 
-        match self.interpreter.circuit(entrypoint, false) {
+        let tracer_config = qsc::circuit::TracerConfig {
+            max_operations: config
+                .max_operations
+                .unwrap_or(TracerConfig::DEFAULT_MAX_OPERATIONS),
+            source_locations: config.source_locations,
+            group_by_scope: config.group_by_scope,
+            prune_classical_qubits: config.prune_classical_qubits,
+        };
+
+        let generation_method = if let Some(generation_method) = config.generation_method {
+            generation_method.into()
+        } else {
+            qsc::interpret::CircuitGenerationMethod::ClassicalEval
+        };
+
+        match self
+            .interpreter
+            .circuit(entrypoint, generation_method, tracer_config)
+        {
             Ok(circuit) => Circuit(circuit).into_py_any(py),
             Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
         }
@@ -774,8 +873,8 @@ impl Interpreter {
         py: Python,
         job_params: &str,
         entry_expr: Option<&str>,
-        callable: Option<GlobalCallable>,
-        args: Option<PyObject>,
+        callable: Option<Py<PyAny>>,
+        args: Option<Py<PyAny>>,
     ) -> PyResult<String> {
         let results = if let Some(entry_expr) = entry_expr {
             estimate_expr(&mut self.interpreter, entry_expr, job_params)
@@ -783,15 +882,83 @@ impl Interpreter {
             let callable = callable.ok_or_else(|| {
                 QSharpError::new_err("either entry_expr or callable must be specified")
             })?;
+            let callable = extract_callable_value(py, &callable)?;
             let (input_ty, output_ty) = self
                 .interpreter
-                .global_callable_ty(&callable.0)
+                .global_callable_ty(&callable)
                 .ok_or(QSharpError::new_err("callable not found"))?;
             let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
-            estimate_call(&mut self.interpreter, callable.0, args, job_params)
+            estimate_call(&mut self.interpreter, callable, args, job_params)
         };
         match results {
             Ok(estimate) => Ok(estimate),
+            Err(errors) if matches!(errors[0], re::Error::Interpreter(_)) => {
+                Err(QSharpError::new_err(format_errors(
+                    errors
+                        .into_iter()
+                        .map(|e| match e {
+                            re::Error::Interpreter(e) => e,
+                            re::Error::Estimation(_) => unreachable!(),
+                        })
+                        .collect::<Vec<_>>(),
+                )))
+            }
+            Err(errors) => Err(QSharpError::new_err(
+                errors
+                    .into_iter()
+                    .map(|e| match e {
+                        re::Error::Estimation(e) => e.to_string(),
+                        re::Error::Interpreter(_) => unreachable!(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            )),
+        }
+    }
+
+    #[pyo3(signature=(entry_expr=None, callable=None, args=None))]
+    fn logical_counts<'a>(
+        &mut self,
+        py: Python<'a>,
+        entry_expr: Option<&str>,
+        callable: Option<Py<PyAny>>,
+        args: Option<Py<PyAny>>,
+    ) -> PyResult<Bound<'a, PyDict>> {
+        let results = if let Some(entry_expr) = entry_expr {
+            logical_counts_expr(&mut self.interpreter, entry_expr)
+        } else {
+            let callable = callable.ok_or_else(|| {
+                QSharpError::new_err("either entry_expr or callable must be specified")
+            })?;
+            let callable = extract_callable_value(py, &callable)?;
+            let (input_ty, output_ty) = self
+                .interpreter
+                .global_callable_ty(&callable)
+                .ok_or(QSharpError::new_err("callable not found"))?;
+            let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
+            logical_counts_call(&mut self.interpreter, callable, args)
+        };
+        match results {
+            Ok(counts) => {
+                let dict = PyDict::new(py);
+                dict.set_item("numQubits", counts.num_qubits)?;
+                dict.set_item("tCount", counts.t_count)?;
+                dict.set_item("rotationCount", counts.rotation_count)?;
+                dict.set_item("rotationDepth", counts.rotation_depth)?;
+                dict.set_item("cczCount", counts.ccz_count)?;
+                dict.set_item("ccixCount", counts.ccix_count)?;
+                dict.set_item("measurementCount", counts.measurement_count)?;
+                if let Some(num_compute_qubits) = counts.num_compute_qubits {
+                    dict.set_item("numComputeQubits", num_compute_qubits)?;
+                }
+                if let Some(read_from_memory_count) = counts.read_from_memory_count {
+                    dict.set_item("readFromMemoryCount", read_from_memory_count)?;
+                }
+                if let Some(write_to_memory_count) = counts.write_to_memory_count {
+                    dict.set_item("writeToMemoryCount", write_to_memory_count)?;
+                }
+                Ok(dict)
+            }
             Err(errors) if matches!(errors[0], re::Error::Interpreter(_)) => {
                 Err(QSharpError::new_err(format_errors(
                     errors
@@ -820,7 +987,7 @@ impl Interpreter {
 fn args_to_values(
     ctx: &interpret::Interpreter,
     py: Python,
-    args: Option<PyObject>,
+    args: Option<Py<PyAny>>,
     input_ty: &Ty,
     output_ty: &Ty,
 ) -> PyResult<Value> {
@@ -899,7 +1066,20 @@ where
 
             None
         }
-        Ty::Arrow(..) | Ty::Infer(..) | Ty::Param { .. } | Ty::Err => Some(ty),
+        Ty::Arrow(..) => None,
+        Ty::Infer(..) | Ty::Param { .. } | Ty::Err => Some(ty),
+    }
+}
+
+fn extract_callable_value(py: Python, callable: &Py<PyAny>) -> PyResult<Value> {
+    if let Ok(global_callable) = callable.extract::<GlobalCallable>(py) {
+        Ok(global_callable.0)
+    } else if let Ok(closure) = callable.extract::<Closure>(py) {
+        Ok(closure.0)
+    } else {
+        Err(PyException::new_err(
+            "callable must be either a GlobalCallable or a Closure",
+        ))
     }
 }
 
@@ -936,14 +1116,14 @@ pub(crate) fn format_errors(errors: Vec<interpret::Error>) -> String {
 pub(crate) fn format_error(e: &interpret::Error) -> String {
     let mut message = String::new();
     if let Some(stack_trace) = e.stack_trace() {
-        write!(message, "{stack_trace}").unwrap();
+        write!(message, "{stack_trace}").expect("write should succeed");
     }
     let additional_help = python_help(e);
     let report = Report::new(e.clone());
     write!(message, "{report:?}")
         .unwrap_or_else(|err| panic!("writing error failed: {err} error was: {e:?}"));
     if let Some(additional_help) = additional_help {
-        writeln!(message, "{additional_help}").unwrap();
+        writeln!(message, "{additional_help}").expect("write should succeed");
     }
     message
 }
@@ -1012,7 +1192,7 @@ impl Output {
 }
 
 #[pyclass]
-/// Captured simlation state dump.
+/// Captured simulation state dump.
 pub(crate) struct StateDumpData(pub(crate) DisplayableState);
 
 #[pymethods]
@@ -1054,7 +1234,7 @@ impl StateDumpData {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[pyclass(eq, eq_int, ord)]
+#[pyclass(eq, eq_int, from_py_object, ord)]
 /// A Q# measurement result.
 pub(crate) enum Result {
     Zero,
@@ -1098,7 +1278,7 @@ impl Result {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-#[pyclass(eq, eq_int)]
+#[pyclass(eq, eq_int, from_py_object)]
 /// A Q# Pauli operator.
 pub(crate) enum Pauli {
     I,
@@ -1119,7 +1299,7 @@ impl From<Pauli> for fir::Pauli {
 }
 
 pub(crate) struct OptionalCallbackReceiver<'a> {
-    pub(crate) callback: Option<PyObject>,
+    pub(crate) callback: Option<Py<PyAny>>,
     pub(crate) py: Python<'a>,
 }
 
@@ -1181,12 +1361,69 @@ impl Receiver for OptionalCallbackReceiver<'_> {
 }
 
 #[pyclass]
+pub(crate) struct CircuitConfig {
+    #[pyo3(get, set)]
+    pub(crate) max_operations: Option<usize>,
+    #[pyo3(get, set)]
+    pub(crate) generation_method: Option<CircuitGenerationMethod>,
+    #[pyo3(get, set)]
+    pub(crate) source_locations: bool,
+    #[pyo3(get, set)]
+    pub(crate) group_by_scope: bool,
+    #[pyo3(get, set)]
+    pub(crate) prune_classical_qubits: bool,
+}
+
+#[pymethods]
+impl CircuitConfig {
+    #[new]
+    #[pyo3(signature=(*,max_operations=None, generation_method=None, source_locations=false, group_by_scope=false, prune_classical_qubits=false))]
+    fn new(
+        max_operations: Option<usize>,
+        generation_method: Option<CircuitGenerationMethod>,
+        source_locations: bool,
+        group_by_scope: bool,
+        prune_classical_qubits: bool,
+    ) -> Self {
+        Self {
+            max_operations,
+            generation_method,
+            source_locations,
+            group_by_scope,
+            prune_classical_qubits,
+        }
+    }
+}
+
+#[pyclass(from_py_object)]
+#[derive(Clone, Copy)]
+pub(crate) enum CircuitGenerationMethod {
+    ClassicalEval,
+    Simulate,
+    Static,
+}
+
+impl From<CircuitGenerationMethod> for qsc::interpret::CircuitGenerationMethod {
+    fn from(value: CircuitGenerationMethod) -> Self {
+        match value {
+            CircuitGenerationMethod::ClassicalEval => {
+                qsc::interpret::CircuitGenerationMethod::ClassicalEval
+            }
+            CircuitGenerationMethod::Simulate => qsc::interpret::CircuitGenerationMethod::Simulate,
+            CircuitGenerationMethod::Static => qsc::interpret::CircuitGenerationMethod::Static,
+        }
+    }
+}
+
+#[pyclass]
 pub(crate) struct Circuit(pub qsc::circuit::Circuit);
 
 #[pymethods]
 impl Circuit {
     fn __repr__(&self) -> String {
-        self.0.to_string()
+        // Disable rendering source locations for user-facing string representation,
+        // as they make the circuit look cluttered.
+        self.0.display_no_locations().to_string()
     }
 
     fn __str__(&self) -> String {
@@ -1222,7 +1459,7 @@ where
     }
 }
 
-#[pyclass(unsendable)]
+#[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 struct GlobalCallable(Value);
 
@@ -1241,10 +1478,29 @@ impl From<GlobalCallable> for Value {
     }
 }
 
+#[pyclass(from_py_object, unsendable)]
+#[derive(Clone)]
+struct Closure(Value);
+
+impl From<Value> for Closure {
+    fn from(val: Value) -> Self {
+        match val {
+            val @ Value::Closure(..) => Closure(val),
+            _ => panic!("expected closure"),
+        }
+    }
+}
+
+impl From<Closure> for Value {
+    fn from(val: Closure) -> Self {
+        val.0
+    }
+}
+
 /// Create a Python callable from a Q# callable and adds it to the given environment.
 fn create_py_callable(
     py: Python,
-    make_callable: &PyObject,
+    make_callable: &Py<PyAny>,
     namespace: &[Rc<str>],
     name: &str,
     val: Value,
@@ -1270,7 +1526,7 @@ fn create_py_callable(
 fn create_py_class(
     ctx: &interpret::Interpreter,
     py: Python,
-    make_class: &PyObject,
+    make_class: &Py<PyAny>,
     namespace: &[Rc<str>],
     name: &str,
     ty: &Ty,

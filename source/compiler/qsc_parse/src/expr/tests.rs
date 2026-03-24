@@ -1194,6 +1194,48 @@ fn array_pair() {
 }
 
 #[test]
+fn array_without_commas() {
+    check(
+        expr,
+        "[1. 0. 0.]",
+        &expect![[r#"
+            Error(
+                Token(
+                    Comma,
+                    Float,
+                    Span {
+                        lo: 4,
+                        hi: 6,
+                    },
+                ),
+            )
+        "#]],
+    );
+}
+
+#[test]
+fn array_single_without_ending_bracket() {
+    check(
+        expr,
+        "[1.;",
+        &expect![[r#"
+            Error(
+                Token(
+                    Close(
+                        Bracket,
+                    ),
+                    Semi,
+                    Span {
+                        lo: 3,
+                        hi: 4,
+                    },
+                ),
+            )
+        "#]],
+    );
+}
+
+#[test]
 fn array_repeat() {
     check(
         expr,

@@ -101,6 +101,7 @@ fn to_circuit_group(mut json: Map<String, Value>) -> Result<CircuitGroup, Error>
                                 .unwrap_or(0),
                         )
                         .map_err(|_| Error::custom("Value of 'numChildren' is out of range"))?,
+                        declarations: vec![],
                     })
                 })
                 .collect::<Result<Vec<Qubit>, Error>>()?
@@ -119,7 +120,7 @@ fn to_circuit_group(mut json: Map<String, Value>) -> Result<CircuitGroup, Error>
                     .map(from_value)
                     .collect::<Result<Vec<Operation>, Error>>()?;
 
-                operation_list_to_grid(operation_list, qubits.len())
+                operation_list_to_grid(operation_list, &qubits)
             } else {
                 unreachable!("We checked that operations exists");
             };
@@ -160,7 +161,7 @@ fn map_register_field(field: Option<&Value>) -> Vec<Value> {
                             register.insert("result".to_string(), c_id.clone());
                         }
                         // Note: if "qId" is missing, the json deserialization later on
-                        // will fail and produce the approprate error
+                        // will fail and produce the appropriate error
                         if let Some(q_id) = item.get("qId") {
                             register.insert("qubit".to_string(), q_id.clone());
                         }
@@ -180,14 +181,14 @@ fn to_operation(op: &mut Value) {
     let targets = map_register_field(op.get("targets"));
     let controls = map_register_field(op.get("controls"));
 
-    if let Some(children) = op.get_mut("children") {
-        if let Some(children_array) = children.as_array_mut() {
-            children_array.iter_mut().for_each(to_operation);
-            let component_column = serde_json::json!({
-                "components": children_array
-            });
-            op.insert("children".to_string(), Value::Array(vec![component_column]));
-        }
+    if let Some(children) = op.get_mut("children")
+        && let Some(children_array) = children.as_array_mut()
+    {
+        children_array.iter_mut().for_each(to_operation);
+        let component_column = serde_json::json!({
+            "components": children_array
+        });
+        op.insert("children".to_string(), Value::Array(vec![component_column]));
     }
 
     if let Some(display_args) = op.get("displayArgs") {

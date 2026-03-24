@@ -7,9 +7,9 @@
     "jupyterlab",
     "jupyterlab-extension"
   ],
-  "homepage": "https://github.com/microsoft/qsharp",
+  "homepage": "https://github.com/microsoft/qdk",
   "bugs": {
-    "url": "https://github.com/microsoft/qsharp/issues"
+    "url": "https://github.com/microsoft/qdk/issues"
   },
   "license": "MIT",
   "author": {
@@ -22,7 +22,7 @@
   "types": "lib/index.d.ts",
   "repository": {
     "type": "git",
-    "url": "https://github.com/microsoft/qsharp.git"
+    "url": "https://github.com/microsoft/qdk.git"
   },
   "scripts": {
     "build": "npm run build:lib && npm run build:labextension:prod",

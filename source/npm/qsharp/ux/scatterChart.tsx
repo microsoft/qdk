@@ -179,7 +179,7 @@ export function ScatterChart(props: {
     }
   });
 
-  // The mouse events (over, out, and click) bubble, so put the hanlders on the
+  // The mouse events (over, out, and click) bubble, so put the handlers on the
   // SVG element and check the target element in the handler.
   return (
     <div style="position: relative">
@@ -272,7 +272,7 @@ export function ScatterChart(props: {
           x={xLeftMargin - axisTitleHeight}
           y={-svgHeight + yMargin}
         >
-          Created with Azure Quantum Resource Estimator
+          Created with Microsoft Quantum Resource Estimator
         </text>
         <g>
           {props.data.map((series, seriesIdx) => {

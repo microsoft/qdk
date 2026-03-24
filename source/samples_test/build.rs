@@ -36,7 +36,7 @@ fn create_tests_for_files(folder: &str) {
 //! DO NOT MANUALLY EDIT THIS FILE. To regenerate this file, run `cargo check` or `cargo test` in the `samples_test` directory.
 
 use super::{folder}::*;
-use super::{{compile_and_run, compile_and_run_debug}};
+use super::{{compile_and_run, compile_and_run_debug, circuit, qirgen}};
 use qsc::SourceMap;"#,
     )
     .expect("writing to file should succeed");
@@ -89,6 +89,24 @@ fn debug_{file_stem}() {{
     // This constant must be defined in `samples_test/src/tests/{folder}.rs` and
     // must contain the output of the sample {file_name}
     {file_stem_upper}_EXPECT_DEBUG.assert_eq(&output);
+}}
+
+#[allow(non_snake_case)]
+#[test]
+fn circuit_{file_stem}() {{
+    let circuit = circuit({file_stem}_src());
+    // This constant must be defined in `samples_test/src/tests/{folder}.rs` and
+    // must contain the circuit for the sample {file_name}
+    {file_stem_upper}_EXPECT_CIRCUIT.assert_eq(&circuit);
+}}
+
+#[allow(non_snake_case)]
+#[test]
+fn qirgen_{file_stem}() {{
+    let qir = qirgen({file_stem}_src());
+    // This constant must be defined in `samples_test/src/tests/{folder}.rs` and
+    // must contain the QIR for the sample {file_name}
+    {file_stem_upper}_EXPECT_QIR.assert_eq(&qir);
 }}"#
         )
         .expect("writing to file should succeed");
@@ -162,8 +180,7 @@ fn create_tests_for_projects() {
     {
         let entry = entry.expect("directory entries should be readable");
         let path = entry.path();
-        // Exclude samples/scratch
-        if path.is_dir() && path.file_name().and_then(OsStr::to_str) != Some("scratch") {
+        if path.is_dir() {
             paths.append(&mut collect_qsharp_project_folders(&path));
         }
     }
@@ -217,6 +234,10 @@ fn compile_{file_stem_cleaned}() {{
 }
 
 fn collect_qsharp_project_folders(path: &Path) -> Vec<PathBuf> {
+    if is_project_excluded(path) {
+        return Vec::new();
+    }
+
     // Recursively search for all qsharp.json projects in the samples directory and return
     // a list of their containing folders
     let mut projects = Vec::new();
@@ -233,6 +254,15 @@ fn collect_qsharp_project_folders(path: &Path) -> Vec<PathBuf> {
         }
     }
     projects
+}
+
+fn is_project_excluded(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+        return false;
+    };
+
+    // Skip projects that rely on GitHub-hosted dependencies that the test filesystem cannot resolve.
+    name == "scratch" || name == "SPSA" || name == "HypercubeLookup"
 }
 
 fn create_tests_for_qasm_files(folder: &str) {
@@ -254,7 +284,7 @@ fn create_tests_for_qasm_files(folder: &str) {
 //! DO NOT MANUALLY EDIT THIS FILE. To regenerate this file, run `cargo check` or `cargo test` in the `samples_test` directory.
 
 use super::{folder}::*;
-use super::{{compile_and_run_qasm, compile_and_run_debug_qasm}};"#,
+use super::{{compile_and_run_qasm, compile_and_run_debug_qasm, circuit_qasm, qirgen_qasm}};"#,
     )
     .expect("writing to file should succeed");
 
@@ -303,6 +333,24 @@ fn debug_{file_stem}() {{
     // This constant must be defined in `samples_test/src/tests/{folder}.rs` and
     // must contain the output of the sample {file_name}
     {file_stem_upper}_EXPECT_DEBUG.assert_eq(&output);
+}}
+
+#[allow(non_snake_case)]
+#[test]
+fn circuit_{file_stem}() {{
+    let circuit = circuit_qasm({file_stem}_src());
+    // This constant must be defined in `samples_test/src/tests/{folder}.rs` and
+    // must contain the output of the sample {file_name}
+    {file_stem_upper}_EXPECT_CIRCUIT.assert_eq(&circuit);
+}}
+
+#[allow(non_snake_case)]
+#[test]
+fn qirgen_{file_stem}() {{
+    let qir = qirgen_qasm({file_stem}_src());
+    // This constant must be defined in `samples_test/src/tests/{folder}.rs` and
+    // must contain the output of the sample {file_name}
+    {file_stem_upper}_EXPECT_QIR.assert_eq(&qir);
 }}"#
         )
         .expect("writing to file should succeed");

@@ -12,6 +12,10 @@ import {
   ReData,
   Circuit,
   setRenderer,
+  Atoms,
+  type ZoneLayout,
+  type TraceData,
+  MoleculeViewer,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
@@ -38,12 +42,12 @@ type RenderArgs = {
   el: HTMLElement;
 };
 
-export function render({ model, el }: RenderArgs) {
+function render({ model, el }: RenderArgs) {
   const componentType = model.get("comp");
 
   // There is an existing issue where in VS Code it always shows the widget background as white.
   // (See https://github.com/microsoft/vscode-jupyter/issues/7161)
-  // We tried to fix this in CSS by overridding the style, but there is a race condition whereby
+  // We tried to fix this in CSS by overriding the style, but there is a race condition whereby
   // depending on which style gets injected first (ours or ipywidgets), it may or may not work.
 
   // The solution here is to force our own override to be last in the style list if not already.
@@ -76,10 +80,20 @@ export function render({ model, el }: RenderArgs) {
     case "Circuit":
       renderCircuit({ model, el });
       break;
+    case "Atoms":
+      renderAtoms({ model, el });
+      break;
+    case "MoleculeViewer":
+      renderMoleculeViewer({ model, el });
+      break;
     default:
       throw new Error(`Unknown component type ${componentType}`);
   }
 }
+
+export default {
+  render,
+};
 
 function renderTable({ model, el }: RenderArgs) {
   const onChange = () => {
@@ -218,6 +232,10 @@ function renderHistogram({ model, el }: RenderArgs) {
     const buckets = model.get("buckets") as { [key: string]: number };
     const bucketMap = new Map(Object.entries(buckets));
     const shot_count = model.get("shot_count") as number;
+    const shot_header = model.get("shot_header") as boolean;
+    const labels = model.get("labels") as "raw" | "kets" | "none";
+    const items = model.get("items") as "all" | "top-10" | "top-25";
+    const sort = model.get("sort") as "a-to-z" | "high-to-low" | "low-to-high";
 
     prender(
       <Histogram
@@ -225,7 +243,10 @@ function renderHistogram({ model, el }: RenderArgs) {
         shotCount={shot_count}
         filter={""}
         onFilter={() => undefined}
-        shotsHeader={true}
+        shotsHeader={shot_header}
+        labels={labels}
+        items={items}
+        sort={sort}
       ></Histogram>,
       el,
     );
@@ -234,14 +255,68 @@ function renderHistogram({ model, el }: RenderArgs) {
   onChange();
   model.on("change:buckets", onChange);
   model.on("change:shot_count", onChange);
+  model.on("change:shot_header", onChange);
+  model.on("change:labels", onChange);
+  model.on("change:items", onChange);
+  model.on("change:sort", onChange);
 }
 
 function renderCircuit({ model, el }: RenderArgs) {
   const onChange = () => {
     const circuitJson = model.get("circuit_json") as string;
-    prender(<Circuit circuit={JSON.parse(circuitJson)}></Circuit>, el);
+    prender(
+      <Circuit
+        circuit={JSON.parse(circuitJson)}
+        renderLocations={(locations) => {
+          return {
+            title: locations
+              .map((loc) => `${loc.file}:${loc.line}:${loc.column}`)
+              .join("\n"),
+            href: "#",
+          };
+        }}
+      ></Circuit>,
+      el,
+    );
   };
 
   onChange();
   model.on("change:circuit_json", onChange);
+}
+
+function renderAtoms({ model, el }: RenderArgs) {
+  const onChange = () => {
+    const machineLayout = model.get("machine_layout") as ZoneLayout;
+    const traceData = model.get("trace_data") as TraceData;
+
+    if (!machineLayout || !traceData) {
+      return;
+    }
+
+    Atoms(el, machineLayout, traceData);
+  };
+
+  onChange();
+  model.on("change:machine_layout", onChange);
+  model.on("change:trace_data", onChange);
+}
+
+function renderMoleculeViewer({ model, el }: RenderArgs) {
+  const onChange = () => {
+    const moleculeData = model.get("molecule_data") as string;
+    const cubeData = model.get("cube_data") as { [key: string]: string };
+    const isoval = model.get("isoval") as number;
+    prender(
+      <MoleculeViewer
+        moleculeData={moleculeData}
+        cubeData={cubeData || {}}
+        isoValue={isoval}
+      ></MoleculeViewer>,
+      el,
+    );
+  };
+  onChange();
+  model.on("change:molecule_data", onChange);
+  model.on("change:cube_data", onChange);
+  model.on("change:isoval", onChange);
 }

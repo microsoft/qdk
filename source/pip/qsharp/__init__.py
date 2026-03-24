@@ -9,6 +9,7 @@ from ._qsharp import (
     compile,
     circuit,
     estimate,
+    logical_counts,
     set_quantum_seed,
     set_classical_seed,
     dump_machine,
@@ -19,6 +20,7 @@ from ._qsharp import (
     DepolarizingNoise,
     BitFlipNoise,
     PhaseFlipNoise,
+    CircuitGenerationMethod,
 )
 
 telemetry_events.on_import()
@@ -48,6 +50,7 @@ __all__ = [
     "circuit",
     "estimate",
     "estimate_custom",
+    "logical_counts",
     "Result",
     "Pauli",
     "QSharpError",
@@ -58,4 +61,5 @@ __all__ = [
     "DepolarizingNoise",
     "BitFlipNoise",
     "PhaseFlipNoise",
+    "CircuitGenerationMethod",
 ]

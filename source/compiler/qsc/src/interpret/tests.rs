@@ -5,9 +5,9 @@ mod given_interpreter {
     use crate::interpret::{InterpretResult, Interpreter};
     use expect_test::Expect;
     use miette::Diagnostic;
+    use qsc_data_structures::source::SourceMap;
     use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
     use qsc_eval::{output::CursorReceiver, val::Value};
-    use qsc_frontend::compile::SourceMap;
     use qsc_passes::PackageType;
     use std::{fmt::Write, io::Cursor, iter, str::from_utf8};
 
@@ -68,7 +68,7 @@ mod given_interpreter {
         use super::*;
 
         mod without_stdlib {
-            use qsc_frontend::compile::SourceMap;
+            use qsc_data_structures::source::SourceMap;
             use qsc_passes::PackageType;
 
             use super::*;
@@ -93,8 +93,6 @@ mod given_interpreter {
                     &expect![[r#"
                         name error: `Message` not found
                            [line_0] [Message]
-                        type error: insufficient type information to infer type
-                           [line_0] [Message("_")]
                     "#]],
                 );
             }
@@ -167,7 +165,7 @@ mod given_interpreter {
         }
 
         #[test]
-        fn invalid_statements_and_unbound_vars_return_error() {
+        fn invalid_statements_and_unbound_vars_return_error_on_immutable_usage() {
             let mut interpreter = get_interpreter();
 
             let (result, output) = line(&mut interpreter, "let y = x;");
@@ -188,6 +186,87 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     runtime error: name is not bound
+                       [line_1] [y]
+                "#]],
+            );
+        }
+
+        #[test]
+        fn invalid_statements_and_unbound_vars_return_error_on_mutable_update() {
+            let mut interpreter = get_interpreter();
+
+            let (result, output) = line(&mut interpreter, "mutable y = x;");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    name error: `x` not found
+                       [line_0] [x]
+                    type error: insufficient type information to infer type
+                       [line_0] [y]
+                "#]],
+            );
+
+            let (result, output) = line(&mut interpreter, "y = 3");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    cannot update immutable variable
+                       [line_1] [y]
+                "#]],
+            );
+        }
+
+        #[test]
+        fn invalid_statements_and_unbound_vars_return_error_on_immutable_usage_with_rca() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+
+            let (result, output) = line(&mut interpreter, "let y = x;");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    name error: `x` not found
+                       [line_0] [x]
+                    type error: insufficient type information to infer type
+                       [line_0] [y]
+                "#]],
+            );
+
+            let (result, output) = line(&mut interpreter, "y");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    runtime error: name is not bound
+                       [line_1] [y]
+                "#]],
+            );
+        }
+
+        #[test]
+        fn invalid_statements_and_unbound_vars_return_error_on_mutable_update_with_rca() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+
+            let (result, output) = line(&mut interpreter, "mutable y = x;");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    name error: `x` not found
+                       [line_0] [x]
+                    type error: insufficient type information to infer type
+                       [line_0] [y]
+                "#]],
+            );
+
+            let (result, output) = line(&mut interpreter, "y = 3");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    cannot update immutable variable
                        [line_1] [y]
                 "#]],
             );
@@ -510,8 +589,6 @@ mod given_interpreter {
                       ambiguous name [line_3] [DumpMachine]
                       found in this namespace [line_1] [Other]
                       and also in this namespace [line_2] [Std.Diagnostics]
-                    type error: insufficient type information to infer type
-                       [line_3] [DumpMachine()]
                 "#]],
             );
         }
@@ -912,13 +989,18 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                define void @ENTRYPOINT__main() #0 {
+                @0 = internal constant [4 x i8] c"0_r\00"
+
+                define i64 @ENTRYPOINT__main() #0 {
                 block_0:
+                  call void @__quantum__rt__initialize(i8* null)
                   call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
                   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-                  ret void
+                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0
                 }
+
+                declare void @__quantum__rt__initialize(i8*)
 
                 declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
 
@@ -943,9 +1025,7 @@ mod given_interpreter {
         #[test]
         fn adaptive_qirgen() {
             let mut interpreter = get_interpreter_with_capabilities(
-                TargetCapabilityFlags::Adaptive
-                    | TargetCapabilityFlags::QubitReset
-                    | TargetCapabilityFlags::IntegerComputations,
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
             );
             let (result, output) = line(
                 &mut interpreter,
@@ -973,15 +1053,20 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                define void @ENTRYPOINT__main() #0 {
+                @0 = internal constant [4 x i8] c"0_r\00"
+
+                define i64 @ENTRYPOINT__main() #0 {
                 block_0:
+                  call void @__quantum__rt__initialize(i8* null)
                   call void @__quantum__qis__rz__body(double 2.0, %Qubit* inttoptr (i64 0 to %Qubit*))
                   call void @__quantum__qis__rz__body(double 0.0, %Qubit* inttoptr (i64 0 to %Qubit*))
                   call void @__quantum__qis__rz__body(double 1.0, %Qubit* inttoptr (i64 0 to %Qubit*))
                   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-                  ret void
+                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0
                 }
+
+                declare void @__quantum__rt__initialize(i8*)
 
                 declare void @__quantum__qis__rz__body(double, %Qubit*)
 
@@ -1000,16 +1085,15 @@ mod given_interpreter {
                 !1 = !{i32 7, !"qir_minor_version", i32 0}
                 !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
                 !3 = !{i32 1, !"dynamic_result_management", i1 false}
-                !4 = !{i32 1, !"int_computations", !"i64"}
+                !4 = !{i32 5, !"int_computations", !{!"i64"}}
             "#]]
             .assert_eq(&res);
         }
 
         #[test]
         fn adaptive_qirgen_nested_output_types() {
-            let mut interpreter = get_interpreter_with_capabilities(
-                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::QubitReset,
-            );
+            let mut interpreter =
+                get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);
             let (result, output) = line(
                 &mut interpreter,
                 indoc! {r#"
@@ -1030,23 +1114,32 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                define void @ENTRYPOINT__main() #0 {
+                @0 = internal constant [4 x i8] c"0_t\00"
+                @1 = internal constant [6 x i8] c"1_t0r\00"
+                @2 = internal constant [6 x i8] c"2_t1t\00"
+                @3 = internal constant [8 x i8] c"3_t1t0b\00"
+                @4 = internal constant [8 x i8] c"4_t1t1b\00"
+
+                define i64 @ENTRYPOINT__main() #0 {
                 block_0:
+                  call void @__quantum__rt__initialize(i8* null)
                   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-                  %var_0 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
-                  %var_2 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+                  %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+                  %var_2 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
                   %var_3 = icmp eq i1 %var_2, false
-                  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
-                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-                  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
-                  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* null)
-                  call void @__quantum__rt__bool_record_output(i1 %var_3, i8* null)
-                  ret void
+                  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+                  call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+                  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @3, i64 0, i64 0))
+                  call void @__quantum__rt__bool_record_output(i1 %var_3, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @4, i64 0, i64 0))
+                  ret i64 0
                 }
+
+                declare void @__quantum__rt__initialize(i8*)
 
                 declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-                declare i1 @__quantum__qis__read_result__body(%Result*)
+                declare i1 @__quantum__rt__read_result(%Result*)
 
                 declare void @__quantum__rt__tuple_record_output(i64, i8*)
 
@@ -1107,13 +1200,18 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                define void @ENTRYPOINT__main() #0 {
+                @0 = internal constant [4 x i8] c"0_r\00"
+
+                define i64 @ENTRYPOINT__main() #0 {
                 block_0:
+                  call void @__quantum__rt__initialize(i8* null)
                   call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
                   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-                  ret void
+                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0
                 }
+
+                declare void @__quantum__rt__initialize(i8*)
 
                 declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
 
@@ -1151,13 +1249,18 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                define void @ENTRYPOINT__main() #0 {
+                @0 = internal constant [4 x i8] c"0_r\00"
+
+                define i64 @ENTRYPOINT__main() #0 {
                 block_0:
+                  call void @__quantum__rt__initialize(i8* null)
                   call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
                   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-                  ret void
+                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0
                 }
+
+                declare void @__quantum__rt__initialize(i8*)
 
                 declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
 
@@ -1186,8 +1289,6 @@ mod given_interpreter {
                 &expect![[r#"
                     name error: `Bar` not found
                        [line_1] [Bar]
-                    type error: insufficient type information to infer type
-                       [line_1] [Bar()]
                 "#]],
             );
         }
@@ -1227,13 +1328,18 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                define void @ENTRYPOINT__main() #0 {
+                @0 = internal constant [4 x i8] c"0_r\00"
+
+                define i64 @ENTRYPOINT__main() #0 {
                 block_0:
+                  call void @__quantum__rt__initialize(i8* null)
                   call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
                   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-                  ret void
+                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0
                 }
+
+                declare void @__quantum__rt__initialize(i8*)
 
                 declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
 
@@ -1267,8 +1373,6 @@ mod given_interpreter {
                 &expect![[r#"
                     name error: `Bar` not found
                        [line_2] [Bar]
-                    type error: insufficient type information to infer type
-                       [line_2] [Bar()]
                 "#]],
             );
         }
@@ -1283,13 +1387,18 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                define void @ENTRYPOINT__main() #0 {
+                @0 = internal constant [4 x i8] c"0_r\00"
+
+                define i64 @ENTRYPOINT__main() #0 {
                 block_0:
+                  call void @__quantum__rt__initialize(i8* null)
                   call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
                   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-                  ret void
+                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0
                 }
+
+                declare void @__quantum__rt__initialize(i8*)
 
                 declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
 
@@ -1328,9 +1437,8 @@ mod given_interpreter {
 
         #[test]
         fn adaptive_qirgen_custom_intrinsic_returning_bool() {
-            let mut interpreter = get_interpreter_with_capabilities(
-                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::QubitReset,
-            );
+            let mut interpreter =
+                get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);
             let res = interpreter
                 .qirgen("{ operation check_result(r : Result) : Bool { body intrinsic; }; operation Foo() : Bool { use q = Qubit(); let r = MResetZ(q); check_result(r) } Foo() }")
                 .expect("expected success");
@@ -1338,13 +1446,18 @@ mod given_interpreter {
                 %Result = type opaque
                 %Qubit = type opaque
 
-                define void @ENTRYPOINT__main() #0 {
+                @0 = internal constant [4 x i8] c"0_b\00"
+
+                define i64 @ENTRYPOINT__main() #0 {
                 block_0:
+                  call void @__quantum__rt__initialize(i8* null)
                   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
                   %var_0 = call i1 @check_result(%Result* inttoptr (i64 0 to %Result*))
-                  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* null)
-                  ret void
+                  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0
                 }
+
+                declare void @__quantum__rt__initialize(i8*)
 
                 declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
@@ -1564,8 +1677,8 @@ mod given_interpreter {
         use qsc_ast::ast::{
             Expr, ExprKind, NodeId, Package, Path, PathKind, Stmt, StmtKind, TopLevelNode,
         };
+        use qsc_data_structures::source::SourceMap;
         use qsc_data_structures::span::Span;
-        use qsc_frontend::compile::SourceMap;
         use qsc_passes::PackageType;
 
         #[test]
@@ -1627,9 +1740,7 @@ mod given_interpreter {
             let result = Interpreter::new(
                 sources,
                 PackageType::Exe,
-                TargetCapabilityFlags::Adaptive
-                    | TargetCapabilityFlags::IntegerComputations
-                    | TargetCapabilityFlags::QubitReset,
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
@@ -2021,7 +2132,7 @@ mod given_interpreter {
             assert!(errors.is_empty(), "compilation failed: {}", errors[0]);
             let package_id = store.insert(unit);
 
-            let mut interpreter = Interpreter::from(
+            let mut interpreter = Interpreter::with_package_store(
                 false,
                 store,
                 package_id,
@@ -2226,13 +2337,11 @@ mod given_interpreter {
                 &expect![[r#"
                     name error: `Foo` not found
                        [line_0] [Foo]
-                    type error: insufficient type information to infer type
-                       [line_0] [Foo()]
                 "#]],
             );
         }
 
-        /// Found via fuzzing, see #2426 <https://github.com/microsoft/qsharp/issues/2426>
+        /// Found via fuzzing, see #2426 <https://github.com/microsoft/qdk/issues/2426>
         #[test]
         fn recursive_type_constraint_should_fail() {
             let sources = SourceMap::new(

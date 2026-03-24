@@ -19,7 +19,7 @@ fn set_indentation<'a, 'b>(
         0 => indent.with_str(""),
         1 => indent.with_str("    "),
         2 => indent.with_str("        "),
-        _ => unimplemented!("intentation level not supported"),
+        _ => unimplemented!("indentation level not supported"),
     }
 }
 
@@ -644,10 +644,10 @@ pub struct UdtField {
 
 impl Display for UdtField {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if let Some(n) = &self.name {
-            if let Some(s) = &self.name_span {
-                write!(f, "\nname: {n} {s}")?;
-            }
+        if let Some(n) = &self.name
+            && let Some(s) = &self.name_span
+        {
+            write!(f, "\nname: {n} {s}")?;
         }
         write!(f, "\ntype: {}", self.ty)?;
         Ok(())

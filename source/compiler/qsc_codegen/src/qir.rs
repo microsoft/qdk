@@ -7,10 +7,12 @@ mod instruction_tests;
 #[cfg(test)]
 mod tests;
 
-use qsc_data_structures::target::TargetCapabilityFlags;
+use qsc_data_structures::{attrs::Attributes, target::TargetCapabilityFlags};
 use qsc_eval::val::Value;
 use qsc_lowerer::map_hir_package_to_fir;
-use qsc_partial_eval::{ProgramEntry, partially_evaluate, partially_evaluate_call};
+use qsc_partial_eval::{
+    PartialEvalConfig, ProgramEntry, partially_evaluate, partially_evaluate_call,
+};
 use qsc_rca::PackageStoreComputeProperties;
 use qsc_rir::{
     passes::check_and_transform,
@@ -45,8 +47,15 @@ pub fn fir_to_rir(
     capabilities: TargetCapabilityFlags,
     compute_properties: Option<PackageStoreComputeProperties>,
     entry: &ProgramEntry,
+    partial_eval_config: PartialEvalConfig,
 ) -> Result<(Program, Program), qsc_partial_eval::Error> {
-    let mut program = get_rir_from_compilation(fir_store, compute_properties, entry, capabilities)?;
+    let mut program = get_rir_from_compilation(
+        fir_store,
+        compute_properties,
+        entry,
+        capabilities,
+        partial_eval_config,
+    )?;
     let orig = program.clone();
     check_and_transform(&mut program);
     Ok((orig, program))
@@ -59,7 +68,15 @@ pub fn fir_to_qir(
     compute_properties: Option<PackageStoreComputeProperties>,
     entry: &ProgramEntry,
 ) -> Result<String, qsc_partial_eval::Error> {
-    let mut program = get_rir_from_compilation(fir_store, compute_properties, entry, capabilities)?;
+    let mut program = get_rir_from_compilation(
+        fir_store,
+        compute_properties,
+        entry,
+        capabilities,
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    )?;
     check_and_transform(&mut program);
     Ok(ToQir::<String>::to_qir(&program, &program))
 }
@@ -77,10 +94,45 @@ pub fn fir_to_qir_from_callable(
         analyzer.analyze_all()
     });
 
-    let mut program =
-        partially_evaluate_call(fir_store, &compute_properties, callable, args, capabilities)?;
+    let mut program = partially_evaluate_call(
+        fir_store,
+        &compute_properties,
+        callable,
+        args,
+        capabilities,
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    )?;
     check_and_transform(&mut program);
     Ok(ToQir::<String>::to_qir(&program, &program))
+}
+
+/// converts the given callable to RIR using the given arguments and language features.
+pub fn fir_to_rir_from_callable(
+    fir_store: &qsc_fir::fir::PackageStore,
+    capabilities: TargetCapabilityFlags,
+    compute_properties: Option<PackageStoreComputeProperties>,
+    callable: qsc_fir::fir::StoreItemId,
+    args: Value,
+    partial_eval_config: PartialEvalConfig,
+) -> Result<(Program, Program), qsc_partial_eval::Error> {
+    let compute_properties = compute_properties.unwrap_or_else(|| {
+        let analyzer = qsc_rca::Analyzer::init(fir_store);
+        analyzer.analyze_all()
+    });
+
+    let mut program = partially_evaluate_call(
+        fir_store,
+        &compute_properties,
+        callable,
+        args,
+        capabilities,
+        partial_eval_config,
+    )?;
+    let orig = program.clone();
+    check_and_transform(&mut program);
+    Ok((orig, program))
 }
 
 fn get_rir_from_compilation(
@@ -88,13 +140,20 @@ fn get_rir_from_compilation(
     compute_properties: Option<PackageStoreComputeProperties>,
     entry: &ProgramEntry,
     capabilities: TargetCapabilityFlags,
+    partial_eval_config: PartialEvalConfig,
 ) -> Result<rir::Program, qsc_partial_eval::Error> {
     let compute_properties = compute_properties.unwrap_or_else(|| {
         let analyzer = qsc_rca::Analyzer::init(fir_store);
         analyzer.analyze_all()
     });
 
-    partially_evaluate(fir_store, &compute_properties, entry, capabilities)
+    partially_evaluate(
+        fir_store,
+        &compute_properties,
+        entry,
+        capabilities,
+        partial_eval_config,
+    )
 }
 
 /// A trait for converting a type into QIR of type `T`.
@@ -120,6 +179,12 @@ impl ToQir<String> for rir::Literal {
             rir::Literal::Pointer => "i8* null".to_string(),
             rir::Literal::Qubit(q) => format!("%Qubit* inttoptr (i64 {q} to %Qubit*)"),
             rir::Literal::Result(r) => format!("%Result* inttoptr (i64 {r} to %Result*)"),
+            rir::Literal::Tag(idx, len) => {
+                let len = len + 1; // +1 for the null terminator
+                format!(
+                    "i8* getelementptr inbounds ([{len} x i8], [{len} x i8]* @{idx}, i64 0, i64 0)"
+                )
+            }
         }
     }
 }
@@ -228,7 +293,7 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::BitwiseXor(lhs, rhs, variable) => {
                 simple_bitwise_to_qir("xor", lhs, rhs, *variable, program)
             }
-            rir::Instruction::Branch(cond, true_id, false_id) => {
+            rir::Instruction::Branch(cond, true_id, false_id, _) => {
                 format!(
                     "  br {}, label %{}, label %{}",
                     ToQir::<String>::to_qir(cond, program),
@@ -236,8 +301,11 @@ impl ToQir<String> for rir::Instruction {
                     ToQir::<String>::to_qir(false_id, program)
                 )
             }
-            rir::Instruction::Call(call_id, args, output) => {
+            rir::Instruction::Call(call_id, args, output, _) => {
                 call_to_qir(args, *call_id, *output, program)
+            }
+            rir::Instruction::Convert(operand, variable) => {
+                convert_to_qir(operand, *variable, program)
             }
             rir::Instruction::Fadd(lhs, rhs, variable) => {
                 fbinop_to_qir("fadd", lhs, rhs, *variable, program)
@@ -273,7 +341,7 @@ impl ToQir<String> for rir::Instruction {
                 format!("  br label %{}", ToQir::<String>::to_qir(block_id, program))
             }
             rir::Instruction::Phi(args, variable) => phi_to_qir(args, *variable, program),
-            rir::Instruction::Return => "  ret void".to_string(),
+            rir::Instruction::Return => "  ret i64 0".to_string(),
             rir::Instruction::Sdiv(lhs, rhs, variable) => {
                 binop_to_qir("sdiv", lhs, rhs, *variable, program)
             }
@@ -289,6 +357,31 @@ impl ToQir<String> for rir::Instruction {
             }
         }
     }
+}
+
+fn convert_to_qir(
+    operand: &rir::Operand,
+    variable: rir::Variable,
+    program: &rir::Program,
+) -> String {
+    let operand_ty = get_value_ty(operand);
+    let var_ty = get_variable_ty(variable);
+    assert_ne!(
+        operand_ty, var_ty,
+        "input/output types ({operand_ty}, {var_ty}) should not match in convert"
+    );
+
+    let convert_instr = match (operand_ty, var_ty) {
+        ("i64", "double") => "sitofp i64",
+        ("double", "i64") => "fptosi double",
+        _ => panic!("unsupported conversion from {operand_ty} to {var_ty} in convert instruction"),
+    };
+
+    format!(
+        "  {} = {convert_instr} {} to {var_ty}",
+        ToQir::<String>::to_qir(&variable.variable_id, program),
+        get_value_as_str(operand, program),
+    )
 }
 
 fn logical_not_to_qir(
@@ -571,6 +664,9 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
             rir::Literal::Pointer => "null".to_string(),
             rir::Literal::Qubit(q) => format!("{q}"),
             rir::Literal::Result(r) => format!("{r}"),
+            rir::Literal::Tag(..) => panic!(
+                "tag literals should not be used as string values outside of output recording"
+            ),
         },
         rir::Operand::Variable(var) => ToQir::<String>::to_qir(&var.variable_id, program),
     }
@@ -584,7 +680,7 @@ fn get_value_ty(lhs: &rir::Operand) -> &str {
             rir::Literal::Double(_) => get_f64_ty(),
             rir::Literal::Qubit(_) => "%Qubit*",
             rir::Literal::Result(_) => "%Result*",
-            rir::Literal::Pointer => "i8*",
+            rir::Literal::Pointer | rir::Literal::Tag(..) => "i8*",
         },
         rir::Operand::Variable(var) => get_variable_ty(*var),
     }
@@ -645,14 +741,13 @@ impl ToQir<String> for rir::Callable {
             return format!(
                 "declare {output_type} @{}({input_type}){}",
                 self.name,
-                if matches!(
-                    self.call_type,
-                    rir::CallableType::Measurement | rir::CallableType::Reset
-                ) {
-                    // These callables are a special case that need the irreversable attribute.
-                    " #1"
-                } else {
-                    ""
+                match self.call_type {
+                    rir::CallableType::Measurement | rir::CallableType::Reset => {
+                        // These callables are a special case that need the irreversible attribute.
+                        " #1"
+                    }
+                    rir::CallableType::NoiseIntrinsic => " #2",
+                    _ => "",
                 }
             );
         };
@@ -690,13 +785,37 @@ impl ToQir<String> for rir::Program {
         } else {
             "adaptive_profile"
         };
+        let mut constants = String::default();
+        for (idx, tag) in self.tags.iter().enumerate() {
+            // We need to add the tag as a global constant.
+            writeln!(
+                constants,
+                "@{idx} = internal constant [{} x i8] c\"{tag}\\00\"",
+                tag.len() + 1
+            )
+            .expect("writing to string should succeed");
+        }
         let body = format!(
             include_str!("./qir/template.ll"),
-            callables, profile, self.num_qubits, self.num_results
+            constants,
+            callables,
+            profile,
+            self.num_qubits,
+            self.num_results,
+            get_additional_module_attributes(self)
         );
         let flags = get_module_metadata(self);
         body + "\n" + &flags
     }
+}
+
+fn get_additional_module_attributes(program: &rir::Program) -> String {
+    let mut attrs = String::new();
+    if program.attrs.contains(Attributes::QdkNoise) {
+        attrs.push_str("\nattributes #2 = { \"qdk_noise\" }");
+    }
+
+    attrs
 }
 
 /// Create the module metadata for the given program.
@@ -725,21 +844,19 @@ fn get_module_metadata(program: &rir::Program) -> String {
         for cap in program.config.capabilities.iter() {
             match cap {
                 TargetCapabilityFlags::IntegerComputations => {
-                    let name = "int_computations";
+                    // Use `5` as the flag to signify "Append" mode. See https://llvm.org/docs/LangRef.html#module-flags-metadata
                     writeln!(
                         flags,
-                        "!{} = !{{i32 {}, !\"{}\", !\"i{}\"}}",
-                        index, 1, name, 64
+                        "!{index} = !{{i32 5, !\"int_computations\", !{{!\"i64\"}}}}",
                     )
                     .expect("writing to string should succeed");
                     index += 1;
                 }
                 TargetCapabilityFlags::FloatingPointComputations => {
-                    let name = "float_computations";
+                    // Use `5` as the flag to signify "Append" mode. See https://llvm.org/docs/LangRef.html#module-flags-metadata
                     writeln!(
                         flags,
-                        "!{} = !{{i32 {}, !\"{}\", !\"f{}\"}}",
-                        index, 1, name, 64
+                        "!{index} = !{{i32 5, !\"float_computations\", !{{!\"double\"}}}}",
                     )
                     .expect("writing to string should succeed");
                     index += 1;

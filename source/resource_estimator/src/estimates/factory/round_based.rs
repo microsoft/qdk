@@ -106,7 +106,7 @@ impl<P: Clone> DistillationRound<P> {
 
     pub fn compute_num_output_states(&self, failure_probability: f64) -> u64 {
         // special case when not necessary to run actual distillation:
-        // the physcial qubit error rate is already below the threshold
+        // the physical qubit error rate is already below the threshold
         if failure_probability == 0.0 && self.failure_probability_requirement == 0.0 {
             return self.num_units * self.num_output_states;
         }
@@ -354,7 +354,7 @@ impl<P: Clone> Factory for RoundBasedFactory<P> {
         last_round.compute_num_output_states(failure_probability)
     }
 
-    fn max_code_parameter(&self) -> Option<Cow<P>> {
+    fn max_code_parameter(&self) -> Option<Cow<'_, P>> {
         self.code_parameter_per_round()
             .last()
             .expect("at least one round should be present")

@@ -4,7 +4,7 @@
 use qsc_ast::ast::{self, Idents, TypeParameter as AstTypeParameter};
 use qsc_frontend::resolve;
 use qsc_hir::{
-    hir::{self, PackageId},
+    hir,
     ty::{self, TypeParameter as HirTypeParameter},
 };
 use regex_lite::Regex;
@@ -33,21 +33,13 @@ pub trait Lookup {
     /// `Res`s can resolve to external packages, and the references
     /// are relative, so here we also need the
     /// local `PackageId` that the `res` itself came from.
-    fn resolve_item_res(
-        &self,
-        local_package_id: PackageId,
-        res: &hir::Res,
-    ) -> (&hir::Item, hir::ItemId);
+    fn resolve_item_res(&self, res: &hir::Res) -> (&hir::Item, hir::ItemId);
 
     /// Returns the hir `Item` node referred to by `item_id`.
     /// `ItemId`s can refer to external packages, and the references
     /// are relative, so here we also need the local `PackageId`
     /// that the `ItemId` originates from.
-    fn resolve_item(
-        &self,
-        local_package_id: PackageId,
-        item_id: &hir::ItemId,
-    ) -> (&hir::Item, &hir::Package, hir::ItemId);
+    fn resolve_item(&self, item_id: &hir::ItemId) -> (&hir::Item, &hir::Package, hir::ItemId);
 }
 
 pub struct CodeDisplay<'a> {
@@ -494,6 +486,11 @@ struct HirUdtField<'a> {
 
 impl Display for HirUdtField<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
+        if let Some(doc) = &self.field.doc {
+            for line in doc.lines() {
+                writeln!(f, "/// {line}")?;
+            }
+        }
         if let Some(name) = &self.field.name {
             write!(f, "{name} : ")?;
         }
@@ -599,7 +596,7 @@ struct TyDef<'a> {
 impl Display for TyDef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self.def.kind.as_ref() {
-            ast::TyDefKind::Field(name, ty) => match name {
+            ast::TyDefKind::Field(name, ty, _) => match name {
                 Some(name) => write!(f, "{} : {}", name.name, AstTy { ty }),
                 None => write!(f, "{}", AstTy { ty }),
             },
@@ -728,11 +725,12 @@ fn as_struct(ty_def: &ast::TyDef) -> Option<Vec<ast::FieldDef>> {
             for field in fields {
                 let field = remove_parens(field);
                 match field.kind.as_ref() {
-                    ast::TyDefKind::Field(Some(name), field_ty) => {
+                    ast::TyDefKind::Field(Some(name), field_ty, doc) => {
                         converted_fields.push(ast::FieldDef {
                             id: field.id,
                             span: field.span,
                             name: name.clone(),
+                            doc: doc.as_ref().map(Rc::clone),
                             ty: field_ty.clone(),
                         });
                     }

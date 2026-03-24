@@ -10,12 +10,15 @@ from ._native import (  # type: ignore
     Output,
     Circuit,
     GlobalCallable,
+    Closure,
     Pauli,
     Result,
     UdtValue,
     TypeIR,
     TypeKind,
     PrimitiveKind,
+    CircuitConfig,
+    CircuitGenerationMethod,
 )
 from typing import (
     Any,
@@ -28,12 +31,18 @@ from typing import (
     List,
     Set,
     Iterable,
+    cast,
 )
-from .estimator._estimator import EstimatorResult, EstimatorParams
+from .estimator._estimator import (
+    EstimatorResult,
+    EstimatorParams,
+    LogicalCounts,
+)
 import json
 import os
 import sys
 import types
+from pathlib import Path
 from time import monotonic
 from dataclasses import make_dataclass
 
@@ -55,14 +64,20 @@ def lower_python_obj(obj: object, visited: Optional[Set[object]] = None) -> Any:
     if isinstance(obj, tuple):
         return tuple(lower_python_obj(elt, visited) for elt in obj)
 
-    # Recusive case: Dict
+    # Recursive case: Dict
     if isinstance(obj, dict):
         return {name: lower_python_obj(val, visited) for name, val in obj.items()}
+
+    # Base case: Callable or Closure
+    if hasattr(obj, "__global_callable"):
+        return obj.__getattribute__("__global_callable")
+    if isinstance(obj, (GlobalCallable, Closure)):
+        return obj
 
     # Recursive case: Class with slots
     if hasattr(obj, "__slots__"):
         fields = {}
-        for name in obj.__slots__:
+        for name in getattr(obj, "__slots__"):
             if name == "__dict__":
                 for name, val in obj.__dict__.items():
                     fields[name] = lower_python_obj(val, visited)
@@ -127,7 +142,7 @@ def ipython_helper():
 
 
 class Config:
-    _config: Dict[str, str]
+    _config: Dict[str, Any]
     """
     Configuration hints for the language service.
     """
@@ -148,14 +163,15 @@ class Config:
         elif target_profile == TargetProfile.Unrestricted:
             self._config = {"targetProfile": "unrestricted"}
 
-        self._config["languageFeatures"] = language_features
-        self._config["manifest"] = manifest
+        if language_features is not None:
+            self._config["languageFeatures"] = language_features
+        if manifest is not None:
+            self._config["manifest"] = manifest
         if project_root:
             # For now, we only support local project roots, so use a file schema in the URI.
             # In the future, we may support other schemes, such as github, if/when
             # we have VS Code Web + Jupyter support.
-            normalized_root = os.path.normpath(os.path.join(os.getcwd(), project_root))
-            self._config["projectRoot"] = "file://" + normalized_root
+            self._config["projectRoot"] = Path(os.getcwd(), project_root).as_uri()
 
     def __repr__(self) -> str:
         return "Q# initialized with configuration: " + str(self._config)
@@ -169,8 +185,14 @@ class Config:
     # (i.e. the language service) can read and interpret the data.
     def _repr_mimebundle_(
         self, include: Union[Any, None] = None, exclude: Union[Any, None] = None
-    ) -> Dict[str, Dict[str, str]]:
+    ) -> Dict[str, Dict[str, Any]]:
         return {"application/x.qsharp-config": self._config}
+
+    def get_target_profile(self) -> str:
+        """
+        Returns the target profile as a string, or "unspecified" if not set.
+        """
+        return self._config.get("targetProfile", "unspecified")
 
 
 class PauliNoise(Tuple[float, float, float]):
@@ -220,6 +242,7 @@ def init(
     target_name: Optional[str] = None,
     project_root: Optional[str] = None,
     language_features: Optional[List[str]] = None,
+    trace_circuit: Optional[bool] = None,
 ) -> Config:
     """
     Initializes the Q# interpreter.
@@ -233,6 +256,10 @@ def init(
 
     :param project_root: An optional path to a root directory with a Q# project to include.
         It must contain a qsharp.json project manifest.
+
+    :param trace_circuit: Enables tracing of circuit during execution.
+        Passing `True` is required for the `dump_circuit` function to return a circuit.
+        The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
     """
     from ._fs import read_file, list_directory, exists, join, resolve
     from ._http import fetch_github
@@ -299,6 +326,7 @@ def init(
         fetch_github,
         _make_callable,
         _make_class,
+        trace_circuit,
     )
 
     _config = Config(target_profile, language_features, manifest_contents, project_root)
@@ -318,6 +346,19 @@ def get_interpreter() -> Interpreter:
         init()
         assert _interpreter is not None, "Failed to initialize the Q# interpreter."
     return _interpreter
+
+
+def get_config() -> Config:
+    """
+    Returns the Q# interpreter configuration.
+
+    :returns: The Q# interpreter configuration.
+    """
+    global _config
+    if _config is None:
+        init()
+        assert _config is not None, "Failed to initialize the Q# interpreter."
+    return _config
 
 
 class StateDump:
@@ -401,7 +442,7 @@ class ShotResult(TypedDict):
     A single result of a shot.
     """
 
-    events: List[Output]
+    events: List[Output | StateDump | str]
     result: Any
     messages: List[str]
     matrices: List[Output]
@@ -439,7 +480,8 @@ def eval(
             results["events"].append(output)
             results["matrices"].append(output)
         elif output.is_state_dump():
-            state_dump = StateDump(output.state_dump())
+            dump_data = cast(StateDumpData, output.state_dump())
+            state_dump = StateDump(dump_data)
             results["events"].append(state_dump)
             results["dumps"].append(state_dump)
         elif output.is_message():
@@ -476,10 +518,10 @@ def eval(
 
 # Helper function that knows how to create a function that invokes a callable. This will be
 # used by the underlying native code to create functions for callables on the fly that know
-# how to get the currently intitialized global interpreter instance.
+# how to get the currently initialized global interpreter instance.
 def _make_callable(callable: GlobalCallable, namespace: List[str], callable_name: str):
     module = code
-    # Create a name that will be used to collect the hierachy of namespace identifiers if they exist and use that
+    # Create a name that will be used to collect the hierarchy of namespace identifiers if they exist and use that
     # to register created modules with the system.
     accumulated_namespace = "qsharp.code"
     accumulated_namespace += "."
@@ -488,6 +530,11 @@ def _make_callable(callable: GlobalCallable, namespace: List[str], callable_name
         # Use the existing entry, which should already be a module.
         if hasattr(module, name):
             module = module.__getattribute__(name)
+            if sys.modules.get(accumulated_namespace) is None:
+                # This is an existing entry that is not yet registered in sys.modules, so add it.
+                # This can happen if a callable with the same name as this namespace is already
+                # defined.
+                sys.modules[accumulated_namespace] = module
         else:
             # This namespace entry doesn't exist as a module yet, so create it, add it to the environment, and
             # add it to sys.modules so it supports import properly.
@@ -519,7 +566,15 @@ def _make_callable(callable: GlobalCallable, namespace: List[str], callable_name
     _callable.__global_callable = callable
 
     # Add the callable to the module.
-    module.__setattr__(callable_name, _callable)
+    if module.__dict__.get(callable_name) is None:
+        module.__setattr__(callable_name, _callable)
+    else:
+        # Preserve any existing attributes on the attribute with the matching name,
+        # since this could be a collision with an existing namespace/module.
+        for key, val in module.__dict__.get(callable_name).__dict__.items():
+            if key != "__global_callable":
+                _callable.__dict__[key] = val
+        module.__setattr__(callable_name, _callable)
 
 
 def qsharp_value_to_python_value(obj):
@@ -537,6 +592,10 @@ def qsharp_value_to_python_value(obj):
     # Recursive case: Array
     if isinstance(obj, list):
         return [qsharp_value_to_python_value(elt) for elt in obj]
+
+    # Recursive case: Callable or Closure
+    if isinstance(obj, (GlobalCallable, Closure)):
+        return obj
 
     # Recursive case: Udt
     if isinstance(obj, UdtValue):
@@ -575,7 +634,7 @@ def make_class_rec(qsharp_type: TypeIR) -> type:
             elif prim_kind == PrimitiveKind.Result:
                 ty = Result
             else:
-                raise QSharpError(f"unknown primtive {prim_kind}")
+                raise QSharpError(f"unknown primitive {prim_kind}")
         elif kind == TypeKind.Tuple:
             # Special case Value::UNIT maps to None.
             if not field[1].unwrap_tuple():
@@ -604,7 +663,7 @@ def _make_class(qsharp_type: TypeIR, namespace: List[str], class_name: str):
     """
 
     module = code
-    # Create a name that will be used to collect the hierachy of namespace identifiers if they exist and use that
+    # Create a name that will be used to collect the hierarchy of namespace identifiers if they exist and use that
     # to register created modules with the system.
     accumulated_namespace = "qsharp.code"
     accumulated_namespace += "."
@@ -632,7 +691,7 @@ def _make_class(qsharp_type: TypeIR, namespace: List[str], class_name: str):
 
 
 def run(
-    entry_expr: Union[str, Callable],
+    entry_expr: Union[str, Callable, GlobalCallable, Closure],
     shots: int,
     *args,
     on_result: Optional[Callable[[ShotResult], None]] = None,
@@ -653,7 +712,7 @@ def run(
     Each shot uses an independent instance of the simulator.
 
     :param entry_expr: The entry expression. Alternatively, a callable can be provided,
-        which must be a Q# global callable.
+        which must be a Q# callable.
     :param shots: The number of shots to run.
     :param *args: The arguments to pass to the callable, if one is provided.
     :param on_result: A callback function that will be called with each result.
@@ -697,22 +756,29 @@ def run(
         if output.is_matrix():
             results[-1]["matrices"].append(output)
         elif output.is_state_dump():
-            results[-1]["dumps"].append(StateDump(output.state_dump()))
+            dump_data = cast(StateDumpData, output.state_dump())
+            results[-1]["dumps"].append(StateDump(dump_data))
         elif output.is_message():
             results[-1]["messages"].append(str(output))
 
     callable = None
+    run_entry_expr = None
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         callable = entry_expr.__global_callable
-        entry_expr = None
+    elif isinstance(entry_expr, (GlobalCallable, Closure)):
+        args = python_args_to_interpreter_args(args)
+        callable = entry_expr
+    else:
+        assert isinstance(entry_expr, str)
+        run_entry_expr = entry_expr
 
     for shot in range(shots):
         results.append(
             {"result": None, "events": [], "messages": [], "matrices": [], "dumps": []}
         )
         run_results = get_interpreter().run(
-            entry_expr,
+            run_entry_expr,
             on_save_events if save_events else print_output,
             noise,
             qubit_loss,
@@ -726,7 +792,7 @@ def run(
         # For every shot after the first, treat the entry expression as None to trigger
         # a rerun of the last executed expression without paying the cost for any additional
         # compilation.
-        entry_expr = None
+        run_entry_expr = None
 
     durationMs = (monotonic() - start_time) * 1000
     telemetry_events.on_run_end(durationMs, shots)
@@ -761,14 +827,16 @@ class QirInputData:
         return self._ll_str
 
 
-def compile(entry_expr: Union[str, Callable], *args) -> QirInputData:
+def compile(
+    entry_expr: Union[str, Callable, GlobalCallable, Closure], *args
+) -> QirInputData:
     """
     Compiles the Q# source code into a program that can be submitted to a target.
     Either an entry expression or a callable with arguments must be provided.
 
     :param entry_expr: The Q# expression that will be used as the entrypoint
         for the program. Alternatively, a callable can be provided, which must
-        be a Q# global callable.
+        be a Q# callable.
 
     :returns QirInputData: The compiled program.
 
@@ -783,16 +851,18 @@ def compile(entry_expr: Union[str, Callable], *args) -> QirInputData:
     """
     ipython_helper()
     start = monotonic()
-    global _config
-    target_profile = _config._config.get("targetProfile", "unspecified")
+    interpreter = get_interpreter()
+    target_profile = get_config().get_target_profile()
     telemetry_events.on_compile(target_profile)
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
-        ll_str = get_interpreter().qir(
-            entry_expr=None, callable=entry_expr.__global_callable, args=args
-        )
+        ll_str = interpreter.qir(callable=entry_expr.__global_callable, args=args)
+    elif isinstance(entry_expr, (GlobalCallable, Closure)):
+        args = python_args_to_interpreter_args(args)
+        ll_str = interpreter.qir(callable=entry_expr, args=args)
     else:
-        ll_str = get_interpreter().qir(entry_expr=entry_expr)
+        assert isinstance(entry_expr, str)
+        ll_str = interpreter.qir(entry_expr=entry_expr)
     res = QirInputData("main", ll_str)
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_compile_end(durationMs, target_profile)
@@ -800,16 +870,21 @@ def compile(entry_expr: Union[str, Callable], *args) -> QirInputData:
 
 
 def circuit(
-    entry_expr: Optional[Union[str, Callable]] = None,
+    entry_expr: Optional[Union[str, Callable, GlobalCallable, Closure]] = None,
     *args,
     operation: Optional[str] = None,
+    generation_method: Optional[CircuitGenerationMethod] = None,
+    max_operations: Optional[int] = None,
+    source_locations: bool = False,
+    group_by_scope: bool = True,
+    prune_classical_qubits: bool = False,
 ) -> Circuit:
     """
     Synthesizes a circuit for a Q# program. Either an entry
     expression or an operation must be provided.
 
     :param entry_expr: An entry expression. Alternatively, a callable can be provided,
-        which must be a Q# global callable.
+        which must be a Q# callable.
 
     :param *args: The arguments to pass to the callable, if one is provided.
 
@@ -822,13 +897,25 @@ def circuit(
     ipython_helper()
     start = monotonic()
     telemetry_events.on_circuit()
+    config = CircuitConfig(
+        max_operations=max_operations,
+        generation_method=generation_method,
+        source_locations=source_locations,
+        group_by_scope=group_by_scope,
+        prune_classical_qubits=prune_classical_qubits,
+    )
+
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res = get_interpreter().circuit(
-            callable=entry_expr.__global_callable, args=args
+            config=config, callable=entry_expr.__global_callable, args=args
         )
+    elif isinstance(entry_expr, (GlobalCallable, Closure)):
+        args = python_args_to_interpreter_args(args)
+        res = get_interpreter().circuit(config=config, callable=entry_expr, args=args)
     else:
-        res = get_interpreter().circuit(entry_expr, operation)
+        assert entry_expr is None or isinstance(entry_expr, str)
+        res = get_interpreter().circuit(config, entry_expr, operation=operation)
 
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_circuit_end(durationMs)
@@ -837,7 +924,7 @@ def circuit(
 
 
 def estimate(
-    entry_expr: Union[str, Callable],
+    entry_expr: Union[str, Callable, GlobalCallable, Closure],
     params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
     *args,
 ) -> EstimatorResult:
@@ -846,7 +933,7 @@ def estimate(
     Either an entry expression or a callable with arguments must be provided.
 
     :param entry_expr: The entry expression. Alternatively, a callable can be provided,
-        which must be a Q# global callable.
+        which must be a Q# callable.
     :param params: The parameters to configure physical estimation.
 
     :returns `EstimatorResult`: The estimated resources.
@@ -855,17 +942,19 @@ def estimate(
     ipython_helper()
 
     def _coerce_estimator_params(
-        params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
+        params: Optional[
+            Union[Dict[str, Any], List[Dict[str, Any]], EstimatorParams]
+        ] = None,
     ) -> List[Dict[str, Any]]:
         if params is None:
-            params = [{}]
+            return [{}]
         elif isinstance(params, EstimatorParams):
             if params.has_items:
-                params = params.as_dict()["items"]
+                return cast(List[Dict[str, Any]], params.as_dict()["items"])
             else:
-                params = [params.as_dict()]
+                return [params.as_dict()]
         elif isinstance(params, dict):
-            params = [params]
+            return [params]
         return params
 
     params = _coerce_estimator_params(params)
@@ -877,7 +966,11 @@ def estimate(
         res_str = get_interpreter().estimate(
             param_str, callable=entry_expr.__global_callable, args=args
         )
+    elif isinstance(entry_expr, (GlobalCallable, Closure)):
+        args = python_args_to_interpreter_args(args)
+        res_str = get_interpreter().estimate(param_str, callable=entry_expr, args=args)
     else:
+        assert isinstance(entry_expr, str)
         res_str = get_interpreter().estimate(param_str, entry_expr=entry_expr)
     res = json.loads(res_str)
 
@@ -889,6 +982,36 @@ def estimate(
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_estimate_end(durationMs, qubits)
     return EstimatorResult(res)
+
+
+def logical_counts(
+    entry_expr: Union[str, Callable, GlobalCallable, Closure],
+    *args,
+) -> LogicalCounts:
+    """
+    Extracts logical resource counts from Q# source code.
+    Either an entry expression or a callable with arguments must be provided.
+
+    :param entry_expr: The entry expression. Alternatively, a callable can be provided,
+        which must be a Q# callable.
+
+    :returns `LogicalCounts`: Program resources in terms of logical gate counts.
+    """
+
+    ipython_helper()
+
+    if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
+        args = python_args_to_interpreter_args(args)
+        res_dict = get_interpreter().logical_counts(
+            callable=entry_expr.__global_callable, args=args
+        )
+    elif isinstance(entry_expr, (GlobalCallable, Closure)):
+        args = python_args_to_interpreter_args(args)
+        res_dict = get_interpreter().logical_counts(callable=entry_expr, args=args)
+    else:
+        assert isinstance(entry_expr, str)
+        res_dict = get_interpreter().logical_counts(entry_expr=entry_expr)
+    return LogicalCounts(res_dict)
 
 
 def set_quantum_seed(seed: Optional[int]) -> None:
@@ -926,10 +1049,12 @@ def dump_machine() -> StateDump:
 
 def dump_circuit() -> Circuit:
     """
-    Dumps the current circuit state of the interpreter.
+    Dumps a circuit showing the current state of the simulator.
 
     This circuit will contain the gates that have been applied
     in the simulator up to the current point.
+
+    Requires the interpreter to be initialized with `trace_circuit=True`.
     """
     ipython_helper()
     return get_interpreter().dump_circuit()

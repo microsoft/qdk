@@ -5,11 +5,13 @@ use crate::compile::{self, compile};
 use miette::Diagnostic;
 
 use qsc_ast::ast;
-use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
+use qsc_data_structures::{
+    error::WithSource, language_features::LanguageFeatures, source::SourceMap,
+    target::TargetCapabilityFlags,
+};
 
 use qsc_frontend::{
-    compile::{Dependencies, OpenPackageStore, PackageStore, SourceMap},
-    error::WithSource,
+    compile::{Dependencies, OpenPackageStore, PackageStore},
     incremental::Increment,
 };
 use qsc_hir::hir::PackageId;
@@ -80,7 +82,7 @@ impl Compiler {
         })
     }
 
-    pub fn from(
+    pub fn with_package_store(
         store: PackageStore,
         source_package_id: PackageId,
         capabilities: TargetCapabilityFlags,
@@ -286,7 +288,7 @@ impl Compiler {
     }
 
     /// Returns the ID of the source package created from the sources
-    /// passed in during inital creation.
+    /// passed in during initial creation.
     #[must_use]
     pub fn source_package_id(&self) -> PackageId {
         self.source_package_id
@@ -317,7 +319,7 @@ where
 {
     errors
         .into_iter()
-        .map(qsc_frontend::error::WithSource::into_with_source)
+        .map(qsc_data_structures::error::WithSource::into_with_source)
         .collect()
 }
 

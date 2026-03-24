@@ -21,14 +21,16 @@ mod OpenQASM;
 mod OpenQASM_generated;
 
 use qsc::{
-    LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags, compile,
+    LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags,
+    circuit::TracerConfig,
+    compile,
     hir::PackageId,
-    interpret::{GenericReceiver, Interpreter},
-    packages::BuildableProgram,
-    qasm::{
+    interpret::{CircuitEntryPoint, CircuitGenerationMethod, GenericReceiver, Interpreter},
+    openqasm::{
         OutputSemantics, ProgramType, QubitSemantics,
         compiler::parse_and_compile_to_qsharp_ast_with_config, io::InMemorySourceResolver,
     },
+    packages::BuildableProgram,
 };
 use qsc_project::{FileSystem, ProjectType, StdFs};
 
@@ -48,18 +50,31 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
     // when we load the project, need to set these
     let (std_id, store) = compile::package_store_with_stdlib(TargetCapabilityFlags::all());
 
-    let mut interpreter = match (if debug {
-        Interpreter::new_with_debug
+    let mut interpreter = match if debug {
+        Interpreter::with_debug(
+            sources,
+            PackageType::Exe,
+            TargetCapabilityFlags::all(),
+            LanguageFeatures::default(),
+            store,
+            &[(std_id, None)],
+            TracerConfig {
+                group_by_scope: false,
+                source_locations: false,
+                max_operations: 0,
+                prune_classical_qubits: false,
+            },
+        )
     } else {
-        Interpreter::new
-    })(
-        sources,
-        PackageType::Exe,
-        TargetCapabilityFlags::all(),
-        LanguageFeatures::default(),
-        store,
-        &[(std_id, None)],
-    ) {
+        Interpreter::new(
+            sources,
+            PackageType::Exe,
+            TargetCapabilityFlags::all(),
+            LanguageFeatures::default(),
+            store,
+            &[(std_id, None)],
+        )
+    } {
         Ok(interpreter) => interpreter,
         Err(errors) => {
             for error in &errors {
@@ -68,8 +83,6 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
             panic!("compilation failed (first error: {})", errors[0]);
         }
     };
-
-    check_lints(&interpreter);
 
     interpreter.set_classical_seed(Some(1));
     interpreter.set_quantum_seed(Some(1));
@@ -97,7 +110,7 @@ fn compile_and_run_debug_qasm(source: &str) -> String {
 }
 
 fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
-    let config = qsc::qasm::CompilerConfig::new(
+    let config = qsc::openqasm::CompilerConfig::new(
         QubitSemantics::Qiskit,
         OutputSemantics::OpenQasm,
         ProgramType::File,
@@ -145,7 +158,7 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
     unit.expose();
     let source_package_id = store.insert(unit);
 
-    let mut interpreter = match Interpreter::from(
+    let mut interpreter = match Interpreter::with_package_store(
         debug,
         store,
         source_package_id,
@@ -161,8 +174,6 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
             panic!("compilation failed (first error: {})", errors[0]);
         }
     };
-
-    check_lints(&interpreter);
 
     interpreter.set_classical_seed(Some(1));
     interpreter.set_quantum_seed(Some(1));
@@ -184,7 +195,7 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
 fn compile(sources: SourceMap) {
     let (std_id, store) = compile::package_store_with_stdlib(TargetCapabilityFlags::all());
 
-    match Interpreter::new(
+    if let Err(errors) = Interpreter::new(
         sources,
         PackageType::Lib,
         TargetCapabilityFlags::all(),
@@ -192,15 +203,10 @@ fn compile(sources: SourceMap) {
         store,
         &[(std_id, None)],
     ) {
-        Ok(interpreter) => {
-            check_lints(&interpreter);
+        for error in &errors {
+            eprintln!("error: {error}");
         }
-        Err(errors) => {
-            for error in &errors {
-                eprintln!("error: {error}");
-            }
-            panic!("compilation failed (first error: {})", errors[0]);
-        }
+        panic!("compilation failed (first error: {})", errors[0]);
     }
 }
 
@@ -240,7 +246,7 @@ fn compile_project(project_folder: &str) {
 
     let source_map = qsc::SourceMap::new(user_code.sources, None);
 
-    match Interpreter::new(
+    if let Err(errors) = Interpreter::new(
         source_map,
         PackageType::Lib,
         TargetCapabilityFlags::all(),
@@ -248,28 +254,241 @@ fn compile_project(project_folder: &str) {
         store,
         &user_code_dependencies,
     ) {
-        Ok(interpreter) => {
-            check_lints(&interpreter);
+        for error in &errors {
+            eprintln!("error: {error}");
         }
-        Err(errors) => {
-            for error in &errors {
-                eprintln!("error: {error}");
-            }
-            panic!("compilation failed (first error: {})", errors[0]);
-        }
+        panic!("compilation failed (first error: {})", errors[0]);
     }
 }
 
-fn check_lints(interpreter: &Interpreter) {
-    let lints: Vec<_> = interpreter
-        .check_source_lints()
-        .into_iter()
-        .filter(|lint| lint.level != qsc::linter::LintLevel::Allow)
-        .collect();
-    if !lints.is_empty() {
-        for lint in &lints {
-            eprintln!("lint: {lint}");
+fn circuit(sources: SourceMap) -> String {
+    let capabilities = TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations;
+    let (std_id, store) = compile::package_store_with_stdlib(capabilities);
+
+    let mut interpreter = match Interpreter::new(
+        sources,
+        PackageType::Exe,
+        capabilities,
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+    ) {
+        Ok(interpreter) => interpreter,
+        Err(errors) => {
+            return format!("compilation error: {}", errors[0]);
         }
-        panic!("linting failed (first lint: {})", lints[0]);
+    };
+
+    match interpreter.circuit(
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::Static,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: false,
+            group_by_scope: true,
+            prune_classical_qubits: false,
+        },
+    ) {
+        Ok(circuit) => format!(
+            "generated circuit of length {}",
+            circuit.display_with_groups().to_string().len()
+        ),
+        Err(errors) => format!("circuit error: {}", errors[0]),
+    }
+}
+
+fn circuit_qasm(source: &str) -> String {
+    let config = qsc::openqasm::CompilerConfig::new(
+        QubitSemantics::Qiskit,
+        OutputSemantics::OpenQasm,
+        ProgramType::File,
+        None,
+        None,
+    );
+    let unit = parse_and_compile_to_qsharp_ast_with_config(
+        source,
+        "",
+        Option::<&mut InMemorySourceResolver>::None,
+        config,
+    );
+    let (source_map, errors, package, sig, _) = unit.into_tuple();
+    assert!(errors.is_empty(), "QASM compilation failed: {errors:?}");
+
+    let Some(signature) = sig else {
+        panic!("signature should have had value. This is a bug");
+    };
+
+    assert!(
+        signature.input.is_empty(),
+        "Circuit has unbound input parameters\n  help: Parameters: {}",
+        signature.input_params()
+    );
+    let capabilities = TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations;
+    let package_type = PackageType::Lib;
+    let language_features = LanguageFeatures::default();
+    let (stdid, mut store) = qsc::compile::package_store_with_stdlib(capabilities);
+    let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
+
+    let (mut unit, errors) = qsc::compile::compile_ast(
+        &store,
+        &dependencies,
+        package,
+        source_map,
+        package_type,
+        capabilities,
+    );
+
+    assert!(
+        errors.is_empty(),
+        "Compilation of Q# AST from QASM failed: {errors:?}"
+    );
+
+    unit.expose();
+    let source_package_id = store.insert(unit);
+
+    let mut interpreter = match Interpreter::with_package_store(
+        false,
+        store,
+        source_package_id,
+        capabilities,
+        language_features,
+        &dependencies,
+    ) {
+        Ok(interpreter) => interpreter,
+        Err(errors) => {
+            return format!("compilation error: {}", errors[0]);
+        }
+    };
+
+    match interpreter.circuit(
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::Static,
+        TracerConfig {
+            max_operations: 1000,
+            source_locations: false,
+            group_by_scope: true,
+            prune_classical_qubits: false,
+        },
+    ) {
+        Ok(circuit) => format!(
+            "generated circuit of length {}",
+            circuit.display_with_groups().to_string().len()
+        ),
+        Err(errors) => format!("circuit error: {}", errors[0]),
+    }
+}
+
+fn qirgen(sources: SourceMap) -> String {
+    let capabilities = TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations;
+    let (std_id, store) = compile::package_store_with_stdlib(capabilities);
+
+    let namespace = sources
+        .iter()
+        .next()
+        .expect("there should be at least one source")
+        .name
+        .split('.')
+        .next()
+        .expect("name has `.qs` extension")
+        .to_string();
+
+    let mut interpreter = match Interpreter::new(
+        sources,
+        PackageType::Exe,
+        capabilities,
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+    ) {
+        Ok(interpreter) => interpreter,
+        Err(errors) => {
+            return format!("compilation error: {}", errors[0]);
+        }
+    };
+
+    let entry_expr = format!("{namespace}.Main()");
+    match interpreter.qirgen(&entry_expr) {
+        Ok(qir) => format!("generated QIR of length {}", qir.len()),
+        Err(errors) => format!("QIR generation error for `{entry_expr}`: {}", errors[0]),
+    }
+}
+
+fn qirgen_qasm(source: &str) -> String {
+    let config = qsc::openqasm::CompilerConfig::new(
+        QubitSemantics::Qiskit,
+        OutputSemantics::OpenQasm,
+        ProgramType::File,
+        None,
+        None,
+    );
+    let unit = parse_and_compile_to_qsharp_ast_with_config(
+        source,
+        "",
+        Option::<&mut InMemorySourceResolver>::None,
+        config,
+    );
+    let (source_map, errors, package, sig, _) = unit.into_tuple();
+    assert!(errors.is_empty(), "QASM compilation failed: {errors:?}");
+
+    let Some(signature) = sig else {
+        panic!("signature should have had value. This is a bug");
+    };
+
+    assert!(
+        signature.input.is_empty(),
+        "Circuit has unbound input parameters\n  help: Parameters: {}",
+        signature.input_params()
+    );
+    let capabilities = TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations;
+    let package_type = PackageType::Lib;
+    let language_features = LanguageFeatures::default();
+    let (stdid, mut store) = qsc::compile::package_store_with_stdlib(capabilities);
+    let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
+
+    let (mut unit, errors) = qsc::compile::compile_ast(
+        &store,
+        &dependencies,
+        package,
+        source_map,
+        package_type,
+        capabilities,
+    );
+
+    assert!(
+        errors.is_empty(),
+        "Compilation of Q# AST from QASM failed: {errors:?}"
+    );
+
+    unit.expose();
+    let source_package_id = store.insert(unit);
+
+    let mut interpreter = match Interpreter::with_package_store(
+        false,
+        store,
+        source_package_id,
+        capabilities,
+        language_features,
+        &dependencies,
+    ) {
+        Ok(interpreter) => interpreter,
+        Err(errors) => {
+            return format!("compilation error: {}", errors[0]);
+        }
+    };
+
+    match interpreter.qirgen("qasm_import.program()") {
+        Ok(qir) => format!("generated QIR of length {}", qir.len()),
+        Err(errors) => format!(
+            "QIR generation error for `qasm_import.program()`: {}",
+            errors[0]
+        ),
     }
 }

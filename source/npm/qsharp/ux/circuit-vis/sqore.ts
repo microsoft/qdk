@@ -1,24 +1,31 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { formatInputs } from "./formatters/inputFormatter";
-import { formatGates } from "./formatters/gateFormatter";
-import { formatRegisters } from "./formatters/registerFormatter";
-import { processOperations } from "./process";
+import { formatInputs } from "./formatters/inputFormatter.js";
+import { formatGates } from "./formatters/gateFormatter.js";
+import { formatRegisters } from "./formatters/registerFormatter.js";
+import { processOperations } from "./process.js";
 import {
-  ConditionalRender,
   Circuit,
   CircuitGroup,
   ComponentGrid,
   Operation,
-  Column,
-} from "./circuit";
-import { GateRenderData, GateType } from "./gateRenderData";
-import { createUUID } from "./utils";
-import { gateHeight, minGateWidth, minToolboxHeight, svgNS } from "./constants";
-import { createDropzones } from "./draggable";
-import { enableEvents } from "./events";
-import { createPanel, enableRunButton } from "./panel";
+  SourceLocation,
+  Qubit,
+} from "./circuit.js";
+import { GateRenderData } from "./gateRenderData.js";
+import {
+  gateHeight,
+  minGateWidth,
+  minToolboxHeight,
+  svgNS,
+} from "./constants.js";
+import { createDropzones } from "./draggable.js";
+import { enableEvents } from "./events.js";
+import { createPanel, enableRunButton } from "./panel.js";
+import { getMinMaxRegIdx } from "./utils.js";
+import type { StateColumn } from "./state-viz/stateViz.js";
+import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
 
 /**
  * Contains render data for visualization.
@@ -40,27 +47,52 @@ type GateRegistry = {
   [location: string]: Operation;
 };
 
+export type EditorHandlers = {
+  editCallback: (circuitGroup: CircuitGroup) => void;
+  // When provided, enables the Run button in the toolbox.
+  runCallback?: () => void;
+  // Optional callback to offload state visualization computation.
+  // When provided (e.g., by the VS Code webview), the state visualizer can
+  // compute state in a Web Worker without relying on globals.
+  computeStateVizColumnsForCircuitModel?: (
+    model: Circuit,
+    opts?: PrepareStateVizOptions,
+  ) => Promise<StateColumn[]>;
+};
+
+export type DrawOptions = {
+  renderDepth?: number;
+  renderLocations?: (l: SourceLocation[]) => { title: string; href: string };
+  /**
+   * When provided, enables editing behaviors (dropzones, run button, etc.) and
+   * requires the callbacks necessary to support those behaviors.
+   */
+  editor?: EditorHandlers;
+  /**
+   * When provided, enables zoom-to-fit behavior. The callback is called with the new zoom level whenever it changes.
+   */
+  onZoomChange?: (zoomLevel: number) => void;
+};
+
 /**
  * Entrypoint class for rendering circuit visualizations.
  */
 export class Sqore {
   circuit: Circuit;
   gateRegistry: GateRegistry = {};
-  renderDepth = 0;
-
+  renderDepth: number = this.options.renderDepth ?? 0;
+  container: HTMLElement | null = null;
+  zoomOnResize: boolean = true;
+  zoomLevel: number = 100;
   /**
    * Initializes Sqore object.
    *
    * @param circuitGroup Group of circuits to be visualized.
-   * @param isEditable Whether the circuit is editable.
-   * @param editCallback Callback function to be called when the circuit is edited.
-   * @param runCallback Callback function to be called when the circuit is run.
+   * @param options Optional rendering/interaction options.
    */
   constructor(
     public circuitGroup: CircuitGroup,
-    readonly isEditable = false,
-    private editCallback?: (circuitGroup: CircuitGroup) => void,
-    private runCallback?: () => void,
+    private options: DrawOptions = {},
   ) {
     if (
       this.circuitGroup == null ||
@@ -79,14 +111,87 @@ export class Sqore {
    * Render circuit into `container` at the specified layer depth.
    *
    * @param container HTML element for rendering visualization into.
-   * @param renderDepth Initial layer depth at which to render gates.
    */
-  draw(container: HTMLElement, renderDepth = 0): void {
+  draw(container: HTMLElement) {
     // Inject into container
     if (container == null) throw new Error(`Container not provided.`);
 
-    this.renderDepth = renderDepth;
+    this.container = container;
+
     this.renderCircuit(container);
+
+    if (this.options.onZoomChange != null) {
+      this.zoomToFit();
+      window.addEventListener("resize", () => this.onResize());
+    }
+  }
+
+  /**
+   * Window resize handler to recalculate and set the zoom level
+   * based on the new window width.
+   */
+  private onResize() {
+    if (!this.zoomOnResize) {
+      return;
+    }
+
+    // Recalculate the zoom level based on the container width
+    this.zoomToFit();
+  }
+
+  /**
+   * Calculate and set the zoom level to fit the circuit within the container.
+   */
+  private zoomToFit() {
+    if (this.options.onZoomChange == null || this.container == null) {
+      return;
+    }
+    const zoomLevel = this.calculateZoomToFit(this.container);
+    this.updateZoomLevel(zoomLevel);
+    this.options.onZoomChange?.(zoomLevel);
+  }
+
+  /**
+   * Update the zoom level setting and apply it to the SVG element.
+   */
+  updateZoomLevel(zoomLevel: number) {
+    this.zoomLevel = zoomLevel;
+    const svg = this.container?.querySelector("svg.qviz");
+    if (svg) {
+      this.updateSvgWidth(svg as SVGElement, zoomLevel);
+    }
+  }
+
+  /**
+   * Update the width of the SVG element based on the zoom level.
+   */
+  updateSvgWidth(svg: SVGElement, zoomLevel: number) {
+    // The width attribute contains the true width.
+    // We'll leave this attribute untouched, so we can use it again if the
+    // zoom level is ever updated.
+    const width = svg.getAttribute("width")!;
+
+    // We'll set the width in the style attribute to (true width * zoom level).
+    // This value takes precedence over the true width in the width attribute.
+    svg.setAttribute(
+      "style",
+      `max-width: ${width}; width: ${(parseInt(width) * (zoomLevel || 100)) / 100}; height: auto`,
+    );
+  }
+
+  /**
+   * Calculate the zoom level that will fit the circuit into the current size of the container.
+   */
+  calculateZoomToFit(container: HTMLElement): number {
+    const svg = container.querySelector("svg.qviz") as SVGElement;
+    const containerWidth = container.clientWidth;
+    // width and height are the true dimensions generated by qviz
+    const width = parseInt(svg.getAttribute("width")!);
+    const height = svg.getAttribute("height")!;
+
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    const zoom = Math.min(Math.ceil((containerWidth / width) * 100), 100);
+    return zoom;
   }
 
   /**
@@ -99,7 +204,6 @@ export class Sqore {
     // Create copy of circuit to prevent mutation
     const _circuit: Circuit =
       circuit ?? JSON.parse(JSON.stringify(this.circuit));
-    const renderDepth = this.renderDepth;
 
     // Assign unique locations to each operation
     _circuit.componentGrid.forEach((col, colIndex) =>
@@ -108,32 +212,20 @@ export class Sqore {
       ),
     );
 
-    // Render operations starting at given depth
-    _circuit.componentGrid = this.selectOpsAtDepth(
-      _circuit.componentGrid,
-      renderDepth,
-    );
+    // Expand operations to the specified render depth
+    this.expandOperationsToDepth(_circuit.componentGrid, this.renderDepth);
 
-    // If only one top-level operation, expand automatically:
-    if (
-      _circuit.componentGrid.length == 1 &&
-      _circuit.componentGrid[0].components.length == 1 &&
-      _circuit.componentGrid[0].components[0].dataAttributes != null &&
-      Object.prototype.hasOwnProperty.call(
-        _circuit.componentGrid[0].components[0].dataAttributes,
-        "location",
-      )
-    ) {
-      const location: string =
-        _circuit.componentGrid[0].components[0].dataAttributes["location"];
-      this.expandOperation(_circuit.componentGrid, location);
-    }
+    // Auto-expand any groups with single children
+    this.expandIfSingleOperation(_circuit.componentGrid);
 
     // Create visualization components
     const composedSqore: ComposedSqore = this.compose(_circuit);
     const svg: SVGElement = this.generateSvg(composedSqore);
     this.setViewBox(svg);
-    const previousSvg = container.querySelector("svg[id]");
+    if (this.options.onZoomChange != null) {
+      this.updateSvgWidth(svg, this.zoomLevel);
+    }
+    const previousSvg = container.querySelector("svg.qviz");
     if (previousSvg == null) {
       container.appendChild(svg);
     } else {
@@ -146,16 +238,58 @@ export class Sqore {
     }
     this.addGateClickHandlers(container, _circuit);
 
-    if (this.isEditable) {
+    const editor = this.options.editor;
+    const isEditable = editor != null;
+    if (isEditable) {
       createDropzones(container, this);
-      createPanel(container);
-      if (this.runCallback != undefined) {
-        const callback = this.runCallback;
-        enableRunButton(container, callback);
+      createPanel(container, editor.computeStateVizColumnsForCircuitModel);
+      if (editor.runCallback) {
+        enableRunButton(container, editor.runCallback);
       }
       enableEvents(container, this, () => this.renderCircuit(container));
-      if (this.editCallback != undefined) {
-        this.editCallback(this.minimizeCircuits(this.circuitGroup));
+      editor.editCallback(this.minimizeCircuits(this.circuitGroup));
+    }
+  }
+
+  private expandOperationsToDepth(
+    componentGrid: ComponentGrid,
+    targetDepth: number,
+    currentDepth: number = 0,
+  ) {
+    for (const col of componentGrid) {
+      for (const op of col.components) {
+        if (currentDepth < targetDepth && op.children != null) {
+          op.dataAttributes = op.dataAttributes || {};
+          op.dataAttributes["expanded"] = "true";
+          this.expandOperationsToDepth(
+            op.children,
+            targetDepth,
+            currentDepth + 1,
+          );
+        }
+      }
+    }
+  }
+
+  private expandIfSingleOperation(grid: ComponentGrid) {
+    if (grid.length == 1 && grid[0].components.length == 1) {
+      const onlyComponent = grid[0].components[0];
+      if (
+        onlyComponent.dataAttributes != null &&
+        Object.prototype.hasOwnProperty.call(
+          onlyComponent.dataAttributes,
+          "location",
+        ) &&
+        onlyComponent.dataAttributes["expanded"] !== "false"
+      ) {
+        const location: string = onlyComponent.dataAttributes["location"];
+        this.expandOperation(grid, location);
+      }
+    }
+    // Recursively expand if the only child is also a single operation
+    for (const col of grid) {
+      for (const op of col.components) {
+        this.expandIfSingleOperation(op.children || []);
       }
     }
   }
@@ -199,25 +333,48 @@ export class Sqore {
     };
 
     const { qubits, componentGrid } = circuit;
-    const { qubitWires, registers, svgHeight } = formatInputs(qubits);
+
+    // Calculate the row heights, which may vary depending on how many
+    // expanded group borders need to fit between qubit wires.
+    const rowHeights = getRowHeights(qubits, componentGrid);
+
+    const isEditable = this.options.editor != null;
+
+    // Draw the qubit labels.
+    // Also calculate other register render data to be used later in the rendering.
+    const { qubitLabels, registers, svgHeight } = formatInputs(
+      qubits,
+      rowHeights,
+      isEditable ? undefined : this.options.renderLocations,
+    );
+
+    // Calculate the render data for the operations.
+    const topY = qubits[0] ? registers[qubits[0].id].y : -1;
+    const bottomY = qubits[qubits.length - 1]
+      ? registers[qubits[qubits.length - 1].id].y
+      : -1;
     const { renderDataArray, svgWidth } = processOperations(
       componentGrid,
+      topY,
+      bottomY,
       registers,
+      isEditable ? undefined : this.options.renderLocations,
     );
+
+    // Draw the operations.
     const formattedGates: SVGElement = formatGates(renderDataArray);
-    const measureGates: GateRenderData[] = flatten(renderDataArray).filter(
-      ({ type }) => type === GateType.Measure,
-    );
+
+    // Draw the lines that represent qubit and classical wires.
     const formattedRegs: SVGElement = formatRegisters(
       registers,
-      measureGates,
+      flatten(renderDataArray),
       svgWidth,
     );
 
     const composedSqore: ComposedSqore = {
       width: svgWidth,
       height: svgHeight,
-      elements: [qubitWires, formattedRegs, formattedGates],
+      elements: [qubitLabels, formattedRegs, formattedGates],
     };
     return composedSqore;
   }
@@ -231,14 +388,11 @@ export class Sqore {
    */
   private generateSvg(composedSqore: ComposedSqore): SVGElement {
     const { width, height, elements } = composedSqore;
-    const uuid: string = createUUID();
 
     const svg: SVGElement = document.createElementNS(svgNS, "svg");
-    svg.setAttribute("id", uuid);
     svg.setAttribute("class", "qviz");
     svg.setAttribute("width", width.toString());
     svg.setAttribute("height", height.toString());
-    svg.style.setProperty("max-width", "fit-content");
 
     // Add styles
     document.documentElement.style.setProperty(
@@ -273,68 +427,19 @@ export class Sqore {
   private fillGateRegistry(operation: Operation, location: string): void {
     if (operation.dataAttributes == null) operation.dataAttributes = {};
     operation.dataAttributes["location"] = location;
-    // By default, operations cannot be zoomed-out
-    operation.dataAttributes["zoom-out"] = "false";
+
+    // Note: `dataAttributes["expanded"]` is intentionally not defaulted here.
+    // Expansion is controlled by:
+    // - `renderDepth` (see `expandOperationsToDepth`),
+    // - user interaction (expand/collapse), and
+    // - `expandIfSingleOperation`, which auto-expands a single top-level op
+    //   unless it has been explicitly collapsed.
     this.gateRegistry[location] = operation;
     operation.children?.forEach((col, colIndex) =>
       col.components.forEach((childOp, i) => {
         this.fillGateRegistry(childOp, `${location}-${colIndex},${i}`);
-        if (childOp.dataAttributes == null) childOp.dataAttributes = {};
-        // Children operations can be zoomed out
-        childOp.dataAttributes["zoom-out"] = "true";
       }),
     );
-    // Composite operations can be zoomed in
-    operation.dataAttributes["zoom-in"] = (
-      operation.children != null
-    ).toString();
-  }
-
-  /**
-   * Pick out operations that are at or below `renderDepth`.
-   *
-   * @param componentGrid Circuit components.
-   * @param renderDepth Initial layer depth at which to render gates.
-   *
-   * @returns Grid of components at or below specified depth.
-   */
-  private selectOpsAtDepth(
-    componentGrid: ComponentGrid,
-    renderDepth: number,
-  ): ComponentGrid {
-    if (renderDepth < 0)
-      throw new Error(
-        `Invalid renderDepth of ${renderDepth}. Needs to be >= 0.`,
-      );
-    if (renderDepth === 0) return componentGrid;
-    const selectedOps: ComponentGrid = [];
-    componentGrid.forEach((col) => {
-      const selectedCol: Operation[] = [];
-      const extraCols: Column[] = [];
-      col.components.forEach((op) => {
-        if (op.children != null) {
-          const selectedChildren = this.selectOpsAtDepth(
-            op.children,
-            renderDepth - 1,
-          );
-          if (selectedChildren.length > 0) {
-            selectedCol.push(...selectedChildren[0].components);
-            selectedChildren.slice(1).forEach((col, colIndex) => {
-              if (extraCols[colIndex] == null) extraCols[colIndex] = col;
-              // NOTE: I'm unsure if this is a safe way to combine column arrays
-              else extraCols[colIndex].components.push(...col.components);
-            });
-          }
-        } else {
-          selectedCol.push(op);
-        }
-        selectedOps.push({ components: selectedCol });
-        if (extraCols.length > 0) {
-          selectedOps.push(...extraCols);
-        }
-      });
-    });
-    return selectedOps;
   }
 
   /**
@@ -345,64 +450,14 @@ export class Sqore {
    *
    */
   private addGateClickHandlers(container: HTMLElement, circuit: Circuit): void {
-    this.addClassicalControlHandlers(container);
     this.addZoomHandlers(container, circuit);
   }
 
   /**
-   * Add interactive click handlers for classically-controlled operations.
-   *
-   * @param container HTML element containing visualized circuit.
-   *
-   */
-  private addClassicalControlHandlers(container: HTMLElement): void {
-    container.querySelectorAll(".classically-controlled-btn").forEach((btn) => {
-      // Zoom in on clicked gate
-      btn.addEventListener("click", (evt: Event) => {
-        const textSvg = btn.querySelector("text");
-        const group = btn.parentElement;
-        if (textSvg == null || group == null) return;
-
-        const currValue = textSvg.firstChild?.nodeValue;
-        const zeroGates = group?.querySelector(".gates-zero");
-        const oneGates = group?.querySelector(".gates-one");
-        switch (currValue) {
-          case "?":
-            textSvg.childNodes[0].nodeValue = "1";
-            group.classList.remove("classically-controlled-unknown");
-            group.classList.remove("classically-controlled-zero");
-            group.classList.add("classically-controlled-one");
-            zeroGates?.classList.add("hidden");
-            oneGates?.classList.remove("hidden");
-            break;
-          case "1":
-            textSvg.childNodes[0].nodeValue = "0";
-            group.classList.remove("classically-controlled-unknown");
-            group.classList.add("classically-controlled-zero");
-            group.classList.remove("classically-controlled-one");
-            zeroGates?.classList.remove("hidden");
-            oneGates?.classList.add("hidden");
-            break;
-          case "0":
-            textSvg.childNodes[0].nodeValue = "?";
-            group.classList.add("classically-controlled-unknown");
-            group.classList.remove("classically-controlled-zero");
-            group.classList.remove("classically-controlled-one");
-            zeroGates?.classList.remove("hidden");
-            oneGates?.classList.remove("hidden");
-            break;
-        }
-        evt.stopPropagation();
-      });
-    });
-  }
-
-  /**
-   * Add interactive click handlers for zoom-in/out functionality.
+   * Add interactive click handlers for expand/collapse functionality.
    *
    * @param container HTML element containing visualized circuit.
    * @param circuit Circuit to be visualized.
-   *
    */
   private addZoomHandlers(container: HTMLElement, circuit: Circuit): void {
     container.querySelectorAll(".gate .gate-control").forEach((ctrl) => {
@@ -416,6 +471,7 @@ export class Sqore {
           } else if (ctrl.classList.contains("gate-expand")) {
             this.expandOperation(circuit.componentGrid, gateId);
           }
+          this.zoomOnResize = false;
           this.renderCircuit(container, circuit);
 
           ev.stopPropagation();
@@ -425,11 +481,10 @@ export class Sqore {
   }
 
   /**
-   * Expand selected operation for zoom-in interaction.
+   * Expand selected composite operation.
    *
    * @param componentGrid Grid of circuit components.
    * @param location Location of operation to expand.
-   *
    */
   private expandOperation(
     componentGrid: ComponentGrid,
@@ -437,12 +492,10 @@ export class Sqore {
   ): void {
     componentGrid.forEach((col) =>
       col.components.forEach((op) => {
-        if (op.conditionalRender === ConditionalRender.AsGroup)
-          this.expandOperation(op.children || [], location);
+        if (op.children != null) this.expandOperation(op.children, location);
         if (op.dataAttributes == null) return op;
         const opId: string = op.dataAttributes["location"];
         if (opId === location && op.children != null) {
-          op.conditionalRender = ConditionalRender.AsGroup;
           op.dataAttributes["expanded"] = "true";
         }
       }),
@@ -450,11 +503,10 @@ export class Sqore {
   }
 
   /**
-   * Collapse selected operation for zoom-out interaction.
+   * Collapse selected composite operation.
    *
    * @param componentGrid Grid of circuit components.
    * @param parentLoc Location of operation to collapse.
-   *
    */
   private collapseOperation(
     componentGrid: ComponentGrid,
@@ -462,13 +514,17 @@ export class Sqore {
   ): void {
     componentGrid.forEach((col) =>
       col.components.forEach((op) => {
-        if (op.conditionalRender === ConditionalRender.AsGroup)
-          this.collapseOperation(op.children || [], parentLoc);
+        if (op.children != null) this.collapseOperation(op.children, parentLoc);
         if (op.dataAttributes == null) return op;
         const opId: string = op.dataAttributes["location"];
-        // Collapse parent gate and its children
-        if (opId.startsWith(parentLoc)) {
-          op.conditionalRender = ConditionalRender.Always;
+        if (opId === parentLoc) {
+          // Explicitly collapse the targeted parent operation.
+          op.dataAttributes["expanded"] = "false";
+        } else if (opId.startsWith(parentLoc)) {
+          // For descendants, remove the explicit expanded attribute rather than
+          // forcing it to "false". This allows default expansion rules (e.g.
+          // classically controlled groups default to expanded) to re-apply
+          // correctly when the parent is later re-expanded.
           delete op.dataAttributes["expanded"];
         }
       }),
@@ -498,4 +554,114 @@ export class Sqore {
     }
     operation.dataAttributes = undefined;
   };
+}
+
+/**
+ * Recursively computes vertical space required to render group borders.
+ *
+ * The resulting `heightAboveWire` and `heightBelowWire` values per qubit are
+ * later used by `formatInputs` to leave sufficient space between qubit wires.
+ *
+ * @param qubits Array of qubits in the circuit.
+ * @param componentGrid Grid of circuit components to traverse.
+ *
+ * @returns Mapping from qubit index to required heights above and below their wires.
+ */
+function getRowHeights(
+  qubits: Qubit[],
+  componentGrid: ComponentGrid,
+): {
+  [qubitIndex: number]: {
+    heightAboveWire: number;
+    heightBelowWire: number;
+  };
+} {
+  const rowHeights: {
+    [qubitIndex: number]: {
+      currentGroupBordersAboveWire: number;
+      currentGroupBordersBelowWire: number;
+      heightAboveWire: number;
+      heightBelowWire: number;
+    };
+  } = {};
+
+  for (const q of qubits) {
+    const { id } = q;
+    rowHeights[id] = {
+      currentGroupBordersBelowWire: 0,
+      currentGroupBordersAboveWire: 0,
+      heightBelowWire: 0,
+      heightAboveWire: 0,
+    };
+  }
+
+  updateRowHeights(componentGrid, rowHeights, qubits.length);
+  return rowHeights;
+}
+
+function updateRowHeights(
+  componentGrid: ComponentGrid,
+  rowHeights: {
+    [qubitIndex: number]: {
+      currentGroupBordersAboveWire: number;
+      currentGroupBordersBelowWire: number;
+      heightAboveWire: number;
+      heightBelowWire: number;
+    };
+  },
+  numQubits: number,
+) {
+  for (const col of componentGrid) {
+    for (const component of col.components) {
+      if (isExpandedGroup(component)) {
+        // We're in an expanded group. There is a dashed border above
+        // the top qubit, and below the bottom qubit.
+        const [topQubit, bottomQubit] = getMinMaxRegIdx(component);
+
+        // Increment the current count of dashed group borders for
+        // the top and bottom rows for this operation.
+        // If the max height for this row has been exceeded above or below the wire,
+        // update it.
+        rowHeights[topQubit].currentGroupBordersAboveWire++;
+        rowHeights[topQubit].heightAboveWire = Math.max(
+          rowHeights[topQubit].heightAboveWire,
+          rowHeights[topQubit].currentGroupBordersAboveWire,
+        );
+
+        rowHeights[bottomQubit].currentGroupBordersBelowWire++;
+        rowHeights[bottomQubit].heightBelowWire = Math.max(
+          rowHeights[bottomQubit].heightBelowWire,
+          rowHeights[bottomQubit].currentGroupBordersBelowWire,
+        );
+
+        // recurse
+        updateRowHeights(component.children || [], rowHeights, numQubits);
+
+        // decrement
+        rowHeights[topQubit].currentGroupBordersAboveWire--;
+        rowHeights[bottomQubit].currentGroupBordersBelowWire--;
+      }
+    }
+  }
+}
+
+/**
+ * An "expanded group" here is any operation that is to be rendered showing
+ * its children, with a dashed box around the children.
+ */
+function isExpandedGroup(component: Operation) {
+  const expandedAttr = component.dataAttributes?.["expanded"];
+  if (expandedAttr != null) {
+    return expandedAttr === "true";
+  }
+
+  const hasChildren =
+    component.children != null && component.children.length > 0;
+  const hasClassicalControls =
+    component.kind === "unitary" &&
+    (((component.controls ?? []).some((reg) => reg.result != null) ?? false) ||
+      (component.metadata?.controlResultIds?.length ?? 0) > 0);
+
+  // Classically controlled groups default to expanded when not explicitly set.
+  return hasChildren && hasClassicalControls;
 }

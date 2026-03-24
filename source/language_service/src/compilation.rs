@@ -10,13 +10,12 @@ use qsc::{
     hir::{self, PackageId, Res},
     incremental::Compiler,
     line_column::{Encoding, Position, Range},
-    packages::{BuildableProgram, prepare_package_store},
-    project,
-    qasm::{
+    openqasm::{
         CompileRawQasmResult, CompilerConfig, OutputSemantics, ProgramType, QubitSemantics,
         compiler::compile_to_qsharp_ast_with_config,
     },
-    resolve,
+    packages::{BuildableProgram, prepare_package_store},
+    project, resolve,
     target::Profile,
 };
 use qsc_linter::{LintLevel, LintOrGroupConfig};
@@ -251,11 +250,11 @@ impl Compilation {
             Some("program".into()),
             None,
         );
-        let res = qsc::qasm::semantic::parse_sources(&sources);
+        let res = qsc::openqasm::semantic::parse_sources(&sources);
         let unit = compile_to_qsharp_ast_with_config(res, config);
         let target_profile = unit.profile();
         let CompileRawQasmResult(store, source_package_id, _, _sig, mut compile_errors) =
-            qsc::qasm::compile_openqasm(unit, package_type);
+            qsc::openqasm::compile_openqasm(unit, package_type);
 
         let compile_unit = store
             .get(source_package_id)
@@ -463,21 +462,17 @@ impl Lookup for Compilation {
         &self,
         item_id: &hir::ItemId,
     ) -> (&hir::Item, &hir::Package, hir::ItemId) {
-        self.resolve_item(self.user_package_id, item_id)
+        self.resolve_item(item_id)
     }
 
     /// Returns the hir `Item` node referred to by `res`.
     /// `Res`s can resolve to external packages, and the references
     /// are relative, so here we also need the
     /// local `PackageId` that the `res` itself came from.
-    fn resolve_item_res(
-        &self,
-        local_package_id: PackageId,
-        res: &hir::Res,
-    ) -> (&hir::Item, hir::ItemId) {
+    fn resolve_item_res(&self, res: &hir::Res) -> (&hir::Item, hir::ItemId) {
         match res {
             hir::Res::Item(item_id) => {
-                let (item, _, resolved_item_id) = self.resolve_item(local_package_id, item_id);
+                let (item, _, resolved_item_id) = self.resolve_item(item_id);
                 (item, resolved_item_id)
             }
             _ => panic!("expected to find item"),
@@ -488,16 +483,12 @@ impl Lookup for Compilation {
     /// `ItemId`s can refer to external packages, and the references
     /// are relative, so here we also need the local `PackageId`
     /// that the `ItemId` originates from.
-    fn resolve_item(
-        &self,
-        local_package_id: PackageId,
-        item_id: &hir::ItemId,
-    ) -> (&hir::Item, &hir::Package, hir::ItemId) {
+    fn resolve_item(&self, item_id: &hir::ItemId) -> (&hir::Item, &hir::Package, hir::ItemId) {
         // If the `ItemId` contains a package id, use that.
         // Lack of a package id means the item is in the
         // same package as the one this `ItemId` reference
         // came from. So use the local package id passed in.
-        let package_id = item_id.package.unwrap_or(local_package_id);
+        let package_id = item_id.package;
         let package = &self
             .package_store
             .get(package_id)
@@ -513,20 +504,16 @@ impl Lookup for Compilation {
         while let hir::ItemKind::Export(
             _,
             Res::Item(hir::ItemId {
-                package: package_id,
+                package: id,
                 item: local_item_id,
             }),
         ) = &item.kind
         {
-            let package: &hir::Package = if let Some(id) = package_id {
-                &self
-                    .package_store
-                    .get(*id)
-                    .expect("package should exist in store")
-                    .package
-            } else {
-                package
-            };
+            let package: &hir::Package = &self
+                .package_store
+                .get(*id)
+                .expect("package should exist in store")
+                .package;
 
             item = package
                 .items
@@ -537,7 +524,7 @@ impl Lookup for Compilation {
             item,
             package,
             hir::ItemId {
-                package: Some(package_id),
+                package: package_id,
                 item: item_id.item,
             },
         )

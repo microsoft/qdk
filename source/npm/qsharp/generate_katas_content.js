@@ -408,7 +408,7 @@ function createQuestion(kataPath, properties) {
   // Generate the object using the macro properties.
   const descriptionMarkdown = tryReadFile(
     join(kataPath, properties.descriptionPath),
-    `Could not read descripton for question ${properties.id}`,
+    `Could not read description for question ${properties.id}`,
   );
   const description = createTextContent(descriptionMarkdown);
   const answer = createAnswer(join(kataPath, properties.answerPath));
@@ -599,7 +599,7 @@ function createKata(
     // Check if a valid section was created.
     if (section === null) {
       throw new Error(
-        `Unexpexted segment of type '${currentSegment.type}'\n` +
+        `Unexpected segment of type '${currentSegment.type}'\n` +
           `segment:\n` +
           `${JSON.stringify(currentSegment, undefined, 2)}\n` +
           `Hint: is the markdown missing a @[section] macro?`,

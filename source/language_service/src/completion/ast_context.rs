@@ -51,7 +51,7 @@ impl<'a> AstContext<'a> {
     }
 
     fn set_context(&mut self, context: Context<'a>) {
-        // Ignores update of contex if the cursor is in an attribute argument
+        // Ignores update of context if the cursor is in an attribute argument
         if matches!(self.context, Some(Context::AttrArg(_))) {
             return;
         }

@@ -82,6 +82,8 @@ export interface Qubit {
   id: number;
   /** Number of measurement results associated to the qubit. */
   numResults?: number;
+  /** Declaration locations in the source code. */
+  declarations?: SourceLocation[];
 }
 
 /**
@@ -114,10 +116,11 @@ export interface BaseOperation {
   Note that this is never written to file, so it is not part of the circuit schema */
   dataAttributes?: DataAttributes;
 
-  /** Whether gate is a conditional operation. */
+  /** Whether gate is a classically controlled operation. */
   isConditional?: boolean;
-  /** Specify conditions on when to render operation. */
-  conditionalRender?: ConditionalRender;
+
+  /** Not written to file */
+  metadata?: Metadata;
 }
 
 /**
@@ -146,11 +149,7 @@ function isBaseOperation(obj: any): obj is BaseOperation {
           (val) => typeof val === "string",
         ))) &&
     // isConditional is optional, but if present must be boolean
-    (obj.isConditional === undefined ||
-      typeof obj.isConditional === "boolean") &&
-    // conditionalRender is optional, but if present must be a valid enum value
-    (obj.conditionalRender === undefined ||
-      Object.values(ConditionalRender).includes(obj.conditionalRender))
+    (obj.isConditional === undefined || typeof obj.isConditional === "boolean")
   );
 }
 
@@ -251,22 +250,26 @@ export function isParameter(obj: any): obj is Parameter {
 }
 
 /**
- * Conditions on when to render the given operation.
- */
-export enum ConditionalRender {
-  /** Always rendered. */
-  Always,
-  /** Render classically-controlled operation when measurement is a zero. */
-  OnZero,
-  /** Render classically-controlled operation when measurement is a one. */
-  OnOne,
-  /** Render operation as a group of its nested operations. */
-  AsGroup,
-}
-
-/**
  * Custom data attributes (e.g. data-{attr}="{val}")
  */
 export interface DataAttributes {
   [attr: string]: string;
+}
+
+export interface SourceLocation {
+  file: string;
+  line: number;
+  column: number;
+}
+
+export interface Metadata {
+  source?: SourceLocation;
+  scopeLocation?: SourceLocation;
+  /**
+   * For a classically controlled operation,
+   * this maps control registers to the measurement result
+   * IDs. Unlike the `result` field in `Register`, which are
+   * specific to the qubit, these IDs are global across the circuit.
+   */
+  controlResultIds?: [Register, number][];
 }

@@ -13,6 +13,7 @@ mod invert_block;
 mod logic_sep;
 mod loop_unification;
 mod measurement;
+mod noise_intrinsic;
 mod replace_qubit_allocation;
 mod reset;
 mod spec_gen;
@@ -30,7 +31,7 @@ use qsc_frontend::compile::CompileUnit;
 use qsc_hir::{
     assigner::Assigner,
     global::{self, Table},
-    hir::Package,
+    hir::{Package, PackageId},
     mut_visit::MutVisitor,
     validate::Validator,
     visit::Visitor,
@@ -53,6 +54,7 @@ pub enum Error {
     ConjInvert(conjugate_invert::Error),
     EntryPoint(entry_point::Error),
     Measurement(measurement::Error),
+    NoiseIntrinsic(noise_intrinsic::Error),
     Reset(reset::Error),
     SpecGen(spec_gen::Error),
     TestAttribute(test_attribute::TestAttributeError),
@@ -118,6 +120,8 @@ impl PassContext {
 
         let measurement_decl_errors = measurement::validate_measurement_declarations(package);
         let reset_decl_errors = reset::validate_reset_declarations(package);
+        let noise_intrinsic_decl_errors =
+            noise_intrinsic::validate_noise_intrinsic_declarations(package);
 
         let entry_point_errors = generate_entry_expr(package, assigner, package_type);
         Validator::default().visit_package(package);
@@ -140,6 +144,11 @@ impl PassContext {
             .chain(entry_point_errors)
             .chain(measurement_decl_errors.into_iter().map(Error::Measurement))
             .chain(reset_decl_errors.into_iter().map(Error::Reset))
+            .chain(
+                noise_intrinsic_decl_errors
+                    .into_iter()
+                    .map(Error::NoiseIntrinsic),
+            )
             .chain(test_attribute_errors.into_iter().map(Error::TestAttribute))
             .collect()
     }
@@ -167,7 +176,7 @@ pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {
     borrow_check.visit_package(&core.package);
     let borrow_errors = borrow_check.errors;
 
-    let table = global::iter_package(None, &core.package).collect();
+    let table = global::iter_package(PackageId::CORE, &core.package).collect();
     LoopUni {
         core: &table,
         assigner: &mut core.assigner,

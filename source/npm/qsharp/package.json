@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/microsoft/qsharp",
+    "url": "https://github.com/microsoft/qdk",
     "directory": "npm"
   },
   "exports": {
@@ -22,20 +22,25 @@
     "./debug-service-worker": "./dist/debug-service/worker-browser.js",
     "./katas": "./dist/katas.js",
     "./katas-md": "./dist/katas-md.js",
-    "./ux": "./ux/index.ts"
+    "./state-viz": "./ux/circuit-vis/state-viz/worker/index.ts",
+    "./ux": "./ux/index.ts",
+    "./qdk-theme.css": "./ux/qdk-theme.css"
   },
   "scripts": {
-    "build": "npm run docs && npm run generate && npm run build:tsc",
+    "build": "npm run docs && npm run generate && npm run build:tsc && npm run build:ux",
     "generate": "node generate_katas_content.js && node generate_samples_content.js",
     "generate:force": "node generate_katas_content.js --force && node generate_samples_content.js",
     "docs": "node generate_docs.js",
     "build:tsc": "node ../../../node_modules/typescript/bin/tsc -p ./src/tsconfig.json",
+    "build:ux": "node ../../../node_modules/typescript/bin/tsc -p ./ux/tsconfig.json",
     "tsc:watch": "node ../../../node_modules/typescript/bin/tsc -p ./src/tsconfig.json --watch --preserveWatchOutput",
     "test": "node --test"
   },
   "type": "module",
   "files": [
     "dist",
+    "!dist/ux",
+    "!dist/src",
     "docs",
     "lib",
     "ux"

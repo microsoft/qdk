@@ -4,7 +4,7 @@
 #![allow(unknown_lints, clippy::empty_docs)]
 #![allow(non_snake_case)]
 
-use diagnostic::{VSDiagnostic, interpret_errors_into_qsharp_errors};
+use diagnostic::interpret_errors_into_qsharp_errors;
 use katas::check_solution;
 use language_service::IOperationInfo;
 use num_bigint::BigUint;
@@ -20,7 +20,7 @@ use qsc::{
         self, CircuitEntryPoint,
         output::{self, Receiver},
     },
-    qasm::{CompileRawQasmResult, io::InMemorySourceResolver},
+    openqasm::{CompileRawQasmResult, io::InMemorySourceResolver},
     target::Profile,
 };
 use resource_estimator::{self as re, estimate_entry};
@@ -28,6 +28,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{fmt::Write, sync::Arc};
 use wasm_bindgen::prelude::*;
+
+use crate::diagnostic::interpret_errors_to_run_result;
 
 mod debug_service;
 mod diagnostic;
@@ -141,17 +143,54 @@ pub(crate) fn get_estimates_from_openqasm(
     })
 }
 
+serializable_type! {
+    CircuitConfig,
+    {
+        generation_method: String,
+        max_operations: usize,
+        source_locations: bool,
+        group_by_scope: bool,
+    },
+    r#"export interface ICircuitConfig {
+        generationMethod: "simulate" | "classicalEval" | "static";
+        maxOperations: number;
+        sourceLocations: boolean;
+        groupByScope: boolean;
+    }"#,
+    ICircuitConfig
+}
+
 #[wasm_bindgen]
 pub fn get_circuit(
     program: ProgramConfig,
-    simulate: bool,
     operation: Option<IOperationInfo>,
+    config: ICircuitConfig,
 ) -> Result<JsValue, String> {
+    let config: CircuitConfig = config.into();
+    let method = match config.generation_method.as_str() {
+        "simulate" => qsc::interpret::CircuitGenerationMethod::Simulate,
+        "classicalEval" => qsc::interpret::CircuitGenerationMethod::ClassicalEval,
+        "static" => qsc::interpret::CircuitGenerationMethod::Static,
+        _ => {
+            panic!(
+                "Invalid generation method option: {}",
+                config.generation_method
+            )
+        }
+    };
+    let tracer_config = qsc::circuit::TracerConfig {
+        source_locations: config.source_locations,
+        max_operations: config.max_operations,
+        group_by_scope: config.group_by_scope,
+        prune_classical_qubits: false,
+    };
+
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);
         let (_, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)?;
+
         let circuit = interpreter
-            .circuit(CircuitEntryPoint::EntryPoint, simulate)
+            .circuit(CircuitEntryPoint::EntryPoint, method, tracer_config)
             .map_err(interpret_errors_into_qsharp_errors_json)?;
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
     } else {
@@ -181,7 +220,7 @@ pub fn get_circuit(
         .map_err(interpret_errors_into_qsharp_errors_json)?;
 
         let circuit = interpreter
-            .circuit(entry_point, simulate)
+            .circuit(entry_point, method, tracer_config)
             .map_err(interpret_errors_into_qsharp_errors_json)?;
 
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
@@ -393,12 +432,6 @@ fn run_internal_with_features<F>(
 where
     F: FnMut(&str),
 {
-    let source_name = sources
-        .iter()
-        .map(|x| x.name.clone())
-        .next()
-        .expect("There must be a source to process")
-        .to_string();
     let mut out = CallbackReceiver { event_cb };
     let mut interpreter = match interpret::Interpreter::new(
         sources,
@@ -410,14 +443,11 @@ where
     ) {
         Ok(interpreter) => interpreter,
         Err(err) => {
-            // TODO: handle multiple errors
-            // https://github.com/microsoft/qsharp/issues/149
-            let e = err[0].clone();
-            let diag = VSDiagnostic::from_interpret_error(&source_name, &e);
+            let diag = interpret_errors_to_run_result(&err);
             let msg = json!(
                 {"type": "Result", "success": false, "result": diag});
             (out.event_cb)(&msg.to_string());
-            return Err(Box::new(e));
+            return Err(Box::new(err[0].clone()));
         }
     };
 
@@ -431,10 +461,8 @@ where
         let msg: serde_json::Value = match result {
             Ok(value) => serde_json::Value::String(value.to_string()),
             Err(errors) => {
-                // TODO: handle multiple errors
-                // https://github.com/microsoft/qsharp/issues/149
                 success = false;
-                VSDiagnostic::from_interpret_error(&source_name, &errors[0]).json()
+                interpret_errors_to_run_result(&errors)
             }
         };
 
@@ -509,12 +537,6 @@ pub fn runWithNoise(
 
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);
-        let source_name = sources
-            .iter()
-            .map(|x| x.0.clone())
-            .next()
-            .expect("There must be a source to process")
-            .to_string();
         let (entry_expr, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)?;
         if let Err(err) = interpreter.set_entry_expr(&entry_expr) {
             return Err(interpret_errors_into_qsharp_errors_json(err).into());
@@ -531,10 +553,8 @@ pub fn runWithNoise(
             let msg: serde_json::Value = match result {
                 Ok(value) => serde_json::Value::String(value.to_string()),
                 Err(errors) => {
-                    // TODO: handle multiple errors
-                    // https://github.com/microsoft/qsharp/issues/149
                     success = false;
-                    VSDiagnostic::from_interpret_error(&source_name, &errors[0]).json()
+                    interpret_errors_to_run_result(&errors)
                 }
             };
 
@@ -586,13 +606,8 @@ fn check_exercise_solution_internal(
     let (exercise_success, msg) = match result {
         Ok(value) => (value, serde_json::Value::String(value.to_string())),
         Err(errors) => {
-            // TODO: handle multiple errors
-            // https://github.com/microsoft/qsharp/issues/149
             runtime_success = false;
-            (
-                false,
-                VSDiagnostic::from_interpret_error(source_name, &errors[0]).json(),
-            )
+            (false, interpret_errors_to_run_result(&errors))
         }
     };
     let msg_string =
@@ -702,7 +717,7 @@ fn get_configured_interpreter_from_openqasm(
     let mut resolver = sources.iter().cloned().collect::<InMemorySourceResolver>();
 
     let CompileRawQasmResult(store, source_package_id, dependencies, sig, errors) =
-        qsc::qasm::parse_and_compile_raw_qasm(
+        qsc::openqasm::parse_and_compile_raw_qasm(
             source.clone(),
             file.clone(),
             Some(&mut resolver),
@@ -721,7 +736,7 @@ fn get_configured_interpreter_from_openqasm(
     let sig = sig.expect("msg: there should be a signature");
     let language_features = LanguageFeatures::default();
     let entry_expr = sig.create_entry_expr_from_params(String::new());
-    let interpreter = interpret::Interpreter::from(
+    let interpreter = interpret::Interpreter::with_package_store(
         dbg,
         store,
         source_package_id,

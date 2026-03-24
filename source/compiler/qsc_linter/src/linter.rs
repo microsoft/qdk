@@ -31,7 +31,7 @@ pub fn run_lints(
 }
 
 /// This function is used by our unit tests, to make sure lints aren't duplicated under
-/// normal circunstances. The `run_lints` functions deduplicates the lints to take care
+/// normal circumstances. The `run_lints` functions deduplicates the lints to take care
 /// of a few special cases where the same expression (referring to the same span in the
 /// source code) appears referenced in multiple places in the HIR.
 pub(crate) fn run_lints_without_deduplication(
@@ -106,16 +106,11 @@ pub(crate) struct Compilation<'a> {
 impl Compilation<'_> {
     /// Resolves an item id to an item.
     pub fn resolve_item_id(&self, item_id: &ItemId) -> &Item {
-        let package = match item_id.package {
-            Some(package_id) => {
-                &self
-                    .package_store
-                    .get(package_id)
-                    .expect("package should exist in store")
-                    .package
-            }
-            None => &self.compile_unit.package,
-        };
+        let package = &self
+            .package_store
+            .get(item_id.package)
+            .expect("package should exist in store")
+            .package;
         package
             .items
             .get(item_id.item)
@@ -162,6 +157,15 @@ impl Compilation<'_> {
     }
 }
 
+/// A code action that can be applied to fix a lint.
+#[derive(Debug, Clone)]
+pub struct CodeAction {
+    /// The title for the code action.
+    pub title: String,
+    /// The suggested edits to fix the lint.
+    pub edits: Vec<(String, Span)>,
+}
+
 /// A lint emitted by the linter.
 #[derive(Debug, Clone, thiserror::Error)]
 pub struct Lint {
@@ -175,8 +179,8 @@ pub struct Lint {
     pub help: &'static str,
     /// An enum identifying this lint.
     pub kind: LintKind,
-    /// The suggested edits to fix the lint.
-    pub code_action_edits: Vec<(String, Span)>,
+    /// An optional code action that the user can apply to fix the lint.
+    pub code_action: Option<CodeAction>,
 }
 
 impl std::hash::Hash for Lint {
@@ -225,7 +229,7 @@ impl Diagnostic for Lint {
 }
 
 /// A lint level. This defines if a lint will be treated as a warning or an error,
-/// and if the lint level can be overriden by the user.
+/// and if the lint level can be overridden by the user.
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum LintLevel {
@@ -234,11 +238,11 @@ pub enum LintLevel {
     Allow,
     /// The lint will be treated as a warning.
     Warn,
-    /// The lint will be treated as a warning and cannot be overriden by the user.
+    /// The lint will be treated as a warning and cannot be overridden by the user.
     ForceWarn,
     /// The lint will be treated as an error.
     Error,
-    /// The lint will be treated as an error and cannot be overriden by the user.
+    /// The lint will be treated as an error and cannot be overridden by the user.
     ForceError,
 }
 

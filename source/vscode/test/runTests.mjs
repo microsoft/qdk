@@ -24,6 +24,8 @@ import { SourceMap } from "node:module";
 import path, { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const isCI = !!process.env.CI;
+
 const attachArgName = "--waitForDebugger=";
 const verboseArgName = "--verbose";
 const suiteArgName = "--suite=";
@@ -49,6 +51,26 @@ const thisDir = dirname(fileURLToPath(import.meta.url));
 const extensionDevelopmentPath = join(thisDir, "..");
 
 try {
+  // Run the "empty" suite first to verify VS Code can be downloaded and launched.
+  // This catches flaky infrastructure failures (e.g. VS Code download issues)
+  // before running the real test suites. If it fails in CI, we skip the tests
+  // with a warning instead of failing the build.
+  console.log("Running empty suite to verify VS Code test environment...");
+  try {
+    await runSuite("empty");
+  } catch (err) {
+    if (isCI) {
+      console.warn(
+        "WARNING: VS Code test environment setup failed. " +
+          "Skipping integration tests in CI due to infrastructure issue.",
+      );
+      console.warn(`Error: ${err}`);
+      process.exit(0);
+    }
+    throw err;
+  }
+  console.log("Empty suite succeeded.");
+
   const suites = ["language-service", "debugger"];
   const toRun =
     selectedSuite && suites.includes(selectedSuite) ? [selectedSuite] : suites;
@@ -72,6 +94,7 @@ async function runSuite(name) {
 
   try {
     // Start a web server that serves VS Code in a browser, run the tests
+    void name;
     await runTests({
       headless: true, // pass false to see VS Code UI
       browserType: "chromium",

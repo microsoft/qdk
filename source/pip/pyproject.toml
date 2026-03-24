@@ -1,16 +1,16 @@
 [project]
 name = "qsharp"
 version = "0.0.0"
-requires-python = ">= 3.9"
+requires-python = ">= 3.10"
 classifiers = [
     "License :: OSI Approved :: MIT License",
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python",
     "Programming Language :: Rust",
     "Operating System :: MacOS",
@@ -21,10 +21,10 @@ classifiers = [
 [project.optional-dependencies]
 jupyterlab = ["qsharp-jupyterlab"]
 widgets = ["qsharp-widgets"]
-qiskit = ["qiskit>=1.2.2,<2.0.0"]
+qiskit = ["qiskit>=1.2.2,<3.0.0"]
 
 [build-system]
-requires = ["maturin ~= 1.8.7"]
+requires = ["maturin ~= 1.10.2"]
 build-backend = "maturin"
 
 [tool.maturin]

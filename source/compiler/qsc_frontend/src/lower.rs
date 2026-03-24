@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
-
+#![allow(unused_assignments)]
+// clippy false positive bug: https://github.com/rust-lang/rust/issues/147648. Remove when fixed.
 #[cfg(test)]
 mod tests;
 
@@ -21,7 +22,7 @@ use qsc_data_structures::{
 };
 use qsc_hir::{
     assigner::Assigner,
-    hir::{self, LocalItemId, Res, Visibility},
+    hir::{self, ItemId, LocalItemId, PackageId, Res, Visibility},
     mut_visit::MutVisitor,
     ty::{Arrow, FunctorSetValue, GenericArg, ParamId, Ty, TypeParameter},
 };
@@ -136,6 +137,7 @@ impl From<TyConversionError> for Error {
 }
 
 pub(super) struct Lowerer {
+    package_id: PackageId,
     nodes: IndexMap<ast::NodeId, hir::NodeId>,
     locals: IndexMap<hir::NodeId, (hir::Ident, Ty)>,
     parent: Option<LocalItemId>,
@@ -144,8 +146,9 @@ pub(super) struct Lowerer {
 }
 
 impl Lowerer {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(package_id: PackageId) -> Self {
         Self {
+            package_id,
             nodes: IndexMap::new(),
             locals: IndexMap::new(),
             parent: None,
@@ -158,7 +161,7 @@ impl Lowerer {
         self.items.clear();
     }
 
-    pub(super) fn drain_errors(&mut self) -> vec::Drain<Error> {
+    pub(super) fn drain_errors(&mut self) -> vec::Drain<'_, Error> {
         self.errors.drain(..)
     }
 
@@ -205,9 +208,10 @@ impl With<'_> {
             .map(|i| (i.id, i))
             .collect::<IndexMap<_, _>>();
 
-        collapse_self_exports(&mut items);
+        collapse_self_exports(&mut items, self.lowerer.package_id);
 
         hir::Package {
+            package_id: self.lowerer.package_id,
             items,
             stmts,
             entry,
@@ -340,6 +344,7 @@ impl With<'_> {
         ids
     }
 
+    #[allow(clippy::too_many_lines)]
     fn lower_attr(&mut self, attr: &ast::Attr) -> Option<hir::Attr> {
         match hir::Attr::from_str(attr.name.name.as_ref()) {
             Ok(hir::Attr::EntryPoint) => match &*attr.arg.kind {
@@ -415,6 +420,15 @@ impl With<'_> {
             },
             Ok(hir::Attr::Reset) => match &*attr.arg.kind {
                 ast::ExprKind::Tuple(args) if args.is_empty() => Some(hir::Attr::Reset),
+                _ => {
+                    self.lowerer
+                        .errors
+                        .push(Error::InvalidAttrArgs("()".to_string(), attr.arg.span));
+                    None
+                }
+            },
+            Ok(hir::Attr::NoiseIntrinsic) => match &*attr.arg.kind {
+                ast::ExprKind::Tuple(args) if args.is_empty() => Some(hir::Attr::NoiseIntrinsic),
                 _ => {
                     self.lowerer
                         .errors
@@ -542,7 +556,11 @@ impl With<'_> {
     }
 
     fn check_invalid_attrs_on_function(&mut self, attrs: &[hir::Attr], span: Span) {
-        const INVALID_ATTRS: [hir::Attr; 2] = [hir::Attr::Measurement, hir::Attr::Reset];
+        const INVALID_ATTRS: [hir::Attr; 3] = [
+            hir::Attr::Measurement,
+            hir::Attr::Reset,
+            hir::Attr::NoiseIntrinsic,
+        ];
 
         for invalid_attr in &INVALID_ATTRS {
             if attrs.contains(invalid_attr) {
@@ -778,7 +796,7 @@ impl With<'_> {
                 };
                 self.lower_lambda(lambda, expr.span)
             }
-            ast::ExprKind::Lit(lit) => lower_lit(lit),
+            ast::ExprKind::Lit(lit) => self.lower_lit(lit),
             ast::ExprKind::Paren(_) => unreachable!("parentheses should be removed earlier"),
             ast::ExprKind::Path(PathKind::Ok(path)) => {
                 let args = self
@@ -1020,15 +1038,15 @@ impl With<'_> {
                 ..,
             )) => hir::Res::Item(item_id),
             Some(&resolve::Res::Importable(resolve::Importable::Namespace(_, Some(item_id)))) => {
-                if item_id.package.is_some() {
+                if item_id.package == self.lowerer.package_id {
+                    hir::Res::Item(item_id)
+                } else {
                     // This is a namespace from an external package, and reexporting is
                     // disallowed since it has no meaningful effect.
                     self.lowerer
                         .errors
                         .push(Error::CrossPackageNamespaceReexport(path.span));
                     hir::Res::Err
-                } else {
-                    hir::Res::Item(item_id)
                 }
             }
             Some(&resolve::Res::Importable(resolve::Importable::Namespace(_, None))) => {
@@ -1102,6 +1120,64 @@ impl With<'_> {
     fn lower_idents(&mut self, name: &impl Idents) -> hir::Idents {
         name.iter().map(|i| self.lower_ident(i)).collect()
     }
+
+    fn lower_lit(&mut self, lit: &ast::Lit) -> hir::ExprKind {
+        match lit {
+            ast::Lit::BigInt(value) => hir::ExprKind::Lit(hir::Lit::BigInt(value.as_ref().clone())),
+            &ast::Lit::Bool(value) => hir::ExprKind::Lit(hir::Lit::Bool(value)),
+            &ast::Lit::Double(value) => hir::ExprKind::Lit(hir::Lit::Double(value)),
+            &ast::Lit::Imaginary(value) => hir::ExprKind::Struct(
+                hir::Res::Item(ItemId::complex()),
+                None,
+                Box::new([
+                    Box::new(hir::FieldAssign {
+                        id: self.assigner.next_node(),
+                        span: Span::default(),
+                        field: hir::Field::Path({
+                            let mut path = hir::FieldPath::default();
+                            path.indices.insert(0, 0);
+                            path
+                        }),
+                        value: Box::new(hir::Expr {
+                            id: self.assigner.next_node(),
+                            span: Span::default(),
+                            ty: Ty::Prim(qsc_hir::ty::Prim::Double),
+                            kind: hir::ExprKind::Lit(hir::Lit::Double(0.0)),
+                        }),
+                    }),
+                    Box::new(hir::FieldAssign {
+                        id: self.assigner.next_node(),
+                        span: Span::default(),
+                        field: hir::Field::Path({
+                            let mut path = hir::FieldPath::default();
+                            path.indices.insert(0, 1);
+                            path
+                        }),
+                        value: Box::new(hir::Expr {
+                            id: self.assigner.next_node(),
+                            span: Span::default(),
+                            ty: Ty::Prim(qsc_hir::ty::Prim::Double),
+                            kind: hir::ExprKind::Lit(hir::Lit::Double(value)),
+                        }),
+                    }),
+                ]),
+            ),
+            &ast::Lit::Int(value) => hir::ExprKind::Lit(hir::Lit::Int(value)),
+            ast::Lit::Pauli(ast::Pauli::I) => hir::ExprKind::Lit(hir::Lit::Pauli(hir::Pauli::I)),
+            ast::Lit::Pauli(ast::Pauli::X) => hir::ExprKind::Lit(hir::Lit::Pauli(hir::Pauli::X)),
+            ast::Lit::Pauli(ast::Pauli::Y) => hir::ExprKind::Lit(hir::Lit::Pauli(hir::Pauli::Y)),
+            ast::Lit::Pauli(ast::Pauli::Z) => hir::ExprKind::Lit(hir::Lit::Pauli(hir::Pauli::Z)),
+            ast::Lit::Result(ast::Result::One) => {
+                hir::ExprKind::Lit(hir::Lit::Result(hir::Result::One))
+            }
+            ast::Lit::Result(ast::Result::Zero) => {
+                hir::ExprKind::Lit(hir::Lit::Result(hir::Result::Zero))
+            }
+            ast::Lit::String(value) => {
+                hir::ExprKind::String(vec![hir::StringComponent::Lit(Rc::clone(value))])
+            }
+        }
+    }
 }
 
 /// Removes all self-export items, and makes the corresponding item declarations public.
@@ -1119,28 +1195,28 @@ impl With<'_> {
 /// These exports essentially serve to make the original item public, and don't need
 /// to be lowered as items of their own. In fact, lowering them would result in two
 /// items with the same name in the same namespace.
-fn collapse_self_exports(items: &mut IndexMap<LocalItemId, hir::Item>) {
+fn collapse_self_exports(items: &mut IndexMap<LocalItemId, hir::Item>, this_package: PackageId) {
     let mut to_export = Vec::new();
     for (id, item) in &*items {
-        if let hir::ItemKind::Export(name, Res::Item(original_item_id)) = &item.kind {
-            if original_item_id.package.is_none() {
-                let original_item_id = original_item_id.item;
-                let original_item = items
-                    .get(original_item_id)
-                    .expect("expected to resolve item id");
-                if let Some(parent_id) = item.parent {
-                    let same_namespace = original_item.parent == item.parent;
-                    let same_name = same_namespace
-                        && match &original_item.kind {
-                            hir::ItemKind::Callable(callable_decl) => {
-                                callable_decl.name.name == name.name
-                            }
-                            hir::ItemKind::Ty(ident, _) => ident.name == name.name,
-                            _ => false,
-                        };
-                    if same_name {
-                        to_export.push((parent_id, id, original_item_id));
-                    }
+        if let hir::ItemKind::Export(name, Res::Item(original_item_id)) = &item.kind
+            && original_item_id.package == this_package
+        {
+            let original_item_id = original_item_id.item;
+            let original_item = items
+                .get(original_item_id)
+                .expect("expected to resolve item id");
+            if let Some(parent_id) = item.parent {
+                let same_namespace = original_item.parent == item.parent;
+                let same_name = same_namespace
+                    && match &original_item.kind {
+                        hir::ItemKind::Callable(callable_decl) => {
+                            callable_decl.name.name == name.name
+                        }
+                        hir::ItemKind::Ty(ident, _) => ident.name == name.name,
+                        _ => false,
+                    };
+                if same_name {
+                    to_export.push((parent_id, id, original_item_id));
                 }
             }
         }
@@ -1150,10 +1226,10 @@ fn collapse_self_exports(items: &mut IndexMap<LocalItemId, hir::Item>) {
         // remove the export item
         items.remove(export_item_id);
         // remove the export item from its parent
-        if let Some(parent_item) = items.get_mut(parent_id) {
-            if let hir::ItemKind::Namespace(_, local_item_ids) = &mut parent_item.kind {
-                local_item_ids.retain(|&id| id != export_item_id);
-            }
+        if let Some(parent_item) = items.get_mut(parent_id)
+            && let hir::ItemKind::Namespace(_, local_item_ids) = &mut parent_item.kind
+        {
+            local_item_ids.retain(|&id| id != export_item_id);
         }
         // make the original item public
         items
@@ -1202,28 +1278,6 @@ fn lower_binop(op: ast::BinOp) -> hir::BinOp {
         ast::BinOp::Shr => hir::BinOp::Shr,
         ast::BinOp::Sub => hir::BinOp::Sub,
         ast::BinOp::XorB => hir::BinOp::XorB,
-    }
-}
-
-fn lower_lit(lit: &ast::Lit) -> hir::ExprKind {
-    match lit {
-        ast::Lit::BigInt(value) => hir::ExprKind::Lit(hir::Lit::BigInt(value.as_ref().clone())),
-        &ast::Lit::Bool(value) => hir::ExprKind::Lit(hir::Lit::Bool(value)),
-        &ast::Lit::Double(value) => hir::ExprKind::Lit(hir::Lit::Double(value)),
-        &ast::Lit::Int(value) => hir::ExprKind::Lit(hir::Lit::Int(value)),
-        ast::Lit::Pauli(ast::Pauli::I) => hir::ExprKind::Lit(hir::Lit::Pauli(hir::Pauli::I)),
-        ast::Lit::Pauli(ast::Pauli::X) => hir::ExprKind::Lit(hir::Lit::Pauli(hir::Pauli::X)),
-        ast::Lit::Pauli(ast::Pauli::Y) => hir::ExprKind::Lit(hir::Lit::Pauli(hir::Pauli::Y)),
-        ast::Lit::Pauli(ast::Pauli::Z) => hir::ExprKind::Lit(hir::Lit::Pauli(hir::Pauli::Z)),
-        ast::Lit::Result(ast::Result::One) => {
-            hir::ExprKind::Lit(hir::Lit::Result(hir::Result::One))
-        }
-        ast::Lit::Result(ast::Result::Zero) => {
-            hir::ExprKind::Lit(hir::Lit::Result(hir::Result::Zero))
-        }
-        ast::Lit::String(value) => {
-            hir::ExprKind::String(vec![hir::StringComponent::Lit(Rc::clone(value))])
-        }
     }
 }
 

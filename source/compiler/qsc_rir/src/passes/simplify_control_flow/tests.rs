@@ -73,7 +73,9 @@ fn simplify_control_flow_removes_single_redundant_block() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -90,7 +92,9 @@ fn simplify_control_flow_removes_single_redundant_block() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -155,7 +159,9 @@ fn simplify_control_flow_removes_multiple_redundant_blocks() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -173,7 +179,9 @@ fn simplify_control_flow_removes_multiple_redundant_blocks() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -197,6 +205,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
                 },
                 BlockId(1),
                 BlockId(6),
+                None,
             ),
         ]),
     );
@@ -293,7 +302,9 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -318,7 +329,9 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -348,6 +361,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
                 },
                 BlockId(0),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -444,7 +458,9 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -469,6 +485,8 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }

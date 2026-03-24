@@ -1,0 +1,15 @@
+{
+  "author": "Microsoft",
+  "license": "MIT",
+  "files": [
+    "src/Lookup.qs",
+    "src/LookupViaPP.qs",
+    "src/Main.qs",
+    "src/Multicontrolled.qs",
+    "src/PhaseLookup.qs",
+    "src/PowerProducts.qs",
+    "src/RecursiveSelect.qs",
+    "src/Tests.qs",
+    "src/Utils.qs"
+  ]
+}

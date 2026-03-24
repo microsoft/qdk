@@ -152,7 +152,7 @@ impl Ty {
                     .map(|item| item.with_package(package))
                     .collect(),
             ),
-            Ty::Udt(name, res) => Ty::Udt(name.clone(), res.with_package(package)),
+            Ty::Udt(name, res) => Ty::Udt(name.clone(), *res),
         }
     }
 
@@ -851,18 +851,23 @@ pub struct UdtField {
     pub name_span: Option<Span>,
     /// The field name.
     pub name: Option<Rc<str>>,
-    // The field type.
+    /// The documentation comment for the field.
+    pub doc: Option<Rc<str>>,
+    /// The field type.
     pub ty: Ty,
 }
 
 impl Display for UdtField {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if let Some(n) = &self.name {
-            if let Some(s) = &self.name_span {
-                write!(f, "\nname: {n} {s}")?;
-            }
+        if let Some(n) = &self.name
+            && let Some(s) = &self.name_span
+        {
+            write!(f, "\nname: {n} {s}")?;
         }
         write!(f, "\ntype: {}", self.ty)?;
+        if let Some(doc) = &self.doc {
+            write!(f, "\ndoc: {doc}")?;
+        }
         Ok(())
     }
 }

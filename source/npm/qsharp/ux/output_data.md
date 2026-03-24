@@ -10,7 +10,7 @@ classoption:
 
 # Output data
 
-In this document, we describe all output parameters which are printed by the Azure Quantum Resource Estimator. Second-level headings contain one group in the output that consists of a header and a table with resource estimation data. Each third-level heading corresponds to an entry, which is preceded by a short description text in italic and a long description text. The short description text will be always visible in the third column next to the value, whereas the long description text will be visible as a tooltip when hovering over the corresponding row in the table. The description texts may contain some variable names such as `variable` or $\mathtt{variable}$ in formulas. These will be substituted by the actual computed values extracted from the resource estimates.
+In this document, we describe all output parameters which are printed by the Microsoft Quantum Resource Estimator. Second-level headings contain one group in the output that consists of a header and a table with resource estimation data. Each third-level heading corresponds to an entry, which is preceded by a short description text in italic and a long description text. The short description text will be always visible in the third column next to the value, whereas the long description text will be visible as a tooltip when hovering over the corresponding row in the table. The description texts may contain some variable names such as `variable` or $\mathtt{variable}$ in formulas. These will be substituted by the actual computed values extracted from the resource estimates.
 
 ## Physical resource estimates
 

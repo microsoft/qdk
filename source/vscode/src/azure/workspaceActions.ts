@@ -91,11 +91,8 @@ export function getPythonCodeForWorkspace(
   const idRegex =
     /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\/(?<resourceGroup>[^/]+)/;
 
-  // Regular expression to extract the first part of the endpointUri
-  const endpointRegex = /https:\/\/(?<location>[^.]+)\./;
-
   const idMatch = id.match(idRegex);
-  const endpointMatch = endpointUri.match(endpointRegex);
+  const endpointMatch = endpointUri.match(QuantumUris.endpointRegExp);
 
   const subscriptionId = idMatch?.groups?.subscriptionId;
   const resourceGroup = idMatch?.groups?.resourceGroup;
@@ -110,7 +107,7 @@ export function getPythonCodeForWorkspace(
 # should be configured and used for authentication. For more information, see
 # https://learn.microsoft.com/en-us/azure/developer/python/sdk/authentication-overview
 
-from azure.quantum import Workspace
+from qdk.azure import Workspace
 
 # If using an access key, replace the below with: Workspace.from_connection_string(connection_string)
 # Or set the "AZURE_QUANTUM_CONNECTION_STRING" environment variable and just use: Workspace()
@@ -201,7 +198,7 @@ async function getWorkspaceWithConnectionString(
     } catch (e: any) {
       log.debug("Workspace connection error", e);
       // e.g. check for 401 (invalid key), 404 (invalid workspace), failed network requests (invalid endpoint), etc.
-      let errorText = "An unexpected error occured";
+      let errorText = "An unexpected error occurred";
       const message: string | undefined = e.message;
       if (message?.includes("status 401")) {
         errorText =
@@ -412,10 +409,6 @@ export async function queryWorkspace(workspace: WorkspaceConnection) {
     log.trace(`Got jobs: ${JSON.stringify(jobs, null, 2)}`);
   }
 
-  if (jobs.nextLink) {
-    log.error("Jobs returned a nextLink. This is not supported yet.");
-  }
-
   if (jobs.value.length === 0) {
     sendTelemetryEvent(
       EventType.QueryWorkspaceEnd,
@@ -543,7 +536,7 @@ export async function submitJob(
   const token = await getTokenForWorkspace(workspace);
   const jobId = getRandomGuid();
 
-  const storageUris = await createStorageContainer(
+  const storageUris = await getStorageContainer(
     jobId,
     quantumUris,
     token,
@@ -577,6 +570,37 @@ export async function submitJob(
   return { jobId, storageUris, quantumUris, token };
 }
 
+export async function deleteJobRequest(
+  workspace: WorkspaceConnection,
+  token: string,
+  jobId: string,
+): Promise<void> {
+  const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
+
+  const deleteJobUri = quantumUris.jobs(jobId);
+
+  await azureRequest(
+    deleteJobUri,
+    token,
+    undefined,
+    "DELETE",
+    undefined,
+    false,
+  );
+}
+
+export async function cancelPendingJob(
+  workspace: WorkspaceConnection,
+  token: string,
+  jobId: string,
+): Promise<void> {
+  const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
+
+  const cancelJobUri = quantumUris.cancelJobUri(jobId);
+
+  await azureRequest(cancelJobUri, token, undefined, "POST", undefined, false);
+}
+
 async function putJobData(
   quantumUris: QuantumUris,
   storageUris: StorageUris,
@@ -603,7 +627,6 @@ async function putJobData(
     inputParams: {
       entryPoint: "ENTRYPOINT__main",
       arguments: [],
-      count: numberOfShots,
       shots: numberOfShots,
     },
   };
@@ -616,13 +639,13 @@ async function putJobData(
   );
 }
 
-async function createStorageContainer(
+async function getStorageContainer(
   containerName: string,
   quantumUris: QuantumUris,
   token: string,
   associationId: string,
 ): Promise<StorageUris> {
-  // Get a sasUri for the container
+  // Get a sasUri for the container, container is created by the service if it doesn't exist
   const body = JSON.stringify({ containerName });
   const sasResponse = await azureRequest(
     quantumUris.sasUri(),
@@ -635,17 +658,6 @@ async function createStorageContainer(
   const storageUris = new StorageUris(
     decodeURI(sasResponse.sasUri),
     containerName,
-  );
-
-  // Create the container
-  await storageRequest(
-    storageUris.containerPutWithSasToken(),
-    "PUT",
-    token,
-    quantumUris.storageProxy(),
-    undefined,
-    undefined,
-    associationId,
   );
 
   return storageUris;

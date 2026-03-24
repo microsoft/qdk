@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 
 #[cfg(test)]
+mod circuit_classical_ctl_tests;
+#[cfg(test)]
 mod circuit_tests;
 mod debug;
 #[cfg(test)]
@@ -13,25 +15,6 @@ mod tests;
 
 use std::{cell::RefCell, rc::Rc};
 
-pub use qsc_eval::{
-    StepAction, StepResult,
-    debug::Frame,
-    noise::PauliNoise,
-    output::{self, GenericReceiver},
-    val::Closure,
-    val::Range as ValueRange,
-    val::Result,
-    val::Value,
-};
-use qsc_hir::{global, ty};
-use qsc_linter::{HirLint, Lint, LintKind, LintLevel};
-use qsc_lowerer::{
-    map_fir_local_item_to_hir, map_fir_package_to_hir, map_hir_local_item_to_fir,
-    map_hir_package_to_fir,
-};
-use qsc_partial_eval::ProgramEntry;
-use qsc_rca::PackageStoreComputeProperties;
-
 use crate::{
     error::{self, WithStack},
     incremental::Compiler,
@@ -42,34 +25,57 @@ use miette::Diagnostic;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc_circuit::{
-    Builder as CircuitBuilder, Circuit, Config as CircuitConfig,
-    operations::entry_expr_for_qubit_operation,
+    Circuit, CircuitTracer, TracerConfig,
+    operations::{entry_expr_for_qubit_operation, qubit_param_info},
+    rir_to_circuit::rir_to_circuit,
 };
-use qsc_codegen::qir::{fir_to_qir, fir_to_qir_from_callable};
+use qsc_codegen::qir::{
+    fir_to_qir, fir_to_qir_from_callable, fir_to_rir, fir_to_rir_from_callable,
+};
 use qsc_data_structures::{
+    error::WithSource,
     functors::FunctorApp,
     language_features::LanguageFeatures,
     line_column::{Encoding, Range},
+    source::{Source, SourceMap},
     span::Span,
     target::TargetCapabilityFlags,
 };
 use qsc_eval::{
     Env, ErrorBehavior, State, VariableInfo,
-    backend::{Backend, Chain as BackendChain, SparseSim},
+    backend::{Backend, SparseSim, TracingBackend},
     output::Receiver,
-    val,
 };
-use qsc_fir::fir::{self, ExecGraph, Global, PackageStoreLookup};
+pub use qsc_eval::{
+    StepAction, StepResult,
+    debug::Frame,
+    noise::PauliNoise,
+    output::{self, GenericReceiver},
+    val::Closure,
+    val::Range as ValueRange,
+    val::Result,
+    val::Value,
+};
 use qsc_fir::{
-    fir::{Block, BlockId, Expr, ExprId, Package, PackageId, Pat, PatId, Stmt, StmtId},
+    fir::{
+        self, Block, BlockId, ExecGraph, ExecGraphConfig, Expr, ExprId, Global, Package, PackageId,
+        PackageStoreLookup, Pat, PatId, Stmt, StmtId,
+    },
     visit::{self, Visitor},
 };
 use qsc_frontend::{
-    compile::{CompileUnit, Dependencies, PackageStore, Source, SourceMap},
-    error::WithSource,
+    compile::{CompileUnit, Dependencies, PackageStore},
     incremental::Increment,
 };
+use qsc_hir::{global, ty};
+use qsc_linter::{HirLint, Lint, LintKind, LintLevel};
+use qsc_lowerer::{
+    map_fir_local_item_to_hir, map_fir_package_to_hir, map_hir_local_item_to_fir,
+    map_hir_package_to_fir,
+};
+use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
 use qsc_passes::{PackageType, PassContext};
+use qsc_rca::PackageStoreComputeProperties;
 use rustc_hash::FxHashSet;
 use thiserror::Error;
 
@@ -121,6 +127,8 @@ pub struct Interpreter {
     compiler: Compiler,
     /// The target capabilities used for compilation.
     capabilities: TargetCapabilityFlags,
+    /// The computed properties for the package store, if any, used for code generation.
+    compute_properties: Option<PackageStoreComputeProperties>,
     /// The number of lines that have so far been compiled.
     /// This field is used to generate a unique label
     /// for each line evaluated with `eval_fragments`.
@@ -145,7 +153,9 @@ pub struct Interpreter {
     /// This ID is valid both for the FIR store and the `PackageStore`.
     source_package: PackageId,
     /// The default simulator backend.
-    sim: BackendChain<SparseSim, CircuitBuilder>,
+    sim: SparseSim,
+    /// When circuit tracing is enabled, the tracer that records the circuit during evaluation.
+    circuit_tracer: Option<CircuitTracer>,
     /// The quantum seed, if any. This is cached here so that it can be used in calls to
     /// `run_internal` which use a passed instance of the simulator instead of the one above.
     quantum_seed: Option<u64>,
@@ -154,6 +164,8 @@ pub struct Interpreter {
     classical_seed: Option<u64>,
     /// The evaluator environment.
     env: Env,
+    /// The execution graph configuration to use for evaluation.
+    eval_config: ExecGraphConfig,
 }
 
 pub type InterpretResult = std::result::Result<Value, Vec<Error>>;
@@ -177,6 +189,12 @@ pub struct TaggedItem {
     pub namespace: Vec<Rc<str>>,
 }
 
+#[derive(PartialEq, Eq, Copy, Clone)]
+pub enum TraceCircuitOption {
+    Enabled,
+    Disabled,
+}
+
 impl Interpreter {
     /// Creates a new incremental compiler, compiling the passed in sources.
     /// # Errors
@@ -189,47 +207,73 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::new_internal(
-            false,
+        Self::with_sources(
+            ExecGraphConfig::NoDebug,
             sources,
             package_type,
             capabilities,
             language_features,
             store,
             dependencies,
+            None,
+        )
+    }
+
+    pub fn with_circuit_trace(
+        sources: SourceMap,
+        package_type: PackageType,
+        capabilities: TargetCapabilityFlags,
+        language_features: LanguageFeatures,
+        store: PackageStore,
+        dependencies: &Dependencies,
+        circuit_tracer_config: TracerConfig,
+    ) -> std::result::Result<Self, Vec<Error>> {
+        Self::with_sources(
+            ExecGraphConfig::NoDebug,
+            sources,
+            package_type,
+            capabilities,
+            language_features,
+            store,
+            dependencies,
+            Some(circuit_tracer_config),
         )
     }
 
     /// Creates a new incremental compiler with debugging stmts enabled, compiling the passed in sources.
     /// # Errors
     /// If compiling the sources fails, compiler errors are returned.
-    pub fn new_with_debug(
+    pub fn with_debug(
         sources: SourceMap,
         package_type: PackageType,
         capabilities: TargetCapabilityFlags,
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
+        trace_circuit_config: TracerConfig,
     ) -> std::result::Result<Self, Vec<Error>> {
-        Self::new_internal(
-            true,
+        Self::with_sources(
+            ExecGraphConfig::Debug,
             sources,
             package_type,
             capabilities,
             language_features,
             store,
             dependencies,
+            Some(trace_circuit_config),
         )
     }
 
-    fn new_internal(
-        dbg: bool,
+    #[allow(clippy::too_many_arguments)]
+    fn with_sources(
+        eval_config: ExecGraphConfig,
         sources: SourceMap,
         package_type: PackageType,
         capabilities: TargetCapabilityFlags,
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
+        circuit_tracer_config: Option<TracerConfig>,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::new(
             sources,
@@ -241,56 +285,10 @@ impl Interpreter {
         )
         .map_err(into_errors)?;
 
-        let mut fir_store = fir::PackageStore::new();
-        for (id, unit) in compiler.package_store() {
-            let pkg = qsc_lowerer::Lowerer::new()
-                .with_debug(dbg)
-                .lower_package(&unit.package, &fir_store);
-            fir_store.insert(map_hir_package_to_fir(id), pkg);
-        }
-
-        let source_package_id = compiler.source_package_id();
-        let package_id = compiler.package_id();
-
-        let package = map_hir_package_to_fir(package_id);
-        if capabilities != TargetCapabilityFlags::all() {
-            let _ = PassContext::run_fir_passes_on_fir(
-                &fir_store,
-                map_hir_package_to_fir(source_package_id),
-                capabilities,
-            )
-            .map_err(|caps_errors| {
-                let source_package = compiler
-                    .package_store()
-                    .get(source_package_id)
-                    .expect("package should exist in the package store");
-
-                caps_errors
-                    .into_iter()
-                    .map(|error| Error::Pass(WithSource::from_map(&source_package.sources, error)))
-                    .collect::<Vec<_>>()
-            })?;
-        }
-
-        Ok(Self {
-            compiler,
-            lines: 0,
-            capabilities,
-            fir_store,
-            lowerer: qsc_lowerer::Lowerer::new().with_debug(dbg),
-            expr_graph: None,
-            angle_ty_cache: None.into(),
-            complex_ty_cache: None.into(),
-            env: Env::default(),
-            sim: sim_circuit_backend(),
-            quantum_seed: None,
-            classical_seed: None,
-            package,
-            source_package: map_hir_package_to_fir(source_package_id),
-        })
+        Self::with_compiler(eval_config, capabilities, circuit_tracer_config, compiler)
     }
 
-    pub fn from(
+    pub fn with_package_store(
         dbg: bool,
         store: PackageStore,
         source_package_id: qsc_hir::hir::PackageId,
@@ -298,7 +296,7 @@ impl Interpreter {
         language_features: LanguageFeatures,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        let compiler = Compiler::from(
+        let compiler = Compiler::with_package_store(
             store,
             source_package_id,
             capabilities,
@@ -307,9 +305,31 @@ impl Interpreter {
         )
         .map_err(into_errors)?;
 
+        // Always enable circuit tracing along with debugging.
+        let circuit_tracer_config = if dbg {
+            Some(Debugger::circuit_config())
+        } else {
+            None
+        };
+
+        let eval_config = if dbg {
+            ExecGraphConfig::Debug
+        } else {
+            ExecGraphConfig::NoDebug
+        };
+
+        Self::with_compiler(eval_config, capabilities, circuit_tracer_config, compiler)
+    }
+
+    fn with_compiler(
+        eval_config: ExecGraphConfig,
+        capabilities: TargetCapabilityFlags,
+        circuit_tracer_config: Option<TracerConfig>,
+        compiler: Compiler,
+    ) -> std::result::Result<Interpreter, Vec<Error>> {
         let mut fir_store = fir::PackageStore::new();
         for (id, unit) in compiler.package_store() {
-            let mut lowerer = qsc_lowerer::Lowerer::new().with_debug(dbg);
+            let mut lowerer = qsc_lowerer::Lowerer::new();
             let pkg = lowerer.lower_package(&unit.package, &fir_store);
             fir_store.insert(map_hir_package_to_fir(id), pkg);
         }
@@ -318,8 +338,10 @@ impl Interpreter {
         let package_id = compiler.package_id();
 
         let package = map_hir_package_to_fir(package_id);
-        if capabilities != TargetCapabilityFlags::all() {
-            let _ = PassContext::run_fir_passes_on_fir(
+        let compute_properties = if capabilities == TargetCapabilityFlags::all() {
+            None
+        } else {
+            let compute_properties = PassContext::run_fir_passes_on_fir(
                 &fir_store,
                 map_hir_package_to_fir(source_package_id),
                 capabilities,
@@ -335,23 +357,33 @@ impl Interpreter {
                     .map(|error| Error::Pass(WithSource::from_map(&source_package.sources, error)))
                     .collect::<Vec<_>>()
             })?;
-        }
+
+            Some(compute_properties)
+        };
 
         Ok(Self {
             compiler,
             lines: 0,
             capabilities,
+            compute_properties,
             fir_store,
-            lowerer: qsc_lowerer::Lowerer::new().with_debug(dbg),
+            lowerer: qsc_lowerer::Lowerer::new(),
             expr_graph: None,
             angle_ty_cache: None.into(),
             complex_ty_cache: None.into(),
             env: Env::default(),
-            sim: sim_circuit_backend(),
+            sim: SparseSim::new(),
+            circuit_tracer: circuit_tracer_config.map(|config| {
+                CircuitTracer::new(
+                    config,
+                    &[package, map_hir_package_to_fir(source_package_id)],
+                )
+            }),
             quantum_seed: None,
             classical_seed: None,
             package,
             source_package: map_hir_package_to_fir(source_package_id),
+            eval_config,
         })
     }
 
@@ -365,7 +397,7 @@ impl Interpreter {
             .get(map_fir_package_to_hir(package_id))
             .expect("package should exist in the package store")
             .package;
-        for global in global::iter_package(Some(map_fir_package_to_hir(package_id)), package) {
+        for global in global::iter_package(map_fir_package_to_hir(package_id), package) {
             if let global::Kind::Callable(term) = global.kind {
                 let store_item_id = fir::StoreItemId {
                     package: package_id,
@@ -396,9 +428,12 @@ impl Interpreter {
     /// # Panics
     /// Panics if the item is not callable or a type that can be invoked as a callable.
     pub fn global_callable_ty(&self, item_id: &Value) -> Option<(ty::Ty, ty::Ty)> {
-        let Value::Global(item_id, _) = item_id else {
-            panic!("value is not a global callable");
+        let (item_id, is_closure) = match item_id {
+            Value::Global(item_id, _) => (*item_id, false),
+            Value::Closure(closure) => (closure.id, true),
+            _ => panic!("value is not a callable"),
         };
+
         let package_id = map_fir_package_to_hir(item_id.package);
         let unit = self
             .compiler
@@ -411,7 +446,20 @@ impl Interpreter {
             .get(qsc_hir::hir::LocalItemId::from(usize::from(item_id.item)))?;
         match &item.kind {
             qsc_hir::hir::ItemKind::Callable(decl) => {
-                Some((decl.input.ty.clone(), decl.output.clone()))
+                if is_closure {
+                    // The arguments are a tuple where the first element is the input arguments and
+                    // the second are the captured variables.
+                    // Grab that first element to get the actual input type.
+                    let ty::Ty::Tuple(elems) = &decl.input.ty else {
+                        panic!("closure input type is not a tuple")
+                    };
+                    let input_ty = elems
+                        .last()
+                        .expect("closure input type should have at least one element");
+                    Some((input_ty.clone(), decl.output.clone()))
+                } else {
+                    Some((decl.input.ty.clone(), decl.output.clone()))
+                }
             }
             qsc_hir::hir::ItemKind::Ty(_, udt) => {
                 // We don't handle UDTs, so we return an error type that prevents later code from processing this item.
@@ -431,7 +479,7 @@ impl Interpreter {
             .get(map_fir_package_to_hir(package_id))
             .expect("package should exist in the package store")
             .package;
-        for global in global::iter_package(Some(map_fir_package_to_hir(package_id)), package) {
+        for global in global::iter_package(map_fir_package_to_hir(package_id), package) {
             if let global::Kind::Ty(ty) = global.kind {
                 exported_items.push(TaggedItem {
                     item_id: ty.id,
@@ -459,7 +507,7 @@ impl Interpreter {
         store_item_id: crate::fir::StoreItemId,
     ) -> (&ty::Udt, UdtKind) {
         self.udt_ty_from_item_id(&crate::hir::ItemId {
-            package: Some(map_fir_package_to_hir(store_item_id.package)),
+            package: map_fir_package_to_hir(store_item_id.package),
             item: map_fir_local_item_to_hir(store_item_id.item),
         })
     }
@@ -469,15 +517,9 @@ impl Interpreter {
     /// Panics if the item is not a UDT.
     pub fn udt_ty_from_item_id(&self, item_id: &crate::hir::ItemId) -> (&ty::Udt, UdtKind) {
         let crate::hir::ItemId {
-            package: package_id_opt,
+            package: package_id,
             item: local_item_id,
         } = item_id;
-
-        let package_id = if let Some(package_id) = package_id_opt {
-            package_id
-        } else {
-            &self.compiler.package_id()
-        };
 
         let unit = self
             .compiler
@@ -518,7 +560,7 @@ impl Interpreter {
             if matches!(&namespace[..], &["Std", "OpenQASM", "Angle"]) && &*udt.name == "Angle" {
                 *self.angle_ty_cache.borrow_mut() = Some(*item_id);
                 UdtKind::Angle
-            } else if matches!(&namespace[..], &["Std", "Math"]) && &*udt.name == "Complex" {
+            } else if matches!(&namespace[..], &["Std", "Core"]) && &*udt.name == "Complex" {
                 *self.complex_ty_cache.borrow_mut() = Some(*item_id);
                 UdtKind::Complex
             } else {
@@ -539,15 +581,10 @@ impl Interpreter {
     pub fn get_angle_id(&self) -> fir::StoreItemId {
         if let Some(id) = &*self.angle_ty_cache.borrow() {
             let crate::hir::ItemId {
-                package: hir_package_id_opt,
+                package: hir_package_id,
                 item: hir_local_item_id,
             } = id;
-            let package_id = if let Some(package_id) = hir_package_id_opt {
-                package_id
-            } else {
-                &self.compiler.package_id()
-            };
-            let fir_package_id = map_hir_package_to_fir(*package_id);
+            let fir_package_id = map_hir_package_to_fir(*hir_package_id);
             let fir_local_item_id = map_hir_local_item_to_fir(*hir_local_item_id);
             crate::fir::StoreItemId {
                 package: fir_package_id,
@@ -581,19 +618,11 @@ impl Interpreter {
     pub fn get_complex_id(&self) -> crate::fir::StoreItemId {
         if let Some(id) = &*self.complex_ty_cache.borrow() {
             let crate::hir::ItemId {
-                package: hir_package_id_opt,
+                package: hir_package_id,
                 item: hir_local_item_id,
             } = id;
-
-            let package_id = if let Some(package_id) = hir_package_id_opt {
-                package_id
-            } else {
-                &self.compiler.package_id()
-            };
-
-            let fir_package_id = map_hir_package_to_fir(*package_id);
+            let fir_package_id = map_hir_package_to_fir(*hir_package_id);
             let fir_local_item_id = map_hir_local_item_to_fir(*hir_local_item_id);
-
             crate::fir::StoreItemId {
                 package: fir_package_id,
                 item: fir_local_item_id,
@@ -634,7 +663,7 @@ impl Interpreter {
             qsc_linter::run_lints(
                 self.compiler.package_store(),
                 compile_unit,
-                // see https://github.com/microsoft/qsharp/pull/1627 for context
+                // see https://github.com/microsoft/qdk/pull/1627 for context
                 // on why we override this config
                 Some(&[qsc_linter::LintOrGroupConfig::Lint(
                     qsc_linter::LintConfig {
@@ -658,10 +687,11 @@ impl Interpreter {
             self.source_package,
             self.classical_seed,
             graph,
+            self.eval_config,
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            &mut self.sim,
+            &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
         )
     }
@@ -670,7 +700,7 @@ impl Interpreter {
     /// and a new instance of the environment.
     pub fn eval_entry_with_sim(
         &mut self,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut impl Backend,
         receiver: &mut impl Receiver,
     ) -> InterpretResult {
         let graph = self.get_entry_exec_graph()?;
@@ -682,10 +712,11 @@ impl Interpreter {
             self.source_package,
             self.classical_seed,
             graph,
+            self.eval_config,
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            sim,
+            &mut TracingBackend::no_tracer(sim),
             receiver,
         )
     }
@@ -763,15 +794,16 @@ impl Interpreter {
             self.package,
             self.classical_seed,
             graph,
+            self.eval_config,
             self.compiler.package_store(),
             &self.fir_store,
             &mut self.env,
-            &mut self.sim,
+            &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
         )
     }
 
-    /// Invokes the given callable with the given arguments using the current environment, simlator, and compilation.
+    /// Invokes the given callable with the given arguments using the current environment, simulator, and compilation.
     pub fn invoke(
         &mut self,
         receiver: &mut impl Receiver,
@@ -782,8 +814,9 @@ impl Interpreter {
             self.package,
             self.classical_seed,
             &self.fir_store,
+            self.eval_config,
             &mut self.env,
-            &mut self.sim,
+            &mut TracingBackend::new(&mut self.sim, self.circuit_tracer.as_mut()),
             receiver,
             callable,
             args,
@@ -844,7 +877,10 @@ impl Interpreter {
 
     /// Get the current circuit representation of the program.
     pub fn get_circuit(&self) -> Circuit {
-        self.sim.chained.snapshot()
+        self.circuit_tracer
+            .as_ref()
+            .expect("to call get_circuit, the interpreter should be initialized with circuit tracing enabled")
+            .snapshot(&(self.compiler.package_store(), &self.fir_store))
     }
 
     /// Performs QIR codegen using the given entry expression on a new instance of the environment
@@ -939,66 +975,234 @@ impl Interpreter {
 
     /// Generates a circuit representation for the program.
     ///
-    /// `entry` can be the current entrypoint, an entry expression, or any operation
-    /// that takes qubits.
-    ///
-    /// An operation can be specified by its name or a lambda expression that only takes qubits.
-    /// e.g. `Sample.Main` , `qs => H(qs[0])`
-    ///
-    /// If `simulate` is specified, the program is simulated and the resulting
-    /// circuit is returned (a.k.a. trace mode). Otherwise, the circuit is generated without
-    /// simulation. In this case circuit generation may fail if the program contains dynamic
-    /// behavior (quantum operations that are dependent on measurement results).
+    /// For `entry` options, see [`CircuitEntryPoint`]. For `tracer_config` options, see [`TracerConfig`].
     pub fn circuit(
         &mut self,
         entry: CircuitEntryPoint,
-        simulate: bool,
+        method: CircuitGenerationMethod,
+        tracer_config: TracerConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
-        let (entry_expr, invoke_params) = match entry {
+        let (entry_expr, qubit_params, invoke_params) = match entry {
             CircuitEntryPoint::Operation(operation_expr) => {
-                let (item, functor_app) = self.eval_to_operation(&operation_expr)?;
+                let (package_id, item, functor_app) = self.eval_to_operation(&operation_expr)?;
+                let qubit_param_info = qubit_param_info(item);
                 let expr = entry_expr_for_qubit_operation(item, functor_app, &operation_expr)
                     .map_err(|e| vec![e.into()])?;
-                (Some(expr), None)
+                (Some(expr), qubit_param_info.map(|i| (package_id, i)), None)
             }
-            CircuitEntryPoint::EntryExpr(expr) => (Some(expr), None),
-            CircuitEntryPoint::Callable(call_val, args_val) => (None, Some((call_val, args_val))),
-            CircuitEntryPoint::EntryPoint => (None, None),
+            CircuitEntryPoint::EntryExpr(expr) => (Some(expr), None, None),
+            CircuitEntryPoint::Callable(call_val, args_val) => {
+                (None, None, Some((call_val, args_val)))
+            }
+            CircuitEntryPoint::EntryPoint => (None, None, None),
         };
 
-        let circuit = if simulate {
-            let mut sim = sim_circuit_backend();
+        let mut sink = std::io::sink();
+        let mut out = GenericReceiver::new(&mut sink);
+        let mut tracer = CircuitTracer::with_qubit_input_params(
+            tracer_config,
+            &[self.package, self.source_package],
+            qubit_params,
+        );
 
-            match invoke_params {
-                Some((callable, args)) => {
-                    let mut sink = std::io::sink();
-                    let mut out = GenericReceiver::new(&mut sink);
-
-                    self.invoke_with_sim(&mut sim, &mut out, callable, args)?;
-                }
-                None => self.run_with_sim_no_output(entry_expr, &mut sim)?,
-            }
-
-            sim.chained.finish()
+        // If grouping by scope is enabled, we'll want to execute
+        // debug nodes to track block scopes.
+        let eval_config = if tracer_config.group_by_scope {
+            ExecGraphConfig::Debug
         } else {
-            let mut sim = CircuitBuilder::new(CircuitConfig {
-                max_operations: CircuitConfig::DEFAULT_MAX_OPERATIONS,
-            });
-
-            match invoke_params {
-                Some((callable, args)) => {
-                    let mut sink = std::io::sink();
-                    let mut out = GenericReceiver::new(&mut sink);
-
-                    self.invoke_with_sim(&mut sim, &mut out, callable, args)?;
-                }
-                None => self.run_with_sim_no_output(entry_expr, &mut sim)?,
-            }
-
-            sim.finish()
+            self.eval_config
         };
 
+        match method {
+            CircuitGenerationMethod::Simulate => {
+                let mut sim = SparseSim::new();
+                let mut tracing_backend = TracingBackend::new(&mut sim, Some(&mut tracer));
+                if let Some((callable, args)) = invoke_params {
+                    self.invoke_with_tracing_backend(
+                        &mut tracing_backend,
+                        &mut out,
+                        callable,
+                        args,
+                        eval_config,
+                    )?;
+                } else {
+                    self.run_with_tracing_backend(
+                        &mut tracing_backend,
+                        &mut out,
+                        entry_expr.as_deref(),
+                        eval_config,
+                    )?;
+                }
+            }
+            CircuitGenerationMethod::ClassicalEval => {
+                let mut tracer = TracingBackend::<SparseSim>::no_backend(&mut tracer);
+                if let Some((callable, args)) = invoke_params {
+                    self.invoke_with_tracing_backend(
+                        &mut tracer,
+                        &mut out,
+                        callable,
+                        args,
+                        eval_config,
+                    )?;
+                } else {
+                    self.run_with_tracing_backend(
+                        &mut tracer,
+                        &mut out,
+                        entry_expr.as_deref(),
+                        eval_config,
+                    )?;
+                }
+            }
+            CircuitGenerationMethod::Static => {
+                if let Some((callable, args)) = invoke_params {
+                    return self.static_circuit_from_callable(&callable, args, tracer_config);
+                }
+                return self.static_circuit(entry_expr.as_deref(), tracer_config);
+            }
+        }
+        let circuit = tracer.finish(&(self.compiler.package_store(), &self.fir_store));
         Ok(circuit)
+    }
+
+    fn static_circuit(
+        &mut self,
+        entry_expr: Option<&str>,
+        tracer_config: TracerConfig,
+    ) -> std::result::Result<Circuit, Vec<Error>> {
+        if self.capabilities == TargetCapabilityFlags::all() {
+            return Err(vec![Error::UnsupportedRuntimeCapabilities]);
+        }
+
+        let program = self.compile_to_rir_with_debug_metadata(entry_expr)?;
+        rir_to_circuit(
+            &program,
+            tracer_config,
+            &[self.package, self.source_package],
+            &(self.compiler.package_store(), &self.fir_store),
+        )
+        .map_err(|e| vec![e.into()])
+    }
+
+    fn static_circuit_from_callable(
+        &mut self,
+        callable: &Value,
+        args: Value,
+        tracer_config: TracerConfig,
+    ) -> std::result::Result<Circuit, Vec<Error>> {
+        if self.capabilities == TargetCapabilityFlags::all() {
+            return Err(vec![Error::UnsupportedRuntimeCapabilities]);
+        }
+
+        let Value::Global(store_item_id, _) = callable else {
+            return Err(vec![Error::NotACallable]);
+        };
+
+        let (_original, transformed) = fir_to_rir_from_callable(
+            &self.fir_store,
+            self.capabilities,
+            None,
+            *store_item_id,
+            args,
+            PartialEvalConfig {
+                generate_debug_metadata: true,
+            },
+        )
+        .map_err(|e| {
+            let hir_package_id = match e.span() {
+                Some(span) => span.package,
+                None => map_fir_package_to_hir(self.package),
+            };
+            let source_package = self
+                .compiler
+                .package_store()
+                .get(hir_package_id)
+                .expect("package should exist in the package store");
+            vec![Error::PartialEvaluation(WithSource::from_map(
+                &source_package.sources,
+                e,
+            ))]
+        })?;
+
+        rir_to_circuit(
+            &transformed,
+            tracer_config,
+            &[self.package, self.source_package],
+            &(self.compiler.package_store(), &self.fir_store),
+        )
+        .map_err(|e| vec![e.into()])
+    }
+
+    fn compile_to_rir_with_debug_metadata(
+        &mut self,
+        entry_expr: Option<&str>,
+    ) -> std::result::Result<qsc_partial_eval::Program, Vec<Error>> {
+        let (entry, compute_properties) = if let Some(entry_expr) = &entry_expr {
+            // Compile the expression. This operation will set the expression as
+            // the entry-point in the FIR store.
+            let (graph, compute_properties) = self.compile_entry_expr(entry_expr)?;
+
+            let Some(compute_properties) = compute_properties else {
+                // This can only happen if capability analysis was not run.
+                panic!(
+                    "internal error: compute properties not set after lowering entry expression"
+                );
+            };
+            let package = self.fir_store.get(self.package);
+            let entry = ProgramEntry {
+                exec_graph: graph,
+                expr: (
+                    self.package,
+                    package
+                        .entry
+                        .expect("package must have an entry expression"),
+                )
+                    .into(),
+            };
+            (entry, compute_properties)
+        } else {
+            let package = self.fir_store.get(self.source_package);
+            let entry = ProgramEntry {
+                exec_graph: package.entry_exec_graph.clone(),
+                expr: (
+                    self.source_package,
+                    package
+                        .entry
+                        .expect("package must have an entry expression"),
+                )
+                    .into(),
+            };
+            (
+                entry,
+                self.compute_properties.clone().expect(
+                    "compute properties should be set if target profile isn't unrestricted",
+                ),
+            )
+        };
+        let (_original, transformed) = fir_to_rir(
+            &self.fir_store,
+            self.capabilities,
+            Some(compute_properties),
+            &entry,
+            PartialEvalConfig {
+                generate_debug_metadata: true,
+            },
+        )
+        .map_err(|e| {
+            let hir_package_id = match e.span() {
+                Some(span) => span.package,
+                None => map_fir_package_to_hir(self.package),
+            };
+            let source_package = self
+                .compiler
+                .package_store()
+                .get(hir_package_id)
+                .expect("package should exist in the package store");
+            vec![Error::PartialEvaluation(WithSource::from_map(
+                &source_package.sources,
+                e,
+            ))]
+        })?;
+        Ok(transformed)
     }
 
     /// Sets the entry expression for the interpreter.
@@ -1012,10 +1216,11 @@ impl Interpreter {
     /// but using the current compilation.
     pub fn run_with_sim(
         &mut self,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut impl Backend,
         receiver: &mut impl Receiver,
         expr: Option<&str>,
     ) -> InterpretResult {
+        let mut tracing_backend = TracingBackend::no_tracer(sim);
         let graph = if let Some(expr) = expr {
             let (graph, _) = self.compile_entry_expr(expr)?;
             self.expr_graph = Some(graph.clone());
@@ -1025,71 +1230,86 @@ impl Interpreter {
         };
 
         if self.quantum_seed.is_some() {
-            sim.set_seed(self.quantum_seed);
+            tracing_backend.set_seed(self.quantum_seed);
         }
 
         eval(
             self.package,
             self.classical_seed,
             graph,
+            self.eval_config,
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            sim,
+            &mut tracing_backend,
             receiver,
         )
     }
 
-    fn run_with_sim_no_output(
+    fn run_with_tracing_backend<B: Backend>(
         &mut self,
-        entry_expr: Option<String>,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
-    ) -> std::result::Result<(), Vec<Error>> {
-        let mut sink = std::io::sink();
-        let mut out = GenericReceiver::new(&mut sink);
-
+        tracing_backend: &mut TracingBackend<'_, B>,
+        out: &mut GenericReceiver,
+        entry_expr: Option<&str>,
+        config: ExecGraphConfig,
+    ) -> InterpretResult {
         let (package_id, graph) = if let Some(entry_expr) = entry_expr {
             // entry expression is provided
-            let (graph, _) = self.compile_entry_expr(&entry_expr)?;
+            let (graph, _) = self.compile_entry_expr(entry_expr)?;
             (self.package, graph)
         } else {
             // no entry expression, use the entrypoint in the package
             (self.source_package, self.get_entry_exec_graph()?)
         };
-
         if self.quantum_seed.is_some() {
-            sim.set_seed(self.quantum_seed);
+            tracing_backend.set_seed(self.quantum_seed);
         }
-
         eval(
             package_id,
             self.classical_seed,
             graph,
+            config,
             self.compiler.package_store(),
             &self.fir_store,
             &mut Env::default(),
-            sim,
-            &mut out,
-        )?;
-
-        Ok(())
+            tracing_backend,
+            out,
+        )
     }
 
     /// Invokes the given callable with the given arguments on the given simulator with a new instance of the environment
     /// but using the current compilation.
     pub fn invoke_with_sim(
         &mut self,
-        sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+        sim: &mut impl Backend,
         receiver: &mut impl Receiver,
         callable: Value,
         args: Value,
+    ) -> InterpretResult {
+        self.invoke_with_tracing_backend(
+            &mut TracingBackend::no_tracer(sim),
+            receiver,
+            callable,
+            args,
+            self.eval_config,
+        )
+    }
+
+    fn invoke_with_tracing_backend<B: Backend>(
+        &mut self,
+        tracing_backend: &mut TracingBackend<'_, B>,
+        receiver: &mut impl Receiver,
+        callable: Value,
+        args: Value,
+        config: ExecGraphConfig,
     ) -> InterpretResult {
         qsc_eval::invoke(
             self.package,
             self.classical_seed,
             &self.fir_store,
+            config,
             &mut Env::default(),
-            sim,
+            tracing_backend,
             receiver,
             callable,
             args,
@@ -1143,7 +1363,7 @@ impl Interpreter {
         }
 
         self.lower_and_update_package(unit_addition);
-        Ok((self.lowerer.take_exec_graph().into(), None))
+        Ok((self.lowerer.take_exec_graph(), None))
     }
 
     fn lower_and_update_package(&mut self, unit: &qsc_frontend::incremental::Increment) {
@@ -1184,7 +1404,7 @@ impl Interpreter {
         })?;
 
         let graph = self.lowerer.take_exec_graph();
-        Ok((graph.into(), Some(compute_properties)))
+        Ok((graph, Some(compute_properties)))
     }
 
     fn next_line_label(&mut self) -> String {
@@ -1200,7 +1420,7 @@ impl Interpreter {
     fn eval_to_operation(
         &mut self,
         operation_expr: &str,
-    ) -> std::result::Result<(&qsc_hir::hir::Item, FunctorApp), Vec<Error>> {
+    ) -> std::result::Result<(PackageId, &qsc_hir::hir::Item, FunctorApp), Vec<Error>> {
         let mut sink = std::io::sink();
         let mut out = GenericReceiver::new(&mut sink);
         let (store_item_id, functor_app) = match self.eval_fragments(&mut out, operation_expr)? {
@@ -1220,23 +1440,16 @@ impl Interpreter {
             .items
             .get(local_item_id)
             .expect("item should exist in the package");
-        Ok((item, functor_app))
+        Ok((store_item_id.package, item, functor_app))
     }
 }
 
-fn sim_circuit_backend() -> BackendChain<SparseSim, CircuitBuilder> {
-    BackendChain::new(
-        SparseSim::new(),
-        CircuitBuilder::new(CircuitConfig {
-            max_operations: CircuitConfig::DEFAULT_MAX_OPERATIONS,
-        }),
-    )
-}
-
+#[derive(Debug, Clone)]
 /// Describes the entry point for circuit generation.
 pub enum CircuitEntryPoint {
     /// An operation. This must be a callable name or a lambda
     /// expression that only takes qubits as arguments.
+    /// e.g. "Sample.Main" , "qs => H(qs[0])"
     /// The callable name must be visible in the current package.
     Operation(String),
     /// An explicitly provided entry expression.
@@ -1245,6 +1458,19 @@ pub enum CircuitEntryPoint {
     Callable(Value, Value),
     /// The entry point for the current package.
     EntryPoint,
+}
+
+/// How the circuit is generated.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CircuitGenerationMethod {
+    /// Simulate the program and trace the actual gate calls. Nondeterministic.
+    Simulate,
+    /// Evaluate the classical parts of the program. No quantum simulation.
+    /// Will fail if a measurement comparison occurs during evaluation.
+    ClassicalEval,
+    /// Compile the program and transform to a circuit with only partial evaluation.
+    /// Only works for `AdaptiveRIF` compliant programs.
+    Static,
 }
 
 /// A debugger that enables step-by-step evaluation of code
@@ -1267,13 +1493,14 @@ impl Debugger {
         store: PackageStore,
         dependencies: &Dependencies,
     ) -> std::result::Result<Self, Vec<Error>> {
-        let interpreter = Interpreter::new_with_debug(
+        let interpreter = Interpreter::with_debug(
             sources,
             PackageType::Exe,
             capabilities,
             language_features,
             store,
             dependencies,
+            Debugger::circuit_config(),
         )?;
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);
@@ -1284,6 +1511,7 @@ impl Debugger {
             state: State::new(
                 source_package_id,
                 entry_exec_graph,
+                ExecGraphConfig::Debug,
                 None,
                 ErrorBehavior::StopOnError,
             ),
@@ -1300,6 +1528,7 @@ impl Debugger {
             state: State::new(
                 source_package_id,
                 entry_exec_graph,
+                ExecGraphConfig::Debug,
                 None,
                 ErrorBehavior::StopOnError,
             ),
@@ -1319,7 +1548,10 @@ impl Debugger {
             .eval(
                 &self.interpreter.fir_store,
                 &mut self.interpreter.env,
-                &mut self.interpreter.sim,
+                &mut TracingBackend::new(
+                    &mut self.interpreter.sim,
+                    self.interpreter.circuit_tracer.as_mut(),
+                ),
                 receiver,
                 breakpoints,
                 step,
@@ -1336,7 +1568,7 @@ impl Debugger {
 
     #[must_use]
     pub fn get_stack_frames(&self) -> Vec<StackFrame> {
-        let frames = self.state.get_stack_frames();
+        let frames = self.state.capture_stack();
 
         frames
             .iter()
@@ -1417,27 +1649,39 @@ impl Debugger {
             .get(map_fir_package_to_hir(self.interpreter.source_package))
             .expect("Could not load package")
     }
+
+    /// Configuration used to trace the circuit while debugging.
+    fn circuit_config() -> TracerConfig {
+        TracerConfig {
+            max_operations: TracerConfig::DEFAULT_MAX_OPERATIONS,
+            source_locations: true,
+            group_by_scope: false,
+            prune_classical_qubits: false,
+        }
+    }
 }
 
 /// Wrapper function for `qsc_eval::eval` that handles error conversion.
 #[allow(clippy::too_many_arguments)]
-fn eval(
+fn eval<B: Backend>(
     package: PackageId,
     classical_seed: Option<u64>,
     exec_graph: ExecGraph,
+    exec_graph_config: ExecGraphConfig,
     package_store: &PackageStore,
     fir_store: &fir::PackageStore,
     env: &mut Env,
-    sim: &mut impl Backend<ResultType = impl Into<val::Result>>,
+    tracing_backend: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
 ) -> InterpretResult {
     qsc_eval::eval(
         package,
         classical_seed,
         exec_graph,
+        exec_graph_config,
         fir_store,
         env,
-        sim,
+        tracing_backend,
         receiver,
     )
     .map_err(|(error, call_stack)| eval_error(package_store, fir_store, call_stack, error))

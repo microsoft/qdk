@@ -24,7 +24,8 @@ from qiskit.transpiler.target import Target
 from .compilation import Compilation
 from .errors import Errors
 from .qirtarget import QirTarget
-from ..jobs import QsJob
+from ..execution import DetaultExecutor
+from ..jobs import QsJob, QsSimJob, QsJobSet
 from ..passes import RemoveDelays
 from .... import TargetProfile
 
@@ -164,7 +165,7 @@ class BackendBase(BackendV2, ABC):
 
             self._target = target
         else:
-            self._target = self._create_target()
+            self._target = self._build_target()
 
         self._transpile_options = {}
 
@@ -197,10 +198,14 @@ class BackendBase(BackendV2, ABC):
         if qasm_export_options is not None:
             self._qasm_export_options.update(**qasm_export_options)
 
-    def _create_target(self) -> Target:
+    def _build_target(self) -> Target:
         supports_barrier = self._qiskit_pass_options["supports_barrier"]
         supports_delay = self._qiskit_pass_options["supports_delay"]
-        return QirTarget(
+
+        # explicitly set ``num_qubits`` to ``None`` to indicate a :class:`Target` representing a
+        # simulator or other abstract machine that imposes no limits on the number of qubits.
+        return QirTarget.build_target(
+            num_qubits=None,
             target_profile=self._options["target_profile"],
             supports_barrier=supports_barrier,
             supports_delay=supports_delay,
@@ -289,9 +294,38 @@ class BackendBase(BackendV2, ABC):
         output["header"] = {}
         return self._create_results(output)
 
-    @abstractmethod
-    def _submit_job(self, run_input: List[QuantumCircuit], **input_params) -> QsJob:
-        pass
+    def _validate_quantum_circuits(
+        self, run_input: Union[QuantumCircuit, List[QuantumCircuit]]
+    ) -> List[QuantumCircuit]:
+        """Normalize and validate run_input to a list of QuantumCircuits.
+
+        Wraps a bare ``QuantumCircuit`` in a list and raises ``ValueError``
+        if any element is not a ``QuantumCircuit``.
+        """
+        if not isinstance(run_input, list):
+            run_input = [run_input]
+        for circuit in run_input:
+            if not isinstance(circuit, QuantumCircuit):
+                raise ValueError(str(Errors.INPUT_MUST_BE_QC))
+        return run_input
+
+    def _submit_job(self, run_input: List[QuantumCircuit], **options) -> QsJob:
+        """Default implementation for simulation backends.
+
+        Submits a ``QsSimJob`` for a single circuit or a ``QsJobSet`` for
+        multiple circuits.  Override for backends with different job types
+        (e.g. ``ResourceEstimatorBackend`` uses ``ReJob``).
+        """
+        from uuid import uuid4
+
+        job_id = str(uuid4())
+        executor = options.pop("executor", DetaultExecutor())
+        if len(run_input) == 1:
+            job = QsSimJob(self, job_id, self.run_job, run_input, options, executor)
+        else:
+            job = QsJobSet(self, job_id, self.run_job, run_input, options, executor)
+        job.submit()
+        return job
 
     def _compile(self, run_input: List[QuantumCircuit], **options) -> List[Compilation]:
         # for each run input, convert to qasm
@@ -310,9 +344,42 @@ class BackendBase(BackendV2, ABC):
             compilations.append(compilation)
         return compilations
 
-    @abstractmethod
     def _create_results(self, output: Dict[str, Any]) -> Any:
-        pass
+        """Default implementation: build a Qiskit ``Result`` from the output dict.
+
+        Override for backends that return a different result type
+        (e.g. ``ResourceEstimatorBackend`` returns ``EstimatorResult``).
+        """
+        return Result.from_dict(output)
+
+    def _map_result_bit(self, v) -> str:
+        """Map a single QIR result value to a bit character.
+
+        Override in subclasses to customize the mapping — for example,
+        to emit a loss marker instead of the default string fallback for
+        unknown values.
+        """
+        from .... import Result as QSharpResult
+
+        if v == QSharpResult.One:
+            return "1"
+        if v == QSharpResult.Zero:
+            return "0"
+        return str(v)
+
+    def _shot_to_bitstring(self, value) -> str:
+        """Recursively convert a QIR shot result to a Qiskit-style bitstring.
+
+        - ``tuple`` → space-joined register parts (multiple classical registers)
+        - ``list``  → concatenated bits via `_map_result_bit`
+        - anything else → ``str(value)``
+        """
+        if isinstance(value, tuple):
+            return " ".join(self._shot_to_bitstring(p) for p in value)
+        elif isinstance(value, list):
+            return "".join(self._map_result_bit(v) for v in value)
+        else:
+            return str(value)
 
     def _transpile(self, circuit: QuantumCircuit, **options) -> QuantumCircuit:
         if options.get("skip_transpilation", self._skip_transpilation):

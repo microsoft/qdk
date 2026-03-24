@@ -21,8 +21,8 @@ from .. import telemetry_events
 
 def compile(
     source: Union[str, Callable],
-    *args,
-    **kwargs: Optional[Dict[str, Any]],
+    *args: Any,
+    **kwargs: Any,
 ) -> QirInputData:
     """
     Compiles the OpenQASM source code into a program that can be submitted to a
@@ -64,7 +64,7 @@ def compile(
     # This doesn't work the same way as the Q# compile function as it doesn't
     # have access to the global configuration which has the target profile.
     # Instead, we get the target profile from the kwargs and pass it to the telemetry event.
-    target_profile = kwargs.get("target_profile", "unspecified")
+    target_profile = str(kwargs.get("target_profile", "unspecified"))
 
     telemetry_events.on_compile_qasm(target_profile)
 
@@ -73,7 +73,7 @@ def compile(
         ll_str = get_interpreter().qir(
             entry_expr=None, callable=source.__global_callable, args=args
         )
-    else:
+    elif isinstance(source, str):
         # remove any entries from kwargs with a None key or None value
         kwargs = {k: v for k, v in kwargs.items() if k is not None and v is not None}
 
@@ -90,6 +90,8 @@ def compile(
             fetch_github,
             **kwargs,
         )
+    else:
+        raise ValueError("source must be a string or a callable with __global_callable attribute")
     res = QirInputData("main", ll_str)
 
     durationMs = (monotonic() - start) * 1000

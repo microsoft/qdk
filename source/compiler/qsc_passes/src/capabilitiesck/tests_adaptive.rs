@@ -25,14 +25,6 @@ fn check_profile(source: &str, expect: &Expect) {
     check(source, expect, TargetCapabilityFlags::Adaptive);
 }
 
-fn check_profile_extended(source: &str, capabilities: TargetCapabilityFlags, expect: &Expect) {
-    check(
-        source,
-        expect,
-        TargetCapabilityFlags::Adaptive | capabilities,
-    );
-}
-
 fn check_profile_for_exe(source: &str, expect: &Expect) {
     check_for_exe(source, expect, TargetCapabilityFlags::Adaptive);
 }
@@ -182,14 +174,7 @@ fn use_of_dynamic_string_yields_errors() {
     check_profile(
         USE_DYNAMIC_STRING,
         &expect![[r#"
-            [
-                UseOfDynamicString(
-                    Span {
-                        lo: 130,
-                        hi: 144,
-                    },
-                ),
-            ]
+            []
         "#]],
     );
 }
@@ -477,9 +462,8 @@ fn custom_measurement_with_simulatable_intrinsic_yields_no_errors() {
 
 #[test]
 fn custom_reset_yields_no_errors() {
-    check_profile_extended(
+    check_profile(
         CUSTOM_RESET,
-        TargetCapabilityFlags::QubitReset,
         &expect![[r#"
             []
         "#]],
@@ -488,9 +472,8 @@ fn custom_reset_yields_no_errors() {
 
 #[test]
 fn custom_reset_with_simulatable_intrinsic_yields_no_errors() {
-    check_profile_extended(
+    check_profile(
         CUSTOM_RESET_WITH_SIMULATABLE_INTRINSIC_ATTR,
-        TargetCapabilityFlags::QubitReset,
         &expect![[r#"
             []
         "#]],

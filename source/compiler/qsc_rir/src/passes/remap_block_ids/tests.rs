@@ -56,7 +56,9 @@ fn remap_block_ids_no_changes() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     remap_block_ids(&mut program);
@@ -80,7 +82,9 @@ fn remap_block_ids_no_changes() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -128,7 +132,9 @@ fn remap_block_ids_out_of_order_no_branches() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     remap_block_ids(&mut program);
@@ -152,7 +158,9 @@ fn remap_block_ids_out_of_order_no_branches() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -178,6 +186,7 @@ fn remap_block_ids_out_of_order_with_one_branch() {
             },
             BlockId(3),
             BlockId(1),
+            None,
         )]),
     );
     program
@@ -213,7 +222,9 @@ fn remap_block_ids_out_of_order_with_one_branch() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -240,7 +251,9 @@ fn remap_block_ids_out_of_order_with_one_branch() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -266,6 +279,7 @@ fn remap_block_ids_simple_loop() {
             },
             BlockId(6),
             BlockId(2),
+            None,
         )]),
     );
     program
@@ -296,7 +310,9 @@ fn remap_block_ids_simple_loop() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -321,7 +337,9 @@ fn remap_block_ids_simple_loop() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -364,7 +382,9 @@ fn remap_block_ids_infinite_loop() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -387,7 +407,9 @@ fn remap_block_ids_infinite_loop() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -413,6 +435,7 @@ fn remap_block_ids_nested_branching_loops() {
             },
             BlockId(6),
             BlockId(2),
+            None,
         )]),
     );
     program.blocks.insert(
@@ -424,6 +447,7 @@ fn remap_block_ids_nested_branching_loops() {
             },
             BlockId(4),
             BlockId(2),
+            None,
         )]),
     );
     program
@@ -451,7 +475,9 @@ fn remap_block_ids_nested_branching_loops() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -476,7 +502,9 @@ fn remap_block_ids_nested_branching_loops() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }
 
@@ -503,6 +531,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             },
             BlockId(6),
             BlockId(2),
+            None,
         )]),
     );
     program
@@ -517,6 +546,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             },
             BlockId(1),
             BlockId(3),
+            None,
         )]),
     );
     program
@@ -531,6 +561,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             },
             BlockId(5),
             BlockId(0),
+            None,
         )]),
     );
     program
@@ -579,7 +610,9 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 
     // After
@@ -616,6 +649,8 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             config: Config:
                 capabilities: Base
             num_qubits: 0
-            num_results: 0"#]]
+            num_results: 0
+            tags:
+    "#]]
     .assert_eq(&program.to_string());
 }

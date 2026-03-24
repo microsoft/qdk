@@ -950,11 +950,11 @@ fn substituted_ty(solution: &Solution, mut ty: Ty) -> Ty {
 }
 
 fn substitute_functor(solution: &Solution, functors: &mut FunctorSet) {
-    if let &mut FunctorSet::Infer(infer) = functors {
-        if let Some(&new_functors) = solution.functors.get(infer) {
-            *functors = new_functors;
-            substitute_functor(solution, functors);
-        }
+    if let &mut FunctorSet::Infer(infer) = functors
+        && let Some(&new_functors) = solution.functors.get(infer)
+    {
+        *functors = new_functors;
+        substitute_functor(solution, functors);
     }
 }
 
@@ -1006,6 +1006,7 @@ fn check_add(ty: &Ty) -> bool {
             .0
             .iter()
             .any(|bound| matches!(bound, ClassConstraint::Add)),
+        Ty::Udt(_, Res::Item(id)) if *id == ItemId::complex() => true,
         _ => false,
     }
 }
@@ -1135,6 +1136,7 @@ fn check_eq(ty: Ty, span: Span) -> (Vec<Constraint>, Vec<Error>) {
                 ),
             }
         }
+        Ty::Udt(_, Res::Item(id)) if id == ItemId::complex() => (Vec::new(), Vec::new()),
         _ => (
             Vec::new(),
             vec![Error(ErrorKind::MissingClassEq(ty.display(), span))],
@@ -1155,6 +1157,14 @@ fn check_exp(base: Ty, given_power: Ty, span: Span) -> (Vec<Constraint>, Vec<Err
         Ty::Prim(Prim::Double | Prim::Int) => (
             vec![Constraint::Eq {
                 expected: base,
+                actual: given_power,
+                span,
+            }],
+            Vec::new(),
+        ),
+        Ty::Udt(name, Res::Item(id)) if id == ItemId::complex() => (
+            vec![Constraint::Eq {
+                expected: Ty::Udt(name, Res::Item(id)),
                 actual: given_power,
                 span,
             }],
@@ -1219,9 +1229,7 @@ fn check_has_field(
             match udts.get(id).and_then(|udt| udt.field_ty_by_name(&name)) {
                 Some(ty) => (
                     vec![Constraint::Eq {
-                        expected: id
-                            .package
-                            .map_or_else(|| ty.clone(), |package_id| ty.with_package(package_id)),
+                        expected: ty.with_package(id.package),
                         actual: item,
                         span,
                     }],
@@ -1406,6 +1414,12 @@ fn check_iterable(container: Ty, item: Ty, span: Span) -> (Vec<Constraint>, Vec<
 fn check_num_constraint(constraint: &ClassConstraint, ty: &Ty) -> bool {
     match ty {
         Ty::Prim(Prim::BigInt | Prim::Double | Prim::Int) => true,
+        Ty::Udt(_, Res::Item(id))
+            if *id == ItemId::complex()
+                && !matches!(constraint, ClassConstraint::Ord | ClassConstraint::Mod) =>
+        {
+            true
+        }
         Ty::Param { bounds, .. } => {
             // check if the bounds contain Num
             bounds.0.contains(constraint)
@@ -1455,20 +1469,17 @@ fn check_unwrap(
     base: Ty,
     span: Span,
 ) -> (Vec<Constraint>, Vec<Error>) {
-    if let Ty::Udt(_, Res::Item(id)) = wrapper {
-        if let Some(udt) = udts.get(id) {
-            return (
-                vec![Constraint::Eq {
-                    expected: base,
-                    actual: id.package.map_or_else(
-                        || udt.get_pure_ty(),
-                        |package_id| udt.get_pure_ty().with_package(package_id),
-                    ),
-                    span,
-                }],
-                Vec::new(),
-            );
-        }
+    if let Ty::Udt(_, Res::Item(id)) = wrapper
+        && let Some(udt) = udts.get(id)
+    {
+        return (
+            vec![Constraint::Eq {
+                expected: base,
+                actual: udt.get_pure_ty().with_package(id.package),
+                span,
+            }],
+            Vec::new(),
+        );
     }
 
     (

@@ -9,6 +9,8 @@ import "./qsharp-circuit.css";
 export {
   CreateSingleEstimateResult,
   type ReData,
+  type EditorHandlers,
+  type CircuitModel,
   type CircuitGroup,
   type CircuitProps,
 } from "./data.js";
@@ -20,3 +22,10 @@ export { EstimatesOverview } from "./estimatesOverview.js";
 export { EstimatesPanel } from "./estimatesPanel.js";
 export { Circuit, CircuitPanel } from "./circuit.js";
 export { setRenderer, Markdown } from "./renderers.js";
+export { Atoms, type ZoneLayout, type TraceData } from "./atoms/index.js";
+export { MoleculeViewer } from "./chem/index.js";
+export {
+  ensureTheme,
+  detectThemeChange,
+  updateStyleSheetTheme,
+} from "./themeObserver.js";

@@ -5,7 +5,7 @@
 // Value literals for the Range type are expressions of the form `start..step..stop`, where `start`, `step`,
 // and `end` are expressions of type `Int`. If the step size is one, it may be omitted. For example,
 // `start..stop` is a valid `Range` literal and the same as `start..1..stop`. Closed ranges specify the
-//  `start` and `end` are provied, but open ranges may be expressed by omitting either or both of these
+//  `start` and `end` are provided, but open ranges may be expressed by omitting either or both of these
 // using the `...` syntax in one of the following forms: `start...`, `...end`, `...`. Open ranges may only
 // be used in array slices.
 

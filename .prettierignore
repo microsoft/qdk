@@ -1,9 +1,7 @@
 package-lock.json
 __pycache__/
-.ado/
 .cargo/
 .devcontainer/
-.github/
 .pytest_cache/
 .vscode/
 .vscode-test-web/
@@ -18,6 +16,7 @@ __pycache__/
 /source/npm/qsharp/docs/
 /source/npm/qsharp/lib/
 /source/npm/qsharp/src/*.generated.*
+/source/npm/qsharp/test/**/*.snapshot.*
 /source/pip/
 /source/pip/src/**/*.html
 /source/playground/public/libs/

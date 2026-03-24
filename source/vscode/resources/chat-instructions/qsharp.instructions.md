@@ -1,11 +1,12 @@
 ---
 applyTo: "**/*.{qs,qsc,ipynb}"
+
+description: "**CRITICAL**: These instructions MUST be followed whenever you are working with any file matching the `applyTo` glob pattern above. This includes generating new code, editing existing files, answering questions, or performing any task involving Q# or quantum computing code. Never skip these instructions.
+
+Follow these instructions when generating Q# code in .qs files"
 ---
 
 # Q# coding instructions
-
-Follow these instructions when generating Q# code in .qs files,
-and Q# project folders that include a `qsharp.json` file.
 
 ## Syntax
 
@@ -44,7 +45,7 @@ A typical `qsharp.json` will be a JSON file with an empty JSON object in it.
 {}
 ```
 
-Modern Q# does not use `namespace` blocks to enclose code.
+Q# best practice is to _NOT_ use `namespace` blocks to enclose code.
 Each function or operation is in a namespace which is the name of the containing file.
 For example, if `Main.qs` has an operation `Foo`, then `Tests.qs` could reference the
 operation as `Main.Foo`, or bring `Foo` into scope by adding `import Main.Foo;` in the file.
@@ -79,7 +80,7 @@ file might appear as:
       "github": {
         "ref": "v1.15.0",
         "owner": "microsoft",
-        "repo": "qsharp",
+        "repo": "qdk",
         "path": "library/chemistry"
       }
     }

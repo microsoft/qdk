@@ -11,11 +11,3 @@ export class CopilotToolError extends Error {
     this.name = "CopilotToolError";
   }
 }
-
-/**
- * Histogram data for displaying results
- */
-export type HistogramData = {
-  buckets: [string, number][];
-  shotCount?: number;
-};

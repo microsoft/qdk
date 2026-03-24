@@ -15,7 +15,7 @@ mod tests;
 
 /// Remaps block IDs in the given program to be contiguous, starting from 0,
 /// and in a topological ordering if the program is Directed Acyclic Graph (DAG).
-/// Toplogical ordering is useful for passes that assume each block's successors
+/// Topological ordering is useful for passes that assume each block's successors
 /// have higher IDs than the block itself. This is best effort; if the program has a cycle,
 /// the function will still remap block IDs but the ordering may not be topological.
 pub fn remap_block_ids(program: &mut Program) {
@@ -115,11 +115,20 @@ fn update_phi_nodes(block_id_map: &FxHashMap<BlockId, usize>, instrs: &mut [Inst
 fn update_terminator(block_id_map: &FxHashMap<BlockId, usize>, instruction: &mut Instruction) {
     match instruction {
         Instruction::Jump(target) => {
-            *target = block_id_map[target].into();
+            *target = (*block_id_map
+                .get(target)
+                .expect("block id in jump should exist in block id map"))
+            .into();
         }
-        Instruction::Branch(_, target1, target2) => {
-            *target1 = block_id_map[target1].into();
-            *target2 = block_id_map[target2].into();
+        Instruction::Branch(_, target1, target2, _) => {
+            *target1 = (*block_id_map
+                .get(target1)
+                .expect("block id in branch should exist in block id map"))
+            .into();
+            *target2 = (*block_id_map
+                .get(target2)
+                .expect("block id in branch should exist in block id map"))
+            .into();
         }
         _ => {}
     }

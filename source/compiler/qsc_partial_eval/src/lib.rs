@@ -18,7 +18,8 @@ use miette::Diagnostic;
 use qsc_data_structures::{functors::FunctorApp, span::Span, target::TargetCapabilityFlags};
 use qsc_eval::{
     self, Error as EvalError, ErrorBehavior, PackageSpan, State, StepAction, StepResult, Variable,
-    are_ctls_unique, exec_graph_section,
+    are_ctls_unique,
+    backend::TracingBackend,
     intrinsic::qubit_relabel,
     output::GenericReceiver,
     resolve_closure,
@@ -29,24 +30,28 @@ use qsc_eval::{
 };
 use qsc_fir::{
     fir::{
-        self, BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraph, Expr, ExprId, ExprKind,
-        Global, Ident, LocalVarId, Mutability, PackageId, PackageStore, PackageStoreLookup, Pat,
-        PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreBlockId, StoreExprId,
-        StoreItemId, StorePatId, StoreStmtId, UnOp,
+        self, BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraph, ExecGraphConfig, Expr,
+        ExprId, ExprKind, Field, Global, Ident, LocalVarId, Mutability, PackageId, PackageStore,
+        PackageStoreLookup, Pat, PatId, PatKind, PrimField, Res, SpecDecl, SpecImpl, Stmt, StmtId,
+        StmtKind, StoreBlockId, StoreExprId, StoreItemId, StorePatId, StoreStmtId, StringComponent,
+        UnOp,
     },
     ty::{Prim, Ty},
 };
 use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
-    QuantumProperties, RuntimeFeatureFlags,
+    RuntimeFeatureFlags, ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
     },
 };
-use qsc_rir::{
-    builder,
+pub use qsc_rir::{
+    builder::{self, initialize_decl},
+    debug::{
+        DbgLocation, DbgLocationId, DbgPackageOffset, DbgScope, DbgScopeId, InstructionDbgMetadata,
+    },
     rir::{
         self, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode, Instruction,
         Literal, Operand, Program, VariableId,
@@ -62,9 +67,15 @@ pub fn partially_evaluate(
     compute_properties: &PackageStoreComputeProperties,
     entry: &ProgramEntry,
     capabilities: TargetCapabilityFlags,
+    config: PartialEvalConfig,
 ) -> Result<Program, Error> {
-    let partial_evaluator =
-        PartialEvaluator::new(package_store, compute_properties, entry, capabilities);
+    let partial_evaluator = PartialEvaluator::new(
+        package_store,
+        compute_properties,
+        entry,
+        capabilities,
+        config,
+    );
     partial_evaluator.eval()
 }
 
@@ -75,12 +86,14 @@ pub fn partially_evaluate_call(
     callable: StoreItemId,
     args: Value,
     capabilities: TargetCapabilityFlags,
+    config: PartialEvalConfig,
 ) -> Result<Program, Error> {
     let partial_evaluator = PartialEvaluator::new_from_package_id(
         package_store,
         compute_properties,
         callable.package,
         capabilities,
+        config,
     );
     partial_evaluator.invoke(callable, args)
 }
@@ -97,9 +110,12 @@ pub enum Error {
     #[diagnostic(help("try invoking the desired callable directly"))]
     UnexpectedDynamicValue(#[label] PackageSpan),
 
-    #[error("cannot use a dynamic value of type `{0}` returned from intrinsic callable")]
-    #[diagnostic(code("Qsc.PartialEval.UnexpectedDynamicIntrsinicReturnType"))]
-    UnexpectedDynamicIntrinsicReturnType(String, #[label] PackageSpan),
+    #[error("unsupported type `{0}` in custom intrinsic callable")]
+    #[diagnostic(help(
+        "variables of type `{0}` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures"
+    ))]
+    #[diagnostic(code("Qsc.PartialEval.UnsupportedType"))]
+    UnsupportedCustomIntrinsicType(String, #[label] PackageSpan),
 
     #[error("partial evaluation failed with error: {0}")]
     #[diagnostic(code("Qsc.PartialEval.EvaluationFailed"))]
@@ -147,7 +163,7 @@ impl Error {
         match self {
             Self::CapabilityError(_) => None,
             Self::UnexpectedDynamicValue(span)
-            | Self::UnexpectedDynamicIntrinsicReturnType(_, span)
+            | Self::UnsupportedCustomIntrinsicType(_, span)
             | Self::EvaluationFailed(_, span)
             | Self::OutputResultLiteral(span)
             | Self::Unexpected(_, span)
@@ -175,6 +191,13 @@ struct PartialEvaluator<'a> {
     eval_context: EvaluationContext,
     program: Program,
     entry: Option<&'a ProgramEntry>,
+    config: PartialEvalConfig,
+    dbg_context: DbgContext,
+}
+
+#[derive(Clone, Copy)]
+pub struct PartialEvalConfig {
+    pub generate_debug_metadata: bool,
 }
 
 impl<'a> PartialEvaluator<'a> {
@@ -183,6 +206,7 @@ impl<'a> PartialEvaluator<'a> {
         compute_properties: &'a PackageStoreComputeProperties,
         entry: &'a ProgramEntry,
         capabilities: TargetCapabilityFlags,
+        config: PartialEvalConfig,
     ) -> Self {
         Self::new_internal(
             package_store,
@@ -190,6 +214,7 @@ impl<'a> PartialEvaluator<'a> {
             capabilities,
             Some(entry),
             None,
+            config,
         )
     }
 
@@ -198,6 +223,7 @@ impl<'a> PartialEvaluator<'a> {
         compute_properties: &'a PackageStoreComputeProperties,
         package_id: PackageId,
         capabilities: TargetCapabilityFlags,
+        config: PartialEvalConfig,
     ) -> Self {
         Self::new_internal(
             package_store,
@@ -205,6 +231,7 @@ impl<'a> PartialEvaluator<'a> {
             capabilities,
             None,
             Some(package_id),
+            config,
         )
     }
 
@@ -214,6 +241,7 @@ impl<'a> PartialEvaluator<'a> {
         capabilities: TargetCapabilityFlags,
         entry: Option<&'a ProgramEntry>,
         package_id: Option<PackageId>,
+        config: PartialEvalConfig,
     ) -> Self {
         // Create the entry-point callable.
         let mut resource_manager = ResourceManager::default();
@@ -225,12 +253,26 @@ impl<'a> PartialEvaluator<'a> {
         let entry_point = rir::Callable {
             name: "main".into(),
             input_type: Vec::new(),
-            output_type: None,
+            output_type: Some(rir::Ty::Integer),
             body: Some(entry_block_id),
             call_type: CallableType::Regular,
         };
         program.callables.insert(entry_point_id, entry_point);
         program.entry = entry_point_id;
+
+        // Add the required call to the initialization function.
+        let init_func = initialize_decl();
+        let init_id = resource_manager.next_callable();
+        program.callables.insert(init_id, init_func);
+        program
+            .get_block_mut(entry_block_id)
+            .0
+            .push(Instruction::Call(
+                init_id,
+                vec![Operand::Literal(Literal::Pointer)],
+                None,
+                None,
+            ));
 
         // Initialize the evaluation context and create a new partial evaluator.
         let context = EvaluationContext::new(
@@ -251,6 +293,8 @@ impl<'a> PartialEvaluator<'a> {
             callables_map: FxHashMap::default(),
             program,
             entry,
+            config,
+            dbg_context: Default::default(),
         }
     }
 
@@ -344,18 +388,38 @@ impl<'a> PartialEvaluator<'a> {
         store_item_id: StoreItemId,
         callable_decl: &CallableDecl,
         call_type: CallableType,
-    ) -> Callable {
+    ) -> Result<Callable, Error> {
         let callable_package = self.package_store.get(store_item_id.package);
         let name = callable_decl.name.name.to_string();
-        let input_type: Vec<rir::Ty> = callable_package
-            .derive_callable_input_params(callable_decl)
-            .iter()
-            .map(|input_param| map_fir_type_to_rir_type(&input_param.ty))
-            .collect();
+        let mut input_type: Vec<rir::Ty> = Vec::new();
+        for input_param in &callable_package.derive_callable_input_params(callable_decl) {
+            input_type.push(map_fir_type_to_rir_type(&input_param.ty).map_err(|msg| {
+                Error::UnsupportedCustomIntrinsicType(
+                    msg,
+                    PackageSpan {
+                        package: map_fir_package_to_hir(store_item_id.package),
+                        span: self
+                            .package_store
+                            .get_pat((store_item_id.package, input_param.pat).into())
+                            .span,
+                    },
+                )
+            })?);
+        }
         let output_type = if callable_decl.output == Ty::UNIT {
             None
         } else {
-            Some(map_fir_type_to_rir_type(&callable_decl.output))
+            Some(
+                map_fir_type_to_rir_type(&callable_decl.output).map_err(|msg| {
+                    Error::UnsupportedCustomIntrinsicType(
+                        msg,
+                        PackageSpan {
+                            package: map_fir_package_to_hir(self.get_current_package_id()),
+                            span: callable_decl.span,
+                        },
+                    )
+                })?,
+            )
         };
         let body = None;
         let call_type = if name.eq("__quantum__qis__reset__body") {
@@ -363,13 +427,13 @@ impl<'a> PartialEvaluator<'a> {
         } else {
             call_type
         };
-        Callable {
+        Ok(Callable {
             name,
             input_type,
             output_type,
             body,
             call_type,
-        }
+        })
     }
 
     fn create_program_block(&mut self) -> rir::BlockId {
@@ -412,7 +476,7 @@ impl<'a> PartialEvaluator<'a> {
         output_span: PackageSpan,
     ) -> Result<Program, Error> {
         let output_recording: Vec<Instruction> = self
-            .generate_output_recording_instructions(ret_val, output_ty)
+            .generate_output_recording_instructions(ret_val, output_ty, "")
             .map_err(|()| Error::OutputResultLiteral(output_span))?;
 
         // Insert the return expression and return the generated program.
@@ -431,6 +495,8 @@ impl<'a> PartialEvaluator<'a> {
             .result_register_count()
             .try_into()
             .expect("results count should fit into a u32");
+
+        self.program.dbg_info.remove_unused_dbg_metadata();
 
         Ok(self.program)
     }
@@ -567,6 +633,18 @@ impl<'a> PartialEvaluator<'a> {
             }
             Value::Var(lhs_eval_var) => {
                 self.eval_bin_op_with_lhs_var(bin_op, lhs_eval_var, rhs_expr_id, bin_op_expr_span)
+            }
+            Value::String(_) => {
+                // Strings are a special case that we always treat as empty string during partial evaluation,
+                // but we still need to evaluate the RHS expression in case it contains side effects.
+                let rhs_control_flow = self.try_eval_expr(rhs_expr_id)?;
+                let EvalControlFlow::Continue(rhs_value) = rhs_control_flow else {
+                    return Err(Error::Unexpected(
+                        "embedded return in RHS expression".to_string(),
+                        self.get_expr_package_span(rhs_expr_id),
+                    ));
+                };
+                Ok(EvalControlFlow::Continue(rhs_value))
             }
             _ => Err(Error::Unexpected(
                 format!("unsupported LHS value: {lhs_value}"),
@@ -918,7 +996,10 @@ impl<'a> PartialEvaluator<'a> {
         } else {
             (rhs_eval_block_id, continuation_block_id)
         };
-        let branch_ins = Instruction::Branch(lhs_rir_var, true_block_id, false_block_id);
+
+        let branch_metadata = self.metadata_from_expr(rhs_expr_id);
+        let branch_ins =
+            Instruction::Branch(lhs_rir_var, true_block_id, false_block_id, branch_metadata);
         self.get_program_block_mut(current_block_node.id)
             .0
             .push(branch_ins);
@@ -1077,23 +1158,24 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
-    fn eval_classical_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
+    fn eval_static_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
         let current_package_id = self.get_current_package_id();
         let store_expr_id = StoreExprId::from((current_package_id, expr_id));
         let expr = self.package_store.get_expr(store_expr_id);
         let scope_exec_graph = self.get_current_scope_exec_graph().clone();
         let scope = self.eval_context.get_current_scope_mut();
-        let exec_graph = exec_graph_section(&scope_exec_graph, expr.exec_graph_range.clone());
+        let exec_graph = scope_exec_graph.get_range(&expr.exec_graph_range);
         let mut state = State::new(
             current_package_id,
             exec_graph,
+            ExecGraphConfig::NoDebug,
             None,
             ErrorBehavior::FailOnError,
         );
         let classical_result = state.eval(
             self.package_store,
             &mut scope.env,
-            &mut self.backend,
+            &mut TracingBackend::no_tracer(&mut self.backend),
             &mut GenericReceiver::new(&mut std::io::sink()),
             &[],
             StepAction::Continue,
@@ -1132,7 +1214,7 @@ impl<'a> PartialEvaluator<'a> {
         eval_result
     }
 
-    fn eval_hybrid_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
+    fn eval_dynamic_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
         let expr = self.get_expr(expr_id);
         let expr_package_span = self.get_expr_package_span(expr_id);
         match &expr.kind {
@@ -1180,10 +1262,7 @@ impl<'a> PartialEvaluator<'a> {
                 "using a dynamic value in a fail statement is invalid".to_string(),
                 expr_package_span,
             )),
-            ExprKind::Field(_, _) => Err(Error::Unexpected(
-                "accessing a field of a dynamic user-defined type is invalid".to_string(),
-                expr_package_span,
-            )),
+            ExprKind::Field(expr_id, field) => self.eval_expr_field(*expr_id, field.clone()),
             ExprKind::Hole => Err(Error::Unexpected(
                 "hole expressions are not expected during partial evaluation".to_string(),
                 expr_package_span,
@@ -1210,10 +1289,7 @@ impl<'a> PartialEvaluator<'a> {
                 "instruction generation for struct constructor expressions is invalid".to_string(),
                 expr_package_span,
             )),
-            ExprKind::String(_) => Err(Error::Unexpected(
-                "dynamic strings are invalid".to_string(),
-                expr_package_span,
-            )),
+            ExprKind::String(components) => self.eval_expr_string(components),
             ExprKind::Tuple(exprs) => self.eval_expr_tuple(exprs),
             ExprKind::UnOp(un_op, value_expr_id) => {
                 self.eval_expr_unary(*un_op, *value_expr_id, expr_package_span)
@@ -1227,9 +1303,33 @@ impl<'a> PartialEvaluator<'a> {
             }
             ExprKind::Var(res, _) => Ok(EvalControlFlow::Continue(self.eval_expr_var(res))),
             ExprKind::While(condition_expr_id, body_block_id) => {
-                self.eval_expr_while(*condition_expr_id, *body_block_id)
+                self.eval_expr_while(expr_id, *condition_expr_id, *body_block_id)
             }
         }
+    }
+
+    fn eval_expr_string(
+        &mut self,
+        components: &Vec<StringComponent>,
+    ) -> Result<EvalControlFlow, Error> {
+        // To ensure any dynamic nested expressions are evaluated, we loop through them here.
+        for component in components {
+            match component {
+                StringComponent::Lit(_) => (),
+                StringComponent::Expr(expr_id) => {
+                    let control_flow = self.try_eval_expr(*expr_id)?;
+                    if control_flow.is_return() {
+                        return Err(Error::Unexpected(
+                            "embedded return in string expression".to_string(),
+                            self.get_expr_package_span(*expr_id),
+                        ));
+                    }
+                }
+            }
+        }
+        // All dynamic strings are treated as the empty string for the purpose of partial evaluation since RCA prevents
+        // any dynamic string from affecting control flow.
+        Ok(EvalControlFlow::Continue(Value::String("".into())))
     }
 
     fn eval_expr_array_repeat(
@@ -1310,7 +1410,7 @@ impl<'a> PartialEvaluator<'a> {
         rhs_expr_id: ExprId,
         bin_op_expr_span: PackageSpan, // For diagnostic purposes only.
     ) -> Result<EvalControlFlow, Error> {
-        // Consider optimization of array in-place operations instead of re-using the general binary operation
+        // Consider optimization of array in-place operations instead of reusing the general binary operation
         // evaluation.
         let lhs_expr = self.get_expr(lhs_expr_id);
         let lhs_expr_package_span = self.get_expr_package_span(lhs_expr_id);
@@ -1438,6 +1538,7 @@ impl<'a> PartialEvaluator<'a> {
         );
 
         self.check_unresolved_call_capabilities(call_expr_id, callee_expr_id, &call_scope)?;
+        self.assign_current_dbg_location(call_expr_id);
 
         // We generate instructions differently depending on whether we are calling an intrinsic or a specialization
         // with an implementation.
@@ -1491,31 +1592,30 @@ impl<'a> PartialEvaluator<'a> {
         // by the target.
         if self.is_unresolved_callee_expr(callee_expr_id) {
             let call_compute_kind = self.get_call_compute_kind(call_scope);
-            if let ComputeKind::Quantum(QuantumProperties {
+            if let ComputeKind::Dynamic {
                 runtime_features,
                 value_kind,
-            }) = call_compute_kind
+            } = call_compute_kind
             {
                 let missing_features = get_missing_runtime_features(
                     runtime_features,
                     self.program.config.capabilities,
                 ) & !RuntimeFeatureFlags::CallToUnresolvedCallee;
-                if !missing_features.is_empty() {
-                    if let Some(error) = generate_errors_from_runtime_features(
+                if !missing_features.is_empty()
+                    && let Some(error) = generate_errors_from_runtime_features(
                         missing_features,
                         self.get_expr(call_expr_id).span,
                     )
                     .drain(..)
                     .next()
-                    {
-                        return Err(Error::CapabilityError(error));
-                    }
+                {
+                    return Err(Error::CapabilityError(error));
                 }
 
-                // If the call produces a dynamic value, we treat it as an error because we know that later
-                // analysis has not taken that dynamism into account and further partial evaluation may fail
+                // If the call produces a variable value, we treat it as an error because we know that later
+                // analysis has not taken that variable into account and further partial evaluation may fail
                 // when it encounters that value.
-                if value_kind.is_dynamic() {
+                if value_kind == ValueKind::Variable {
                     return Err(Error::UnexpectedDynamicValue(
                         self.get_expr_package_span(call_expr_id),
                     ));
@@ -1631,11 +1731,23 @@ impl<'a> PartialEvaluator<'a> {
                 CallableType::Reset,
             );
         }
+        if callable_decl.attrs.contains(&fir::Attr::NoiseIntrinsic) {
+            self.program.attrs |= qsc_data_structures::attrs::Attributes::QdkNoise;
+            return self.eval_expr_call_to_intrinsic_qis(
+                store_item_id,
+                callable_decl,
+                args_value,
+                callee_expr_span,
+                CallableType::NoiseIntrinsic,
+            );
+        }
 
         // There are a few special cases regarding intrinsic callables. Identify them and handle them properly.
         match callable_decl.name.name.as_ref() {
             // Qubit allocations and measurements have special handling.
-            "__quantum__rt__qubit_allocate" => Ok(self.allocate_qubit()),
+            "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
+                Ok(self.allocate_qubit())
+            }
             "__quantum__rt__qubit_release" => Ok(self.release_qubit(args_value)),
             "PermuteLabels" => {
                 if self.eval_context.is_currently_evaluating_any_branch() {
@@ -1661,8 +1773,11 @@ impl<'a> PartialEvaluator<'a> {
             | "AccountForEstimatesInternal"
             | "BeginRepeatEstimatesInternal"
             | "EndRepeatEstimatesInternal"
+            | "EnableMemoryComputeArchitecture"
             | "ApplyIdleNoise"
-            | "GlobalPhase" => Ok(Value::unit()),
+            | "GlobalPhase"
+            | "Message"
+            | "PostSelectZ" => Ok(Value::unit()),
             "CheckZero" => Err(Error::UnsupportedSimulationIntrinsic(
                 "CheckZero".to_string(),
                 callee_expr_span,
@@ -1677,6 +1792,14 @@ impl<'a> PartialEvaluator<'a> {
                     ),
                     callee_expr_span,
                 ))
+            }
+            "IntAsDouble" => {
+                let variable_id = self.resource_manager.next_var();
+                self.convert_value(&args_value, rir::Variable::new_double(variable_id))
+            }
+            "Truncate" => {
+                let variable_id = self.resource_manager.next_var();
+                self.convert_value(&args_value, rir::Variable::new_integer(variable_id))
             }
             _ => self.eval_expr_call_to_intrinsic_qis(
                 store_item_id,
@@ -1697,7 +1820,7 @@ impl<'a> PartialEvaluator<'a> {
         call_type: CallableType,
     ) -> Result<Value, Error> {
         // Check if the callable is already in the program, and if not add it.
-        let callable = self.create_intrinsic_callable(store_item_id, callable_decl, call_type);
+        let callable = self.create_intrinsic_callable(store_item_id, callable_decl, call_type)?;
         let output_var = callable.output_type.map(|output_ty| {
             let variable_id = self.resource_manager.next_var();
             rir::Variable {
@@ -1708,7 +1831,7 @@ impl<'a> PartialEvaluator<'a> {
 
         let callable_id = self.get_or_insert_callable(callable);
 
-        // Resove the call arguments, create the call instruction and insert it to the current block.
+        // Resolve the call arguments, create the call instruction and insert it to the current block.
         let (args, ctls_arg) = self
             .resolve_args(
                 (store_item_id.package, callable_decl.input).into(),
@@ -1727,14 +1850,16 @@ impl<'a> PartialEvaluator<'a> {
             .map(|arg| self.map_eval_value_to_rir_operand(&arg.into_value()))
             .collect();
 
-        let instruction = Instruction::Call(callable_id, args_operands, output_var);
+        // Current debug location should be set to the call expression currently being evaluated.
+        let metadata = self.metadata_from_current_dbg_location();
+        let instruction = Instruction::Call(callable_id, args_operands, output_var, metadata);
         let current_block = self.get_current_rir_block_mut();
         current_block.0.push(instruction);
         let ret_val = match output_var {
             None => Value::unit(),
             Some(output_var) => {
                 let rir_var = map_rir_var_to_eval_var(output_var).map_err(|()| {
-                    Error::UnexpectedDynamicIntrinsicReturnType(
+                    Error::UnsupportedCustomIntrinsicType(
                         callable_decl.output.to_string(),
                         callee_expr_span,
                     )
@@ -1811,16 +1936,22 @@ impl<'a> PartialEvaluator<'a> {
         // Since the if expression can represent a dynamic value, create a variable to store it if the expression is
         // non-unit.
         let if_expr = self.get_expr(if_expr_id);
-        let maybe_if_expr_var = if if_expr.ty == Ty::UNIT {
-            None
-        } else {
-            let variable_id = self.resource_manager.next_var();
-            let variable_ty = map_fir_type_to_rir_type(&if_expr.ty);
-            Some(rir::Variable {
-                variable_id,
-                ty: variable_ty,
-            })
-        };
+        let maybe_if_expr_var =
+            if if_expr.ty == Ty::UNIT || matches!(if_expr.ty, Ty::Prim(Prim::String)) {
+                None
+            } else {
+                let variable_id = self.resource_manager.next_var();
+                let variable_ty = map_fir_type_to_rir_type(&if_expr.ty).map_err(|msg| {
+                    Error::Unexpected(
+                        format!("unsupported if-expression output type `{msg}`"),
+                        self.get_expr_package_span(if_expr_id),
+                    )
+                })?;
+                Some(rir::Variable {
+                    variable_id,
+                    ty: variable_ty,
+                })
+            };
 
         // Evaluate the body expression.
         // First, we cache the current static variable mappings so that we can restore them later.
@@ -1855,8 +1986,13 @@ impl<'a> PartialEvaluator<'a> {
         // Finally, we insert the branch instruction.
         let condition_value_var = condition_value.unwrap_var();
         let condition_rir_var = map_eval_var_to_rir_var(condition_value_var);
-        let branch_ins =
-            Instruction::Branch(condition_rir_var, if_true_block_id, if_false_block_id);
+        let metadata = self.metadata_from_expr(if_expr_id);
+        let branch_ins = Instruction::Branch(
+            condition_rir_var,
+            if_true_block_id,
+            if_false_block_id,
+            metadata,
+        );
         self.get_program_block_mut(current_block_node.id)
             .0
             .push(branch_ins);
@@ -1872,6 +2008,10 @@ impl<'a> PartialEvaluator<'a> {
                     self.get_expr_package_span(if_expr_id),
                 )
             })?)
+        } else if matches!(if_expr.ty, Ty::Prim(Prim::String)) {
+            // Dynamic strings are treated as the empty string for the purpose of partial evaluation since RCA prevents
+            // any dynamic string from affecting control flow.
+            Value::String("".into())
         } else {
             Value::unit()
         };
@@ -1976,6 +2116,47 @@ impl<'a> PartialEvaluator<'a> {
         };
         let value = value_result.map_err(Error::from)?;
         Ok(EvalControlFlow::Continue(value))
+    }
+
+    fn eval_expr_field(
+        &mut self,
+        record_id: ExprId,
+        field: Field,
+    ) -> Result<EvalControlFlow, Error> {
+        let control_flow = self.try_eval_expr(record_id)?;
+        let EvalControlFlow::Continue(record) = control_flow else {
+            return Err(Error::Unexpected(
+                "embedded return in field access expression".to_string(),
+                self.get_expr_package_span(record_id),
+            ));
+        };
+
+        let field_value = match (record, field) {
+            (Value::Range(inner), Field::Prim(PrimField::Start)) => Value::Int(
+                inner
+                    .start
+                    .expect("range access should be validated by compiler"),
+            ),
+            (Value::Range(inner), Field::Prim(PrimField::Step)) => Value::Int(inner.step),
+            (Value::Range(inner), Field::Prim(PrimField::End)) => Value::Int(
+                inner
+                    .end
+                    .expect("range access should be validated by compiler"),
+            ),
+            (mut record, Field::Path(path)) => {
+                for index in path.indices {
+                    let Value::Tuple(items, _) = record else {
+                        panic!("invalid tuple access");
+                    };
+                    record = items[index].clone();
+                }
+                record
+            }
+            (ref value, ref field) => {
+                panic!("invalid field access. value: {value:?}, field: {field:?}")
+            }
+        };
+        Ok(EvalControlFlow::Continue(field_value))
     }
 
     fn eval_expr_return(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
@@ -2123,7 +2304,7 @@ impl<'a> PartialEvaluator<'a> {
             Res::Err => panic!("resolution error"),
             Res::Item(item) => Value::Global(
                 StoreItemId {
-                    package: item.package.unwrap_or(self.get_current_package_id()),
+                    package: item.package,
                     item: item.item,
                 },
                 FunctorApp::default(),
@@ -2152,19 +2333,17 @@ impl<'a> PartialEvaluator<'a> {
 
     fn eval_expr_while(
         &mut self,
+        loop_expr_id: ExprId,
         condition_expr_id: ExprId,
         body_block_id: BlockId,
     ) -> Result<EvalControlFlow, Error> {
-        // Verify assumptions.
+        // Verify assumptions: the condition expression must either static (such that it can be fully evaluated) or
+        // dynamic but constant at runtime (such that it can be partially evaluated to a known value).
         assert!(
-            self.is_classical_expr(condition_expr_id),
-            "loop conditions must be purely classical"
-        );
-        let body_block = self.get_block(body_block_id);
-        assert_eq!(
-            body_block.ty,
-            Ty::UNIT,
-            "the type of a loop block is expected to be Unit"
+            !self
+                .get_expr_compute_kind(condition_expr_id)
+                .is_variable_value_kind(),
+            "loop conditions must be known at code generation time."
         );
 
         // Evaluate the block until the loop condition is false.
@@ -2177,10 +2356,22 @@ impl<'a> PartialEvaluator<'a> {
             ));
         }
         let mut condition_boolean = condition_control_flow.into_value().unwrap_bool();
+
+        let dbg_location_id = self.new_dbg_location(loop_expr_id);
+        if let Some(dbg_location_id) = dbg_location_id {
+            self.dbg_push_loop_iteration_scope(loop_expr_id, dbg_location_id);
+        }
+
         while condition_boolean {
+            if dbg_location_id.is_some() {
+                self.dbg_increment_loop_iteration_count();
+            }
             // Evaluate the loop block.
             let block_control_flow = self.try_eval_block(body_block_id)?;
             if block_control_flow.is_return() {
+                if dbg_location_id.is_some() {
+                    self.dbg_pop_loop_iteration_scope();
+                }
                 return Ok(block_control_flow);
             }
 
@@ -2193,6 +2384,9 @@ impl<'a> PartialEvaluator<'a> {
                 ));
             }
             condition_boolean = condition_control_flow.into_value().unwrap_bool();
+        }
+        if dbg_location_id.is_some() {
+            self.dbg_pop_loop_iteration_scope();
         }
 
         // We have evaluated the loop so just return unit as the value of this loop expression.
@@ -2214,12 +2408,15 @@ impl<'a> PartialEvaluator<'a> {
                     variable_id,
                     ty: variable_ty,
                 };
+                // Current debug location should be set to the call expression currently being evaluated.
+                let metadata = self.metadata_from_current_dbg_location();
+                let current_block = self.get_current_rir_block_mut();
                 let instruction = Instruction::Call(
                     read_result_callable_id,
                     vec![result_operand],
                     Some(variable),
+                    metadata,
                 );
-                let current_block = self.get_current_rir_block_mut();
                 current_block.0.push(instruction);
                 Operand::Variable(variable)
             }
@@ -2581,7 +2778,7 @@ impl<'a> PartialEvaluator<'a> {
         let store_expr_id = StoreExprId::from((current_package_id, expr_id));
         let expr_generator_set = self.compute_properties.get_expr(store_expr_id);
         let callable_scope = self.eval_context.get_current_scope();
-        expr_generator_set.generate_application_compute_kind(&callable_scope.args_value_kind)
+        expr_generator_set.generate_application_compute_kind(&callable_scope.args_compute_kind)
     }
 
     fn is_unresolved_callee_expr(&self, expr_id: ExprId) -> bool {
@@ -2622,7 +2819,7 @@ impl<'a> PartialEvaluator<'a> {
             },
             None => panic!("call compute kind should have callable"),
         };
-        callable_generator_set.generate_application_compute_kind(&callable_scope.args_value_kind)
+        callable_generator_set.generate_application_compute_kind(&callable_scope.args_compute_kind)
     }
 
     fn try_create_mutable_variable(
@@ -2680,9 +2877,9 @@ impl<'a> PartialEvaluator<'a> {
             .expect("program block does not exist")
     }
 
-    fn is_classical_expr(&self, expr_id: ExprId) -> bool {
+    fn is_static_expr(&self, expr_id: ExprId) -> bool {
         let compute_kind = self.get_expr_compute_kind(expr_id);
-        matches!(compute_kind, ComputeKind::Classical)
+        matches!(compute_kind, ComputeKind::Static)
     }
 
     fn allocate_qubit(&mut self) -> Value {
@@ -2755,7 +2952,9 @@ impl<'a> PartialEvaluator<'a> {
 
         // Check if the callable has already been added to the program and if not do so now.
         let measure_callable_id = self.get_or_insert_callable(measurement_callable);
-        let instruction = Instruction::Call(measure_callable_id, operands, None);
+        // Current debug location should be set to the call expression currently being evaluated.
+        let metadata = self.metadata_from_current_dbg_location();
+        let instruction = Instruction::Call(measure_callable_id, operands, None, metadata);
         let current_block = self.get_current_rir_block_mut();
         current_block.0.push(instruction);
 
@@ -2777,8 +2976,10 @@ impl<'a> PartialEvaluator<'a> {
         // Check if the callable has already been added to the program and if not do so now.
         let measure_callable_id = self.get_or_insert_callable(measure_callable);
         let args = vec![qubit_operand, result_operand];
-        let instruction = Instruction::Call(measure_callable_id, args, None);
+        // Current debug location should be set to the call expression currently being evaluated.
+        let metadata = self.metadata_from_current_dbg_location();
         let current_block = self.get_current_rir_block_mut();
+        let instruction = Instruction::Call(measure_callable_id, args, None, metadata);
         current_block.0.push(instruction);
 
         // Return the result value.
@@ -2921,11 +3122,13 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn try_eval_expr(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
-        // An expression is evaluated differently depending on whether it is purely classical or hybrid.
-        if self.is_classical_expr(expr_id) {
-            self.eval_classical_expr(expr_id)
+        // An expression is evaluated differently depending on whether it is purely static or dynamic,
+        // since static expressions can be fully evaluated and do not need to generate any instructions,
+        // while dynamic expressions may need to generate instructions and map their value to a variable.
+        if self.is_static_expr(expr_id) {
+            self.eval_static_expr(expr_id)
         } else {
-            self.eval_hybrid_expr(expr_id)
+            self.eval_dynamic_expr(expr_id)
         }
     }
 
@@ -2959,6 +3162,20 @@ impl<'a> PartialEvaluator<'a> {
                 Ok(EvalControlFlow::Continue(Value::unit()))
             }
         }
+    }
+
+    fn convert_value(
+        &mut self,
+        args_value: &Value,
+        variable: rir::Variable,
+    ) -> Result<Value, Error> {
+        let instruction =
+            Instruction::Convert(self.map_eval_value_to_rir_operand(args_value), variable);
+        let current_block = self.get_current_rir_block_mut();
+        current_block.0.push(instruction);
+        Ok(Value::Var(
+            map_rir_var_to_eval_var(variable).expect("variable should convert"),
+        ))
     }
 
     fn update_bindings(&mut self, lhs_expr_id: ExprId, rhs_value: Value) -> Result<(), Error> {
@@ -3093,19 +3310,20 @@ impl<'a> PartialEvaluator<'a> {
         &mut self,
         ret_val: Value,
         ty: &Ty,
+        tag_root: &str,
     ) -> Result<Vec<Instruction>, ()> {
         let mut instrs = Vec::new();
 
         match ret_val {
             Value::Result(val::Result::Val(_)) => return Err(()),
 
-            Value::Array(vals) => self.record_array(ty, &mut instrs, &vals)?,
-            Value::Tuple(vals, _) => self.record_tuple(ty, &mut instrs, &vals)?,
-            Value::Result(res) => self.record_result(&mut instrs, res),
-            Value::Var(var) => self.record_variable(ty, &mut instrs, var),
-            Value::Bool(val) => self.record_bool(&mut instrs, val),
-            Value::Int(val) => self.record_int(&mut instrs, val),
-            Value::Double(val) => self.record_double(&mut instrs, val),
+            Value::Array(vals) => self.record_array(ty, &mut instrs, &vals, tag_root)?,
+            Value::Tuple(vals, _) => self.record_tuple(ty, &mut instrs, &vals, tag_root)?,
+            Value::Result(res) => self.record_result(&mut instrs, res, tag_root),
+            Value::Var(var) => self.record_variable(ty, &mut instrs, var, tag_root),
+            Value::Bool(val) => self.record_bool(&mut instrs, val, tag_root),
+            Value::Int(val) => self.record_int(&mut instrs, val, tag_root),
+            Value::Double(val) => self.record_double(&mut instrs, val, tag_root),
 
             Value::BigInt(_)
             | Value::Closure(_)
@@ -3119,61 +3337,91 @@ impl<'a> PartialEvaluator<'a> {
         Ok(instrs)
     }
 
-    fn record_int(&mut self, instrs: &mut Vec<Instruction>, val: i64) {
+    fn record_int(&mut self, instrs: &mut Vec<Instruction>, val: i64, tag_root: &str) {
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{tag_root}i");
+        let len = tag.len();
+        self.program.tags.push(tag);
         let int_record_callable_id = self.get_int_record_callable();
         instrs.push(Instruction::Call(
             int_record_callable_id,
             vec![
                 Operand::Literal(Literal::Integer(val)),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
+            None,
             None,
         ));
     }
 
-    fn record_double(&mut self, instrs: &mut Vec<Instruction>, val: f64) {
+    fn record_double(&mut self, instrs: &mut Vec<Instruction>, val: f64, tag_root: &str) {
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{tag_root}d");
+        let len = tag.len();
+        self.program.tags.push(tag);
         let double_record_callable_id = self.get_double_record_callable();
         instrs.push(Instruction::Call(
             double_record_callable_id,
             vec![
                 Operand::Literal(Literal::Double(val)),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
+            None,
             None,
         ));
     }
 
-    fn record_bool(&mut self, instrs: &mut Vec<Instruction>, val: bool) {
+    fn record_bool(&mut self, instrs: &mut Vec<Instruction>, val: bool, tag_root: &str) {
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{tag_root}b");
+        let len = tag.len();
+        self.program.tags.push(tag);
         let bool_record_callable_id = self.get_bool_record_callable();
         instrs.push(Instruction::Call(
             bool_record_callable_id,
             vec![
                 Operand::Literal(Literal::Bool(val)),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
+            None,
             None,
         ));
     }
 
-    fn record_variable(&mut self, ty: &Ty, instrs: &mut Vec<Instruction>, var: Var) {
-        let record_callable_id = match ty {
-            Ty::Prim(Prim::Bool) => self.get_bool_record_callable(),
-            Ty::Prim(Prim::Int) => self.get_int_record_callable(),
-            Ty::Prim(Prim::Double) => self.get_double_record_callable(),
+    fn record_variable(
+        &mut self,
+        ty: &Ty,
+        instrs: &mut Vec<Instruction>,
+        var: Var,
+        tag_root: &str,
+    ) {
+        let idx = self.program.tags.len();
+        let (record_callable_id, tag_ty) = match ty {
+            Ty::Prim(Prim::Bool) => (self.get_bool_record_callable(), "b"),
+            Ty::Prim(Prim::Int) => (self.get_int_record_callable(), "i"),
+            Ty::Prim(Prim::Double) => (self.get_double_record_callable(), "d"),
             _ => panic!("unsupported variable type in output recording"),
         };
+        let tag = format!("{idx}_{tag_root}{tag_ty}");
+        let len = tag.len();
+        self.program.tags.push(tag);
         instrs.push(Instruction::Call(
             record_callable_id,
             vec![
                 Operand::Variable(map_eval_var_to_rir_var(var)),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
+            None,
             None,
         ));
     }
 
-    fn record_result(&mut self, instrs: &mut Vec<Instruction>, res: val::Result) {
+    fn record_result(&mut self, instrs: &mut Vec<Instruction>, res: val::Result, tag_root: &str) {
+        let idx = self.program.tags.len();
         let result_record_callable_id = self.get_result_record_callable();
+        let tag = format!("{idx}_{tag_root}r");
+        let len = tag.len();
+        self.program.tags.push(tag);
         instrs.push(Instruction::Call(
             result_record_callable_id,
             vec![
@@ -3182,8 +3430,9 @@ impl<'a> PartialEvaluator<'a> {
                         .try_into()
                         .expect("result id should fit into u32"),
                 )),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
+            None,
             None,
         ));
     }
@@ -3193,10 +3442,16 @@ impl<'a> PartialEvaluator<'a> {
         ty: &Ty,
         instrs: &mut Vec<Instruction>,
         vals: &Rc<[Value]>,
+        tag_root: &str,
     ) -> Result<(), ()> {
         let Ty::Tuple(elem_tys) = ty else {
             panic!("expected tuple type for tuple value");
         };
+        let new_tag_root = format!("{tag_root}t");
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{new_tag_root}");
+        let len = tag.len();
+        self.program.tags.push(tag);
         let tuple_record_callable_id = self.get_tuple_record_callable();
         instrs.push(Instruction::Call(
             tuple_record_callable_id,
@@ -3206,12 +3461,18 @@ impl<'a> PartialEvaluator<'a> {
                         .try_into()
                         .expect("tuple length should fit into u32"),
                 )),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
+            None,
         ));
-        for (val, elem_ty) in vals.iter().zip(elem_tys.iter()) {
-            instrs.extend(self.generate_output_recording_instructions(val.clone(), elem_ty)?);
+        for (idx, (val, elem_ty)) in vals.iter().zip(elem_tys.iter()).enumerate() {
+            let new_tag_root = format!("{new_tag_root}{idx}");
+            instrs.extend(self.generate_output_recording_instructions(
+                val.clone(),
+                elem_ty,
+                &new_tag_root,
+            )?);
         }
 
         Ok(())
@@ -3222,10 +3483,16 @@ impl<'a> PartialEvaluator<'a> {
         ty: &Ty,
         instrs: &mut Vec<Instruction>,
         vals: &Rc<Vec<Value>>,
+        tag_root: &str,
     ) -> Result<(), ()> {
         let Ty::Array(elem_ty) = ty else {
             panic!("expected array type for array value");
         };
+        let new_tag_root = format!("{tag_root}a");
+        let idx = self.program.tags.len();
+        let tag = format!("{idx}_{new_tag_root}");
+        let len = tag.len();
+        self.program.tags.push(tag);
         let array_record_callable_id = self.get_array_record_callable();
         instrs.push(Instruction::Call(
             array_record_callable_id,
@@ -3235,12 +3502,18 @@ impl<'a> PartialEvaluator<'a> {
                         .try_into()
                         .expect("array length should fit into u32"),
                 )),
-                Operand::Literal(Literal::Pointer),
+                Operand::Literal(Literal::Tag(idx, len)),
             ],
             None,
+            None,
         ));
-        for val in vals.iter() {
-            instrs.extend(self.generate_output_recording_instructions(val.clone(), elem_ty)?);
+        for (idx, val) in vals.iter().enumerate() {
+            let new_tag_root = format!("{new_tag_root}{idx}");
+            instrs.extend(self.generate_output_recording_instructions(
+                val.clone(),
+                elem_ty,
+                &new_tag_root,
+            )?);
         }
 
         Ok(())
@@ -3375,6 +3648,233 @@ impl<'a> PartialEvaluator<'a> {
             .get_current_scope_mut()
             .keep_matching_static_var_mappings(other_mappings);
     }
+
+    fn new_dbg_location(&mut self, expr_id: ExprId) -> Option<DbgLocationId> {
+        if !self.config.generate_debug_metadata {
+            return None;
+        }
+
+        let scope_id = self.get_current_dbg_scope();
+
+        if let Some(current_scope_id) = scope_id {
+            let expr_location = self.expr_start_source_location(expr_id);
+            let inlined_at = self.caller_dbg_location_id();
+            let new_location = DbgLocation {
+                location: expr_location,
+                scope: current_scope_id,
+                inlined_at,
+            };
+            let dbg_location_id = self.program.dbg_info.add_location(new_location);
+
+            return Some(dbg_location_id);
+        }
+        None
+    }
+
+    fn assign_current_dbg_location(&mut self, call_expr_id: ExprId) {
+        if !self.config.generate_debug_metadata {
+            return;
+        }
+
+        if let Some(dbg_location_id) = self.new_dbg_location(call_expr_id) {
+            self.eval_context
+                .get_current_scope_mut()
+                .dbg_context
+                .current_call_location = Some(dbg_location_id);
+        }
+    }
+
+    fn get_current_dbg_scope(&mut self) -> Option<DbgScopeId> {
+        if !self.config.generate_debug_metadata {
+            return None;
+        }
+
+        let scope = self.eval_context.get_current_scope();
+
+        if let Some(LoopScope {
+            loop_expr,
+            iteration_count,
+            ..
+        }) = scope.dbg_context.loop_iterations.last()
+        {
+            let s = self
+                .dbg_context
+                .dbg_loop_expr_to_scope
+                .get(&(*loop_expr, *iteration_count))
+                .copied();
+            if let Some(s) = s {
+                Some(s)
+            } else {
+                let loop_expr_location = self.expr_start_source_location(*loop_expr);
+                let scope = DbgScope::LexicalBlockFile {
+                    discriminator: *iteration_count,
+                    location: loop_expr_location,
+                };
+
+                let i = self.program.dbg_info.add_scope(scope);
+                self.dbg_context
+                    .dbg_loop_expr_to_scope
+                    .insert((*loop_expr, *iteration_count), i);
+                Some(i)
+            }
+        } else {
+            let (callable_id, functor_app) = scope.callable?;
+            let item_id = StoreItemId {
+                package: scope.package_id,
+                item: callable_id,
+            };
+            let s = self
+                .dbg_context
+                .dbg_callable_to_scope
+                .get(&(item_id, functor_app.adjoint))
+                .copied();
+
+            if let Some(s) = s {
+                Some(s)
+            } else {
+                let fir::ItemKind::Callable(callable_decl) =
+                    &self.package_store.get_item(item_id).kind
+                else {
+                    panic!("expected callable");
+                };
+                let name = if functor_app.adjoint {
+                    format!("{}'", callable_decl.name.name).into()
+                } else {
+                    callable_decl.name.name.clone()
+                };
+                let current_package_id = self.get_current_package_id();
+                let package_id = current_package_id.into();
+                let scope = DbgScope::SubProgram {
+                    name,
+                    location: DbgPackageOffset {
+                        package_id,
+                        offset: callable_decl.span.lo,
+                    },
+                };
+                let i = self.program.dbg_info.add_scope(scope);
+                self.dbg_context
+                    .dbg_callable_to_scope
+                    .insert((item_id, functor_app.adjoint), i);
+                Some(i)
+            }
+        }
+    }
+
+    fn metadata_from_expr(&mut self, expr_id: ExprId) -> Option<Box<InstructionDbgMetadata>> {
+        if self.config.generate_debug_metadata {
+            let dbg_location_id = self.new_dbg_location(expr_id);
+            dbg_location_id.map(|dbg_location| {
+                self.program.dbg_info.mark_location_used(dbg_location);
+                Box::new(InstructionDbgMetadata { dbg_location })
+            })
+        } else {
+            None
+        }
+    }
+
+    fn metadata_from_current_dbg_location(&mut self) -> Option<Box<InstructionDbgMetadata>> {
+        if self.config.generate_debug_metadata {
+            self.eval_context
+                .get_current_scope()
+                .dbg_context
+                .current_call_location
+                .map(|dbg_location| {
+                    self.program.dbg_info.mark_location_used(dbg_location);
+                    Box::new(InstructionDbgMetadata { dbg_location })
+                })
+        } else {
+            None
+        }
+    }
+
+    fn caller_dbg_location_id(&mut self) -> Option<DbgLocationId> {
+        if let Some(LoopScope {
+            location_id: loop_location_id,
+            ..
+        }) = self
+            .eval_context
+            .get_current_scope()
+            .dbg_context
+            .loop_iterations
+            .last()
+        {
+            Some(*loop_location_id)
+        } else if let Some(scope) = self.eval_context.get_caller_scope() {
+            scope.dbg_context.current_call_location
+        } else {
+            None
+        }
+    }
+
+    fn expr_start_source_location(&self, expr_id: ExprId) -> DbgPackageOffset {
+        let package_id = self.get_current_package_id();
+        let package = self.package_store.get(package_id);
+        DbgPackageOffset {
+            package_id: package_id.into(),
+            offset: package
+                .exprs
+                .get(expr_id)
+                .expect("current expr id not found")
+                .span
+                .lo,
+        }
+    }
+
+    fn dbg_push_loop_iteration_scope(&mut self, expr_id: ExprId, dbg_location_id: DbgLocationId) {
+        self.eval_context
+            .get_current_scope_mut()
+            .dbg_context
+            .loop_iterations
+            .push(LoopScope {
+                loop_expr: expr_id,
+                iteration_count: 0,
+                location_id: dbg_location_id,
+            });
+    }
+
+    fn dbg_pop_loop_iteration_scope(&mut self) {
+        if self.config.generate_debug_metadata {
+            self.eval_context
+                .get_current_scope_mut()
+                .dbg_context
+                .loop_iterations
+                .pop();
+        }
+    }
+
+    fn dbg_increment_loop_iteration_count(&mut self) {
+        if self.config.generate_debug_metadata {
+            self.eval_context
+                .get_current_scope_mut()
+                .dbg_context
+                .loop_iterations
+                .last_mut()
+                .expect("there should be a loop iteration in the stack")
+                .iteration_count += 1;
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct DbgContext {
+    /// (`CallableId`, isAdjoint) -> Scope index
+    pub(crate) dbg_callable_to_scope: FxHashMap<(StoreItemId, bool), DbgScopeId>,
+    /// (Loop `ExprId`, iteration) -> Scope index
+    pub(crate) dbg_loop_expr_to_scope: FxHashMap<(ExprId, usize), DbgScopeId>,
+}
+
+#[derive(Default)]
+struct ScopeDbgContext {
+    /// The distinct debug location of the call expression currently being evaluated.
+    pub(crate) current_call_location: Option<DbgLocationId>,
+    pub(crate) loop_iterations: Vec<LoopScope>,
+}
+
+#[derive(Clone, Copy)]
+struct LoopScope {
+    loop_expr: ExprId,
+    iteration_count: usize,
+    location_id: DbgLocationId,
 }
 
 fn eval_un_op_with_literals(un_op: UnOp, value: Value) -> Value {
@@ -3566,24 +4066,14 @@ fn map_eval_var_type_to_rir_type(var_ty: VarTy) -> rir::Ty {
     }
 }
 
-fn map_fir_type_to_rir_type(ty: &Ty) -> rir::Ty {
-    let Ty::Prim(prim) = ty else {
-        panic!("only some primitive types are supported");
-    };
-
-    match prim {
-        Prim::BigInt
-        | Prim::Pauli
-        | Prim::Range
-        | Prim::RangeFrom
-        | Prim::RangeFull
-        | Prim::RangeTo
-        | Prim::String => panic!("{prim:?} is not a supported primitive type"),
-        Prim::Bool => rir::Ty::Boolean,
-        Prim::Double => rir::Ty::Double,
-        Prim::Int => rir::Ty::Integer,
-        Prim::Qubit => rir::Ty::Qubit,
-        Prim::Result => rir::Ty::Result,
+fn map_fir_type_to_rir_type(ty: &Ty) -> Result<rir::Ty, String> {
+    match ty {
+        Ty::Prim(Prim::Bool) => Ok(rir::Ty::Boolean),
+        Ty::Prim(Prim::Double) => Ok(rir::Ty::Double),
+        Ty::Prim(Prim::Int) => Ok(rir::Ty::Integer),
+        Ty::Prim(Prim::Qubit) => Ok(rir::Ty::Qubit),
+        Ty::Prim(Prim::Result) => Ok(rir::Ty::Result),
+        _ => Err(format!("{ty}")),
     }
 }
 

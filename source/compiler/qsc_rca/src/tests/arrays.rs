@@ -11,12 +11,10 @@ fn check_rca_for_array_with_classical_elements() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                inherent: Static
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -32,14 +30,12 @@ fn check_rca_for_array_with_dynamic_results() {
     // Even though results are dynamic, they do not require any special runtime features to exist.
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Array(Content: Dynamic, Size: Static)
-                dynamic_param_applications: <empty>"#
-        ],
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -55,14 +51,12 @@ fn check_rca_for_array_with_dynamic_bools() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                    value_kind: Array(Content: Dynamic, Size: Static)
-                dynamic_param_applications: <empty>"#
-        ],
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -73,12 +67,10 @@ fn check_rca_for_array_repeat_with_classical_value_and_classical_size() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
-                dynamic_param_applications: <empty>"#
-        ],
+                inherent: Static
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -93,14 +85,12 @@ fn check_rca_for_array_repeat_with_dynamic_result_value_and_classical_size() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Array(Content: Dynamic, Size: Static)
-                dynamic_param_applications: <empty>"#
-        ],
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -116,14 +106,12 @@ fn check_rca_for_array_repeat_with_dynamic_bool_value_and_classical_size() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool)
-                    value_kind: Array(Content: Dynamic, Size: Static)
-                dynamic_param_applications: <empty>"#
-        ],
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -139,14 +127,12 @@ fn check_rca_for_array_repeat_with_classical_value_and_dynamic_size() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
-                    value_kind: Array(Content: Static, Size: Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -165,14 +151,12 @@ fn check_rca_for_array_repeat_with_dynamic_double_value_and_dynamic_size() {
     let package_store_compute_properties = compilation_context.get_compute_properties();
     check_last_statement_compute_properties(
         package_store_compute_properties,
-        &expect![
-            r#"
+        &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicallySizedArray)
-                    value_kind: Array(Content: Dynamic, Size: Dynamic)
-                dynamic_param_applications: <empty>"#
-        ],
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -193,9 +177,9 @@ fn check_rca_for_mutable_array_statically_appended() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Array(Content: Dynamic, Size: Static)
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -217,9 +201,9 @@ fn check_rca_for_mutable_array_dynamically_appended() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicallySizedArray)
-                    value_kind: Array(Content: Dynamic, Size: Dynamic)
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -241,7 +225,7 @@ fn check_rca_for_mutable_array_assignment_in_static_context() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -263,9 +247,9 @@ fn check_rca_for_mutable_array_assignment_in_dynamic_context() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicallySizedArray)
-                    value_kind: Array(Content: Dynamic, Size: Dynamic)
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -284,9 +268,9 @@ fn check_rca_for_immutable_array_bound_to_dynamic_array() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
-                    value_kind: Array(Content: Dynamic, Size: Dynamic)
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -308,7 +292,7 @@ fn check_rca_for_mutable_array_assign_index_in_classical_context() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -330,9 +314,9 @@ fn check_rca_for_mutable_array_assign_index_in_dynamic_context() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray)
-                    value_kind: Array(Content: Dynamic, Size: Dynamic)
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -355,9 +339,9 @@ fn check_rca_for_mutable_array_assign_index_dynamic_content_in_dynamic_context()
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray)
-                    value_kind: Array(Content: Dynamic, Size: Dynamic)
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -380,9 +364,9 @@ fn check_rca_for_mutable_array_assign_index_dynamic_nested_array_content_in_dyna
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray)
-                    value_kind: Array(Content: Dynamic, Size: Dynamic)
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -400,9 +384,9 @@ fn check_rca_for_access_using_classical_index() {
     check_last_statement_compute_properties(
         package_store_compute_properties,
         &expect![[r#"
-        ApplicationsGeneratorSet:
-            inherent: Classical
-            dynamic_param_applications: <empty>"#]],
+            ApplicationsGeneratorSet:
+                inherent: Static
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -420,11 +404,11 @@ fn check_rca_for_access_using_dynamic_index() {
     check_last_statement_compute_properties(
         package_store_compute_properties,
         &expect![[r#"
-        ApplicationsGeneratorSet:
-            inherent: Quantum: QuantumProperties:
-                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicIndex)
-                value_kind: Element(Dynamic)
-            dynamic_param_applications: <empty>"#]],
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicIndex)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -443,11 +427,11 @@ fn check_rca_for_array_with_dynamic_size_bound_through_tuple() {
     check_last_statement_compute_properties(
         package_store_compute_properties,
         &expect![[r#"
-        ApplicationsGeneratorSet:
-            inherent: Quantum: QuantumProperties:
-                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
-                value_kind: Array(Content: Dynamic, Size: Static)
-            dynamic_param_applications: <empty>"#]],
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -469,11 +453,11 @@ fn check_rca_for_array_with_dynamic_size_bound_through_tuple_from_callable() {
     check_last_statement_compute_properties(
         package_store_compute_properties,
         &expect![[r#"
-        ApplicationsGeneratorSet:
-            inherent: Quantum: QuantumProperties:
-                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
-                value_kind: Array(Content: Dynamic, Size: Static)
-            dynamic_param_applications: <empty>"#]],
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
     );
 }
 
@@ -492,7 +476,7 @@ fn check_rca_for_array_with_static_size_bound_through_tuple() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -515,7 +499,7 @@ fn check_rca_for_array_with_static_size_bound_through_tuple_from_callable() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Classical
+                inherent: Static
                 dynamic_param_applications: <empty>"#]],
     );
 }
@@ -536,9 +520,91 @@ fn check_rca_for_array_with_static_size_bound_through_dynamic_tuple() {
         package_store_compute_properties,
         &expect![[r#"
             ApplicationsGeneratorSet:
-                inherent: Quantum: QuantumProperties:
+                inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(0x0)
-                    value_kind: Array(Content: Dynamic, Size: Static)
+                    value_kind: Variable
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_index_range_on_array_with_classical_contents() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        let arr = [0, 1, 2, 3, 4];
+        Std.Arrays.IndexRange(arr)"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Static
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_index_range_on_array_with_dynamic_contents() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use qs = Qubit[5];
+        let arr = MResetEachZ(qs);
+        Std.Arrays.IndexRange(arr)"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(0x0)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_indirect_length_on_array_with_dynamic_contents() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use qs = Qubit[5];
+        let arr = MResetEachZ(qs);
+        (a -> Length(a))(arr)"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(0x0)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_indirect_length_on_array_with_dynamic_length() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let arr = if M(q) == Zero { [true, true] } else { [true, true, true] };
+        let size = (a -> Length(a))(arr);
+        size"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicallySizedArray)
+                    value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
 }

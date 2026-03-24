@@ -145,13 +145,11 @@ impl<'inner, 'package, T: Handler<'package>> Locator<'inner, 'package, T> {
         udt_res: &'package hir::Res,
         field_ref: &'other ast::Ident,
     ) -> Option<(hir::ItemId, &'package hir::ty::UdtField)> {
-        let (item, resolved_item_id) = self
-            .compilation
-            .resolve_item_res(self.compilation.user_package_id, udt_res);
-        if let hir::ItemKind::Ty(_, udt) = &item.kind {
-            if let Some(field_def) = udt.find_field_by_name(&field_ref.name) {
-                return Some((resolved_item_id, field_def));
-            }
+        let (item, resolved_item_id) = self.compilation.resolve_item_res(udt_res);
+        if let hir::ItemKind::Ty(_, udt) = &item.kind
+            && let Some(field_def) = udt.find_field_by_name(&field_ref.name)
+        {
+            return Some((resolved_item_id, field_def));
         }
         None
     }
@@ -204,12 +202,11 @@ impl<'package, T: Handler<'package>> Visitor<'package> for Locator<'_, 'package,
 
                         // walk callable decl
                         decl.generics.iter().for_each(|p| {
-                            if p.span.touches(self.offset) {
-                                if let Some(resolve::Res::Param { id, .. }) =
+                            if p.span.touches(self.offset)
+                                && let Some(resolve::Res::Param { id, .. }) =
                                     self.compilation.get_res(p.ty.id)
-                                {
-                                    self.inner.at_type_param_def(&self.context, &p.ty, *id);
-                                }
+                            {
+                                self.inner.at_type_param_def(&self.context, &p.ty, *id);
                             }
                         });
                         self.context.in_params = true;
@@ -272,13 +269,13 @@ impl<'package, T: Handler<'package>> Visitor<'package> for Locator<'_, 'package,
                 }
                 ast::ItemKind::ImportOrExport(decl) => {
                     for item in &decl.items {
-                        if let ImportKind::Direct { alias: Some(alias) } = &item.kind {
-                            if alias.span.touches(self.offset) {
-                                // If the cursor is on the alias, go through the path.
-                                if let PathKind::Ok(path) = &item.path {
-                                    self.at_path(path, Some(alias));
-                                    break;
-                                }
+                        if let ImportKind::Direct { alias: Some(alias) } = &item.kind
+                            && alias.span.touches(self.offset)
+                        {
+                            // If the cursor is on the alias, go through the path.
+                            if let PathKind::Ok(path) = &item.path {
+                                self.at_path(path, Some(alias));
+                                break;
                             }
                         }
                         walk_import_or_export(self, item);
@@ -306,7 +303,7 @@ impl<'package, T: Handler<'package>> Visitor<'package> for Locator<'_, 'package,
     // Handles UDT field definitions
     fn visit_ty_def(&mut self, def: &'package ast::TyDef) {
         if def.span.contains(self.offset) {
-            if let ast::TyDefKind::Field(ident, ty) = &*def.kind {
+            if let ast::TyDefKind::Field(ident, ty, _) = &*def.kind {
                 if let Some(ident) = ident {
                     if ident.span.touches(self.offset) {
                         self.inner.at_field_def(&self.context, ident, ty);
@@ -338,17 +335,11 @@ impl<'package, T: Handler<'package>> Visitor<'package> for Locator<'_, 'package,
         if ty.span.touches(self.offset) {
             if let ast::TyKind::Param(param) = &*ty.kind {
                 if let Some(resolve::Res::Param { id, .. }) = self.compilation.get_res(param.ty.id)
+                    && let Some(curr) = self.context.current_callable
+                    && let Some(def_name) = curr.generics.get(usize::from(*id))
                 {
-                    if let Some(curr) = self.context.current_callable {
-                        if let Some(def_name) = curr.generics.get(usize::from(*id)) {
-                            self.inner.at_type_param_ref(
-                                &self.context,
-                                &param.ty,
-                                *id,
-                                &def_name.ty,
-                            );
-                        }
-                    }
+                    self.inner
+                        .at_type_param_ref(&self.context, &param.ty, *id, &def_name.ty);
                 }
             } else {
                 walk_ty(self, ty);
@@ -379,10 +370,10 @@ impl<'package, T: Handler<'package>> Visitor<'package> for Locator<'_, 'package,
                 ast::ExprKind::Field(udt, FieldAccess::Ok(field_ref))
                     if field_ref.span.touches(self.offset) =>
                 {
-                    if let Some(hir::ty::Ty::Udt(_, res)) = &self.compilation.get_ty(udt.id) {
-                        if let Some((item_id, field_def)) = self.get_field_def(res, field_ref) {
-                            self.inner.at_field_ref(field_ref, &item_id, field_def);
-                        }
+                    if let Some(hir::ty::Ty::Udt(_, res)) = &self.compilation.get_ty(udt.id)
+                        && let Some((item_id, field_def)) = self.get_field_def(res, field_ref)
+                    {
+                        self.inner.at_field_ref(field_ref, &item_id, field_def);
                     }
                 }
                 ast::ExprKind::Struct(PathKind::Ok(ty_name), copy, fields) => {
@@ -391,11 +382,11 @@ impl<'package, T: Handler<'package>> Visitor<'package> for Locator<'_, 'package,
                         return;
                     }
 
-                    if let Some(copy) = &copy {
-                        if copy.span.touches(self.offset) {
-                            self.visit_expr(copy);
-                            return;
-                        }
+                    if let Some(copy) = &copy
+                        && copy.span.touches(self.offset)
+                    {
+                        self.visit_expr(copy);
+                        return;
                     }
 
                     for field in fields {
@@ -403,12 +394,10 @@ impl<'package, T: Handler<'package>> Visitor<'package> for Locator<'_, 'package,
                             if field.field.span.touches(self.offset) {
                                 if let Some(hir::ty::Ty::Udt(_, res)) =
                                     &self.compilation.get_ty(expr.id)
-                                {
-                                    if let Some((item_id, field_def)) =
+                                    && let Some((item_id, field_def)) =
                                         self.get_field_def(res, &field.field)
-                                    {
-                                        self.inner.at_field_ref(&field.field, &item_id, field_def);
-                                    }
+                                {
+                                    self.inner.at_field_ref(&field.field, &item_id, field_def);
                                 }
                             } else if field.value.span.touches(self.offset) {
                                 self.visit_expr(&field.value);
@@ -458,10 +447,9 @@ impl<'package, T: Handler<'package>> Locator<'_, 'package, T> {
                         if part.span.touches(self.offset) {
                             if let Some(hir::ty::Ty::Udt(_, res)) =
                                 &self.compilation.get_ty(last_id)
+                                && let Some((item_id, field_def)) = self.get_field_def(res, part)
                             {
-                                if let Some((item_id, field_def)) = self.get_field_def(res, part) {
-                                    self.inner.at_field_ref(part, &item_id, field_def);
-                                }
+                                self.inner.at_field_ref(part, &item_id, field_def);
                             }
                             break;
                         }

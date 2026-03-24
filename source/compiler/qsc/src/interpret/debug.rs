@@ -41,15 +41,15 @@ pub(crate) fn format_call_stack(
             write!(trace, "Controlled({}) ", frame.functor.controlled)
                 .expect("writing to string should succeed");
         }
-        if let Some(item) = get_item_parent(store, frame.id) {
-            if let Some(ns) = get_ns_name(&item) {
-                write!(trace, "{ns}.").expect("writing to string should succeed");
-            }
+        if let Some(item) = get_item_parent(store, frame.id)
+            && let Some(ns) = get_ns_name(&item)
+        {
+            write!(trace, "{ns}.").expect("writing to string should succeed");
         }
         write!(trace, "{}", call.name.name).expect("writing to string should succeed");
 
         let name = get_item_file_name(store, frame.id);
-        let pos = get_position(frame, store);
+        let pos = get_position(&frame, store);
         write!(
             trace,
             " in {}:{}:{}",
@@ -99,7 +99,7 @@ fn get_ns_name(item: &Item) -> Option<Rc<str>> {
 }
 
 /// Converts the [`Span`] of [`Frame`] into a [`Position`].
-fn get_position(frame: Frame, store: &PackageStore) -> Position {
+fn get_position(frame: &Frame, store: &PackageStore) -> Position {
     let filename = get_item_file_name(store, frame.id).expect("file should exist");
     let package_id = map_fir_package_to_hir(frame.id.package);
     let unit = store.get(package_id).expect("package should exist");

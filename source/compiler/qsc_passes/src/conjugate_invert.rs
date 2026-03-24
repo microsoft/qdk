@@ -216,7 +216,6 @@ impl<'a> Visitor<'a> for AssignmentCheck {
 impl AssignmentCheck {
     fn check_assign(&mut self, expr: &Expr) {
         match &expr.kind {
-            ExprKind::Hole => {}
             ExprKind::Var(Res::Local(id), _) => {
                 if self.used.contains(id) {
                     self.errors.push(Error::ApplyAssign(expr.span));
@@ -227,7 +226,9 @@ impl AssignmentCheck {
                     self.check_assign(expr);
                 }
             }
-            _ => panic!("unexpected expr type in assignment"),
+            // Other LHS kinds are not assignable, which is a semantic error
+            // handled by the borrow checker pass.
+            _ => {}
         }
     }
 }
@@ -240,6 +241,8 @@ impl<'a> Visitor<'a> for ReturnCheck {
     fn visit_expr(&mut self, expr: &'a Expr) {
         if matches!(&expr.kind, ExprKind::Return(..)) {
             self.errors.push(Error::ReturnForbidden(expr.span));
+        } else {
+            visit::walk_expr(self, expr);
         }
     }
 }

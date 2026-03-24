@@ -2,8 +2,7 @@
 
 ## Overview
 
-This repo contains the Microsoft Quantum Development Kit (QDK), which provides tooling for the Q# language. Q# is an open-source programming language designed for developing and running quantum algorithms. This repo is publicly available at https://github.com/microsoft/qsharp .
-
+This repo contains the Microsoft Quantum Development Kit (QDK), which provides tooling for the Q# language. Q# is an open-source programming language designed for developing and running quantum algorithms. This repo is publicly available at https://github.com/microsoft/qdk .
 
 ## Architecture
 
@@ -37,7 +36,8 @@ Most of the core components are implemented in Rust. These components are packag
   - **qsc_partial_eval/**: Partial evaluation and optimization
   - **qsc_passes/**: HIR passes
   - **qsc_project/**: Project system and manifest handling
-  - **qsc_qasm/**: OpenQASM compiler frontend
+  - **qsc_openqasm_compiler/**: OpenQASM compiler frontend
+  - **qsc_openqasm_parser/**: OpenQASM parser frontend
   - **qsc_rca/**: Resource counting and analysis
   - **qsc_rir/**: Runtime Intermediate Representation
 - **fuzz/**: Fuzz testing infrastructure for the compiler
@@ -47,6 +47,7 @@ Most of the core components are implemented in Rust. These components are packag
 - **wasm/**: WebAssembly bindings for core components
 
 **Build & Release**
+
 - **docker/**: Docker container configurations
 
 **Python**
@@ -101,5 +102,5 @@ Most of the core components are implemented in Rust. These components are packag
 - `npm test` from the `vscode/` directory runs the integration tests.
   - `npm test -- --suite=language-service`: Run only the `language-service` test suite
 - Tests use the VS Code for Web testing framework (`@vscode/test-web`), which uses `playwright` under the covers to automate headless Chrome.
-- `mocha` interface is used to declare tests, `chai` for asserts. No mocking library is used. Do *not* add dependencies to the test suite.
+- `mocha` interface is used to declare tests, `chai` for asserts. No mocking library is used. Do _not_ add dependencies to the test suite.
 - Tests run in the real VS Code environment, in the extension host, which means they can directly interact with the VS Code API.

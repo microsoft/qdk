@@ -147,7 +147,16 @@ function getQSharpConfigMetadata(notebook: vscode.NotebookDocument): object {
   if (data) {
     const dataString = new TextDecoder().decode(data);
     log.trace("found Q# config metadata: " + dataString);
-    return JSON.parse(dataString);
+    const dataStringJSON = JSON.parse(dataString);
+    // Re-normalize projectRoot URI if present.
+    // Python and VS Code have different URI normalization logic,
+    // so we need to parse and re-serialize it here.
+    if (typeof dataStringJSON.projectRoot === "string") {
+      const projectRootUri = vscode.Uri.parse(dataStringJSON.projectRoot, true);
+      dataStringJSON.projectRoot = projectRootUri.toString();
+    }
+
+    return dataStringJSON;
   } else {
     // Default to Unrestricted profile for notebooks when no explicit configuration is provided
     // This aligns with the Python qsharp runtime behavior

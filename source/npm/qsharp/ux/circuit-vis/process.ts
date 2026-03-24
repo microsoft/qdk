@@ -5,13 +5,15 @@ import {
   minGateWidth,
   startX,
   gatePadding,
-  controlBtnOffset,
-  groupBoxPadding,
-} from "./constants";
-import { ComponentGrid, Operation, ConditionalRender } from "./circuit";
-import { GateRenderData, GateType } from "./gateRenderData";
-import { Register, RegisterMap } from "./register";
-import { getGateWidth } from "./utils";
+  controlCircleOffset,
+  groupPaddingX,
+  groupTopPadding,
+  groupBottomPadding,
+} from "./constants.js";
+import { ComponentGrid, Operation, SourceLocation } from "./circuit.js";
+import { GateRenderData, GateType } from "./gateRenderData.js";
+import { Register, RegisterMap } from "./register.js";
+import { getMinGateWidth } from "./utils.js";
 
 /**
  * Takes in a component grid and maps the operations to `GateRenderData` objects which
@@ -19,37 +21,94 @@ import { getGateWidth } from "./utils";
  *
  * @param componentGrid Grid of circuit components.
  * @param registers  Mapping from qubit IDs to register render data.
+ * @param topY y-coordinate of the topmost register involved in the operation.
+ * @param bottomY y-coordinate of the bottommost register involved in the operation.
+ * @param renderLocations Optional function to map source locations to link hrefs and titles.
  *
  * @returns An object containing `renderDataArray` (2D Array of GateRenderData objects) and
  *          `svgWidth` which is the width of the entire SVG.
  */
 const processOperations = (
   componentGrid: ComponentGrid,
+  topY: number,
+  bottomY: number,
   registers: RegisterMap,
-): { renderDataArray: GateRenderData[][]; svgWidth: number } => {
-  if (componentGrid.length === 0)
-    return { renderDataArray: [], svgWidth: startX + gatePadding * 2 };
-  const numColumns: number = componentGrid.length;
-  const columnsWidths: number[] = new Array(numColumns).fill(minGateWidth);
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
+): {
+  renderDataArray: GateRenderData[][];
+  svgWidth: number;
+  maxTopPadding: number;
+  maxBottomPadding: number;
+} => {
+  if (componentGrid.length === 0) {
+    return {
+      renderDataArray: [],
+      svgWidth: startX + gatePadding * 2,
+      maxTopPadding: 0,
+      maxBottomPadding: 0,
+    };
+  }
+
+  let maxTopPadding = 0;
+  let maxBottomPadding = 0;
+
+  // Track the width of each column as we process it.
+  const columnsWidths: number[] = componentGrid.map(() => minGateWidth);
 
   // Get classical registers and their starting column index
   const classicalRegs: [number, Register][] =
-    _getClassicalRegStart(componentGrid);
+    _getClassicalRegStarts(componentGrid);
 
   // Map operation index to gate render data for formatting later
   const renderDataArray: GateRenderData[][] = componentGrid.map(
     (col, colIndex) =>
       col.components.map((op) => {
-        const renderData: GateRenderData = _opToRenderData(op, registers);
+        const renderData: GateRenderData = _opToRenderData(
+          op,
+          registers,
+          renderLocations,
+        );
+
+        let targets: Register[];
+        switch (op.kind) {
+          case "unitary":
+            targets = op.targets;
+            break;
+          case "measurement":
+            targets = op.qubits;
+            break;
+          case "ket":
+            targets = op.targets;
+            break;
+        }
+        const minTargetY = Math.min(...(renderData.targetsY as number[]));
+        const maxTargetY = Math.max(...(renderData.targetsY as number[]));
+
+        if (topY === minTargetY) {
+          maxTopPadding = Math.max(maxTopPadding, renderData.topPadding);
+        }
+        if (bottomY === maxTargetY) {
+          maxBottomPadding = Math.max(
+            maxBottomPadding,
+            renderData.bottomPadding,
+          );
+        }
+
+        const isCollapsedGroup =
+          renderData.type === GateType.Group && !renderData.isExpanded;
 
         if (
           op != null &&
-          [GateType.Unitary, GateType.Ket, GateType.ControlledUnitary].includes(
-            renderData.type,
-          )
+          ([
+            GateType.Unitary,
+            GateType.Ket,
+            GateType.ControlledUnitary,
+          ].includes(renderData.type) ||
+            isCollapsedGroup)
         ) {
-          // If gate is a unitary type, split targetsY into groups if there
-          // is a classical register between them for rendering
+          // Split multi-wire gate bodies into segments if there is a classical
+          // register wire between them. This prevents classical wires from
+          // visually intersecting/entering gate bodies.
 
           // Get y coordinates of classical registers in the same column as this operation
           const classicalRegY: number[] = classicalRegs
@@ -65,22 +124,16 @@ const processOperations = (
               return children[reg.result].y;
             });
 
-          let qubits: Register[];
-          switch (op.kind) {
-            case "unitary":
-              qubits = op.targets;
-              break;
-            case "measurement":
-              qubits = op.qubits;
-              break;
-            case "ket":
-              qubits = op.targets;
-              break;
-          }
+          const allowedThroughY = (renderData.classicalControlRegs ?? []).map(
+            (reg) => _getRegY(reg, registers),
+          );
+          const splitAroundY = classicalRegY.filter(
+            (y) => !allowedThroughY.includes(y),
+          );
 
           renderData.targetsY = _splitTargetsY(
-            qubits,
-            classicalRegY,
+            targets,
+            splitAroundY,
             registers,
           );
         }
@@ -94,15 +147,30 @@ const processOperations = (
       }),
   );
 
-  // Filter out invalid gates
-  const filteredArray: GateRenderData[][] = renderDataArray
-    .map((col) => col.filter(({ type }) => type != GateType.Invalid))
-    .filter((col) => col.length > 0);
+  // Filter out invalid gates and remove empty columns.
+  // Keep column widths in sync with the filtered columns.
+  const filteredColumns = renderDataArray
+    .map((col, colIndex) => ({
+      colIndex,
+      gates: col.filter(({ type }) => type != GateType.Invalid),
+    }))
+    .filter(({ gates }) => gates.length > 0);
+  const filteredArray: GateRenderData[][] = filteredColumns.map(
+    ({ gates }) => gates,
+  );
+  const filteredColumnWidths: number[] = filteredColumns.map(
+    ({ colIndex }) => columnsWidths[colIndex],
+  );
 
   // Fill in x coord of each gate
-  const endX: number = _fillRenderDataX(filteredArray, columnsWidths);
+  const endX: number = _fillRenderDataX(filteredArray, filteredColumnWidths);
 
-  return { renderDataArray: filteredArray, svgWidth: endX };
+  return {
+    renderDataArray: filteredArray,
+    svgWidth: endX,
+    maxTopPadding,
+    maxBottomPadding,
+  };
 };
 
 /**
@@ -112,7 +180,7 @@ const processOperations = (
  *
  * @returns Array of classical register and their starting column indices in the form [[column, register]].
  */
-const _getClassicalRegStart = (
+const _getClassicalRegStarts = (
   componentGrid: ComponentGrid,
 ): [number, Register][] => {
   const clsRegs: [number, Register][] = [];
@@ -123,11 +191,40 @@ const _getClassicalRegStart = (
           ({ result }) => result !== undefined,
         );
         resultRegs.forEach((reg) => clsRegs.push([colIndex, reg]));
+      } else if (op.children != null) {
+        const componentGrid = op.children;
+        const childClsRegs = _getClassicalRegStarts(componentGrid);
+        childClsRegs.forEach(([, reg]) => {
+          clsRegs.push([colIndex, reg]);
+        });
       }
     });
   });
   return clsRegs;
 };
+
+/**
+ * Recursively collects classical control registers from source circuit children.
+ * Used inside _opToRenderData for collapsed groups whose children have not been rendered.
+ */
+function _collectClassicalControlsFromSourceChildren(
+  children: ComponentGrid,
+): Register[] {
+  const regs: Register[] = [];
+  for (const col of children) {
+    for (const op of col.components) {
+      if (op.kind === "unitary") {
+        for (const reg of op.controls ?? []) {
+          if (reg.result != null) regs.push(reg);
+        }
+      }
+      if (op.children != null) {
+        regs.push(..._collectClassicalControlsFromSourceChildren(op.children));
+      }
+    }
+  }
+  return regs;
+}
 
 /**
  * Maps operation to render data (e.g. gate type, position, dimensions, text)
@@ -141,14 +238,18 @@ const _getClassicalRegStart = (
 const _opToRenderData = (
   op: Operation | null,
   registers: RegisterMap,
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
 ): GateRenderData => {
   const renderData: GateRenderData = {
     type: GateType.Invalid,
+    isExpanded: false,
     x: 0,
     controlsY: [],
     targetsY: [],
     label: "",
     width: -1,
+    topPadding: 0,
+    bottomPadding: 0,
   };
 
   if (op == null) return renderData;
@@ -174,77 +275,69 @@ const _opToRenderData = (
       break;
   }
 
-  const {
-    gate,
-    args,
-    children,
-    dataAttributes,
-    isConditional,
-    conditionalRender,
-  } = op;
+  const { gate, args, children, dataAttributes } = op;
+
+  // Classically-controlled operations are encoded as operations whose `controls` are
+  // classical registers (i.e. `Register.result` is set), with IDs provided via
+  // `metadata.controlResultIds`.
+  const hasClassicalControls =
+    op.kind === "unitary" &&
+    ((controls?.some((reg) => reg.result != null) ?? false) ||
+      (op.metadata?.controlResultIds?.length ?? 0) > 0);
+
+  const hasChildren = children != null && children.length > 0;
+  const expandedAttr = dataAttributes?.["expanded"];
+  const defaultExpanded = hasClassicalControls && hasChildren;
+  const isExpanded =
+    expandedAttr === undefined ? defaultExpanded : expandedAttr === "true";
+  renderData.isExpanded = isExpanded;
 
   // Set y coords
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
   renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
 
-  if (isConditional) {
-    // Classically-controlled operations
-    if (children == null || children.length == 0)
-      throw new Error(
-        "No children operations found for classically-controlled operation.",
-      );
+  if (hasClassicalControls) {
+    // Classically-controlled operations.
+    // These are treated as composite/group operations when they have children.
+    // Expanded vs. collapsed rendering is controlled via the `expanded` state.
 
-    // Gates to display when classical bit is 0.
-    const onZeroOps: ComponentGrid = children
-      .map((col) => ({
-        components: col.components.filter(
-          (op) => op.conditionalRender === ConditionalRender.OnZero,
-        ),
-      }))
-      .filter((col) => col.components.length > 0);
-    let childrenInstrs = processOperations(onZeroOps, registers);
-    const zeroGates: GateRenderData[][] = childrenInstrs.renderDataArray;
-    const zeroChildWidth: number = childrenInstrs.svgWidth;
+    renderData.label = gate;
 
-    // Gates to display when classical bit is 1.
-    const onOneOps: ComponentGrid = children
-      .map((col) => ({
-        components: col.components.filter(
-          (op) => op.conditionalRender !== ConditionalRender.OnZero,
-        ),
-      }))
-      .filter((col) => col.components.length > 0);
-    childrenInstrs = processOperations(onOneOps, registers);
-    const oneGates: GateRenderData[][] = childrenInstrs.renderDataArray;
-    const oneChildWidth: number = childrenInstrs.svgWidth;
+    // Fill in the ID to be displayed in each control wire's circle.
+    renderData.classicalControlIds =
+      controls
+        ?.map(
+          (reg) =>
+            op.metadata?.controlResultIds?.find(
+              (e) => e[0].qubit === reg.qubit && e[0].result === reg.result,
+            )?.[1],
+        )
+        .map((id) => id ?? null) || [];
 
-    // Subtract startX (left-side) and 2*gatePadding (right-side) from nested child gates width
-    const width: number =
-      Math.max(zeroChildWidth, oneChildWidth) - startX - gatePadding * 2;
+    if (hasChildren) {
+      renderData.type = GateType.Group;
+      if (isExpanded) {
+        _processChildren(renderData, children!, registers, renderLocations);
 
-    renderData.type = GateType.ClassicalControlled;
-    renderData.children = [zeroGates, oneGates];
-    // Add additional width from control button and inner box padding for dashed box
-    renderData.width = width + controlBtnOffset + groupBoxPadding * 2;
+        // Add additional width for classical control circle.
+        // (The group width comes from children layout; it doesn't account for controls.)
+        renderData.width += controlCircleOffset;
+      }
+    } else {
+      // Defensive fallback: a conditional without children is rendered as a unitary.
+      renderData.type = GateType.Unitary;
+    }
+  } else if (hasChildren) {
+    // Composite/grouped operations.
+    // Always represented as `GateType.Group` so the UI can determine expandability
+    // solely from gate type.
 
-    // Set targets to first and last quantum registers so we can render the surrounding box
-    // around all quantum registers.
-    const qubitsY: number[] = Object.values(registers).map(({ y }) => y);
-    if (qubitsY.length > 0)
-      renderData.targetsY = [Math.min(...qubitsY), Math.max(...qubitsY)];
-  } else if (
-    conditionalRender == ConditionalRender.AsGroup &&
-    (children?.length || 0) > 0
-  ) {
-    const childrenInstrs = processOperations(children!, registers);
     renderData.type = GateType.Group;
-    renderData.children = childrenInstrs.renderDataArray;
-    // _zoomButton function in gateFormatter.ts relies on
-    // 'expanded' attribute to render zoom button
-    renderData.dataAttributes = { expanded: "true" };
-    // Subtract startX (left-side) and add inner box padding (minus nested gate padding) for dashed box
-    renderData.width =
-      childrenInstrs.svgWidth - startX + (groupBoxPadding - gatePadding) * 2;
+    renderData.label = gate;
+
+    if (isExpanded) {
+      _processChildren(renderData, children!, registers, renderLocations);
+    }
   } else if (op.kind === "measurement") {
     renderData.type = GateType.Measure;
   } else if (op.kind === "ket") {
@@ -264,6 +357,32 @@ const _opToRenderData = (
     renderData.label = gate;
   }
 
+  // Collect classical control registers for this op and all descendants.
+  // For expanded groups, aggregate from already-rendered children to avoid re-walking source data.
+  // For collapsed groups with children, walk source data directly.
+  {
+    const ownControls =
+      op.kind === "unitary"
+        ? (controls ?? []).filter((r) => r.result != null)
+        : [];
+    const descendantControls: Register[] =
+      renderData.children != null
+        ? renderData.children
+            .flat()
+            .flatMap((c) => c.classicalControlRegs ?? [])
+        : hasChildren
+          ? _collectClassicalControlsFromSourceChildren(children!)
+          : [];
+    const seen = new Set<string>();
+    renderData.classicalControlRegs = [
+      ...ownControls,
+      ...descendantControls,
+    ].filter((r) => {
+      const key = `${r.qubit}:${r.result}`;
+      return seen.has(key) ? false : (seen.add(key), true);
+    });
+  }
+
   // If adjoint, add ' to the end of gate label
   if (isAdjoint && renderData.label.length > 0) renderData.label += "'";
 
@@ -271,8 +390,23 @@ const _opToRenderData = (
   // For now, we only display the first argument
   if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
 
-  // Set gate width
-  renderData.width = getGateWidth(renderData);
+  // Minimum width is calculated based on the label and args.
+  // If this is a collapsed composite (GateType.Group with no children render data),
+  // its width should be based on the summary gate rather than the full expanded layout.
+  const minWidth = getMinGateWidth(renderData);
+
+  const isCollapsedComposite =
+    renderData.type === GateType.Group && !isExpanded;
+
+  if (isCollapsedComposite) {
+    renderData.width = minWidth;
+  } else {
+    renderData.width = Math.max(minWidth, renderData.width);
+  }
+
+  if (op.metadata?.source && renderLocations) {
+    renderData.link = renderLocations([op.metadata.source]);
+  }
 
   // Extend existing data attributes with user-provided data attributes
   if (dataAttributes != null)
@@ -280,6 +414,14 @@ const _opToRenderData = (
       ...renderData.dataAttributes,
       ...dataAttributes,
     };
+
+  // By default, classically controlled groups are expanded unless explicitly overridden.
+  if (defaultExpanded && expandedAttr === undefined) {
+    renderData.dataAttributes = {
+      ...renderData.dataAttributes,
+      expanded: "true",
+    };
+  }
 
   return renderData;
 };
@@ -315,7 +457,7 @@ const _getRegY = (reg: Register, registers: RegisterMap): number => {
 /**
  * Splits `targets` if non-adjacent or intersected by classical registers.
  *
- * @param targets       Target qubit registers.
+ * @param targets       Target registers (can be qubit or classical).
  * @param classicalRegY y coords of classical registers overlapping current column.
  * @param registers     Mapping from register qubit IDs to register render data.
  *
@@ -398,26 +540,32 @@ const _fillRenderDataX = (
   renderDataArray.forEach((col, colIndex) =>
     col.forEach((renderData) => {
       const x = colStartX[colIndex];
+      const columnWidth = columnWidths[colIndex];
+      const columnCenterX = x + columnWidth / 2;
       switch (renderData.type) {
-        case GateType.ClassicalControlled:
         case GateType.Group:
           {
+            // Center the group within the column, and offset nested child gates
+            // relative to the group's left edge (plus internal padding).
+            const groupLeftX = columnCenterX - renderData.width / 2;
+
             // Subtract startX offset from nested gates and add offset and padding
-            let offset: number = x - startX + groupBoxPadding;
-            if (renderData.type === GateType.ClassicalControlled)
-              offset += controlBtnOffset;
+            let offset: number = groupLeftX - startX + groupPaddingX;
+            if (renderData.classicalControlIds != null) {
+              offset += controlCircleOffset;
+            }
 
             // Offset each x coord in children gates
             _offsetChildrenX(renderData.children, offset);
 
-            // We don't use the centre x coord because we only care about the rightmost x for
-            // rendering the box around the group of nested gates
-            renderData.x = x;
+            // Center gate in column
+            renderData.x = columnCenterX;
           }
           break;
 
         default:
-          renderData.x = x + columnWidths[colIndex] / 2;
+          // Center gate in column
+          renderData.x = columnCenterX;
           break;
       }
     }),
@@ -444,5 +592,38 @@ const _offsetChildrenX = (
     });
   });
 };
+
+/**
+ * Processes the children operations and updates the render data accordingly.
+ *
+ * @param renderData        Render data of the parent operation, to be updated with children data.
+ * @param children          Nested operations to be processed.
+ * @param registers         Mapping from qubit IDs to register render data.
+ * @param renderLocations   Optional function to map source locations to link hrefs and titles
+ */
+function _processChildren(
+  renderData: GateRenderData,
+  children: ComponentGrid,
+  registers: RegisterMap,
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
+) {
+  const topY = Math.min(...(renderData.targetsY as number[]));
+  const bottomY = Math.max(...(renderData.targetsY as number[]));
+
+  const childrenInstrs = processOperations(
+    children,
+    topY,
+    bottomY,
+    registers,
+    renderLocations,
+  );
+
+  renderData.children = childrenInstrs.renderDataArray;
+  renderData.width =
+    childrenInstrs.svgWidth - startX - gatePadding * 3 + groupPaddingX * 2; // (svgWidth includes 3 extra gate paddings)
+  renderData.topPadding = childrenInstrs.maxTopPadding + groupTopPadding;
+  renderData.bottomPadding =
+    childrenInstrs.maxBottomPadding + groupBottomPadding;
+}
 
 export { processOperations };

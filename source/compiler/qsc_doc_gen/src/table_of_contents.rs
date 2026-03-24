@@ -24,7 +24,7 @@ The Q# standard library contains the following namespaces:
 | [`Std.Measurement`](xref:Qdk.Std.Measurement-toc)               | Items for measuring quantum results.                                 |
 | [`Std.Random`](xref:Qdk.Std.Random-toc)                         | Items for creating random values.                                    |
 | [`Std.Range`](xref:Qdk.Std.Range-toc)                           | Items for working with ranges.                                       |
-| [`Std.ResourceEstimation`](xref:Qdk.Std.ResourceEstimation-toc) | Items for working with the Azure Quantum Resource Estimator.         |
+| [`Std.ResourceEstimation`](xref:Qdk.Std.ResourceEstimation-toc) | Items for working with the Microsoft Quantum Resource Estimator.     |
 | [`Std.StatePreparation`](xref:Qdk.Std.StatePreparation-toc)     | Items for preparing a quantum state.                                 |
 | [`Std.TableLookup`](xref:Qdk.Std.TableLookup-toc)               | Items for performing quantum table lookups.                          |
 ".to_string()

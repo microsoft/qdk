@@ -16,8 +16,8 @@ To run Q# in Jupyter notebooks, remember to also install the `qsharp` package: [
 
 ## Support
 
-For more information about the Azure Quantum Development Kit, visit [https://aka.ms/AQ/Documentation](https://aka.ms/AQ/Documentation).
+For more information about the Microsoft Quantum Development Kit, visit [https://aka.ms/qdk](https://aka.ms/qdk).
 
 ## Contributing
 
-Q# welcomes your contributions! Visit the Q# GitHub repository at [https://github.com/microsoft/qsharp] to find out more about the project.
+Q# welcomes your contributions! Visit the Q# GitHub repository at [https://github.com/microsoft/qdk] to find out more about the project.

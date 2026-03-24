@@ -12,8 +12,8 @@ use qsc_data_structures::span::Span;
 use qsc_hir::{
     assigner::Assigner,
     hir::{
-        Attr, CallableDecl, Expr, ExprKind, Item, ItemId, ItemKind, LocalItemId, Package, PatKind,
-        Res,
+        Attr, CallableDecl, Expr, ExprKind, Item, ItemId, ItemKind, LocalItemId, Package,
+        PackageId, PatKind, Res,
     },
     ty::Ty,
     visit::Visitor,
@@ -57,7 +57,7 @@ pub(super) fn generate_entry_expr(
     }
     let callables = get_callables(package);
 
-    match create_entry_from_callables(assigner, callables, package_type) {
+    match create_entry_from_callables(assigner, callables, package_type, package.package_id) {
         Ok(expr) => {
             package.entry = Some(expr);
             vec![]
@@ -70,6 +70,7 @@ fn create_entry_from_callables(
     assigner: &mut Assigner,
     callables: Vec<(&CallableDecl, LocalItemId)>,
     package_type: PackageType,
+    package_id: PackageId,
 ) -> Result<Expr, Vec<super::Error>> {
     if callables.len() == 1 {
         let ep = callables[0].0;
@@ -95,7 +96,7 @@ fn create_entry_from_callables(
                         };
                         let item = callables[0].1;
                         let item_id = ItemId {
-                            package: None,
+                            package: package_id,
                             item,
                         };
                         let callee = Expr {

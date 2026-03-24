@@ -92,3 +92,4 @@ export function getLanguageServiceWorker(): ILanguageServiceWorker {
 }
 
 export * as utils from "./utils.js";
+export type { IVariable, IVariableChild } from "./browser.js";

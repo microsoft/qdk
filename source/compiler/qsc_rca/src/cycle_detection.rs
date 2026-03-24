@@ -53,13 +53,12 @@ impl<'a> CycleDetector<'a> {
                     .expect("node map should exist");
                 let kind = match mutability {
                     Mutability::Immutable => LocalKind::Immutable(expr_id),
-                    Mutability::Mutable => LocalKind::Mutable,
+                    Mutability::Mutable => LocalKind::Mutable(None),
                 };
                 locals_map.insert(
                     ident.id,
                     Local {
                         var: ident.id,
-                        ty: pat.ty.clone(),
                         kind,
                     },
                 );
@@ -141,7 +140,7 @@ impl<'a> CycleDetector<'a> {
     }
 
     fn resolve_item(&self, item: qsc_fir::fir::ItemId) -> &'a Item {
-        let package_id = item.package.unwrap_or(self.package_id);
+        let package_id = item.package;
         let package = self.store.get(package_id);
         package.get_item(item.item)
     }

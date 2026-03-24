@@ -11,7 +11,7 @@
 
 import Std.Diagnostics.DumpMachine;
 
-/// In the below code, all varibles have type annotations to showcase their type.
+/// In the below code, all variables have type annotations to showcase their type.
 operation Main() : Unit {
     // The following statement allocates three qubits.
     use qs = Qubit[3];

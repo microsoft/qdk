@@ -177,11 +177,11 @@ pub fn parse_namespaces_or_implicit(
             s,
         )
         .map(|x| vec![x])?;
-        if let Some(ref mut ns) = ns.get_mut(0) {
-            if let Some(x) = ns.items.get_mut(0) {
-                x.span.lo = lo;
-                x.doc = doc;
-            }
+        if let Some(ref mut ns) = ns.get_mut(0)
+            && let Some(x) = ns.items.get_mut(0)
+        {
+            x.span.lo = lo;
+            x.doc = doc;
         }
         Ok(ns)
     } else {
@@ -208,6 +208,7 @@ pub fn parse_implicit_namespace(source_name: &str, s: &mut ParserContext) -> Res
         doc: "".into(),
         name: namespace_name,
         items: items.into_boxed_slice(),
+        kind: qsc_ast::ast::NamespaceKind::Implicit,
     })
 }
 
@@ -265,12 +266,9 @@ fn validate_namespace_name(error_span: Span, name: &str) -> Result<Box<Ident>> {
     // we just directly use the ident parser here instead of trying to recreate
     // validation rules
     let ident = ident(&mut s)
-        .map_err(|_| Error::new(ErrorKind::InvalidFileName(error_span, name.to_string())))?;
+        .map_err(|_| Error::new(ErrorKind::InvalidFileName(error_span, name.clone())))?;
     if s.peek().kind != TokenKind::Eof {
-        return Err(Error::new(ErrorKind::InvalidFileName(
-            error_span,
-            name.to_string(),
-        )));
+        return Err(Error::new(ErrorKind::InvalidFileName(error_span, name)));
     }
     Ok(ident)
 }
@@ -294,6 +292,7 @@ fn parse_namespace(s: &mut ParserContext) -> Result<Namespace> {
         doc: doc.into(),
         name: name.into_boxed_slice(),
         items: items.into_boxed_slice(),
+        kind: qsc_ast::ast::NamespaceKind::Block,
     })
 }
 
@@ -305,7 +304,7 @@ fn parse_namespace_block_contents(s: &mut ParserContext) -> Result<Vec<Box<Item>
     Ok(items)
 }
 
-/// See [GH Issue 941](https://github.com/microsoft/qsharp/issues/941) for context.
+/// See [GH Issue 941](https://github.com/microsoft/qdk/issues/941) for context.
 /// We want to anticipate docstrings in places people might
 /// put them, but throw them away. This is to maintain
 /// back compatibility.
@@ -384,7 +383,7 @@ fn parse_newtype(s: &mut ParserContext) -> Result<Box<ItemKind>> {
         def = Box::new(TyDef {
             id: def.id,
             span: ty.span,
-            kind: Box::new(TyDefKind::Field(None, Box::new(ty))),
+            kind: Box::new(TyDefKind::Field(None, Box::new(ty), None)),
         });
     }
     recovering_semi(s);
@@ -397,6 +396,7 @@ fn parse_struct(s: &mut ParserContext) -> Result<Box<ItemKind>> {
     let name = ident(s)?;
     token(s, TokenKind::Open(Delim::Brace))?;
     let (fields, _) = seq(s, |s| {
+        let doc = parse_doc(s);
         let lo = s.peek().span.lo;
         let name = ident(s)?;
         token(s, TokenKind::Colon)?;
@@ -404,6 +404,7 @@ fn parse_struct(s: &mut ParserContext) -> Result<Box<ItemKind>> {
         Ok(Box::new(FieldDef {
             id: NodeId::default(),
             span: s.span(lo),
+            doc: doc.map(Rc::from),
             name,
             ty: Box::new(field_ty),
         }))
@@ -421,8 +422,8 @@ fn parse_struct(s: &mut ParserContext) -> Result<Box<ItemKind>> {
 
 fn try_tydef_as_ty(tydef: &TyDef) -> Option<Ty> {
     match tydef.kind.as_ref() {
-        TyDefKind::Field(Some(_), _) | TyDefKind::Err => None,
-        TyDefKind::Field(None, ty) => Some(*ty.clone()),
+        TyDefKind::Field(Some(_), _, _) | TyDefKind::Err => None,
+        TyDefKind::Field(None, ty, _) => Some(*ty.clone()),
         TyDefKind::Paren(tydef) => try_tydef_as_ty(tydef.as_ref()),
         TyDefKind::Tuple(tup) => {
             let mut ty_tup = Vec::new();
@@ -439,7 +440,7 @@ fn try_tydef_as_ty(tydef: &TyDef) -> Option<Ty> {
 }
 
 fn parse_ty_def(s: &mut ParserContext) -> Result<Box<TyDef>> {
-    throw_away_doc(s);
+    let doc = parse_doc(s);
     let lo = s.peek().span.lo;
     let kind = if token(s, TokenKind::Open(Delim::Paren)).is_ok() {
         let (defs, final_sep) = seq(s, parse_ty_def)?;
@@ -450,9 +451,9 @@ fn parse_ty_def(s: &mut ParserContext) -> Result<Box<TyDef>> {
         if token(s, TokenKind::Colon).is_ok() {
             let name = ty_as_ident(field_ty)?;
             let field_ty = ty(s)?;
-            TyDefKind::Field(Some(name), Box::new(field_ty))
+            TyDefKind::Field(Some(name), Box::new(field_ty), doc.map(Rc::from))
         } else {
-            TyDefKind::Field(None, Box::new(field_ty))
+            TyDefKind::Field(None, Box::new(field_ty), doc.map(Rc::from))
         }
     };
 

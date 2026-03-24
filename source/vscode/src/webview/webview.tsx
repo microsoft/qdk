@@ -12,6 +12,8 @@ import {
   EstimatesPanel,
   Histogram,
   setRenderer,
+  detectThemeChange,
+  updateStyleSheetTheme,
   type ReData,
 } from "qsharp-lang/ux";
 import { HelpPage } from "./help";
@@ -22,7 +24,6 @@ import "./webview.css";
 // @ts-ignore - there are no types for this
 import mk from "@vscode/markdown-it-katex";
 import markdownIt from "markdown-it";
-import { setThemeStylesheet } from "./theme";
 const md = markdownIt("commonmark");
 md.use(mk, {
   enableMathBlockInHtml: true,
@@ -75,7 +76,15 @@ let state: State = loadingState;
 function main() {
   state = (vscodeApi.getState() as any) || loadingState;
   render(<App state={state} />, document.body);
-  setThemeStylesheet();
+  detectThemeChange(document.body, (isDark: boolean) => {
+    updateStyleSheetTheme(
+      isDark,
+      "github-markdown",
+      /(light\.css)|(dark\.css)/,
+      "light.css",
+      "dark.css",
+    );
+  });
   vscodeApi.postMessage({ command: "ready" });
 }
 
@@ -192,11 +201,11 @@ function App({ state }: { state: State }) {
           {state.suppressSettings ? null : (
             <p style="margin-top: 8px; font-size: 0.8em">
               Note: If a{" "}
-              <a href="vscode://settings/Q%23.simulation.pauliNoise">
+              <a href="command:workbench.action.openSettings?%5B%22Q%23.simulation.pauliNoise%22%5D">
                 noise model
               </a>{" "}
               or any{" "}
-              <a href="vscode://settings/Q%23.simulation.qubitLoss">
+              <a href="command:workbench.action.openSettings?%5B%22Q%23.simulation.qubitLoss%22%5D">
                 qubit loss
               </a>{" "}
               has been configured, this may impact results

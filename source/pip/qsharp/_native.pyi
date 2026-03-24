@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from enum import Enum
-from typing import Any, Callable, Optional, Dict, List, Tuple
+from typing import Any, Callable, Optional, Dict, List, Tuple, TypedDict, overload
 
 # pylint: disable=unused-argument
 # E302 is fighting with the formatter for number of blank lines
@@ -119,6 +119,13 @@ class GlobalCallable:
 
     ...
 
+class Closure:
+    """
+    A closure reference that can be passed back into Q#.
+    """
+
+    ...
+
 class Interpreter:
     """A Q# interpreter."""
 
@@ -133,6 +140,7 @@ class Interpreter:
         fetch_github: Callable[[str, str, str, str], str],
         make_callable: Optional[Callable[[GlobalCallable, List[str], str], None]],
         make_class: Optional[Callable[[TypeIR, List[str], str], None]],
+        trace_circuit: Optional[bool],
     ) -> None:
         """
         Initializes the Q# interpreter.
@@ -143,6 +151,9 @@ class Interpreter:
         :param list_directory: A function that lists the contents of a directory.
         :param resolve_path: A function that joins path segments and normalizes the resulting path.
         :param make_callable: A function that registers a Q# callable in the in the environment module.
+        :param trace_circuit: Enables tracing of circuit during execution.
+            Passing `True` is required for the `dump_circuit` function to return a circuit.
+            The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
         """
         ...
 
@@ -165,7 +176,7 @@ class Interpreter:
         output_fn: Optional[Callable[[Output], None]],
         noise: Optional[Tuple[float, float, float]],
         qubit_loss: Optional[float],
-        callable: Optional[GlobalCallable],
+        callable: Optional[GlobalCallable | Closure],
         args: Optional[Any],
     ) -> Any:
         """
@@ -187,7 +198,7 @@ class Interpreter:
 
     def invoke(
         self,
-        callable: GlobalCallable,
+        callable: GlobalCallable | Closure,
         args: Any,
         output_fn: Callable[[Output], None],
     ) -> Any:
@@ -203,9 +214,9 @@ class Interpreter:
 
     def qir(
         self,
-        entry_expr: Optional[str],
-        callable: Optional[GlobalCallable],
-        args: Optional[Any],
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
     ) -> str:
         """
         Generates QIR from Q# source code. Either an entry expression or a callable with arguments must be provided.
@@ -220,14 +231,18 @@ class Interpreter:
 
     def circuit(
         self,
-        entry_expr: Optional[str],
-        operation: Optional[str],
-        callable: Optional[GlobalCallable],
-        args: Optional[Any],
+        config: CircuitConfig,
+        entry_expr: Optional[str] = None,
+        *,
+        operation: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
     ) -> Circuit:
         """
         Synthesizes a circuit for a Q# program. Either an entry
         expression or an operation must be provided.
+
+        :param config: Circuit generation options.
 
         :param entry_expr: An entry expression.
 
@@ -246,9 +261,9 @@ class Interpreter:
     def estimate(
         self,
         params: str,
-        entry_expr: Optional[str],
-        callable: Optional[GlobalCallable],
-        args: Optional[Any],
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
     ) -> str:
         """
         Estimates resources for Q# source code.
@@ -259,6 +274,23 @@ class Interpreter:
         :param args: The arguments to pass to the callable, if any.
 
         :returns resources: The estimated resources.
+        """
+        ...
+
+    def logical_counts(
+        self,
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
+    ) -> Dict[str, int]:
+        """
+        Estimates logical operation counts for Q# source code.
+
+        :param entry_expr: The entry expression to estimate.
+        :param callable: The callable to estimate resources for, if no entry expression is provided.
+        :param args: The arguments to pass to the callable, if any.
+
+        :returns resources: The logical resources.
         """
         ...
 
@@ -290,10 +322,12 @@ class Interpreter:
 
     def dump_circuit(self) -> Circuit:
         """
-        Dumps the current circuit state of the interpreter.
+        Dumps a circuit showing the current state of the simulator.
 
         This circuit will contain the gates that have been applied
         in the simulator up to the current point.
+
+        Requires the interpreter to be initialized with `trace_circuit=True`.
         """
         ...
 
@@ -385,6 +419,58 @@ class StateDumpData:
     def __str__(self) -> str: ...
     def _repr_markdown_(self) -> str: ...
     def _repr_latex_(self) -> Optional[str]: ...
+
+class CircuitConfig:
+    def __init__(
+        self,
+        *,
+        max_operations: Optional[int] = None,
+        generation_method: Optional["CircuitGenerationMethod"] = None,
+        source_locations: bool = False,
+        group_by_scope: bool = False,
+        prune_classical_qubits: bool = False,
+    ) -> None: ...
+
+    """
+    Configuration options for circuit generation.
+    """
+
+    max_operations: Optional[int]
+    """
+    The maximum number of operations to include in the generated circuit.
+    """
+
+    generation_method: Optional[CircuitGenerationMethod]
+    """
+    The method to use for circuit generation.
+    """
+
+    source_locations: Optional[bool]
+    """
+    Whether to include source locations in the generated circuit.
+    """
+
+class CircuitGenerationMethod(Enum):
+    """
+    The method to use for circuit generation.
+    """
+
+    ClassicalEval: CircuitGenerationMethod
+    """
+    Use classical evaluation to generate the circuit.
+    """
+
+    Simulate: CircuitGenerationMethod
+    """
+    Use simulation to generate the circuit.
+    """
+
+    Static: CircuitGenerationMethod
+    """
+    Compile the program and transform to a circuit using partial evaluation.
+    Only works for AdaptiveRIF-compliant programs.
+    Requires a non-Unrestricted target profile (e.g. TargetProfile.Adaptive_RIF).
+    """
 
 class Circuit:
     def json(self) -> str: ...
@@ -667,7 +753,7 @@ class TypeKind(Enum):
 
 class PrimitiveKind(Enum):
     """
-    A Q# primtive.
+    A Q# primitive.
     """
 
     Bool: int
@@ -685,3 +771,319 @@ class UdtIR:
 
     name: str
     fields: List[Tuple[str, TypeIR]]
+
+class QirInstructionId(Enum):
+    I: QirInstructionId
+    H: QirInstructionId
+    X: QirInstructionId
+    Y: QirInstructionId
+    Z: QirInstructionId
+    S: QirInstructionId
+    SAdj: QirInstructionId
+    SX: QirInstructionId
+    SXAdj: QirInstructionId
+    T: QirInstructionId
+    TAdj: QirInstructionId
+    CNOT: QirInstructionId
+    CX: QirInstructionId
+    CY: QirInstructionId
+    CZ: QirInstructionId
+    CCX: QirInstructionId
+    SWAP: QirInstructionId
+    RX: QirInstructionId
+    RY: QirInstructionId
+    RZ: QirInstructionId
+    RXX: QirInstructionId
+    RYY: QirInstructionId
+    RZZ: QirInstructionId
+    RESET: QirInstructionId
+    M: QirInstructionId
+    MResetZ: QirInstructionId
+    MZ: QirInstructionId
+    Move: QirInstructionId
+    ReadResult: QirInstructionId
+    ResultRecordOutput: QirInstructionId
+    BoolRecordOutput: QirInstructionId
+    IntRecordOutput: QirInstructionId
+    DoubleRecordOutput: QirInstructionId
+    TupleRecordOutput: QirInstructionId
+    ArrayRecordOutput: QirInstructionId
+    CorrelatedNoise: QirInstructionId
+
+class QirInstruction: ...
+
+class IdleNoiseParams:
+    s_probability: float
+
+class NoiseTable:
+    loss: float
+
+    def __init__(self, num_qubits: int):
+        """
+        Initializes a new noise table for an operation that targets `num_qubits` qubits.
+        """
+
+    def __getattr__(self, name: str) -> float:
+        """
+        Defining __getattr__ allows getting noise like this
+
+        noise_table.ziz
+
+        for arbitrary pauli fields.
+        """
+
+    def __setattr__(self, name: str, value: float):
+        """
+        Defining __setattr__ allows setting noise like this
+
+        noise_table = NoiseTable(3)
+        noise_table.ziz = 0.005
+
+        for arbitrary pauli fields. Setting an element that was
+        previously set overrides that entry with the new value.
+        """
+
+    @overload
+    def set_pauli_noise(self, lst: list[tuple[str, float]]):
+        """
+        The correlated pauli noise to use in simulation. Setting an element
+        that was previously set overrides that entry with the new value.
+
+        Example:
+            noise_table = NoiseTable(2)
+            noise_table.set_pauli_noise([("XI", 1e-10), ("XZ", 1e-8)])
+        """
+
+    @overload
+    def set_pauli_noise(self, pauli_strings: list[str], values: list[float]):
+        """
+        The correlated pauli noise to use in simulation. Setting an element
+        that was previously set overrides that entry with the new value.
+
+        Example:
+            noise_table = NoiseTable(2)
+            noise_table.set_pauli_noise(["XI", "XZ"], [1e-10, 3.7e-8])
+        """
+
+    @overload
+    def set_pauli_noise(self, pauli_string: str, value: float):
+        """
+        The correlated pauli noise to use in simulation. Setting an element
+        that was previously set overrides that entry with the new value.
+
+        Example:
+            noise_table = NoiseTable(2)
+            noise_table.set_pauli_noise("XZ", 1e-10)
+        """
+
+    def set_depolarizing(self, value: float):
+        """
+        The depolarizing noise to use in simulation.
+        """
+
+    def set_bitflip(self, value: float):
+        """
+        The bit flip noise to use in simulation.
+        """
+
+    def set_phaseflip(self, value: float):
+        """
+        The phase flip noise to use in simulation.
+        """
+
+class NoiseIntrinsicsTable:
+    def __contains__(self, name: str) -> bool:
+        """
+        This enables support for `in` membership checks.
+        """
+
+    def __getitem__(self, name: str) -> NoiseTable:
+        """
+        Defining __getitem__ allows getting intrinsic noise tables like this:
+            noise_config = NoiseConfig()
+            my_intrinsic_noise_table = noise_config.intrinsics["my_intrinsic"]
+        """
+
+    def __setitem__(self, name: str, value: float):
+        """
+        Defining __setitem__ allows setting intrinsic noise tables like this:
+            noise_config = NoiseConfig()
+            my_intrinsic_noise_table = NoiseTable(3)
+            my_intrinsic_noise_table.ziz = 0.01
+            noise_config.intrinsics["my_intrinsic"] = my_intrinsic_noise_table
+        """
+
+    def get_intrinsic_id(self, name: str) -> int:
+        """
+        Each intrinsic inserted in the table is assigned an integer id.
+        This method returns that id given an intrinsic's name.
+        """
+
+class NoiseConfig:
+    x: NoiseTable
+    y: NoiseTable
+    z: NoiseTable
+    h: NoiseTable
+    s: NoiseTable
+    s_adj: NoiseTable
+    t: NoiseTable
+    t_adj: NoiseTable
+    sx: NoiseTable
+    sx_adj: NoiseTable
+    rx: NoiseTable
+    ry: NoiseTable
+    rz: NoiseTable
+    cx: NoiseTable
+    cy: NoiseTable
+    cz: NoiseTable
+    rxx: NoiseTable
+    ryy: NoiseTable
+    rzz: NoiseTable
+    swap: NoiseTable
+    mov: NoiseTable
+    mresetz: NoiseTable
+    # idle: IdleNoiseParams
+    intrinsics: NoiseIntrinsicsTable
+
+    def intrinsic(self, name: str, num_qubits: int) -> NoiseTable:
+        """
+        The noise table for a custom intrinsic.
+        """
+
+    def load_csv_dir(self, dir_path: str):
+        """
+        Loads noise tables from the specified directory path. For each .csv file found in the directory,
+        the noise table is loaded and associated with a unique identifier. The name of the file (without the .csv extension)
+        is used as the label for the noise table, which should match the QIR instruction that will apply noise using this table.
+
+        Each line of the table should be of the format: "IXYZ,1.345e-4" where IXYZ is a string of Pauli operators
+        representing the error on each qubit (Z applying to the first qubit argument, Y to the second, etc.), and the second value
+        is the corresponding error probability for that specific Pauli string.
+
+        Blank lines, lines starting with #, or lines that start with the string "pauli" (i.e., a column header) are ignored.
+        """
+        ...
+
+def run_clifford(
+    input: List[QirInstruction],
+    num_qubits: int,
+    num_results: int,
+    shots: int,
+    noise: Optional[NoiseConfig],
+    seed: Optional[int],
+) -> List[str]:
+    """
+    Run the given list of QIR instructions in a Clifford simulator,
+    using the given `NoiseConfig`, if any.
+
+    Returns a list of result strings. Each result string is composed
+    of '0's, '1's, and 'L's, representing if each measurement result
+    was a Zero, One, or Loss respectively.
+    """
+    ...
+
+def run_cpu_full_state(
+    input: List[QirInstruction],
+    num_qubits: int,
+    num_results: int,
+    shots: int,
+    noise: Optional[NoiseConfig],
+    seed: Optional[int],
+) -> List[str]:
+    """
+    Run the given list of QIR instructions in a CPU full-state simulator,
+    using the given `NoiseConfig`, if any.
+
+    Returns a list of result strings. Each result string is composed
+    of '0's, '1's, and 'L's, representing if each measurement result
+    was a Zero, One, or Loss respectively.
+    """
+    ...
+
+def try_create_gpu_adapter() -> str:
+    """
+    Checks if a compatible GPU adapter is available on the system.
+
+    This function attempts to request a GPU adapter to determine if GPU-accelerated
+    quantum simulation is supported. It's useful for capability detection before
+    attempting to run GPU-based simulations.
+
+    # Errors
+
+    Raises `OSError` if:
+    - No compatible GPU is found
+    - GPU drivers are missing or not functioning properly
+    """
+    pass
+
+def run_parallel_shots(
+    input: List[QirInstruction],
+    shots: int,
+    qubit_count: int,
+    result_count: int,
+    noise: Optional[NoiseConfig],
+    seed: Optional[int],
+) -> List[str]:
+    """ """
+    ...
+
+# This is a little clunky, but until we move to Python 3.11 as a minimum, the NotRequired annotation
+# for Dict fields that may be missing is not availalble. See https://peps.python.org/pep-0655/#motivation
+class _GpuShotResultsBase(TypedDict):
+    shot_results: List[str]
+    """Bit strings for each shot ('0', '1', or 'L' for lost qubits)."""
+
+    shot_result_codes: List[int]
+    """Result codes for each shot. 0 = Success, else Failure  (Specific codes are an internal detail)."""
+
+class GpuShotResults(_GpuShotResultsBase, total=False):
+    """
+    Results from running shots on the GPU simulator.
+    """
+
+    diagnostics: str
+    """Diagnostic information if available. (Useful primarly for debugging by the development team)"""
+
+class GpuContext:
+    def load_noise_tables(self, dir_path: str) -> List[Tuple[int, str, int]]:
+        """
+        Loads noise tables from the specified directory path. For each .csv file found in the directory,
+        the noise table is loaded and associated with a unique identifier. The name of the file (without the .csv extension)
+        is used as the label for the noise table, which should match the QIR instruction that will apply noise using this table.
+
+        Each line of the table should be for the format: "IXYZ,1.345e-4" where IXYZ is a string of Pauli operators
+        representing the error on each qubit (Z applying to the first qubit argument, Y to the second, etc.), and the second value
+        is the corresponding error probability for that specific Pauli string.
+
+        Blank lines, lines starting with #, or lines that start with the string "pauli" (i.e., a column header) are ignored.
+        """
+        ...
+
+    def get_noise_table_ids(self) -> List[Tuple[int, str, int]]:
+        """
+        Retrieves the currently loaded noise table as a string.
+        """
+        ...
+
+    def set_program(
+        self,
+        input: List[QirInstruction],
+        qubit_count: int,
+        result_count: int,
+    ) -> None:
+        """
+        Sets the QIR program to be executed on the GPU.
+        """
+        ...
+
+    def set_noise(self, noise: NoiseConfig) -> None:
+        """
+        Sets the noise configuration for the GPU simulation.
+        """
+        ...
+
+    def run_shots(self, shot_count: int, seed: int) -> GpuShotResults:
+        """
+        Runs the specified number of shots of the loaded program on the GPU.
+        """
+        ...

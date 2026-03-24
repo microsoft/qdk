@@ -5,9 +5,10 @@
 
 use expect_test::{Expect, expect};
 use qsc_data_structures::{
-    language_features::LanguageFeatures, span::Span, target::TargetCapabilityFlags,
+    language_features::LanguageFeatures, source::SourceMap, span::Span,
+    target::TargetCapabilityFlags,
 };
-use qsc_frontend::compile::{self, PackageStore, SourceMap, compile};
+use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_hir::{
     hir::{ExprKind, NodeId, Stmt},
     visit::{Visitor, walk_stmt},

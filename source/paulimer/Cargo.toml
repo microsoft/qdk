@@ -1,0 +1,27 @@
+[package]
+name = "paulimer"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+getrandom = { workspace = true, features = ["js"] }
+num-derive = { workspace = true }
+num-traits = { workspace = true }
+rand = { workspace = true }
+rustc-hash = { workspace = true }
+sorted-vec = { workspace = true }
+sorted-iter = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+pprof = { workspace = true }
+
+[[bench]]
+name = "bitmatrix_benchmark"
+harness = false

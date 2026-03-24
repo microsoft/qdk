@@ -80,6 +80,13 @@ def test_circuit(qsharp) -> None:
     assert result == qsharp.Result.Zero
 
 
+def test_src_package_udt(qsharp) -> None:
+    qsharp.init(project_root="/src_package_udt")
+    arg = qsharp.code.Test.Data(42)
+    result = qsharp.run(qsharp.code.Test.Op, 1, arg)
+    assert result == [42]
+
+
 with open(
     os.path.join(os.path.dirname(__file__), "circuit.qsc"), "r", encoding="utf-8"
 ) as f:
@@ -90,6 +97,12 @@ memfs = {
         "good": {
             "src": {
                 "test.qs": "namespace Test { operation ReturnsFour() : Int { 4 } export ReturnsFour; }",
+            },
+            "qsharp.json": "{}",
+        },
+        "src_package_udt": {
+            "src": {
+                "test.qs": "namespace Test { struct Data { value : Int } operation Op(data : Data) : Int { data.value } }"
             },
             "qsharp.json": "{}",
         },

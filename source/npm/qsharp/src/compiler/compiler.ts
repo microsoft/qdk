@@ -8,6 +8,7 @@ import {
 import {
   IDocFile,
   IOperationInfo,
+  ICircuitConfig,
   IPackageGraphSources,
   IProgramConfig as wasmIProgramConfig,
   TargetProfile,
@@ -70,7 +71,7 @@ export interface ICompiler {
 
   getCircuit(
     program: ProgramConfig,
-    simulate: boolean,
+    config: ICircuitConfig,
     operation?: IOperationInfo,
   ): Promise<CircuitData>;
 
@@ -121,7 +122,7 @@ export class Compiler implements ICompiler {
   }
 
   // Note: This function does not support project mode.
-  // see https://github.com/microsoft/qsharp/pull/849#discussion_r1409821143
+  // see https://github.com/microsoft/qdk/pull/849#discussion_r1409821143
   async checkCode(code: string): Promise<VSDiagnostic[]> {
     let diags: VSDiagnostic[] = [];
     const languageService = new this.wasm.LanguageService();
@@ -223,14 +224,14 @@ export class Compiler implements ICompiler {
 
   async getCircuit(
     program: ProgramConfig,
-    simulate: boolean,
+    config: ICircuitConfig,
     operation?: IOperationInfo,
   ): Promise<CircuitData> {
     const circuit = await callAndTransformExceptions(async () =>
       this.wasm.get_circuit(
         toWasmProgramConfig(program, "unrestricted"),
-        simulate,
         operation,
+        config,
       ),
     );
     return {

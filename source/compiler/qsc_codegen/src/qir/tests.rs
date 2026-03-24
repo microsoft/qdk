@@ -37,7 +37,7 @@ fn measurement_decl_works() {
 #[test]
 fn read_result_decl_works() {
     let decl = builder::read_result_decl();
-    expect!["declare i1 @__quantum__qis__read_result__body(%Result*)"]
+    expect!["declare i1 @__quantum__rt__read_result(%Result*)"]
         .assert_eq(&decl.to_qir(&rir::Program::default()));
 }
 
@@ -58,6 +58,7 @@ fn single_qubit_call() {
         rir::CallableId(0),
         vec![rir::Operand::Literal(rir::Literal::Qubit(0))],
         None,
+        None,
     );
     expect!["  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))"]
         .assert_eq(&call.to_qir(&program));
@@ -76,6 +77,7 @@ fn qubit_rotation_call() {
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],
         None,
+        None,
     );
     expect!["  call void @__quantum__qis__rx__body(double 3.141592653589793, %Qubit* inttoptr (i64 0 to %Qubit*))"]
         .assert_eq(&call.to_qir(&program));
@@ -93,6 +95,7 @@ fn qubit_rotation_round_number_call() {
             rir::Operand::Literal(rir::Literal::Double(3.0)),
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],
+        None,
         None,
     );
     expect![
@@ -117,6 +120,7 @@ fn qubit_rotation_variable_angle_call() {
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],
         None,
+        None,
     );
     expect![
         "  call void @__quantum__qis__rx__body(double %var_0, %Qubit* inttoptr (i64 0 to %Qubit*))"
@@ -131,6 +135,10 @@ fn bell_program() {
         %Result = type opaque
         %Qubit = type opaque
 
+        @0 = internal constant [4 x i8] c"0_a\00"
+        @1 = internal constant [6 x i8] c"1_a0r\00"
+        @2 = internal constant [6 x i8] c"2_a1r\00"
+
         declare void @__quantum__qis__h__body(%Qubit*)
 
         declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
@@ -141,16 +149,16 @@ fn bell_program() {
 
         declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-        define void @ENTRYPOINT__main() #0 {
+        define i64 @ENTRYPOINT__main() #0 {
         block_0:
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
           call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-          call void @__quantum__rt__array_record_output(i64 2, i8* null)
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
-          ret void
+          call void @__quantum__rt__array_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+          ret i64 0
         }
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }
@@ -174,6 +182,8 @@ fn teleport_program() {
         %Result = type opaque
         %Qubit = type opaque
 
+        @0 = internal constant [4 x i8] c"0_r\00"
+
         declare void @__quantum__qis__h__body(%Qubit*)
 
         declare void @__quantum__qis__z__body(%Qubit*)
@@ -184,11 +194,11 @@ fn teleport_program() {
 
         declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
 
-        declare i1 @__quantum__qis__read_result__body(%Result*)
+        declare i1 @__quantum__rt__read_result(%Result*)
 
         declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-        define void @ENTRYPOINT__main() #0 {
+        define i64 @ENTRYPOINT__main() #0 {
         block_0:
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
@@ -196,22 +206,22 @@ fn teleport_program() {
           call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          %var_0 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+          %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
           br i1 %var_0, label %block_1, label %block_2
         block_1:
           call void @__quantum__qis__z__body(%Qubit* inttoptr (i64 1 to %Qubit*))
           br label %block_2
         block_2:
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-          %var_1 = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 1 to %Result*))
+          %var_1 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
           br i1 %var_1, label %block_3, label %block_4
         block_3:
           call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
           br label %block_4
         block_4:
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)
-          ret void
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
         }
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="3" }

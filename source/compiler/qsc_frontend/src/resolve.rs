@@ -1,5 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
+#![allow(unused_assignments)]
+// clippy false positive bug: https://github.com/rust-lang/rust/issues/147648. Remove when fixed.
 
 mod imports;
 #[cfg(test)]
@@ -213,6 +215,13 @@ pub(super) enum Error {
     #[diagnostic(code("Qsc.Resolve.NotFound"))]
     NotAvailable(String, String, #[label] Span),
 
+    #[error("`Qubit` not found")]
+    #[diagnostic(help(
+        "to allocate qubits, use syntax like `use q = Qubit();` or `use qs = Qubit[N];` or `use (q1, q2) = (Qubit(), Qubit());`"
+    ))]
+    #[diagnostic(code("Qsc.Resolve.NotFoundQubit"))]
+    NotFoundQubit(#[label] Span),
+
     #[error("use of unimplemented item `{0}`")]
     #[diagnostic(help("this item is not implemented and cannot be used"))]
     #[diagnostic(code("Qsc.Resolve.Unimplemented"))]
@@ -248,7 +257,7 @@ pub struct Scope {
     ///
     /// Bug: Because we keep track of only one `valid_at` offset per name,
     /// when a variable is later shadowed in the same scope,
-    /// it is missed in the list. <a href=https://github.com/microsoft/qsharp/issues/897 />
+    /// it is missed in the list. <a href=https://github.com/microsoft/qdk/issues/897 />
     vars: FxHashMap<Rc<str>, (u32, NodeId)>,
     /// Type parameters.
     ty_vars: FxHashMap<Rc<str>, (ParamId, ClassConstraints)>,
@@ -536,6 +545,8 @@ impl Ord for Open {
 }
 
 pub(super) struct Resolver {
+    /// The ID of the package being resolved
+    package_id: PackageId,
     /// Successfully bound or resolved names (see doc for `Names` for full details)
     names: Names,
     /// Global scope
@@ -569,8 +580,13 @@ impl Resolver {
         self.with(assigner).visit_package(package);
     }
 
-    pub(super) fn new(globals: GlobalTable, dropped_names: Vec<TrackedName>) -> Self {
+    pub(super) fn new(
+        package_id: PackageId,
+        globals: GlobalTable,
+        dropped_names: Vec<TrackedName>,
+    ) -> Self {
         Self {
+            package_id,
             names: globals.names,
             dropped_names,
             curr_params: None,
@@ -582,6 +598,7 @@ impl Resolver {
     }
 
     pub(super) fn with_persistent_local_scope(
+        package_id: PackageId,
         globals: GlobalTable,
         dropped_names: Vec<TrackedName>,
     ) -> Self {
@@ -594,6 +611,7 @@ impl Resolver {
             },
         );
         Self {
+            package_id,
             names: globals.names,
             dropped_names,
             curr_params: None,
@@ -616,7 +634,7 @@ impl Resolver {
         &self.globals
     }
 
-    pub(super) fn drain_errors(&mut self) -> vec::Drain<Error> {
+    pub(super) fn drain_errors(&mut self) -> vec::Drain<'_, Error> {
         self.errors.drain(..)
     }
 
@@ -640,6 +658,7 @@ impl Resolver {
             match node {
                 TopLevelNode::Namespace(namespace) => {
                     bind_global_items(
+                        self.package_id,
                         &mut self.names,
                         &mut self.globals,
                         namespace,
@@ -762,6 +781,8 @@ impl Resolver {
                             format!("{}.{}", dropped_name.namespace, dropped_name.name),
                             span,
                         ))
+                    } else if name == "Qubit" {
+                        Err(Error::NotFoundQubit(span))
                     } else {
                         Err(Error::NotFound(name, span))
                     }
@@ -857,7 +878,7 @@ impl Resolver {
                 // opens are handled in the import pass
             }
             ast::ItemKind::Callable(decl) => {
-                let id = intrapackage(assigner.next_item());
+                let id = intrapackage(self.package_id, assigner.next_item());
                 let status = ItemStatus::from_attrs(&ast_attrs_as_hir_attrs(&item.attrs));
                 self.names.insert(decl.name.id, Res::Item(id, status));
                 let scope = self.current_scope_mut();
@@ -870,7 +891,7 @@ impl Resolver {
                 );
             }
             ast::ItemKind::Ty(name, _) => {
-                let id = intrapackage(assigner.next_item());
+                let id = intrapackage(self.package_id, assigner.next_item());
                 let status = ItemStatus::from_attrs(&ast_attrs_as_hir_attrs(&item.attrs));
                 self.names.insert(name.id, Res::Item(id, status));
                 let scope = self.current_scope_mut();
@@ -886,7 +907,7 @@ impl Resolver {
                 );
             }
             ast::ItemKind::Struct(decl) => {
-                let id = intrapackage(assigner.next_item());
+                let id = intrapackage(self.package_id, assigner.next_item());
                 let status = ItemStatus::from_attrs(&ast_attrs_as_hir_attrs(&item.attrs));
                 self.names.insert(decl.name.id, Res::Item(id, status));
                 let scope = self.current_scope_mut();
@@ -902,7 +923,11 @@ impl Resolver {
                 );
             }
             ast::ItemKind::ImportOrExport(decl) => {
-                assign_item_ids(decl, || intrapackage(assigner.next_item()), &mut self.names);
+                assign_item_ids(
+                    decl,
+                    || intrapackage(self.package_id, assigner.next_item()),
+                    &mut self.names,
+                );
             }
             ast::ItemKind::Err => (),
         }
@@ -1155,7 +1180,9 @@ impl AstVisitor<'_> for With<'_> {
                 if let Err(e) = self.resolver.resolve_path(NameKind::Ty, path) {
                     self.resolver.errors.push(e);
                 }
-                copy.iter().for_each(|c| self.visit_expr(c));
+                if let Some(c) = copy {
+                    self.visit_expr(c);
+                }
                 fields.iter().for_each(|f| self.visit_field_assign(f));
             }
             _ => ast_visit::walk_expr(self, expr),
@@ -1210,12 +1237,14 @@ impl GlobalTable {
         &mut self,
         assigner: &mut Assigner,
         package: &ast::Package,
+        package_id: PackageId,
     ) -> Vec<Error> {
         let mut errors = Vec::new();
         for node in &package.nodes {
             match node {
                 TopLevelNode::Namespace(namespace) => {
                     bind_global_items(
+                        package_id,
                         &mut self.names,
                         &mut self.scope,
                         namespace,
@@ -1246,7 +1275,7 @@ impl GlobalTable {
                 .insert_or_find_namespace(vec![Rc::from(alias)], None)
         });
 
-        for global in global::iter_package(Some(id), package).filter(|global| {
+        for global in global::iter_package(id, package).filter(|global| {
             global.visibility == hir::Visibility::Public
                 || matches!(&global.kind, global::Kind::Callable(t) if t.intrinsic)
         }) {
@@ -1312,7 +1341,7 @@ impl GlobalTable {
                     );
                 }
                 (global::Kind::Export(item_id), _) => {
-                    let Some(item) = find_item(store, item_id, id) else {
+                    let Some(item) = find_item(store, item_id) else {
                         continue;
                     };
                     match item.kind {
@@ -1365,39 +1394,35 @@ impl GlobalTable {
     }
 }
 
-fn find_item(
-    store: &crate::compile::PackageStore,
-    item: ItemId,
-    this_package: PackageId,
-) -> Option<hir::Item> {
-    let package_id = item.package.unwrap_or(this_package);
-    let package = store.get(package_id)?;
+fn find_item(store: &crate::compile::PackageStore, item: ItemId) -> Option<hir::Item> {
+    let package = store.get(item.package)?;
     let item = package.package.items.get(item.item)?;
     match &item.kind {
         hir::ItemKind::Callable(_) | hir::ItemKind::Namespace(_, _) | hir::ItemKind::Ty(_, _) => {
             Some(item.clone())
         }
-        hir::ItemKind::Export(_alias, hir::Res::Item(item)) => find_item(store, *item, package_id),
+        hir::ItemKind::Export(_alias, hir::Res::Item(item)) => find_item(store, *item),
         hir::ItemKind::Export(_, _) => None,
     }
 }
 
 /// Given some namespace `namespace`, add all the globals declared within it to the global scope.
 fn bind_global_items(
+    package_id: PackageId,
     names: &mut IndexMap<NodeId, Res>,
     scope: &mut GlobalScope,
     namespace: &ast::Namespace,
     assigner: &mut Assigner,
     errors: &mut Vec<Error>,
 ) {
-    let namespace_id = bind_namespace(namespace, assigner, names, scope);
+    let namespace_id = bind_namespace(package_id, namespace, assigner, names, scope);
 
     for item in &namespace.items {
         match bind_global_item(
             names,
             scope,
             namespace_id,
-            || intrapackage(assigner.next_item()),
+            || intrapackage(package_id, assigner.next_item()),
             item,
         ) {
             Ok(()) => {}
@@ -1407,6 +1432,7 @@ fn bind_global_items(
 }
 
 fn bind_namespace(
+    package_id: PackageId,
     namespace: &ast::Namespace,
     assigner: &mut Assigner,
     names: &mut IndexMap<NodeId, Res>,
@@ -1434,7 +1460,7 @@ fn bind_namespace(
         .last()
         .expect("namespace name should contain at least one ident");
 
-    let item_id = intrapackage(assigner.next_item());
+    let item_id = intrapackage(package_id, assigner.next_item());
     let res = Res::Item(item_id, ItemStatus::Available);
     scope.importables.get_mut_or_default(parent_id).insert(
         name.name.clone(),
@@ -1787,13 +1813,12 @@ fn check_scoped_resolutions(
     vars: &mut bool,
     scope: &Scope,
 ) -> Option<Result<Res, Error>> {
-    if provided_namespace_name.is_none() {
-        if let Some(res) =
+    if provided_namespace_name.is_none()
+        && let Some(res) =
             resolve_scope_locals(kind, globals, scope, *vars, &provided_symbol_name.name)
-        {
-            // Local declarations shadow everything.
-            return Some(Ok(res));
-        }
+    {
+        // Local declarations shadow everything.
+        return Some(Ok(res));
     }
 
     let aliases = scope
@@ -2026,10 +2051,10 @@ fn resolve_scope_locals(
         return Some(res);
     }
 
-    if let ScopeKind::Namespace(namespace) = &scope.kind {
-        if let Some(res) = globals.get(kind, *namespace, name) {
-            return Some(res.clone());
-        }
+    if let ScopeKind::Namespace(namespace) = &scope.kind
+        && let Some(res) = globals.get(kind, *namespace, name)
+    {
+        return Some(res.clone());
     }
 
     None
@@ -2043,7 +2068,7 @@ fn get_scope_locals(scope: &Scope, offset: u32, vars: bool) -> Vec<Local> {
         names.extend(scope.vars.iter().filter_map(|(name, (valid_at, id))| {
             // Bug: Because we keep track of only one `valid_at` offset per name,
             // when a variable is later shadowed in the same scope,
-            // it is missed in the list. https://github.com/microsoft/qsharp/issues/897
+            // it is missed in the list. https://github.com/microsoft/qdk/issues/897
             if offset >= *valid_at {
                 Some(Local::Var(*id, name.clone()))
             } else {
@@ -2081,11 +2106,8 @@ fn get_scope_locals(scope: &Scope, offset: u32, vars: bool) -> Vec<Local> {
 }
 
 /// Creates an [`ItemId`] for an item that is local to this package (internal to it).
-fn intrapackage(item: LocalItemId) -> ItemId {
-    ItemId {
-        package: None,
-        item,
-    }
+fn intrapackage(package: PackageId, item: LocalItemId) -> ItemId {
+    ItemId { package, item }
 }
 
 fn single<T>(xs: impl IntoIterator<Item = T>) -> Option<T> {

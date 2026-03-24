@@ -97,7 +97,9 @@ pub fn walk_spec_decl(vis: &mut impl MutVisitor, decl: &mut SpecDecl) {
     match &mut decl.body {
         SpecBody::Gen(_) => {}
         SpecBody::Impl(pat, block) => {
-            pat.iter_mut().for_each(|pat| vis.visit_pat(pat));
+            for pat in pat.iter_mut() {
+                vis.visit_pat(pat);
+            }
             vis.visit_block(block);
         }
     }
@@ -121,7 +123,9 @@ pub fn walk_stmt(vis: &mut impl MutVisitor, stmt: &mut Stmt) {
         StmtKind::Qubit(_, pat, init, block) => {
             vis.visit_pat(pat);
             vis.visit_qubit_init(init);
-            block.iter_mut().for_each(|b| vis.visit_block(b));
+            for b in block.iter_mut() {
+                vis.visit_block(b);
+            }
         }
     }
 }
@@ -169,7 +173,9 @@ pub fn walk_expr(vis: &mut impl MutVisitor, expr: &mut Expr) {
         ExprKind::If(cond, body, otherwise) => {
             vis.visit_expr(cond);
             vis.visit_expr(body);
-            otherwise.iter_mut().for_each(|e| vis.visit_expr(e));
+            for e in otherwise.iter_mut() {
+                vis.visit_expr(e);
+            }
         }
         ExprKind::Index(array, index) => {
             vis.visit_expr(array);
@@ -179,17 +185,27 @@ pub fn walk_expr(vis: &mut impl MutVisitor, expr: &mut Expr) {
             vis.visit_expr(expr);
         }
         ExprKind::Range(start, step, end) => {
-            start.iter_mut().for_each(|s| vis.visit_expr(s));
-            step.iter_mut().for_each(|s| vis.visit_expr(s));
-            end.iter_mut().for_each(|e| vis.visit_expr(e));
+            for s in start.iter_mut() {
+                vis.visit_expr(s);
+            }
+            for s in step.iter_mut() {
+                vis.visit_expr(s);
+            }
+            for e in end.iter_mut() {
+                vis.visit_expr(e);
+            }
         }
         ExprKind::Repeat(body, until, fixup) => {
             vis.visit_block(body);
             vis.visit_expr(until);
-            fixup.iter_mut().for_each(|f| vis.visit_block(f));
+            for f in fixup.iter_mut() {
+                vis.visit_block(f);
+            }
         }
         ExprKind::Struct(_, copy, fields) => {
-            copy.iter_mut().for_each(|c| vis.visit_expr(c));
+            for c in copy.iter_mut() {
+                vis.visit_expr(c);
+            }
             fields.iter_mut().for_each(|f| vis.visit_field_assign(f));
         }
         ExprKind::String(components) => {

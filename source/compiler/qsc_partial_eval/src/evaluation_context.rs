@@ -7,10 +7,12 @@ use qsc_eval::{
     val::{Result, Value},
 };
 use qsc_fir::fir::{LocalItemId, LocalVarId, PackageId};
-use qsc_rca::{RuntimeKind, ValueKind};
+use qsc_rca::{ComputeKind, RuntimeFeatureFlags, ValueKind};
 use qsc_rir::rir::{BlockId, Literal, VariableId};
 use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;
+
+use crate::ScopeDbgContext;
 
 /// Struct that keeps track of the active RIR blocks (where RIR instructions are added) and the active scopes (which
 /// correspond to the Q#'s program call stack).
@@ -42,6 +44,11 @@ impl EvaluationContext {
         self.scopes
             .last()
             .expect("the evaluation context does not have a current scope")
+    }
+
+    /// Gets an immutable reference to the caller (call) scope.
+    pub fn get_caller_scope(&self) -> Option<&Scope> {
+        self.scopes.iter().rev().nth(1)
     }
 
     /// Gets a mutable reference to the current (call) scope.
@@ -85,7 +92,7 @@ impl EvaluationContext {
     }
 }
 
-/// Struct that represents a block node when we intepret an RIR program as a graph.
+/// Struct that represents a block node when we interpret an RIR program as a graph.
 pub struct BlockNode {
     /// The ID of the block.
     pub id: BlockId,
@@ -99,8 +106,8 @@ pub struct Scope {
     pub package_id: PackageId,
     /// The ID and functor information of the callable.
     pub callable: Option<(LocalItemId, FunctorApp)>,
-    /// The value of the arguments passed to the callable.
-    pub args_value_kind: Vec<ValueKind>,
+    /// The compute kind of the arguments passed to the callable.
+    pub args_compute_kind: Vec<ComputeKind>,
     /// The classical environment of the callable, which holds values corresponding to local variables.
     pub env: Env,
     /// Map that holds the values of local variables.
@@ -109,6 +116,8 @@ pub struct Scope {
     static_vars: FxHashMap<VariableId, Literal>,
     /// Number of currently active blocks (starting from where this scope was created).
     active_block_count: usize,
+    /// Debug context, used for generating debug metadata.
+    pub(crate) dbg_context: ScopeDbgContext,
 }
 
 impl Scope {
@@ -127,15 +136,18 @@ impl Scope {
         let mut env = Env::default();
         env.push_scope(CLASSICAL_EVALUATOR_CALL_SCOPE_ID);
 
-        // Determine the runtime kind (static or dynamic) of the arguments.
-        let args_value_kind: Vec<ValueKind> = args
+        // Determine the compute kind of the arguments, assuming empty feature flags.
+        let args_compute_kind: Vec<ComputeKind> = args
             .iter()
             .map(|arg| {
                 let value = match arg {
                     Arg::Discard(value) => value,
                     Arg::Var(_, var) => &var.value,
                 };
-                map_eval_value_to_value_kind(value)
+                ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::empty(),
+                    value_kind: map_eval_value_to_value_kind(value),
+                }
             })
             .collect();
 
@@ -147,10 +159,8 @@ impl Scope {
             env.bind_variable_in_top_frame(local_var_id, var);
         }
 
-        // Add the values to both the classical environment and the hybrid variables depending on whether the value is
-        // static or dynamic.
-        let arg_runtime_kind_tuple = args.into_iter().zip(args_value_kind.iter());
-        for (arg, _) in arg_runtime_kind_tuple {
+        // Add the values to both environments.
+        for arg in args {
             let Arg::Var(local_var_id, var) = arg else {
                 continue;
             };
@@ -162,11 +172,12 @@ impl Scope {
         Self {
             package_id,
             callable,
-            args_value_kind,
+            args_compute_kind,
             env,
             active_block_count: 1,
             hybrid_vars,
             static_vars: FxHashMap::default(),
+            dbg_context: ScopeDbgContext::default(),
         }
     }
 
@@ -286,39 +297,27 @@ impl EvalControlFlow {
 }
 
 fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
-    fn map_array_eval_value_to_value_kind(elements: &[Value]) -> ValueKind {
-        let mut content_runtime_kind = RuntimeKind::Static;
-        for element in elements {
-            let element_value_kind = map_eval_value_to_value_kind(element);
-            if element_value_kind.is_dynamic() {
-                content_runtime_kind = RuntimeKind::Dynamic;
-                break;
-            }
-        }
-
-        // The runtime capabilities check pass disallows dynamically-sized arrays for all targets for which we generate
-        // QIR. Because of this, we assume that during partial evaluation all arrays are statically-sized.
-        ValueKind::Array(content_runtime_kind, RuntimeKind::Static)
-    }
-
-    fn map_tuple_eval_value_to_value_kind(elements: &[Value]) -> ValueKind {
-        let mut runtime_kind = RuntimeKind::Static;
-        for element in elements {
-            let element_value_kind = map_eval_value_to_value_kind(element);
-            if element_value_kind.is_dynamic() {
-                runtime_kind = RuntimeKind::Dynamic;
-                break;
-            }
-        }
-        ValueKind::Element(runtime_kind)
-    }
-
     match value {
-        Value::Array(elements) => map_array_eval_value_to_value_kind(elements),
-        Value::Tuple(elements, _) => map_tuple_eval_value_to_value_kind(elements),
-        Value::Result(Result::Id(_) | Result::Loss) | Value::Var(_) => {
-            ValueKind::Element(RuntimeKind::Dynamic)
+        Value::Array(elements) => {
+            for element in elements.iter() {
+                let element_runtime_kind = map_eval_value_to_value_kind(element);
+                if element_runtime_kind == ValueKind::Variable {
+                    return ValueKind::Variable;
+                }
+            }
+
+            ValueKind::Constant
         }
+        Value::Tuple(elements, _) => {
+            for element in elements.iter() {
+                let element_runtime_kind = map_eval_value_to_value_kind(element);
+                if element_runtime_kind == ValueKind::Variable {
+                    return ValueKind::Variable;
+                }
+            }
+            ValueKind::Constant
+        }
+        Value::Result(Result::Id(_) | Result::Loss) | Value::Var(_) => ValueKind::Variable,
         Value::BigInt(_)
         | Value::Bool(_)
         | Value::Closure(_)
@@ -329,6 +328,6 @@ fn map_eval_value_to_value_kind(value: &Value) -> ValueKind {
         | Value::Qubit(_)
         | Value::Range(_)
         | Value::Result(Result::Val(_))
-        | Value::String(_) => ValueKind::Element(RuntimeKind::Static),
+        | Value::String(_) => ValueKind::Constant,
     }
 }

@@ -330,7 +330,7 @@ def test_compile_qir_str() -> None:
     qsharp.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")
     operation = qsharp.compile("Program()")
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
 
 
@@ -339,7 +339,17 @@ def test_compile_qir_str_from_python_callable() -> None:
     qsharp.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")
     operation = qsharp.compile(qsharp.code.Program)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
+    assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
+
+
+def test_compile_qir_str_from_qsharp_callable() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")
+    program = qsharp.eval("Program")
+    operation = qsharp.compile(program)
+    qir = str(operation)
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
 
 
@@ -350,9 +360,25 @@ def test_compile_qir_str_from_python_callable_with_single_arg() -> None:
     )
     operation = qsharp.compile(qsharp.code.Program, 5)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))"
+        in qir
+    )
+    assert '"required_num_qubits"="5" "required_num_results"="5"' in qir
+
+
+def test_compile_qir_str_from_qsharp_callable_with_single_arg() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval(
+        "operation Program(nQubits : Int) : Result[] { use qs = Qubit[nQubits]; MResetEachZ(qs) }"
+    )
+    program = qsharp.eval("Program")
+    operation = qsharp.compile(program, 5)
+    qir = str(operation)
+    assert "define i64 @ENTRYPOINT__main()" in qir
+    assert (
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))"
         in qir
     )
     assert '"required_num_qubits"="5" "required_num_results"="5"' in qir
@@ -365,13 +391,33 @@ def test_compile_qir_str_from_python_callable_with_array_arg() -> None:
     )
     operation = qsharp.compile(qsharp.code.Program, [5, 3])
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))"
         in qir
     )
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))"
+        not in qir
+    )
+    assert '"required_num_qubits"="3" "required_num_results"="3"' in qir
+
+
+def test_compile_qir_str_from_qsharp_callable_with_array_arg() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval(
+        "operation Program(nQubits : Int[]) : Result[] { use qs = Qubit[nQubits[1]]; MResetEachZ(qs) }"
+    )
+    program = qsharp.eval("Program")
+    operation = qsharp.compile(program, [5, 3])
+    qir = str(operation)
+    assert "define i64 @ENTRYPOINT__main()" in qir
+    assert (
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))"
+        in qir
+    )
+    assert (
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))"
         not in qir
     )
     assert '"required_num_qubits"="3" "required_num_results"="3"' in qir
@@ -384,13 +430,33 @@ def test_compile_qir_str_from_python_callable_with_multiple_args() -> None:
     )
     operation = qsharp.compile(qsharp.code.Program, 5, 3)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))"
         in qir
     )
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))"
+        not in qir
+    )
+    assert '"required_num_qubits"="5" "required_num_results"="5"' in qir
+
+
+def test_compile_qir_str_from_qsharp_callable_with_multiple_args() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval(
+        "operation Program(nQubits : Int, nResults : Int) : Result[] { use qs = Qubit[nQubits]; MResetEachZ(qs)[...nResults-1] }"
+    )
+    program = qsharp.eval("Program")
+    operation = qsharp.compile(program, 5, 3)
+    qir = str(operation)
+    assert "define i64 @ENTRYPOINT__main()" in qir
+    assert (
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))"
+        in qir
+    )
+    assert (
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))"
         not in qir
     )
     assert '"required_num_qubits"="5" "required_num_results"="5"' in qir
@@ -406,13 +472,36 @@ def test_compile_qir_str_from_python_callable_with_multiple_args_passed_as_tuple
     args = (5, 3)
     operation = qsharp.compile(qsharp.code.Program, args)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))"
         in qir
     )
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))"
+        not in qir
+    )
+    assert '"required_num_qubits"="5" "required_num_results"="5"' in qir
+
+
+def test_compile_qir_str_from_qsharp_callable_with_multiple_args_passed_as_tuple() -> (
+    None
+):
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval(
+        "operation Program(nQubits : Int, nResults : Int) : Result[] { use qs = Qubit[nQubits]; MResetEachZ(qs)[...nResults-1] }"
+    )
+    args = (5, 3)
+    program = qsharp.eval("Program")
+    operation = qsharp.compile(program, args)
+    qir = str(operation)
+    assert "define i64 @ENTRYPOINT__main()" in qir
+    assert (
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))"
+        in qir
+    )
+    assert (
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 4 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @5, i64 0, i64 0))"
         not in qir
     )
     assert '"required_num_qubits"="5" "required_num_results"="5"' in qir
@@ -440,7 +529,7 @@ def test_run_with_result(capsys) -> None:
     assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
 
 
-def test_run_with_result_from_callable(capsys) -> None:
+def test_run_with_result_from_python_callable(capsys) -> None:
     qsharp.init()
     qsharp.eval(
         'operation Foo() : Result { Message("Hello, world!"); use q = Qubit(); M(q) }'
@@ -451,13 +540,42 @@ def test_run_with_result_from_callable(capsys) -> None:
     assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
 
 
-def test_run_with_result_from_callable_while_global_qubits_allocated(capsys) -> None:
+def test_run_with_result_from_qsharp_callable(capsys) -> None:
+    qsharp.init()
+    qsharp.eval(
+        'operation Foo() : Result { Message("Hello, world!"); use q = Qubit(); M(q) }'
+    )
+    foo = qsharp.eval("Foo")
+    results = qsharp.run(foo, 3)
+    assert results == [qsharp.Result.Zero, qsharp.Result.Zero, qsharp.Result.Zero]
+    stdout = capsys.readouterr().out
+    assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
+
+
+def test_run_with_result_from_python_callable_while_global_qubits_allocated(
+    capsys,
+) -> None:
     qsharp.init()
     qsharp.eval("use q = Qubit();")
     qsharp.eval(
         'operation Foo() : Result { Message("Hello, world!"); use q = Qubit(); M(q) }'
     )
     results = qsharp.run(qsharp.code.Foo, 3)
+    assert results == [qsharp.Result.Zero, qsharp.Result.Zero, qsharp.Result.Zero]
+    stdout = capsys.readouterr().out
+    assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
+
+
+def test_run_with_result_from_qsharp_callable_while_global_qubits_allocated(
+    capsys,
+) -> None:
+    qsharp.init()
+    qsharp.eval("use q = Qubit();")
+    qsharp.eval(
+        'operation Foo() : Result { Message("Hello, world!"); use q = Qubit(); M(q) }'
+    )
+    foo = qsharp.eval("Foo")
+    results = qsharp.run(foo, 3)
     assert results == [qsharp.Result.Zero, qsharp.Result.Zero, qsharp.Result.Zero]
     stdout = capsys.readouterr().out
     assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
@@ -483,7 +601,7 @@ def test_run_with_result_callback(capsys) -> None:
     assert called
 
 
-def test_run_with_result_callback_from_callable_with_args(capsys) -> None:
+def test_run_with_result_callback_from_python_callable_with_args(capsys) -> None:
     def on_result(result):
         nonlocal called
         called = True
@@ -496,6 +614,29 @@ def test_run_with_result_callback_from_callable_with_args(capsys) -> None:
         'operation Foo(nResults : Int) : Result[] { Message("Hello, world!"); Repeated(Zero, nResults) }'
     )
     results = qsharp.run(qsharp.code.Foo, 3, 2, on_result=on_result, save_events=True)
+    assert (
+        str(results)
+        == "[{'result': [Zero, Zero], 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}, {'result': [Zero, Zero], 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}, {'result': [Zero, Zero], 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}]"
+    )
+    stdout = capsys.readouterr().out
+    assert stdout == ""
+    assert called
+
+
+def test_run_with_result_callback_from_qsharp_callable_with_args(capsys) -> None:
+    def on_result(result):
+        nonlocal called
+        called = True
+        assert result["result"] == [qsharp.Result.Zero, qsharp.Result.Zero]
+        assert str(result["events"]) == "[Hello, world!]"
+
+    called = False
+    qsharp.init()
+    qsharp.eval(
+        'operation Foo(nResults : Int) : Result[] { Message("Hello, world!"); Repeated(Zero, nResults) }'
+    )
+    foo = qsharp.eval("Foo")
+    results = qsharp.run(foo, 3, 2, on_result=on_result, save_events=True)
     assert (
         str(results)
         == "[{'result': [Zero, Zero], 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}, {'result': [Zero, Zero], 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}, {'result': [Zero, Zero], 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}]"
@@ -838,7 +979,53 @@ def test_lambdas_not_exposed_into_env() -> None:
     assert not hasattr(qsharp.code, "<lambda>")
 
 
-def test_circuit_from_callable() -> None:
+def test_function_defined_before_namespace_keeps_both_accessible() -> None:
+    qsharp.init()
+    qsharp.eval("function Four() : Int { 4 }")
+    qsharp.eval("namespace Four { function Two() : Int { 42 } }")
+    assert qsharp.code.Four() == 4
+    assert qsharp.code.Four.Two() == 42
+    from qsharp.code import Four
+    from qsharp.code.Four import Two
+
+    assert Four() == 4
+    assert Two() == 42
+
+
+def test_namespace_defined_before_function_keeps_both_accessible() -> None:
+    qsharp.init()
+    qsharp.eval("namespace Four { function Two() : Int { 42 } }")
+    qsharp.eval("function Four() : Int { 4 }")
+    assert qsharp.code.Four() == 4
+    assert qsharp.code.Four.Two() == 42
+    from qsharp.code import Four
+    from qsharp.code.Four import Two
+
+    assert Four() == 4
+    assert Two() == 42
+
+
+def test_callables_can_be_shadowed() -> None:
+    qsharp.init()
+    qsharp.eval("function Foo() : Int { 1 }")
+    assert qsharp.code.Foo() == 1
+    qsharp.eval("function Foo() : Int { 2 }")
+    assert qsharp.code.Foo() == 2
+
+
+def test_qsharp_callables_are_not_shadowed() -> None:
+    qsharp.init()
+    qsharp.eval("function Foo() : Int { 1 }")
+    foo_orig = qsharp.eval("Foo")
+    assert qsharp.code.Foo() == 1
+    qsharp.eval("function Foo() : Int { 2 }")
+    foo_new = qsharp.eval("Foo")
+    assert qsharp.code.Foo() == 2
+    assert qsharp.run(foo_orig, 1)[0] == 1
+    assert qsharp.run(foo_new, 1)[0] == 2
+
+
+def test_circuit_from_python_callable() -> None:
     qsharp.init()
     qsharp.eval(
         """
@@ -858,7 +1045,100 @@ def test_circuit_from_callable() -> None:
     )
 
 
-def test_circuit_from_callable_with_args() -> None:
+def test_circuit_from_qsharp_callable() -> None:
+    qsharp.init()
+    qsharp.eval(
+        """
+    operation Foo() : Unit {
+        use q1 = Qubit();
+        use q2 = Qubit();
+        X(q1);
+    }
+    """
+    )
+    foo = qsharp.eval("Foo")
+    circuit = qsharp.circuit(foo)
+    assert str(circuit) == dedent(
+        """\
+        q_0    ── X ──
+        q_1    ───────
+        """
+    )
+
+
+def test_circuit_with_generation_method() -> None:
+    qsharp.init()
+    qsharp.eval(
+        """
+    operation Foo() : Unit {
+        use q1 = Qubit();
+        use q2 = Qubit();
+        X(q1);
+        Reset(q1);
+    }
+    """
+    )
+    circuit = qsharp.circuit(
+        qsharp.code.Foo, generation_method=qsharp.CircuitGenerationMethod.Simulate
+    )
+    assert str(circuit) == dedent(
+        """\
+        q_0    ── X ──── |0〉 ──
+        q_1    ────────────────
+        """
+    )
+
+
+def test_circuit_with_static_generation_method() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qsharp.eval(
+        """
+    operation Foo() : Result {
+        use q = Qubit();
+        H(q);
+        let r = M(q);
+        if r == One { X(q); }
+        Reset(q);
+        r
+    }
+    """
+    )
+    circuit = qsharp.circuit(
+        "Foo()", generation_method=qsharp.CircuitGenerationMethod.Static
+    )
+    assert str(circuit) == dedent(
+        """\
+        q_0    ── H ──── M ──── if: c_0 = |1〉 ──── |0〉 ──
+                         ╘═══════════ ● ═════════════════
+        """
+    )
+
+
+def test_circuit_from_qsharp_callable_static() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qsharp.eval(
+        """
+    operation Foo() : Unit {
+        use q = Qubit();
+        H(q);
+        let r = M(q);
+        if r == One { X(q); }
+        Reset(q);
+    }
+    """
+    )
+    circuit = qsharp.circuit(
+        qsharp.code.Foo, generation_method=qsharp.CircuitGenerationMethod.Static
+    )
+    assert str(circuit) == dedent(
+        """\
+        q_0    ── H ──── M ──── if: c_0 = |1〉 ──── |0〉 ──
+                         ╘═══════════ ● ═════════════════
+        """
+    )
+
+
+def test_circuit_from_python_callable_with_args() -> None:
     qsharp.init()
     qsharp.eval(
         """
@@ -869,6 +1149,26 @@ def test_circuit_from_callable_with_args() -> None:
     """
     )
     circuit = qsharp.circuit(qsharp.code.Foo, 2)
+    assert str(circuit) == dedent(
+        """\
+        q_0    ── X ──
+        q_1    ── X ──
+        """
+    )
+
+
+def test_circuit_from_qsharp_callable_with_args() -> None:
+    qsharp.init()
+    qsharp.eval(
+        """
+    operation Foo(nQubits : Int) : Unit {
+        use qs = Qubit[nQubits];
+        ApplyToEach(X, qs);
+    }
+    """
+    )
+    foo = qsharp.eval("Foo")
+    circuit = qsharp.circuit(foo, 2)
     assert str(circuit) == dedent(
         """\
         q_0    ── X ──

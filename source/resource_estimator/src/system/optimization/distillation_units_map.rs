@@ -136,7 +136,7 @@ impl<'a> DistillationUnitsMap<'a> {
             .collect()
     }
 
-    fn get(&self, position: usize, distance: u64, idx: usize) -> &TFactoryDistillationUnit {
+    fn get(&self, position: usize, distance: u64, idx: usize) -> &TFactoryDistillationUnit<'_> {
         // physical: combined, purely physical
         // logical: combined, purely logical
         // enumeration: combined, purely logical, purely physical
@@ -210,7 +210,7 @@ impl<'a> DistillationUnitsMap<'a> {
         &self,
         distance_indexes: &[usize],
         indexes: &[usize],
-    ) -> Vec<&TFactoryDistillationUnit> {
+    ) -> Vec<&TFactoryDistillationUnit<'_>> {
         indexes
             .iter()
             .zip(distance_indexes)

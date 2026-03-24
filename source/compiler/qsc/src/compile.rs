@@ -3,13 +3,11 @@
 
 use miette::{Diagnostic, Report};
 use qsc_data_structures::{
-    language_features::LanguageFeatures, span::Span, target::TargetCapabilityFlags,
+    error::WithSource, language_features::LanguageFeatures, source::SourceMap, span::Span,
+    target::TargetCapabilityFlags,
 };
 pub use qsc_frontend::compile::Dependencies;
-use qsc_frontend::{
-    compile::{CompileUnit, PackageStore, SourceMap},
-    error::WithSource,
-};
+use qsc_frontend::compile::{CompileUnit, PackageStore};
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
 use thiserror::Error;
 
@@ -46,7 +44,7 @@ pub enum ErrorKind {
 
     /// `OpenQASM` compilation errors.
     #[diagnostic(transparent)]
-    OpenQasm(#[from] crate::qasm::error::Error),
+    OpenQasm(#[from] crate::openqasm::error::Error),
 
     #[error(
         "The @EntryPoint attribute with a profile argument is not allowed in a Q# project (with qsharp.json). Please specify the profile in qsharp.json instead."

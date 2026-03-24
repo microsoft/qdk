@@ -2,7 +2,6 @@
 # Licensed under the MIT License.
 
 from collections import Counter
-from concurrent.futures import Executor
 import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 from uuid import uuid4
@@ -10,34 +9,15 @@ from uuid import uuid4
 from qiskit import QuantumCircuit
 from qiskit.providers import Options
 from qiskit.transpiler.target import Target
-from .... import Result, TargetProfile
+from .... import TargetProfile
 from .. import OutputSemantics
 from ..execution import DetaultExecutor
-from ..jobs import QsSimJob, QsJobSet
+from ..jobs import QsSimJob
 from .backend_base import BackendBase
 from .compilation import Compilation
 from .errors import Errors
 
 logger = logging.getLogger(__name__)
-
-
-def _map_qsharp_value_to_bit(v) -> str:
-    if isinstance(v, Result):
-        if v == Result.One:
-            return "1"
-        else:
-            return "0"
-    return str(v)
-
-
-# Convert Q# output to the result format expected by Qiskit
-def _to_qiskit_bitstring(obj):
-    if isinstance(obj, tuple):
-        return " ".join([_to_qiskit_bitstring(term) for term in obj])
-    elif isinstance(obj, list):
-        return "".join([_map_qsharp_value_to_bit(bit) for bit in obj])
-    else:
-        return obj
 
 
 class QSharpBackend(BackendBase):
@@ -131,12 +111,7 @@ class QSharpBackend(BackendBase):
             or List[QuantumCircuit].
         """
 
-        if not isinstance(run_input, list):
-            run_input = [run_input]
-        for circuit in run_input:
-            if not isinstance(circuit, QuantumCircuit):
-                raise ValueError(str(Errors.INPUT_MUST_BE_QC))
-
+        run_input = self._validate_quantum_circuits(run_input)
         return self._run(run_input, **options)
 
     def _execute(self, programs: List[Compilation], **input_params) -> Dict[str, Any]:
@@ -154,7 +129,7 @@ class QSharpBackend(BackendBase):
             raise ValueError(str(Errors.MISSING_NUMBER_OF_SHOTS))
 
         for program, exec_result in exec_results:
-            results = [_to_qiskit_bitstring(result) for result in exec_result]
+            results = [self._shot_to_bitstring(result) for result in exec_result]
 
             counts = Counter(results)
             counts_dict = dict(counts)
@@ -174,7 +149,7 @@ class QSharpBackend(BackendBase):
             }
             job_results.append(job_result)
 
-        # All of theses fields are required by the Result object
+        # All of these fields are required by the Result object
         result_dict = {
             "results": job_results,
             "qobj_id": str(uuid4()),
@@ -182,24 +157,6 @@ class QSharpBackend(BackendBase):
         }
 
         return result_dict
-
-    def _create_results(self, output: Dict[str, Any]) -> Any:
-        from qiskit.result import Result
-
-        result = Result.from_dict(output)
-        return result
-
-    def _submit_job(
-        self, run_input: List[QuantumCircuit], **options
-    ) -> Union[QsSimJob, QsJobSet]:
-        job_id = str(uuid4())
-        executor: Executor = options.pop("executor", DetaultExecutor())
-        if len(run_input) == 1:
-            job = QsSimJob(self, job_id, self.run_job, run_input, options, executor)
-        else:
-            job = QsJobSet(self, job_id, self.run_job, run_input, options, executor)
-        job.submit()
-        return job
 
 
 def _run_qasm(

@@ -27,7 +27,7 @@ operation Main() : ((Bool, Bool), (Bool, Bool)) {
     return ((sourceBit1, sourceBit2), (decodedBit1, decodedBit2));
 }
 
-// Generates random bit using an auxilliary qubit
+// Generates random bit using an auxiliary qubit
 operation DrawRandomBit() : Bool {
     use q = Qubit();
     H(q);

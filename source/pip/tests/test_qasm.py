@@ -9,8 +9,14 @@ from qsharp import (
     TargetProfile,
     set_quantum_seed,
     BitFlipNoise,
+    CircuitGenerationMethod,
     QSharpError,
     Result,
+    eval as qsharp_eval,
+    run as qsharp_run,
+    compile as qsharp_compile,
+    circuit as qsharp_circuit,
+    estimate as qsharp_estimate,
 )
 from qsharp.estimator import EstimatorParams, QubitParams, QECScheme, LogicalCounts
 from qsharp.openqasm import (
@@ -148,7 +154,6 @@ def test_import_python_callable_name_can_be_set() -> None:
 def test_import_can_process_fragments_to_modify_intereter_state() -> None:
     init(target_profile=TargetProfile.Base)
     import_openqasm("int x = 42;", program_type=ProgramType.Fragments)
-    from qsharp import eval as qsharp_eval
 
     assert qsharp_eval("x") == 42
 
@@ -158,7 +163,6 @@ def test_import_can_declare_callables_from_fragments() -> None:
     import_openqasm(
         "def Foo() -> int { return 42; }", program_type=ProgramType.Fragments
     )
-    from qsharp import eval as qsharp_eval
 
     assert qsharp_eval("Foo()") == 42
 
@@ -166,7 +170,6 @@ def test_import_can_declare_callables_from_fragments() -> None:
 def test_import_can_declare_files_with_namespaces() -> None:
     init(target_profile=TargetProfile.Adaptive_RI)
     import_openqasm("output int x; x = 42;", program_type=ProgramType.File)
-    from qsharp import eval as qsharp_eval
 
     assert qsharp_eval("qasm_import.program()") == 42
 
@@ -196,7 +199,11 @@ def test_run_imported_with_noise_produces_noisy_results() -> None:
         """,
         name="Program0",
     )
-    result = run(code.Program0, shots=1, noise=BitFlipNoise(0.1))
+    result = qsharp_run(
+        "{ use (q1, q2) = (Qubit(), Qubit()); Program0(q1, q2) }",
+        shots=1,
+        noise=BitFlipNoise(0.1),
+    )
     assert result[0] > 5
 
     result = import_openqasm(
@@ -212,14 +219,16 @@ def test_run_imported_with_noise_produces_noisy_results() -> None:
         """,
         name="Program1",
     )
-    result = run(code.Program1, shots=1, noise=BitFlipNoise(0.1))
+    result = qsharp_run(
+        "{ use q = Qubit(); Program1(q) }", shots=1, noise=BitFlipNoise(0.1)
+    )
     assert result[0] > 5
 
 
 def test_run_with_result_from_callable(capsys) -> None:
     init()
     import_openqasm("output bit c;", name="Foo")
-    results = run(code.Foo, 3)
+    results = qsharp_run(code.Foo, shots=3)
     assert results == [Result.Zero, Result.Zero, Result.Zero]
 
 
@@ -232,10 +241,10 @@ def test_run_with_result_callback(capsys) -> None:
     called = False
     init()
     import_openqasm("output bit c;", name="Foo")
-    results = run(code.Foo, 3, on_result=on_result, save_events=True)
+    results = qsharp_run(code.Foo, shots=3, on_result=on_result, save_events=True)
     assert (
         str(results)
-        == "[{'result': Zero, 'events': [], 'matrices': [], 'dumps': [], 'messages': []}, {'result': Zero, 'events': [], 'matrices': [], 'dumps': [], 'messages': []}, {'result': Zero, 'events': [], 'matrices': [], 'dumps': [], 'messages': []}]"
+        == "[{'result': Zero, 'events': [], 'messages': [], 'matrices': [], 'dumps': []}, {'result': Zero, 'events': [], 'messages': [], 'matrices': [], 'dumps': []}, {'result': Zero, 'events': [], 'messages': [], 'matrices': [], 'dumps': []}]"
     )
     stdout = capsys.readouterr().out
     assert stdout == ""
@@ -251,10 +260,10 @@ def test_run_with_result_callback_from_callable_with_args(capsys) -> None:
     called = False
     init()
     import_openqasm("input int a; output bit[2] c;", name="Foo")
-    results = run(code.Foo, 3, 2, on_result=on_result, save_events=True)
+    results = qsharp_run(code.Foo, 3, 2, on_result=on_result, save_events=True)
     assert (
         str(results)
-        == "[{'result': [Zero, Zero], 'events': [], 'matrices': [], 'dumps': [], 'messages': []}, {'result': [Zero, Zero], 'events': [], 'matrices': [], 'dumps': [], 'messages': []}, {'result': [Zero, Zero], 'events': [], 'matrices': [], 'dumps': [], 'messages': []}]"
+        == "[{'result': [Zero, Zero], 'events': [], 'messages': [], 'matrices': [], 'dumps': []}, {'result': [Zero, Zero], 'events': [], 'messages': [], 'matrices': [], 'dumps': []}, {'result': [Zero, Zero], 'events': [], 'messages': [], 'matrices': [], 'dumps': []}]"
     )
 
     assert called
@@ -289,7 +298,7 @@ def test_compile_qir_input_data() -> None:
 
 def test_compile_qir_str() -> None:
     qir = str(compile("qubit q; output bit c; c = measure q;"))
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
 
 
@@ -319,9 +328,9 @@ def test_compile_qir_str_with_single_arg_raises_error() -> None:
 def test_compile_qir_str_from_python_callable() -> None:
     init(target_profile=TargetProfile.Base)
     import_openqasm("qubit q; output bit c; c = measure q;", name="Program")
-    operation = compile(code.Program)
+    operation = qsharp_compile("{ use q = Qubit(); Program(q) }")
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
 
 
@@ -335,18 +344,19 @@ def test_compile_qir_str_from_python_callable_with_single_arg() -> None:
         rx(f) q;
         output bit c;
         c = measure q;
-        """
+        """,
+        program_type=ProgramType.File,
     )
 
-    operation = compile(code.program, pi)
+    operation = compile(code.qasm_import.program, pi)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call void @__quantum__qis__rx__body(double 3.141592653589793, %Qubit* inttoptr (i64 0 to %Qubit*))"
         in qir
     )
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))"
         in qir
     )
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
@@ -365,16 +375,17 @@ def test_compile_qir_str_from_python_callable_with_multiple_args() -> None:
         c = measure q;
         """,
         name="Program",
+        program_type=ProgramType.File,
     )
-    operation = compile(code.Program, 2 * pi, 2.0)
+    operation = compile(code.qasm_import.Program, 2 * pi, 2.0)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call void @__quantum__qis__rx__body(double 3.141592653589793, %Qubit* inttoptr (i64 0 to %Qubit*))"
         in qir
     )
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))"
         in qir
     )
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
@@ -395,17 +406,18 @@ def test_compile_qir_str_from_python_callable_with_multiple_args_passed_as_tuple
         c = measure q;
         """,
         name="Program",
+        program_type=ProgramType.File,
     )
     args = (2 * pi, 2.0)
-    operation = compile(code.Program, args)
+    operation = compile(code.qasm_import.Program, args)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call void @__quantum__qis__rx__body(double 3.141592653589793, %Qubit* inttoptr (i64 0 to %Qubit*))"
         in qir
     )
     assert (
-        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)"
+        "call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))"
         in qir
     )
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
@@ -421,10 +433,11 @@ def test_compile_qir_str_from_callable_with_mresetzchecked() -> None:
         r = mresetz_checked(q1);
         """,
         name="Program",
+        program_type=ProgramType.File,
     )
-    operation = compile(code.Program)
+    operation = compile(code.qasm_import.Program)
     qir = str(operation)
-    assert "define void @ENTRYPOINT__main()" in qir
+    assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
         "call i1 @__quantum__rt__read_loss(%Result* inttoptr (i64 0 to %Result*))"
         in qir
@@ -620,6 +633,29 @@ def test_circuit_from_program() -> None:
     )
 
 
+def test_circuit_from_program_static() -> None:
+    init()
+
+    c = circuit(
+        """
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        bit c;
+        h q;
+        c = measure q;
+        if (c) { x q; }
+        """,
+        generation_method=CircuitGenerationMethod.Static,
+    )
+    assert str(c) == dedent(
+        """\
+        q_0    ── H ──── M ──── if: c_0 = |1〉 ──
+                         ╘═══════════ ● ════════
+        """
+    )
+
+
 def test_circuit_from_callable() -> None:
     init()
     import_openqasm(
@@ -632,11 +668,64 @@ def test_circuit_from_callable() -> None:
         program_type=ProgramType.Operation,
         name="Foo",
     )
-    c = circuit(code.Foo)
+    c = qsharp_circuit("{ use (q1, q2) = (Qubit(), Qubit()); Foo(q1, q2); }")
     assert str(c) == dedent(
         """\
         q_0    ── X ──
         q_1    ───────
+        """
+    )
+
+
+def test_circuit_from_callable_with_multiple_qubit_registers() -> None:
+    init()
+    import_openqasm(
+        """
+        include "stdgates.inc";
+        qubit[2] qs1;
+        qubit[2] qs2;
+        x qs1[0];
+        x qs2[1];
+        """,
+        program_type=ProgramType.Operation,
+        name="Foo",
+    )
+    c = qsharp_circuit("{ use (qs1, qs2) = (Qubit[2], Qubit[2]); Foo(qs1, qs2); }")
+    assert str(c) == dedent(
+        """\
+        q_0    ── X ──
+        q_1    ───────
+        q_2    ───────
+        q_3    ── X ──
+        """
+    )
+
+
+def test_circuit_from_callable_with_single_qubit_and_qubit_registers() -> None:
+    init()
+    import_openqasm(
+        """
+        include "stdgates.inc";
+        qubit[2] qs1;
+        qubit a;
+        qubit[2] qs2;
+        x qs1[0];
+        x a;
+        x qs2[1];
+        """,
+        program_type=ProgramType.Operation,
+        name="Foo",
+    )
+    c = qsharp_circuit(
+        "{ use (qs1, a, qs2) = (Qubit[2], Qubit(), Qubit[2]); Foo(qs1, a, qs2); }"
+    )
+    assert str(c) == dedent(
+        """\
+        q_0    ── X ──
+        q_1    ───────
+        q_2    ── X ──
+        q_3    ───────
+        q_4    ── X ──
         """
     )
 
@@ -654,7 +743,7 @@ def test_circuit_from_callable_with_args() -> None:
         """,
         name="Foo",
     )
-    c = circuit(code.Foo, 2)
+    c = qsharp_circuit("{ use qs = Qubit[2]; Foo(2, qs); }")
     assert str(c) == dedent(
         """\
         q_0    ── X ──
@@ -669,11 +758,38 @@ def test_circuit_with_measure_from_callable() -> None:
         """include "stdgates.inc"; qubit q; h q; bit c; c = measure q;""",
         name="Foo",
     )
-    c = circuit(code.Foo)
+    c = qsharp_circuit("{ use q = Qubit(); Foo(q); }")
     assert str(c) == dedent(
         """\
         q_0    ── H ──── M ──
                          ╘═══
+        """
+    )
+
+
+def test_circuit_from_callable_static() -> None:
+    init(target_profile=TargetProfile.Adaptive_RIF)
+    import_openqasm(
+        """
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        bit c;
+        h q;
+        c = measure q;
+        if (c) { x q; }
+        """,
+        program_type=ProgramType.File,
+        name="Foo",
+    )
+    c = qsharp_circuit(
+        code.qasm_import.Foo,
+        generation_method=CircuitGenerationMethod.Static,
+    )
+    assert str(c) == dedent(
+        """\
+        q_0    ── H ──── M ──── if: c_0 = |1〉 ──
+                         ╘═══════════ ● ════════
         """
     )
 
@@ -848,7 +964,7 @@ def test_qasm_estimation_with_multiple_params_from_python_callable() -> None:
         name="Test",
     )
 
-    res = estimate(code.Test, params=params)
+    res = qsharp_estimate("{ use qs = Qubit[10]; Test(qs) }", params=params)
 
     for idx in res:
         assert res[idx]["status"] == "success"
@@ -914,7 +1030,7 @@ def test_qasm_estimation_with_multiple_params_from_python_callable_with_arg() ->
         name="Test",
     )
 
-    res = estimate(code.Test, params, 8)
+    res = qsharp_estimate("{ use qs = Qubit[7]; Test(8, qs) }", params)
 
     for idx in res:
         assert res[idx]["status"] == "success"

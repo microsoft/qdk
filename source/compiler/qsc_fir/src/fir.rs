@@ -33,7 +33,7 @@ fn set_indentation<'a, 'b>(
         0 => indent.with_str(""),
         1 => indent.with_str("    "),
         2 => indent.with_str("        "),
-        _ => unimplemented!("intentation level not supported"),
+        _ => unimplemented!("indentation level not supported"),
     }
 }
 
@@ -279,17 +279,14 @@ impl From<LocalItemId> for usize {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ItemId {
     /// The package ID or `None` for the local package.
-    pub package: Option<PackageId>,
+    pub package: PackageId,
     /// The item ID.
     pub item: LocalItemId,
 }
 
 impl Display for ItemId {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self.package {
-            None => write!(f, "Item {}", self.item),
-            Some(package) => write!(f, "Item {} (Package {package})", self.item),
-        }
+        write!(f, "Item {} (Package {})", self.item, self.package)
     }
 }
 
@@ -330,6 +327,17 @@ pub struct StoreItemId {
     pub package: PackageId,
     /// The item ID.
     pub item: LocalItemId,
+}
+
+impl StoreItemId {
+    /// The item ID for the Complex type in the core library.
+    #[must_use]
+    pub fn complex() -> Self {
+        Self {
+            package: PackageId::CORE,
+            item: LocalItemId(3),
+        }
+    }
 }
 
 impl Display for StoreItemId {
@@ -450,7 +458,7 @@ pub trait PackageStoreLookup {
     /// Gets an expression.
     fn get_expr(&self, id: StoreExprId) -> &Expr;
     /// Gets a global.
-    fn get_global(&self, id: StoreItemId) -> Option<Global>;
+    fn get_global(&self, id: StoreItemId) -> Option<Global<'_>>;
     /// Gets a pat.
     fn get_pat(&self, id: StorePatId) -> &Pat;
     /// Gets a statement.
@@ -472,7 +480,7 @@ impl PackageStoreLookup for PackageStore {
         self.get(id.package).get_expr(id.expr)
     }
 
-    fn get_global(&self, id: StoreItemId) -> Option<Global> {
+    fn get_global(&self, id: StoreItemId) -> Option<Global<'_>> {
         self.get(id.package).get_global(id.item)
     }
 
@@ -509,7 +517,7 @@ impl PackageStore {
 
     /// Gets a package store iterator.
     #[must_use]
-    pub fn iter(&self) -> Iter<PackageId, Package> {
+    pub fn iter(&self) -> Iter<'_, PackageId, Package> {
         self.0.iter()
     }
 
@@ -536,7 +544,7 @@ pub trait PackageLookup {
     /// Gets an expression.
     fn get_expr(&self, id: ExprId) -> &Expr;
     /// Gets a global.
-    fn get_global(&self, id: LocalItemId) -> Option<Global>;
+    fn get_global(&self, id: LocalItemId) -> Option<Global<'_>>;
     /// Gets an item.
     fn get_item(&self, id: LocalItemId) -> &Item;
     /// Gets a pat.
@@ -628,7 +636,7 @@ impl PackageLookup for Package {
         self.exprs.get(id).expect("Expression not found")
     }
 
-    fn get_global(&self, id: LocalItemId) -> Option<Global> {
+    fn get_global(&self, id: LocalItemId) -> Option<Global<'_>> {
         match &self.items.get(id)?.kind {
             ItemKind::Callable(callable) => Some(Global::Callable(callable)),
             ItemKind::Namespace(..) => None,
@@ -703,7 +711,7 @@ impl Display for Item {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ItemKind {
     /// A `function` or `operation` declaration.
-    Callable(CallableDecl),
+    Callable(Box<CallableDecl>),
     /// A `namespace` declaration.
     Namespace(Ident, Vec<LocalItemId>),
     /// A `newtype` declaration.
@@ -896,8 +904,116 @@ impl Display for SpecDecl {
     }
 }
 
+#[derive(Clone, PartialEq, Debug, Default)]
+/// A multi-configuration execution graph, containing both a debug and no-debug version.
+pub struct ExecGraph {
+    /// Execution graph without any debug nodes.
+    no_debug: ConfiguredExecGraph,
+    /// Execution graph with debug nodes.
+    debug: ConfiguredExecGraph,
+}
+
+impl ExecGraph {
+    #[must_use]
+    /// Creates a new multi-configuration execution graph.
+    pub fn new(
+        no_debug_exec_graph: ConfiguredExecGraph,
+        debug_exec_graph: ConfiguredExecGraph,
+    ) -> Self {
+        Self {
+            no_debug: no_debug_exec_graph,
+            debug: debug_exec_graph,
+        }
+    }
+
+    #[must_use]
+    /// Selects the execution graph based on the configuration.
+    pub fn select(self, exec_graph_config: ExecGraphConfig) -> ConfiguredExecGraph {
+        match exec_graph_config {
+            ExecGraphConfig::Debug => self.debug,
+            ExecGraphConfig::NoDebug => self.no_debug,
+        }
+    }
+
+    #[must_use]
+    /// Selects the execution graph based on the configuration.
+    fn select_ref(&self, exec_graph_config: ExecGraphConfig) -> &ConfiguredExecGraph {
+        match exec_graph_config {
+            ExecGraphConfig::Debug => &self.debug,
+            ExecGraphConfig::NoDebug => &self.no_debug,
+        }
+    }
+
+    /// Utility function to identify a subset of a control flow graph corresponding to a given
+    /// range.
+    #[must_use]
+    pub fn get_range(&self, range: &ops::Range<ExecGraphIdx>) -> ExecGraph {
+        let get = |config: ExecGraphConfig| -> ConfiguredExecGraph {
+            let start: u32 = range
+                .start
+                .select(config)
+                .try_into()
+                .expect("exec graph ranges should fit into u32");
+            self.select_ref(config)[range.start.select(config)..range.end.select(config)]
+                .iter()
+                .map(|node| match node {
+                    ExecGraphNode::Jump(idx) => ExecGraphNode::Jump(idx - start),
+                    ExecGraphNode::JumpIf(idx) => ExecGraphNode::JumpIf(idx - start),
+                    ExecGraphNode::JumpIfNot(idx) => ExecGraphNode::JumpIfNot(idx - start),
+                    _ => *node,
+                })
+                .collect::<Vec<_>>()
+                .into()
+        };
+
+        ExecGraph {
+            no_debug: get(ExecGraphConfig::NoDebug),
+            debug: get(ExecGraphConfig::Debug),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+/// The execution graph configuration.
+pub enum ExecGraphConfig {
+    /// Execution graph with debug nodes.
+    Debug,
+    /// Execution graph without debug nodes.
+    NoDebug,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+/// An index into a multi-configuration execution graph.
+pub struct ExecGraphIdx {
+    /// The index into the no-debug execution graph.
+    pub no_debug_idx: usize,
+    /// The index into the debug execution graph.
+    pub debug_idx: usize,
+}
+
+impl ExecGraphIdx {
+    /// Selects the index based on the configuration.
+    fn select(self, exec_graph_config: ExecGraphConfig) -> usize {
+        match exec_graph_config {
+            ExecGraphConfig::Debug => self.debug_idx,
+            ExecGraphConfig::NoDebug => self.no_debug_idx,
+        }
+    }
+}
+
+impl std::ops::Add<usize> for ExecGraphIdx {
+    type Output = Self;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Self {
+            no_debug_idx: self.no_debug_idx + rhs,
+            debug_idx: self.debug_idx + rhs,
+        }
+    }
+}
+
 /// An execution graph represented by a reference counted vector of nodes.
-pub type ExecGraph = Rc<[ExecGraphNode]>;
+pub type ConfiguredExecGraph = Rc<[ExecGraphNode]>;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 /// A node within the control flow graph.
@@ -920,18 +1036,29 @@ pub enum ExecGraphNode {
     Unit,
     /// The end of the control flow graph.
     Ret,
-    /// The end of the control flow graph plus a pop of the current debug frame. Used instead of `Ret`
-    /// when debugging.
-    RetFrame,
+    /// A node only to be executed in debug mode.
+    Debug(ExecGraphDebugNode),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+/// A debug-only node within the control flow graph.
+pub enum ExecGraphDebugNode {
     /// A statement to track for debugging.
     Stmt(StmtId),
-    /// A push of a new scope, used when tracking variables for debugging.
+    /// A push of a new scope.
     PushScope,
-    /// A pop of the current scope, used when tracking variables for debugging.
+    /// A push of a new loop scope. The `ExprId` is the condition or iterable expression.
+    PushLoopScope(ExprId),
+    /// A pop of the current scope. Loop scopes are also popped with this node.
     PopScope,
     /// The end of a block, used in debugging to have a step point after all statements in a block have been executed,
     /// but before the block is exited.
     BlockEnd(BlockId),
+    /// The end of the control flow graph plus a pop of the current debug frame. Used instead of `Ret`
+    /// when debugging.
+    RetFrame,
+    /// The beginning of a loop iteration.
+    LoopIteration,
 }
 
 /// A sequenced block of statements.
@@ -977,7 +1104,7 @@ pub struct Stmt {
     /// The statement kind.
     pub kind: StmtKind,
     /// The locations within the containing control flow graph for the current statement.
-    pub exec_graph_range: ops::Range<usize>,
+    pub exec_graph_range: ops::Range<ExecGraphIdx>,
 }
 
 impl Display for Stmt {
@@ -1029,7 +1156,7 @@ pub struct Expr {
     /// The expression kind.
     pub kind: ExprKind,
     /// The locations within the containing control flow graph for the current expression.
-    pub exec_graph_range: ops::Range<usize>,
+    pub exec_graph_range: ops::Range<ExecGraphIdx>,
 }
 
 impl Display for Expr {
@@ -1528,6 +1655,8 @@ pub enum Attr {
     Measurement,
     /// Indicates that a callable is a reset.
     Reset,
+    /// Indicates that a callable is a noise intrinsic.
+    NoiseIntrinsic,
     /// Indicates that a callable is used for unit testing.
     Test,
 }

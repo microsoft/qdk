@@ -4,8 +4,8 @@ on:
   pull_request:
     branches:
       - main
-      - 'feature/**'
-      - 'release/**'
+      - "feature/**"
+      - "release/**"
   merge_group:
   workflow_dispatch:
 
@@ -18,9 +18,9 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  NODE_VERSION: "20.18.2"
+  NODE_VERSION: "22.14.0"
   PYTHON_VERSION: "3.11"
-  RUST_TOOLCHAIN_VERSION: "1.88"
+  RUST_TOOLCHAIN_VERSION: "1.93"
   RUST_TOOLCHAIN_COMPONENTS: rustfmt clippy
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
     name: Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -43,7 +43,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -51,7 +51,15 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Clippy Lints
         run: cargo clippy --all-targets --all-features -- -D warnings
 
@@ -59,7 +67,7 @@ jobs:
     name: Format Q# Files
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -74,10 +82,10 @@ jobs:
     name: Check web files
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: npm install
@@ -87,14 +95,10 @@ jobs:
 
   build:
     name: Build and test
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-14]
-
-    runs-on: ${{matrix.os}}
+    runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -102,32 +106,32 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
-      - name: Add additional Rust targets
-        run: |
-          rustup target add x86_64-apple-darwin
-        if: matrix.os == 'macos-14'
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Build and Test
-        run: python ./build.py --no-check --wasm --npm --vscode --play --pip --widgets --jupyterlab
+        run: python ./build.py --no-check --wasm --npm --vscode --play --pip --widgets --jupyterlab --qdk
 
   unit-tests:
     name: Rust Unit tests
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-14]
-
-    runs-on: ${{matrix.os}}
+    runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -135,17 +139,21 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
-      - name: Add additional Rust targets
-        run: |
-          rustup target add x86_64-apple-darwin
-        if: matrix.os == 'macos-14'
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Build and Test
@@ -153,15 +161,11 @@ jobs:
 
   integration-tests:
     name: Integration tests
-    timeout-minutes: 30
-    strategy:
-      matrix:
-        os: [windows-latest, ubuntu-latest, macos-14]
-
-    runs-on: ${{matrix.os}}
+    timeout-minutes: 40
+    runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -169,25 +173,38 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
-      - name: Add additional Rust targets
-        run: |
-          rustup target add x86_64-apple-darwin
-        if: matrix.os == 'macos-14'
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Run integration tests
-        run: python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --integration-tests
+        run: python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests
 
   status-check:
     name: Status Check
-    needs: [format, clippy, web-check, build, unit-tests, format-qsc, integration-tests]
+    needs:
+      [
+        format,
+        clippy,
+        web-check,
+        build,
+        unit-tests,
+        format-qsc,
+        integration-tests,
+      ]
     runs-on: ubuntu-latest
     if: failure()
     steps:

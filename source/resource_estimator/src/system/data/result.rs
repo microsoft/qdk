@@ -29,7 +29,7 @@ pub struct Success<L: LayoutReportData + Serialize> {
     #[serde(skip_serializing_if = "Option::is_none")]
     tfactory: Option<TFactory>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    error_budget: Option<ErrorBudget>,
+    error_budget: Option<SystemErrorBudget>,
     logical_counts: Rc<L>,
     report_data: Report,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -64,7 +64,7 @@ impl<L: LayoutReportData + Serialize> Success<L> {
             physical_counts_formatted: Some(formatted_counts),
             logical_qubit: Some(LogicalQubit(logical_qubit)),
             tfactory,
-            error_budget: Some(error_budget),
+            error_budget: Some(SystemErrorBudget(error_budget)),
             logical_counts: layout_report_data,
             report_data,
             frontier_entries: Vec::new(),
@@ -271,7 +271,19 @@ impl Serialize for LogicalQubit {
     }
 }
 
-impl Serialize for ErrorBudget {
+/// A helper newtype to specialize serialization for `ErrorBudget` such it uses
+/// `"tstates"` instead of `"magic_states"` as field name.
+pub struct SystemErrorBudget(ErrorBudget);
+
+impl Deref for SystemErrorBudget {
+    type Target = ErrorBudget;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Serialize for SystemErrorBudget {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,

@@ -71,7 +71,7 @@ export const log = {
   },
   /**
    * @param level - A number indicating severity: 1 = Error, 2 = Warn, 3 = Info, 4 = Debug, 5 = Trace
-   * @param target - The area or component sending the messsage, e.g. "parser" (useful for filtering)
+   * @param target - The area or component sending the message, e.g. "parser" (useful for filtering)
    * @param args - The format string and args to log, e.g. ["Index of %s is %i", str, index]
    */
   logWithLevel(level: number, target: string, ...args: any) {

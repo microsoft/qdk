@@ -168,6 +168,17 @@ pub struct Namespace {
     pub name: Box<[Ident]>,
     /// The items in the namespace.
     pub items: Box<[Box<Item>]>,
+    /// The namespace kind.
+    pub kind: NamespaceKind,
+}
+
+/// A namespace kind.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum NamespaceKind {
+    /// An implicit namespace.
+    Implicit,
+    /// An explicit namespace block.
+    Block,
 }
 
 impl Namespace {
@@ -334,7 +345,7 @@ pub struct TyDef {
 }
 
 impl TyDef {
-    /// Returns true if the tye definition satisfies the conditions for a struct.
+    /// Returns true if the type definition satisfies the conditions for a struct.
     /// Conditions for a struct are that the `TyDef` is a tuple with all its top-level fields named.
     /// Otherwise, returns false.
     #[must_use]
@@ -343,7 +354,7 @@ impl TyDef {
             TyDefKind::Paren(inner) => inner.is_struct(),
             TyDefKind::Tuple(fields) => fields
                 .iter()
-                .all(|field| matches!(field.kind.as_ref(), TyDefKind::Field(Some(_), _))),
+                .all(|field| matches!(field.kind.as_ref(), TyDefKind::Field(Some(_), _, _))),
             TyDefKind::Err | TyDefKind::Field(..) => false,
         }
     }
@@ -365,7 +376,8 @@ impl WithSpan for TyDef {
 #[derive(Clone, Debug, PartialEq, Default)]
 pub enum TyDefKind {
     /// A field definition with an optional name but required type.
-    Field(Option<Box<Ident>>, Box<Ty>),
+    /// Additionally, may include documentation for the field.
+    Field(Option<Box<Ident>>, Box<Ty>, Option<Rc<str>>),
     /// A parenthesized type definition.
     Paren(Box<TyDef>),
     /// A tuple.
@@ -379,13 +391,16 @@ impl Display for TyDefKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
         match &self {
-            TyDefKind::Field(name, t) => {
+            TyDefKind::Field(name, t, doc) => {
                 write!(indent, "Field:")?;
                 indent = set_indentation(indent, 1);
                 if let Some(n) = name {
-                    write!(indent, "\n{n}")?;
+                    write!(indent, "\nName: {n}")?;
                 }
-                write!(indent, "\n{t}")?;
+                write!(indent, "\nType: {t}")?;
+                if let Some(d) = doc {
+                    write!(indent, "\nDoc: {d}")?;
+                }
             }
             TyDefKind::Paren(t) => {
                 write!(indent, "Paren:")?;
@@ -451,6 +466,8 @@ pub struct FieldDef {
     pub id: NodeId,
     /// The span.
     pub span: Span,
+    /// The documentation.
+    pub doc: Option<Rc<str>>,
     /// The name of the field.
     pub name: Box<Ident>,
     /// The type of the field.
@@ -459,11 +476,17 @@ pub struct FieldDef {
 
 impl Display for FieldDef {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let mut indent = set_indentation(indented(f), 0);
         write!(
-            f,
+            indent,
             "FieldDef {} {} ({}): {}",
             self.id, self.span, self.name, self.ty
-        )
+        )?;
+        if let Some(doc) = &self.doc {
+            indent = set_indentation(indent, 1);
+            write!(indent, "\nDoc: {doc}")?;
+        }
+        Ok(())
     }
 }
 
@@ -1685,6 +1708,8 @@ pub enum Lit {
     Bool(bool),
     /// A floating-point literal.
     Double(f64),
+    /// A floating-point imaginary literal, e.g `1.0i`.
+    Imaginary(f64),
     /// An integer literal.
     Int(i64),
     /// A Pauli operator literal.
@@ -1701,6 +1726,7 @@ impl Display for Lit {
             Lit::BigInt(val) => write!(f, "BigInt({val})")?,
             Lit::Bool(val) => write!(f, "Bool({val})")?,
             Lit::Double(val) => write!(f, "Double({val})")?,
+            Lit::Imaginary(val) => write!(f, "Imaginary({val})")?,
             Lit::Int(val) => write!(f, "Int({val})")?,
             Lit::Pauli(val) => write!(f, "Pauli({val:?})")?,
             Lit::Result(val) => write!(f, "Result({val:?})")?,

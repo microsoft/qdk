@@ -5,7 +5,7 @@
 // The @Measurement attribute in Q# allows you to define custom measurements
 // that are lowered to QIR in the same way the `M` measurement in the standard
 // library is lowered. That means an `"irreversible"` attribute is added to
-// the callable declaration and the output results are moved to the paramaters
+// the callable declaration and the output results are moved to the parameters
 // and treated as result registers.
 //
 // # Who is this for?
