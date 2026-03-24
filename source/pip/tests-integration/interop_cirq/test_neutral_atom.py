@@ -2,15 +2,11 @@
 # Licensed under the MIT License.
 
 import pytest
-
-from interop_cirq import CIRQ_AVAILABLE, SKIP_REASON
-
-if CIRQ_AVAILABLE:
-    import cirq
-    import numpy as np
-    from qsharp.interop.cirq import NeutralAtomCirqResult, NeutralAtomSampler
-    from qsharp._simulation import NoiseConfig
-    from qsharp._device._atom import NeutralAtomDevice
+import cirq
+import numpy as np
+from qsharp.interop.cirq import NeutralAtomCirqResult, NeutralAtomSampler
+from qsharp._simulation import NoiseConfig
+from qsharp._device._atom import NeutralAtomDevice
 
 
 # ---------------------------------------------------------------------------
@@ -20,8 +16,6 @@ if CIRQ_AVAILABLE:
 
 @pytest.fixture(scope="module")
 def device():
-    if not CIRQ_AVAILABLE:
-        pytest.skip(SKIP_REASON)
     return NeutralAtomDevice()
 
 
@@ -36,7 +30,7 @@ def sampler(device):
 # ---------------------------------------------------------------------------
 
 
-def create_bell_circuit() -> "cirq.Circuit":
+def create_bell_circuit() -> cirq.Circuit:
     """Two-qubit Bell state — should produce only |00⟩ or |11⟩."""
     q0, q1 = cirq.LineQubit.range(2)
     return cirq.Circuit(
@@ -48,7 +42,7 @@ def create_bell_circuit() -> "cirq.Circuit":
     )
 
 
-def create_deterministic_circuit() -> "cirq.Circuit":
+def create_deterministic_circuit() -> cirq.Circuit:
     """Circuit whose output is always '11' regardless of noise (before native decomp)."""
     q0, q1 = cirq.LineQubit.range(2)
     return cirq.Circuit(
@@ -60,7 +54,7 @@ def create_deterministic_circuit() -> "cirq.Circuit":
     )
 
 
-def create_multi_key_circuit() -> "cirq.Circuit":
+def create_multi_key_circuit() -> cirq.Circuit:
     """Circuit with two separate measurement keys."""
     q0, q1 = cirq.LineQubit.range(2)
     return cirq.Circuit(
@@ -78,21 +72,18 @@ def create_multi_key_circuit() -> "cirq.Circuit":
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_run_smoke(sampler) -> None:
     circuit = create_bell_circuit()
     result = sampler.run(circuit, repetitions=10)
     assert result is not None
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_returns_neutral_atom_cirq_result(sampler) -> None:
     circuit = create_bell_circuit()
     result = sampler.run(circuit, repetitions=10)
     assert isinstance(result, NeutralAtomCirqResult)
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_returns_cirq_result_dict(sampler) -> None:
     """NeutralAtomCirqResult must be a cirq.ResultDict for full Cirq compatibility."""
     circuit = create_bell_circuit()
@@ -100,7 +91,6 @@ def test_returns_cirq_result_dict(sampler) -> None:
     assert isinstance(result, cirq.ResultDict)
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_run_deterministic_circuit(sampler) -> None:
     circuit = create_deterministic_circuit()
     result = sampler.run(circuit, repetitions=10)
@@ -115,7 +105,6 @@ def test_run_deterministic_circuit(sampler) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_seed_produces_reproducible_results(device) -> None:
     circuit = create_bell_circuit()
     r1 = NeutralAtomSampler(seed=42, device=device).run(circuit, repetitions=200)
@@ -123,7 +112,6 @@ def test_seed_produces_reproducible_results(device) -> None:
     assert np.array_equal(r1.measurements["m"], r2.measurements["m"])
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_different_seeds_produce_different_results(device) -> None:
     circuit = create_bell_circuit()
     r1 = NeutralAtomSampler(seed=1, device=device).run(circuit, repetitions=500)
@@ -136,7 +124,6 @@ def test_different_seeds_produce_different_results(device) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_bell_state_outcomes_are_correlated(device) -> None:
     """Bell circuit must produce only |00⟩ or |11⟩."""
     circuit = create_bell_circuit()
@@ -147,7 +134,6 @@ def test_bell_state_outcomes_are_correlated(device) -> None:
         assert bits in ((0, 0), (1, 1)), f"Unexpected outcome: {bits}"
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_histogram_counts_sum_to_shots(device) -> None:
     """result.histogram() must account for all accepted shots."""
     circuit = create_bell_circuit()
@@ -164,7 +150,6 @@ def test_histogram_counts_sum_to_shots(device) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_noiseless_noiseconfig_is_identity(device) -> None:
     """An empty NoiseConfig must give the same result as no noise."""
     circuit = create_deterministic_circuit()
@@ -173,7 +158,6 @@ def test_noiseless_noiseconfig_is_identity(device) -> None:
     assert np.all(result.measurements["m"] == 1)
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_bitflip_noise_introduces_errors(device) -> None:
     """Heavy SX bit-flip must flip some outcomes in the deterministic circuit.
 
@@ -201,7 +185,6 @@ def test_bitflip_noise_introduces_errors(device) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_multi_key_circuit_has_all_keys(sampler) -> None:
     """result.measurements must contain an entry for each measurement key."""
     circuit = create_multi_key_circuit()
@@ -210,7 +193,6 @@ def test_multi_key_circuit_has_all_keys(sampler) -> None:
     assert "b" in result.measurements
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_multi_key_circuit_correct_values(sampler) -> None:
     circuit = create_multi_key_circuit()
     result = sampler.run(circuit, repetitions=20)
@@ -223,7 +205,6 @@ def test_multi_key_circuit_correct_values(sampler) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_raw_shots_present(sampler) -> None:
     """result.raw_shots must be populated regardless of whether loss occurred."""
     circuit = create_deterministic_circuit()
@@ -232,7 +213,6 @@ def test_raw_shots_present(sampler) -> None:
     assert len(result.raw_shots) == 10
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_raw_shots_equal_measurements_when_no_loss(device) -> None:
     """Without loss noise every raw shot must be a valid accepted shot."""
     circuit = create_deterministic_circuit()
@@ -245,7 +225,6 @@ def test_raw_shots_equal_measurements_when_no_loss(device) -> None:
     assert result.measurements["m"].shape[0] == repetitions
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_raw_measurements_returns_dict(sampler) -> None:
     circuit = create_deterministic_circuit()
     result = sampler.run(circuit, repetitions=10)
@@ -254,7 +233,6 @@ def test_raw_measurements_returns_dict(sampler) -> None:
     assert "m" in raw
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_loss_shots_excluded_from_measurements(device) -> None:
     """With high loss noise, some raw shots must carry loss markers and be excluded."""
     circuit = create_bell_circuit()
@@ -293,7 +271,6 @@ def test_loss_shots_excluded_from_measurements(device) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_default_device_created_when_none() -> None:
     """Passing no device should trigger lazy device creation without error."""
     circuit = create_deterministic_circuit()
@@ -306,7 +283,6 @@ def test_default_device_created_when_none() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_cpu_simulator_type(device) -> None:
     circuit = create_bell_circuit()
     result = NeutralAtomSampler(simulator_type="cpu", seed=7, device=device).run(
@@ -317,7 +293,6 @@ def test_cpu_simulator_type(device) -> None:
         assert bits in ((0, 0), (1, 1))
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_clifford_simulator_type(device) -> None:
     circuit = create_bell_circuit()
     result = NeutralAtomSampler(simulator_type="clifford", seed=7, device=device).run(
@@ -333,7 +308,6 @@ def test_clifford_simulator_type(device) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not CIRQ_AVAILABLE, reason=SKIP_REASON)
 def test_unsupported_gate_raises_value_error(sampler) -> None:
     """A circuit containing a gate that cannot be serialized to QASM must raise ValueError."""
 
