@@ -2,10 +2,6 @@
 
 Write correct OpenQASM 2.0 and 3.0 code. This file covers syntax, standard gates, version differences, and common patterns.
 
-## Critical: Tool Usage
-
-To execute or compile OpenQASM programs, use the provided tools when available (e.g., `qsharpRunQasmCode`, `qsharpCompileCode`). For standard library lookups, call the `qsharpGetLibraryDescriptions` tool.
-
 ## OpenQASM Versions
 
 OpenQASM 3.0 is the latest version and a superset of 2.0 — all OpenQASM 2.0 code is valid in 3.0.
@@ -116,6 +112,6 @@ for int i in [0:3] {
 }
 ```
 
-## Python Interop
+## Running, Estimation, Circuits, and Azure Quantum
 
-For running, compiling, estimating, and generating circuits from OpenQASM programs in Python, see [python.md](./python.md) (OpenQASM Interop section). It covers the full `qsharp.openqasm` API (`run`, `compile`, `estimate`, `import_openqasm`) along with circuit generation, noisy simulation, and Azure Quantum submission.
+Running programs, resource estimation, circuit diagrams, and Azure Quantum submission are available directly via tools. For Python and Jupyter workflows, see [python.md](./python.md).

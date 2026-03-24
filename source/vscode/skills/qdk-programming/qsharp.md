@@ -1,8 +1,8 @@
 # Q# Programming
 
-Write correct, idiomatic Q# code for quantum computing. This file covers the full Q# language — syntax, type system, quantum operations, standard library, algorithm patterns, testing, and project structure.
+Write correct, idiomatic Q# code for quantum computing.
 
-## Critical: Library Lookups
+## Standard Library Documentation
 
 **Always call the `qsharpGetLibraryDescriptions` tool** before generating Q# code that uses standard library functions. This returns the authoritative, up-to-date list of all Q# library items with signatures. Do not guess at function names or signatures.
 
@@ -36,6 +36,10 @@ operation Main() : Result[] {
 // Alternative: explicit attribute (any name)
 @EntryPoint()
 operation RunExperiment() : Unit { }
+
+// With target profile
+@EntryPoint(Adaptive_RI)
+operation Main() : Result { ... }
 ```
 
 ### Variables
@@ -186,42 +190,6 @@ Reset(q);                           // Reset to |0⟩
 ResetAll(qs);                       // Reset array
 ```
 
-### Common Gates
-
-```qsharp
-// Single-qubit
-H(q); X(q); Y(q); Z(q); S(q); T(q);          // Pauli, Hadamard, Phase
-Rx(theta, q); Ry(theta, q); Rz(theta, q);     // Rotations
-// Two-qubit
-CNOT(control, target); SWAP(q1, q2); Rzz(theta, q1, q2);
-CCNOT(c1, c2, target);                         // Toffoli
-ApplyToEach(H, qubits);                        // H on each qubit
-```
-
-### Measurement
-
-```qsharp
-let r = M(q);                      // Z-basis, qubit stays measured
-let r = MResetZ(q);                // Measure + reset to |0⟩
-let rs = MeasureEachZ(qs);         // Measure each, qubits stay
-let rs = MResetEachZ(qs);          // Measure each + reset
-
-// Joint measurement (parity)
-let parity = Measure([PauliZ, PauliZ], [q1, q2]);
-
-// Conditional on result
-if M(q) == One { X(target); }
-```
-
-### Controlled Operations
-
-```qsharp
-Controlled X([ctrl], target);                  // CNOT equivalent
-Controlled H([c1, c2], target);                // Multi-controlled
-ApplyControlledOnBitString([true, false], X, [c1, c2], target);
-ApplyControlledOnInt(3, X, [c1, c2], target);
-```
-
 ## Standard Library (Std)
 
 **Always call `qsharpGetLibraryDescriptions`** for authoritative signatures. Key namespaces:
@@ -238,61 +206,6 @@ ApplyControlledOnInt(3, X, [c1, c2], target);
 | `Std.StatePreparation`   | State prep      | `PreparePureStateD`, `PrepareUniformSuperposition`                                                                               |
 | `Std.Arithmetic`         | Quantum arith   | `IncByI`, `IncByLE`, `AddLE`, `ReflectAboutInteger`                                                                              |
 | `Std.ResourceEstimation` | RE hints        | `AccountForEstimates`, `BeginEstimateCaching`, `AuxQubitCount`                                                                   |
-
-## Algorithm Patterns
-
-### Superposition + Measurement
-
-```qsharp
-use q = Qubit();
-H(q);                              // |0⟩ → (|0⟩+|1⟩)/√2
-let result = MResetZ(q);           // 50/50 Zero or One
-```
-
-### Bell Pair (Entanglement)
-
-```qsharp
-use (q1, q2) = (Qubit(), Qubit());
-H(q1);
-CNOT(q1, q2);                     // (|00⟩+|11⟩)/√2
-```
-
-### Quantum Teleportation
-
-```qsharp
-// Teleport state of `msg` to `target` using entangled `aux`
-H(aux); CNOT(aux, target);         // Create Bell pair
-CNOT(msg, aux); H(msg);            // Bell measurement
-if M(aux) == One { X(target); }
-if M(msg) == One { Z(target); }
-```
-
-### Grover's Search
-
-```qsharp
-operation GroverSearch(nQubits : Int, oracle : Qubit[] => Unit) : Result[] {
-    use qs = Qubit[nQubits];
-    let iterations = Round(PI() / 4.0 * Sqrt(IntAsDouble(2^nQubits)));
-    ApplyToEach(H, qs);            // Uniform superposition
-    for _ in 1..iterations {
-        oracle(qs);                // Mark target states
-        ReflectAboutUniform(qs);   // Amplitude amplification
-    }
-    return MResetEachZ(qs);
-}
-```
-
-### Within-Apply for Reversible Computation
-
-```qsharp
-// Automatically uncomputes the `within` block after `apply`
-within {
-    ApplyToEach(H, register);
-    ApplyToEach(X, register);
-} apply {
-    Controlled Z(Most(register), Tail(register));
-}
-```
 
 ## Testing
 
@@ -323,6 +236,8 @@ operation TestOperationEquivalence() : Unit {
     Fact(CheckOperationsAreEqual(2, actual, expected), "SWAP equivalence failed");
 }
 ```
+
+Use the `runTests` tool if available to run Q# tests.
 
 ## Project Structure
 
@@ -382,98 +297,20 @@ Set in `qsharp.json` to constrain operations for specific hardware:
 { "profile": "adaptive_ri" }
 ```
 
-| Profile        | Description                                                                    |
-| -------------- | ------------------------------------------------------------------------------ |
-| `unrestricted` | Full simulation (default)                                                      |
-| `adaptive_ri`  | Mid-circuit measurement + classical feed-forward                               |
-| `adaptive_rif` | Adds floating-point computation; required for `CircuitGenerationMethod.Static` |
-| `base`         | No mid-circuit measurement, no classical branching                             |
-
-## Jupyter Notebook Integration
-
-```python
-import qsharp
-
-# Define Q# code in a cell
-%%qsharp
-operation Bell() : (Result, Result) {
-    use (q1, q2) = (Qubit(), Qubit());
-    H(q1);
-    CNOT(q1, q2);
-    return (MResetZ(q1), MResetZ(q2));
-}
-
-# Call from Python
-result = qsharp.eval("Bell()")
-```
-
-## Common Patterns
-
-### Oracle Construction
+For standalone `.qs` files (no `qsharp.json`), declare the profile on the entry point:
 
 ```qsharp
-// Marking oracle (flips target qubit for marked states)
-operation MarkingOracle(qs : Qubit[], target : Qubit) : Unit is Adj + Ctl {
-    Controlled X(qs, target);       // Marks |111...1⟩
-}
-
-// Phase oracle (adds -1 phase to marked states)
-operation PhaseOracle(qs : Qubit[]) : Unit {
-    use aux = Qubit();
-    within { X(aux); H(aux); }      // Prepare |-⟩
-    apply { MarkingOracle(qs, aux); } // Phase kickback
-}
+@EntryPoint(Adaptive_RI)
+operation Main() : Result { ... }
 ```
 
-### State Preparation
+| Profile / Attribute             | Description                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------ |
+| `unrestricted`                  | Full simulation (default)                                                      |
+| `adaptive_ri` / `Adaptive_RI`   | Mid-circuit measurement + classical feed-forward                               |
+| `adaptive_rif` / `Adaptive_RIF` | Adds floating-point computation; required for `CircuitGenerationMethod.Static` |
+| `base` / `Base`                 | No mid-circuit measurement, no classical branching                             |
 
-```qsharp
-// Prepare specific computational basis state
-operation PrepareBitString(bits : Bool[], qs : Qubit[]) : Unit is Adj + Ctl {
-    ApplyPauliFromBitString(PauliX, true, bits, qs);
-}
+## Running, Estimation, Circuits, and Azure Quantum
 
-// Arbitrary superposition from amplitudes
-operation PrepareState(qs : Qubit[]) : Unit {
-    PreparePureStateD([0.5, 0.5, 0.5, 0.5], qs);  // Uniform
-}
-```
-
-### Quantum Arithmetic
-
-```qsharp
-// Increment a quantum register
-use register = Qubit[4];
-IncByI(1, register);               // |0000⟩ → |0001⟩
-
-// Reflect about an integer
-ReflectAboutInteger(target, register);
-```
-
-### Resource Estimation Annotations
-
-```qsharp
-// Cache repeated computations for resource estimator
-if BeginEstimateCaching("DistillMagicStates", 0) {
-    // ... expensive subroutine ...
-    EndEstimateCaching();
-}
-
-// Declare external resource costs
-AccountForEstimates(
-    [TCount(100), RotationCount(50), RotationDepth(10)],
-    layout,
-    qs
-);
-```
-
-## Code Style Guidelines
-
-1. **Immutability first** — use `let` by default, `mutable` only when needed
-2. **Expression-based** — `if`/`else` returns values; use it instead of mutable + reassignment
-3. **`within`/`apply`** — prefer over manual uncomputation
-4. **`fail` over `Fact`** — in tests, `fail` gives better error locations
-5. **No `namespace` blocks** — filename is the namespace
-6. **Import specific items** — `import Std.Math.PI;` over `import Std.Math.*;` in large files
-7. **Type inference** — omit type annotations when types are obvious
-8. **`ApplyToEach`** — prefer over manual `for` loops for gate application
+Running programs, resource estimation, circuit diagrams, and Azure Quantum submission are available directly via tools. For Python and Jupyter workflows, see [python.md](./python.md).
