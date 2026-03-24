@@ -293,6 +293,45 @@ class Circuit(anywidget.AnyWidget):
         super().__init__(circuit_json=circuit.json())
         self.layout.overflow = "visible scroll"
 
+    def export_svg(self, path=None, dark_mode=False, gates_per_row=0, render_depth=0):
+        """Render the circuit to a standalone SVG.
+
+        Parameters
+        ----------
+        path : str or Path, optional
+            When given the SVG is written to this file and the path is
+            returned.  Otherwise the SVG markup string is returned.
+        dark_mode : bool
+            When ``True`` the exported SVG uses light-on-dark colours.
+        gates_per_row : int
+            Maximum gate columns per row before wrapping.  ``0`` (default)
+            means no wrapping.
+        render_depth : int
+            How many levels of grouped operations to expand.
+            ``0`` (default) shows groups as collapsed boxes.
+            ``1`` expands one level, showing children inline.
+            Use a large number (e.g. 99) to fully expand.
+
+        Returns
+        -------
+        str
+            SVG markup (when *path* is ``None``) or the file path.
+        """
+        props = {
+            "circuit": self.circuit_json,
+            "dark_mode": bool(dark_mode),
+            "gates_per_row": int(gates_per_row),
+            "render_depth": int(render_depth),
+        }
+        svg = _render_component_node("Circuit", props)
+
+        if path is not None:
+            from pathlib import Path as _P
+
+            _P(path).write_text(svg, encoding="utf-8")
+            return str(path)
+        return svg
+
 
 class Atoms(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "static" / "index.js"
@@ -590,6 +629,9 @@ class OrbitalEntanglement(ChordDiagram):
 # Path to the Node SSR helper script bundled alongside the widget JS.
 _RENDER_SVG_SCRIPT = pathlib.Path(__file__).parent / "static" / "render_svg.mjs"
 
+# Path to the headless PNG renderer (Playwright + 3Dmol).
+_RENDER_PNG_SCRIPT = pathlib.Path(__file__).parent / "static" / "render_png.mjs"
+
 
 def _snake_to_camel(name: str) -> str:
     """Convert ``snake_case`` to ``camelCase``."""
@@ -662,3 +704,116 @@ class MoleculeViewer(anywidget.AnyWidget):
         super().__init__(
             molecule_data=molecule_data, cube_data=cube_data, isoval=isoval
         )
+
+    def export_png(
+        self,
+        path=None,
+        width=640,
+        height=480,
+        style="Sphere",
+        cube_label=None,
+        iso_value=None,
+    ):
+        """Render the molecule to a PNG image using headless Chromium.
+
+        Uses Playwright to launch a headless browser with 3Dmol — the
+        same library as the interactive widget — so the output is
+        pixel-identical.  Requires ``playwright`` (npm) and a Chromium
+        browser (``npx playwright install chromium``).
+
+        Parameters
+        ----------
+        path : str or Path, optional
+            When given the PNG is written to this file and the path is
+            returned.  Otherwise the raw PNG bytes are returned.
+        width : int
+            Image width in pixels.
+        height : int
+            Image height in pixels.
+        style : str
+            Visualisation style: ``"Sphere"`` (default), ``"Stick"``,
+            or ``"Line"``.
+        cube_label : str, optional
+            Key into ``cube_data`` dict selecting which orbital to
+            render.  When ``None`` and exactly one cube file is
+            available it is used automatically.
+        iso_value : float, optional
+            Isovalue threshold for orbital rendering.  Defaults to the
+            widget's ``isoval`` traitlet.
+
+        Returns
+        -------
+        bytes or str
+            PNG bytes (when *path* is ``None``) or the file path.
+        """
+        import json
+        import shutil
+        import subprocess
+
+        node = shutil.which("node")
+        if node is None:
+            raise RuntimeError(
+                "Node.js is required for PNG rendering but "
+                "'node' was not found on the PATH."
+            )
+
+        props = {
+            "molecule_data": self.molecule_data,
+            "width": int(width),
+            "height": int(height),
+            "style": style,
+        }
+
+        # Resolve cube data
+        cube_str = None
+        if cube_label is not None:
+            cube_str = self.cube_data.get(cube_label)
+        elif len(self.cube_data) == 1:
+            cube_str = next(iter(self.cube_data.values()))
+
+        if cube_str is not None:
+            props["cube_data"] = cube_str
+            props["iso_value"] = float(
+                iso_value if iso_value is not None else self.isoval
+            )
+
+        payload = json.dumps(props)
+
+        result = subprocess.run(
+            [node, str(_RENDER_PNG_SCRIPT)],
+            input=payload,
+            capture_output=True,
+            text=False,
+            timeout=30,
+        )
+
+        if result.returncode != 0:
+            stderr = result.stderr.decode("utf-8", errors="replace")
+            if "playwright" in stderr.lower() and "install" in stderr.lower():
+                raise RuntimeError(
+                    "PNG rendering requires a Chromium browser managed by "
+                    "Playwright.  Install it once with:\n\n"
+                    "    npx playwright install chromium\n\n"
+                    "Then retry export_png()."
+                )
+            if "playwright is not installed" in stderr.lower():
+                raise RuntimeError(
+                    "PNG rendering requires the 'playwright' npm package "
+                    "and a Chromium browser.\n\n"
+                    "Install them with:\n"
+                    "    npm install playwright\n"
+                    "    npx playwright install chromium\n\n"
+                    "Then retry export_png()."
+                )
+            raise RuntimeError(
+                f"PNG render failed (exit {result.returncode}):\n{stderr}"
+            )
+
+        png_bytes = result.stdout
+
+        if path is not None:
+            from pathlib import Path as _P
+
+            _P(path).write_bytes(png_bytes)
+            return str(path)
+        return png_bytes

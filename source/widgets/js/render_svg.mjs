@@ -6,7 +6,7 @@
 // Reads JSON from stdin, writes SVG/HTML to stdout.
 //
 // Input format:
-//   { "component": "ChordDiagram" | "Histogram",
+//   { "component": "ChordDiagram" | "Histogram" | "Circuit" | "OrbitalEntanglement",
 //     "props": { ... } }
 //
 // This file is bundled by esbuild into a self-contained script so that it
@@ -15,6 +15,7 @@
 import { readFileSync } from "node:fs";
 import { chordDiagramToSvg } from "../../npm/qsharp/ux/orbitalEntanglement.tsx";
 import { histogramToSvg } from "../../npm/qsharp/ux/histogram.tsx";
+import { circuitToSvg } from "../../npm/qsharp/ux/circuitToSvg.ts";
 
 const input = readFileSync(0, "utf-8"); // stdin
 const { component, props } = JSON.parse(input);
@@ -28,6 +29,12 @@ switch (component) {
     break;
   }
 
+  // ---- OrbitalEntanglement (alias for ChordDiagram with orbital defaults) ----
+  case "OrbitalEntanglement": {
+    output = chordDiagramToSvg(props);
+    break;
+  }
+
   // ---- Histogram (pure Preact SVG) ----
   case "Histogram": {
     // The TS component expects `data` as a Map, but JSON gives us an object.
@@ -36,6 +43,20 @@ switch (component) {
       data: new Map(Object.entries(props.data)),
     };
     output = histogramToSvg(histProps);
+    break;
+  }
+
+  // ---- Circuit (pure string SVG, no DOM needed) ----
+  case "Circuit": {
+    const circuitData =
+      typeof props.circuit === "string"
+        ? JSON.parse(props.circuit)
+        : props.circuit;
+    output = circuitToSvg(circuitData, {
+      gatesPerRow: props.gates_per_row ?? 0,
+      darkMode: props.dark_mode ?? false,
+      renderDepth: props.render_depth ?? 0,
+    });
     break;
   }
 
