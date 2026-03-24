@@ -537,6 +537,38 @@ fn check_rca_for_mutable_int_defined_and_updated_in_dynamic_scope() {
 }
 
 #[test]
+fn check_rca_for_mutable_int_defined_outer_scope_and_updated_in_inner_dynamic_scope() {
+    let mut compilation_context = CompilationContext::default();
+    compilation_context.update(
+        r#"
+        operation Foo() : Unit {
+            use q = Qubit();
+            if M(q) == One {
+                mutable i = 0;
+                if M(q) == One {
+                    set i += 1;
+                }
+            }
+        }"#,
+    );
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        compilation_context.get_compute_properties(),
+        "Foo",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | MeasurementWithinDynamicScope)
+                        value_kind: Constant
+                    dynamic_param_applications: <empty>
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
 fn check_rca_for_mutable_tuple_assigned_updated_in_static_context() {
     let mut compilation_context = CompilationContext::default();
     compilation_context.update(
