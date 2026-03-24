@@ -32,7 +32,7 @@ Usage::
 
     from qiskit import QuantumCircuit
     from qdk.qiskit import NeutralAtomBackend
-    from qsharp._simulation import NoiseConfig
+    from qdk.simulation import NoiseConfig
 
     circuit = QuantumCircuit(2, 2)
     circuit.h(0)
