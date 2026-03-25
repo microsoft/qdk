@@ -1598,6 +1598,7 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         LOGICAL_MEMORY_QUBITS,
         ALGORITHM_COMPUTE_QUBITS,
         ALGORITHM_MEMORY_QUBITS,
+        NAME
     );
 
     m.add_submodule(&property_keys)?;
