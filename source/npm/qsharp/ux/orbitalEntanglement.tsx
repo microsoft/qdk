@@ -106,7 +106,14 @@ function arcPath(
     const theta = ((startDeg + ((endDeg - startDeg) * i) / N) * Math.PI) / 180;
     pts.push(`${innerR * Math.cos(theta)},${innerR * Math.sin(theta)}`);
   }
-  return `M ${pts[0]} ` + pts.slice(1).map((p) => `L ${p}`).join(" ") + " Z";
+  return (
+    `M ${pts[0]} ` +
+    pts
+      .slice(1)
+      .map((p) => `L ${p}`)
+      .join(" ") +
+    " Z"
+  );
 }
 
 /** Cubic Bézier chord between two angles on the inner rim. */
@@ -169,7 +176,8 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
   {
     let miPeak = 0;
     for (let i = 0; i < n; i++)
-      for (let j = 0; j < n; j++) miPeak = Math.max(miPeak, mutualInformation[i][j]);
+      for (let j = 0; j < n; j++)
+        miPeak = Math.max(miPeak, mutualInformation[i][j]);
     if (miPeak <= 0) miPeak = 1;
     lineScale =
       lineScaleProp !== null ? lineScaleProp : maxLw / Math.sqrt(miPeak);
@@ -242,7 +250,8 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
     }
     const mid = arcMids[i];
     nodeConns[i].sort(
-      (a, b) => ((mid - arcMids[a.j] + 360) % 360) - ((mid - arcMids[b.j] + 360) % 360),
+      (a, b) =>
+        ((mid - arcMids[a.j] + 360) % 360) - ((mid - arcMids[b.j] + 360) % 360),
     );
   }
 
@@ -250,8 +259,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
   const allocated = new Map<string, number>();
   for (let i = 0; i < n; i++) {
     for (const { j, val } of nodeConns[i]) {
-      const span =
-        miRowSums[i] > 0 ? (arcDegs[i] * val) / miRowSums[i] : 0;
+      const span = miRowSums[i] > 0 ? (arcDegs[i] * val) / miRowSums[i] : 0;
       allocated.set(`${i},${j}`, cursor[i] + span / 2);
       cursor[i] += span;
     }
@@ -275,13 +283,10 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
   chords.sort((a, b) => a.val - b.val);
 
   // --- selected set ---
-  const selectedSet = new Set(
-    (selectedIndices ?? []).map(String),
-  );
+  const selectedSet = new Set((selectedIndices ?? []).map(String));
 
   // --- viewBox ---
-  const maxOffset =
-    baseOffset + Math.max(0, ...tier) * tierStep + 0.15;
+  const maxOffset = baseOffset + Math.max(0, ...tier) * tierStep + 0.15;
   const lim = radius + maxOffset;
   // Map [-lim, lim] to [0, width/height] with some padding for colour bars
   const diagramH = height - 60; // leave room for legends
@@ -341,7 +346,12 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
         {Array.from({ length: n }, (_, i) => (
           <path
             key={`arc-${i}`}
-            d={arcPath(starts[i], starts[i] + arcDegs[i], radius - arcWidth, radius)}
+            d={arcPath(
+              starts[i],
+              starts[i] + arcDegs[i],
+              radius - arcWidth,
+              radius,
+            )}
             fill={arcColours[i]}
           />
         ))}
@@ -351,7 +361,12 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
           selectedSet.has(labels[i]) ? (
             <path
               key={`sel-${i}`}
-              d={arcPath(starts[i], starts[i] + arcDegs[i], radius - arcWidth, radius)}
+              d={arcPath(
+                starts[i],
+                starts[i] + arcDegs[i],
+                radius - arcWidth,
+                radius,
+              )}
               fill="none"
               stroke={selectionColor}
               stroke-width={selectionLinewidth / 100}
@@ -473,12 +488,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
             />
           );
         })}
-        <text
-          x={cbX}
-          y={cbY + cbH * 2 + 34}
-          font-size="8"
-          fill="currentColor"
-        >
+        <text x={cbX} y={cbY + cbH * 2 + 34} font-size="8" fill="currentColor">
           0
         </text>
         <text

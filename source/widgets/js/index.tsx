@@ -308,13 +308,9 @@ function renderAtoms({ model, el }: RenderArgs) {
 function renderOrbitalEntanglement({ model, el }: RenderArgs) {
   const onChange = () => {
     const s1Entropies = model.get("s1_entropies") as number[];
-    const mutualInformation = model.get(
-      "mutual_information",
-    ) as number[][];
+    const mutualInformation = model.get("mutual_information") as number[][];
     const labels = model.get("labels") as string[];
-    const selectedIndices = model.get(
-      "selected_indices",
-    ) as number[] | null;
+    const selectedIndices = model.get("selected_indices") as number[] | null;
     const options = (model.get("options") || {}) as Record<string, unknown>;
 
     prender(
@@ -334,9 +330,7 @@ function renderOrbitalEntanglement({ model, el }: RenderArgs) {
         width={options.width as number | undefined}
         height={options.height as number | undefined}
         selectionColor={options.selection_color as string | undefined}
-        selectionLinewidth={
-          options.selection_linewidth as number | undefined
-        }
+        selectionLinewidth={options.selection_linewidth as number | undefined}
       />,
       el,
     );
