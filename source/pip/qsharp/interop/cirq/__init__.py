@@ -24,11 +24,8 @@ Usage::
     print(result.histogram(key="m"))
 """
 
-try:
-    from ._neutral_atom import NeutralAtomSampler
-    from ._result import NeutralAtomCirqResult
-except ImportError:
-    pass
+from ._neutral_atom import NeutralAtomSampler
+from ._result import NeutralAtomCirqResult
 
 __all__ = [
     "NeutralAtomSampler",
