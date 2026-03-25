@@ -142,6 +142,11 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(circuit_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_program_to_qir, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_to_qsharp, m)?)?;
+    // QIR circuit generation
+    m.add_function(wrap_pyfunction!(
+        crate::qir_circuit::circuit_from_qir_program,
+        m
+    )?)?;
     Ok(())
 }
 

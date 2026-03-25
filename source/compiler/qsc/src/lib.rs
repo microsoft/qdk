@@ -68,9 +68,14 @@ pub mod linter {
 pub use qsc_doc_gen::{display, generate_docs};
 
 pub mod circuit {
+    pub use qsc_circuit::DbgInfo;
     pub use qsc_circuit::{
-        CURRENT_VERSION, Circuit, CircuitGroup, TracerConfig,
-        circuit_to_qsharp::circuits_to_qsharp, json_to_circuit::json_to_circuits, operations::*,
+        CURRENT_VERSION, Circuit, CircuitGroup, LexicalScope, LogicalStackEntryLocation,
+        LoopIdCache, PackageOffset, Scope, SourceLocation, SourceLookup, TracerConfig,
+        circuit_to_qsharp::circuits_to_qsharp,
+        json_to_circuit::json_to_circuits,
+        operations::*,
+        rir_to_circuit::{QuantumProgram, instruction_types, rir_to_circuit},
     };
 }
 

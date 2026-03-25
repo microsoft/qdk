@@ -9,4 +9,5 @@ mod generic_estimator;
 mod interop;
 mod interpreter;
 mod noisy_simulator;
+mod qir_circuit;
 mod qir_simulation;

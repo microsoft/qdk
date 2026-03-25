@@ -1087,3 +1087,18 @@ class GpuContext:
         Runs the specified number of shots of the loaded program on the GPU.
         """
         ...
+
+def circuit_from_qir_program(
+    entry_block_id: int,
+    num_qubits: int,
+    blocks: List[Tuple[int, List[Dict]]],
+    config: CircuitConfig,
+) -> Circuit:
+    """
+    Generate a circuit diagram from a QIR program represented as blocks
+    and instructions.
+
+    This is the low-level native entry point. Use ``qsharp.circuit_from_qir``
+    for a higher-level API that accepts a ``pyqir.Module``.
+    """
+    ...

@@ -604,7 +604,7 @@ fn collapse_if_unnecessary(
 /// Cache for mapping loop source locations to their corresponding package and expression IDs.
 /// This information is repeatedly looked up when resolving loop scopes from RIR debug metadata,
 /// so caching it avoids expensive lookups in the FIR package store.
-pub(crate) type LoopIdCache = FxHashMap<PackageOffset, (PackageId, ExprId)>;
+pub type LoopIdCache = FxHashMap<PackageOffset, (PackageId, ExprId)>;
 
 /// Resolves structs that use compilation-specific IDs (`PackageId`s, `ExprId`s etc.)
 /// to user legible names and source file locations.
@@ -1570,15 +1570,15 @@ impl OperationReceiver for OperationListBuilder {
 /// Ultimately corresponds to a group in the circuit diagram.
 pub struct LexicalScope {
     /// The start offset of the scope, used for navigation.
-    pub(crate) location: Option<PackageOffset>,
+    pub location: Option<PackageOffset>,
     /// A display name for the scope.
-    pub(crate) name: Rc<str>,
+    pub name: Rc<str>,
     /// Whether the scope represents an adjoint operation,
     /// used for display purposes.
-    pub(crate) is_adjoint: bool,
+    pub is_adjoint: bool,
     /// Whether the scope is classically controlled, or contains any operations or parameters
     /// that are classically controlled.
-    pub(crate) is_classically_controlled: bool,
+    pub is_classically_controlled: bool,
 }
 
 pub(crate) fn add_scoped_op(

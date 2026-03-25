@@ -26,6 +26,7 @@ from ._qsharp import (
 telemetry_events.on_import()
 
 from ._native import Result, Pauli, QSharpError, TargetProfile, estimate_custom
+from ._qir_circuit import circuit_from_qir
 
 # IPython notebook specific features
 try:
@@ -62,4 +63,5 @@ __all__ = [
     "BitFlipNoise",
     "PhaseFlipNoise",
     "CircuitGenerationMethod",
+    "circuit_from_qir",
 ]
