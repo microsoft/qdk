@@ -62,7 +62,7 @@ const CORRELATED_NOISE_TABLES_BUF_IDX: usize = 7;
 const CORRELATED_NOISE_ENTRIES_BUF_IDX: usize = 8;
 
 // Adaptive interpreter buffer indices.
-// Adaptive interpreter buffer indices (bindings 9-13)
+// Adaptive interpreter buffer indices (bindings 9-12)
 const PROGRAM_IDX: usize = 9;
 const INTERPRETER_STATE_BUF_IDX: usize = 10;
 const REGISTER_FILE_BUF_IDX: usize = 11;
@@ -224,7 +224,7 @@ impl GpuDeviceResources {
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
                     buffer: None,
                 },
-                // Adaptive interpreter buffers (bindings 9-17)
+                // Adaptive interpreter buffers (bindings 9-12)
                 BufferBinding {
                     name: "Program",
                     is_uniform: false,
@@ -340,12 +340,12 @@ impl GpuResources {
         let adapter = Self::try_get_adapter()?;
         let adapter_limits = adapter.limits();
 
-        // The adaptive interpreter uses 13 storage buffers in a single bind group.
+        // The adaptive interpreter uses 12 storage buffers in a single bind group.
         // Verify the adapter supports this before attempting device creation.
-        if adaptive && adapter_limits.max_storage_buffers_per_shader_stage < 13 {
+        if adaptive && adapter_limits.max_storage_buffers_per_shader_stage < 12 {
             return Err(format!(
                 "GPU adapter supports only {} storage buffers per shader stage, \
-                 but the adaptive interpreter requires 13. \
+                 but the adaptive interpreter requires 12. \
                  Consider a discrete GPU or the CPU simulator.",
                 adapter_limits.max_storage_buffers_per_shader_stage,
             ));
@@ -870,7 +870,7 @@ impl GpuResources {
         }
     }
 
-    pub fn get_adaptive_bind_group(&mut self) -> Result<BindGroup, String> {
+    pub fn get_bind_group_adaptive(&mut self) -> Result<BindGroup, String> {
         if let Some(ref bind_group) = self.device_resources.bind_group {
             // Already created. BindGroup largely wraps ref-counted handles, so cloning is cheap.
             return Ok(bind_group.clone());
@@ -951,7 +951,7 @@ impl GpuResources {
         self.upload_data(data, TERMINATION_COUNTER_BUF_IDX)
     }
 
-    pub fn ensure_adaptive_run_buffers(
+    pub fn ensure_run_buffers_adaptive(
         &mut self,
         shot_state_buffer_size: usize,
         state_vector_buffer_size: usize,
@@ -981,13 +981,13 @@ impl GpuResources {
             (STATE_VECTOR_BUF_IDX, state_vector_buffer_size),
             (RESULTS_BUF_IDX, results_buffer_size),
             (DIAGNOSTICS_BUF_IDX, diagnostics_buffer_size),
+            (INTERPRETER_STATE_BUF_IDX, interpreter_state_size),
+            (REGISTER_FILE_BUF_IDX, register_file_size),
+            (TERMINATION_COUNTER_BUF_IDX, 4),
         ] {
             check_buffer(idx, size);
         }
 
-        check_buffer(INTERPRETER_STATE_BUF_IDX, interpreter_state_size);
-        check_buffer(REGISTER_FILE_BUF_IDX, register_file_size);
-        check_buffer(TERMINATION_COUNTER_BUF_IDX, 4);
         Ok(())
     }
 

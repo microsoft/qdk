@@ -534,10 +534,6 @@ impl GpuContext {
         Ok(())
     }
 
-    fn update_run_params_adaptive(&mut self, shot_count: i32) {
-        self.update_run_params(shot_count);
-    }
-
     /// Upload adaptive program buffers to the GPU.
     ///
     /// Uploads bytecode, block table, function table, quantum op pool,
@@ -587,7 +583,6 @@ impl GpuContext {
 
         if self.pipeline_is_dirty {
             let params = &self.run_params;
-            // The pipeline is marked as dirty if the qubit or result count changed (shot count doesn't impact it)
             self.resources.create_shaders_adaptive(params)?;
         }
 
@@ -620,7 +615,7 @@ impl GpuContext {
         let interp_state_size = shots_usize * size_of::<InterpreterState>();
         let register_file_size = shots_usize * self.run_params.num_registers * 4;
 
-        self.resources.ensure_adaptive_run_buffers(
+        self.resources.ensure_run_buffers_adaptive(
             params.shots_buffer_size,
             params.state_vector_buffer_size,
             params.results_buffer_size,
@@ -652,13 +647,13 @@ impl GpuContext {
         const MAX_ROUNDS_PER_BATCH: u32 = 100_000;
 
         // 1. Update run params.
-        self.update_run_params_adaptive(shot_count);
+        self.update_run_params(shot_count);
 
         // 2. Prepare GPU resources.
         self.ready_gpu_resources_adaptive().await?;
 
         // Get the GPU resources we need for the entire run
-        let bind_group = self.resources.get_adaptive_bind_group()?;
+        let bind_group = self.resources.get_bind_group_adaptive()?;
 
         let mut results: Vec<u32> = Vec::new();
         let mut diagnostics: Option<Box<DiagnosticsData>> = None;

@@ -1,72 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// See https://webgpufundamentals.org/webgpu/lessons/webgpu-wgsl.html for an overview
-// See https://www.w3.org/TR/WGSL/ for the details
-// See https://webgpu.github.io/webgpu-samples/ for examples
+// common.wgsl is appended to the beginning of this file at runtime.
 
-// WGSL has pipeline overridables, but they're a pain and limited, so just string replace constants here
-const QUBIT_COUNT: i32 = {{QUBIT_COUNT}};
-const RESULT_COUNT: u32 = {{RESULT_COUNT}};
-const WORKGROUPS_PER_SHOT: i32 = {{WORKGROUPS_PER_SHOT}};
-const ENTRIES_PER_THREAD: i32 = {{ENTRIES_PER_THREAD}};
-const THREADS_PER_WORKGROUP: i32 = {{THREADS_PER_WORKGROUP}};
-const MAX_QUBIT_COUNT: i32 = {{MAX_QUBIT_COUNT}};
-const MAX_QUBITS_PER_WORKGROUP: i32 = {{MAX_QUBITS_PER_WORKGROUP}};
-
-const ERR_INVALID_PROBS = 1u;
-const ERR_INVALID_THREAD_TOTAL = 2u;
 const ERR_CALL_STACK_OVERFLOW = 3u;
 const ERR_CALL_STACK_UNDERFLOW = 4u;
 const ERR_INVALID_INSTRUCTION = 5u;
-
-const PROB_THRESHOLD: f32 = 0.0001; // Tolerance for probabilities to sum to 1.0
-
-
-// Always use 32 threads per workgroup for max concurrency on most current GPU hardware
-const MAX_WORKGROUP_SUM_PARTITIONS: i32 = 1 << u32(MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);
-
-// Operation IDs
-const OPID_ID      = 0u;
-const OPID_RESETZ  = 1u;
-const OPID_X       = 2u;
-const OPID_Y       = 3u;
-const OPID_Z       = 4u;
-const OPID_H       = 5u;
-const OPID_S       = 6u;
-const OPID_SAdj    = 7u;
-const OPID_T       = 8u;
-const OPID_TAdj    = 9u;
-const OPID_RZ      = 14u;
-const OPID_CX      = 15u;
-const OPID_CZ      = 16u;
-const OPID_RXX     = 17u;
-const OPID_RYY     = 18u;
-const OPID_RZZ     = 19u;
-const OPID_MZ      = 21u;
-const OPID_MRESETZ = 22u;
-const OPID_SWAP    = 24u;
-const OPID_MAT1Q   = 25u;
-const OPID_MAT2Q   = 26u;
-const OPID_CY      = 29u;
-
-const OPID_PAULI_NOISE_1Q = 128u;
-const OPID_PAULI_NOISE_2Q = 129u;
-const OPID_LOSS_NOISE = 130u;
-const OPID_CORRELATED_NOISE = 131u;
-
-// If the application of noise results in a custom matrix, it will have been stored in the shot buffer
-// These OPIDs indicate to use that matrix and for how many qubits. (The qubit ids are in the original Op)
-const OPID_SHOT_BUFF_1Q = 256u;
-const OPID_SHOT_BUFF_2Q = 257u;
-
-struct WorkgroupSums {
-    qubits: array<vec2f, MAX_QUBIT_COUNT>, // Each vec2f holds (zero_probability, one_probability)
-};
-
-struct WorkgroupCollationBuffer {
-    sums: array<WorkgroupSums, MAX_WORKGROUP_SUM_PARTITIONS>,
-};
 
 @group(0) @binding(0)
 var<storage, read_write> workgroup_collation: WorkgroupCollationBuffer;
