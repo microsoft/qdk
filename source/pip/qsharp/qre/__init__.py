@@ -8,6 +8,7 @@ from ._estimation import (
     EstimationTable,
     EstimationTableColumn,
     EstimationTableEntry,
+    plot_estimates,
 )
 from ._instruction import (
     LOGICAL,
@@ -50,6 +51,7 @@ __all__ = [
     "constraint",
     "estimate",
     "linear_function",
+    "plot_estimates",
     "Application",
     "Architecture",
     "Block",
