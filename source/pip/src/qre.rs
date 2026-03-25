@@ -418,6 +418,16 @@ impl Constraint {
         }
     }
 
+    #[getter]
+    pub fn arity(&self) -> Option<u64> {
+        self.0.arity()
+    }
+
+    #[getter]
+    pub fn error_rate(&self) -> Option<ConstraintBound> {
+        self.0.error_rate().copied().map(ConstraintBound)
+    }
+
     pub fn add_property(&mut self, property: u64) {
         self.0.add_property(property);
     }
@@ -1200,16 +1210,7 @@ impl Trace {
 
     #[getter]
     pub fn required_isa(&self) -> ISARequirements {
-        let constraints = self
-            .0
-            .required_instruction_ids()
-            .keys()
-            .map(|id|
-                // NOTE: Retrieve more precise arity information from the trace
-                qre::InstructionConstraint::new(*id, qre::Encoding::Logical, None, None))
-            .collect();
-
-        ISARequirements(constraints)
+        ISARequirements(self.0.required_instruction_ids(None))
     }
 }
 

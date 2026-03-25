@@ -8,6 +8,7 @@ from ._estimation import (
     EstimationTable,
     EstimationTableColumn,
     EstimationTableEntry,
+    plot_estimates,
 )
 from ._instruction import (
     LOGICAL,
@@ -39,9 +40,10 @@ from ._qre import (
 from ._trace import LatticeSurgery, PSSPC, TraceQuery, TraceTransform
 
 # Extend Rust Python types with additional Python-side functionality
-from ._instruction import _isa_as_frame
+from ._instruction import _isa_as_frame, _requirements_as_frame
 
 ISA.as_frame = _isa_as_frame
+ISARequirements.as_frame = _requirements_as_frame
 
 __all__ = [
     "block_linear_function",
@@ -49,6 +51,7 @@ __all__ = [
     "constraint",
     "estimate",
     "linear_function",
+    "plot_estimates",
     "Application",
     "Architecture",
     "Block",

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use std::{
+    collections::hash_map::Entry,
     fmt::Display,
     ops::Add,
     sync::{Arc, RwLock, RwLockReadGuard},
@@ -234,6 +235,10 @@ impl ISARequirements {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.constraints.is_empty()
+    }
+
+    pub fn entry(&mut self, id: u64) -> Entry<'_, u64, InstructionConstraint> {
+        self.constraints.entry(id)
     }
 
     /// Returns all instructions as owned clones.
@@ -503,6 +508,24 @@ impl InstructionConstraint {
     #[must_use]
     pub fn encoding(&self) -> Encoding {
         self.encoding
+    }
+
+    #[must_use]
+    pub fn arity(&self) -> Option<u64> {
+        self.arity
+    }
+
+    pub fn set_arity(&mut self, arity: Option<u64>) {
+        self.arity = arity;
+    }
+
+    #[must_use]
+    pub fn error_rate(&self) -> Option<&ConstraintBound<f64>> {
+        self.error_rate_fn.as_ref()
+    }
+
+    pub fn set_error_rate(&mut self, error_rate_fn: Option<ConstraintBound<f64>>) {
+        self.error_rate_fn = error_rate_fn;
     }
 
     /// Checks whether a given instruction satisfies this constraint.
