@@ -96,7 +96,7 @@ def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts) -> Trace:
         block.add_operation(MEAS_Z, [0])
 
     if memory_qubits != 0:
-        trace.set_memory_qubits(memory_qubits)
+        trace.memory_qubits = memory_qubits
 
         if rfm_count := counts.get("readFromMemoryCount", 0):
             block = trace.add_block(repetitions=rfm_count)

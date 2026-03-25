@@ -1062,6 +1062,11 @@ impl Trace {
         self.0.compute_qubits()
     }
 
+    #[setter]
+    pub fn set_compute_qubits(&mut self, qubits: u64) {
+        self.0.set_compute_qubits(qubits);
+    }
+
     #[getter]
     pub fn base_error(&self) -> f64 {
         self.0.base_error()
@@ -1176,6 +1181,7 @@ impl Trace {
         self.0.has_memory_qubits()
     }
 
+    #[setter]
     pub fn set_memory_qubits(&mut self, qubits: u64) {
         self.0.set_memory_qubits(qubits);
     }

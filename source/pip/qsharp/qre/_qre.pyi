@@ -1187,6 +1187,16 @@ class Trace:
         """
         ...
 
+    @compute_qubits.setter
+    def compute_qubits(self, qubits: int) -> None:
+        """
+        Sets the number of compute qubits.
+
+        Args:
+            qubits (int): The number of compute qubits to set.
+        """
+        ...
+
     @property
     def base_error(self) -> float:
         """
@@ -1225,7 +1235,8 @@ class Trace:
         """
         ...
 
-    def set_memory_qubits(self, qubits: int) -> None:
+    @memory_qubits.setter
+    def memory_qubits(self, qubits: int) -> None:
         """
         Sets the number of memory qubits.
 

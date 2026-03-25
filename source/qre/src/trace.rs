@@ -66,6 +66,10 @@ impl Trace {
         self.compute_qubits
     }
 
+    pub fn set_compute_qubits(&mut self, compute_qubits: u64) {
+        self.compute_qubits = compute_qubits;
+    }
+
     pub fn add_operation(&mut self, id: u64, qubits: Vec<u64>, params: Vec<f64>) {
         self.block.add_operation(id, qubits, params);
     }
