@@ -34,8 +34,9 @@ pub enum LocalKind {
     SpecInput,
     /// An immutable binding with the expression associated to it.
     Immutable(ExprId),
-    /// A mutable binding.
-    Mutable,
+    /// A mutable binding with the optional expression for the containing dynamic scope,
+    /// if any.
+    Mutable(Option<ExprId>),
 }
 
 pub trait LocalsLookup {

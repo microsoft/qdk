@@ -364,6 +364,23 @@ impl Type {
         }
     }
 
+    /// Returns a copy of this type with the const qualifier set to the given value.
+    #[must_use]
+    pub fn with_const(&self, is_const: bool) -> Self {
+        match self {
+            Type::BitArray(w, _) => Type::BitArray(*w, is_const),
+            Type::Bit(_) => Type::Bit(is_const),
+            Type::Bool(_) => Type::Bool(is_const),
+            Type::Duration(_) => Type::Duration(is_const),
+            Type::Angle(w, _) => Type::Angle(*w, is_const),
+            Type::Complex(w, _) => Type::Complex(*w, is_const),
+            Type::Float(w, _) => Type::Float(*w, is_const),
+            Type::Int(w, _) => Type::Int(*w, is_const),
+            Type::UInt(w, _) => Type::UInt(*w, is_const),
+            other => other.clone(),
+        }
+    }
+
     #[must_use]
     pub fn is_readonly_array_ref(&self) -> bool {
         match self {
@@ -1306,6 +1323,7 @@ pub(crate) fn try_promote_with_casting(left_type: &Type, right_type: &Type) -> T
 }
 
 fn try_promote_bitarray_to_int(left_type: &Type, right_type: &Type) -> Option<Type> {
+    let is_const = left_type.is_const() && right_type.is_const();
     if matches!(
         (left_type, right_type),
         (Type::Int(..) | Type::UInt(..), Type::BitArray(..))
@@ -1318,7 +1336,7 @@ fn try_promote_bitarray_to_int(left_type: &Type, right_type: &Type) -> Option<Ty
             return None;
         }
 
-        return Some(left_type.clone());
+        return Some(left_type.with_const(is_const));
     }
 
     if matches!(
@@ -1333,7 +1351,7 @@ fn try_promote_bitarray_to_int(left_type: &Type, right_type: &Type) -> Option<Ty
             return None;
         }
 
-        return Some(right_type.clone());
+        return Some(right_type.with_const(is_const));
     }
     None
 }

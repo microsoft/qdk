@@ -1320,7 +1320,7 @@ impl<'a> Analyzer<'a> {
             PatKind::Bind(ident) => {
                 let local_kind = match mutability {
                     Mutability::Immutable => LocalKind::Immutable(expr_id),
-                    Mutability::Mutable => LocalKind::Mutable,
+                    Mutability::Mutable => LocalKind::Mutable(self.get_current_dynamic_scope()),
                 };
                 let application_instance = self.get_current_application_instance();
                 let bound_compute_kind = *application_instance.get_expr_compute_kind(expr_id);
@@ -1353,7 +1353,7 @@ impl<'a> Analyzer<'a> {
             PatKind::Bind(ident) => {
                 let local_kind = match mutability {
                     Mutability::Immutable => LocalKind::Immutable(expr_id),
-                    Mutability::Mutable => LocalKind::Mutable,
+                    Mutability::Mutable => LocalKind::Mutable(self.get_current_dynamic_scope()),
                 };
                 let application_instance = self.get_current_application_instance();
                 let bound_compute_kind = *application_instance.get_expr_compute_kind(expr_id);
@@ -1383,6 +1383,11 @@ impl<'a> Analyzer<'a> {
             args_compute_kinds.push(*arg_compute_kind);
         }
         args_compute_kinds
+    }
+
+    fn get_current_dynamic_scope(&self) -> Option<ExprId> {
+        let application_instance = self.get_current_application_instance();
+        application_instance.active_dynamic_scopes.last().copied()
     }
 
     fn get_current_application_instance(&self) -> &ApplicationInstance {
@@ -1523,12 +1528,15 @@ impl<'a> Analyzer<'a> {
                 let application_instance = self.get_current_application_instance_mut();
                 let local_var_compute_kind = application_instance
                     .locals_map
-                    .get_or_init_local_compute_kind(
-                        *local_var_id,
-                        LocalKind::Mutable,
-                        ComputeKind::Static,
-                    );
+                    .find_local_compute_kind(*local_var_id)
+                    .expect("local compute kind should be defined before update");
                 let mut updated_compute_kind = local_var_compute_kind.compute_kind;
+
+                // Check whether this update happens within the same dynamic scope that the mutable variable was declared in.
+                let in_matching_dynamic_scope = matches!(
+                    local_var_compute_kind.local.kind,
+                    LocalKind::Mutable(dynamic_scope) if dynamic_scope.as_ref() == application_instance.active_dynamic_scopes.last()
+                );
 
                 // Since the local variable compute kind is what will be updated, the value kind must match the local
                 // variable's type. That is why before aggregating the compute kind of the assigned value we need to get
@@ -1539,9 +1547,10 @@ impl<'a> Analyzer<'a> {
                     *application_instance.get_expr_compute_kind(value_expr_id);
                 updated_compute_kind = updated_compute_kind.aggregate(value_expr_compute_kind);
 
-                // If a local is updated within a dynamic scope, the updated value of the local variable should be
-                // dynamic and variable with additional runtime features that may apply.
-                if !application_instance.active_dynamic_scopes.is_empty() {
+                // If a local is updated within a dynamic scope other than the one it was defined in,
+                // the updated value of the local variable should be dynamic and variable with any additional
+                // runtime features that may apply.
+                if !in_matching_dynamic_scope {
                     let local_type = &assignee_expr.ty;
                     let mut dynamic_value_kind = ValueKind::new_variable_from_type(local_type);
                     let mut dynamic_runtime_features =
