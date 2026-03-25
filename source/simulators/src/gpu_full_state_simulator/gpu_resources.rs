@@ -58,12 +58,9 @@ const STATE_VECTOR_BUF_IDX: usize = 3;
 const RESULTS_BUF_IDX: usize = 4;
 const DIAGNOSTICS_BUF_IDX: usize = 5;
 const UNIFORM_BUF_IDX: usize = 6;
-const CORRELATED_NOISE_TABLES_BUF_IDX: usize = 7;
-const CORRELATED_NOISE_ENTRIES_BUF_IDX: usize = 8;
-
-// Adaptive interpreter buffer index (binding 9)
-// Interpreter state and registers are embedded in ShotData (binding 1).
-const PROGRAM_IDX: usize = 9;
+// Both base and adaptive layouts use binding 7 for BatchData (noise tables + entries,
+// and additionally the adaptive program in the adaptive layout).
+const BATCH_DATA_BUF_IDX: usize = 7;
 
 impl Default for GpuDeviceResources {
     fn default() -> Self {
@@ -120,15 +117,9 @@ impl Default for GpuDeviceResources {
                     usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
                     buffer: None,
                 },
+                // BatchData: noise tables + noise entries
                 BufferBinding {
-                    name: "CorrelatedNoiseTables",
-                    is_uniform: false,
-                    read_only: true,
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                    buffer: None,
-                },
-                BufferBinding {
-                    name: "CorrelatedNoiseEntries",
+                    name: "BatchData",
                     is_uniform: false,
                     read_only: true,
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
@@ -146,17 +137,14 @@ impl GpuDeviceResources {
             kernels: None,
             bind_group: None,
             // --------------------------------------------------------------
-            // Bind group layout: 10 bindings in @group(0)
+            // Bind group layout: 8 bindings in @group(0)
             // --------------------------------------------------------------
-            // Bindings 0-8:  quantum ops (ops, state vector, results, noise, etc.)
-            // Binding  9:    Adaptive interpreter bytecode (program)
+            // Bindings 0-6:  quantum ops (ops, state vector, results, noise, etc.)
+            // Binding  7:    BatchData (noise tables + noise entries + program)
             // Interpreter state and registers are embedded in ShotData (binding 1).
             // The termination counter is stored in the diagnostics buffer (binding 5).
             //
-            // This exceeds the WebGPU minimum of 8 storage buffers per shader stage
-            // but is within the limits of modern GPUs. This is currently being discussed
-            // here: https://github.com/gfx-rs/wgpu/issues/9287#issuecomment-4113254133.
-            // The create_device() function validates adapter support at startup.
+            // This stays within the WebGPU minimum of 8 storage buffers per shader stage.
             // --------------------------------------------------------------
             bound_buffers: vec![
                 BufferBinding {
@@ -208,23 +196,9 @@ impl GpuDeviceResources {
                     usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
                     buffer: None,
                 },
+                // BatchData: noise tables + noise entries + adaptive program
                 BufferBinding {
-                    name: "CorrelatedNoiseTables",
-                    is_uniform: false,
-                    read_only: true,
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                    buffer: None,
-                },
-                BufferBinding {
-                    name: "CorrelatedNoiseEntries",
-                    is_uniform: false,
-                    read_only: true,
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                    buffer: None,
-                },
-                // Adaptive interpreter buffer (binding 9)
-                BufferBinding {
-                    name: "Program",
+                    name: "BatchData",
                     is_uniform: false,
                     read_only: true,
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
@@ -317,12 +291,12 @@ impl GpuResources {
         let adapter = Self::try_get_adapter()?;
         let adapter_limits = adapter.limits();
 
-        // The adaptive interpreter uses 12 storage buffers in a single bind group.
-        // Verify the adapter supports this before attempting device creation.
-        if adaptive && adapter_limits.max_storage_buffers_per_shader_stage < 12 {
+        // The gpu simulator uses 7 storage buffers in a single
+        // bind group, which is within the WebGPU minimum guarantee.
+        if adapter_limits.max_storage_buffers_per_shader_stage < 7 {
             return Err(format!(
                 "GPU adapter supports only {} storage buffers per shader stage, \
-                 but the adaptive interpreter requires 12. \
+                 but the gpu simulator requires 7. \
                  Consider a discrete GPU or the CPU simulator.",
                 adapter_limits.max_storage_buffers_per_shader_stage,
             ));
@@ -435,6 +409,8 @@ impl GpuResources {
         threads_per_workgroup: i32,
         max_qubit_count: i32,
         max_qubits_per_workgroup: i32,
+        noise_table_count: usize,
+        noise_entry_count: usize,
     ) -> Result<(), String> {
         let adapter = self.adapter.as_ref().ok_or("GPU adapter not initialized")?;
         let device = self.device.as_ref().ok_or("GPU device not initialized")?;
@@ -461,7 +437,9 @@ impl GpuResources {
             .replace(
                 "{{MAX_QUBITS_PER_WORKGROUP}}",
                 &max_qubits_per_workgroup.to_string(),
-            );
+            )
+            .replace("{{NOISE_TABLE_COUNT}}", &noise_table_count.to_string())
+            .replace("{{NOISE_ENTRY_COUNT}}", &noise_entry_count.to_string());
 
         // Strip out DX12-incompatible code sections if needed
         if adapter.get_info().backend == wgpu::Backend::Dx12 {
@@ -548,7 +526,15 @@ impl GpuResources {
                 "{{SWITCH_CASES_SIZE}}",
                 &params.num_switch_cases.to_string(),
             )
-            .replace("{{CALL_ARGS_SIZE}}", &params.num_call_args.to_string());
+            .replace("{{CALL_ARGS_SIZE}}", &params.num_call_args.to_string())
+            .replace(
+                "{{NOISE_TABLE_COUNT}}",
+                &params.noise_table_count.to_string(),
+            )
+            .replace(
+                "{{NOISE_ENTRY_COUNT}}",
+                &params.noise_entry_count.to_string(),
+            );
 
         // Strip out DX12-incompatible code sections if needed
         if adapter.get_info().backend == wgpu::Backend::Dx12 {
@@ -612,18 +598,8 @@ impl GpuResources {
         let bind_group_layout = self.bind_group_layout.as_ref().ok_or("Missing layout")?;
         let bound_buffers = &mut self.device_resources.bound_buffers;
 
-        // Even if correlated noise is not used, the buffers still need to exist anyway to be bound
-        // NoiseTableMetadata is 16 bytes, NoiseTableEntry is 16 bytes
-        Self::ensure_buffer(
-            device,
-            &mut bound_buffers[CORRELATED_NOISE_TABLES_BUF_IDX],
-            16,
-        );
-        Self::ensure_buffer(
-            device,
-            &mut bound_buffers[CORRELATED_NOISE_ENTRIES_BUF_IDX],
-            16,
-        );
+        // Even if correlated noise is not used, the batch data buffer needs to exist to be bound
+        Self::ensure_buffer(device, &mut bound_buffers[BATCH_DATA_BUF_IDX], 16);
 
         // Ensure all buffers are created
         if bound_buffers.iter().any(|entry| entry.buffer.is_none()) {
@@ -677,19 +653,10 @@ impl GpuResources {
         self.upload_data(ops, OPS_BUF_IDX)
     }
 
-    pub fn upload_noise_metadata(&mut self, metadata: &[u8]) -> Result<(), String> {
-        self.upload_data(metadata, CORRELATED_NOISE_TABLES_BUF_IDX)
-    }
-
-    pub fn upload_noise_entries(&mut self, entries: &[u8]) -> Result<(), String> {
-        self.upload_data(entries, CORRELATED_NOISE_ENTRIES_BUF_IDX)
-    }
-
-    pub fn free_noise_buffers(&mut self) -> Result<(), String> {
-        self.device_resources.bound_buffers[CORRELATED_NOISE_TABLES_BUF_IDX].buffer = None;
-        self.device_resources.bound_buffers[CORRELATED_NOISE_ENTRIES_BUF_IDX].buffer = None;
-        self.device_resources.bind_group = None; // Invalidate bind group to recreate later
-        Ok(())
+    /// Clear the `BatchData` buffer (used by both base and adaptive modes).
+    pub fn free_batch_data_buffer(&mut self) {
+        self.device_resources.bound_buffers[BATCH_DATA_BUF_IDX].buffer = None;
+        self.device_resources.bind_group = None;
     }
 
     fn try_get_buffer(&self, buf_idx: usize) -> Result<&Buffer, String> {
@@ -863,21 +830,8 @@ impl GpuResources {
         let bind_group_layout = self.bind_group_layout.as_ref().ok_or("Missing layout")?;
         let bound_buffers = &mut self.device_resources.bound_buffers;
 
-        // Even if correlated noise is not used, the buffers still need to exist anyway to be bound
-        // NoiseTableMetadata is 16 bytes, NoiseTableEntry is 16 bytes
-        Self::ensure_buffer(
-            device,
-            &mut bound_buffers[CORRELATED_NOISE_TABLES_BUF_IDX],
-            16,
-        );
-        Self::ensure_buffer(
-            device,
-            &mut bound_buffers[CORRELATED_NOISE_ENTRIES_BUF_IDX],
-            16,
-        );
-
-        // Ensure adaptive interpreter buffer has at least minimum placeholder size
-        Self::ensure_buffer(device, &mut bound_buffers[PROGRAM_IDX], 16);
+        // Even if correlated noise is not used, the batch data buffer needs to exist to be bound
+        Self::ensure_buffer(device, &mut bound_buffers[BATCH_DATA_BUF_IDX], 16);
 
         // Ensure all buffers are created
         if bound_buffers.iter().any(|entry| entry.buffer.is_none()) {
@@ -911,8 +865,9 @@ impl GpuResources {
 
     // --- Adaptive interpreter buffer uploads ---
 
-    pub fn upload_program(&mut self, data: &[u8]) -> Result<(), String> {
-        self.upload_data(data, PROGRAM_IDX)
+    /// Upload the combined batch data (noise tables + noise entries + program) to binding 7.
+    pub fn upload_batch_data(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, BATCH_DATA_BUF_IDX)
     }
 
     /// Write interpreter state + registers into the shots buffer at the correct offset.

@@ -145,11 +145,20 @@ struct NoiseTableEntry {
     probability_hi: u32,
 }
 
-@group(0) @binding(7)
-var<storage, read> correlated_noise_tables: array<NoiseTableMetadata>;
+// Template constants for noise table sizes (must be ≥ 1; host uses max(count,1)).
+const NOISE_TABLE_COUNT: u32 = {{NOISE_TABLE_COUNT}};
+const NOISE_ENTRY_COUNT: u32 = {{NOISE_ENTRY_COUNT}};
 
-@group(0) @binding(8)
-var<storage, read> correlated_noise_entries: array<NoiseTableEntry>;
+// BatchData holds all the read-only data shared across all shots in a batch.
+struct BatchData {
+    correlated_noise_tables: array<NoiseTableMetadata, NOISE_TABLE_COUNT>,
+    correlated_noise_entries: array<NoiseTableEntry, NOISE_ENTRY_COUNT>,
+    program: Program,
+}
+
+@group(0) @binding(7)
+var<storage, read> batch_data: BatchData;
+
 
 /// GPU bytecode instruction.
 ///
@@ -255,10 +264,8 @@ struct InterpreterState {
 // Adaptive interpreter buffer bindings
 // Termination counting is done via diagnostics.termination_count (binding 5).
 // Interpreter state and registers are embedded in ShotData (binding 1).
+// The program, noise tables, and noise entries are in batch_data (binding 7).
 // -----------------------------------------------------------------------------
-
-@group(0) @binding(9)
-var<storage, read> program: Program;
 
 // -----------------------------------------------------------------------------
 // Adaptive interpreter constants
@@ -427,7 +434,7 @@ fn write_reg_f32(shot_idx: u32, reg: u32, val: f32) {
 // -----------------------------------------------------------------------------
 
 fn fetch_instr(pc: u32) -> Instruction {
-    return program.instructions[pc];
+    return batch_data.program.instructions[pc];
 }
 
 fn get_opcode(packed: u32) -> u32   { return packed & 0xFFu; }
@@ -510,7 +517,7 @@ fn prep_correlated_noise(shot_idx: u32, op_idx: u32, qubit_count: u32, arg_offse
 
     // The noise table index is stored in op.q1
     let noise_table_idx = op.q1;
-    let table = &correlated_noise_tables[noise_table_idx];
+    let table = &batch_data.correlated_noise_tables[noise_table_idx];
 
     // Generate a Q1.63 random number (two u32 values for lo and hi 32 bits)
     // Mask off the high bit of rand_hi to ensure the value is in [0, 1) range
@@ -535,7 +542,7 @@ fn prep_correlated_noise(shot_idx: u32, op_idx: u32, qubit_count: u32, arg_offse
     let start = i32(table.start_offset);
     let count = i32(table.entry_count);
     let entry_idx = binary_search_noise_table(rand_lo, rand_hi, start, count);
-    let entry = &correlated_noise_entries[start + entry_idx];
+    let entry = &batch_data.correlated_noise_entries[start + entry_idx];
 
     // Extract the Pauli string (2 bits per qubit: bit 0 = X flip, bit 1 = Z flip)
     let paulis_lo = entry.paulis_lo;
@@ -560,7 +567,7 @@ fn prep_correlated_noise(shot_idx: u32, op_idx: u32, qubit_count: u32, arg_offse
         }
 
         // Read qubit ID from register via call_arg_table
-        let arg_reg = program.call_arg_table[arg_offset + i];
+        let arg_reg = batch_data.program.call_arg_table[arg_offset + i];
         let qubit_id = read_reg(shot_idx, arg_reg);
         let qubit_mask = 1u << qubit_id;
 
@@ -792,7 +799,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             case OP_JUMP {
                 prev_block = block_id;
                 block_id = instr.dst;
-                pc = program.block_table[instr.dst].instr_offset;
+                pc = batch_data.program.block_table[instr.dst].instr_offset;
             }
 
             // BRANCH: Conditional branch (if/else).
@@ -806,10 +813,10 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 prev_block = block_id;
                 if cond {
                     block_id = instr.aux0;
-                    pc = program.block_table[instr.aux0].instr_offset;
+                    pc = batch_data.program.block_table[instr.aux0].instr_offset;
                 } else {
                     block_id = instr.aux1;
-                    pc = program.block_table[instr.aux1].instr_offset;
+                    pc = batch_data.program.block_table[instr.aux1].instr_offset;
                 }
             }
 
@@ -828,7 +835,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let case_count = instr.aux2;
                 var target_block = default_block;
                 for (var i = 0u; i < case_count; i++) {
-                    let entry = program.switch_table[case_offset + i];
+                    let entry = batch_data.program.switch_table[case_offset + i];
                     if entry.case_val == val {
                         target_block = entry.target_block;
                         break;
@@ -836,7 +843,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 }
                 prev_block = block_id;
                 block_id = target_block;
-                pc = program.block_table[target_block].instr_offset;
+                pc = batch_data.program.block_table[target_block].instr_offset;
             }
 
             // CALL: Invokes a function.
@@ -860,7 +867,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let func_id = instr.aux0;
                 let arg_count = instr.aux1;
                 let arg_offset = instr.aux2;
-                let func = program.function_table[func_id];
+                let func = batch_data.program.function_table[func_id];
                 // Push return info onto the call stack
                 let sp = state.call_sp;
                 // Guard: prevent call stack overflow (max 8 frames)
@@ -880,12 +887,12 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 // Copy caller arguments into the callee's parameter registers
                 let param_base = func.param_base_reg;
                 for (var i = 0u; i < arg_count; i++) {
-                    let arg_reg = program.call_arg_table[arg_offset + i];
+                    let arg_reg = batch_data.program.call_arg_table[arg_offset + i];
                     write_reg(shot_idx, param_base + i, read_reg(shot_idx, arg_reg));
                 }
                 // Transfer control to the function entry block
                 block_id = func.entry_block_id;
-                pc = program.block_table[block_id].instr_offset;
+                pc = batch_data.program.block_table[block_id].instr_offset;
             }
 
             // CALL_RETURN: Returns from a function call.
@@ -1312,7 +1319,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let offset = instr.aux0;
                 let count = instr.aux1;
                 for (var i = 0u; i < count; i++) {
-                    let entry = program.phi_table[offset + i];
+                    let entry = batch_data.program.phi_table[offset + i];
                     if entry.block_id == prev_block {
                         write_reg(shot_idx, instr.dst, read_reg(shot_idx, entry.val_reg));
                         break;

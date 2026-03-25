@@ -138,11 +138,19 @@ struct NoiseTableEntry {
     probability_hi: u32,
 }
 
-@group(0) @binding(7)
-var<storage, read> correlated_noise_tables: array<NoiseTableMetadata>;
+// Template constants for noise table sizes (must be ≥ 1; host uses max(count,1)).
+const NOISE_TABLE_COUNT: u32 = {{NOISE_TABLE_COUNT}};
+const NOISE_ENTRY_COUNT: u32 = {{NOISE_ENTRY_COUNT}};
 
-@group(0) @binding(8)
-var<storage, read> correlated_noise_entries: array<NoiseTableEntry>;
+// BatchData holds all the read-only data shared across all shots in a batch.
+struct BatchData {
+    correlated_noise_tables: array<NoiseTableMetadata, NOISE_TABLE_COUNT>,
+    correlated_noise_entries: array<NoiseTableEntry, NOISE_ENTRY_COUNT>,
+}
+
+@group(0) @binding(7)
+var<storage, read> batch_data: BatchData;
+
 
 // For every qubit, each 'execute' kernel thread will update its own workgroup storage location for accumulating probabilities
 // The final probabilities will be reduced and written back to the shot state after the parallel execution completes.
@@ -183,7 +191,7 @@ fn prep_correlated_noise(shot_idx: u32, op_idx: u32) {
     // The noise table index is stored in op.q1, and the qubit count is stored in op.q2
     let noise_table_idx = op.q1;
     let qubit_count = op.q2;
-    let table = &correlated_noise_tables[noise_table_idx];
+    let table = &batch_data.correlated_noise_tables[noise_table_idx];
 
     // Generate a Q1.63 random number (two u32 values for lo and hi 32 bits)
     // Mask off the high bit of rand_hi to ensure the value is in [0, 1) range
@@ -208,7 +216,7 @@ fn prep_correlated_noise(shot_idx: u32, op_idx: u32) {
     let start = i32(table.start_offset);
     let count = i32(table.entry_count);
     let entry_idx = binary_search_noise_table(rand_lo, rand_hi, start, count);
-    let entry = &correlated_noise_entries[start + entry_idx];
+    let entry = &batch_data.correlated_noise_entries[start + entry_idx];
 
     // Extract the Pauli string (2 bits per qubit: bit 0 = X flip, bit 1 = Z flip)
     let paulis_lo = entry.paulis_lo;

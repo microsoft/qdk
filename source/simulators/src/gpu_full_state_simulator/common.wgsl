@@ -904,9 +904,8 @@ fn binary_search_noise_table(rand_lo: u32, rand_hi: u32, start: i32, count: i32)
 
     while (low < high) {
         let mid: i32 = low + (high - low) / 2;
-
-        let p_lo = correlated_noise_entries[start + mid].probability_lo;
-        let p_hi = correlated_noise_entries[start + mid].probability_hi;
+        let p_lo = batch_data.correlated_noise_entries[start + mid].probability_lo;
+        let p_hi = batch_data.correlated_noise_entries[start + mid].probability_hi;
 
         if (rand_hi < p_hi || (rand_hi == p_hi && rand_lo < p_lo)) {
             high = mid;

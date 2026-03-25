@@ -21,7 +21,7 @@ use crate::shader_types::{
 const DEFAULT_MAX_OPS_PER_DISPATCH: i32 = 16;
 
 #[allow(clippy::struct_excessive_bools)]
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct GpuContext {
     resources: GpuResources,
 
@@ -41,13 +41,13 @@ pub struct GpuContext {
     pipeline_is_dirty: bool,
     // Indicates if the noise config has changed (which means the program may be dirty too)
     noise_config_is_dirty: bool,
-    // Indicates if the noise tables have changed and need to be re-uploaded to the GPU
-    noise_tables_is_dirty: bool,
+    // Indicates if the noise tables or adaptive program have changed and need to be re-uploaded to the GPU
+    batch_data_is_dirty: bool,
     // Indicates if the context is for an adaptive program.
     is_adaptive: bool,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct RunParams {
     pub qubit_count: i32,
     pub result_count: i32,
@@ -70,6 +70,37 @@ pub(crate) struct RunParams {
     pub num_phi_entries: usize,
     pub num_switch_cases: usize,
     pub num_call_args: usize,
+    // Noise table sizes for BatchData (minimum 1, since WGSL arrays must have length ≥ 1).
+    pub noise_table_count: usize,
+    pub noise_entry_count: usize,
+}
+
+impl Default for RunParams {
+    fn default() -> Self {
+        Self {
+            noise_table_count: 1,
+            noise_entry_count: 1,
+            qubit_count: 0,
+            result_count: 0,
+            shot_count: 0,
+            shots_per_batch: 0,
+            batch_count: 0,
+            workgroups_per_shot: 0,
+            entries_per_thread: 0,
+            shots_buffer_size: 0,
+            state_vector_buffer_size: 0,
+            results_buffer_size: 0,
+            diagnostics_buffer_size: 0,
+            download_buffer_size: 0,
+            num_registers: 0,
+            num_instructions: 0,
+            num_blocks: 0,
+            num_functions: 0,
+            num_phi_entries: 0,
+            num_switch_cases: 0,
+            num_call_args: 0,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -83,6 +114,27 @@ pub struct RunResults {
     // the value is only created if there are errors (i.e. hopefully rarely).
     pub diagnostics: Option<Box<DiagnosticsData>>,
     pub success: bool,
+}
+
+impl Default for GpuContext {
+    fn default() -> Self {
+        Self {
+            // Start dirty so the batch_data buffer gets uploaded on first run,
+            // even when no noise is configured (shader always needs the buffer).
+            batch_data_is_dirty: true,
+            resources: GpuResources::default(),
+            program: Vec::new(),
+            program_with_noise: None,
+            noise_config: None,
+            noise_tables: NoiseTables::default(),
+            run_params: RunParams::default(),
+            adaptive_program: None,
+            program_is_dirty: false,
+            pipeline_is_dirty: false,
+            noise_config_is_dirty: false,
+            is_adaptive: false,
+        }
+    }
 }
 
 impl GpuContext {
@@ -133,7 +185,7 @@ impl GpuContext {
     /// Add a correlated noise table to the GPU context (will overwrite existing with same name)
     pub fn add_correlated_noise_table(&mut self, name: &str, contents: &str) {
         self.noise_tables.add(name, contents);
-        self.noise_tables_is_dirty = true;
+        self.batch_data_is_dirty = true;
     }
 
     /// Add a correlated noise table to the GPU context (will overwrite existing with same name)
@@ -142,7 +194,7 @@ impl GpuContext {
         noise_config: &NoiseConfig<f32, f64>,
     ) {
         self.noise_tables.load_from_noise_config(noise_config);
-        self.noise_tables_is_dirty = true;
+        self.batch_data_is_dirty = true;
     }
 
     /// Get the mapping of correlated noise table ids to names and entry counts
@@ -163,7 +215,7 @@ impl GpuContext {
     /// Clear the correlated noise tables
     pub fn clear_correlated_noise_tables(&mut self) {
         self.noise_tables = NoiseTables::default();
-        self.noise_tables_is_dirty = true;
+        self.batch_data_is_dirty = true;
     }
 
     pub fn run_shots_sync(
@@ -361,18 +413,31 @@ impl GpuContext {
             self.program_is_dirty = false;
         }
 
-        if self.noise_tables_is_dirty {
-            // Re-upload noise tables to GPU (if any)
-            let tables = &self.noise_tables;
-
-            if tables.metadata.is_empty() {
-                self.resources.free_noise_buffers()?;
-            } else {
-                self.resources
-                    .upload_noise_metadata(cast_slice(&tables.metadata))?;
-                self.resources
-                    .upload_noise_entries(cast_slice(&tables.entries))?;
+        if self.batch_data_is_dirty {
+            // Track noise table sizes. If they changed, the shader templates need to be
+            // recompiled (NOISE_TABLE_COUNT / NOISE_ENTRY_COUNT are compile-time constants).
+            let new_table_count = self.noise_tables.metadata.len().max(1);
+            let new_entry_count = self.noise_tables.entries.len().max(1);
+            if new_table_count != self.run_params.noise_table_count
+                || new_entry_count != self.run_params.noise_entry_count
+            {
+                self.run_params.noise_table_count = new_table_count;
+                self.run_params.noise_entry_count = new_entry_count;
+                self.pipeline_is_dirty = true;
             }
+
+            // Upload combined noise batch_data buffer
+            let noise_metadata_bytes: &[u8] = cast_slice(&self.noise_tables.metadata);
+            let noise_entries_bytes: &[u8] = cast_slice(&self.noise_tables.entries);
+            let noise_table_padded_size = self.run_params.noise_table_count * 16;
+            let noise_entry_padded_size = self.run_params.noise_entry_count * 16;
+            let total_size = noise_table_padded_size + noise_entry_padded_size;
+            let mut batch_buf = vec![0u8; total_size];
+            batch_buf[..noise_metadata_bytes.len()].copy_from_slice(noise_metadata_bytes);
+            batch_buf[noise_table_padded_size..noise_table_padded_size + noise_entries_bytes.len()]
+                .copy_from_slice(noise_entries_bytes);
+            self.resources.upload_batch_data(&batch_buf)?;
+            self.batch_data_is_dirty = false;
         }
 
         let params = &self.run_params;
@@ -389,6 +454,9 @@ impl GpuContext {
                 THREADS_PER_WORKGROUP,
                 MAX_QUBIT_COUNT,
                 MAX_QUBITS_PER_WORKGROUP,
+                // These only change if the size of the noise table changes
+                params.noise_table_count,
+                params.noise_entry_count,
             )?;
         }
 
@@ -461,10 +529,10 @@ impl GpuContext {
         if self.is_adaptive {
             // Preserve noise tables loaded before the mode switch
             let noise_tables = std::mem::take(&mut self.noise_tables);
-            let noise_tables_is_dirty = self.noise_tables_is_dirty;
+            let batch_data_is_dirty = self.batch_data_is_dirty;
             *self = Self::default();
             self.noise_tables = noise_tables;
-            self.noise_tables_is_dirty = noise_tables_is_dirty;
+            self.batch_data_is_dirty = batch_data_is_dirty;
         }
     }
 }
@@ -476,6 +544,9 @@ impl GpuContext {
         Self {
             resources: GpuResources::adaptive(),
             is_adaptive: true,
+            // Start dirty so the batch_data buffer gets uploaded on first run,
+            // even when no noise is configured (shader always needs the buffer).
+            batch_data_is_dirty: true,
             ..Default::default()
         }
     }
@@ -489,10 +560,10 @@ impl GpuContext {
         if !self.is_adaptive {
             // Preserve noise tables loaded before the mode switch
             let noise_tables = std::mem::take(&mut self.noise_tables);
-            let noise_tables_is_dirty = self.noise_tables_is_dirty;
+            let batch_data_is_dirty = self.batch_data_is_dirty;
             *self = Self::adaptive();
             self.noise_tables = noise_tables;
-            self.noise_tables_is_dirty = noise_tables_is_dirty;
+            self.batch_data_is_dirty = batch_data_is_dirty;
         }
     }
 
@@ -543,15 +614,21 @@ impl GpuContext {
         Ok(())
     }
 
-    /// Upload adaptive program buffers to the GPU.
-    ///
-    /// Uploads bytecode, block table, function table, quantum op pool,
-    /// and side tables (phi, switch, call args) to their respective GPU bindings.
-    fn upload_adaptive_program_buffers(&mut self) -> Result<(), String> {
+    /// Upload the combined batch data buffer (noise tables + noise entries + program bytes)
+    /// to GPU binding 7.
+    fn upload_batch_data(&mut self) -> Result<(), String> {
         let program = self
             .adaptive_program
             .as_ref()
             .ok_or("No adaptive program has been set")?;
+
+        let noise_metadata_bytes: &[u8] = cast_slice(&self.noise_tables.metadata);
+        let noise_entries_bytes: &[u8] = cast_slice(&self.noise_tables.entries);
+
+        // Pad noise arrays to the template sizes (max(count, 1) * element_size)
+        // so that the GPU struct layout matches the fixed-size WGSL arrays.
+        let noise_table_padded_size = self.run_params.noise_table_count * 16; // NoiseTableMetadata is 16 bytes
+        let noise_entry_padded_size = self.run_params.noise_entry_count * 16; // NoiseTableEntry is 16 bytes
 
         let program_bytes: Vec<u8> = [
             cast_slice(&program.instructions),
@@ -563,7 +640,19 @@ impl GpuContext {
         ]
         .concat();
 
-        self.resources.upload_program(&program_bytes)?;
+        // Build the combined batch_data buffer: [noise_tables | noise_entries | program]
+        let total_size = noise_table_padded_size + noise_entry_padded_size + program_bytes.len();
+        let mut batch_data = vec![0u8; total_size];
+
+        batch_data[..noise_metadata_bytes.len()].copy_from_slice(noise_metadata_bytes);
+        let entries_offset = noise_table_padded_size;
+        batch_data[entries_offset..entries_offset + noise_entries_bytes.len()]
+            .copy_from_slice(noise_entries_bytes);
+        let program_offset = entries_offset + noise_entry_padded_size;
+        batch_data[program_offset..program_offset + program_bytes.len()]
+            .copy_from_slice(&program_bytes);
+
+        self.resources.upload_batch_data(&batch_data)?;
         self.resources
             .upload_ops_data(cast_slice(&program.quantum_ops))?;
 
@@ -576,17 +665,17 @@ impl GpuContext {
         let dbg_capture = std::env::var("QDK_GPU_CAPTURE").is_ok();
         self.resources.ensure_device(dbg_capture, true).await?;
 
-        if self.noise_tables_is_dirty {
-            // Re-upload noise tables to GPU (if any)
-            let tables = &self.noise_tables;
-
-            if tables.metadata.is_empty() {
-                self.resources.free_noise_buffers()?;
-            } else {
-                self.resources
-                    .upload_noise_metadata(cast_slice(&tables.metadata))?;
-                self.resources
-                    .upload_noise_entries(cast_slice(&tables.entries))?;
+        // Track noise table sizes. If they changed, the shader templates need to be
+        // recompiled (NOISE_TABLE_COUNT / NOISE_ENTRY_COUNT are compile-time constants).
+        if self.batch_data_is_dirty {
+            let new_table_count = self.noise_tables.metadata.len().max(1);
+            let new_entry_count = self.noise_tables.entries.len().max(1);
+            if new_table_count != self.run_params.noise_table_count
+                || new_entry_count != self.run_params.noise_entry_count
+            {
+                self.run_params.noise_table_count = new_table_count;
+                self.run_params.noise_entry_count = new_entry_count;
+                self.pipeline_is_dirty = true;
             }
         }
 
@@ -595,9 +684,11 @@ impl GpuContext {
             self.resources.create_shaders_adaptive(params)?;
         }
 
-        if self.program_is_dirty || self.noise_config_is_dirty {
+        if self.program_is_dirty || self.noise_config_is_dirty || self.batch_data_is_dirty {
             // Rebuild the quantum ops pool (with noise if needed) and upload to GPU
-            if let Some(noise) = &self.noise_config {
+            if self.noise_config_is_dirty
+                && let Some(noise) = &self.noise_config
+            {
                 let program = self
                     .adaptive_program
                     .as_mut()
@@ -614,9 +705,11 @@ impl GpuContext {
                 }
                 program.quantum_ops = noisy_ops;
             }
-            self.upload_adaptive_program_buffers()?;
+            // Upload the combined batch_data buffer (noise + program) to binding 7
+            self.upload_batch_data()?;
             self.program_is_dirty = false;
             self.noise_config_is_dirty = false;
+            self.batch_data_is_dirty = false;
         }
 
         let params = &self.run_params;
