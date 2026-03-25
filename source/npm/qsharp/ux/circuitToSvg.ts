@@ -460,7 +460,7 @@ const CIRCUIT_CSS_DARK = `
 export interface CircuitToSvgOptions {
   /** Maximum number of gate columns per row before wrapping.  0 = no wrap. */
   gatesPerRow?: number;
-  /** Use dark-mode colours. */
+  /** Use dark-mode colors. */
   darkMode?: boolean;
   /** How many levels of grouped operations to expand.
    *  0 (default) = show groups as collapsed single-gate boxes.

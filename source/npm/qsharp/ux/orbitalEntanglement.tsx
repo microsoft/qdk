@@ -50,7 +50,7 @@ function deg2xy(deg: number, r: number): [number, number] {
   return [r * Math.cos(rad), r * Math.sin(rad)];
 }
 
-/** Linear interpolation between two RGB‑A colours given as [r,g,b,a]. */
+/** Linear interpolation between two RGB‑A colors given as [r,g,b,a]. */
 type RGBA = [number, number, number, number];
 
 function lerpColor(a: RGBA, b: RGBA, t: number): RGBA {
@@ -74,7 +74,7 @@ function rgbaToCSS(c: RGBA): string {
   return `rgb(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)})`;
 }
 
-/** Evaluate a 3‑stop linear colour-map at position t ∈ [0,1]. */
+/** Evaluate a 3‑stop linear color-map at position t ∈ [0,1]. */
 function colormapEval(stops: [string, string, string], t: number): string {
   const clamped = Math.max(0, Math.min(1, t));
   const colors = stops.map(hexToRGBA) as [RGBA, RGBA, RGBA];
@@ -164,11 +164,11 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       ? labelsProp
       : Array.from({ length: n }, (_, i) => String(i));
 
-  // --- colour scales ---
+  // --- color scales ---
   const s1Max = s1Vmax ?? Math.log(4);
   const miMax = miVmax ?? Math.log(16);
 
-  const arcColours = s1Entropies.map((v) => colormapEval(ARC_CMAP, v / s1Max));
+  const arccolors = s1Entropies.map((v) => colormapEval(ARC_CMAP, v / s1Max));
 
   // --- line scale ---
   const maxLw = Math.max(12 * (20 / Math.max(n, 1)) ** 0.5, 2);
@@ -288,12 +288,12 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
   // --- viewBox ---
   const maxOffset = baseOffset + Math.max(0, ...tier) * tierStep + 0.15;
   const lim = radius + maxOffset;
-  // Map [-lim, lim] to [0, width/height] with some padding for colour bars
+  // Map [-lim, lim] to [0, width/height] with some padding for color bars
   const diagramH = height - 60; // leave room for legends
   const vbPad = lim * 0.05;
   const vbSize = (lim + vbPad) * 2;
 
-  // Colour-bar dimensions (drawn inside the SVG)
+  // color-bar dimensions (drawn inside the SVG)
   const cbY = diagramH + 8;
   const cbW = width * 0.6;
   const cbX = (width - cbW) / 2;
@@ -352,7 +352,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
               radius - arcWidth,
               radius,
             )}
-            fill={arcColours[i]}
+            fill={arccolors[i]}
           />
         ))}
 
@@ -425,8 +425,8 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
         })}
       </g>
 
-      {/* ---- Colour-bar legends ---- */}
-      {/* Arc (entropy) colour bar */}
+      {/* ---- color-bar legends ---- */}
+      {/* Arc (entropy) color bar */}
       <g>
         <text
           x={width / 2}
@@ -464,7 +464,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
         </text>
       </g>
 
-      {/* Chord (MI) colour bar */}
+      {/* Chord (MI) color bar */}
       <g>
         <text
           x={width / 2}

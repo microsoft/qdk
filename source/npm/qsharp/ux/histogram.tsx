@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { h } from "preact";
 import { renderToString } from "preact-render-to-string";
 
-// Concrete colour palettes for standalone SVG export (no host CSS vars).
+// Concrete color palettes for standalone SVG export (no host CSS vars).
 const lightPalette = {
   hostBackground: "#eee",
   hostForeground: "#222",
@@ -355,7 +355,7 @@ export function Histogram(props: HistogramProps) {
 
   function onWheel(e: WheelEvent): void {
     // Ctrl+scroll is the event sent by pinch-to-zoom on a trackpad. Shift+scroll is common for
-    // panning horizontally. See https://danburzo.ro/dom-gestures/ for the messy details.
+    // panning horizontally.
     if (!e.ctrlKey && !e.shiftKey) return;
 
     // When using a mouse wheel, the deltaY is the scroll amount, but if the shift key is pressed
