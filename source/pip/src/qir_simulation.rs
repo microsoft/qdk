@@ -131,6 +131,8 @@ pub struct NoiseConfig {
     #[pyo3(get)]
     pub swap: Py<NoiseTable>,
     #[pyo3(get)]
+    pub ccx: Py<NoiseTable>,
+    #[pyo3(get)]
     pub mov: Py<NoiseTable>,
     #[pyo3(get)]
     pub mz: Py<NoiseTable>,
@@ -261,6 +263,7 @@ fn bind_noise_config<T: Float, Q: Float>(
         ryy: Py::new(py, NoiseTable::from(value.ryy.clone()))?,
         rzz: Py::new(py, NoiseTable::from(value.rzz.clone()))?,
         swap: Py::new(py, NoiseTable::from(value.swap.clone()))?,
+        ccx: Py::new(py, NoiseTable::from(value.ccx.clone()))?,
         mov: Py::new(py, NoiseTable::from(value.mov.clone()))?,
         mz: Py::new(py, NoiseTable::from(value.mz.clone()))?,
         mresetz: Py::new(py, NoiseTable::from(value.mresetz.clone()))?,
@@ -269,7 +272,7 @@ fn bind_noise_config<T: Float, Q: Float>(
     })
 }
 
-fn unbind_noise_config<T: Float, Q: Float>(
+pub(crate) fn unbind_noise_config<T: Float, Q: Float>(
     py: Python,
     value: &Bound<NoiseConfig>,
 ) -> qdk_simulators::noise_config::NoiseConfig<T, Q> {
@@ -296,6 +299,7 @@ fn unbind_noise_config<T: Float, Q: Float>(
         ryy: from_noise_table_ref(value.ryy.borrow(py)),
         rzz: from_noise_table_ref(value.rzz.borrow(py)),
         swap: from_noise_table_ref(value.swap.borrow(py)),
+        ccx: from_noise_table_ref(value.ccx.borrow(py)),
         mov: from_noise_table_ref(value.mov.borrow(py)),
         mz: from_noise_table_ref(value.mz.borrow(py)),
         mresetz: from_noise_table_ref(value.mresetz.borrow(py)),

@@ -15,6 +15,7 @@ log = { workspace = true }
 miette = { workspace = true }
 num-bigint = { workspace = true }
 num-complex = { workspace = true }
+qdk_simulators =  { path = "../../simulators" }
 qsc_codegen = { path = "../qsc_codegen" }
 qsc_data_structures = { path = "../qsc_data_structures" }
 qsc_doc_gen = { path = "../qsc_doc_gen" }

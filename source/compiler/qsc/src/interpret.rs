@@ -24,6 +24,7 @@ use debug::format_call_stack;
 use miette::Diagnostic;
 use num_bigint::BigUint;
 use num_complex::Complex;
+use qdk_simulators::noise_config::NoiseConfig;
 use qsc_circuit::{
     Circuit, CircuitTracer, TracerConfig,
     operations::{entry_expr_for_qubit_operation, qubit_param_info},
@@ -840,10 +841,19 @@ impl Interpreter {
         args: Value,
         noise: Option<PauliNoise>,
         qubit_loss: Option<f64>,
+        noise_config: Option<NoiseConfig<f64, f64>>,
     ) -> InterpretResult {
+        let qubit_loss = if noise_config.is_none() {
+            qubit_loss
+        } else {
+            None
+        };
         let mut sim = match noise {
             Some(noise) => SparseSim::new_with_noise(&noise),
-            None => SparseSim::new(),
+            None => match noise_config {
+                Some(config) => SparseSim::new_with_noise_config(config.into()),
+                None => SparseSim::new(),
+            },
         };
         if let Some(loss) = qubit_loss {
             sim.set_loss(loss);
@@ -859,10 +869,19 @@ impl Interpreter {
         expr: Option<&str>,
         noise: Option<PauliNoise>,
         qubit_loss: Option<f64>,
+        noise_config: Option<NoiseConfig<f64, f64>>,
     ) -> InterpretResult {
+        let qubit_loss = if noise_config.is_none() {
+            qubit_loss
+        } else {
+            None
+        };
         let mut sim = match noise {
             Some(noise) => SparseSim::new_with_noise(&noise),
-            None => SparseSim::new(),
+            None => match noise_config {
+                Some(config) => SparseSim::new_with_noise_config(config.into()),
+                None => SparseSim::new(),
+            },
         };
         if let Some(loss) = qubit_loss {
             sim.set_loss(loss);

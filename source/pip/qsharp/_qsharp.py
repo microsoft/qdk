@@ -19,6 +19,7 @@ from ._native import (  # type: ignore
     PrimitiveKind,
     CircuitConfig,
     CircuitGenerationMethod,
+    NoiseConfig,
 )
 from typing import (
     Any,
@@ -703,6 +704,7 @@ def run(
             BitFlipNoise,
             PhaseFlipNoise,
             DepolarizingNoise,
+            NoiseConfig,
         ]
     ] = None,
     qubit_loss: Optional[float] = None,
@@ -773,6 +775,11 @@ def run(
         assert isinstance(entry_expr, str)
         run_entry_expr = entry_expr
 
+    noise_config = None
+    if isinstance(noise, NoiseConfig):
+        noise_config = noise
+        noise = None
+
     for shot in range(shots):
         results.append(
             {"result": None, "events": [], "messages": [], "matrices": [], "dumps": []}
@@ -780,6 +787,7 @@ def run(
         run_results = get_interpreter().run(
             run_entry_expr,
             on_save_events if save_events else print_output,
+            noise_config,
             noise,
             qubit_loss,
             callable,
