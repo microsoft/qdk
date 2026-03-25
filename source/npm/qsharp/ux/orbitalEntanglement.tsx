@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import { h } from "preact";
+import { renderToString } from "preact-render-to-string";
+
 /**
  * Orbital entanglement chord diagram.
  *
@@ -503,4 +506,14 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       </g>
     </svg>
   );
+}
+
+// ---------------------------------------------------------------------------
+// SVG serialisation
+// ---------------------------------------------------------------------------
+
+export function orbitalEntanglementToSvg(
+  props: OrbitalEntanglementProps,
+): string {
+  return renderToString(h(OrbitalEntanglement, props));
 }

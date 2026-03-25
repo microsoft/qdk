@@ -13,7 +13,7 @@
 // works wherever Node.js is available — no sibling module imports needed.
 
 import { readFileSync } from "node:fs";
-import { chordDiagramToSvg } from "../../npm/qsharp/ux/orbitalEntanglement.tsx";
+import { orbitalEntanglementToSvg } from "../../npm/qsharp/ux/orbitalEntanglement.tsx";
 import { histogramToSvg } from "../../npm/qsharp/ux/histogram.tsx";
 import { circuitToSvg } from "../../npm/qsharp/ux/circuitToSvg.ts";
 
@@ -23,15 +23,10 @@ const { component, props } = JSON.parse(input);
 let output = "";
 
 switch (component) {
-  // ---- ChordDiagram (generic chord diagram, pure Preact SVG) ----
-  case "ChordDiagram": {
-    output = chordDiagramToSvg(props);
-    break;
-  }
-
-  // ---- OrbitalEntanglement (alias for ChordDiagram with orbital defaults) ----
+  // ---- OrbitalEntanglement (chord diagram) ----
+  case "ChordDiagram":
   case "OrbitalEntanglement": {
-    output = chordDiagramToSvg(props);
+    output = orbitalEntanglementToSvg(props);
     break;
   }
 
