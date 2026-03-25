@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-
 // See https://webgpufundamentals.org/webgpu/lessons/webgpu-wgsl.html for an overview
 // See https://www.w3.org/TR/WGSL/ for the details
 // See https://webgpu.github.io/webgpu-samples/ for examples

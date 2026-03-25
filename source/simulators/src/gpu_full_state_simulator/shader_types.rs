@@ -110,9 +110,11 @@ pub struct ShotData {
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct DiagnosticsData {
     pub error_code: u32,
+    pub termination_count: u32,
     pub extra1: u32,
     pub extra2: f32,
     pub extra3: f32,
+    _padding: u32,
     pub shot: ShotData,
     pub op: Op,
     pub qubit_probabilities: [QubitProbabilityPerThread; THREADS_PER_WORKGROUP as usize],

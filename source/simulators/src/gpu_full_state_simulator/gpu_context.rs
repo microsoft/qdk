@@ -439,7 +439,7 @@ impl GpuContext {
         params.results_buffer_size = i32_to_usize(params.shots_per_batch * (params.result_count + 1)) // +1 for error code per shot
                 * std::mem::size_of::<u32>();
 
-        params.diagnostics_buffer_size = 4 * 4 /* initial bytes for error codes and ad-hoc data */
+        params.diagnostics_buffer_size = 6 * 4 /* error_code, termination_count, extra1, extra2, extra3, padding */
                 + SIZEOF_SHOTDATA + std::mem::size_of::<Op>() // ShotData + Op
                 + (THREADS_PER_WORKGROUP * 8 * MAX_QUBIT_COUNT) as usize // Workgroup probabilities
                 + std::mem::size_of::<WorkgroupCollationBuffer>(); // Collation buffers
@@ -705,9 +705,8 @@ impl GpuContext {
             self.resources
                 .upload_register_file(cast_slice(&register_data))?;
 
-            // Initialize termination counter: zeroed u32
-            self.resources
-                .upload_termination_counter(cast_slice(&[0u32]))?;
+            // Zero the diagnostics header (error_code + termination_count) for this batch
+            self.resources.reset_diagnostics_header()?;
 
             let kernels = self.resources.get_kernels()?;
 
@@ -766,7 +765,7 @@ impl GpuContext {
                 }
 
                 // Check for termination.
-                let terminated = self.resources.download_termination_counter().await?;
+                let terminated = self.resources.download_termination_count().await?;
                 if terminated >= shots_this_batch {
                     break;
                 }

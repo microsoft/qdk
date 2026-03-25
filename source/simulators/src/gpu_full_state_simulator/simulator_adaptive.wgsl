@@ -93,9 +93,11 @@ var<storage, read_write> results: array<atomic<u32>>;
 // When an error occurs, the below diagnostic data structure is used to store information about the error
 struct DiagnosticData {
     error_code: atomic<u32>,
+    termination_count: atomic<u32>,
     extra1: u32,
     extra2: f32,
     extra3: f32,
+    _padding: u32,
     shot: ShotData, // 640 bytes
     op: Op,         // 144 bytes
     // Below is usually 6,912 bytes (size = THREADS_PER_WORKGROUP (32) * (8 * MAX_QUBIT_COUNT (27))
@@ -243,7 +245,8 @@ struct InterpreterState {
 // Total struct size = 64 u32 = 256 bytes (which is aligned to 128 bytes)
 
 // -----------------------------------------------------------------------------
-// Adaptive interpreter buffer bindings (9-17)
+// Adaptive interpreter buffer bindings (9-11)
+// Termination counting is done via diagnostics.termination_count (binding 5).
 // -----------------------------------------------------------------------------
 
 @group(0) @binding(9)
@@ -254,9 +257,6 @@ var<storage, read_write> interpreter_state: array<InterpreterState>;  // Per-sho
 
 @group(0) @binding(11)
 var<storage, read_write> shot_registers: array<u32>;  // Per-shot register files (flattened)
-
-@group(0) @binding(12)
-var<storage, read_write> termination_counter: atomic<u32>;  // Count of halted shots
 
 // -----------------------------------------------------------------------------
 // Adaptive interpreter constants
@@ -768,8 +768,9 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // both in the per-shot interpreter state and atomically into the
             // results buffer. The atomic-compare-exchange ensures only the
             // first non-zero exit code is recorded for this shot (useful for
-            // error reporting). The termination_counter is incremented so the
-            // host can detect when all shots have finished.
+            // error reporting). The termination count in the diagnostics
+            // buffer is incremented so the host can detect when all shots
+            // have finished.
             case OP_RET {
                 let exit_code = resolve_u32(shot_idx, instr.dst, flags, 2u);
                 interpreter_state[shot_idx].exit_code = exit_code;
@@ -778,7 +779,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let err_index = (shot_idx + 1) * RESULT_COUNT - 1;
                 atomicCompareExchangeWeak(&results[err_index], 0u, exit_code);
                 interpreter_state[shot_idx].status = STATUS_TERMINATED;
-                atomicAdd(&termination_counter, 1u);
+                atomicAdd(&diagnostics.termination_count, 1u);
                 should_break = true;
             }
 
@@ -867,7 +868,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                     let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                     atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_CALL_STACK_OVERFLOW);
                     interpreter_state[shot_idx].status = STATUS_ERROR;
-                    atomicAdd(&termination_counter, 1u);
+                    atomicAdd(&diagnostics.termination_count, 1u);
                     should_break = true;
                     break;
                 }
@@ -899,7 +900,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                     let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                     atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_CALL_STACK_UNDERFLOW);
                     interpreter_state[shot_idx].status = STATUS_ERROR;
-                    atomicAdd(&termination_counter, 1u);
+                    atomicAdd(&diagnostics.termination_count, 1u);
                     should_break = true;
                     break;
                 }
@@ -1150,7 +1151,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                         let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                         atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_INVALID_INSTRUCTION);
                         interpreter_state[shot_idx].status = STATUS_ERROR;
-                        atomicAdd(&termination_counter, 1u);
+                        atomicAdd(&diagnostics.termination_count, 1u);
                         should_break = true;
                     }
                 }
@@ -1180,7 +1181,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                         let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                         atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_INVALID_INSTRUCTION);
                         interpreter_state[shot_idx].status = STATUS_ERROR;
-                        atomicAdd(&termination_counter, 1u);
+                        atomicAdd(&diagnostics.termination_count, 1u);
                         should_break = true;
                     }
                 }
@@ -1352,7 +1353,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // Unknown opcode — flag the shot as errored.
             default {
                 interpreter_state[shot_idx].status = STATUS_ERROR;
-                atomicAdd(&termination_counter, 1u);
+                atomicAdd(&diagnostics.termination_count, 1u);
                 should_break = true;
             }
         }

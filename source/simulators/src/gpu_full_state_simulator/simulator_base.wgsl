@@ -89,9 +89,11 @@ var<storage, read_write> results: array<atomic<u32>>;
 // When an error occurs, the below diagnostic data structure is used to store information about the error
 struct DiagnosticData {
     error_code: atomic<u32>,
+    termination_count: atomic<u32>,
     extra1: u32,
     extra2: f32,
     extra3: f32,
+    _padding: u32,
     shot: ShotData, // 640 bytes
     op: Op,         // 144 bytes
     // Below is usually 6,912 bytes (size = THREADS_PER_WORKGROUP (32) * (8 * MAX_QUBIT_COUNT (27))

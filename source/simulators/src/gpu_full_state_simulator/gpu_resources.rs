@@ -61,12 +61,10 @@ const UNIFORM_BUF_IDX: usize = 6;
 const CORRELATED_NOISE_TABLES_BUF_IDX: usize = 7;
 const CORRELATED_NOISE_ENTRIES_BUF_IDX: usize = 8;
 
-// Adaptive interpreter buffer indices.
-// Adaptive interpreter buffer indices (bindings 9-12)
+// Adaptive interpreter buffer indices (bindings 9-11)
 const PROGRAM_IDX: usize = 9;
 const INTERPRETER_STATE_BUF_IDX: usize = 10;
 const REGISTER_FILE_BUF_IDX: usize = 11;
-const TERMINATION_COUNTER_BUF_IDX: usize = 12;
 
 impl Default for GpuDeviceResources {
     fn default() -> Self {
@@ -149,14 +147,15 @@ impl GpuDeviceResources {
             kernels: None,
             bind_group: None,
             // --------------------------------------------------------------
-            // Bind group layout: 13 bindings in @group(0)
+            // Bind group layout: 12 bindings in @group(0)
             // --------------------------------------------------------------
             // Bindings 0-8:  quantum ops (ops, state vector, results, noise, etc.)
-            // Bindings 9-12: Adaptive interpreter (bytecode, block/function/phi/switch
-            //                tables, interpreter state, register file, termination counter)
+            // Bindings 9-11: Adaptive interpreter (bytecode, block/function/phi/switch
+            //                tables, interpreter state, register file)
+            // The termination counter is stored in the diagnostics buffer.
             //
             // This exceeds the WebGPU minimum of 8 storage buffers per shader stage
-            // but is within the limits of modern GPUs. This is currently being discused
+            // but is within the limits of modern GPUs. This is currently being discussed
             // here: https://github.com/gfx-rs/wgpu/issues/9287#issuecomment-4113254133.
             // The create_device() function validates adapter support at startup.
             // --------------------------------------------------------------
@@ -200,7 +199,7 @@ impl GpuDeviceResources {
                     name: "Diagnostics",
                     is_uniform: false,
                     read_only: false,
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
                     buffer: None,
                 },
                 BufferBinding {
@@ -244,13 +243,6 @@ impl GpuDeviceResources {
                     is_uniform: false,
                     read_only: false,
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                    buffer: None,
-                },
-                BufferBinding {
-                    name: "TerminationCounter",
-                    is_uniform: false,
-                    read_only: false,
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST | BufferUsages::COPY_SRC,
                     buffer: None,
                 },
             ],
@@ -898,7 +890,6 @@ impl GpuResources {
             PROGRAM_IDX,
             INTERPRETER_STATE_BUF_IDX,
             REGISTER_FILE_BUF_IDX,
-            TERMINATION_COUNTER_BUF_IDX,
         ] {
             Self::ensure_buffer(device, &mut bound_buffers[idx], 16);
         }
@@ -947,8 +938,12 @@ impl GpuResources {
         self.upload_data(data, REGISTER_FILE_BUF_IDX)
     }
 
-    pub fn upload_termination_counter(&mut self, data: &[u8]) -> Result<(), String> {
-        self.upload_data(data, TERMINATION_COUNTER_BUF_IDX)
+    /// Zero the diagnostics header (`error_code` + `termination_count`) before each batch.
+    pub fn reset_diagnostics_header(&self) -> Result<(), String> {
+        let queue = self.queue.as_ref().ok_or("GPU queue not initialized")?;
+        let buf = self.try_get_buffer(DIAGNOSTICS_BUF_IDX)?;
+        queue.write_buffer(buf, 0, &[0u8; 8]); // error_code (4 bytes) + termination_count (4 bytes)
+        Ok(())
     }
 
     pub fn ensure_run_buffers_adaptive(
@@ -983,7 +978,6 @@ impl GpuResources {
             (DIAGNOSTICS_BUF_IDX, diagnostics_buffer_size),
             (INTERPRETER_STATE_BUF_IDX, interpreter_state_size),
             (REGISTER_FILE_BUF_IDX, register_file_size),
-            (TERMINATION_COUNTER_BUF_IDX, 4),
         ] {
             check_buffer(idx, size);
         }
@@ -991,20 +985,21 @@ impl GpuResources {
         Ok(())
     }
 
-    /// Download the termination counter (single u32) from the GPU.
-    pub async fn download_termination_counter(&self) -> Result<u32, String> {
+    /// Read back the termination count from the diagnostics buffer (offset 4, size 4).
+    pub async fn download_termination_count(&self) -> Result<u32, String> {
         let device = self.device.as_ref().ok_or("GPU device not initialized")?;
-        let counter_buf = self.try_get_buffer(TERMINATION_COUNTER_BUF_IDX)?;
+        let diag_buf = self.try_get_buffer(DIAGNOSTICS_BUF_IDX)?;
 
         let download = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Termination Counter Download"),
+            label: Some("Termination Count Download"),
             size: 4,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
 
-        let mut encoder = self.get_encoder("Termination Counter Copy Encoder")?;
-        encoder.copy_buffer_to_buffer(counter_buf, 0, &download, 0, 4);
+        let mut encoder = self.get_encoder("Termination Count Copy Encoder")?;
+        // termination_count is at byte offset 4 in DiagnosticsData (after error_code)
+        encoder.copy_buffer_to_buffer(diag_buf, 4, &download, 0, 4);
         self.submit_command_buffer(encoder.finish())?;
 
         let buffer_slice = download.slice(..);
