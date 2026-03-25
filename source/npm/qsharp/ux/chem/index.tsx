@@ -7,11 +7,15 @@ import { createViewer, GLViewer } from "3dmol";
 import "./style.css";
 import { detectThemeChange } from "../themeObserver.js";
 
+type CubeData = {
+  data: string;
+  info?: { [key: string]: string | number };
+};
+
 export function MoleculeViewer(props: {
   moleculeData: string;
-  cubeData: { [key: string]: string };
+  cubeData: { [key: string]: string | CubeData };
   isoValue?: number;
-  dataOverlay?: { [key: string]: { [key: string]: string | number } };
 }) {
   // Holds reference to the viewer div and 3Dmol viewer object.
   const viewerRef = useRef<HTMLDivElement>(null);
@@ -21,6 +25,14 @@ export function MoleculeViewer(props: {
   const [viewStyle, setViewStyle] = useState("Sphere");
   const [isoval, setIsoval] = useState(props.isoValue || 0.02);
   const [cubeKey, setCubeKey] = useState(Object.keys(props.cubeData)[0] || "");
+
+  const cubeData: CubeData | null =
+    !cubeKey || !props.cubeData[cubeKey]
+      ? null
+      : // Normalize the cube data to the expected form
+        typeof props.cubeData[cubeKey] === "string"
+        ? { data: props.cubeData[cubeKey] }
+        : (props.cubeData[cubeKey] as CubeData);
 
   // Runs after the DOM has been created. Create the 3Dmol viewer and adds the model.
   useEffect(() => {
@@ -61,21 +73,21 @@ export function MoleculeViewer(props: {
       return;
     }
 
-    if (cubeKey && props.cubeData[cubeKey]) {
+    if (cubeData) {
       activeCubeData.current.forEach((voldata) => {
         currViewer.removeShape(voldata);
       });
       activeCubeData.current = [];
-      const cubeData = props.cubeData[cubeKey];
+
       activeCubeData.current.push(
-        currViewer.addVolumetricData(cubeData.trim(), "cube", {
+        currViewer.addVolumetricData(cubeData.data.trim(), "cube", {
           isoval,
           opacity: 1,
           color: "#0072B2",
         }),
       );
       activeCubeData.current.push(
-        currViewer.addVolumetricData(cubeData.trim(), "cube", {
+        currViewer.addVolumetricData(cubeData.data.trim(), "cube", {
           isoval: -1 * isoval,
           opacity: 1,
           color: "#FFA500",
@@ -111,87 +123,88 @@ export function MoleculeViewer(props: {
         style="width: 640px; height: 480px;"
       ></div>
 
-      <div id="view-dropdown-container" class="view-option">
-        <label for="viewSelector">Visualization Style:</label>
-        <select
-          id="viewSelector"
-          onChange={(e) => {
-            const style = (e.target as HTMLSelectElement).value;
-            setViewStyle(style);
-          }}
-        >
-          <option value="Sphere">Sphere</option>
-          <option value="Stick">Stick</option>
-          <option value="Line">Line</option>
-        </select>
-      </div>
-      {cubeKey ? (
-        <>
-          <div id="cube-dropdown-container" class="view-option">
-            <label for="cubeSelector">Cube selection:</label>
+      <div id="controls-overlay">
+        <div class="controls-column">
+          <div id="view-dropdown-container" class="view-option">
+            <label for="viewSelector">Visualization Style:</label>
             <select
-              id="cubeSelector"
+              id="viewSelector"
               onChange={(e) => {
-                const key = (e.target as HTMLSelectElement).value;
-                setCubeKey(key);
+                const style = (e.target as HTMLSelectElement).value;
+                setViewStyle(style);
               }}
             >
-              {Object.keys(props.cubeData).map((key) => (
-                <option value={key} selected={key === cubeKey}>
-                  {key}
-                </option>
-              ))}
+              <option value="Sphere">Sphere</option>
+              <option value="Stick">Stick</option>
+              <option value="Line">Line</option>
             </select>
           </div>
+          {cubeKey ? (
+            <>
+              <div id="cube-dropdown-container" class="view-option">
+                <label for="cubeSelector">Cube selection:</label>
+                <select
+                  id="cubeSelector"
+                  onChange={(e) => {
+                    const key = (e.target as HTMLSelectElement).value;
+                    setCubeKey(key);
+                  }}
+                >
+                  {Object.keys(props.cubeData).map((key) => (
+                    <option value={key} selected={key === cubeKey}>
+                      {key}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div id="isoval-slider-container" class="view-option">
-            <label for="isovalSlider">Adjust isovalue:</label>
-            <input
-              type="range"
-              id="isovalSlider"
-              min="0.005"
-              max="0.1"
-              step="0.005"
-              value={isoval}
-              onInput={(e) => {
-                const new_isoval = parseFloat(
-                  (e.target as HTMLInputElement).value,
-                );
-                setIsoval(new_isoval);
-              }}
-            />
-            <input
-              type="number"
-              id="isovalInput"
-              min="0.005"
-              max="0.1"
-              step="0.001"
-              value={isoval}
-              onInput={(e) => {
-                const new_isoval = parseFloat(
-                  (e.target as HTMLInputElement).value,
-                );
-                if (!isNaN(new_isoval)) {
-                  setIsoval(new_isoval);
-                }
-              }}
-            />
+              <div id="isoval-slider-container" class="view-option">
+                <label for="isovalSlider">Adjust isovalue:</label>
+                <input
+                  type="range"
+                  id="isovalSlider"
+                  min="0.005"
+                  max="0.1"
+                  step="0.005"
+                  value={isoval}
+                  onInput={(e) => {
+                    const new_isoval = parseFloat(
+                      (e.target as HTMLInputElement).value,
+                    );
+                    setIsoval(new_isoval);
+                  }}
+                />
+                <input
+                  type="number"
+                  id="isovalInput"
+                  min="0.005"
+                  max="0.1"
+                  step="0.001"
+                  value={isoval}
+                  onInput={(e) => {
+                    const new_isoval = parseFloat(
+                      (e.target as HTMLInputElement).value,
+                    );
+                    if (!isNaN(new_isoval)) {
+                      setIsoval(new_isoval);
+                    }
+                  }}
+                />
+              </div>
+            </>
+          ) : null}
+        </div>
+        {cubeData?.info && (
+          <div class="controls-column">
+            {Object.entries(cubeData.info).map(([key, value]) => (
+              <div class="data-overlay-row" key={key}>
+                <label class="data-overlay-key">{key}:</label>
+                <span class="data-overlay-value">{value}</span>
+              </div>
+            ))}
           </div>
-        </>
-      ) : null}
-
-      {cubeKey && props.dataOverlay?.[cubeKey] &&
-        Object.keys(props.dataOverlay[cubeKey]).length > 0 &&
-        Object.entries(props.dataOverlay[cubeKey]).map(([key, value], i) => (
-          <div
-            class="view-option data-overlay-row"
-            key={key}
-            style={`position:absolute;top:${10 + i * 20}px;left:420px;height:20px;padding:0 10px;z-index:10;font-family:system-ui;pointer-events:none;`}
-          >
-            <label class="data-overlay-key">{key}:</label>
-            <span class="data-overlay-value">{value}</span>
-          </div>
-        ))}
+        )}
+      </div>
     </div>
   );
 }
