@@ -93,7 +93,7 @@ let re = c.Re;                     // Field access
 ```qsharp
 // Arithmetic: + - * / % ^       Comparison: == != < <= > >=
 // Logical: and or not           Bitwise: ~~~ &&& ||| ^^^ <<< >>>
-// String interpolation: $"x={x}"  Array update: arr w/ idx <- val
+// String interpolation: $"x={x}"  Array update: arr[i] = val
 // Ternary: cond ? trueVal | falseVal
 ```
 
@@ -112,6 +112,11 @@ for elem in array { }             // Array iteration
 while condition { }
 
 // Repeat-until (quantum retry pattern)
+repeat {
+    H(q);
+} until MResetZ(q) == Zero;
+
+// Repeat-until with fixup block
 repeat {
     H(q);
 } until M(q) == Zero
@@ -149,7 +154,7 @@ let cnot0 = CNOT(control, _);      // _ is placeholder
 ### Functor Support
 
 ```qsharp
-// Declare with `is` keyword
+// Declare with `is` keyword — compiler auto-generates Adjoint/Controlled
 operation MyGate(q : Qubit) : Unit is Adj + Ctl { H(q); }
 
 // Use functors
@@ -157,8 +162,7 @@ Adjoint MyGate(q);                  // Inverse
 Controlled MyGate([ctrl], q);       // Controlled version
 Controlled Adjoint MyGate([ctrl], q);
 
-// Auto-generated: compiler derives Adjoint/Controlled
-// Manual specializations:
+// Manual specializations (when auto-generation isn't sufficient):
 operation Custom(q : Qubit) : Unit is Adj {
     body (...) { H(q); }
     adjoint (...) { H(q); }        // H is self-adjoint
@@ -304,12 +308,12 @@ For standalone `.qs` files (no `qsharp.json`), declare the profile on the entry 
 operation Main() : Result { ... }
 ```
 
-| Profile / Attribute             | Description                                                                    |
-| ------------------------------- | ------------------------------------------------------------------------------ |
-| `unrestricted`                  | Full simulation (default)                                                      |
-| `adaptive_ri` / `Adaptive_RI`   | Mid-circuit measurement + classical feed-forward                               |
-| `adaptive_rif` / `Adaptive_RIF` | Adds floating-point computation; required for `CircuitGenerationMethod.Static` |
-| `base` / `Base`                 | No mid-circuit measurement, no classical branching                             |
+| Profile / Attribute             | Description                                                                                                          |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `unrestricted`                  | Full simulation (default)                                                                                            |
+| `adaptive_rif` / `Adaptive_RIF` | Adaptive profile with integer & floating-point computation extensions; required for `CircuitGenerationMethod.Static` |
+| `adaptive_ri` / `Adaptive_RI`   | Adaptive profile with integer computation extension                                                                  |
+| `base` / `Base`                 | Minimal capabilities required to run a quantum program (Base Profile per QIR spec)                                   |
 
 ## Running, Estimation, Circuits, and Azure Quantum
 

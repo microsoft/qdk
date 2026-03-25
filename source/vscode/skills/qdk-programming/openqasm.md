@@ -112,6 +112,23 @@ for int i in [0:3] {
 }
 ```
 
+## Target Profiles (Optional)
+
+Use the `#pragma qdk.qir.profile` directive to set the target profile for compilation to QIR. If omitted, the default profile is used.
+
+```qasm
+OPENQASM 3.0;
+include "stdgates.inc";
+#pragma qdk.qir.profile Adaptive_RI
+```
+
+| Profile        | Description                                                           |
+| -------------- | --------------------------------------------------------------------- |
+| `Unrestricted` | Full simulation (default when pragma is omitted)                      |
+| `Adaptive_RIF` | Adaptive profile with integer & floating-point computation extensions |
+| `Adaptive_RI`  | Adaptive profile with integer computation extension                   |
+| `Base`         | Minimal capabilities required to run a quantum program                |
+
 ## Running, Estimation, Circuits, and Azure Quantum
 
 Running programs, resource estimation, circuit diagrams, and Azure Quantum submission are available directly via tools. For Python and Jupyter workflows, see [python.md](./python.md).

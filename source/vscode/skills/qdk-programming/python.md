@@ -88,12 +88,12 @@ qsharp.init(project_root="./my_project")
 
 ### Target Profiles
 
-| Profile                      | Use Case                                                    |
-| ---------------------------- | ----------------------------------------------------------- |
-| `TargetProfile.Unrestricted` | Local simulation with full Q# features (default)            |
-| `TargetProfile.Base`         | No mid-circuit measurement; broadest hardware compatibility |
-| `TargetProfile.Adaptive_RI`  | Mid-circuit measurement and classical feedback              |
-| `TargetProfile.Adaptive_RIF` | Advanced adaptive with float/int classical compute          |
+| Profile                      | Use Case                                                              |
+| ---------------------------- | --------------------------------------------------------------------- |
+| `TargetProfile.Unrestricted` | Full simulation (default)                                             |
+| `TargetProfile.Adaptive_RIF` | Adaptive profile with integer & floating-point computation extensions |
+| `TargetProfile.Adaptive_RI`  | Adaptive profile with integer computation extension                   |
+| `TargetProfile.Base`         | Minimal capabilities required to run a quantum program (Base Profile) |
 
 ## Q#
 
