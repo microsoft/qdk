@@ -11,8 +11,8 @@ import Std.Math.*;
 
 /// # Summary
 /// Estimate the the eigenvalue of a specific unitary U for its eigenvector |010⟩
-/// using `ApplyQPE`. The result is returned as a complex polar value.
-operation Main() : ComplexPolar {
+/// using `ApplyQPE`. The result is returned as the argument of a complex polar value.
+operation Main() : Double {
     // Allocate qubits to be used in phase estimation
     use state = Qubit[3];
 
@@ -26,7 +26,7 @@ operation Main() : ComplexPolar {
     ResetAll(state);
 
     // The eigenvalue represented as ComplexPolar should be (1.0, π/3.0)
-    // or approximately (1.0, 1.04719755).
+    // so the argument is approximately 1.04719755.
     eigenvalue
 }
 
@@ -37,7 +37,7 @@ operation EstimateEigenvalue(
     U : Qubit[] => Unit is Adj + Ctl,
     eigenstate : Qubit[],
     precision : Int
-) : ComplexPolar {
+) : Double {
     // Allocate qubits to be used in phase estimation
     use phase = Qubit[precision];
 
@@ -51,10 +51,7 @@ operation EstimateEigenvalue(
     ResetAll(phase);
 
     // Return one data point for histogram display
-    new ComplexPolar {
-        Magnitude = 1.0,
-        Argument = phaseEstimation * 2.0 * Std.Math.PI()
-    }
+    phaseEstimation * 2.0 * Std.Math.PI()
 }
 
 /// # Summary

@@ -160,10 +160,7 @@ impl Operation {
         };
 
         if md.is_none() {
-            md.replace(Metadata {
-                source: None,
-                scope_location: None,
-            });
+            md.replace(Metadata::default());
         }
 
         if let Some(md) = md {
@@ -182,10 +179,7 @@ impl Operation {
         };
 
         if md.is_none() {
-            md.replace(Metadata {
-                source: None,
-                scope_location: None,
-            });
+            md.replace(Metadata::default());
         }
 
         if let Some(md) = md {
@@ -285,6 +279,10 @@ pub struct Unitary {
     #[serde(skip_serializing_if = "Not::not")]
     #[serde(default)]
     pub is_adjoint: bool,
+    #[serde(rename = "isConditional")]
+    #[serde(skip_serializing_if = "Not::not")]
+    #[serde(default)]
+    pub is_conditional: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
 }
@@ -345,7 +343,7 @@ pub struct Qubit {
     pub declarations: Vec<SourceLocation>,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 /// The schema of `Metadata` may change and its contents
 /// are never meant to be persisted in a .qsc file.
@@ -356,6 +354,9 @@ pub struct Metadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     /// Only populated if this operation represents a scope group.
     pub scope_location: Option<SourceLocation>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// Map from Register to "result ID" which will be used to display labels in UI
+    pub control_result_ids: Vec<(Register, usize)>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -905,6 +906,21 @@ impl CircuitDisplay<'_> {
 
                     col_width = max(col_width, 1);
                 }
+            } else if op.is_controlled() {
+                // Rendering groups is disabled, but this is a controlled group - the meaning of the diagram would change if we showed just
+                // the group's contents without the control. So just render the group as a "black box" with the control,
+                // as if it's a standalone gate
+                add_operation_to_rows(
+                    op,
+                    rows,
+                    &target_rows,
+                    &control_rows,
+                    column,
+                    begin,
+                    end,
+                    None,
+                );
+                col_width = max(col_width, 1);
             } else {
                 // Don't render the group, render all the children directly
                 let offset = self.add_grid(column, op.children(), rows, insets, register_to_row);
@@ -1117,7 +1133,10 @@ fn get_row_indexes(
 ///
 /// A component grid representing the operations.
 #[must_use]
-pub fn operation_list_to_grid(mut operations: Vec<Operation>, num_qubits: usize) -> ComponentGrid {
+pub fn operation_list_to_grid(
+    mut operations: Vec<Operation>,
+    qubits: &[Qubit],
+) -> Vec<ComponentColumn> {
     for op in &mut operations {
         // The children data structure is a grid, so checking if it is
         // length 1 is actually checking if it has a single column,
@@ -1128,225 +1147,94 @@ pub fn operation_list_to_grid(mut operations: Vec<Operation>, num_qubits: usize)
         if op.children().len() == 1 {
             match op {
                 Operation::Measurement(m) => {
-                    m.children =
-                        operation_list_to_grid(m.children.remove(0).components, num_qubits);
+                    let child_vec = m.children.remove(0).components;
+                    m.children = operation_list_to_grid(child_vec, qubits);
                 }
                 Operation::Unitary(u) => {
-                    u.children =
-                        operation_list_to_grid(u.children.remove(0).components, num_qubits);
+                    let child_vec = u.children.remove(0).components;
+                    u.children = operation_list_to_grid(child_vec, qubits);
                 }
                 Operation::Ket(k) => {
-                    k.children =
-                        operation_list_to_grid(k.children.remove(0).components, num_qubits);
+                    let child_vec = k.children.remove(0).components;
+                    k.children = operation_list_to_grid(child_vec, qubits);
                 }
             }
         }
     }
 
     // Convert the operations into a component grid
-    let mut component_grid = vec![];
-    for col in remove_padding(operation_list_to_padded_array(operations, num_qubits)) {
-        let column = ComponentColumn { components: col };
-        component_grid.push(column);
-    }
-    component_grid
+    operation_list_to_grid_base(operations, qubits)
 }
 
-/// Converts a list of operations into a padded 2D array of operations.
-///
-/// # Arguments
-///
-/// * `operations` - A vector of operations to be converted.
-/// * `num_qubits` - The number of qubits in the circuit.
-///
-/// # Returns
-///
-/// A 2D vector of optional operations padded with `None`.
-fn operation_list_to_padded_array(
+#[derive(Debug)]
+struct RowInfo {
+    register: Register,
+    next_available_column: usize,
+}
+
+fn get_row_for_register(register: &Register, rows: &[RowInfo]) -> usize {
+    rows.iter()
+        .position(|r| r.register == *register)
+        .unwrap_or_else(|| panic!("register {register:?} not found in rows {rows:?}"))
+}
+
+fn operation_list_to_grid_base(
     operations: Vec<Operation>,
-    num_qubits: usize,
-) -> Vec<Vec<Option<Operation>>> {
-    if operations.is_empty() {
-        return vec![];
-    }
-
-    let grouped_ops = group_operations(&operations, num_qubits);
-    let aligned_ops = transform_to_col_row(align_ops(grouped_ops));
-
-    // Need to convert to optional operations so we can
-    // take operations out without messing up the indexing
-    let mut operations = operations.into_iter().map(Some).collect::<Vec<_>>();
-    aligned_ops
-        .into_iter()
-        .map(|col| {
-            col.into_iter()
-                .map(|op_idx| op_idx.and_then(|idx| operations[idx].take()))
-                .collect()
-        })
-        .collect()
-}
-
-/// Removes padding (`None` values) from a 2D array of operations.
-///
-/// # Arguments
-///
-/// * `operations` - A 2D vector of optional operations padded with `None`.
-///
-/// # Returns
-///
-/// A 2D vector of operations without `None` values.
-fn remove_padding(operations: Vec<Vec<Option<Operation>>>) -> Vec<Vec<Operation>> {
-    operations
-        .into_iter()
-        .map(|col| col.into_iter().flatten().collect())
-        .collect()
-}
-
-/// Transforms a row-col 2D array into an equivalent col-row 2D array.
-///
-/// # Arguments
-///
-/// * `aligned_ops` - A 2D vector of optional usize values in row-col format.
-///
-/// # Returns
-///
-/// A 2D vector of optional usize values in col-row format.
-fn transform_to_col_row(aligned_ops: Vec<Vec<Option<usize>>>) -> Vec<Vec<Option<usize>>> {
-    if aligned_ops.is_empty() {
-        return vec![];
-    }
-
-    let num_rows = aligned_ops.len();
-    let num_cols = aligned_ops
-        .iter()
-        .map(std::vec::Vec::len)
-        .max()
-        .unwrap_or(0);
-
-    let mut col_row_array = vec![vec![None; num_rows]; num_cols];
-
-    for (row, row_data) in aligned_ops.into_iter().enumerate() {
-        for (col, value) in row_data.into_iter().enumerate() {
-            col_row_array[col][row] = value;
+    qubits: &[Qubit],
+) -> Vec<ComponentColumn> {
+    let mut rows = vec![];
+    for q in qubits {
+        rows.push(RowInfo {
+            register: Register::quantum(q.id),
+            next_available_column: 0,
+        });
+        for i in 0..q.num_results {
+            rows.push(RowInfo {
+                register: Register::classical(q.id, i),
+                next_available_column: 0,
+            });
         }
     }
 
-    col_row_array
-}
+    let mut columns: Vec<ComponentColumn> = vec![];
 
-/// Groups operations by their respective registers.
-///
-/// # Arguments
-///
-/// * `operations` - A slice of operations to be grouped.
-/// * `num_qubits` - The number of qubits in the circuit.
-///
-/// # Returns
-///
-/// A 2D vector of indices where `groupedOps[i][j]` is the index of the operations
-/// at register `i` and column `j` (not yet aligned/padded).
-fn group_operations(operations: &[Operation], num_qubits: usize) -> Vec<Vec<usize>> {
-    let mut grouped_ops = vec![vec![]; num_qubits];
-
-    let max_q_id = match num_qubits {
-        0 => 0,
-        _ => num_qubits - 1,
-    };
-
-    for (instr_idx, op) in operations.iter().enumerate() {
-        let ctrls = match op {
+    for op in operations {
+        // get the entire range that this operation spans
+        let targets = match &op {
             Operation::Measurement(m) => &m.qubits,
-            Operation::Unitary(u) => &u.controls,
-            Operation::Ket(_) => &vec![],
-        };
-        let targets = match op {
-            Operation::Measurement(m) => &m.results,
             Operation::Unitary(u) => &u.targets,
             Operation::Ket(k) => &k.targets,
         };
-        let q_regs: Vec<_> = ctrls
-            .iter()
-            .chain(targets)
-            .filter(|reg| !reg.is_classical())
-            .collect();
-        let q_reg_idx_list: Vec<_> = q_regs.iter().map(|reg| reg.qubit).collect();
-        let cls_controls: Vec<_> = ctrls.iter().filter(|reg| reg.is_classical()).collect();
-        let is_classically_controlled = !cls_controls.is_empty();
-
-        if !is_classically_controlled && q_regs.is_empty() {
-            continue;
-        }
-
-        let (min_reg_idx, max_reg_idx) = if is_classically_controlled {
-            (0, max_q_id)
-        } else {
-            q_reg_idx_list
-                .into_iter()
-                .fold(None, |acc, x| match acc {
-                    None => Some((x, x)),
-                    Some((min, max)) => Some((min.min(x), max.max(x))),
-                })
-                .unwrap_or((0, max_q_id))
+        let controls = match &op {
+            Operation::Measurement(m) => &m.results,
+            Operation::Unitary(u) => &u.controls,
+            Operation::Ket(_) => &vec![],
         };
-
-        for reg_ops in grouped_ops
-            .iter_mut()
-            .take(max_reg_idx + 1)
-            .skip(min_reg_idx)
-        {
-            reg_ops.push(instr_idx);
+        let mut all_rows = targets
+            .iter()
+            .chain(controls.iter())
+            .map(|r| get_row_for_register(r, &rows))
+            .collect::<Vec<_>>();
+        all_rows.sort_unstable();
+        let (begin, end) = all_rows.split_first().map_or((0, 0), |(first, tail)| {
+            (*first, tail.last().unwrap_or(first) + 1)
+        });
+        // find the earliest column that all rows in this range are available
+        let column = rows[begin..end]
+            .iter()
+            .map(|r| r.next_available_column)
+            .max()
+            .unwrap_or(0);
+        // assign this operation to that column
+        // and update the rows to mark them as occupied until the next column
+        for r in &mut rows[begin..end] {
+            r.next_available_column = column + 1;
         }
+        if columns.len() <= column {
+            columns.resize_with(column + 1, || ComponentColumn { components: vec![] });
+        }
+        columns[column].components.push(op);
     }
 
-    grouped_ops
-}
-
-/// Aligns operations by padding registers with `None` to make sure that multiqubit
-/// gates are in the same column.
-///
-/// # Arguments
-///
-/// * `ops` - A 2D vector of usize values representing the operations.
-///
-/// # Returns
-///
-/// A 2D vector of optional usize values representing the aligned operations.
-fn align_ops(ops: Vec<Vec<usize>>) -> Vec<Vec<Option<usize>>> {
-    let mut max_num_ops = ops.iter().map(std::vec::Vec::len).max().unwrap_or(0);
-    let mut col = 0;
-    let mut padded_ops: Vec<Vec<Option<usize>>> = ops
-        .into_iter()
-        .map(|reg_ops| reg_ops.into_iter().map(Some).collect())
-        .collect();
-
-    while col < max_num_ops {
-        for reg_idx in 0..padded_ops.len() {
-            if padded_ops[reg_idx].len() <= col {
-                continue;
-            }
-
-            // Represents the gate at padded_ops[reg_idx][col]
-            let op_idx = padded_ops[reg_idx][col];
-
-            // The vec of where in each register the gate appears
-            let targets_pos: Vec<_> = padded_ops
-                .iter()
-                .map(|reg_ops| reg_ops.iter().position(|&x| x == op_idx))
-                .collect();
-            // The maximum column index of the gate in the target registers
-            let gate_max_col = targets_pos
-                .iter()
-                .filter_map(|&pos| pos)
-                .max()
-                .unwrap_or(usize::MAX);
-
-            if col < gate_max_col {
-                padded_ops[reg_idx].insert(col, None);
-                max_num_ops = max_num_ops.max(padded_ops[reg_idx].len());
-            }
-        }
-        col += 1;
-    }
-
-    padded_ops
+    columns
 }

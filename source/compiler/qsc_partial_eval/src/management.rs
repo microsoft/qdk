@@ -152,7 +152,8 @@ impl Backend for QuantumIntrinsicsChecker {
             | "GlobalPhase"
             | "ConfigurePauliNoise"
             | "ConfigureQubitLoss"
-            | "ApplyIdleNoise" => Some(Ok(Value::unit())),
+            | "ApplyIdleNoise"
+            | "PostSelectZ" => Some(Ok(Value::unit())),
             _ => None,
         }
     }

@@ -942,3 +942,43 @@ fn dynamic_double_from_if_expression_with_single_measurement_comparison_pass_dyn
                 Jump(1)"#]],
     );
 }
+
+#[test]
+fn dynamic_string_from_if_expression_with_concat_produces_branch_without_string() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            operation OpA(theta: Double, q : Qubit) : Unit { body intrinsic; }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                let x = if MResetZ(q) == Zero {
+                    "zero"
+                } else {
+                    "one"
+                };
+                let a = x + "!";
+            }
+        }
+        "#,
+    });
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(0, Boolean) = Call id(3), args( Result(0), )
+            Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+            Branch Variable(1, Boolean), 2, 3
+        Block 1:Block:
+            Call id(4), args( Integer(0), Tag(0, 3), )
+            Return
+        Block 2:Block:
+            Jump(1)
+        Block 3:Block:
+            Jump(1)"#]],
+    );
+}

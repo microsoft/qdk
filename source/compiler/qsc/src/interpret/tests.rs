@@ -2341,7 +2341,7 @@ mod given_interpreter {
             );
         }
 
-        /// Found via fuzzing, see #2426 <https://github.com/microsoft/qsharp/issues/2426>
+        /// Found via fuzzing, see #2426 <https://github.com/microsoft/qdk/issues/2426>
         #[test]
         fn recursive_type_constraint_should_fail() {
             let sources = SourceMap::new(

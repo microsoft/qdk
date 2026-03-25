@@ -620,3 +620,183 @@ fn evaluation_error_within_stdlib_yield_correct_package_span() {
         ],
     );
 }
+
+#[test]
+fn string_interpolation_with_side_effects_captures_side_effects() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            operation Main() : Unit {
+                use q = Qubit();
+                let s = $"Measurement result: {MResetZ(q)}";
+                Message(s);
+            }
+        }
+        "#,
+    });
+
+    // Verify the callables added to the program.
+    let mresetz_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        mresetz_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Call id(3), args( Integer(0), Tag(0, 3), )
+                Return"#]],
+    );
+}
+
+#[test]
+fn string_concatenation_with_side_effects_captures_side_effects() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            operation Main() : Unit {
+                use q = Qubit();
+                let s = $"{H(q)}" + $"{MResetZ(q)}";
+                Message(s);
+            }
+        }
+        "#,
+    });
+
+    // Verify the callables added to the program.
+    let h_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        h_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__h__body
+                call_type: Regular
+                input_type:
+                    [0]: Qubit
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let mresetz_callable_id = CallableId(3);
+    assert_callable(
+        &program,
+        mresetz_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(0), Result(0), )
+                Call id(4), args( Integer(0), Tag(0, 3), )
+                Return"#]],
+    );
+}
+
+#[test]
+fn integer_to_double_conversion() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Double {
+                let i = {use q = Qubit(); if MResetZ(q) == One { 42 } else { 0 }};
+                let d = Std.Convert.IntAsDouble(i);
+                return d;
+            }
+        }
+        "#,
+    });
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Double) = Convert Variable(4, Integer)
+                Variable(6, Double) = Store Variable(5, Double)
+                Call id(4), args( Variable(6, Double), Tag(0, 3), )
+                Return
+            Block 2:Block:
+                Variable(2, Integer) = Store Integer(42)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Integer) = Store Integer(0)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn double_to_integer_conversion() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                let d = {use q = Qubit(); if MResetZ(q) == One { 42.1 } else { 0.0 }};
+                let i = Std.Math.Truncate(d);
+                return i;
+            }
+        }
+        "#,
+    });
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Variable(3, Double) = Store Variable(2, Double)
+                Variable(4, Double) = Store Variable(3, Double)
+                Variable(5, Integer) = Convert Variable(4, Double)
+                Variable(6, Integer) = Store Variable(5, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
+                Return
+            Block 2:Block:
+                Variable(2, Double) = Store Double(42.1)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Double) = Store Double(0)
+                Jump(1)"#]],
+    );
+}

@@ -8,6 +8,22 @@
     <link rel="stylesheet" href="../../ux/qsharp-circuit.css" />
   </head>
   <body>
+    <div><h2>circuit-static-collapsed</h2></div>
+    <div id="circuit-static-collapsed" class="qs-circuit">
+      <pre>
+Error generating circuit: QdkDiagnostics: partial evaluation error: unsupported type `(Qubit)[]` in custom intrinsic callable
+
+help: variables of type `(Qubit)[]` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures at intersecting-wires.qs:50:15</pre
+      >
+    </div>
+    <div><h2>circuit-static-expanded</h2></div>
+    <div id="circuit-static-expanded" class="qs-circuit">
+      <pre>
+Error generating circuit: QdkDiagnostics: partial evaluation error: unsupported type `(Qubit)[]` in custom intrinsic callable
+
+help: variables of type `(Qubit)[]` cannot be emitted into QIR and should not appear in custom intrinsic callable signatures at intersecting-wires.qs:50:15</pre
+      >
+    </div>
     <div><h2>circuit-eval-collapsed</h2></div>
     <div id="circuit-eval-collapsed" class="qs-circuit">
       <svg
@@ -15,7 +31,6 @@
         class="qviz"
         width="612"
         height="880"
-        style="max-width: fit-content"
         viewBox="0 0 612 880"
       >
         <g class="qubit-input-states">
@@ -319,13 +334,7 @@
           </g>
         </g>
         <g>
-          <g
-            class="gate"
-            data-expanded="true"
-            data-location="0,0"
-            data-zoom-out="false"
-            data-zoom-in="true"
-          >
+          <g class="gate" data-location="0,0" data-expanded="true">
             <rect
               class="gate-unitary"
               x="80"
@@ -336,12 +345,7 @@
               stroke-dasharray="8, 8"
             />
             <g>
-              <g
-                class="gate"
-                data-location="0,0-0,0"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-0,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:3:5 M(qs[0]);</title>
                   <g>
@@ -370,12 +374,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-0,1"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-0,1">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:5:5 Foo([qs[2], qs[4]]);</title>
                   <g>
@@ -427,12 +426,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-0,2"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-0,2">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:25:5 Bar(q1);</title>
                   <g>
@@ -462,12 +456,7 @@
                   <path d="M92,535 v14 M85,542 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-0,3"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-0,3">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:26:5 Bar(q2);</title>
                   <g>
@@ -497,12 +486,7 @@
                   <path d="M92,691 v14 M85,698 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-1,0"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-1,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:7:5 Foo(qs[0..1]);</title>
                   <g>
@@ -549,12 +533,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-1,1"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-1,1">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:11:5 Foo(qs[3..4]);</title>
                   <g>
@@ -580,12 +559,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-1,2"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-1,2">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:27:5 Foo2(q1);</title>
                   <g>
@@ -616,12 +590,7 @@
                   <path d="M145,535 v14 M138,542 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-1,3"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-1,3">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:30:5 Foo2(q2);</title>
                   <g>
@@ -652,12 +621,7 @@
                   <path d="M145,691 v14 M138,698 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-2,0"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-2,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:9:5 Foo([qs[2], qs[0]]);</title>
                   <g>
@@ -704,12 +668,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-2,1"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-2,1">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:28:5 Bar(q1);</title>
                   <g>
@@ -739,12 +698,7 @@
                   <path d="M206,535 v14 M199,542 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-2,2"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-2,2">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:31:5 Bar(q2);</title>
                   <g>
@@ -774,12 +728,7 @@
                   <path d="M206,691 v14 M199,698 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-3,0"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-3,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:13:5 Foo(qs[0..2]);</title>
                   <g>
@@ -826,12 +775,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-3,1"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-3,1">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:29:5 Foo2(q1);</title>
                   <g>
@@ -889,12 +833,7 @@
                   <path d="M259,535 v14 M252,542 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-3,2"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-3,2">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:32:5 Foo2(q2);</title>
                   <g>
@@ -952,12 +891,7 @@
                   <path d="M259,691 v14 M252,698 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-4,0"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-4,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:16:5 M(qs[2]);</title>
                   <g>
@@ -986,12 +920,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-5,0"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-5,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:17:5 M(qs[2]);</title>
                   <g>
@@ -1020,12 +949,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-6,0"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-6,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>
                     intersecting-wires.qs:21:5 BoxWithMeasurements(qs);
@@ -1111,7 +1035,6 @@
         class="qviz"
         width="1128"
         height="1060"
-        style="max-width: fit-content"
         viewBox="0 0 1128 1060"
       >
         <g class="qubit-input-states">
@@ -1485,13 +1408,7 @@
           </g>
         </g>
         <g>
-          <g
-            class="gate"
-            data-expanded="true"
-            data-location="0,0"
-            data-zoom-out="false"
-            data-zoom-in="true"
-          >
+          <g class="gate" data-location="0,0" data-expanded="true">
             <rect
               class="gate-unitary"
               x="80"
@@ -1502,12 +1419,7 @@
               stroke-dasharray="8, 8"
             />
             <g>
-              <g
-                class="gate"
-                data-location="0,0-0,0"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-0,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:3:5 M(qs[0]);</title>
                   <g>
@@ -1536,12 +1448,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-0,1"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-0,1">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:5:5 Foo([qs[2], qs[4]]);</title>
                   <g>
@@ -1583,13 +1490,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-expanded="true"
-                data-location="0,0-0,2"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-0,2" data-expanded="true">
                 <rect
                   class="gate-unitary"
                   x="90"
@@ -1600,12 +1501,7 @@
                   stroke-dasharray="8, 8"
                 />
                 <g>
-                  <g
-                    class="gate"
-                    data-location="0,0-0,2-0,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-0,2-0,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:41:5 X(q);</title>
                       <g class="oplus" data-wire-ys="[648]" data-width="30">
@@ -1615,12 +1511,7 @@
                       </g>
                     </a>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-0,2-1,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-0,2-1,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:42:5 Y(q);</title>
                       <g>
@@ -1647,26 +1538,24 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="100"
-                  y="617"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Bar</tspan>
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:25:5 Bar(q1);</title>
+                  <text
+                    font-size="14"
+                    x="100"
+                    y="617"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Bar</tspan>
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="92" cy="604" r="10" />
                   <path d="M85,604 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-expanded="true"
-                data-location="0,0-0,3"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-0,3" data-expanded="true">
                 <rect
                   class="gate-unitary"
                   x="90"
@@ -1677,12 +1566,7 @@
                   stroke-dasharray="8, 8"
                 />
                 <g>
-                  <g
-                    class="gate"
-                    data-location="0,0-0,3-0,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-0,3-0,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:41:5 X(q);</title>
                       <g class="oplus" data-wire-ys="[876]" data-width="30">
@@ -1692,12 +1576,7 @@
                       </g>
                     </a>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-0,3-1,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-0,3-1,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:42:5 Y(q);</title>
                       <g>
@@ -1724,25 +1603,24 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="100"
-                  y="845"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Bar</tspan>
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:26:5 Bar(q2);</title>
+                  <text
+                    font-size="14"
+                    x="100"
+                    y="845"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Bar</tspan>
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="92" cy="832" r="10" />
                   <path d="M85,832 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-1,0"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-1,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:7:5 Foo(qs[0..1]);</title>
                   <g>
@@ -1784,12 +1662,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-1,1"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-1,1">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:11:5 Foo(qs[3..4]);</title>
                   <g>
@@ -1810,13 +1683,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-expanded="true"
-                data-location="0,0-1,2"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-1,2" data-expanded="true">
                 <rect
                   class="gate-unitary"
                   x="214"
@@ -1829,10 +1696,8 @@
                 <g>
                   <g
                     class="gate"
-                    data-expanded="true"
                     data-location="0,0-1,2-0,0"
-                    data-zoom-out="true"
-                    data-zoom-in="true"
+                    data-expanded="true"
                   >
                     <rect
                       class="gate-unitary"
@@ -1844,12 +1709,7 @@
                       stroke-dasharray="8, 8"
                     />
                     <g>
-                      <g
-                        class="gate"
-                        data-location="0,0-1,2-0,0-0,0"
-                        data-zoom-out="true"
-                        data-zoom-in="false"
-                      >
+                      <g class="gate" data-location="0,0-1,2-0,0-0,0">
                         <a href="#" class="qs-circuit-source-link">
                           <title>intersecting-wires.qs:41:5 X(q);</title>
                           <g class="oplus" data-wire-ys="[648]" data-width="30">
@@ -1859,12 +1719,7 @@
                           </g>
                         </a>
                       </g>
-                      <g
-                        class="gate"
-                        data-location="0,0-1,2-0,0-1,0"
-                        data-zoom-out="true"
-                        data-zoom-in="false"
-                      >
+                      <g class="gate" data-location="0,0-1,2-0,0-1,0">
                         <a href="#" class="qs-circuit-source-link">
                           <title>intersecting-wires.qs:42:5 Y(q);</title>
                           <g>
@@ -1891,25 +1746,24 @@
                         </a>
                       </g>
                     </g>
-                    <text
-                      font-size="14"
-                      x="234"
-                      y="617"
-                      class="qs-maintext qs-group-label"
-                    >
-                      <tspan class="qs-mathtext">Bar</tspan>
-                    </text>
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>intersecting-wires.qs:36:5 Bar(q);</title>
+                      <text
+                        font-size="14"
+                        x="234"
+                        y="617"
+                        class="qs-maintext qs-group-label"
+                        style="pointer-events: all"
+                      >
+                        <tspan class="qs-mathtext">Bar</tspan>
+                      </text>
+                    </a>
                     <g class="gate-control gate-collapse">
                       <circle cx="226" cy="604" r="10" />
                       <path d="M219,604 h14" />
                     </g>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-1,2-1,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-1,2-1,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:37:5 MResetZ(q);</title>
                       <g>
@@ -1938,12 +1792,7 @@
                       </g>
                     </a>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-1,2-2,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-1,2-2,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:37:5 MResetZ(q);</title>
                       <g>
@@ -1970,27 +1819,25 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="224"
-                  y="591"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Foo</tspan>
-                  2
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:27:5 Foo2(q1);</title>
+                  <text
+                    font-size="14"
+                    x="224"
+                    y="591"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Foo</tspan>
+                    2
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="216" cy="578" r="10" />
                   <path d="M209,578 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-expanded="true"
-                data-location="0,0-1,3"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-1,3" data-expanded="true">
                 <rect
                   class="gate-unitary"
                   x="214"
@@ -2003,10 +1850,8 @@
                 <g>
                   <g
                     class="gate"
-                    data-expanded="true"
                     data-location="0,0-1,3-0,0"
-                    data-zoom-out="true"
-                    data-zoom-in="true"
+                    data-expanded="true"
                   >
                     <rect
                       class="gate-unitary"
@@ -2018,12 +1863,7 @@
                       stroke-dasharray="8, 8"
                     />
                     <g>
-                      <g
-                        class="gate"
-                        data-location="0,0-1,3-0,0-0,0"
-                        data-zoom-out="true"
-                        data-zoom-in="false"
-                      >
+                      <g class="gate" data-location="0,0-1,3-0,0-0,0">
                         <a href="#" class="qs-circuit-source-link">
                           <title>intersecting-wires.qs:41:5 X(q);</title>
                           <g class="oplus" data-wire-ys="[876]" data-width="30">
@@ -2033,12 +1873,7 @@
                           </g>
                         </a>
                       </g>
-                      <g
-                        class="gate"
-                        data-location="0,0-1,3-0,0-1,0"
-                        data-zoom-out="true"
-                        data-zoom-in="false"
-                      >
+                      <g class="gate" data-location="0,0-1,3-0,0-1,0">
                         <a href="#" class="qs-circuit-source-link">
                           <title>intersecting-wires.qs:42:5 Y(q);</title>
                           <g>
@@ -2065,25 +1900,24 @@
                         </a>
                       </g>
                     </g>
-                    <text
-                      font-size="14"
-                      x="234"
-                      y="845"
-                      class="qs-maintext qs-group-label"
-                    >
-                      <tspan class="qs-mathtext">Bar</tspan>
-                    </text>
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>intersecting-wires.qs:36:5 Bar(q);</title>
+                      <text
+                        font-size="14"
+                        x="234"
+                        y="845"
+                        class="qs-maintext qs-group-label"
+                        style="pointer-events: all"
+                      >
+                        <tspan class="qs-mathtext">Bar</tspan>
+                      </text>
+                    </a>
                     <g class="gate-control gate-collapse">
                       <circle cx="226" cy="832" r="10" />
                       <path d="M219,832 h14" />
                     </g>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-1,3-1,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-1,3-1,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:37:5 MResetZ(q);</title>
                       <g>
@@ -2112,12 +1946,7 @@
                       </g>
                     </a>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-1,3-2,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-1,3-2,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:37:5 MResetZ(q);</title>
                       <g>
@@ -2144,26 +1973,25 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="224"
-                  y="819"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Foo</tspan>
-                  2
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:30:5 Foo2(q2);</title>
+                  <text
+                    font-size="14"
+                    x="224"
+                    y="819"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Foo</tspan>
+                    2
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="216" cy="806" r="10" />
                   <path d="M209,806 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-2,0"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-2,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:9:5 Foo([qs[2], qs[0]]);</title>
                   <g>
@@ -2205,13 +2033,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-expanded="true"
-                data-location="0,0-2,1"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-2,1" data-expanded="true">
                 <rect
                   class="gate-unitary"
                   x="462"
@@ -2222,12 +2044,7 @@
                   stroke-dasharray="8, 8"
                 />
                 <g>
-                  <g
-                    class="gate"
-                    data-location="0,0-2,1-0,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-2,1-0,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:41:5 X(q);</title>
                       <g class="oplus" data-wire-ys="[648]" data-width="30">
@@ -2237,12 +2054,7 @@
                       </g>
                     </a>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-2,1-1,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-2,1-1,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:42:5 Y(q);</title>
                       <g>
@@ -2269,26 +2081,24 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="472"
-                  y="617"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Bar</tspan>
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:28:5 Bar(q1);</title>
+                  <text
+                    font-size="14"
+                    x="472"
+                    y="617"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Bar</tspan>
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="464" cy="604" r="10" />
                   <path d="M457,604 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-expanded="true"
-                data-location="0,0-2,2"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-2,2" data-expanded="true">
                 <rect
                   class="gate-unitary"
                   x="462"
@@ -2299,12 +2109,7 @@
                   stroke-dasharray="8, 8"
                 />
                 <g>
-                  <g
-                    class="gate"
-                    data-location="0,0-2,2-0,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-2,2-0,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:41:5 X(q);</title>
                       <g class="oplus" data-wire-ys="[876]" data-width="30">
@@ -2314,12 +2119,7 @@
                       </g>
                     </a>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-2,2-1,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-2,2-1,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:42:5 Y(q);</title>
                       <g>
@@ -2346,25 +2146,24 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="472"
-                  y="845"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Bar</tspan>
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:31:5 Bar(q2);</title>
+                  <text
+                    font-size="14"
+                    x="472"
+                    y="845"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Bar</tspan>
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="464" cy="832" r="10" />
                   <path d="M457,832 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-3,0"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-3,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:13:5 Foo(qs[0..2]);</title>
                   <g>
@@ -2406,13 +2205,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-expanded="true"
-                data-location="0,0-3,1"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-3,1" data-expanded="true">
                 <rect
                   class="gate-unitary"
                   x="586"
@@ -2425,10 +2218,8 @@
                 <g>
                   <g
                     class="gate"
-                    data-expanded="true"
                     data-location="0,0-3,1-0,0"
-                    data-zoom-out="true"
-                    data-zoom-in="true"
+                    data-expanded="true"
                   >
                     <rect
                       class="gate-unitary"
@@ -2440,12 +2231,7 @@
                       stroke-dasharray="8, 8"
                     />
                     <g>
-                      <g
-                        class="gate"
-                        data-location="0,0-3,1-0,0-0,0"
-                        data-zoom-out="true"
-                        data-zoom-in="false"
-                      >
+                      <g class="gate" data-location="0,0-3,1-0,0-0,0">
                         <a href="#" class="qs-circuit-source-link">
                           <title>intersecting-wires.qs:41:5 X(q);</title>
                           <g class="oplus" data-wire-ys="[648]" data-width="30">
@@ -2455,12 +2241,7 @@
                           </g>
                         </a>
                       </g>
-                      <g
-                        class="gate"
-                        data-location="0,0-3,1-0,0-1,0"
-                        data-zoom-out="true"
-                        data-zoom-in="false"
-                      >
+                      <g class="gate" data-location="0,0-3,1-0,0-1,0">
                         <a href="#" class="qs-circuit-source-link">
                           <title>intersecting-wires.qs:42:5 Y(q);</title>
                           <g>
@@ -2487,25 +2268,24 @@
                         </a>
                       </g>
                     </g>
-                    <text
-                      font-size="14"
-                      x="606"
-                      y="617"
-                      class="qs-maintext qs-group-label"
-                    >
-                      <tspan class="qs-mathtext">Bar</tspan>
-                    </text>
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>intersecting-wires.qs:36:5 Bar(q);</title>
+                      <text
+                        font-size="14"
+                        x="606"
+                        y="617"
+                        class="qs-maintext qs-group-label"
+                        style="pointer-events: all"
+                      >
+                        <tspan class="qs-mathtext">Bar</tspan>
+                      </text>
+                    </a>
                     <g class="gate-control gate-collapse">
                       <circle cx="598" cy="604" r="10" />
                       <path d="M591,604 h14" />
                     </g>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-3,1-1,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-3,1-1,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:37:5 MResetZ(q);</title>
                       <g>
@@ -2534,12 +2314,7 @@
                       </g>
                     </a>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-3,1-2,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-3,1-2,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:37:5 MResetZ(q);</title>
                       <g>
@@ -2566,27 +2341,25 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="596"
-                  y="591"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Foo</tspan>
-                  2
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:29:5 Foo2(q1);</title>
+                  <text
+                    font-size="14"
+                    x="596"
+                    y="591"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Foo</tspan>
+                    2
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="588" cy="578" r="10" />
                   <path d="M581,578 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-expanded="true"
-                data-location="0,0-3,2"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-3,2" data-expanded="true">
                 <rect
                   class="gate-unitary"
                   x="586"
@@ -2599,10 +2372,8 @@
                 <g>
                   <g
                     class="gate"
-                    data-expanded="true"
                     data-location="0,0-3,2-0,0"
-                    data-zoom-out="true"
-                    data-zoom-in="true"
+                    data-expanded="true"
                   >
                     <rect
                       class="gate-unitary"
@@ -2614,12 +2385,7 @@
                       stroke-dasharray="8, 8"
                     />
                     <g>
-                      <g
-                        class="gate"
-                        data-location="0,0-3,2-0,0-0,0"
-                        data-zoom-out="true"
-                        data-zoom-in="false"
-                      >
+                      <g class="gate" data-location="0,0-3,2-0,0-0,0">
                         <a href="#" class="qs-circuit-source-link">
                           <title>intersecting-wires.qs:41:5 X(q);</title>
                           <g class="oplus" data-wire-ys="[876]" data-width="30">
@@ -2629,12 +2395,7 @@
                           </g>
                         </a>
                       </g>
-                      <g
-                        class="gate"
-                        data-location="0,0-3,2-0,0-1,0"
-                        data-zoom-out="true"
-                        data-zoom-in="false"
-                      >
+                      <g class="gate" data-location="0,0-3,2-0,0-1,0">
                         <a href="#" class="qs-circuit-source-link">
                           <title>intersecting-wires.qs:42:5 Y(q);</title>
                           <g>
@@ -2661,25 +2422,24 @@
                         </a>
                       </g>
                     </g>
-                    <text
-                      font-size="14"
-                      x="606"
-                      y="845"
-                      class="qs-maintext qs-group-label"
-                    >
-                      <tspan class="qs-mathtext">Bar</tspan>
-                    </text>
+                    <a href="#" class="qs-circuit-source-link">
+                      <title>intersecting-wires.qs:36:5 Bar(q);</title>
+                      <text
+                        font-size="14"
+                        x="606"
+                        y="845"
+                        class="qs-maintext qs-group-label"
+                        style="pointer-events: all"
+                      >
+                        <tspan class="qs-mathtext">Bar</tspan>
+                      </text>
+                    </a>
                     <g class="gate-control gate-collapse">
                       <circle cx="598" cy="832" r="10" />
                       <path d="M591,832 h14" />
                     </g>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-3,2-1,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-3,2-1,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:37:5 MResetZ(q);</title>
                       <g>
@@ -2708,12 +2468,7 @@
                       </g>
                     </a>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-3,2-2,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-3,2-2,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:37:5 MResetZ(q);</title>
                       <g>
@@ -2740,26 +2495,25 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="596"
-                  y="819"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">Foo</tspan>
-                  2
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>intersecting-wires.qs:32:5 Foo2(q2);</title>
+                  <text
+                    font-size="14"
+                    x="596"
+                    y="819"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">Foo</tspan>
+                    2
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="588" cy="806" r="10" />
                   <path d="M581,806 h14" />
                 </g>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-4,0"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-4,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:16:5 M(qs[2]);</title>
                   <g>
@@ -2788,12 +2542,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-location="0,0-5,0"
-                data-zoom-out="true"
-                data-zoom-in="false"
-              >
+              <g class="gate" data-location="0,0-5,0">
                 <a href="#" class="qs-circuit-source-link">
                   <title>intersecting-wires.qs:17:5 M(qs[2]);</title>
                   <g>
@@ -2822,13 +2571,7 @@
                   </g>
                 </a>
               </g>
-              <g
-                class="gate"
-                data-expanded="true"
-                data-location="0,0-6,0"
-                data-zoom-out="true"
-                data-zoom-in="true"
-              >
+              <g class="gate" data-location="0,0-6,0" data-expanded="true">
                 <rect
                   class="gate-unitary"
                   x="938"
@@ -2839,12 +2582,7 @@
                   stroke-dasharray="8, 8"
                 />
                 <g>
-                  <g
-                    class="gate"
-                    data-location="0,0-6,0-0,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-6,0-0,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:46:5 M(qs[2]);</title>
                       <g>
@@ -2873,12 +2611,7 @@
                       </g>
                     </a>
                   </g>
-                  <g
-                    class="gate"
-                    data-location="0,0-6,0-1,0"
-                    data-zoom-out="true"
-                    data-zoom-in="false"
-                  >
+                  <g class="gate" data-location="0,0-6,0-1,0">
                     <a href="#" class="qs-circuit-source-link">
                       <title>intersecting-wires.qs:47:5 Foo(qs);</title>
                       <g>
@@ -2931,14 +2664,20 @@
                     </a>
                   </g>
                 </g>
-                <text
-                  font-size="14"
-                  x="948"
-                  y="87"
-                  class="qs-maintext qs-group-label"
-                >
-                  <tspan class="qs-mathtext">BoxWithMeasurements</tspan>
-                </text>
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    intersecting-wires.qs:21:5 BoxWithMeasurements(qs);
+                  </title>
+                  <text
+                    font-size="14"
+                    x="948"
+                    y="87"
+                    class="qs-maintext qs-group-label"
+                    style="pointer-events: all"
+                  >
+                    <tspan class="qs-mathtext">BoxWithMeasurements</tspan>
+                  </text>
+                </a>
                 <g class="gate-control gate-collapse">
                   <circle cx="940" cy="74" r="10" />
                   <path d="M933,74 h14" />

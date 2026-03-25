@@ -66,6 +66,7 @@ fn unitary(gate: &str, targets: Vec<Register>) -> Operation {
         targets,
         children: vec![],
         metadata: None,
+        is_conditional: false,
     })
 }
 
@@ -78,6 +79,7 @@ fn ctl_unitary(gate: &str, targets: Vec<Register>, controls: Vec<Register>) -> O
         targets,
         children: vec![],
         metadata: None,
+        is_conditional: false,
     })
 }
 
@@ -90,6 +92,7 @@ fn unitary_with_children(gate: &str, targets: Vec<Register>, children: Component
         targets,
         children,
         metadata: None,
+        is_conditional: false,
     })
 }
 
@@ -107,6 +110,7 @@ fn ctl_unitary_with_children(
         targets,
         children,
         metadata: None,
+        is_conditional: false,
     })
 }
 
@@ -176,7 +180,7 @@ fn bell() {
         measurement(1, 0),
     ];
     let qubits = vec![qubit_with_results(0, 1), qubit_with_results(1, 1)];
-    let component_grid = operation_list_to_grid(operations, qubits.len());
+    let component_grid = operation_list_to_grid(operations, &qubits);
     let c = Circuit {
         qubits,
         component_grid,
@@ -199,7 +203,7 @@ fn control_classical() {
         ctl_unitary("X", vec![q_reg(2)], vec![q_reg(0)]),
     ];
     let qubits = vec![qubit_with_results(0, 1), qubit(1), qubit(2)];
-    let component_grid = operation_list_to_grid(operations, qubits.len());
+    let component_grid = operation_list_to_grid(operations, &qubits);
     let c = Circuit {
         qubits,
         component_grid,
@@ -218,7 +222,7 @@ fn control_classical() {
 fn two_measurements() {
     let operations = vec![measurement(0, 0), measurement(0, 1)];
     let qubits = vec![qubit_with_results(0, 2)];
-    let component_grid = operation_list_to_grid(operations, qubits.len());
+    let component_grid = operation_list_to_grid(operations, &qubits);
     let c = Circuit {
         qubits,
         component_grid,
@@ -242,6 +246,7 @@ fn with_args() {
             is_adjoint: false,
             controls: vec![],
             targets: vec![Register::quantum(0)],
+            is_conditional: false,
             children: vec![],
             metadata: None,
         })]]),
@@ -261,6 +266,7 @@ fn two_targets() {
             gate: "rzz".to_string(),
             args: vec!["1.0000".to_string()],
             is_adjoint: false,
+            is_conditional: false,
             controls: vec![],
             targets: vec![Register::quantum(0), Register::quantum(2)],
             children: vec![],

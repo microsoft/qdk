@@ -20,4 +20,4 @@ For more information about the Microsoft Quantum Development Kit, visit [https:/
 
 ## Contributing
 
-Q# welcomes your contributions! Visit the Q# GitHub repository at [https://github.com/microsoft/qsharp] to find out more about the project.
+Q# welcomes your contributions! Visit the Q# GitHub repository at [https://github.com/microsoft/qdk] to find out more about the project.

@@ -323,3 +323,107 @@ fn memory_annotations_work() {
         "#]],
     );
 }
+
+#[test]
+fn post_selection_to_zero_skips_one_branch() {
+    // This shows no T gates are counted because the branch is not taken due
+    // to the post-selection.
+    verify_logical_counts(
+        indoc! {"
+                import Std.Diagnostics.PostSelectZ;
+
+                operation Main() : Unit {
+                    use q = Qubit();
+                    H(q);
+                    PostSelectZ(Zero, q);
+                    if M(q) == One {
+                        T(q);
+                    }
+                }
+            "},
+        None,
+        &expect![[r#"
+            LogicalResourceCounts {
+                num_qubits: 1,
+                t_count: 0,
+                rotation_count: 0,
+                rotation_depth: 0,
+                ccz_count: 0,
+                ccix_count: 0,
+                measurement_count: 1,
+                num_compute_qubits: None,
+                read_from_memory_count: None,
+                write_to_memory_count: None,
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn post_selection_to_one_takes_one_branch() {
+    // This shows one T gate is counted because the branch is taken due
+    // to the post-selection.
+    verify_logical_counts(
+        indoc! {"
+                import Std.Diagnostics.PostSelectZ;
+
+                operation Main() : Unit {
+                    use q = Qubit();
+                    H(q);
+                    PostSelectZ(One, q);
+                    if M(q) == One {
+                        T(q);
+                    }
+                }
+            "},
+        None,
+        &expect![[r#"
+            LogicalResourceCounts {
+                num_qubits: 1,
+                t_count: 1,
+                rotation_count: 0,
+                rotation_depth: 0,
+                ccz_count: 0,
+                ccix_count: 0,
+                measurement_count: 1,
+                num_compute_qubits: None,
+                read_from_memory_count: None,
+                write_to_memory_count: None,
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn post_selection_can_take_impossible_branch() {
+    // This shows one T gate is counted because the branch is taken due
+    // to the post-selection.
+    verify_logical_counts(
+        indoc! {"
+                import Std.Diagnostics.PostSelectZ;
+
+                operation Main() : Unit {
+                    use q = Qubit();
+                    PostSelectZ(One, q);
+                    if M(q) == One {
+                        T(q);
+                    }
+                }
+            "},
+        None,
+        &expect![[r#"
+            LogicalResourceCounts {
+                num_qubits: 1,
+                t_count: 1,
+                rotation_count: 0,
+                rotation_depth: 0,
+                ccz_count: 0,
+                ccix_count: 0,
+                measurement_count: 1,
+                num_compute_qubits: None,
+                read_from_memory_count: None,
+                write_to_memory_count: None,
+            }
+        "#]],
+    );
+}
