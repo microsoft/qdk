@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use std::cmp::min;
+use std::mem::size_of;
 
 use bytemuck::{Zeroable, cast_slice};
 
@@ -431,18 +432,26 @@ impl GpuContext {
             entries_per_shot / params.workgroups_per_shot / THREADS_PER_WORKGROUP;
 
         // Figure out the buffer sizes we need for all the above
-        params.shots_buffer_size = i32_to_usize(params.shots_per_batch) * SIZEOF_SHOTDATA;
+        // In adaptive mode, each shot's GPU struct includes the interpreter state + registers.
+        // WGSL requires struct size to be a multiple of the struct's alignment (8 bytes due to vec2f).
+        let gpu_shot_size = if self.is_adaptive {
+            let raw = SIZEOF_SHOTDATA + size_of::<InterpreterState>() + params.num_registers * 4;
+            (raw + 7) & !7 // round up to 8-byte alignment
+        } else {
+            SIZEOF_SHOTDATA
+        };
+        params.shots_buffer_size = i32_to_usize(params.shots_per_batch) * gpu_shot_size;
         params.state_vector_buffer_size =
             i32_to_usize(params.shots_per_batch * state_vector_size_per_shot);
 
         // Each result is a u32, plus one extra on the end for the shader to set an 'error code' if needed
         params.results_buffer_size = i32_to_usize(params.shots_per_batch * (params.result_count + 1)) // +1 for error code per shot
-                * std::mem::size_of::<u32>();
+                * size_of::<u32>();
 
         params.diagnostics_buffer_size = 6 * 4 /* error_code, termination_count, extra1, extra2, extra3, padding */
-                + SIZEOF_SHOTDATA + std::mem::size_of::<Op>() // ShotData + Op
+                + gpu_shot_size + size_of::<Op>() // ShotData (GPU-side, may include interp+registers) + Op
                 + (THREADS_PER_WORKGROUP * 8 * MAX_QUBIT_COUNT) as usize // Workgroup probabilities
-                + std::mem::size_of::<WorkgroupCollationBuffer>(); // Collation buffers
+                + size_of::<WorkgroupCollationBuffer>(); // Collation buffers
 
         // Finally, the download buffer needs to hold both results and diagnostics
         params.download_buffer_size = params.results_buffer_size + params.diagnostics_buffer_size;
@@ -611,17 +620,12 @@ impl GpuContext {
         }
 
         let params = &self.run_params;
-        let shots_usize = i32_to_usize(self.run_params.shots_per_batch);
-        let interp_state_size = shots_usize * size_of::<InterpreterState>();
-        let register_file_size = shots_usize * self.run_params.num_registers * 4;
 
-        self.resources.ensure_run_buffers_adaptive(
+        self.resources.ensure_run_buffers(
             params.shots_buffer_size,
             params.state_vector_buffer_size,
             params.results_buffer_size,
             params.diagnostics_buffer_size,
-            interp_state_size,
-            register_file_size,
         )?;
 
         Ok(())
@@ -688,29 +692,11 @@ impl GpuContext {
                 rng_seed: seed,
             })?;
 
-            // Initialize interpreter state: zeroed array with pc and block set per shot
-            let mut interp_state_data = vec![InterpreterState::zeroed(); shots_usize];
-            for shot_state in &mut interp_state_data {
-                shot_state.pc = entry_pc; // INTERP_PC
-                shot_state.current_block_id = entry_block; // INTERP_BLOCK
-                // INTERP_STATUS = 0 (STATUS_RUNNING) already from zeroed init
-            }
-
-            // Initialize interpreter state
-            self.resources
-                .upload_interpreter_state(cast_slice(&interp_state_data))?;
-
-            // Initialize register file: zeroed
-            let register_data = vec![0u32; shots_usize * self.run_params.num_registers];
-            self.resources
-                .upload_register_file(cast_slice(&register_data))?;
-
             // Zero the diagnostics header (error_code + termination_count) for this batch
             self.resources.reset_diagnostics_header()?;
 
-            let kernels = self.resources.get_kernels()?;
-
-            // Initialize state vectors and shot data via the init kernel
+            // Initialize state vectors and shot data via the init kernel.
+            // The init kernel zeros and configures the base ShotData fields per shot.
             {
                 let kernels = self.resources.get_kernels()?;
                 let mut encoder = self.resources.get_encoder("Adaptive Init Encoder")?;
@@ -725,8 +711,35 @@ impl GpuContext {
                 self.resources.submit_command_buffer(encoder.finish())?;
             }
 
+            // Upload interpreter state + registers into the shots buffer.
+            // Each shot's interp data starts at SIZEOF_SHOTDATA offset within the shot region.
+            // The init kernel already initialized the base ShotData fields, so we only
+            // write the interp portion per shot to avoid overwriting them.
+            {
+                let num_registers = self.run_params.num_registers;
+                let interp_bytes_per_shot = size_of::<InterpreterState>() + num_registers * 4;
+                let gpu_shot_size = (SIZEOF_SHOTDATA + interp_bytes_per_shot + 7) & !7;
+
+                let mut interp = InterpreterState::zeroed();
+                interp.pc = entry_pc;
+                interp.current_block_id = entry_block;
+                let interp_bytes =
+                    cast_slice::<InterpreterState, u8>(std::slice::from_ref(&interp));
+
+                // Build per-shot data: [InterpreterState bytes | zeroed registers]
+                let mut shot_interp_data = vec![0u8; interp_bytes_per_shot];
+                shot_interp_data[..interp_bytes.len()].copy_from_slice(interp_bytes);
+
+                for i in 0..shots_usize {
+                    let offset = i * gpu_shot_size + SIZEOF_SHOTDATA;
+                    self.resources
+                        .upload_interpreter_data_to_shots(&shot_interp_data, offset)?;
+                }
+            }
+
             // 3.2 Wait until the batch is finished.
             //     We try to resume the computation `ROUNDS_PER_BATCH` times.
+            let kernels = self.resources.get_kernels()?;
             for _ in 0..MAX_ROUNDS_PER_BATCH {
                 let mut encoder = self.resources.get_encoder("Adaptive Batch Encoder")?;
 

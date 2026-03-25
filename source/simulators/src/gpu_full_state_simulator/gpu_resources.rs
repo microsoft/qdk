@@ -61,10 +61,9 @@ const UNIFORM_BUF_IDX: usize = 6;
 const CORRELATED_NOISE_TABLES_BUF_IDX: usize = 7;
 const CORRELATED_NOISE_ENTRIES_BUF_IDX: usize = 8;
 
-// Adaptive interpreter buffer indices (bindings 9-11)
+// Adaptive interpreter buffer index (binding 9)
+// Interpreter state and registers are embedded in ShotData (binding 1).
 const PROGRAM_IDX: usize = 9;
-const INTERPRETER_STATE_BUF_IDX: usize = 10;
-const REGISTER_FILE_BUF_IDX: usize = 11;
 
 impl Default for GpuDeviceResources {
     fn default() -> Self {
@@ -147,12 +146,12 @@ impl GpuDeviceResources {
             kernels: None,
             bind_group: None,
             // --------------------------------------------------------------
-            // Bind group layout: 12 bindings in @group(0)
+            // Bind group layout: 10 bindings in @group(0)
             // --------------------------------------------------------------
             // Bindings 0-8:  quantum ops (ops, state vector, results, noise, etc.)
-            // Bindings 9-11: Adaptive interpreter (bytecode, block/function/phi/switch
-            //                tables, interpreter state, register file)
-            // The termination counter is stored in the diagnostics buffer.
+            // Binding  9:    Adaptive interpreter bytecode (program)
+            // Interpreter state and registers are embedded in ShotData (binding 1).
+            // The termination counter is stored in the diagnostics buffer (binding 5).
             //
             // This exceeds the WebGPU minimum of 8 storage buffers per shader stage
             // but is within the limits of modern GPUs. This is currently being discussed
@@ -171,7 +170,7 @@ impl GpuDeviceResources {
                     name: "ShotState",
                     is_uniform: false,
                     read_only: false,
-                    usage: BufferUsages::STORAGE,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
                     buffer: None,
                 },
                 BufferBinding {
@@ -223,25 +222,11 @@ impl GpuDeviceResources {
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
                     buffer: None,
                 },
-                // Adaptive interpreter buffers (bindings 9-12)
+                // Adaptive interpreter buffer (binding 9)
                 BufferBinding {
                     name: "Program",
                     is_uniform: false,
                     read_only: true,
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                    buffer: None,
-                },
-                BufferBinding {
-                    name: "InterpreterState",
-                    is_uniform: false,
-                    read_only: false,
-                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
-                    buffer: None,
-                },
-                BufferBinding {
-                    name: "RegisterFile",
-                    is_uniform: false,
-                    read_only: false,
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
                     buffer: None,
                 },
@@ -837,8 +822,14 @@ impl GpuResources {
         let results_data = &data[..results_bytes];
 
         let diagnositcs_data = &data[results_bytes..];
+        // In adaptive mode, the GPU diagnostics buffer may be larger than the Rust struct
+        // (due to ShotData including InterpreterState + registers on the GPU side).
+        // Only read the bytes that map to the Rust DiagnosticsData layout.
+        let diag_rust_size = std::mem::size_of::<DiagnosticsData>();
         // Keep this on the heap to avoid large stack frames in debug builds.
-        let diagnostics = Box::new(*from_bytes::<DiagnosticsData>(diagnositcs_data));
+        let diagnostics = Box::new(*from_bytes::<DiagnosticsData>(
+            &diagnositcs_data[..diag_rust_size],
+        ));
         let batch_results: Vec<u32> = cast_slice(results_data).to_vec();
 
         drop(data);
@@ -885,14 +876,8 @@ impl GpuResources {
             16,
         );
 
-        // Ensure adaptive interpreter buffers have at least minimum placeholder sizes
-        for idx in [
-            PROGRAM_IDX,
-            INTERPRETER_STATE_BUF_IDX,
-            REGISTER_FILE_BUF_IDX,
-        ] {
-            Self::ensure_buffer(device, &mut bound_buffers[idx], 16);
-        }
+        // Ensure adaptive interpreter buffer has at least minimum placeholder size
+        Self::ensure_buffer(device, &mut bound_buffers[PROGRAM_IDX], 16);
 
         // Ensure all buffers are created
         if bound_buffers.iter().any(|entry| entry.buffer.is_none()) {
@@ -930,12 +915,18 @@ impl GpuResources {
         self.upload_data(data, PROGRAM_IDX)
     }
 
-    pub fn upload_interpreter_state(&mut self, data: &[u8]) -> Result<(), String> {
-        self.upload_data(data, INTERPRETER_STATE_BUF_IDX)
-    }
-
-    pub fn upload_register_file(&mut self, data: &[u8]) -> Result<(), String> {
-        self.upload_data(data, REGISTER_FILE_BUF_IDX)
+    /// Write interpreter state + registers into the shots buffer at the correct offset.
+    /// The data is a contiguous block of per-shot interpreter state + register data that
+    /// starts at `shot_base_offset` bytes from the beginning of the shots buffer.
+    pub fn upload_interpreter_data_to_shots(
+        &self,
+        data: &[u8],
+        shot_base_offset: usize,
+    ) -> Result<(), String> {
+        let queue = self.queue.as_ref().ok_or("GPU queue not initialized")?;
+        let buf = self.try_get_buffer(SHOT_STATE_BUF_IDX)?;
+        queue.write_buffer(buf, shot_base_offset as u64, data);
+        Ok(())
     }
 
     /// Zero the diagnostics header (`error_code` + `termination_count`) before each batch.
@@ -943,45 +934,6 @@ impl GpuResources {
         let queue = self.queue.as_ref().ok_or("GPU queue not initialized")?;
         let buf = self.try_get_buffer(DIAGNOSTICS_BUF_IDX)?;
         queue.write_buffer(buf, 0, &[0u8; 8]); // error_code (4 bytes) + termination_count (4 bytes)
-        Ok(())
-    }
-
-    pub fn ensure_run_buffers_adaptive(
-        &mut self,
-        shot_state_buffer_size: usize,
-        state_vector_buffer_size: usize,
-        results_buffer_size: usize,
-        diagnostics_buffer_size: usize,
-        interpreter_state_size: usize,
-        register_file_size: usize,
-    ) -> Result<(), String> {
-        let device = self.device.as_ref().ok_or("GPU device not initialized")?;
-
-        let mut check_buffer = |idx: usize, required_size: usize| {
-            let buf_binding = &mut self.device_resources.bound_buffers[idx];
-            if let Some(ref buffer) = buf_binding.buffer
-                && buffer.size() == required_size as u64
-            {
-                // Buffer is already the correct size
-            } else {
-                let new_buffer =
-                    create_dst_buffer(device, required_size, buf_binding.usage, buf_binding.name);
-                buf_binding.buffer = Some(new_buffer);
-                self.device_resources.bind_group = None;
-            }
-        };
-
-        for (idx, size) in [
-            (SHOT_STATE_BUF_IDX, shot_state_buffer_size),
-            (STATE_VECTOR_BUF_IDX, state_vector_buffer_size),
-            (RESULTS_BUF_IDX, results_buffer_size),
-            (DIAGNOSTICS_BUF_IDX, diagnostics_buffer_size),
-            (INTERPRETER_STATE_BUF_IDX, interpreter_state_size),
-            (REGISTER_FILE_BUF_IDX, register_file_size),
-        ] {
-            check_buffer(idx, size);
-        }
-
         Ok(())
     }
 
