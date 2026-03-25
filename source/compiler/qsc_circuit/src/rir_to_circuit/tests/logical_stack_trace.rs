@@ -8,7 +8,7 @@ use crate::{
         GateInputs, LogicalStack, LogicalStackWithSourceLookup, OperationReceiver, ScopeStack,
         WireMap,
     },
-    rir_to_circuit::{VariableTracker, reconstruct_control_flow},
+    rir_to_circuit::{QuantumProgram, VariableTracker, reconstruct_control_flow},
 };
 use expect_test::Expect;
 use expect_test::expect;
@@ -167,19 +167,14 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         blocks_to_control_results: IndexMap::default(),
     };
 
-    let entry_block_id = rir
-        .callables
-        .get(rir.entry)
-        .expect("entry callable should exist")
-        .body
-        .expect("entry callable should have a body");
-    let structured_control_flow = reconstruct_control_flow(&rir.blocks, entry_block_id);
+    let entry_block_id = rir.entry_block_id();
+    let structured_control_flow = reconstruct_control_flow(&rir, entry_block_id);
 
     let mut builder = TestOperationReceiver {
         trace: String::new(),
         source_lookup: &(&store, &fir_store),
     };
-    let num_qubits = rir.num_qubits.try_into().expect("num qubits fits in usize");
+    let num_qubits = rir.num_qubits();
     let mut wire_map_builder = WireMapBuilder::default();
     for id in 0..num_qubits {
         wire_map_builder.map_qubit(id, None);

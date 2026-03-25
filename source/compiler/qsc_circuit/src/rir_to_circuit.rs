@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 mod control_flow;
+pub mod instruction_types;
 #[cfg(test)]
 mod tests;
 
@@ -9,9 +10,8 @@ use core::panic;
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::fir::PackageId;
 use qsc_partial_eval::{
-    Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
-    VariableId,
-    rir::{Block, BlockId, Program, Ty, Variable},
+    ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
+    rir::{BlockId, Program, Ty, Variable},
 };
 use qsc_rir::debug::{DbgInfo, DbgLocationId, DbgScope, DbgScopeId};
 use std::{fmt::Display, vec};
@@ -26,24 +26,245 @@ use crate::{
     },
     rir_to_circuit::control_flow::{StructuredControlFlow, reconstruct_control_flow},
 };
+use instruction_types::{
+    BinOpKind, BlockIdx, FcmpCondition, IcmpCondition, Instr, Lit, Opr, Var, VarTy, VariableIdx,
+};
+
+/// A trait abstracting access to a quantum program's structure,
+/// enabling circuit generation from different program representations
+/// (e.g. RIR, QIR).
+pub trait QuantumProgram {
+    fn entry_block_id(&self) -> BlockIdx;
+    fn num_qubits(&self) -> usize;
+    fn get_block_instructions(&self, id: BlockIdx) -> Vec<Instr>;
+    fn block_ids(&self) -> Vec<BlockIdx>;
+    fn dbg_info(&self) -> &DbgInfo;
+}
+
+impl QuantumProgram for Program {
+    fn entry_block_id(&self) -> BlockIdx {
+        let block_id = self
+            .callables
+            .get(self.entry)
+            .expect("entry callable should exist")
+            .body
+            .expect("entry callable should have a body");
+        block_id.into()
+    }
+
+    fn num_qubits(&self) -> usize {
+        self.num_qubits
+            .try_into()
+            .expect("number of qubits should fit into usize")
+    }
+
+    fn get_block_instructions(&self, id: BlockIdx) -> Vec<Instr> {
+        let block = self
+            .blocks
+            .get(BlockId::from(id))
+            .expect("block should exist");
+        block
+            .0
+            .iter()
+            .map(|instr| convert_instruction(instr, &self.callables))
+            .collect()
+    }
+
+    fn block_ids(&self) -> Vec<BlockIdx> {
+        self.blocks.iter().map(|(id, _)| id.into()).collect()
+    }
+
+    fn dbg_info(&self) -> &DbgInfo {
+        &self.dbg_info
+    }
+}
+
+// --- RIR to instruction_types converters ---
+
+fn convert_binop(kind: BinOpKind, a: &Operand, b: &Operand, v: Variable) -> Instr {
+    Instr::BinOp(
+        kind,
+        convert_operand(a),
+        convert_operand(b),
+        convert_variable(v),
+    )
+}
+
+fn convert_instruction(
+    instr: &Instruction,
+    callables: &IndexMap<qsc_partial_eval::CallableId, qsc_partial_eval::rir::Callable>,
+) -> Instr {
+    match instr {
+        Instruction::Call(callable_id, operands, var, metadata) => {
+            let name = callables
+                .get(*callable_id)
+                .expect("callable should exist")
+                .name
+                .clone();
+            Instr::Call {
+                callable_name: name,
+                args: operands.iter().map(convert_operand).collect(),
+                output: var.map(convert_variable),
+                dbg_location: metadata.as_ref().map(|m| m.dbg_location.into()),
+            }
+        }
+        Instruction::Jump(target, ..) => Instr::Jump((*target).into()),
+        Instruction::Branch(condition, t, f, metadata) => Instr::Branch {
+            condition: convert_variable(*condition),
+            true_block: (*t).into(),
+            false_block: (*f).into(),
+            dbg_location: metadata.as_ref().map(|m| m.dbg_location.into()),
+        },
+        Instruction::Return => Instr::Return,
+        Instruction::Icmp(cc, a, b, v) => Instr::Icmp(
+            convert_icmp(*cc),
+            convert_operand(a),
+            convert_operand(b),
+            convert_variable(*v),
+        ),
+        Instruction::Fcmp(cc, a, b, v) => Instr::Fcmp(
+            convert_fcmp(*cc),
+            convert_operand(a),
+            convert_operand(b),
+            convert_variable(*v),
+        ),
+        Instruction::Phi(pres, v) => Instr::Phi(
+            pres.iter()
+                .map(|(o, bid)| (convert_operand(o), (*bid).into()))
+                .collect(),
+            convert_variable(*v),
+        ),
+        Instruction::Add(a, b, v) => convert_binop(BinOpKind::Add, a, b, *v),
+        Instruction::Sub(a, b, v) => convert_binop(BinOpKind::Sub, a, b, *v),
+        Instruction::Mul(a, b, v) => convert_binop(BinOpKind::Mul, a, b, *v),
+        Instruction::Sdiv(a, b, v) => convert_binop(BinOpKind::Sdiv, a, b, *v),
+        Instruction::Srem(a, b, v) => convert_binop(BinOpKind::Srem, a, b, *v),
+        Instruction::Shl(a, b, v) => convert_binop(BinOpKind::Shl, a, b, *v),
+        Instruction::Ashr(a, b, v) => convert_binop(BinOpKind::Ashr, a, b, *v),
+        Instruction::Fadd(a, b, v) => convert_binop(BinOpKind::Fadd, a, b, *v),
+        Instruction::Fsub(a, b, v) => convert_binop(BinOpKind::Fsub, a, b, *v),
+        Instruction::Fmul(a, b, v) => convert_binop(BinOpKind::Fmul, a, b, *v),
+        Instruction::Fdiv(a, b, v) => convert_binop(BinOpKind::Fdiv, a, b, *v),
+        Instruction::LogicalAnd(a, b, v) => convert_binop(BinOpKind::LogicalAnd, a, b, *v),
+        Instruction::LogicalOr(a, b, v) => convert_binop(BinOpKind::LogicalOr, a, b, *v),
+        Instruction::BitwiseAnd(a, b, v) => convert_binop(BinOpKind::BitwiseAnd, a, b, *v),
+        Instruction::BitwiseOr(a, b, v) => convert_binop(BinOpKind::BitwiseOr, a, b, *v),
+        Instruction::BitwiseXor(a, b, v) => convert_binop(BinOpKind::BitwiseXor, a, b, *v),
+        Instruction::LogicalNot(a, v) => {
+            Instr::LogicalNot(convert_operand(a), convert_variable(*v))
+        }
+        Instruction::Convert(a, v) => Instr::Convert(convert_operand(a), convert_variable(*v)),
+        Instruction::Store(..) | Instruction::BitwiseNot(..) => {
+            // These are unsupported in circuit generation and will be caught later.
+            // Convert to a LogicalNot as a placeholder that will trigger an error.
+            panic!("unsupported instruction in circuit generation: {instr:?}")
+        }
+    }
+}
+
+fn convert_operand(op: &Operand) -> Opr {
+    match op {
+        Operand::Literal(lit) => Opr::Literal(convert_literal(lit)),
+        Operand::Variable(var) => Opr::Variable(convert_variable(*var)),
+    }
+}
+
+fn convert_literal(lit: &Literal) -> Lit {
+    match lit {
+        Literal::Qubit(q) => Lit::Qubit(*q),
+        Literal::Result(r) => Lit::Result(*r),
+        Literal::Bool(b) => Lit::Bool(*b),
+        Literal::Integer(i) => Lit::Integer(*i),
+        Literal::Double(d) => Lit::Double(*d),
+        Literal::Pointer => Lit::Pointer,
+        Literal::Tag(idx, len) => Lit::Tag(*idx, *len),
+    }
+}
+
+fn convert_variable(var: Variable) -> Var {
+    Var {
+        id: var.variable_id.into(),
+        ty: convert_ty(var.ty),
+    }
+}
+
+fn convert_ty(ty: Ty) -> VarTy {
+    match ty {
+        Ty::Qubit => VarTy::Qubit,
+        Ty::Result => VarTy::Result,
+        Ty::Boolean => VarTy::Boolean,
+        Ty::Integer => VarTy::Integer,
+        Ty::Double => VarTy::Double,
+        Ty::Pointer => VarTy::Pointer,
+    }
+}
+
+fn convert_icmp(cc: ConditionCode) -> IcmpCondition {
+    match cc {
+        ConditionCode::Eq => IcmpCondition::Eq,
+        ConditionCode::Ne => IcmpCondition::Ne,
+        ConditionCode::Slt => IcmpCondition::Slt,
+        ConditionCode::Sle => IcmpCondition::Sle,
+        ConditionCode::Sgt => IcmpCondition::Sgt,
+        ConditionCode::Sge => IcmpCondition::Sge,
+    }
+}
+
+fn convert_fcmp(cc: FcmpConditionCode) -> FcmpCondition {
+    match cc {
+        FcmpConditionCode::False => FcmpCondition::False,
+        FcmpConditionCode::OrderedAndEqual => FcmpCondition::OrderedAndEqual,
+        FcmpConditionCode::OrderedAndGreaterThan => FcmpCondition::OrderedAndGreaterThan,
+        FcmpConditionCode::OrderedAndGreaterThanOrEqual => {
+            FcmpCondition::OrderedAndGreaterThanOrEqual
+        }
+        FcmpConditionCode::OrderedAndLessThan => FcmpCondition::OrderedAndLessThan,
+        FcmpConditionCode::OrderedAndLessThanOrEqual => FcmpCondition::OrderedAndLessThanOrEqual,
+        FcmpConditionCode::OrderedAndNotEqual => FcmpCondition::OrderedAndNotEqual,
+        FcmpConditionCode::Ordered => FcmpCondition::Ordered,
+        FcmpConditionCode::UnorderedOrEqual => FcmpCondition::UnorderedOrEqual,
+        FcmpConditionCode::UnorderedOrGreaterThan => FcmpCondition::UnorderedOrGreaterThan,
+        FcmpConditionCode::UnorderedOrGreaterThanOrEqual => {
+            FcmpCondition::UnorderedOrGreaterThanOrEqual
+        }
+        FcmpConditionCode::UnorderedOrLessThan => FcmpCondition::UnorderedOrLessThan,
+        FcmpConditionCode::UnorderedOrLessThanOrEqual => FcmpCondition::UnorderedOrLessThanOrEqual,
+        FcmpConditionCode::UnorderedOrNotEqual => FcmpCondition::UnorderedOrNotEqual,
+        FcmpConditionCode::Unordered => FcmpCondition::Unordered,
+        FcmpConditionCode::True => FcmpCondition::True,
+    }
+}
+
+/// Classifies a callable by its well-known name.
+/// The callable kind is purely a function of the name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CallableKind {
+    Measurement,
+    Reset,
+    Readout,
+    OutputRecording,
+    /// Any gate (regular intrinsic, noise intrinsic, or custom).
+    Gate,
+}
+
+fn callable_kind(name: &str) -> CallableKind {
+    match name {
+        "__quantum__qis__m__body" | "__quantum__qis__mresetz__body" => CallableKind::Measurement,
+        "__quantum__qis__reset__body" => CallableKind::Reset,
+        "__quantum__rt__read_result" => CallableKind::Readout,
+        n if n.ends_with("_record_output") => CallableKind::OutputRecording,
+        _ => CallableKind::Gate,
+    }
+}
 
 pub fn rir_to_circuit(
-    program_rir: &Program,
+    program: &impl QuantumProgram,
     config: TracerConfig,
     user_package_ids: &[PackageId],
     source_lookup: &impl SourceLookup,
 ) -> std::result::Result<Circuit, Error> {
-    let entry_block_id = program_rir
-        .callables
-        .get(program_rir.entry)
-        .expect("entry callable should exist")
-        .body
-        .expect("entry callable should have a body");
-
-    let num_qubits = program_rir
-        .num_qubits
-        .try_into()
-        .expect("number of qubits should fit into usize");
+    let entry_block_id = program.entry_block_id();
+    let num_qubits = program.num_qubits();
 
     // Initialize the wire map with the known number of qubits.
     let mut wire_map_builder = WireMapBuilder::default();
@@ -61,12 +282,12 @@ pub fn rir_to_circuit(
 
     // First, get a structured control flow so we can traverse the program in proper execution order,
     // following any branches.
-    let structured_control_flow = reconstruct_control_flow(&program_rir.blocks, entry_block_id);
+    let structured_control_flow = reconstruct_control_flow(program, entry_block_id);
 
     // Then we traverse the structured control flow, pushing operations to the builder as we go.
     build_operation_list(
         &mut VariableTracker::default(),
-        program_rir,
+        program,
         &mut wire_map_builder,
         &mut builder,
         &structured_control_flow,
@@ -86,7 +307,7 @@ pub fn rir_to_circuit(
 /// to the builder as it goes.
 fn build_operation_list(
     variable_tracker: &mut VariableTracker,
-    program_rir: &Program,
+    program: &impl QuantumProgram,
     wire_map_builder: &mut WireMapBuilder,
     op_list_builder: &mut impl OperationReceiver,
     scf: &StructuredControlFlow,
@@ -98,7 +319,7 @@ fn build_operation_list(
             for item in items {
                 build_operation_list(
                     variable_tracker,
-                    program_rir,
+                    program,
                     wire_map_builder,
                     op_list_builder,
                     item,
@@ -108,7 +329,7 @@ fn build_operation_list(
             }
         }
         StructuredControlFlow::BasicBlock(id) => {
-            let block = program_rir.blocks.get(*id).expect("block should exist");
+            let instructions = program.get_block_instructions(*id);
 
             assert!(
                 !variable_tracker.blocks_to_control_results.contains_key(*id),
@@ -122,9 +343,8 @@ fn build_operation_list(
                 op_list_builder,
                 variable_tracker,
                 wire_map_builder,
-                &program_rir.dbg_info,
-                &program_rir.callables,
-                block,
+                program,
+                &instructions,
                 current_stack,
             )?;
         }
@@ -132,13 +352,13 @@ fn build_operation_list(
             cond,
             then_br,
             else_br,
-            branch_instruction_metadata,
+            branch_dbg_location,
         } => {
             let dbg_lookup = DbgLookup {
-                dbg_info: &program_rir.dbg_info,
+                dbg_info: program.dbg_info(),
             };
 
-            let expr = expr_for_variable(&variable_tracker.variables, cond.variable_id)?;
+            let expr = expr_for_variable(&variable_tracker.variables, cond.id)?;
 
             let mut control_results = control_results.to_vec();
             for r in expr.linked_results() {
@@ -150,9 +370,8 @@ fn build_operation_list(
             let cond_expr_true = format!("if: {expr}");
             let cond_expr_false = format!("if: {}", expr.negate());
 
-            let branch_instruction_stack = branch_instruction_metadata
-                .as_deref()
-                .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location))
+            let branch_instruction_stack = branch_dbg_location
+                .map(|loc| dbg_lookup.instruction_logical_stack(DbgLocationId::from(loc)))
                 .unwrap_or_default();
 
             let full_stack =
@@ -174,7 +393,7 @@ fn build_operation_list(
 
             build_operation_list(
                 variable_tracker,
-                program_rir,
+                program,
                 wire_map_builder,
                 op_list_builder,
                 then_br,
@@ -184,7 +403,7 @@ fn build_operation_list(
 
             build_operation_list(
                 variable_tracker,
-                program_rir,
+                program,
                 wire_map_builder,
                 op_list_builder,
                 else_br,
@@ -201,24 +420,30 @@ fn push_operations_in_block(
     builder: &mut impl OperationReceiver,
     state: &mut VariableTracker,
     wire_map_builder: &mut WireMapBuilder,
-    dbg_info: &DbgInfo,
-    callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
-    block: &Block,
+    program: &impl QuantumProgram,
+    instructions: &[Instr],
     current_stack: &ScopeStack,
 ) -> Result<(), Error> {
-    let dbg_lookup = DbgLookup { dbg_info };
+    let dbg_lookup = DbgLookup {
+        dbg_info: program.dbg_info(),
+    };
 
-    for instruction in &block.0 {
+    for instruction in instructions {
         // First, we update the variable tracker according to this instruction,
         // so that when we later trace the instruction, we have the correct relationships
         // between variables and measurement results.
-        process_variables(state, wire_map_builder, callables, instruction)?;
+        process_variables(state, wire_map_builder, instruction)?;
 
         // Then we push operations to the builder.
-        if let Instruction::Call(callable_id, operands, _, metadata) = instruction {
-            let call_instruction_stack = metadata
-                .as_deref()
-                .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location))
+        if let Instr::Call {
+            callable_name,
+            args,
+            dbg_location,
+            ..
+        } = instruction
+        {
+            let call_instruction_stack = dbg_location
+                .map(|loc| dbg_lookup.instruction_logical_stack(DbgLocationId::from(loc)))
                 .unwrap_or_default();
 
             let full_stack =
@@ -230,8 +455,8 @@ fn push_operations_in_block(
                     builder,
                     wire_map: wire_map_builder.current(),
                 },
-                callables.get(*callable_id).expect("callable should exist"),
-                operands,
+                callable_name,
+                args,
                 full_stack,
             )?;
         }
@@ -305,20 +530,24 @@ impl DbgLookup<'_> {
 fn process_variables(
     state: &mut VariableTracker,
     wire_map_builder: &mut WireMapBuilder,
-    callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
-    instruction: &Instruction,
+    instruction: &Instr,
 ) -> Result<(), Error> {
     match instruction {
-        Instruction::Call(callable_id, operands, var, _) => {
+        Instr::Call {
+            callable_name,
+            args,
+            output,
+            ..
+        } => {
             process_call_variables(
                 &mut state.variables,
                 wire_map_builder,
-                callables.get(*callable_id).expect("callable should exist"),
-                operands,
-                *var,
+                callable_name,
+                args,
+                *output,
             )?;
         }
-        Instruction::Fcmp(condition_code, operand, operand1, variable) => {
+        Instr::Fcmp(condition_code, operand, operand1, variable) => {
             process_fcmp_variables(
                 &mut state.variables,
                 *condition_code,
@@ -327,7 +556,7 @@ fn process_variables(
                 *variable,
             )?;
         }
-        Instruction::Icmp(condition_code, operand, operand1, variable) => {
+        Instr::Icmp(condition_code, operand, operand1, variable) => {
             process_icmp_variables(
                 &mut state.variables,
                 *condition_code,
@@ -336,7 +565,7 @@ fn process_variables(
                 *variable,
             )?;
         }
-        Instruction::Phi(pres, variable) => {
+        Instr::Phi(pres, variable) => {
             process_phi_variables(
                 &state.blocks_to_control_results,
                 &mut state.variables,
@@ -344,37 +573,17 @@ fn process_variables(
                 *variable,
             )?;
         }
-        Instruction::Add(operand, operand1, variable)
-        | Instruction::Sub(operand, operand1, variable)
-        | Instruction::Mul(operand, operand1, variable)
-        | Instruction::Sdiv(operand, operand1, variable)
-        | Instruction::Srem(operand, operand1, variable)
-        | Instruction::Shl(operand, operand1, variable)
-        | Instruction::Ashr(operand, operand1, variable)
-        | Instruction::Fadd(operand, operand1, variable)
-        | Instruction::Fsub(operand, operand1, variable)
-        | Instruction::Fmul(operand, operand1, variable)
-        | Instruction::Fdiv(operand, operand1, variable)
-        | Instruction::LogicalAnd(operand, operand1, variable)
-        | Instruction::LogicalOr(operand, operand1, variable)
-        | Instruction::BitwiseAnd(operand, operand1, variable)
-        | Instruction::BitwiseOr(operand, operand1, variable)
-        | Instruction::BitwiseXor(operand, operand1, variable) => {
+        Instr::BinOp(_, operand, operand1, variable) => {
             process_binop_variables(&mut state.variables, operand, operand1, *variable)?;
         }
-        Instruction::LogicalNot(operand, variable) => {
+        Instr::LogicalNot(operand, variable) => {
             process_logical_not_variables(&mut state.variables, operand, *variable)?;
         }
-        Instruction::Convert(operand, variable) => {
+        Instr::Convert(operand, variable) => {
             let expr = expr_from_operand(&state.variables, operand)?;
             store_expr_in_variable(&mut state.variables, *variable, expr)?;
         }
-        instruction @ (Instruction::Store(..) | Instruction::BitwiseNot(..)) => {
-            return Err(Error::UnsupportedFeature(format!(
-                "unsupported instruction in block: {instruction:?}"
-            )));
-        }
-        Instruction::Return | Instruction::Branch(..) | Instruction::Jump(..) => {
+        Instr::Return | Instr::Branch { .. } | Instr::Jump(..) => {
             // do nothing for terminators
         }
     }
@@ -510,10 +719,10 @@ fn extend_with_branch_scope(
 }
 
 fn process_binop_variables(
-    variables: &mut IndexMap<VariableId, Expr>,
-    operand: &Operand,
-    operand1: &Operand,
-    variable: Variable,
+    variables: &mut IndexMap<usize, Expr>,
+    operand: &Opr,
+    operand1: &Opr,
+    variable: Var,
 ) -> Result<(), Error> {
     let expr_left = expr_from_operand(variables, operand)?;
     let expr_right = expr_from_operand(variables, operand1)?;
@@ -523,9 +732,9 @@ fn process_binop_variables(
 }
 
 fn process_logical_not_variables(
-    variables: &mut IndexMap<VariableId, Expr>,
-    operand: &Operand,
-    variable: Variable,
+    variables: &mut IndexMap<usize, Expr>,
+    operand: &Opr,
+    variable: Var,
 ) -> Result<(), Error> {
     let expr = expr_from_operand(variables, operand)?;
     let expr_negated = expr.negate();
@@ -534,10 +743,10 @@ fn process_logical_not_variables(
 }
 
 fn process_phi_variables(
-    blocks_to_control_results: &IndexMap<BlockId, Vec<usize>>,
-    variables: &mut IndexMap<VariableId, Expr>,
-    pres: &Vec<(Operand, BlockId)>,
-    variable: Variable,
+    blocks_to_control_results: &IndexMap<usize, Vec<usize>>,
+    variables: &mut IndexMap<usize, Expr>,
+    pres: &Vec<(Opr, BlockIdx)>,
+    variable: Var,
 ) -> Result<(), Error> {
     let mut exprs = vec![];
     let mut this_phis = vec![];
@@ -564,33 +773,33 @@ fn process_phi_variables(
 }
 
 fn process_icmp_variables(
-    variables: &mut IndexMap<VariableId, Expr>,
-    condition_code: ConditionCode,
-    operand: &Operand,
-    operand1: &Operand,
-    variable: Variable,
+    variables: &mut IndexMap<usize, Expr>,
+    condition_code: IcmpCondition,
+    operand: &Opr,
+    operand1: &Opr,
+    variable: Var,
 ) -> Result<(), Error> {
     let expr_left = expr_from_operand(variables, operand)?;
     let expr_right = expr_from_operand(variables, operand1)?;
     let expr = match condition_code {
-        ConditionCode::Eq => eq_expr(expr_left, expr_right)?,
-        ConditionCode::Ne => eq_expr(expr_left, expr_right)?.negate(),
-        ConditionCode::Slt => Expr::Bool(BoolExpr::BinOp(
+        IcmpCondition::Eq => eq_expr(expr_left, expr_right)?,
+        IcmpCondition::Ne => eq_expr(expr_left, expr_right)?.negate(),
+        IcmpCondition::Slt => Expr::Bool(BoolExpr::BinOp(
             expr_left.into(),
             expr_right.into(),
             ComparisonOp::Lt,
         )),
-        ConditionCode::Sgt => Expr::Bool(BoolExpr::BinOp(
+        IcmpCondition::Sgt => Expr::Bool(BoolExpr::BinOp(
             expr_left.into(),
             expr_right.into(),
             ComparisonOp::Gt,
         )),
-        ConditionCode::Sle => Expr::Bool(BoolExpr::BinOp(
+        IcmpCondition::Sle => Expr::Bool(BoolExpr::BinOp(
             expr_left.into(),
             expr_right.into(),
             ComparisonOp::Le,
         )),
-        ConditionCode::Sge => Expr::Bool(BoolExpr::BinOp(
+        IcmpCondition::Sge => Expr::Bool(BoolExpr::BinOp(
             expr_left.into(),
             expr_right.into(),
             ComparisonOp::Ge,
@@ -601,38 +810,37 @@ fn process_icmp_variables(
 }
 
 fn process_fcmp_variables(
-    variables: &mut IndexMap<VariableId, Expr>,
-    condition_code: FcmpConditionCode,
-    operand: &Operand,
-    operand1: &Operand,
-    variable: Variable,
+    variables: &mut IndexMap<usize, Expr>,
+    condition_code: FcmpCondition,
+    operand: &Opr,
+    operand1: &Opr,
+    variable: Var,
 ) -> Result<(), Error> {
     let expr_left = expr_from_operand(variables, operand)?;
     let expr_right = expr_from_operand(variables, operand1)?;
     let expr = match condition_code {
-        FcmpConditionCode::False => BoolExpr::LiteralBool(false),
-        FcmpConditionCode::True => BoolExpr::LiteralBool(true),
-        FcmpConditionCode::OrderedAndEqual | FcmpConditionCode::UnorderedOrEqual => {
+        FcmpCondition::False => BoolExpr::LiteralBool(false),
+        FcmpCondition::True => BoolExpr::LiteralBool(true),
+        FcmpCondition::OrderedAndEqual | FcmpCondition::UnorderedOrEqual => {
             BoolExpr::BinOp(expr_left.into(), expr_right.into(), ComparisonOp::Eq)
         }
-        FcmpConditionCode::OrderedAndNotEqual | FcmpConditionCode::UnorderedOrNotEqual => {
+        FcmpCondition::OrderedAndNotEqual | FcmpCondition::UnorderedOrNotEqual => {
             BoolExpr::BinOp(expr_left.into(), expr_right.into(), ComparisonOp::Ne)
         }
-        FcmpConditionCode::OrderedAndLessThan | FcmpConditionCode::UnorderedOrLessThan => {
+        FcmpCondition::OrderedAndLessThan | FcmpCondition::UnorderedOrLessThan => {
             BoolExpr::BinOp(expr_left.into(), expr_right.into(), ComparisonOp::Lt)
         }
-        FcmpConditionCode::OrderedAndGreaterThan | FcmpConditionCode::UnorderedOrGreaterThan => {
+        FcmpCondition::OrderedAndGreaterThan | FcmpCondition::UnorderedOrGreaterThan => {
             BoolExpr::BinOp(expr_left.into(), expr_right.into(), ComparisonOp::Gt)
         }
-        FcmpConditionCode::OrderedAndLessThanOrEqual
-        | FcmpConditionCode::UnorderedOrLessThanOrEqual => {
+        FcmpCondition::OrderedAndLessThanOrEqual | FcmpCondition::UnorderedOrLessThanOrEqual => {
             BoolExpr::BinOp(expr_left.into(), expr_right.into(), ComparisonOp::Le)
         }
-        FcmpConditionCode::OrderedAndGreaterThanOrEqual
-        | FcmpConditionCode::UnorderedOrGreaterThanOrEqual => {
+        FcmpCondition::OrderedAndGreaterThanOrEqual
+        | FcmpCondition::UnorderedOrGreaterThanOrEqual => {
             BoolExpr::BinOp(expr_left.into(), expr_right.into(), ComparisonOp::Ge)
         }
-        FcmpConditionCode::Ordered | FcmpConditionCode::Unordered => {
+        FcmpCondition::Ordered | FcmpCondition::Unordered => {
             // These don't map to a simple binary comparison; treat as opaque.
             return store_expr_in_variable(
                 variables,
@@ -668,23 +876,18 @@ fn eq_expr(expr_left: Expr, expr_right: Expr) -> Result<Expr, Error> {
     })
 }
 
-fn expr_from_operand(
-    variables: &IndexMap<VariableId, Expr>,
-    operand: &Operand,
-) -> Result<Expr, Error> {
+fn expr_from_operand(variables: &IndexMap<usize, Expr>, operand: &Opr) -> Result<Expr, Error> {
     match operand {
-        Operand::Literal(literal) => match literal {
-            Literal::Result(r) => Ok(Expr::Bool(BoolExpr::Result(
-                usize::try_from(*r).expect("result id should fit in usize"),
-            ))),
-            Literal::Bool(b) => Ok(Expr::Bool(BoolExpr::LiteralBool(*b))),
-            Literal::Integer(i) => Ok(Expr::Rich(RichExpr::Literal(i.to_string()))),
-            Literal::Double(d) => Ok(Expr::Rich(RichExpr::Literal(d.to_string()))),
+        Opr::Literal(literal) => match literal {
+            Lit::Result(r) => Ok(Expr::Bool(BoolExpr::Result(*r as usize))),
+            Lit::Bool(b) => Ok(Expr::Bool(BoolExpr::LiteralBool(*b))),
+            Lit::Integer(i) => Ok(Expr::Rich(RichExpr::Literal(i.to_string()))),
+            Lit::Double(d) => Ok(Expr::Rich(RichExpr::Literal(d.to_string()))),
             _ => Err(Error::UnsupportedFeature(format!(
                 "unsupported literal operand: {literal:?}"
             ))),
         },
-        Operand::Variable(variable) => expr_for_variable(variables, variable.variable_id).cloned(),
+        Opr::Variable(variable) => expr_for_variable(variables, variable.id).cloned(),
     }
 }
 
@@ -694,8 +897,8 @@ fn expr_from_operand(
 /// we can determine which control results they depend on and thus which operations
 /// should be classically controlled by those results.
 struct VariableTracker {
-    variables: IndexMap<VariableId, Expr>,
-    blocks_to_control_results: IndexMap<BlockId, Vec<usize>>,
+    variables: IndexMap<usize, Expr>,
+    blocks_to_control_results: IndexMap<usize, Vec<usize>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -887,31 +1090,31 @@ impl Display for BoolExpr {
 }
 
 fn expr_for_variable(
-    variables: &IndexMap<VariableId, Expr>,
-    variable_id: VariableId,
+    variables: &IndexMap<usize, Expr>,
+    variable_id: VariableIdx,
 ) -> Result<&Expr, Error> {
     let expr = variables.get(variable_id);
     Ok(expr.unwrap_or_else(|| {
-        panic!("variable {variable_id:?} is not linked to a result or expression")
+        panic!("variable {variable_id} is not linked to a result or expression")
     }))
 }
 
 fn store_expr_in_variable(
-    variables: &mut IndexMap<VariableId, Expr>,
-    var: Variable,
+    variables: &mut IndexMap<usize, Expr>,
+    var: Var,
     expr: Expr,
 ) -> Result<(), Error> {
-    let variable_id = var.variable_id;
+    let variable_id = var.id;
     if let Some(old_value) = variables.get(variable_id)
         && old_value != &expr
     {
-        panic!("variable {variable_id:?} already stored {old_value:?}, cannot store {expr:?}");
+        panic!("variable {variable_id} already stored {old_value:?}, cannot store {expr:?}");
     }
     if let Expr::Bool(condition_expr) = &expr {
-        if let Ty::Boolean = var.ty {
+        if let VarTy::Boolean = var.ty {
         } else {
             return Err(Error::UnsupportedFeature(format!(
-                "variable {variable_id:?} has type {var_ty:?} but is being assigned a condition expression: {condition_expr:?}",
+                "variable {variable_id} has type {var_ty:?} but is being assigned a condition expression: {condition_expr:?}",
                 var_ty = var.ty,
             )));
         }
@@ -922,20 +1125,20 @@ fn store_expr_in_variable(
 }
 
 fn process_call_variables(
-    variables: &mut IndexMap<VariableId, Expr>,
+    variables: &mut IndexMap<usize, Expr>,
     wire_map_builder: &mut WireMapBuilder,
-    callable: &Callable,
-    operands: &Vec<Operand>,
-    var: Option<Variable>,
+    callable_name: &str,
+    operands: &Vec<Opr>,
+    var: Option<Var>,
 ) -> Result<(), Error> {
-    match callable.call_type {
-        CallableType::Measurement => {
+    match callable_kind(callable_name) {
+        CallableKind::Measurement => {
             let Operands::<'_> {
                 name,
                 control_qubits,
                 target_results,
                 ..
-            } = callable_spec(variables, callable, operands)?
+            } = callable_spec(variables, callable_name, operands)?
                 .expect("measurement should have a signature");
 
             if control_qubits.len() != 1 {
@@ -956,19 +1159,17 @@ fn process_call_variables(
             let result = target_results[0];
             wire_map_builder.link_result_to_qubit(qubit, result);
         }
-        CallableType::Readout => match callable.name.as_str() {
+        CallableKind::Readout => match callable_name {
             "__quantum__rt__read_result" => {
                 for operand in operands {
                     match operand {
-                        Operand::Literal(Literal::Result(r)) => {
+                        Opr::Literal(Lit::Result(r)) => {
                             let var =
                                 var.expect("read_result must have a variable to store the result");
                             store_expr_in_variable(
                                 variables,
                                 var,
-                                Expr::Bool(BoolExpr::Result(
-                                    usize::try_from(*r).expect("result id should fit in usize"),
-                                )),
+                                Expr::Bool(BoolExpr::Result(*r as usize)),
                             )?;
                         }
                         operand => {
@@ -985,7 +1186,7 @@ fn process_call_variables(
                 )));
             }
         },
-        CallableType::Regular | CallableType::NoiseIntrinsic => {
+        CallableKind::Gate => {
             if let Some(var) = var {
                 let exprs: Vec<_> = operands
                     .iter()
@@ -999,22 +1200,24 @@ fn process_call_variables(
                 store_expr_in_variable(variables, var, result_expr)?;
             }
         }
-        CallableType::Reset | CallableType::OutputRecording => {}
+        CallableKind::Reset | CallableKind::OutputRecording => {}
     }
 
     Ok(())
 }
 
 fn trace_call(
-    variables: &IndexMap<VariableId, Expr>,
+    variables: &IndexMap<usize, Expr>,
     builder_ctx: &mut BuilderWithRegisterMap<impl OperationReceiver>,
-    callable: &Callable,
-    operands: &[Operand],
+    callable_name: &str,
+    operands: &[Opr],
     mut stack: LogicalStack,
 ) -> Result<(), Error> {
+    let kind = callable_kind(callable_name);
+
     // Get the signature information for known callables. For custom intrinsics, derive
     // them from the actual operands.
-    let operands = callable_spec(variables, callable, operands)?;
+    let operands = callable_spec(variables, callable_name, operands)?;
 
     if let Some(mut operands) = operands {
         let control_results = take(&mut operands.control_results);
@@ -1042,28 +1245,26 @@ fn trace_call(
             stack.0.push(frame);
         }
 
-        match callable.call_type {
-            CallableType::Measurement => {
+        match kind {
+            CallableKind::Measurement => {
                 trace_measurement(builder_ctx, operands.name, operands, stack)?;
             }
-            CallableType::Reset => trace_reset(builder_ctx, operands, stack)?,
-            CallableType::Regular | CallableType::NoiseIntrinsic => trace_gate(
+            CallableKind::Reset => trace_reset(builder_ctx, operands, stack)?,
+            CallableKind::Gate => trace_gate(
                 builder_ctx,
                 operands.name,
                 operands.is_adjoint,
                 operands,
                 stack,
             )?,
-            callable_type @ (CallableType::Readout | CallableType::OutputRecording) => {
-                panic!("callable type {callable_type} should not have been classified as a gate");
+            kind @ (CallableKind::Readout | CallableKind::OutputRecording) => {
+                panic!("callable type {kind:?} should not have been classified as a gate");
             }
         }
     } else {
         assert!(
-            matches!(
-                callable.call_type,
-                CallableType::Readout | CallableType::OutputRecording
-            ) || callable.name == "__quantum__rt__initialize"
+            matches!(kind, CallableKind::Readout | CallableKind::OutputRecording)
+                || callable_name == "__quantum__rt__initialize"
         );
     }
 
@@ -1251,21 +1452,22 @@ impl<'a> GateSpec<'a> {
 
 #[allow(clippy::too_many_lines)]
 fn callable_spec<'a>(
-    variables: &IndexMap<VariableId, Expr>,
-    callable: &'a Callable,
-    operands: &[Operand],
+    variables: &IndexMap<usize, Expr>,
+    callable_name: &'a str,
+    operands: &[Opr],
 ) -> Result<Option<Operands<'a>>, Error> {
-    if let CallableType::OutputRecording | CallableType::Readout = callable.call_type {
+    let kind = callable_kind(callable_name);
+    if let CallableKind::OutputRecording | CallableKind::Readout = kind {
         // These are not shown as gates in the circuit
         return Ok(None);
     }
 
-    if &callable.name == "__quantum__rt__initialize" {
+    if callable_name == "__quantum__rt__initialize" {
         // This is not shown as a gate in the circuit
         return Ok(None);
     }
 
-    let gate_spec = known_gate_spec(&callable.name);
+    let gate_spec = known_gate_spec(callable_name);
 
     let gate_spec = if let Some(gate_spec) = gate_spec {
         gate_spec
@@ -1273,32 +1475,35 @@ fn callable_spec<'a>(
         let mut operand_types = vec![];
         for o in operands {
             match o {
-                Operand::Literal(Literal::Integer(_) | Literal::Double(_))
-                | Operand::Variable(Variable {
-                    ty: Ty::Boolean | Ty::Integer | Ty::Double,
+                Opr::Literal(Lit::Integer(_) | Lit::Double(_))
+                | Opr::Variable(Var {
+                    ty: VarTy::Boolean | VarTy::Integer | VarTy::Double,
                     ..
                 }) => {
                     operand_types.push(OperandType::Arg);
                 }
-                Operand::Literal(Literal::Qubit(_))
-                | Operand::Variable(Variable { ty: Ty::Qubit, .. }) => {
+                Opr::Literal(Lit::Qubit(_))
+                | Opr::Variable(Var {
+                    ty: VarTy::Qubit, ..
+                }) => {
                     operand_types.push(OperandType::TargetQubit);
                 }
-                Operand::Literal(Literal::Result(_))
-                | Operand::Variable(Variable { ty: Ty::Result, .. }) => {
+                Opr::Literal(Lit::Result(_))
+                | Opr::Variable(Var {
+                    ty: VarTy::Result, ..
+                }) => {
                     operand_types.push(OperandType::TargetResult);
                 }
                 o => {
                     return Err(Error::UnsupportedFeature(format!(
-                        "unsupported operand for custom gate {}: {o:?}",
-                        &callable.name
+                        "unsupported operand for custom gate {callable_name}: {o:?}",
                     )));
                 }
             }
         }
 
         GateSpec {
-            name: &callable.name,
+            name: callable_name,
             operand_types,
             is_adjoint: false,
         }
@@ -1316,8 +1521,8 @@ fn callable_spec<'a>(
     }
     for (operand, operand_type) in operands.iter().zip(gate_spec.operand_types) {
         match operand {
-            Operand::Literal(literal) => match literal {
-                Literal::Qubit(q) => {
+            Opr::Literal(literal) => match literal {
+                Lit::Qubit(q) => {
                     let qubit_operands_array = match operand_type {
                         OperandType::ControlQubit => &mut control_qubits,
                         OperandType::TargetQubit => &mut target_qubits,
@@ -1332,13 +1537,11 @@ fn callable_spec<'a>(
                             ));
                         }
                     };
-                    qubit_operands_array
-                        .push(usize::try_from(*q).expect("qubit id should fit in usize"));
+                    qubit_operands_array.push(*q as usize);
                 }
-                Literal::Result(r) => match operand_type {
+                Lit::Result(r) => match operand_type {
                     OperandType::TargetResult => {
-                        target_results
-                            .push(usize::try_from(*r).expect("result id should fit in usize"));
+                        target_results.push(*r as usize);
                     }
                     _ => {
                         return Err(Error::UnsupportedFeature(
@@ -1346,7 +1549,7 @@ fn callable_spec<'a>(
                         ));
                     }
                 },
-                Literal::Integer(i) => match operand_type {
+                Lit::Integer(i) => match operand_type {
                     OperandType::Arg => {
                         args.push(i.to_string());
                     }
@@ -1356,7 +1559,7 @@ fn callable_spec<'a>(
                         ));
                     }
                 },
-                Literal::Double(d) => match operand_type {
+                Lit::Double(d) => match operand_type {
                     OperandType::Arg => {
                         args.push(format!("{d:.4}"));
                     }
@@ -1372,9 +1575,9 @@ fn callable_spec<'a>(
                     )));
                 }
             },
-            o @ Operand::Variable(var) => {
+            o @ Opr::Variable(var) => {
                 if let OperandType::Arg = operand_type {
-                    let expr = expr_for_variable(variables, var.variable_id)?.clone();
+                    let expr = expr_for_variable(variables, var.id)?.clone();
                     // Add classical controls if this expr is dependent on a result
                     let results = expr.linked_results();
                     for r in results {

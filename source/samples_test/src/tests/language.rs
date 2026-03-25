@@ -167,8 +167,7 @@ pub const COPYANDUPDATEOPERATOR_EXPECT_CIRCUIT: Expect = expect!["generated circ
 pub const COPYANDUPDATEOPERATOR_EXPECT_QIR: Expect = expect!["generated QIR of length 960"];
 pub const CUSTOMMEASUREMENTS_EXPECT: Expect = expect!["Zero"];
 pub const CUSTOMMEASUREMENTS_EXPECT_DEBUG: Expect = expect!["Zero"];
-// SimulatableIntrinsic, custom measurements are not expected to work in the circuit generation.
-pub const CUSTOMMEASUREMENTS_EXPECT_CIRCUIT: Expect = expect!["circuit error: circuit error"];
+pub const CUSTOMMEASUREMENTS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 92"];
 pub const CUSTOMMEASUREMENTS_EXPECT_QIR: Expect = expect!["generated QIR of length 1297"];
 pub const DATATYPES_EXPECT: Expect = expect![[r#"
     Binary BigInt: 42
