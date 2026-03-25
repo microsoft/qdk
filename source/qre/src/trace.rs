@@ -14,8 +14,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Error, EstimationCollection, EstimationResult, FactoryResult, ISA, Instruction, LockedISA,
-    ProvenanceGraph, ResultSummary,
+    ConstraintBound, Encoding, Error, EstimationCollection, EstimationResult, FactoryResult, ISA,
+    ISARequirements, Instruction, InstructionConstraint, LockedISA, ProvenanceGraph, ResultSummary,
     property_keys::{
         LOGICAL_COMPUTE_QUBITS, LOGICAL_MEMORY_QUBITS, PHYSICAL_COMPUTE_QUBITS,
         PHYSICAL_FACTORY_QUBITS, PHYSICAL_MEMORY_QUBITS,
@@ -152,29 +152,62 @@ impl Trace {
         TraceIterator::new(&self.block)
     }
 
-    /// Returns the set of used instruction IDs in the trace including their volume
+    /// Returns the set of instruction IDs required by this trace, along with
+    /// their arity constraints if available.  We take the actual arity from the
+    /// instruction, and if we see instructions with the same ID but different
+    /// arities, we mark them as variable arity in the returned requirements.
+    /// If `max_error` is provided, also adds error rate constraints based on
+    /// the instruction usage volume and the maximum allowed error.  These error
+    /// rate constraints can be used for instruction pruning during estimation.
+    #[allow(clippy::cast_precision_loss)]
     #[must_use]
-    pub fn required_instruction_ids(&self) -> FxHashMap<u64, u64> {
-        let mut ids = FxHashMap::default();
+    pub fn required_instruction_ids(&self, max_error: Option<f64>) -> ISARequirements {
+        let mut constraints = FxHashMap::<u64, (InstructionConstraint, u64)>::default();
+
+        let mut update_constraints = |id: u64, arity: u64, added_volume: u64| {
+            constraints
+                .entry(id)
+                .and_modify(|(constraint, volume)| {
+                    if let Some(prev_arity) = constraint.arity()
+                        && prev_arity != arity
+                    {
+                        constraint.set_arity(None);
+                    }
+                    *volume += added_volume;
+                })
+                .or_insert({
+                    let constraint =
+                        InstructionConstraint::new(id, Encoding::Logical, Some(arity), None);
+                    (constraint, added_volume)
+                });
+        };
+
         for (gate, mult) in self.deep_iter() {
             let arity = gate.qubits.len() as u64;
-            ids.entry(gate.id)
-                .and_modify(|c| *c += mult * arity)
-                .or_insert(mult * (gate.qubits.len() as u64));
+            update_constraints(gate.id, arity, mult * arity);
         }
         if let Some(ref rs) = self.resource_states {
             for (res_id, count) in rs {
-                ids.entry(*res_id)
-                    .and_modify(|c| *c += *count)
-                    .or_insert(*count);
+                update_constraints(*res_id, 1, *count);
             }
         }
         if let Some(memory_qubits) = self.memory_qubits {
-            ids.entry(instruction_ids::MEMORY)
-                .and_modify(|c| *c += memory_qubits)
-                .or_insert(memory_qubits);
+            update_constraints(instruction_ids::MEMORY, memory_qubits, memory_qubits);
         }
-        ids
+
+        if let Some(max_error) = max_error {
+            constraints
+                .into_values()
+                .map(|(mut c, volume)| {
+                    c.set_error_rate(Some(ConstraintBound::less_equal(
+                        max_error / (volume as f64),
+                    )));
+                    c
+                })
+                .collect()
+        } else {
+            constraints.into_values().map(|(c, _)| c).collect()
+        }
     }
 
     #[must_use]
@@ -982,21 +1015,24 @@ pub fn estimate_with_graph(
             continue;
         }
 
-        let required = trace.required_instruction_ids();
+        let required = trace.required_instruction_ids(Some(max_error));
 
         let graph_lock = graph.read().expect("Graph lock poisoned");
         let id_and_nodes: Vec<_> = required
+            .constraints()
             .iter()
-            .filter_map(|(&id, &volume)| {
-                let max_error_rate = max_error / (volume as f64);
-                graph_lock.pareto_nodes(id).map(|nodes| {
+            .filter_map(|constraint| {
+                graph_lock.pareto_nodes(constraint.id()).map(|nodes| {
                     (
-                        id,
+                        constraint.id(),
                         nodes
                             .iter()
                             .filter(|&&node| {
+                                // Filter out nodes that don't meet the constraint bounds.
                                 let instruction = graph_lock.instruction(node);
-                                instruction.error_rate(Some(1)).unwrap_or(0.0) <= max_error_rate
+                                constraint.error_rate().is_none_or(|c| {
+                                    c.evaluate(&instruction.error_rate(Some(1)).unwrap_or(0.0))
+                                })
                             })
                             .map(|&node| {
                                 let instruction = graph_lock.instruction(node);
