@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState } from "preact/hooks";
 import { h } from "preact";
-import renderToString from "preact-render-to-string";
+import { renderToString } from "preact-render-to-string";
 
 // Concrete colour palettes for standalone SVG export (no host CSS vars).
 const lightPalette = {

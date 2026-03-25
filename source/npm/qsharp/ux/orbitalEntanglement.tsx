@@ -2,96 +2,31 @@
 // Licensed under the MIT License.
 
 /**
- * Generic chord diagram.
+ * Orbital entanglement chord diagram.
  *
- * Renders per-node scalar values and pairwise edge weights as an SVG chord
- * diagram.  Arc length is proportional to the node value; chord thickness
- * is proportional to pairwise weight.
+ * Renders single-orbital entropies and mutual information as an SVG chord
+ * diagram.  Arc length is proportional to single-orbital entropy; chord
+ * thickness is proportional to pairwise mutual information.
  *
  * The diagram is rendered entirely as native SVG so that the markup can be
  * serialised to a standalone `.svg` file from the Python widget.
- *
- * `OrbitalEntanglement` is a thin wrapper that supplies orbital-specific
- * defaults (title, legend labels, colormaps, scale maxima).
  */
-
-import { useState, useRef, useEffect } from "preact/hooks";
-import { h } from "preact";
-import renderToString from "preact-render-to-string";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface ChordDiagramProps {
-  /** Per-node scalar values (length N).  Drives arc colour. */
-  nodeValues: number[];
-  /** N×N symmetric weight matrix.  Drives chord colour / width. */
-  pairwiseWeights: number[][];
-  /** Node labels (length N). Falls back to "0", "1", … */
+export interface OrbitalEntanglementProps {
+  /** Single-orbital entropies, length N. */
+  s1Entropies: number[];
+  /** Mutual information matrix, N×N (row-major flat array or nested). */
+  mutualInformation: number[][];
+  /** Orbital labels (length N). Falls back to "0", "1", … */
   labels?: string[];
-  /** Indices of nodes to highlight with an outline. */
+  /** Indices of orbitals to highlight with an outline. */
   selectedIndices?: number[];
 
   // --- visual knobs (all optional with sensible defaults) ---
-  gapDeg?: number;
-  radius?: number;
-  arcWidth?: number;
-  lineScale?: number | null;
-  /** Minimum edge weight to draw a chord. */
-  edgeThreshold?: number;
-  /** Clamp for node colour scale. */
-  nodeVmax?: number | null;
-  /** Clamp for edge colour scale. */
-  edgeVmax?: number | null;
-  title?: string | null;
-  width?: number;
-  height?: number;
-  selectionColor?: string;
-  selectionLinewidth?: number;
-  /** 3-stop hex colourmap for arcs. */
-  nodeColormap?: [string, string, string];
-  /** 3-stop hex colourmap for chords. */
-  edgeColormap?: [string, string, string];
-  /** Legend label for the node colour bar. */
-  nodeColorbarLabel?: string | null;
-  /** Legend label for the edge colour bar. */
-  edgeColorbarLabel?: string | null;
-  /** Prefix shown before the node value on hover (e.g. "S₁="). */
-  nodeHoverPrefix?: string;
-  /** Prefix shown before the edge value on hover (e.g. "MI="). */
-  edgeHoverPrefix?: string;
-  /**
-   * When `true`, reorder arcs so that selected nodes sit adjacent
-   * on the ring (labels still show the original names).
-   */
-  groupSelected?: boolean;
-  /**
-   * When `true` renders light text on a dark background; when `false`
-   * renders dark text on a transparent background.  Leave `undefined`
-   * (the default) to inherit from the host page via `--qdk-*` CSS
-   * custom properties (which map VS Code / Jupyter theme vars), with
-   * a final fallback to `currentColor` / `transparent`.
-   */
-  darkMode?: boolean;
-  /**
-   * When `true`, interactive-only UI elements (e.g. the grouping toggle)
-   * are suppressed.  Used during server-side SVG export.
-   */
-  static?: boolean;
-  /**
-   * Callback fired when the user toggles the grouping control.
-   * The host can use this to sync the new state back to a data model.
-   */
-  onGroupChange?: (grouped: boolean) => void;
-}
-
-/** Convenience alias keeping the old prop names for backward compat. */
-export interface OrbitalEntanglementProps {
-  s1Entropies: number[];
-  mutualInformation: number[][];
-  labels?: string[];
-  selectedIndices?: number[];
   gapDeg?: number;
   radius?: number;
   arcWidth?: number;
@@ -104,12 +39,6 @@ export interface OrbitalEntanglementProps {
   height?: number;
   selectionColor?: string;
   selectionLinewidth?: number;
-  nodeColormap?: [string, string, string];
-  edgeColormap?: [string, string, string];
-  groupSelected?: boolean;
-  darkMode?: boolean;
-  static?: boolean;
-  onGroupChange?: (grouped: boolean) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,40 +84,8 @@ function colormapEval(stops: [string, string, string], t: number): string {
   return rgbaToCSS(lerpColor(colors[1], colors[2], (clamped - 0.5) * 2));
 }
 
-const DEFAULT_NODE_CMAP: [string, string, string] = [
-  "#d8d8d8",
-  "#c82020",
-  "#1a1a1a",
-];
-const DEFAULT_EDGE_CMAP: [string, string, string] = [
-  "#d8d8d8",
-  "#2060b0",
-  "#1a1a1a",
-];
-
-/**
- * Detect whether the host background is dark or light by sampling the
- * computed background-color of the nearest ancestor with one.
- * Returns a high-contrast colour for selection outlines.
- */
-function detectSelectionColor(el: Element | null): string {
-  if (!el || typeof getComputedStyle === "undefined") return "#FFD700";
-  let node: Element | null = el;
-  while (node) {
-    const bg = getComputedStyle(node).backgroundColor;
-    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
-      const m = bg.match(/\d+/g);
-      if (m) {
-        const [r, g, b] = m.map(Number);
-        const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-        // Use vivid colours that pop against the arc colourmap
-        return lum > 0.5 ? "#FF8C00" : "#FFD700";
-      }
-    }
-    node = node.parentElement;
-  }
-  return "#FFD700";
-}
+const ARC_CMAP: [string, string, string] = ["#d8d8d8", "#c82020", "#1a1a1a"];
+const CHORD_CMAP: [string, string, string] = ["#d8d8d8", "#2060b0", "#1a1a1a"];
 
 /** Build an SVG arc‑path for a filled annular segment. */
 function arcPath(
@@ -209,14 +106,7 @@ function arcPath(
     const theta = ((startDeg + ((endDeg - startDeg) * i) / N) * Math.PI) / 180;
     pts.push(`${innerR * Math.cos(theta)},${innerR * Math.sin(theta)}`);
   }
-  return (
-    `M ${pts[0]} ` +
-    pts
-      .slice(1)
-      .map((p) => `L ${p}`)
-      .join(" ") +
-    " Z"
-  );
+  return `M ${pts[0]} ` + pts.slice(1).map((p) => `L ${p}`).join(" ") + " Z";
 }
 
 /** Cubic Bézier chord between two angles on the inner rim. */
@@ -239,77 +129,27 @@ function chordPath(
 // Component
 // ---------------------------------------------------------------------------
 
-export function ChordDiagram(props: ChordDiagramProps) {
+export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
   const {
-    nodeValues,
-    pairwiseWeights,
+    s1Entropies,
+    mutualInformation,
     labels: labelsProp,
     selectedIndices,
     gapDeg = 3,
     radius = 1,
     arcWidth = 0.08,
     lineScale: lineScaleProp = null,
-    edgeThreshold = 0,
-    nodeVmax = null,
-    edgeVmax = null,
-    title = null,
+    miThreshold = 0,
+    s1Vmax = null,
+    miVmax = null,
+    title = "Orbital Entanglement",
     width = 600,
     height = 660,
-    selectionColor: selectionColorProp,
-    selectionLinewidth = 1.2,
-    nodeColormap = DEFAULT_NODE_CMAP,
-    edgeColormap = DEFAULT_EDGE_CMAP,
-    nodeColorbarLabel = null,
-    edgeColorbarLabel = null,
-    nodeHoverPrefix = "",
-    edgeHoverPrefix = "",
-    groupSelected = false,
-    darkMode,
-    static: isStatic = false,
-    onGroupChange,
+    selectionColor = "#222222",
+    selectionLinewidth = 2.5,
   } = props;
 
-  // --- theme-resolved colours ---
-  // When darkMode is undefined the component inherits from the host
-  // environment via --qdk-* CSS custom properties (set by qdk-theme.css
-  // which maps VS Code / Jupyter / OS theme vars).  The final fallback
-  // is `currentColor` / `transparent` for plain-browser contexts.
-  // When darkMode is explicitly true/false, concrete hex values are
-  // used so exported SVGs are fully self-contained.
-  const FONT_FAMILY = '"Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-  const hasExplicitTheme = darkMode !== undefined;
-  const textColor = hasExplicitTheme
-    ? darkMode
-      ? "#e0e0e0"
-      : "#222222"
-    : "var(--qdk-host-foreground, currentColor)";
-  const bgColor = hasExplicitTheme
-    ? darkMode
-      ? "#1e1e1e"
-      : "transparent"
-    : "var(--qdk-host-background, transparent)";
-
-  const n = nodeValues.length;
-
-  // --- hover state ---
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-
-  // --- grouping toggle (only relevant when there is a selection) ---
-  const hasSelection =
-    selectedIndices !== undefined && selectedIndices.length > 0;
-  const [isGrouped, setIsGrouped] = useState(groupSelected);
-  // Sync if the prop changes externally
-  useEffect(() => setIsGrouped(groupSelected), [groupSelected]);
-
-  // --- background-aware selection colour ---
-  const svgRef = useRef<SVGSVGElement>(null);
-  const [autoSelectionColor, setAutoSelectionColor] = useState("#FFD700");
-  useEffect(() => {
-    if (svgRef.current) {
-      setAutoSelectionColor(detectSelectionColor(svgRef.current));
-    }
-  }, []);
-  const selectionColor = selectionColorProp ?? autoSelectionColor;
+  const n = s1Entropies.length;
 
   // --- labels ---
   const labels: string[] =
@@ -318,28 +158,25 @@ export function ChordDiagram(props: ChordDiagramProps) {
       : Array.from({ length: n }, (_, i) => String(i));
 
   // --- colour scales ---
-  const nodeMax = nodeVmax ?? Math.max(...nodeValues, 1);
-  const edgeMax =
-    edgeVmax ?? Math.max(...pairwiseWeights.flatMap((row) => row), 1);
+  const s1Max = s1Vmax ?? Math.log(4);
+  const miMax = miVmax ?? Math.log(16);
 
-  const arcColours = nodeValues.map((v) =>
-    colormapEval(nodeColormap, v / nodeMax),
-  );
+  const arcColours = s1Entropies.map((v) => colormapEval(ARC_CMAP, v / s1Max));
 
   // --- line scale ---
   const maxLw = Math.max(12 * (20 / Math.max(n, 1)) ** 0.5, 2);
   let lineScale: number;
   {
-    let peak = 0;
+    let miPeak = 0;
     for (let i = 0; i < n; i++)
-      for (let j = 0; j < n; j++) peak = Math.max(peak, pairwiseWeights[i][j]);
-    if (peak <= 0) peak = 1;
+      for (let j = 0; j < n; j++) miPeak = Math.max(miPeak, mutualInformation[i][j]);
+    if (miPeak <= 0) miPeak = 1;
     lineScale =
-      lineScaleProp !== null ? lineScaleProp : maxLw / Math.sqrt(peak);
+      lineScaleProp !== null ? lineScaleProp : maxLw / Math.sqrt(miPeak);
   }
 
   // --- arc geometry ---
-  const totals = nodeValues.slice();
+  const totals = s1Entropies.slice();
   let grand = totals.reduce((a, b) => a + b, 0);
   if (grand === 0) {
     totals.fill(1);
@@ -348,37 +185,16 @@ export function ChordDiagram(props: ChordDiagramProps) {
   const gapTotal = gapDeg * n;
   const arcDegs = totals.map((t) => ((360 - gapTotal) * t) / grand);
 
-  // --- selected set ---
-  const selectedSet = new Set((selectedIndices ?? []).map(String));
-
-  // --- ring ordering (group selected orbitals together when requested) ---
-  const order: number[] = Array.from({ length: n }, (_, i) => i);
-  if (isGrouped && selectedIndices && selectedIndices.length > 0) {
-    const sel: number[] = [];
-    const unsel: number[] = [];
-    for (let i = 0; i < n; i++) {
-      if (selectedSet.has(String(i))) {
-        sel.push(i);
-      } else {
-        unsel.push(i);
-      }
-    }
-    order.length = 0;
-    order.push(...sel, ...unsel);
-  }
-
   const starts: number[] = new Array(n);
-  starts[order[0]] = 0;
-  for (let p = 1; p < n; p++) {
-    const prev = order[p - 1];
-    const curr = order[p];
-    starts[curr] = starts[prev] + arcDegs[prev] + gapDeg;
+  starts[0] = 0;
+  for (let i = 1; i < n; i++) {
+    starts[i] = starts[i - 1] + arcDegs[i - 1] + gapDeg;
   }
 
   const arcMids = starts.map((s, i) => s + arcDegs[i] / 2);
 
   // --- label tiers (avoid overlapping) ---
-  const labelFontSize = n <= 20 ? 13.5 : 10.5;
+  const labelFontSize = n <= 20 ? 9 : 7;
   const maxLabelLen = Math.max(...labels.map((l) => l.length));
   const charDeg = (labelFontSize * 0.7 * maxLabelLen) / Math.max(radius, 0.5);
   const minSepDeg = charDeg * 0.8;
@@ -411,21 +227,22 @@ export function ChordDiagram(props: ChordDiagramProps) {
   }
 
   // --- chord computation ---
-  const rowSums = pairwiseWeights.map((row) => row.reduce((a, b) => a + b, 0));
+  const miRowSums = mutualInformation.map((row) =>
+    row.reduce((a, b) => a + b, 0),
+  );
 
   type Conn = { j: number; val: number };
   const nodeConns: Conn[][] = Array.from({ length: n }, () => []);
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
       if (i === j) continue;
-      const val = pairwiseWeights[i][j];
-      if (val <= edgeThreshold) continue;
+      const val = mutualInformation[i][j];
+      if (val <= miThreshold) continue;
       nodeConns[i].push({ j, val });
     }
     const mid = arcMids[i];
     nodeConns[i].sort(
-      (a, b) =>
-        ((mid - arcMids[a.j] + 360) % 360) - ((mid - arcMids[b.j] + 360) % 360),
+      (a, b) => ((mid - arcMids[a.j] + 360) % 360) - ((mid - arcMids[b.j] + 360) % 360),
     );
   }
 
@@ -433,19 +250,14 @@ export function ChordDiagram(props: ChordDiagramProps) {
   const allocated = new Map<string, number>();
   for (let i = 0; i < n; i++) {
     for (const { j, val } of nodeConns[i]) {
-      const span = rowSums[i] > 0 ? (arcDegs[i] * val) / rowSums[i] : 0;
+      const span =
+        miRowSums[i] > 0 ? (arcDegs[i] * val) / miRowSums[i] : 0;
       allocated.set(`${i},${j}`, cursor[i] + span / 2);
       cursor[i] += span;
     }
   }
 
-  type Chord = {
-    i: number;
-    j: number;
-    val: number;
-    angleI: number;
-    angleJ: number;
-  };
+  type Chord = { val: number; angleI: number; angleJ: number };
   const chords: Chord[] = [];
   for (let i = 0; i < n; i++) {
     for (let j = i + 1; j < n; j++) {
@@ -453,9 +265,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
       const keyJI = `${j},${i}`;
       if (!allocated.has(keyIJ)) continue;
       chords.push({
-        i,
-        j,
-        val: pairwiseWeights[i][j],
+        val: mutualInformation[i][j],
         angleI: allocated.get(keyIJ)!,
         angleJ: allocated.get(keyJI)!,
       });
@@ -464,148 +274,65 @@ export function ChordDiagram(props: ChordDiagramProps) {
   // lightest first so darkest draws on top
   chords.sort((a, b) => a.val - b.val);
 
-  // --- hover: partition chords ---
-  const isHovering = hoveredIdx !== null;
-  const bgChords: Chord[] = [];
-  const fgChords: Chord[] = [];
-  const connectedSet = new Set<number>();
-  if (isHovering) {
-    for (const ch of chords) {
-      if (ch.i === hoveredIdx || ch.j === hoveredIdx) {
-        fgChords.push(ch);
-        connectedSet.add(ch.i);
-        connectedSet.add(ch.j);
-      } else {
-        bgChords.push(ch);
-      }
-    }
-  }
+  // --- selected set ---
+  const selectedSet = new Set(
+    (selectedIndices ?? []).map(String),
+  );
 
   // --- viewBox ---
-  const maxOffset = baseOffset + Math.max(0, ...tier) * tierStep + 0.15;
+  const maxOffset =
+    baseOffset + Math.max(0, ...tier) * tierStep + 0.15;
   const lim = radius + maxOffset;
-  // Map [-lim, lim] to [0, width/height] — compact legend area
-  const titleH = 50; // px reserved for title at top
-  const hasNodeBar = !!nodeColorbarLabel;
-  const hasEdgeBar = !!edgeColorbarLabel;
-  const legendH =
-    hasNodeBar || hasEdgeBar ? (hasNodeBar && hasEdgeBar ? 180 : 100) : 0;
-  const diagramH = height - legendH - titleH;
-  const vbPad = lim * 0.04;
+  // Map [-lim, lim] to [0, width/height] with some padding for colour bars
+  const diagramH = height - 60; // leave room for legends
+  const vbPad = lim * 0.05;
   const vbSize = (lim + vbPad) * 2;
-  const scale = Math.min(width, diagramH) / vbSize;
 
-  // Colour-bar dimensions (drawn inside the SVG, close to diagram)
-  const cbGap = 40; // px between diagram bottom and first bar
-  const cbY = titleH + diagramH + cbGap;
+  // Colour-bar dimensions (drawn inside the SVG)
+  const cbY = diagramH + 8;
   const cbW = width * 0.6;
   const cbX = (width - cbW) / 2;
-  const cbH = 10;
-  const cbSpacing = 68; // vertical distance between the two bars (label + bar + ticks)
+  const cbH = 12;
   const numCbStops = 64;
-  const numTicks = 5; // tick count on each colour bar
 
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       width={width}
       height={height}
-      class="qs-chord-diagram"
-      style={{ background: bgColor, fontFamily: FONT_FAMILY }}
-      ref={svgRef}
+      class="qs-orbital-entanglement"
+      style={{ background: "transparent" }}
     >
       {/* Title */}
       {title && (
         <text
           x={width / 2}
-          y={28}
+          y={20}
           text-anchor="middle"
-          font-size="21"
+          font-size="14"
           font-weight="bold"
-          fill={textColor}
+          fill="currentColor"
         >
           {title}
         </text>
       )}
 
-      {/* Group-selected toggle (only when there is a selection; hidden in static SVG export) */}
-      {hasSelection && !isStatic && (
-        <g
-          class="oe-group-toggle"
-          transform={`translate(${width - 14}, 14)`}
-          style={{ cursor: "pointer" }}
-          onClick={() => {
-            setIsGrouped((v) => {
-              const next = !v;
-              onGroupChange?.(next);
-              return next;
-            });
-          }}
-        >
-          <title>
-            {isGrouped
-              ? "Ungroup selected items"
-              : "Group selected items together"}
-          </title>
-          <rect
-            x={-80}
-            y={-10}
-            width={80}
-            height={20}
-            rx={10}
-            fill={isGrouped ? selectionColor : "#888888"}
-            opacity={0.85}
-          />
-          <circle cx={isGrouped ? -10 : -70} cy={0} r={7} fill="white" />
-          <text
-            x={isGrouped ? -52 : -33}
-            y={0}
-            text-anchor="middle"
-            dominant-baseline="central"
-            font-size="10"
-            font-weight="bold"
-            fill="white"
-          >
-            {isGrouped ? "Grouped" : "Ungrouped"}
-          </text>
-        </g>
-      )}
-
       {/* Diagram group — centred and scaled to fit */}
       <g
-        transform={`translate(${width / 2},${titleH + diagramH / 2}) scale(${scale})`}
+        transform={`translate(${width / 2},${(diagramH + 30) / 2}) scale(${Math.min(width, diagramH) / vbSize / 2})`}
       >
-        {/* Chord lines — when hovering, split into dimmed background + bright foreground */}
-        {(isHovering ? bgChords : chords).map((ch, ci) => {
-          const c = colormapEval(edgeColormap, ch.val / edgeMax);
-          const lwPx = Math.min(Math.sqrt(ch.val) * lineScale, maxLw);
-          const lw = lwPx / scale;
+        {/* Chord lines (lightest → darkest) */}
+        {chords.map((ch, ci) => {
+          const c = colormapEval(CHORD_CMAP, ch.val / miMax);
+          const lw = Math.min(Math.sqrt(ch.val) * lineScale, maxLw);
           return (
             <path
-              key={`chord-bg-${ci}`}
+              key={`chord-${ci}`}
               d={chordPath(ch.angleI, ch.angleJ, radius, arcWidth)}
               fill="none"
               stroke={c}
               stroke-width={lw}
               stroke-linecap="round"
-              opacity={isHovering ? 0.12 : 1}
-            />
-          );
-        })}
-        {/* Highlighted chords for hovered orbital (drawn on top) */}
-        {fgChords.map((ch, ci) => {
-          const c = colormapEval(edgeColormap, ch.val / edgeMax);
-          const lwPx = Math.min(Math.sqrt(ch.val) * lineScale, maxLw);
-          const lw = lwPx / scale;
-          return (
-            <path
-              key={`chord-fg-${ci}`}
-              d={chordPath(ch.angleI, ch.angleJ, radius, arcWidth)}
-              fill="none"
-              stroke={c}
-              stroke-width={Math.max(lw, 1.5 / scale)}
-              stroke-linecap="round"
-              opacity={1}
             />
           );
         })}
@@ -614,35 +341,20 @@ export function ChordDiagram(props: ChordDiagramProps) {
         {Array.from({ length: n }, (_, i) => (
           <path
             key={`arc-${i}`}
-            d={arcPath(
-              starts[i],
-              starts[i] + arcDegs[i],
-              radius - arcWidth,
-              radius,
-            )}
+            d={arcPath(starts[i], starts[i] + arcDegs[i], radius - arcWidth, radius)}
             fill={arcColours[i]}
-            opacity={isHovering && !connectedSet.has(i) ? 0.25 : 1}
-            onMouseEnter={() => setHoveredIdx(i)}
-            onMouseLeave={() => setHoveredIdx(null)}
-            style={{ cursor: "pointer" }}
           />
         ))}
 
         {/* Selection outlines */}
         {Array.from({ length: n }, (_, i) =>
-          selectedSet.has(String(i)) ? (
+          selectedSet.has(labels[i]) ? (
             <path
               key={`sel-${i}`}
-              d={arcPath(
-                starts[i],
-                starts[i] + arcDegs[i],
-                radius - arcWidth,
-                radius,
-              )}
+              d={arcPath(starts[i], starts[i] + arcDegs[i], radius - arcWidth, radius)}
               fill="none"
               stroke={selectionColor}
-              stroke-width={selectionLinewidth / scale}
-              style={{ pointerEvents: "none" }}
+              stroke-width={selectionLinewidth / 100}
             />
           ) : null,
         )}
@@ -668,7 +380,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
                       x2={lx}
                       y2={ly}
                       stroke="#aaaaaa"
-                      stroke-width={0.5 / scale}
+                      stroke-width={0.005}
                     />
                   );
                 })()
@@ -676,25 +388,10 @@ export function ChordDiagram(props: ChordDiagramProps) {
 
           // Font size in SVG user units — we're in a scaled group so
           // approximate by dividing the pt size by the scale factor.
-          const fsPx = labelFontSize / scale;
-
-          // When hovering, replace the plain label with value info
-          const isThisHovered = hoveredIdx === i;
-          const isConnected = connectedSet.has(i);
-          let labelText = labels[i];
-          let labelOpacity = 1;
-          if (isHovering) {
-            if (isThisHovered) {
-              labelText = `${labels[i]}  ${nodeHoverPrefix}${nodeValues[i].toFixed(3)}`;
-            } else if (isConnected && hoveredIdx !== null) {
-              labelText = `${labels[i]}  ${edgeHoverPrefix}${pairwiseWeights[hoveredIdx][i].toFixed(3)}`;
-            } else {
-              labelOpacity = 0.15;
-            }
-          }
+          const fsPx = labelFontSize / (Math.min(width, diagramH) / vbSize / 2);
 
           return (
-            <g key={`label-${i}`} opacity={labelOpacity}>
+            <g key={`label-${i}`}>
               {tickLine}
               <text
                 x={lx}
@@ -703,10 +400,10 @@ export function ChordDiagram(props: ChordDiagramProps) {
                 dominant-baseline="central"
                 font-size={fsPx}
                 font-weight="bold"
-                fill={textColor}
+                fill="currentColor"
                 transform={`rotate(${rot},${lx},${ly})`}
               >
-                {labelText}
+                {labels[i]}
               </text>
             </g>
           );
@@ -714,174 +411,86 @@ export function ChordDiagram(props: ChordDiagramProps) {
       </g>
 
       {/* ---- Colour-bar legends ---- */}
-      {/* Node value colour bar */}
-      {nodeColorbarLabel && (
-        <g>
-          <text
-            x={width / 2}
-            y={cbY - 6}
-            text-anchor="middle"
-            font-size="18"
-            fill={textColor}
-          >
-            {nodeColorbarLabel}
-          </text>
-          {Array.from({ length: numCbStops }, (_, k) => {
-            const t = k / (numCbStops - 1);
-            return (
-              <rect
-                key={`cb-arc-${k}`}
-                x={cbX + (cbW * k) / numCbStops}
-                y={cbY}
-                width={cbW / numCbStops + 0.5}
-                height={cbH}
-                fill={colormapEval(nodeColormap, t)}
-              />
-            );
-          })}
-          {/* Ticks */}
-          {Array.from({ length: numTicks }, (_, k) => {
-            const frac = k / (numTicks - 1);
-            const xPos = cbX + cbW * frac;
-            const val = nodeMax * frac;
-            return (
-              <g key={`cb-arc-tick-${k}`}>
-                <line
-                  x1={xPos}
-                  y1={cbY + cbH}
-                  x2={xPos}
-                  y2={cbY + cbH + 3}
-                  stroke={textColor}
-                  stroke-width={0.5}
-                />
-                <text
-                  x={xPos}
-                  y={cbY + cbH + 14}
-                  text-anchor="middle"
-                  font-size="14"
-                  fill={textColor}
-                >
-                  {val.toFixed(2)}
-                </text>
-              </g>
-            );
-          })}
-        </g>
-      )}
+      {/* Arc (entropy) colour bar */}
+      <g>
+        <text
+          x={width / 2}
+          y={cbY - 2}
+          text-anchor="middle"
+          font-size="9"
+          fill="currentColor"
+        >
+          Single-orbital entropy
+        </text>
+        {Array.from({ length: numCbStops }, (_, k) => {
+          const t = k / (numCbStops - 1);
+          return (
+            <rect
+              key={`cb-arc-${k}`}
+              x={cbX + (cbW * k) / numCbStops}
+              y={cbY}
+              width={cbW / numCbStops + 0.5}
+              height={cbH}
+              fill={colormapEval(ARC_CMAP, t)}
+            />
+          );
+        })}
+        <text x={cbX} y={cbY + cbH + 10} font-size="8" fill="currentColor">
+          0
+        </text>
+        <text
+          x={cbX + cbW}
+          y={cbY + cbH + 10}
+          text-anchor="end"
+          font-size="8"
+          fill="currentColor"
+        >
+          {s1Max.toFixed(2)}
+        </text>
+      </g>
 
-      {/* Edge weight colour bar */}
-      {edgeColorbarLabel && (
-        <g>
-          <text
-            x={width / 2}
-            y={cbY + cbH + cbSpacing - 6}
-            text-anchor="middle"
-            font-size="18"
-            fill={textColor}
-          >
-            {edgeColorbarLabel}
-          </text>
-          {Array.from({ length: numCbStops }, (_, k) => {
-            const t = k / (numCbStops - 1);
-            return (
-              <rect
-                key={`cb-mi-${k}`}
-                x={cbX + (cbW * k) / numCbStops}
-                y={cbY + cbH + cbSpacing}
-                width={cbW / numCbStops + 0.5}
-                height={cbH}
-                fill={colormapEval(edgeColormap, t)}
-              />
-            );
-          })}
-          {/* Ticks */}
-          {Array.from({ length: numTicks }, (_, k) => {
-            const frac = k / (numTicks - 1);
-            const xPos = cbX + cbW * frac;
-            const val = edgeMax * frac;
-            return (
-              <g key={`cb-mi-tick-${k}`}>
-                <line
-                  x1={xPos}
-                  y1={cbY + cbH + cbSpacing + cbH}
-                  x2={xPos}
-                  y2={cbY + cbH + cbSpacing + cbH + 3}
-                  stroke={textColor}
-                  stroke-width={0.5}
-                />
-                <text
-                  x={xPos}
-                  y={cbY + cbH + cbSpacing + cbH + 14}
-                  text-anchor="middle"
-                  font-size="14"
-                  fill={textColor}
-                >
-                  {val.toFixed(2)}
-                </text>
-              </g>
-            );
-          })}
-        </g>
-      )}
+      {/* Chord (MI) colour bar */}
+      <g>
+        <text
+          x={width / 2}
+          y={cbY + cbH + 22}
+          text-anchor="middle"
+          font-size="9"
+          fill="currentColor"
+        >
+          Mutual information
+        </text>
+        {Array.from({ length: numCbStops }, (_, k) => {
+          const t = k / (numCbStops - 1);
+          return (
+            <rect
+              key={`cb-mi-${k}`}
+              x={cbX + (cbW * k) / numCbStops}
+              y={cbY + cbH + 24}
+              width={cbW / numCbStops + 0.5}
+              height={cbH}
+              fill={colormapEval(CHORD_CMAP, t)}
+            />
+          );
+        })}
+        <text
+          x={cbX}
+          y={cbY + cbH * 2 + 34}
+          font-size="8"
+          fill="currentColor"
+        >
+          0
+        </text>
+        <text
+          x={cbX + cbW}
+          y={cbY + cbH * 2 + 34}
+          text-anchor="end"
+          font-size="8"
+          fill="currentColor"
+        >
+          {miMax.toFixed(2)}
+        </text>
+      </g>
     </svg>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Orbital Entanglement — convenience wrapper
-// ---------------------------------------------------------------------------
-
-/**
- * Orbital entanglement chord diagram.
- *
- * Thin wrapper around `ChordDiagram` that accepts `s1Entropies` /
- * `mutualInformation` and supplies orbital-specific defaults for the
- * title, legend labels, colormaps, and scale maxima.
- */
-export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
-  const {
-    s1Entropies,
-    mutualInformation,
-    miThreshold,
-    s1Vmax,
-    miVmax,
-    title = "Orbital Entanglement",
-    ...rest
-  } = props;
-
-  return (
-    <ChordDiagram
-      nodeValues={s1Entropies}
-      pairwiseWeights={mutualInformation}
-      edgeThreshold={miThreshold}
-      nodeVmax={s1Vmax ?? Math.log(4)}
-      edgeVmax={miVmax ?? Math.log(16)}
-      nodeColorbarLabel="Single-orbital entropy"
-      edgeColorbarLabel="Mutual information"
-      nodeHoverPrefix="S\u2081="
-      edgeHoverPrefix="MI="
-      title={title}
-      {...rest}
-    />
-  );
-}
-
-// ---------------------------------------------------------------------------
-// SVG serialisation — single code-path for all contexts
-// ---------------------------------------------------------------------------
-
-/**
- * Render a `ChordDiagram` (or `OrbitalEntanglement`) to a standalone SVG
- * string.  This is the **only** function that converts props → SVG markup
- * and is used identically by:
- *
- *   1. The Node.js SSR script (`render_svg.mjs`)
- *   2. The anywidget front-end (`index.tsx`) for in-browser export
- *   3. Any VS Code webview extension that needs an SVG string
- *
- * Interactive-only UI (e.g. the grouping toggle) is suppressed via
- * `static: true`.
- */
-export function chordDiagramToSvg(props: ChordDiagramProps): string {
-  return renderToString(h(ChordDiagram, { ...props, static: true }));
 }

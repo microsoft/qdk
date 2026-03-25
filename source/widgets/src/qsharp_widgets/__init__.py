@@ -199,88 +199,6 @@ class Histogram(anywidget.AnyWidget):
         # Update the UI one last time to make sure we show the final results
         self._update_ui()
 
-    def _build_svg_props(self, dark_mode=False):
-        """Build the props dict for SVG rendering."""
-        return {
-            "data": dict(self.buckets),
-            "shotCount": self.shot_count,
-            "filter": "",
-            "labels": self.labels,
-            "items": self.items,
-            "sort": self.sort,
-            "darkMode": bool(dark_mode),
-        }
-
-    def export_svg(self, path=None, dark_mode=False):
-        """Render the histogram to a standalone SVG.
-
-        When the widget is displayed in a notebook the SVG is rendered
-        in-browser by the same ``histogramToSvg`` function used by
-        the Node.js SSR script.  When the widget is not connected the
-        function falls back to spawning Node.js.
-
-        The traitlets (including interactive state like labels/items/sort
-        which the front-end syncs back) are read at call time, so exports
-        always reflect the latest user changes.
-
-        Parameters
-        ----------
-        path : str or Path, optional
-            When given the SVG is written to this file and the path is
-            returned.  Otherwise the SVG markup string is returned.
-        dark_mode : bool
-            When ``True`` the exported SVG uses light text on a dark
-            background; when ``False`` (default) dark text on a light
-            background.
-
-        Returns
-        -------
-        str
-            SVG markup (when *path* is ``None``) or the file path.
-        """
-        svg = self._export_svg_via_widget(dark_mode)
-        if svg is None:
-            props = self._build_svg_props(dark_mode)
-            svg = _render_component_node("Histogram", props)
-
-        if path is not None:
-            from pathlib import Path as _P
-
-            _P(path).write_text(svg, encoding="utf-8")
-            return str(path)
-        return svg
-
-    def _export_svg_via_widget(self, dark_mode=False):
-        """Try to render SVG in-browser via the live widget front-end.
-
-        Sends a custom message asking the JS side to call
-        ``histogramToSvg()`` and waits for the response.  Returns
-        ``None`` if the widget is not connected.
-        """
-        import threading
-
-        result = [None]
-        event = threading.Event()
-
-        def _on_msg(_, content, buffers):
-            if isinstance(content, dict) and content.get("type") == "svg_result":
-                result[0] = content.get("svg")
-                event.set()
-
-        try:
-            self.on_msg(_on_msg)
-            self.send({"type": "export_svg", "dark_mode": bool(dark_mode)})
-            if event.wait(timeout=5):
-                return result[0]
-        except Exception:
-            pass
-        finally:
-            try:
-                self.on_msg(_on_msg, remove=True)
-            except Exception:
-                pass
-        return None
-
 
 class Circuit(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "static" / "index.js"
@@ -292,45 +210,6 @@ class Circuit(anywidget.AnyWidget):
     def __init__(self, circuit):
         super().__init__(circuit_json=circuit.json())
         self.layout.overflow = "visible scroll"
-
-    def export_svg(self, path=None, dark_mode=False, gates_per_row=0, render_depth=0):
-        """Render the circuit to a standalone SVG.
-
-        Parameters
-        ----------
-        path : str or Path, optional
-            When given the SVG is written to this file and the path is
-            returned.  Otherwise the SVG markup string is returned.
-        dark_mode : bool
-            When ``True`` the exported SVG uses light-on-dark colours.
-        gates_per_row : int
-            Maximum gate columns per row before wrapping.  ``0`` (default)
-            means no wrapping.
-        render_depth : int
-            How many levels of grouped operations to expand.
-            ``0`` (default) shows groups as collapsed boxes.
-            ``1`` expands one level, showing children inline.
-            Use a large number (e.g. 99) to fully expand.
-
-        Returns
-        -------
-        str
-            SVG markup (when *path* is ``None``) or the file path.
-        """
-        props = {
-            "circuit": self.circuit_json,
-            "dark_mode": bool(dark_mode),
-            "gates_per_row": int(gates_per_row),
-            "render_depth": int(render_depth),
-        }
-        svg = _render_component_node("Circuit", props)
-
-        if path is not None:
-            from pathlib import Path as _P
-
-            _P(path).write_text(svg, encoding="utf-8")
-            return str(path)
-        return svg
 
 
 class Atoms(anywidget.AnyWidget):
@@ -345,179 +224,19 @@ class Atoms(anywidget.AnyWidget):
         super().__init__(machine_layout=machine_layout, trace_data=trace_data)
 
 
-class ChordDiagram(anywidget.AnyWidget):
-    """General-purpose chord diagram widget.
-
-    Displays per-node scalar values as coloured arcs and pairwise weights
-    as chords.  ``OrbitalEntanglement`` is a convenience subclass that
-    maps orbital-specific terminology onto these general parameters.
-
-    The component renders self-contained SVG with inline styles, so the
-    same ``export_svg()`` code path (server-side ``renderToString``)
-    works identically whether or not a live DOM is available.  Interactive
-    state (e.g. the grouping toggle) is synced back to the ``options``
-    traitlet by the JS front-end so exports always reflect the latest
-    user changes.
-    """
-
+class OrbitalEntanglement(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "static" / "index.js"
     _css = pathlib.Path(__file__).parent / "static" / "index.css"
 
-    comp = traitlets.Unicode("ChordDiagram").tag(sync=True)
-    node_values = traitlets.List().tag(sync=True)
-    pairwise_weights = traitlets.List().tag(sync=True)
+    comp = traitlets.Unicode("OrbitalEntanglement").tag(sync=True)
+    s1_entropies = traitlets.List().tag(sync=True)
+    mutual_information = traitlets.List().tag(sync=True)
     labels = traitlets.List().tag(sync=True)
-    selected_indices = traitlets.List(allow_none=True, default_value=None).tag(
-        sync=True
-    )
+    selected_indices = traitlets.List(allow_none=True, default_value=None).tag(sync=True)
     options = traitlets.Dict().tag(sync=True)
 
-    def __init__(
-        self,
-        node_values,
-        pairwise_weights,
-        *,
-        labels=None,
-        selected_indices=None,
-        group_selected=False,
-        **options,
-    ):
-        """Create a chord diagram.
-
-        Parameters
-        ----------
-        node_values : list[float]
-            Per-node scalar values (length *N*).  Drives arc colour.
-        pairwise_weights : list[list[float]]
-            N×N symmetric weight matrix.  Drives chord colour / width.
-        labels : list[str], optional
-            Node labels.  Defaults to ``["0", "1", …]``.
-        selected_indices : list[int], optional
-            Node indices to highlight.
-        group_selected : bool, optional
-            When ``True``, reorder arcs so that selected nodes sit
-            adjacent on the ring.  Defaults to ``False``.
-        **options
-            Forwarded to the JS component as visual knobs
-            (``gap_deg``, ``radius``, ``arc_width``, ``line_scale``,
-            ``edge_threshold``, ``node_vmax``, ``edge_vmax``,
-            ``node_colormap``, ``edge_colormap``,
-            ``node_colorbar_label``, ``edge_colorbar_label``,
-            ``node_hover_prefix``, ``edge_hover_prefix``,
-            ``title``, ``width``, ``height``, ``selection_color``,
-            ``selection_linewidth``).
-        """
-        n = len(node_values)
-        if labels is None:
-            labels = [str(i) for i in range(n)]
-
-        opts = dict(options)
-        opts["group_selected"] = bool(group_selected)
-
-        super().__init__(
-            node_values=list(node_values),
-            pairwise_weights=[list(row) for row in pairwise_weights],
-            labels=list(labels),
-            selected_indices=list(selected_indices) if selected_indices else None,
-            options=opts,
-        )
-
-    def _build_svg_props(self, dark_mode=False):
-        """Build the camelCase props dict for SVG rendering."""
-        props: dict = {
-            "nodeValues": list(self.node_values),
-            "pairwiseWeights": [list(row) for row in self.pairwise_weights],
-            "labels": list(self.labels),
-            "darkMode": bool(dark_mode),
-        }
-        if self.selected_indices:
-            props["selectedIndices"] = list(self.selected_indices)
-        for key, val in (self.options or {}).items():
-            props[_snake_to_camel(key)] = val
-        return props
-
-    def export_svg(self, path=None, dark_mode=False):
-        """Render the diagram to a standalone SVG.
-
-        When the widget is displayed in a notebook the SVG is rendered
-        in-browser by the same ``chordDiagramToSvg`` function used by
-        the Node.js SSR script — one rendering path everywhere.  When
-        the widget is not connected (e.g. a plain Python script) the
-        function falls back to spawning Node.js.
-
-        The ``options`` traitlet (including interactive state like the
-        grouping toggle) is read at call time, so exports always
-        reflect the latest user changes.
-
-        Parameters
-        ----------
-        path : str or Path, optional
-            When given the SVG is written to this file and the path is
-            returned.  Otherwise the SVG markup string is returned.
-        dark_mode : bool
-            When ``True`` the exported SVG uses light text on a dark
-            background; when ``False`` (default) dark text on a
-            transparent background.
-
-        Returns
-        -------
-        str
-            SVG markup (when *path* is ``None``) or the file path.
-        """
-        svg = self._export_svg_via_widget(dark_mode)
-        if svg is None:
-            props = self._build_svg_props(dark_mode)
-            svg = _render_component_node("ChordDiagram", props)
-
-        if path is not None:
-            from pathlib import Path as _P
-
-            _P(path).write_text(svg, encoding="utf-8")
-            return str(path)
-        return svg
-
-    def _export_svg_via_widget(self, dark_mode=False):
-        """Try to render SVG in-browser via the live widget front-end.
-
-        Sends a custom message asking the JS side to call
-        ``chordDiagramToSvg()`` and waits for the response.  Returns
-        ``None`` if the widget is not connected.
-        """
-        import threading
-
-        result = [None]
-        event = threading.Event()
-
-        def _on_msg(_, content, buffers):
-            if isinstance(content, dict) and content.get("type") == "svg_result":
-                result[0] = content.get("svg")
-                event.set()
-
-        try:
-            self.on_msg(_on_msg)
-            self.send({"type": "export_svg", "dark_mode": bool(dark_mode)})
-            # Wait up to 5 seconds for the front-end to respond
-            if event.wait(timeout=5):
-                return result[0]
-        except Exception:
-            pass
-        finally:
-            try:
-                self.on_msg(_on_msg, remove=True)
-            except Exception:
-                pass
-        return None
-
-
-class OrbitalEntanglement(ChordDiagram):
-    """Orbital entanglement chord diagram.
-
-    Convenience subclass of ``ChordDiagram`` that accepts
-    orbital-specific terminology (``s1_entropies``,
-    ``mutual_information``) and supplies sensible defaults for quantum
-    chemistry visualisation (colorbar labels, scale maxima, hover
-    prefixes).
-    """
+    _svg_data = None
+    _svg_event = None
 
     def __init__(
         self,
@@ -527,17 +246,13 @@ class OrbitalEntanglement(ChordDiagram):
         mutual_information=None,
         labels=None,
         selected_indices=None,
-        group_selected=False,
-        mi_threshold=None,
-        s1_vmax=None,
-        mi_vmax=None,
-        title="Orbital Entanglement",
         **options,
     ):
-        """Create an orbital entanglement diagram.
+        """
+        Displays an orbital entanglement chord diagram.
 
-        Can be constructed either from a ``Wavefunction`` object or from
-        raw entropy / mutual-information arrays.
+        Can be constructed either from a ``Wavefunction`` object or from raw
+        entropy / mutual-information arrays.
 
         Parameters
         ----------
@@ -555,24 +270,13 @@ class OrbitalEntanglement(ChordDiagram):
             Orbital labels.  Defaults to ``["0", "1", …]``.
         selected_indices : list[int], optional
             Orbital indices to highlight.
-        group_selected : bool, optional
-            When ``True``, reorder arcs so that selected orbitals sit
-            adjacent on the ring.  Defaults to ``False``.
-        mi_threshold : float, optional
-            Minimum mutual information to draw a chord.
-        s1_vmax : float, optional
-            Clamp for the single-orbital entropy colour scale.
-            Defaults to ``ln(4)``.
-        mi_vmax : float, optional
-            Clamp for the mutual-information colour scale.
-            Defaults to ``ln(16)``.
-        title : str, optional
-            Diagram title.  Defaults to ``"Orbital Entanglement"``.
         **options
-            Additional visual knobs forwarded to the JS component.
+            Forwarded to the JS component as visual knobs
+            (``gap_deg``, ``radius``, ``arc_width``, ``line_scale``,
+            ``mi_threshold``, ``s1_vmax``, ``mi_vmax``, ``title``,
+            ``width``, ``height``, ``selection_color``,
+            ``selection_linewidth``).
         """
-        import math
-
         if wavefunction is not None:
             import numpy as np
 
@@ -599,90 +303,58 @@ class OrbitalEntanglement(ChordDiagram):
                 "'mutual_information' must be provided."
             )
 
-        # Map OE-specific params to generic ChordDiagram options
-        if mi_threshold is not None:
-            options.setdefault("edge_threshold", mi_threshold)
-        options.setdefault("node_vmax", s1_vmax if s1_vmax is not None else math.log(4))
-        options.setdefault(
-            "edge_vmax", mi_vmax if mi_vmax is not None else math.log(16)
-        )
-        options.setdefault("node_colorbar_label", "Single-orbital entropy")
-        options.setdefault("edge_colorbar_label", "Mutual information")
-        options.setdefault("node_hover_prefix", "S\u2081=")
-        options.setdefault("edge_hover_prefix", "MI=")
-        options.setdefault("title", title)
+        if labels is None:
+            labels = [str(i) for i in range(len(s1_entropies))]
 
         super().__init__(
-            node_values=s1_entropies,
-            pairwise_weights=mutual_information,
+            s1_entropies=s1_entropies,
+            mutual_information=mutual_information,
             labels=labels,
             selected_indices=selected_indices,
-            group_selected=group_selected,
-            **options,
+            options=options,
         )
+        self.on_msg(self._handle_msg)
 
+    def _handle_msg(self, widget, content, buffers):
+        if content.get("type") == "svg_data":
+            self._svg_data = content["svg"]
+            if self._svg_event is not None:
+                self._svg_event.set()
 
-# ---------------------------------------------------------------------------
-# Server-side SVG rendering via Node.js (same components as the widget)
-# ---------------------------------------------------------------------------
+    def export_svg(self, path=None, timeout=5):
+        """Export the rendered diagram as an SVG string or file.
 
-# Path to the Node SSR helper script bundled alongside the widget JS.
-_RENDER_SVG_SCRIPT = pathlib.Path(__file__).parent / "static" / "render_svg.mjs"
+        Parameters
+        ----------
+        path : str or Path, optional
+            When given the SVG is written to this file and the path is
+            returned.  Otherwise the SVG markup string is returned.
+        timeout : float
+            Seconds to wait for the front-end to respond.
 
-# Path to the headless PNG renderer (Playwright + 3Dmol).
-_RENDER_PNG_SCRIPT = pathlib.Path(__file__).parent / "static" / "render_png.mjs"
+        Returns
+        -------
+        str
+            SVG markup (when *path* is ``None``) or the file path.
+        """
+        import threading
 
+        self._svg_data = None
+        self._svg_event = threading.Event()
+        self.send({"type": "export_svg"})
+        if not self._svg_event.wait(timeout=timeout):
+            raise TimeoutError(
+                "Timed out waiting for the front-end to return the SVG. "
+                "Make sure the widget is displayed in a notebook cell."
+            )
+        svg = self._svg_data
+        self._svg_event = None
+        if path is not None:
+            from pathlib import Path as _P
 
-def _snake_to_camel(name: str) -> str:
-    """Convert ``snake_case`` to ``camelCase``."""
-    parts = name.split("_")
-    return parts[0] + "".join(p.capitalize() for p in parts[1:])
-
-
-def _render_component_node(component: str, props: dict) -> str:
-    """Render a component server-side via Node.js.
-
-    Parameters
-    ----------
-    component : str
-        Component name (``"ChordDiagram"``, ``"Histogram"``,
-        ``"Circuit"``).
-    props : dict
-        Props dict that will be JSON-serialised and passed to the JS
-        component.
-
-    Returns
-    -------
-    str
-        The rendered SVG / HTML markup.
-    """
-    import json
-    import shutil
-    import subprocess
-
-    node = shutil.which("node")
-    if node is None:
-        raise RuntimeError(
-            "Node.js is required for server-side SVG rendering but "
-            "'node' was not found on the PATH."
-        )
-
-    payload = json.dumps({"component": component, "props": props})
-
-    result = subprocess.run(
-        [node, str(_RENDER_SVG_SCRIPT)],
-        input=payload,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Node SSR render failed (exit {result.returncode}):\n" f"{result.stderr}"
-        )
-
-    return result.stdout
+            _P(path).write_text(svg, encoding="utf-8")
+            return str(path)
+        return svg
 
 
 class MoleculeViewer(anywidget.AnyWidget):
@@ -704,116 +376,3 @@ class MoleculeViewer(anywidget.AnyWidget):
         super().__init__(
             molecule_data=molecule_data, cube_data=cube_data, isoval=isoval
         )
-
-    def export_png(
-        self,
-        path=None,
-        width=640,
-        height=480,
-        style="Sphere",
-        cube_label=None,
-        iso_value=None,
-    ):
-        """Render the molecule to a PNG image using headless Chromium.
-
-        Uses Playwright to launch a headless browser with 3Dmol — the
-        same library as the interactive widget — so the output is
-        pixel-identical.  Requires ``playwright`` (npm) and a Chromium
-        browser (``npx playwright install chromium``).
-
-        Parameters
-        ----------
-        path : str or Path, optional
-            When given the PNG is written to this file and the path is
-            returned.  Otherwise the raw PNG bytes are returned.
-        width : int
-            Image width in pixels.
-        height : int
-            Image height in pixels.
-        style : str
-            Visualisation style: ``"Sphere"`` (default), ``"Stick"``,
-            or ``"Line"``.
-        cube_label : str, optional
-            Key into ``cube_data`` dict selecting which orbital to
-            render.  When ``None`` and exactly one cube file is
-            available it is used automatically.
-        iso_value : float, optional
-            Isovalue threshold for orbital rendering.  Defaults to the
-            widget's ``isoval`` traitlet.
-
-        Returns
-        -------
-        bytes or str
-            PNG bytes (when *path* is ``None``) or the file path.
-        """
-        import json
-        import shutil
-        import subprocess
-
-        node = shutil.which("node")
-        if node is None:
-            raise RuntimeError(
-                "Node.js is required for PNG rendering but "
-                "'node' was not found on the PATH."
-            )
-
-        props = {
-            "molecule_data": self.molecule_data,
-            "width": int(width),
-            "height": int(height),
-            "style": style,
-        }
-
-        # Resolve cube data
-        cube_str = None
-        if cube_label is not None:
-            cube_str = self.cube_data.get(cube_label)
-        elif len(self.cube_data) == 1:
-            cube_str = next(iter(self.cube_data.values()))
-
-        if cube_str is not None:
-            props["cube_data"] = cube_str
-            props["iso_value"] = float(
-                iso_value if iso_value is not None else self.isoval
-            )
-
-        payload = json.dumps(props)
-
-        result = subprocess.run(
-            [node, str(_RENDER_PNG_SCRIPT)],
-            input=payload,
-            capture_output=True,
-            text=False,
-            timeout=30,
-        )
-
-        if result.returncode != 0:
-            stderr = result.stderr.decode("utf-8", errors="replace")
-            if "playwright" in stderr.lower() and "install" in stderr.lower():
-                raise RuntimeError(
-                    "PNG rendering requires a Chromium browser managed by "
-                    "Playwright.  Install it once with:\n\n"
-                    "    npx playwright install chromium\n\n"
-                    "Then retry export_png()."
-                )
-            if "playwright is not installed" in stderr.lower():
-                raise RuntimeError(
-                    "PNG rendering requires the 'playwright' npm package "
-                    "and a Chromium browser.\n\n"
-                    "Install them with:\n"
-                    "    npm install playwright\n"
-                    "    npx playwright install chromium\n\n"
-                    "Then retry export_png()."
-                )
-            raise RuntimeError(
-                f"PNG render failed (exit {result.returncode}):\n{stderr}"
-            )
-
-        png_bytes = result.stdout
-
-        if path is not None:
-            from pathlib import Path as _P
-
-            _P(path).write_bytes(png_bytes)
-            return str(path)
-        return png_bytes
