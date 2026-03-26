@@ -320,8 +320,9 @@ def test_run_with_loss_produces_lossy_results() -> None:
 
 def test_run_with_callable_and_seed_produces_deterministic_shot_results() -> None:
     qsharp.init()
+    # Uses an operation that verifies both quantum and classical randomness
     qsharp.eval(
-        "operation Rand() : Int { use qs = Qubit[32]; for q in qs { H(q); }; MeasureInteger(qs) }"
+        "operation Rand() : (Int, Int) { use qs = Qubit[32]; for q in qs { H(q); }; (MeasureInteger(qs), Std.Random.DrawRandomInt(0, 1_000_000)) }"
     )
     result1 = qsharp.run(
         qsharp.code.Rand,

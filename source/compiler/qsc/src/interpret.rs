@@ -852,7 +852,7 @@ impl Interpreter {
         if seed.is_some() {
             sim.set_seed(seed);
         }
-        self.invoke_with_sim(&mut sim, receiver, callable, args)
+        self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
     }
 
     /// Runs the given entry expression on a new instance of the environment and simulator,
@@ -1029,6 +1029,7 @@ impl Interpreter {
                         callable,
                         args,
                         eval_config,
+                        None,
                     )?;
                 } else {
                     self.run_with_tracing_backend(
@@ -1048,6 +1049,7 @@ impl Interpreter {
                         callable,
                         args,
                         eval_config,
+                        None,
                     )?;
                 } else {
                     self.run_with_tracing_backend(
@@ -1241,9 +1243,14 @@ impl Interpreter {
             tracing_backend.set_seed(self.quantum_seed);
         }
 
+        let classical_seed = match seed {
+            Some(seed) => Some(seed),
+            None => self.classical_seed,
+        };
+
         eval(
             self.package,
-            self.classical_seed,
+            classical_seed,
             graph,
             self.eval_config,
             self.compiler.package_store(),
@@ -1293,6 +1300,7 @@ impl Interpreter {
         receiver: &mut impl Receiver,
         callable: Value,
         args: Value,
+        seed: Option<u64>,
     ) -> InterpretResult {
         self.invoke_with_tracing_backend(
             &mut TracingBackend::no_tracer(sim),
@@ -1300,6 +1308,7 @@ impl Interpreter {
             callable,
             args,
             self.eval_config,
+            seed,
         )
     }
 
@@ -1310,10 +1319,15 @@ impl Interpreter {
         callable: Value,
         args: Value,
         config: ExecGraphConfig,
+        seed: Option<u64>,
     ) -> InterpretResult {
+        let classical_seed = match seed {
+            Some(seed) => Some(seed),
+            None => self.classical_seed,
+        };
         qsc_eval::invoke(
             self.package,
-            self.classical_seed,
+            classical_seed,
             &self.fir_store,
             config,
             &mut Env::default(),
