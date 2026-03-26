@@ -775,7 +775,14 @@ def run(
         assert isinstance(entry_expr, str)
         run_entry_expr = entry_expr
 
+    shot_seed = seed
     for shot in range(shots):
+        # We also don't want every shot to return the same results, so we update the seed for
+        # the next shot with the shot number. This keeps the behavior deterministic if a seed
+        # was provided.
+        if seed is not None:
+            shot_seed = shot + seed
+
         results.append(
             {"result": None, "events": [], "messages": [], "matrices": [], "dumps": []}
         )
@@ -786,7 +793,7 @@ def run(
             qubit_loss,
             callable,
             args,
-            seed,
+            shot_seed,
         )
         run_results = qsharp_value_to_python_value(run_results)
         results[-1]["result"] = run_results
@@ -796,11 +803,6 @@ def run(
         # a rerun of the last executed expression without paying the cost for any additional
         # compilation.
         run_entry_expr = None
-        # We also don't want every shot to return the same results, so we update the seed for
-        # the next shot with the shot number. This keeps the behavior deterministic if a seed
-        # was provided.
-        if seed is not None:
-            seed += shot
 
     durationMs = (monotonic() - start_time) * 1000
     telemetry_events.on_run_end(durationMs, shots)
