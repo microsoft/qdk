@@ -8,7 +8,7 @@ from qsharp.qre.application import CirqApplication
 
 
 def test_with_qft():
-    _test_one_circuit(cirq.qft(*cirq.LineQubit.range(1025)), 1025, 212604, 267031)
+    _test_one_circuit(cirq.qft(*cirq.LineQubit.range(1025)), 1025, 212602, 266007)
 
 
 def test_h():
@@ -26,6 +26,11 @@ def test_cz():
     _test_one_circuit(cirq.CZ(*cirq.LineQubit.range(2)), 2, 1, 1)
     _test_one_circuit(cirq.CZ(*cirq.LineQubit.range(2)) ** 0.5, 2, 4, 5)
     _test_one_circuit(cirq.CZ(*cirq.LineQubit.range(2)) ** 0.25, 2, 4, 5)
+
+
+def test_swap():
+    _test_one_circuit(cirq.SWAP(*cirq.LineQubit.range(2)), 2, 1, 1)
+    _test_one_circuit(cirq.SWAP(*cirq.LineQubit.range(2)) ** 0.5, 2, 8, 9)
 
 
 def test_ccx():

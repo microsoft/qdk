@@ -23,6 +23,7 @@ from cirq import (
     GateOperation,
     ClassicallyControlledOperation,
     PhaseGradientGate,
+    SwapPowGate,
 )
 from qsharp.qre import Trace, Block
 from qsharp.qre.instruction_ids import (
@@ -50,6 +51,7 @@ from qsharp.qre.instruction_ids import (
     MEAS_Z,
     CCX,
     CCZ,
+    SWAP,
 )
 
 
@@ -331,6 +333,15 @@ def cz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Oper
         yield (CZ, [c, t])
 
 
+def swap_pow_gate_to_trace(
+    self, context: cirq.DecompositionContext, op: cirq.Operation
+):
+    if abs(self.exponent - 1) <= 1e-8 or abs(self.exponent + 1) <= 1e-8:
+        yield (SWAP, [op.qubits[0], op.qubits[1]])
+    else:
+        yield from op._decompose_with_context_(context)  # type: ignore
+
+
 def ccx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
     if abs(self.exponent) == 1:
         yield (CCX, [op.qubits[0], op.qubits[1], op.qubits[2]])
@@ -365,6 +376,7 @@ YPowGate._to_trace = y_pow_gate_to_trace
 ZPowGate._to_trace = z_pow_gate_to_trace
 CXPowGate._to_trace = cx_pow_gate_to_trace
 CZPowGate._to_trace = cz_pow_gate_to_trace
+SwapPowGate._to_trace = swap_pow_gate_to_trace
 CCXPowGate._to_trace = ccx_pow_gate_to_trace
 CCZPowGate._to_trace = ccz_pow_gate_to_trace
 MeasurementGate._to_trace = measurement_gate_to_trace
