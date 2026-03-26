@@ -103,10 +103,28 @@ export async function storageRequest(
     uri = proxy;
   }
   try {
-    log.debug(`Fetching ${uri} with method ${method}`);
+    const bodySize =
+      body instanceof Uint8Array
+        ? body.byteLength
+        : body
+          ? body.length
+          : 0;
+    log.debug(
+      `Fetching ${uri} with method ${method}, body size: ${bodySize} bytes`,
+    );
+    log.trace("Storage request headers: ", headers);
     const response = await fetch(uri, { method, headers, body });
     if (!response.ok) {
-      log.error("Storage request failed", response);
+      const responseBody = await response.text().catch(() => "<unreadable>");
+      log.error(
+        `Storage request failed: ${response.status} ${response.statusText}`,
+      );
+      const headerObj: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        headerObj[key] = value;
+      });
+      log.error(`Storage response headers: ${JSON.stringify(headerObj)}`);
+      log.error(`Storage response body: ${responseBody}`);
       if (associationId) {
         sendTelemetryEvent(
           EventType.StorageRequestFailed,
@@ -117,7 +135,7 @@ export async function storageRequest(
           {},
         );
       }
-      throw await getAzureStorageError(response);
+      throw getAzureStorageError(response.status, responseBody);
     }
     log.debug(`Got response ${response.status} ${response.statusText}`);
     return response;
@@ -165,12 +183,27 @@ async function getAzureQuantumError(response: Response): Promise<AzureError> {
   return new AzureError(message);
 }
 
-function getAzureStorageError(response: Response): AzureError {
-  // Azure Storage appears to uses headers and xml responses to communicate error data,
-  // but we have not seen yet these in practice.
-  // https://github.com/Azure/azure-rest-api-specs/blob/eb06c34581dc6f56868ee9cc811a51f0e1a50770/specification/storage/data-plane/Microsoft.BlobStorage/preview/2021-12-02/blob.json#L75C30-L75C30
+function getAzureStorageError(
+  status: number,
+  responseBody: string,
+): AzureError {
+  let detail = "";
+  if (responseBody && responseBody !== "<unreadable>") {
+    // Try to extract a message from an XML response body (Azure Storage error format)
+    const messageMatch = responseBody.match(/<Message>(.*?)<\/Message>/s);
+    if (messageMatch) {
+      detail = `\n${messageMatch[1]}`;
+    } else {
+      // Include raw body (truncated) if it's not XML or we can't parse it
+      const truncated =
+        responseBody.length > 500
+          ? responseBody.substring(0, 500) + "..."
+          : responseBody;
+      detail = `\n${truncated}`;
+    }
+  }
   return new AzureError(
-    `Storage request failed with status ${response.status}.`,
+    `Storage request failed with status ${status}.${detail}`,
   );
 }
 

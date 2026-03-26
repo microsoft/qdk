@@ -672,6 +672,9 @@ export async function uploadBlob(
   contentType: string,
   associationId: string,
 ) {
+  log.info(
+    `Uploading blob '${blobName}' (${content.length} bytes, ${contentType})`,
+  );
   await storageRequest(
     storageUris.blobWithSasToken(blobName),
     "PUT",
