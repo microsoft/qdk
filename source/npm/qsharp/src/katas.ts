@@ -41,6 +41,7 @@ export type Exercise = {
     placeholderCode: string;
     explainedSolution: ExplainedSolution;
     operationName: string;
+    sourceIds?: string[];
   };
   circuitEntryPoint?: string;
 };
@@ -92,8 +93,10 @@ export async function getKata(id: string): Promise<Kata> {
 
 export async function getExerciseSources(
   exercise: Exercise,
+  sourceIds?: string[],
 ): Promise<string[]> {
+  const ids = sourceIds ?? exercise.sourceIds;
   return katasContent.globalCodeSources
-    .filter((source) => exercise.sourceIds.indexOf(source.id) > -1)
+    .filter((source) => ids.indexOf(source.id) > -1)
     .map((source) => source.code);
 }

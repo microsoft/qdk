@@ -22,7 +22,7 @@ A guided, hands-on quantum computing learning experience built on the QDK katas 
 
 ## Procedure
 
-### Phase 1: Assessment & Planning
+### Phase 1: Assessment, Planning & Setup
 
 1. **Greet the user** and ask about their experience level:
 
@@ -30,33 +30,49 @@ A guided, hands-on quantum computing learning experience built on the QDK katas 
    - **Intermediate**: Understands qubits and basic gates, wants deeper practice
    - **Advanced**: Ready for algorithms, error correction, and complex problems
 
-2. **Ask the user which language they'd like to use:**
+2. **Ask about their learning goals or interests** — examples:
+   - "I want a complete introduction"
+   - "I only care about Grover's algorithm"
+   - "I want to learn quantum teleportation"
+   - "I'm preparing for a quantum computing course"
+
+3. **Ask the user which language they'd like to use:**
 
    - **Q#** (default): Microsoft's quantum programming language — all exercises are available in Q#.
    - **OpenQASM**: An open standard for quantum circuits — available for many beginner-level exercises (single-qubit gates, multi-qubit gates, preparing states, and getting started). If the user picks OpenQASM, let them know that some exercises are Q#-only and will be skipped or presented in Q# as a fallback.
 
-3. **Select a learning path** based on their level. See [learning-paths.md](./references/learning-paths.md) for the predefined paths. Each path is a curated, ordered subset of katas from the content library.
+4. **Delegate to the `quantum-tutor-setup` subagent.** Call `#agent:quantum-tutor-setup` via `runSubagent` with the following parameters in the prompt:
 
-4. **Delegate setup to the `quantum-tutor-setup` subagent.** Call `#agent:quantum-tutor-setup` via `runSubagent` with the following parameters in the prompt:
-
-   - `level`: the user's assessed level
+   - `level`: the user's assessed level (`beginner`, `intermediate`, `advanced`)
    - `language`: `"qsharp"` or `"openqasm"`
    - `workspaceRoot`: the workspace root path
-   - `kataIds`: the ordered array of kata IDs from the selected learning path
+   - `goals`: the user's stated learning goals or interests
 
-   The subagent handles all MCP tool calls (listing katas, enumerating exercises, scaffolding the workspace, and fetching the first exercise briefing) and returns a structured result. This keeps the setup noise hidden from the user.
+   The subagent browses the kata catalog, builds a personalized learning path with prerequisite resolution, scaffolds the workspace, and fetches the first exercise briefing. It returns a structured result. This keeps the setup noise hidden from the user.
 
-5. **Present the subagent's result** to the user:
-   - Show the **Learning Plan** table — kata topics, exercise counts, and (for OpenQASM) which exercises have OpenQASM variants.
-   - Confirm the workspace is set up and ready.
-   - Teach the **prerequisite lesson content** from the first exercise briefing in a clear, conversational way.
-   - Present the **first exercise** with its description, progress indicator, and the full absolute path to the solution file.
-   - **Call `#tool:qdkOpenDocument`** with the solution file path to open it in the editor for the user.
-   - **Call `promptExerciseAction`** with the exercise title. Handle the response:
-     - `"Check my solution"` → go to Phase 4
-     - `"Give me a hint"` → go to Phase 3
-     - `"Explain the problem again"` → re-present the exercise
-     - If the user declines or cancels, continue the conversation normally
+5. **Present the subagent's result** to the user. This is a multi-part response — do ALL of the following, in order:
+
+   **a. Show the Learning Plan.** Display the table of kata topics, exercise counts, and (for OpenQASM) which exercises have OpenQASM variants. Confirm the workspace is set up and ready.
+
+   **b. TEACH the prerequisite lesson content.** This is the most important part. The subagent's result includes `prerequisiteLessons` from the first exercise briefing — this is the teaching material the user needs before attempting the exercise. You MUST present this content in a clear, conversational way:
+   - Explain key concepts, definitions, gate matrices, and notation
+   - Walk through worked examples from the lessons
+   - If lessons include code examples, show and explain them
+   - Make it engaging — you're a tutor, not a textbook
+   - **Do NOT skip this step.** The user cannot solve the exercise without understanding the lesson material first.
+
+   **c. Present the first exercise.** After teaching the lesson, present the exercise with:
+   - The exercise title and which kata it belongs to
+   - The problem statement (from `exercise.description`)
+   - Their progress (e.g., "Exercise 1 of {totalExercises}")
+
+   **d. Guide the user on what to do next.** Show the full absolute path to the solution file and explain: "I've opened this file in your editor — write your solution there by replacing the placeholder code. When you're ready, ask me to check your solution, or ask for a hint if you get stuck."
+
+   **e. Open the file and prompt.** Call `#tool:qdkOpenDocument` with the solution file path, then call `promptExerciseAction` with the exercise title. Handle the response:
+   - `"Check my solution"` → go to Phase 4
+   - `"Give me a hint"` → go to Phase 3
+   - `"Explain the problem again"` → re-present the exercise
+   - If the user declines or cancels, continue the conversation normally
 
 ### Phase 2: Exercise Presentation
 
@@ -140,8 +156,7 @@ If the user returns and `quantum-katas/progress.json` already exists:
 | Tool                                 | Purpose                                                                                                           |
 | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
 | `#agent:quantum-tutor-setup`         | Subagent that handles workspace setup (hides MCP tool calls from the user)                                        |
-| `listKatas` (MCP)                    | Browse available katas and their exercise counts                                                                  |
-| `getKataExercises` (MCP)             | Get exercise IDs, titles, and `availableLanguages` for workspace scaffolding (up to 5 katas)                      |
+| `listKatas` (MCP)                    | Browse available katas; pass `includeSections: true` to expand exercises and lessons inline                       |
 | `getExerciseBriefing` (MCP)          | Get prerequisite lessons and exercise details; pass `language` for OpenQASM placeholders                          |
 | `createExerciseWorkspace` (MCP)      | Scaffold the workspace — folders, solution files (.qs or .qasm), progress.json                                    |
 | `checkExerciseSolution` (MCP)        | Read solution from disk, verify against test harness, update progress; returns circuit on success                 |

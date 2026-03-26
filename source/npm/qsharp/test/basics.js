@@ -219,7 +219,10 @@ async function runOpenQasmExerciseSolutionCheck(
 ) {
   const evtTarget = new QscEventTarget(true);
   const compiler = getCompiler();
-  const sources = await getExerciseSources(exercise);
+  const sources = await getExerciseSources(
+    exercise,
+    exercise.openQasm?.sourceIds,
+  );
   const success = await compiler.checkOpenQasmExerciseSolution(
     openQasmCode,
     operationName,

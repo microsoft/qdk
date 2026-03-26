@@ -60,7 +60,7 @@ Exercise folders are named: `<NN>_<exercise_id>`
 | `exercises`               | array   | Ordered list of exercises in the learning plan                 |
 | `exercises[].sequence`    | number  | One-based display number for the exercise                      |
 | `exercises[].kataId`      | string  | The kata folder name in `katas/content/`                       |
-| `exercises[].exerciseId`  | string  | The exercise ID as returned by `getKataExercises`              |
+| `exercises[].exerciseId`  | string  | The exercise ID as returned by `listKatas`                     |
 | `exercises[].title`       | string  | Human-readable exercise title from the `@[exercise]` macro     |
 | `exercises[].folder`      | string  | The folder name in `quantum-katas/exercises/`                  |
 | `exercises[].status`      | string  | Current status of this exercise                                |
@@ -81,6 +81,6 @@ Do not modify the placeholder code.
 
 ## Discovery: Finding Exercises Within a Kata
 
-Use the `getKataExercises` MCP tool with a `kataIds` array (up to 5 IDs at once) to enumerate exercise IDs and titles for workspace scaffolding. Exercises are returned in the order they appear in each kata.
+Use the `listKatas` MCP tool with `includeSections: true` to enumerate exercise IDs, titles, and available languages for workspace scaffolding. Exercises are returned in the order they appear in each kata.
 
 To retrieve the teaching content for a specific exercise (prerequisite lessons and exercise details), use the `getExerciseBriefing` MCP tool with a `kataId` and `exerciseId`. It returns only the lessons between the previous exercise and this one, pre-sliced and ready to present.

@@ -241,101 +241,57 @@ export function createServer(): McpServer {
       description:
         "Browse available quantum computing tutorials (katas). " +
         "Each kata covers a topic (gates, measurements, algorithms) " +
-        "with lessons and exercises. Use this to discover what content " +
-        "is available for learning.",
-      inputSchema: z.object({}),
-    },
-    async (): Promise<CallToolResult> => {
-      const katas = await getAllKatas();
-      const summary = katas.map((k) => ({
-        id: k.id,
-        title: k.title,
-        sectionCount: k.sections.length,
-        exerciseCount: k.sections.filter((s) => s.type === "exercise").length,
-      }));
-      return {
-        content: [{ type: "text", text: JSON.stringify(summary, null, 2) }],
-      };
-    },
-  );
-
-  // --- getKataExercises tool ---
-
-  server.registerTool(
-    "getKataExercises",
-    {
-      title: "Get Kata Exercises",
-      description:
-        "Get a lightweight list of exercises for one or more katas. " +
-        "Returns only exercise IDs and titles — no lesson content, " +
-        "descriptions, or code. Use this to enumerate exercises for " +
-        "workspace scaffolding. Accepts up to 5 kata IDs at once.",
+        "with lessons and exercises. Set includeSections to true to " +
+        "expand the full section hierarchy (lessons and exercises with " +
+        "IDs, titles, and available languages) inline under each kata.",
       inputSchema: z.object({
-        kataIds: z
-          .array(z.string())
-          .min(1)
-          .max(5)
+        includeSections: z
+          .boolean()
+          .optional()
+          .default(false)
           .describe(
-            "One or more kata IDs to retrieve, as returned by listKatas. Max 5.",
+            "When true, include the full list of sections (lessons and " +
+              "exercises) under each kata. Defaults to false for a compact summary.",
           ),
       }),
     },
-    async (args: { kataIds: string[] }): Promise<CallToolResult> => {
+    async (args: { includeSections: boolean }): Promise<CallToolResult> => {
       const katas = await getAllKatas();
-      const results = [];
-      const notFound: string[] = [];
+      const result = katas.map((k) => {
+        const base: Record<string, unknown> = {
+          id: k.id,
+          title: k.title,
+          sectionCount: k.sections.length,
+          exerciseCount: k.sections.filter((s) => s.type === "exercise").length,
+        };
 
-      for (const kataId of args.kataIds) {
-        const kata = katas.find((k) => k.id === kataId);
-        if (!kata) {
-          notFound.push(kataId);
-          continue;
+        if (args.includeSections) {
+          const prefix = `${k.id}__`;
+          base.sections = k.sections.map((s) => {
+            const shortId = s.id.startsWith(prefix)
+              ? s.id.slice(prefix.length)
+              : s.id;
+            if (s.type === "exercise") {
+              const availableLanguages: string[] = ["qsharp"];
+              if (s.openQasm) {
+                availableLanguages.push("openqasm");
+              }
+              return {
+                type: s.type,
+                exerciseId: shortId,
+                title: s.title,
+                availableLanguages,
+              };
+            }
+            return { type: s.type, id: shortId, title: s.title };
+          });
         }
 
-        const prefix = `${kata.id}__`;
-        const exercises = kata.sections
-          .filter((s): s is Exercise => s.type === "exercise")
-          .map((s) => {
-            const availableLanguages: string[] = ["qsharp"];
-            if (s.openQasm) {
-              availableLanguages.push("openqasm");
-            }
-            return {
-              exerciseId: s.id.trim().startsWith(prefix)
-                ? s.id.trim().slice(prefix.length)
-                : s.id.trim(),
-              title: s.title,
-              availableLanguages,
-            };
-          });
-
-        results.push({ id: kata.id, title: kata.title, exercises });
-      }
-
-      if (notFound.length > 0 && results.length === 0) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: "text",
-              text: `Katas not found: ${notFound.join(", ")}`,
-            },
-          ],
-        };
-      }
-
-      const response: Record<string, unknown> = { katas: results };
-      if (notFound.length > 0) {
-        response.notFound = notFound;
-      }
+        return base;
+      });
 
       return {
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(response, null, 2),
-          },
-        ],
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
       };
     },
   );
@@ -476,11 +432,7 @@ export function createServer(): McpServer {
         "using the renderCircuit tool. ",
       inputSchema: z.object({
         kataId: z.string().describe("The kata ID, e.g. 'single_qubit_gates'."),
-        exerciseId: z
-          .string()
-          .describe(
-            "The exercise ID as returned by getKataExercises, e.g. 'flip_qubit'.",
-          ),
+        exerciseId: z.string().describe("The exercise ID, e.g. 'flip_qubit'."),
         workspaceRoot: z
           .string()
           .describe(
@@ -703,11 +655,7 @@ export function createServer(): McpServer {
         "solution if the user explicitly asks for it.",
       inputSchema: z.object({
         kataId: z.string().describe("The kata ID, e.g. 'single_qubit_gates'."),
-        exerciseId: z
-          .string()
-          .describe(
-            "The exercise ID as returned by getKataExercises, e.g. 'flip_qubit'.",
-          ),
+        exerciseId: z.string().describe("The exercise ID, e.g. 'flip_qubit'."),
         language: z
           .enum(["qsharp", "openqasm"])
           .optional()
@@ -759,11 +707,7 @@ export function createServer(): McpServer {
         "before the user attempts the exercise. Only supports Q# exercises.",
       inputSchema: z.object({
         kataId: z.string().describe("The kata ID, e.g. 'single_qubit_gates'."),
-        exerciseId: z
-          .string()
-          .describe(
-            "The exercise ID as returned by getKataExercises, e.g. 'flip_qubit'.",
-          ),
+        exerciseId: z.string().describe("The exercise ID, e.g. 'flip_qubit'."),
       }),
     },
     async (args: {
@@ -869,9 +813,7 @@ export function createServer(): McpServer {
                 .describe("The kata ID, e.g. 'single_qubit_gates'."),
               exerciseId: z
                 .string()
-                .describe(
-                  "The exercise ID as returned by getKataExercises, e.g. 'flip_qubit'.",
-                ),
+                .describe("The exercise ID, e.g. 'flip_qubit'."),
               title: z.string().describe("Human-readable exercise title."),
             }),
           )
@@ -1030,7 +972,7 @@ export function createServer(): McpServer {
           },
         },
         {
-          timeout: 600000, // 10 minutes - give the user time to complete the exercise
+          timeout: 1200000, // 20 minutes - give the user time to complete the exercise
         },
       );
 

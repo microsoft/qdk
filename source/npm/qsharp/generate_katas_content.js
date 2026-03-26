@@ -505,6 +505,21 @@ function createExerciseSection(kataPath, properties, globalCodeSources) {
       explainedSolution: openQasmExplainedSolution,
       operationName: exerciseJson.operationName,
     };
+
+    // Check for OpenQASM-specific verification file
+    const openQasmVerificationPath = join(
+      exercisePath,
+      "VerificationOpenQasm.qs",
+    );
+    if (existsSync(openQasmVerificationPath)) {
+      const openQasmResolvedSources = [openQasmVerificationPath].concat(
+        resolvedDependencies,
+      );
+      openQasm.sourceIds = aggregateSources(
+        openQasmResolvedSources,
+        globalCodeSources,
+      );
+    }
   }
 
   return {
