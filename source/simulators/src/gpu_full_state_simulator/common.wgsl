@@ -885,6 +885,99 @@ fn setUnitaryRow(shot_idx: u32, row: u32, newRow: array<vec2f, 4>) {
     shot.unitary[row * 4 + 3] = newRow[3];
 }
 
+// Result of sampling which correlated noise entry (if any) to apply.
+struct CorrelatedNoiseSample {
+    should_apply: u32, // 0 = no noise, 1 = apply noise
+    paulis_lo: u32,
+    paulis_hi: u32,
+}
+
+// Samples the correlated noise table to determine whether noise should be applied, and if so,
+// which Pauli string was selected. If no noise is applied, the shot is set to ID and the caller
+// can return early.
+fn sample_correlated_noise(shot_idx: u32, op_idx: u32, noise_table_idx: u32) -> CorrelatedNoiseSample {
+    let shot = &shots[shot_idx];
+    let table = &batch_data.correlated_noise_tables[noise_table_idx];
+
+    // Generate a Q1.63 random number (two u32 values for lo and hi 32 bits)
+    // Mask off the high bit of rand_hi to ensure the value is in [0, 1) range
+    let rand_lo = next_rand_u32(shot_idx);
+    let rand_hi = next_rand_u32(shot_idx) & 0x7FFFFFFFu;
+
+    // Get the total noise probability from the table metadata
+    let noise_prob_lo = table.noise_probability_lo;
+    let noise_prob_hi = table.noise_probability_hi;
+
+    // Check if noise should be applied at all by comparing the random number against the total noise probability
+    // If rand >= noise_probability, then no noise is applied
+    if (rand_hi > noise_prob_hi || (rand_hi == noise_prob_hi && rand_lo >= noise_prob_lo)) {
+        // No noise to apply - set the op to ID
+        shot.op_type = OPID_ID;
+        shot.op_idx = op_idx;
+        shot.qubits_updated_last_op_mask = 0u;
+        return CorrelatedNoiseSample(0u, 0u, 0u);
+    }
+
+    // Noise should be applied - binary search to find which Pauli string to apply
+    let start = i32(table.start_offset);
+    let count = i32(table.entry_count);
+    let entry_idx = binary_search_noise_table(rand_lo, rand_hi, start, count);
+    let entry = &batch_data.correlated_noise_entries[start + entry_idx];
+
+    return CorrelatedNoiseSample(1u, entry.paulis_lo, entry.paulis_hi);
+}
+
+// Extracts the 2-bit Pauli value for qubit position `i` from a Pauli string.
+// The Rust parsing stores paulis with the rightmost (last) character at the lowest bits,
+// so for position i we need bits at (qubit_count - 1 - i) * 2.
+fn get_pauli_bits(paulis_lo: u32, paulis_hi: u32, qubit_count: u32, i: u32) -> u32 {
+    let bit_position = qubit_count - 1u - i;
+    if (bit_position < 16u) {
+        return (paulis_lo >> (bit_position * 2u)) & 0x3u;
+    } else {
+        return (paulis_hi >> ((bit_position - 16u) * 2u)) & 0x3u;
+    }
+}
+
+// Commits correlated noise masks into the shot state: stores the masks, swaps probabilities and
+// tracking bits for bit-flipped qubits, and sets the shot up for the correlated noise execute stage.
+fn commit_correlated_noise(shot_idx: u32, op_idx: u32, bit_flip_mask: u32, phase_flip_mask: u32) {
+    let shot = &shots[shot_idx];
+
+    // Store the masks in the shot buffer for the execute stage
+    // We use the unitary entries to store these masks (reinterpreted as floats)
+    shot.unitary[0] = vec2f(bitcast<f32>(bit_flip_mask), bitcast<f32>(phase_flip_mask));
+
+    // For bit-flipped qubits, we need to swap the 0 and 1 probabilities and masks
+    // This is done in prepare_op, not execute_op, since it's a simple swap
+    for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
+        let qubit_mask = 1u << q;
+        if ((bit_flip_mask & qubit_mask) != 0u) {
+            // Swap the probabilities
+            let temp = shot.qubit_state[q].zero_probability;
+            shot.qubit_state[q].zero_probability = shot.qubit_state[q].one_probability;
+            shot.qubit_state[q].one_probability = temp;
+
+            // Swap the bits in qubit_is_0_mask and qubit_is_1_mask
+            let was_0 = (shot.qubit_is_0_mask & qubit_mask) != 0u;
+            let was_1 = (shot.qubit_is_1_mask & qubit_mask) != 0u;
+            if (was_0) {
+                shot.qubit_is_0_mask &= ~qubit_mask;
+                shot.qubit_is_1_mask |= qubit_mask;
+            } else if (was_1) {
+                shot.qubit_is_1_mask &= ~qubit_mask;
+                shot.qubit_is_0_mask |= qubit_mask;
+            }
+        }
+    }
+
+    // Set up the shot state for the correlated noise execution
+    shot.op_type = OPID_CORRELATED_NOISE;
+    shot.op_idx = op_idx;
+    // No probabilities need to be recomputed in execute_op since we've already swapped them here
+    shot.qubits_updated_last_op_mask = 0u;
+}
+
 // Performas a binary search on a correlated noise probability table
 //
 // Preconditions:

@@ -183,111 +183,27 @@ fn get_correlated_noise_qubit(op_idx: u32, index: u32) -> u32 {
     }
 }
 
-// Prepare the shot state for executing a correlated noise operation
+// Prepare the shot state for executing a correlated noise operation.
+// Resolves qubit IDs from the op's unitary matrix, samples the noise table, builds masks, and applies.
 fn prep_correlated_noise(shot_idx: u32, op_idx: u32) {
-    let shot = &shots[shot_idx];
     let op = &ops[op_idx];
-
-    // The noise table index is stored in op.q1, and the qubit count is stored in op.q2
     let noise_table_idx = op.q1;
     let qubit_count = op.q2;
-    let table = &batch_data.correlated_noise_tables[noise_table_idx];
 
-    // Generate a Q1.63 random number (two u32 values for lo and hi 32 bits)
-    // Mask off the high bit of rand_hi to ensure the value is in [0, 1) range
-    let rand_lo = next_rand_u32(shot_idx);
-    let rand_hi = next_rand_u32(shot_idx) & 0x7FFFFFFFu;
+    let sample = sample_correlated_noise(shot_idx, op_idx, noise_table_idx);
+    if (sample.should_apply == 0u) { return; }
 
-    // Get the total noise probability from the table metadata
-    let noise_prob_lo = table.noise_probability_lo;
-    let noise_prob_hi = table.noise_probability_hi;
-
-    // Check if noise should be applied at all by comparing the random number against the total noise probability
-    // If rand >= noise_probability, then no noise is applied
-    if (rand_hi > noise_prob_hi || (rand_hi == noise_prob_hi && rand_lo >= noise_prob_lo)) {
-        // No noise to apply - set the op to ID and return
-        shot.op_type = OPID_ID;
-        shot.op_idx = op_idx;
-        shot.qubits_updated_last_op_mask = 0u;
-        return;
-    }
-
-    // Noise should be applied - binary search to find which Pauli string to apply
-    let start = i32(table.start_offset);
-    let count = i32(table.entry_count);
-    let entry_idx = binary_search_noise_table(rand_lo, rand_hi, start, count);
-    let entry = &batch_data.correlated_noise_entries[start + entry_idx];
-
-    // Extract the Pauli string (2 bits per qubit: bit 0 = X flip, bit 1 = Z flip)
-    let paulis_lo = entry.paulis_lo;
-    let paulis_hi = entry.paulis_hi;
-
-    // Build bit-flip and phase-flip masks based on the Pauli string and qubit arguments
-    // For each qubit in the correlated noise op, check its Pauli type and set the corresponding mask bits
+    // Build bit-flip and phase-flip masks using qubit IDs from the op's unitary matrix
     var bit_flip_mask: u32 = 0u;
     var phase_flip_mask: u32 = 0u;
-
     for (var i: u32 = 0u; i < qubit_count; i++) {
-        // Get the 2-bit Pauli value for this qubit position in the Pauli string
-        // The Rust parsing stores paulis with the rightmost (last) character at the lowest bits,
-        // but we want string position i (leftmost = 0) to map to qubit arg i.
-        // So for position i, we need bits at (qubit_count - 1 - i) * 2.
-        let bit_position = qubit_count - 1u - i;
-        var pauli_bits: u32;
-        if (bit_position < 16u) {
-            pauli_bits = (paulis_lo >> (bit_position * 2u)) & 0x3u;
-        } else {
-            pauli_bits = (paulis_hi >> ((bit_position - 16u) * 2u)) & 0x3u;
-        }
-
-        // Get the actual qubit id from the op's qubit arguments
-        let qubit_id = get_correlated_noise_qubit(op_idx, i);
-        let qubit_mask = 1u << qubit_id;
-
-        // Pauli encoding: 0=I, 1=X, 2=Z, 3=Y (X and Z)
-        let has_bit_flip = (pauli_bits & 0x1u) != 0u;   // X or Y
-        let has_phase_flip = (pauli_bits & 0x2u) != 0u; // Z or Y
-
-        if (has_bit_flip) {
-            bit_flip_mask |= qubit_mask;
-        }
-        if (has_phase_flip) {
-            phase_flip_mask |= qubit_mask;
-        }
+        let pauli_bits = get_pauli_bits(sample.paulis_lo, sample.paulis_hi, qubit_count, i);
+        let qubit_mask = 1u << get_correlated_noise_qubit(op_idx, i);
+        if ((pauli_bits & 0x1u) != 0u) { bit_flip_mask |= qubit_mask; }
+        if ((pauli_bits & 0x2u) != 0u) { phase_flip_mask |= qubit_mask; }
     }
 
-    // Store the masks in the shot buffer for the execute stage
-    // We use the unitary entries to store these masks (reinterpreted as floats)
-    shot.unitary[0] = vec2f(bitcast<f32>(bit_flip_mask), bitcast<f32>(phase_flip_mask));
-
-    // For bit-flipped qubits, we need to swap the 0 and 1 probabilities and masks
-    // This is done in prepare_op, not execute_op, since it's a simple swap
-    for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
-        let qubit_mask = 1u << q;
-        if ((bit_flip_mask & qubit_mask) != 0u) {
-            // Swap the probabilities
-            let temp = shot.qubit_state[q].zero_probability;
-            shot.qubit_state[q].zero_probability = shot.qubit_state[q].one_probability;
-            shot.qubit_state[q].one_probability = temp;
-
-            // Swap the bits in qubit_is_0_mask and qubit_is_1_mask
-            let was_0 = (shot.qubit_is_0_mask & qubit_mask) != 0u;
-            let was_1 = (shot.qubit_is_1_mask & qubit_mask) != 0u;
-            if (was_0) {
-                shot.qubit_is_0_mask &= ~qubit_mask;
-                shot.qubit_is_1_mask |= qubit_mask;
-            } else if (was_1) {
-                shot.qubit_is_1_mask &= ~qubit_mask;
-                shot.qubit_is_0_mask |= qubit_mask;
-            }
-        }
-    }
-
-    // Set up the shot state for the correlated noise execution
-    shot.op_type = OPID_CORRELATED_NOISE;
-    shot.op_idx = op_idx;
-    // No probabilities need to be recomputed in execute_op since we've already swapped them here
-    shot.qubits_updated_last_op_mask = 0u;
+    commit_correlated_noise(shot_idx, op_idx, bit_flip_mask, phase_flip_mask);
 }
 
 
