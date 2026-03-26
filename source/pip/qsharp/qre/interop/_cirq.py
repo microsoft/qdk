@@ -54,6 +54,13 @@ from qsharp.qre.instruction_ids import (
     SWAP,
 )
 
+_TOLERANCE = 1e-8
+
+
+def _approx_eq(a: float, b: float) -> bool:
+    """Check whether two floats are approximately equal."""
+    return abs(a - b) <= _TOLERANCE
+
 
 def trace_from_cirq(
     circuit: cirq.Circuit, *, classical_control_probability: float = 0.5
@@ -154,7 +161,6 @@ class _Context:
 
         Args:
             op: The operation to convert.
-            generation_context: Tracks the current trace and block nesting.
         """
         if isinstance(op, tuple):
             if len(op) == 2:
@@ -245,87 +251,91 @@ class _QidToTraceId(dict):
 
 
 def h_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
-    if abs(self.exponent) == 1:
+    if _approx_eq(abs(self.exponent), 1):
         yield (H, [op.qubits[0]])
     else:
         yield from op._decompose_with_context_(context)  # type: ignore
 
 
 def x_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
-    if abs(self.exponent - 1) <= 1e-8 or abs(self.exponent + 1) <= 1e-8:
-        yield (PAULI_X, [op.qubits[0]])
-    elif abs(self.exponent - 0.5) <= 1e-8:
-        yield (SQRT_X, [op.qubits[0]])
-    elif abs(self.exponent + 0.5) <= 1e-8:
-        yield (SQRT_X_DAG, [op.qubits[0]])
-    elif abs(self.exponent - 0.25) <= 1e-8:
-        yield (SQRT_SQRT_X, [op.qubits[0]])
-    elif abs(self.exponent + 0.25) <= 1e-8:
-        yield (SQRT_SQRT_X_DAG, [op.qubits[0]])
+    q = [op.qubits[0]]
+    exp = self.exponent
+    if _approx_eq(exp, 1) or _approx_eq(exp, -1):
+        yield (PAULI_X, q)
+    elif _approx_eq(exp, 0.5):
+        yield (SQRT_X, q)
+    elif _approx_eq(exp, -0.5):
+        yield (SQRT_X_DAG, q)
+    elif _approx_eq(exp, 0.25):
+        yield (SQRT_SQRT_X, q)
+    elif _approx_eq(exp, -0.25):
+        yield (SQRT_SQRT_X_DAG, q)
     else:
-        yield (RX, [op.qubits[0]], self.exponent * pi)
+        yield (RX, q, exp * pi)
 
 
 def y_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
-    if abs(self.exponent - 1) <= 1e-8 or abs(self.exponent + 1) <= 1e-8:
-        yield (PAULI_Y, [op.qubits[0]])
-    elif abs(self.exponent - 0.5) <= 1e-8:
-        yield (SQRT_Y, [op.qubits[0]])
-    elif abs(self.exponent + 0.5) <= 1e-8:
-        yield (SQRT_Y_DAG, [op.qubits[0]])
-    elif abs(self.exponent - 0.25) <= 1e-8:
-        yield (SQRT_SQRT_Y, [op.qubits[0]])
-    elif abs(self.exponent + 0.25) <= 1e-8:
-        yield (SQRT_SQRT_Y_DAG, [op.qubits[0]])
+    q = [op.qubits[0]]
+    exp = self.exponent
+    if _approx_eq(exp, 1) or _approx_eq(exp, -1):
+        yield (PAULI_Y, q)
+    elif _approx_eq(exp, 0.5):
+        yield (SQRT_Y, q)
+    elif _approx_eq(exp, -0.5):
+        yield (SQRT_Y_DAG, q)
+    elif _approx_eq(exp, 0.25):
+        yield (SQRT_SQRT_Y, q)
+    elif _approx_eq(exp, -0.25):
+        yield (SQRT_SQRT_Y_DAG, q)
     else:
-        yield (RY, [op.qubits[0]], self.exponent * pi)
+        yield (RY, q, exp * pi)
 
 
 def z_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
-    if abs(self.exponent - 1) <= 1e-8 or abs(self.exponent + 1) <= 1e-8:
-        yield (PAULI_Z, [op.qubits[0]])
-    elif abs(self.exponent - 0.5) <= 1e-8:
-        yield (S, [op.qubits[0]])
-    elif abs(self.exponent + 0.5) <= 1e-8:
-        yield (S_DAG, [op.qubits[0]])
-    elif abs(self.exponent - 0.25) <= 1e-8:
-        yield (T, [op.qubits[0]])
-    elif abs(self.exponent + 0.25) <= 1e-8:
-        yield (T_DAG, [op.qubits[0]])
+    q = [op.qubits[0]]
+    exp = self.exponent
+    if _approx_eq(exp, 1) or _approx_eq(exp, -1):
+        yield (PAULI_Z, q)
+    elif _approx_eq(exp, 0.5):
+        yield (S, q)
+    elif _approx_eq(exp, -0.5):
+        yield (S_DAG, q)
+    elif _approx_eq(exp, 0.25):
+        yield (T, q)
+    elif _approx_eq(exp, -0.25):
+        yield (T_DAG, q)
     else:
-        yield (RZ, [op.qubits[0]], self.exponent * pi)
+        yield (RZ, q, exp * pi)
 
 
 def cx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
-    if abs(self.exponent - 1) <= 1e-8 or abs(self.exponent + 1) <= 1e-8:
+    if _approx_eq(abs(self.exponent), 1):
         yield (CX, [op.qubits[0], op.qubits[1]])
     else:
         yield from op._decompose_with_context_(context)  # type: ignore
 
 
 def cz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
-    if abs(self.exponent - 1) <= 1e-8 or abs(self.exponent + 1) <= 1e-8:
-        yield (CZ, [op.qubits[0], op.qubits[1]])
-    elif abs(self.exponent - 0.5) <= 1e-8:
+    exp = self.exponent
+    c, t = op.qubits[0], op.qubits[1]
+    if _approx_eq(abs(exp), 1):
+        yield (CZ, [c, t])
+    elif _approx_eq(exp, 0.5):
         # controlled S gate
-        c, t = op.qubits[0], op.qubits[1]
         yield (T, [c])
         yield (T, [t])
         yield (CZ, [c, t])
         yield (T_DAG, [t])
         yield (CZ, [c, t])
-    elif abs(self.exponent + 0.5) <= 1e-8:
+    elif _approx_eq(exp, -0.5):
         # controlled S† gate
-        c, t = op.qubits[0], op.qubits[1]
         yield (T_DAG, [c])
         yield (T_DAG, [t])
         yield (CZ, [c, t])
         yield (T, [t])
         yield (CZ, [c, t])
     else:
-        # Half the exponent and translate into radians
-        rads = self.exponent / 2 * pi
-        c, t = op.qubits[0], op.qubits[1]
+        rads = exp / 2 * pi
         yield (RZ, [c], [rads])
         yield (RZ, [t], [rads])
         yield (CZ, [c, t])
@@ -336,21 +346,21 @@ def cz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Oper
 def swap_pow_gate_to_trace(
     self, context: cirq.DecompositionContext, op: cirq.Operation
 ):
-    if abs(self.exponent - 1) <= 1e-8 or abs(self.exponent + 1) <= 1e-8:
+    if _approx_eq(abs(self.exponent), 1):
         yield (SWAP, [op.qubits[0], op.qubits[1]])
     else:
         yield from op._decompose_with_context_(context)  # type: ignore
 
 
 def ccx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
-    if abs(self.exponent) == 1:
+    if _approx_eq(abs(self.exponent), 1):
         yield (CCX, [op.qubits[0], op.qubits[1], op.qubits[2]])
     else:
         yield from op._decompose_with_context_(context)  # type: ignore
 
 
 def ccz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
-    if abs(self.exponent) == 1:
+    if _approx_eq(abs(self.exponent), 1):
         yield (CCZ, [op.qubits[0], op.qubits[1], op.qubits[2]])
     else:
         yield from op._decompose_with_context_(context)  # type: ignore
@@ -366,10 +376,11 @@ def measurement_gate_to_trace(
 def reset_channel_to_trace(
     self, context: cirq.DecompositionContext, op: cirq.Operation
 ):
-    return
-    yield
+    yield from ()
 
 
+# Attach _to_trace methods to Cirq gate classes so that handle_op can
+# convert them directly into trace instructions without decomposition.
 HPowGate._to_trace = h_pow_gate_to_trace
 XPowGate._to_trace = x_pow_gate_to_trace
 YPowGate._to_trace = y_pow_gate_to_trace
