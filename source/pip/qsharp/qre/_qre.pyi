@@ -1334,12 +1334,32 @@ class Trace:
         ...
 
     @property
+    def total_qubits(self) -> int:
+        """
+        The total number of qubits (compute + memory).
+
+        Returns:
+            int: The total number of qubits.
+        """
+        ...
+
+    @property
     def depth(self) -> int:
         """
         The trace depth.
 
         Returns:
             int: The trace depth.
+        """
+        ...
+
+    @property
+    def num_gates(self) -> int:
+        """
+        The total number of gates in the trace.
+
+        Returns:
+            int: The total number of gates.
         """
         ...
 

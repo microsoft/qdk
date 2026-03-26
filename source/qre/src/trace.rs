@@ -223,6 +223,11 @@ impl Trace {
         self.block.depth()
     }
 
+    #[must_use]
+    pub fn num_gates(&self) -> u64 {
+        self.deep_iter().map(|(_, m)| m).sum()
+    }
+
     #[allow(
         clippy::cast_precision_loss,
         clippy::cast_possible_truncation,

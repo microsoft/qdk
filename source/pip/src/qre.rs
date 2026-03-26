@@ -1143,8 +1143,18 @@ impl Trace {
     }
 
     #[getter]
+    pub fn total_qubits(&self) -> u64 {
+        self.0.total_qubits()
+    }
+
+    #[getter]
     pub fn depth(&self) -> u64 {
         self.0.depth()
+    }
+
+    #[getter]
+    pub fn num_gates(&self) -> u64 {
+        self.0.num_gates()
     }
 
     #[pyo3(signature = (isa, max_error = None))]
