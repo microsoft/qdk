@@ -14,11 +14,14 @@ from cirq import (
     ZPowGate,
     CXPowGate,
     CZPowGate,
+    CCXPowGate,
+    CCZPowGate,
     MeasurementGate,
     ResetChannel,
     GateOperation,
     ControlledOperation,
     ClassicallyControlledOperation,
+    PhaseGradientGate,
 )
 from qsharp.qre import Trace, Block
 from qsharp.qre.instruction_ids import (
@@ -44,6 +47,8 @@ from qsharp.qre.instruction_ids import (
     RY,
     RZ,
     MEAS_Z,
+    CCX,
+    CCZ,
 )
 
 
@@ -85,8 +90,6 @@ def handle_op(
             params = None
         elif len(op) == 3:
             id, qubits, params = op
-        else:
-            raise NotImplementedError(f"Unsupported operation tuple: {op}")
 
         qs = [
             q_to_id[q] for q in ([qubits] if isinstance(qubits, cirq.Qid) else qubits)
@@ -112,8 +115,7 @@ def handle_op(
             for sub_op in gate._decompose_with_context_(op.qubits, context):  # type: ignore
                 handle_op(context, sub_op, generation_context, q_to_id)
         elif hasattr(gate, "_decompose_"):
-            # TODO: Cache similar calls?
-            # Decompose the gate and handle the resulting operations recursively
+            # decompose the gate and handle the resulting operations recursively
             for sub_op in gate._decompose_(op.qubits):  # type: ignore
                 handle_op(context, sub_op, generation_context, q_to_id)
         else:
@@ -176,12 +178,10 @@ class QidToTraceId(dict):
 
 
 def h_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
-    if abs(self.exponent) != 1:
-        raise NotImplementedError(
-            f"Unsupported HPowGate with exponent {self.exponent}."
-        )
-
-    yield (H, [op.qubits[0]])
+    if abs(self.exponent) == 1:
+        yield (H, [op.qubits[0]])
+    else:
+        yield from op._decompose_with_context_(context)  # type: ignore
 
 
 def x_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
@@ -267,7 +267,19 @@ def cz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Oper
         yield (RZ, [t], [-rads])
         yield (CZ, [c, t])
 
-    yield (CZ, [op.qubits[0], op.qubits[1]])
+
+def ccx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+    if abs(self.exponent) == 1:
+        yield (CCX, [op.qubits[0], op.qubits[1], op.qubits[2]])
+    else:
+        yield from op._decompose_with_context_(context)  # type: ignore
+
+
+def ccz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+    if abs(self.exponent) == 1:
+        yield (CCZ, [op.qubits[0], op.qubits[1], op.qubits[2]])
+    else:
+        yield from op._decompose_with_context_(context)  # type: ignore
 
 
 def measurement_gate_to_trace(
@@ -290,5 +302,26 @@ YPowGate._to_trace = y_pow_gate_to_trace
 ZPowGate._to_trace = z_pow_gate_to_trace
 CXPowGate._to_trace = cx_pow_gate_to_trace
 CZPowGate._to_trace = cz_pow_gate_to_trace
+CCXPowGate._to_trace = ccx_pow_gate_to_trace
+CCZPowGate._to_trace = ccz_pow_gate_to_trace
 MeasurementGate._to_trace = measurement_gate_to_trace
 ResetChannel._to_trace = reset_channel_to_trace
+
+# Decomposition overrides
+
+
+def phase_gradient_decompose(self, qubits):
+    """
+    Overrides implementation of PhaseGradientGate._decompose_ to skip rotations
+    with very small angles.  In particular the original implementation may lead
+    to FP overflows for large values of i.
+    """
+
+    for i, q in enumerate(qubits):
+        exp = self.exponent / 2**i
+        if exp < 1e-16:
+            break
+        yield cirq.Z(q) ** exp
+
+
+PhaseGradientGate._decompose_ = phase_gradient_decompose
