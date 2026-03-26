@@ -840,6 +840,7 @@ impl Interpreter {
         args: Value,
         noise: Option<PauliNoise>,
         qubit_loss: Option<f64>,
+        seed: Option<u64>,
     ) -> InterpretResult {
         let mut sim = match noise {
             Some(noise) => SparseSim::new_with_noise(&noise),
@@ -847,6 +848,9 @@ impl Interpreter {
         };
         if let Some(loss) = qubit_loss {
             sim.set_loss(loss);
+        }
+        if seed.is_some() {
+            sim.set_seed(seed);
         }
         self.invoke_with_sim(&mut sim, receiver, callable, args)
     }
@@ -859,6 +863,7 @@ impl Interpreter {
         expr: Option<&str>,
         noise: Option<PauliNoise>,
         qubit_loss: Option<f64>,
+        seed: Option<u64>,
     ) -> InterpretResult {
         let mut sim = match noise {
             Some(noise) => SparseSim::new_with_noise(&noise),
@@ -867,7 +872,7 @@ impl Interpreter {
         if let Some(loss) = qubit_loss {
             sim.set_loss(loss);
         }
-        self.run_with_sim(&mut sim, receiver, expr)
+        self.run_with_sim(&mut sim, receiver, expr, seed)
     }
 
     /// Gets the current quantum state of the simulator.
@@ -1219,6 +1224,7 @@ impl Interpreter {
         sim: &mut impl Backend,
         receiver: &mut impl Receiver,
         expr: Option<&str>,
+        seed: Option<u64>,
     ) -> InterpretResult {
         let mut tracing_backend = TracingBackend::no_tracer(sim);
         let graph = if let Some(expr) = expr {
@@ -1229,7 +1235,9 @@ impl Interpreter {
             self.expr_graph.clone().ok_or(vec![Error::NoEntryPoint])?
         };
 
-        if self.quantum_seed.is_some() {
+        if seed.is_some() {
+            tracing_backend.set_seed(seed);
+        } else if self.quantum_seed.is_some() {
             tracing_backend.set_seed(self.quantum_seed);
         }
 

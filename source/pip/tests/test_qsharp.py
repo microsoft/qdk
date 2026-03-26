@@ -291,30 +291,55 @@ def test_dump_operation() -> None:
 
 def test_run_with_noise_produces_noisy_results() -> None:
     qsharp.init()
-    qsharp.set_quantum_seed(0)
     result = qsharp.run(
         "{ mutable errors=0; for _ in 0..100 { use q1=Qubit(); use q2=Qubit(); H(q1); CNOT(q1, q2); if MResetZ(q1) != MResetZ(q2) { set errors+=1; } } errors }",
         shots=1,
         noise=qsharp.BitFlipNoise(0.1),
+        seed=0,
     )
     assert result[0] > 5
     result = qsharp.run(
         "{ mutable errors=0; for _ in 0..100 { use q=Qubit(); if MResetZ(q) != Zero { set errors+=1; } } errors }",
         shots=1,
         noise=qsharp.BitFlipNoise(0.1),
+        seed=0,
     )
     assert result[0] > 5
 
 
 def test_run_with_loss_produces_lossy_results() -> None:
     qsharp.init()
-    qsharp.set_quantum_seed(0)
     result = qsharp.run(
         "{ use q = Qubit(); X(q); MResetZ(q) }",
         shots=1,
         qubit_loss=1.0,
+        seed=0,
     )
     assert result[0] == qsharp.Result.Loss
+
+
+def test_run_with_callable_and_seed_produces_deterministic_shot_results() -> None:
+    qsharp.init()
+    qsharp.eval(
+        "operation Rand() : Int { use qs = Qubit[32]; for q in qs { H(q); }; MeasureInteger(qs) }"
+    )
+    result1 = qsharp.run(
+        qsharp.code.Rand,
+        shots=10,
+        seed=42,
+    )
+    result2 = qsharp.run(
+        qsharp.code.Rand,
+        shots=10,
+        seed=42,
+    )
+    assert result1 == result2
+    result3 = qsharp.run(
+        qsharp.code.Rand,
+        shots=10,
+        seed=None,
+    )
+    assert result1 != result3
 
 
 def test_compile_qir_input_data() -> None:
