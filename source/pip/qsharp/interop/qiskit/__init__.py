@@ -1,12 +1,63 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import json
+"""Qiskit interoperability for the Q# ecosystem.
+
+This module provides Qiskit backends backed by the local Q# simulator and
+NeutralAtomDevice, allowing Qiskit circuits to be run locally without any
+cloud connection.
+
+Available backends
+------------------
+:class:`QSharpBackend`
+    Runs any Qiskit ``QuantumCircuit`` using the Q# simulator. Supports
+    noise-free simulation via QASM export and QIR compilation.
+
+:class:`NeutralAtomBackend`
+    Runs Qiskit circuits on the local NeutralAtomDevice simulator. Decomposes
+    gates to the native ``{Rz, SX, CZ}`` gate set and optionally models
+    per-gate noise (including qubit loss). Loss shots are exposed separately
+    from accepted shots in the job result.
+
+:class:`ResourceEstimatorBackend`
+    Estimates quantum resources (qubits, T-gates, etc.) for a Qiskit circuit
+    without running a full simulation.
+
+:func:`estimate`
+    Convenience function that runs resource estimation on a Qiskit circuit
+    and returns an `EstimatorResult` directly, without needing to
+    construct a backend or job manually.
+
+Usage::
+
+    from qiskit import QuantumCircuit
+    from qsharp.interop.qiskit import NeutralAtomBackend
+    from qsharp._simulation import NoiseConfig
+
+    circuit = QuantumCircuit(2, 2)
+    circuit.h(0)
+    circuit.cx(0, 1)
+    circuit.measure([0, 1], [0, 1])
+
+    noise = NoiseConfig()
+    noise.rz.loss = 0.05  # 5% qubit loss per Rz gate
+
+    backend = NeutralAtomBackend()
+    job = backend.run(circuit, shots=1000, noise=noise, seed=42)
+    result = job.result()
+    print(result.results[0].data.counts)      # accepted shots only
+    print(result.results[0].data.raw_counts)  # includes loss shots
+"""
 from typing import Any, Dict, List, Optional, Union
 
 from ...estimator import EstimatorParams, EstimatorResult
 from ..._native import OutputSemantics, ProgramType, QasmError
-from .backends import QSharpBackend, ResourceEstimatorBackend, QirTarget
+from .backends import (
+    NeutralAtomBackend,
+    QSharpBackend,
+    ResourceEstimatorBackend,
+    QirTarget,
+)
 from .jobs import QsJob, QsSimJob, ReJob, QsJobSet
 from .execution import DetaultExecutor
 from qiskit import QuantumCircuit

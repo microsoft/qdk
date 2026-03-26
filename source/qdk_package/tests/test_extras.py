@@ -7,6 +7,7 @@ from mocks import (
     mock_widgets,
     mock_azure,
     mock_qiskit,
+    mock_cirq,
     cleanup_modules,
 )
 
@@ -28,6 +29,11 @@ EXTRAS = {
     "qiskit": {
         "mock": mock_qiskit,
         "module": "qdk.qiskit",
+        "post_assert": lambda mod: hasattr(mod, "__doc__"),
+    },
+    "cirq": {
+        "mock": mock_cirq,
+        "module": "qdk.cirq",
         "post_assert": lambda mod: hasattr(mod, "__doc__"),
     },
 }

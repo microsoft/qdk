@@ -373,7 +373,7 @@ impl<'a> CompilationStateUpdater<'a> {
                 .iter()
                 .all(|(_uri, doc)| doc.compilation != *compilation_uri)
             {
-                trace!("closing project {:?}", compilation_uri);
+                trace!("closing project {compilation_uri:?}");
                 state.compilations.remove(compilation_uri);
                 return true;
             }
