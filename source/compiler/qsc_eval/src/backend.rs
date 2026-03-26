@@ -533,6 +533,17 @@ impl SparseSim {
     }
 
     #[must_use]
+    pub fn new_with_seed(seed: Option<u64>) -> Self {
+        Self {
+            sim: QuantumSim::new(seed.map(StdRng::seed_from_u64)),
+            noise: PauliNoise::default(),
+            loss: f64::zero(),
+            lost_qubits: BigUint::zero(),
+            rng: None,
+        }
+    }
+
+    #[must_use]
     pub fn new_with_noise(noise: &PauliNoise) -> Self {
         let mut sim = SparseSim::new();
         sim.set_noise(noise);

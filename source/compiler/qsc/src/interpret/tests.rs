@@ -797,6 +797,97 @@ mod given_interpreter {
         }
 
         #[test]
+        fn invoke_with_noise_respects_quantum_seed() {
+            let mut interpreter = get_interpreter();
+            // Define a callable that measures qubits in superposition,
+            // producing non-deterministic results without a seed.
+            let (result, _) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation MeasureRandom() : Result[] {
+                        use qs = Qubit[16];
+                        for q in qs { H(q); }
+                        MResetEachZ(qs)
+                    }
+                "#},
+            );
+            result.expect("callable definition should succeed");
+
+            let mut cursor = Cursor::new(Vec::<u8>::new());
+            let mut receiver = CursorReceiver::new(&mut cursor);
+            let callable = interpreter
+                .eval_fragments(&mut receiver, "MeasureRandom")
+                .expect("callable lookup should succeed");
+
+            // First run with seed
+            interpreter.set_quantum_seed(Some(42));
+            let result1 = interpreter
+                .invoke_with_noise(&mut receiver, callable.clone(), Value::unit(), None, None)
+                .expect("invoke should succeed");
+
+            // Second run with same seed
+            interpreter.set_quantum_seed(Some(42));
+            let result2 = interpreter
+                .invoke_with_noise(&mut receiver, callable.clone(), Value::unit(), None, None)
+                .expect("invoke should succeed");
+
+            assert_eq!(
+                result1, result2,
+                "invoke_with_noise should produce identical results with the same quantum seed"
+            );
+
+            // Third run with different seed should (almost certainly) differ
+            interpreter.set_quantum_seed(Some(12345));
+            let result3 = interpreter
+                .invoke_with_noise(&mut receiver, callable, Value::unit(), None, None)
+                .expect("invoke should succeed");
+
+            assert_ne!(
+                result1, result3,
+                "invoke_with_noise should produce different results with a different quantum seed"
+            );
+        }
+
+        #[test]
+        fn run_with_seed_produces_reproducible_results() {
+            let mut interpreter = get_interpreter();
+
+            // First run with seed
+            interpreter.set_quantum_seed(Some(42));
+            let (result1, _) = run(
+                &mut interpreter,
+                "{use qs = Qubit[16]; for q in qs { H(q); }; MResetEachZ(qs)}",
+            );
+            let result1 = result1.expect("run should succeed");
+
+            // Second run with same seed
+            interpreter.set_quantum_seed(Some(42));
+            let (result2, _) = run(
+                &mut interpreter,
+                "{use qs = Qubit[16]; for q in qs { H(q); }; MResetEachZ(qs)}",
+            );
+            let result2 = result2.expect("run should succeed");
+
+            assert_eq!(
+                result1, result2,
+                "run should produce identical results with the same quantum seed"
+            );
+
+            // Third run with different seed should produce different results
+            interpreter.set_quantum_seed(Some(12345));
+            let (result3, _) = run(
+                &mut interpreter,
+                "{use qs = Qubit[16]; for q in qs { H(q); }; MResetEachZ(qs)}",
+            );
+            let result3 = result3.expect("run should succeed");
+
+            assert_ne!(
+                result1, result3,
+                "run should produce different results with a different quantum seed"
+            );
+        }
+
+        #[test]
         fn callables_failing_profile_validation_are_not_registered() {
             let mut interpreter =
                 get_interpreter_with_capabilities(TargetCapabilityFlags::Adaptive);

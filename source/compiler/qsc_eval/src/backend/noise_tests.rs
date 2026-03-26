@@ -227,3 +227,40 @@ fn measure_with_loss_returns_loss() {
         "Expected measurement with loss to return None"
     );
 }
+
+#[test]
+fn new_with_seed_produces_deterministic_measurements() {
+    // Two simulators constructed with the same seed should produce identical measurement sequences.
+    let mut sim1 = SparseSim::new_with_seed(Some(42));
+    let mut sim2 = SparseSim::new_with_seed(Some(42));
+    for _ in 0..64 {
+        let q1 = sim1.qubit_allocate();
+        sim1.h(q1);
+        let r1 = sim1.m(q1).unwrap_bool();
+        sim1.qubit_release(q1);
+
+        let q2 = sim2.qubit_allocate();
+        sim2.h(q2);
+        let r2 = sim2.m(q2).unwrap_bool();
+        sim2.qubit_release(q2);
+
+        assert_eq!(
+            r1, r2,
+            "Simulators with same seed should produce identical measurements"
+        );
+    }
+}
+
+#[test]
+fn new_with_seed_none_creates_valid_simulator() {
+    // Passing None should work the same as SparseSim::new().
+    let mut sim = SparseSim::new_with_seed(None);
+    let q = sim.qubit_allocate();
+    sim.h(q);
+    let res = sim.m(q);
+    assert!(
+        matches!(res, val::Result::Val(_)),
+        "Expected measurement to return a result"
+    );
+    sim.qubit_release(q);
+}

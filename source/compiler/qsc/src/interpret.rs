@@ -1303,6 +1303,9 @@ impl Interpreter {
         args: Value,
         config: ExecGraphConfig,
     ) -> InterpretResult {
+        if self.quantum_seed.is_some() {
+            tracing_backend.set_seed(self.quantum_seed);
+        }
         qsc_eval::invoke(
             self.package,
             self.classical_seed,
