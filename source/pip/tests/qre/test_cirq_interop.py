@@ -8,7 +8,7 @@ from qsharp.qre.application import CirqApplication
 
 
 def test_with_qft():
-    _test_one_circuit(cirq.qft(*cirq.LineQubit.range(1025)), 1025, 265498, 319925)
+    _test_one_circuit(cirq.qft(*cirq.LineQubit.range(1025)), 1025, 212604, 267031)
 
 
 def test_h():
@@ -16,9 +16,16 @@ def test_h():
     _test_one_circuit(cirq.H(cirq.LineQubit(0)) ** 0.5, 1, 3, 3)
 
 
+def test_cx():
+    _test_one_circuit(cirq.CX(*cirq.LineQubit.range(2)), 2, 1, 1)
+    _test_one_circuit(cirq.CX(*cirq.LineQubit.range(2)) ** 0.5, 2, 6, 7)
+    _test_one_circuit(cirq.CX(*cirq.LineQubit.range(2)) ** 0.25, 2, 6, 7)
+
+
 def test_cz():
     _test_one_circuit(cirq.CZ(*cirq.LineQubit.range(2)), 2, 1, 1)
     _test_one_circuit(cirq.CZ(*cirq.LineQubit.range(2)) ** 0.5, 2, 4, 5)
+    _test_one_circuit(cirq.CZ(*cirq.LineQubit.range(2)) ** 0.25, 2, 4, 5)
 
 
 def test_ccx():
@@ -65,8 +72,6 @@ def _test_one_circuit(
 
     app = CirqApplication(circuit)
     trace = app.get_trace()
-
-    print(trace)
 
     assert trace.total_qubits == expected_qubits, "unexpected number of qubits in trace"
     assert trace.depth == expected_depth, "unexpected depth of trace"

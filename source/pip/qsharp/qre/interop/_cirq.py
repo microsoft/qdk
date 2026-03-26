@@ -2,6 +2,8 @@
 # Licensed under the MIT License.
 
 from __future__ import annotations
+
+import random
 from dataclasses import dataclass
 from math import pi
 from typing import Iterable
@@ -19,7 +21,6 @@ from cirq import (
     MeasurementGate,
     ResetChannel,
     GateOperation,
-    ControlledOperation,
     ClassicallyControlledOperation,
     PhaseGradientGate,
 )
@@ -52,95 +53,49 @@ from qsharp.qre.instruction_ids import (
 )
 
 
-def trace_from_cirq(circuit: cirq.Circuit) -> Trace:
-    q_to_id = QidToTraceId(circuit.all_qubits())
+def trace_from_cirq(
+    circuit: cirq.Circuit, *, classical_control_probability: float = 0.5
+) -> Trace:
+    """Convert a Cirq circuit into a resource estimation Trace.
 
-    trace = Trace(len(circuit.all_qubits()))
+    Iterates through all moments and operations in the circuit, converting
+    each gate into trace operations. Gates with a ``_to_trace`` method are
+    converted directly; others are recursively decomposed via Cirq's
+    ``_decompose_with_context_`` or ``_decompose_`` protocols.
 
-    context = cirq.DecompositionContext(
-        qubit_manager=cirq.GreedyQubitManager("trace_from_cirq")
-    )
+    Args:
+        circuit: The Cirq circuit to convert.
+        classical_control_probability: Probability that a classically
+            controlled operation is included in the trace. Defaults to 0.5.
 
-    generation_context = _Context(trace)
+    Returns:
+        A Trace representing the resource profile of the circuit.
+    """
+
+    context = _Context(circuit, classical_control_probability)
 
     for moment in circuit:
         for op in moment.operations:
-            handle_op(context, op, generation_context, q_to_id)
+            context.handle_op(op)
 
-    trace.compute_qubits = len(q_to_id)
-
-    return trace
-
-
-def handle_op(
-    context: cirq.DecompositionContext,
-    op: (
-        cirq.Operation
-        | tuple[int, list[cirq.Qid] | cirq.Qid]
-        | tuple[int, list[cirq.Qid] | cirq.Qid, list[float] | float]
-        | PushBlock
-        | PopBlock
-    ),
-    generation_context: _Context,
-    q_to_id: QidToTraceId,
-) -> None:
-    if isinstance(op, tuple):
-        if len(op) == 2:
-            id, qubits = op
-            params = None
-        elif len(op) == 3:
-            id, qubits, params = op
-
-        qs = [
-            q_to_id[q] for q in ([qubits] if isinstance(qubits, cirq.Qid) else qubits)
-        ]
-
-        if params is None:
-            generation_context.block.add_operation(id, qs)
-        else:
-            generation_context.block.add_operation(
-                id, qs, params if isinstance(params, list) else [params]
-            )
-    elif isinstance(op, PushBlock):
-        generation_context.push_block(op.repetitions)
-    elif isinstance(op, PopBlock):
-        generation_context.pop_block()
-    elif isinstance(op, GateOperation):
-        gate = op.gate
-
-        if hasattr(gate, "_to_trace"):
-            for sub_op in gate._to_trace(context, op):  # type: ignore
-                handle_op(context, sub_op, generation_context, q_to_id)
-        elif hasattr(gate, "_decompose_with_context_"):
-            for sub_op in gate._decompose_with_context_(op.qubits, context):  # type: ignore
-                handle_op(context, sub_op, generation_context, q_to_id)
-        elif hasattr(gate, "_decompose_"):
-            # decompose the gate and handle the resulting operations recursively
-            for sub_op in gate._decompose_(op.qubits):  # type: ignore
-                handle_op(context, sub_op, generation_context, q_to_id)
-        else:
-            raise NotImplementedError(
-                f"Unsupported gate operation: {gate} {type(gate)}"
-            )
-    elif isinstance(op, ControlledOperation):
-        # TODO: check if there is an advantage to check whether this contains a controlled gate first?
-        for sub_op in op._decompose_with_context_(context):  # type: ignore
-            handle_op(context, sub_op, generation_context, q_to_id)
-    elif isinstance(op, ClassicallyControlledOperation):
-        # TODO: Take into account the classical control probability
-        handle_op(context, op.without_classical_controls(), generation_context, q_to_id)
-    elif isinstance(op, list):
-        for sub_op in op:
-            handle_op(context, sub_op, generation_context, q_to_id)
-
-    else:
-        raise NotImplementedError(f"Unsupported operation: {op} {type(op)}")
+    return context.trace
 
 
 class _Context:
-    def __init__(self, trace: Trace):
-        self._trace = trace
-        self._blocks = [trace.root_block()]
+    """Tracks the current trace and block nesting during trace generation.
+
+    Maintains a stack of blocks so that ``PushBlock`` and ``PopBlock``
+    operations can create nested repeated sections in the trace.
+    """
+
+    def __init__(self, circuit: cirq.Circuit, classical_control_probability: float):
+        self._trace = Trace(len(circuit.all_qubits()))
+        self._classical_control_probability = classical_control_probability
+        self._blocks = [self._trace.root_block()]
+        self._q_to_id = _QidToTraceId(circuit.all_qubits())
+        self._decomp_context = cirq.DecompositionContext(
+            qubit_manager=cirq.GreedyQubitManager("trace_from_cirq")
+        )
 
     def push_block(self, repetitions: int):
         block = self.block.add_block(repetitions)
@@ -150,20 +105,130 @@ class _Context:
         self._blocks.pop()
 
     @property
+    def trace(self) -> Trace:
+        self._trace.compute_qubits = len(self._q_to_id)
+        return self._trace
+
+    @property
     def block(self) -> Block:
         return self._blocks[-1]
+
+    @property
+    def q_to_id(self) -> _QidToTraceId:
+        return self._q_to_id
+
+    @property
+    def classical_control_probability(self) -> float:
+        return self._classical_control_probability
+
+    @property
+    def decomp_context(self) -> cirq.DecompositionContext:
+        return self._decomp_context
+
+    def handle_op(
+        self,
+        op: (
+            cirq.Operation
+            | tuple[int, list[cirq.Qid] | cirq.Qid]
+            | tuple[int, list[cirq.Qid] | cirq.Qid, list[float] | float]
+            | PushBlock
+            | PopBlock
+        ),
+    ) -> None:
+        """Recursively convert a single operation into trace instructions.
+
+        Supported operation forms:
+
+        - ``tuple``: A raw trace instruction as ``(id, qubits)`` or
+        ``(id, qubits, params)``, added directly to the current block.
+        - ``PushBlock`` / ``PopBlock``: Control block nesting with repetitions.
+        - ``GateOperation``: Dispatched via ``_to_trace`` if available on the
+        gate, otherwise decomposed via ``_decompose_with_context_`` or
+        ``_decompose_``.
+        - ``ClassicallyControlledOperation``: Included with the probability
+        specified in the generation context.
+        - ``list``: Each element is handled recursively.
+        - Any other operation: Decomposed via ``_decompose_with_context_``.
+
+        Args:
+            op: The operation to convert.
+            generation_context: Tracks the current trace and block nesting.
+        """
+        if isinstance(op, tuple):
+            if len(op) == 2:
+                id, qubits = op
+                params = None
+            elif len(op) == 3:
+                id, qubits, params = op
+
+            qs = [
+                self.q_to_id[q]
+                for q in ([qubits] if isinstance(qubits, cirq.Qid) else qubits)
+            ]
+
+            if params is None:
+                self.block.add_operation(id, qs)
+            else:
+                self.block.add_operation(
+                    id, qs, params if isinstance(params, list) else [params]
+                )
+        elif isinstance(op, PushBlock):
+            self.push_block(op.repetitions)
+        elif isinstance(op, PopBlock):
+            self.pop_block()
+        elif isinstance(op, GateOperation):
+            gate = op.gate
+
+            if hasattr(gate, "_to_trace"):
+                for sub_op in gate._to_trace(self.decomp_context, op):  # type: ignore
+                    self.handle_op(sub_op)
+            elif hasattr(gate, "_decompose_with_context_"):
+                for sub_op in gate._decompose_with_context_(op.qubits, self.decomp_context):  # type: ignore
+                    self.handle_op(sub_op)
+            elif hasattr(gate, "_decompose_"):
+                # decompose the gate and handle the resulting operations recursively
+                for sub_op in gate._decompose_(op.qubits):  # type: ignore
+                    self.handle_op(sub_op)
+            else:
+                for sub_op in op._decompose_with_context_(self.decomp_context):  # type: ignore
+                    self.handle_op(sub_op)
+        elif isinstance(op, ClassicallyControlledOperation):
+            if random.random() < self.classical_control_probability:
+                self.handle_op(op.without_classical_controls())
+        elif isinstance(op, list):
+            for sub_op in op:
+                self.handle_op(sub_op)
+
+        else:
+            for sub_op in op._decompose_with_context_(self.decomp_context):  # type: ignore
+                self.handle_op(sub_op)
 
 
 @dataclass(frozen=True, slots=True)
 class PushBlock:
+    """Signals the start of a repeated block in the trace.
+
+    Args:
+        repetitions: Number of times the block is repeated.
+    """
+
     repetitions: int
 
 
 @dataclass(frozen=True, slots=True)
-class PopBlock: ...
+class PopBlock:
+    """Signals the end of the current repeated block in the trace."""
+
+    ...
 
 
-class QidToTraceId(dict):
+class _QidToTraceId(dict):
+    """Mapping from Cirq qubits to integer trace qubit indices.
+
+    Initialized with a set of known qubits. If an unknown qubit is looked
+    up, it is automatically assigned the next available index.
+    """
+
     def __init__(self, init: Iterable[cirq.Qid]):
         super().__init__({q: i for i, q in enumerate(init)})
 
@@ -230,12 +295,10 @@ def z_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Opera
 
 
 def cx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
-    if abs(self.exponent) != 1:
-        raise NotImplementedError(
-            f"Unsupported CXPowGate with exponent {self.exponent}."
-        )
-
-    yield (CX, [op.qubits[0], op.qubits[1]])
+    if abs(self.exponent - 1) <= 1e-8 or abs(self.exponent + 1) <= 1e-8:
+        yield (CX, [op.qubits[0], op.qubits[1]])
+    else:
+        yield from op._decompose_with_context_(context)  # type: ignore
 
 
 def cz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
