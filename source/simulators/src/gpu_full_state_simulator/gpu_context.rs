@@ -47,7 +47,7 @@ pub struct GpuContext {
     is_adaptive: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(crate) struct RunParams {
     pub qubit_count: i32,
     pub result_count: i32,
@@ -73,34 +73,6 @@ pub(crate) struct RunParams {
     // Noise table sizes for BatchData (minimum 1, since WGSL arrays must have length ≥ 1).
     pub noise_table_count: usize,
     pub noise_entry_count: usize,
-}
-
-impl Default for RunParams {
-    fn default() -> Self {
-        Self {
-            noise_table_count: 1,
-            noise_entry_count: 1,
-            qubit_count: 0,
-            result_count: 0,
-            shot_count: 0,
-            shots_per_batch: 0,
-            batch_count: 0,
-            workgroups_per_shot: 0,
-            entries_per_thread: 0,
-            shots_buffer_size: 0,
-            state_vector_buffer_size: 0,
-            results_buffer_size: 0,
-            diagnostics_buffer_size: 0,
-            download_buffer_size: 0,
-            num_registers: 0,
-            num_instructions: 0,
-            num_blocks: 0,
-            num_functions: 0,
-            num_phi_entries: 0,
-            num_switch_cases: 0,
-            num_call_args: 0,
-        }
-    }
 }
 
 #[derive(Debug)]
