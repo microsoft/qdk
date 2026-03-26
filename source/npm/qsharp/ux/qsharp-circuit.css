@@ -11,7 +11,7 @@
 /* Circuit widget */
 .qs-circuit {
   /* Background color for the circuit diagram */
-  background: var(--main-background);
+  /* background: var(--main-background); */
 
   /* Error div in circuit panel */
   .qs-circuit-error {

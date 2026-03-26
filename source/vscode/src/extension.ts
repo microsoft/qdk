@@ -50,7 +50,7 @@ export async function activate(
   }
 
   log.info("Q# extension activating.");
-  initTelemetry(context);
+  // initTelemetry(context);
 
   checkForOldQdk();
 
