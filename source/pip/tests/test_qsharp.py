@@ -333,6 +333,9 @@ def test_run_with_callable_and_seed_produces_deterministic_shot_results() -> Non
         shots=10,
         seed=42,
     )
+    assert (
+        result1[0] != result1[2]
+    )  # Check that we actually got some randomness in the results
     assert result1 == result2
     result3 = qsharp.run(
         qsharp.code.Rand,
