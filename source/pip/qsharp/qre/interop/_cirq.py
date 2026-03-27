@@ -90,7 +90,7 @@ def trace_from_cirq(
         # circuit is OP_TREE
         circuit = cirq.Circuit(circuit)
 
-    context = _Context(circuit, classical_control_probability)
+    context = _CirqTraceBuilder(circuit, classical_control_probability)
 
     for moment in circuit:
         for op in moment.operations:
@@ -99,11 +99,25 @@ def trace_from_cirq(
     return context.trace
 
 
-class _Context:
-    """Tracks the current trace and block nesting during trace generation.
+class _CirqTraceBuilder:
+    """Builds a resource estimation ``Trace`` from a Cirq circuit.
 
-    Maintains a stack of blocks so that ``PushBlock`` and ``PopBlock``
-    operations can create nested repeated sections in the trace.
+    This class walks the operations produced by ``trace_from_cirq`` and
+    translates each one into trace instructions.  It maintains the state
+    needed during the conversion:
+
+    * A ``Trace`` instance that accumulates the result.
+    * A stack of ``Block`` objects so that ``PushBlock`` / ``PopBlock``
+      markers can create nested repeated sections.
+    * A qubit-id mapping (``_QidToTraceId``) that assigns each Cirq qubit
+      a sequential integer index.
+    * A Cirq ``DecompositionContext`` for gates that need recursive
+      decomposition.
+
+    Args:
+        circuit: The Cirq circuit being converted.
+        classical_control_probability: Probability that a classically
+            controlled operation is included in the trace.
     """
 
     def __init__(self, circuit: cirq.Circuit, classical_control_probability: float):
@@ -116,31 +130,41 @@ class _Context:
         )
 
     def push_block(self, repetitions: int):
+        """Open a new repeated block with the given number of repetitions."""
         block = self.block.add_block(repetitions)
         self._blocks.append(block)
 
     def pop_block(self):
+        """Close the current repeated block, returning to the parent."""
         self._blocks.pop()
 
     @property
     def trace(self) -> Trace:
+        """The accumulated trace, with ``compute_qubits`` updated to reflect
+        all qubits seen so far (including any allocated during decomposition)."""
         self._trace.compute_qubits = len(self._q_to_id)
         return self._trace
 
     @property
     def block(self) -> Block:
+        """The innermost open block in the trace."""
         return self._blocks[-1]
 
     @property
     def q_to_id(self) -> _QidToTraceId:
+        """Mapping from Cirq ``Qid`` to integer trace qubit index."""
         return self._q_to_id
 
     @property
     def classical_control_probability(self) -> float:
+        """Probability used to stochastically include classically controlled
+        operations."""
         return self._classical_control_probability
 
     @property
     def decomp_context(self) -> cirq.DecompositionContext:
+        """Cirq decomposition context shared across all recursive
+        decompositions."""
         return self._decomp_context
 
     def handle_op(
@@ -151,15 +175,18 @@ class _Context:
 
         Supported operation forms:
 
-        - ``TraceGate``: A raw trace instruction, added directly to the current block.
-        - ``PushBlock`` / ``PopBlock``: Control block nesting with repetitions.
-        - ``GateOperation``: Dispatched via ``_to_trace`` if available on the
-        gate, otherwise decomposed via ``_decompose_with_context_`` or
-        ``_decompose_``.
+        - ``TraceGate``: A raw trace instruction, added directly to the
+          current block.
+        - ``PushBlock`` / ``PopBlock``: Control block nesting with
+          repetitions.
+        - ``GateOperation``: Dispatched via ``_to_trace`` if available on
+          the gate, otherwise decomposed via
+          ``_decompose_with_context_`` or ``_decompose_``.
         - ``ClassicallyControlledOperation``: Included with the probability
-        specified in the generation context.
-        - ``list``: Each element is handled recursively.
-        - Any other operation: Decomposed via ``_decompose_with_context_``.
+          given by ``classical_control_probability``.
+        - ``list`` / iterable: Each element is handled recursively.
+        - Any other ``cirq.Operation``: Decomposed via
+          ``_decompose_with_context_``.
 
         Args:
             op: The operation to convert.
