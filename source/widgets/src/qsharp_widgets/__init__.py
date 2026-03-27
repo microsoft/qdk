@@ -239,6 +239,9 @@ class MoleculeViewer(anywidget.AnyWidget):
 
         Parameters:
         - molecule_data: string containing the molecular data in XYZ format.
+        - cube_data (optional): a dictionary where keys are cube names and values are dictionaries with the following structure:
+          - "data": string containing the cube data in .cube file format.
+          - "info": (optional) a dictionary containing any metadata you want to display with the cube data.
         """
         super().__init__(
             molecule_data=molecule_data, cube_data=cube_data, isoval=isoval

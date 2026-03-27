@@ -834,6 +834,7 @@ impl Interpreter {
 
     // Invokes the given callable with the given arguments using the current compilation but with a fresh
     // environment and simulator configured with the given noise, if any.
+    #[allow(clippy::too_many_arguments)]
     pub fn invoke_with_noise(
         &mut self,
         receiver: &mut impl Receiver,
@@ -842,6 +843,7 @@ impl Interpreter {
         noise: Option<PauliNoise>,
         qubit_loss: Option<f64>,
         noise_config: Option<NoiseConfig<f64, f64>>,
+        seed: Option<u64>,
     ) -> InterpretResult {
         let qubit_loss = if noise_config.is_none() {
             qubit_loss
@@ -858,7 +860,10 @@ impl Interpreter {
         if let Some(loss) = qubit_loss {
             sim.set_loss(loss);
         }
-        self.invoke_with_sim(&mut sim, receiver, callable, args)
+        if seed.is_some() {
+            sim.set_seed(seed);
+        }
+        self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
     }
 
     /// Runs the given entry expression on a new instance of the environment and simulator,
@@ -870,6 +875,7 @@ impl Interpreter {
         noise: Option<PauliNoise>,
         qubit_loss: Option<f64>,
         noise_config: Option<NoiseConfig<f64, f64>>,
+        seed: Option<u64>,
     ) -> InterpretResult {
         let qubit_loss = if noise_config.is_none() {
             qubit_loss
@@ -886,7 +892,7 @@ impl Interpreter {
         if let Some(loss) = qubit_loss {
             sim.set_loss(loss);
         }
-        self.run_with_sim(&mut sim, receiver, expr)
+        self.run_with_sim(&mut sim, receiver, expr, seed)
     }
 
     /// Gets the current quantum state of the simulator.
@@ -1043,6 +1049,7 @@ impl Interpreter {
                         callable,
                         args,
                         eval_config,
+                        None,
                     )?;
                 } else {
                     self.run_with_tracing_backend(
@@ -1062,6 +1069,7 @@ impl Interpreter {
                         callable,
                         args,
                         eval_config,
+                        None,
                     )?;
                 } else {
                     self.run_with_tracing_backend(
@@ -1238,6 +1246,7 @@ impl Interpreter {
         sim: &mut impl Backend,
         receiver: &mut impl Receiver,
         expr: Option<&str>,
+        seed: Option<u64>,
     ) -> InterpretResult {
         let mut tracing_backend = TracingBackend::no_tracer(sim);
         let graph = if let Some(expr) = expr {
@@ -1248,13 +1257,20 @@ impl Interpreter {
             self.expr_graph.clone().ok_or(vec![Error::NoEntryPoint])?
         };
 
-        if self.quantum_seed.is_some() {
+        if seed.is_some() {
+            tracing_backend.set_seed(seed);
+        } else if self.quantum_seed.is_some() {
             tracing_backend.set_seed(self.quantum_seed);
         }
 
+        let classical_seed = match seed {
+            Some(seed) => Some(seed),
+            None => self.classical_seed,
+        };
+
         eval(
             self.package,
-            self.classical_seed,
+            classical_seed,
             graph,
             self.eval_config,
             self.compiler.package_store(),
@@ -1304,6 +1320,7 @@ impl Interpreter {
         receiver: &mut impl Receiver,
         callable: Value,
         args: Value,
+        seed: Option<u64>,
     ) -> InterpretResult {
         self.invoke_with_tracing_backend(
             &mut TracingBackend::no_tracer(sim),
@@ -1311,6 +1328,7 @@ impl Interpreter {
             callable,
             args,
             self.eval_config,
+            seed,
         )
     }
 
@@ -1321,10 +1339,15 @@ impl Interpreter {
         callable: Value,
         args: Value,
         config: ExecGraphConfig,
+        seed: Option<u64>,
     ) -> InterpretResult {
+        let classical_seed = match seed {
+            Some(seed) => Some(seed),
+            None => self.classical_seed,
+        };
         qsc_eval::invoke(
             self.package,
-            self.classical_seed,
+            classical_seed,
             &self.fir_store,
             config,
             &mut Env::default(),

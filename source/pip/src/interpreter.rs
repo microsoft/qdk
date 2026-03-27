@@ -695,7 +695,7 @@ impl Interpreter {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature=(entry_expr=None, callback=None, noise_config=None, noise=None, qubit_loss=None, callable=None, args=None))]
+    #[pyo3(signature=(entry_expr=None, callback=None, noise_config=None, noise=None, qubit_loss=None, callable=None, args=None, seed=None))]
     fn run(
         &mut self,
         py: Python,
@@ -706,6 +706,7 @@ impl Interpreter {
         qubit_loss: Option<f64>,
         callable: Option<Py<PyAny>>,
         args: Option<Py<PyAny>>,
+        seed: Option<u64>,
     ) -> PyResult<Py<PyAny>> {
         let mut receiver = OptionalCallbackReceiver { callback, py };
 
@@ -742,11 +743,17 @@ impl Interpreter {
                     noise,
                     qubit_loss,
                     noise_config,
+                    seed,
                 )
             }
-            _ => self
-                .interpreter
-                .run(&mut receiver, entry_expr, noise, qubit_loss, noise_config),
+            _ => self.interpreter.run(
+                &mut receiver,
+                entry_expr,
+                noise,
+                qubit_loss,
+                noise_config,
+                seed,
+            ),
         };
 
         match result {

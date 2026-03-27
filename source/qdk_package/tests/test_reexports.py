@@ -21,11 +21,12 @@ def test_estimator_and_openqasm_shims():
 def test_missing_optional_direct_imports():
     # If optional extras truly not installed, importing their submodules should raise ImportError.
     # We probe without using mocks here.
-    for mod in ("qdk.widgets", "qdk.azure", "qdk.qiskit"):
+    for mod in ("qdk.widgets", "qdk.azure", "qdk.qiskit", "qdk.cirq"):
         base_dep = {
             "qdk.widgets": "qsharp_widgets",
             "qdk.azure": "azure.quantum",
             "qdk.qiskit": "qiskit",
+            "qdk.cirq": "cirq",
         }[mod]
         try:
             importlib.import_module(base_dep)
