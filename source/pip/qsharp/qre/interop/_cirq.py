@@ -63,7 +63,7 @@ def _approx_eq(a: float, b: float) -> bool:
 
 
 def trace_from_cirq(
-    circuit: cirq.Circuit, *, classical_control_probability: float = 0.5
+    circuit: cirq.CIRCUIT_LIKE, *, classical_control_probability: float = 0.5
 ) -> Trace:
     """Convert a Cirq circuit into a resource estimation Trace.
 
@@ -80,6 +80,15 @@ def trace_from_cirq(
     Returns:
         A Trace representing the resource profile of the circuit.
     """
+
+    if isinstance(circuit, cirq.Circuit):
+        # circuit is already in the expected format, so we can process it directly.
+        pass
+    elif isinstance(circuit, cirq.Gate):
+        circuit = cirq.Circuit(circuit.on(*cirq.LineQid.for_gate(circuit)))
+    else:
+        # circuit is OP_TREE
+        circuit = cirq.Circuit(circuit)
 
     context = _Context(circuit, classical_control_probability)
 
@@ -203,7 +212,7 @@ class _Context:
         elif isinstance(op, ClassicallyControlledOperation):
             if random.random() < self.classical_control_probability:
                 self.handle_op(op.without_classical_controls())
-        elif isinstance(op, list):
+        elif isinstance(op, Iterable):
             for sub_op in op:
                 self.handle_op(sub_op)
 

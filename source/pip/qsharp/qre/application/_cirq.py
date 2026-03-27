@@ -6,11 +6,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from cirq import Circuit
+import cirq
 
-
-from .._qre import Trace
 from .._application import Application
+from .._qre import Trace
 from ..interop import trace_from_cirq
 
 
@@ -28,7 +27,7 @@ class CirqApplication(Application[None]):
             controlled operation is included in the trace. Defaults to 0.5.
     """
 
-    circuit_or_qasm: str | Circuit
+    circuit_or_qasm: str | cirq.CIRCUIT_LIKE
     classical_control_probability: float = 0.5
 
     def __post_init__(self):

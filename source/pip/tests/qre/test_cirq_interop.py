@@ -1,8 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from typing import Iterable
-
 import cirq
 from qsharp.qre.application import CirqApplication
 
@@ -12,35 +10,35 @@ def test_with_qft():
 
 
 def test_h():
-    _test_one_circuit(cirq.H(cirq.LineQubit(0)), 1, 1, 1)
-    _test_one_circuit(cirq.H(cirq.LineQubit(0)) ** 0.5, 1, 3, 3)
+    _test_one_circuit(cirq.H, 1, 1, 1)
+    _test_one_circuit(cirq.H**0.5, 1, 3, 3)
 
 
 def test_cx():
-    _test_one_circuit(cirq.CX(*cirq.LineQubit.range(2)), 2, 1, 1)
-    _test_one_circuit(cirq.CX(*cirq.LineQubit.range(2)) ** 0.5, 2, 6, 7)
-    _test_one_circuit(cirq.CX(*cirq.LineQubit.range(2)) ** 0.25, 2, 6, 7)
+    _test_one_circuit(cirq.CX, 2, 1, 1)
+    _test_one_circuit(cirq.CX**0.5, 2, 6, 7)
+    _test_one_circuit(cirq.CX**0.25, 2, 6, 7)
 
 
 def test_cz():
-    _test_one_circuit(cirq.CZ(*cirq.LineQubit.range(2)), 2, 1, 1)
-    _test_one_circuit(cirq.CZ(*cirq.LineQubit.range(2)) ** 0.5, 2, 4, 5)
-    _test_one_circuit(cirq.CZ(*cirq.LineQubit.range(2)) ** 0.25, 2, 4, 5)
+    _test_one_circuit(cirq.CZ, 2, 1, 1)
+    _test_one_circuit(cirq.CZ**0.5, 2, 4, 5)
+    _test_one_circuit(cirq.CZ**0.25, 2, 4, 5)
 
 
 def test_swap():
-    _test_one_circuit(cirq.SWAP(*cirq.LineQubit.range(2)), 2, 1, 1)
-    _test_one_circuit(cirq.SWAP(*cirq.LineQubit.range(2)) ** 0.5, 2, 8, 9)
+    _test_one_circuit(cirq.SWAP, 2, 1, 1)
+    _test_one_circuit(cirq.SWAP**0.5, 2, 8, 9)
 
 
 def test_ccx():
-    _test_one_circuit(cirq.CCX(*cirq.LineQubit.range(3)), 3, 1, 1)
-    _test_one_circuit(cirq.CCX(*cirq.LineQubit.range(3)) ** 0.5, 3, 11, 17)
+    _test_one_circuit(cirq.CCX, 3, 1, 1)
+    _test_one_circuit(cirq.CCX**0.5, 3, 11, 17)
 
 
 def test_ccz():
-    _test_one_circuit(cirq.CCZ(*cirq.LineQubit.range(3)), 3, 1, 1)
-    _test_one_circuit(cirq.CCZ(*cirq.LineQubit.range(3)) ** 0.5, 3, 10, 15)
+    _test_one_circuit(cirq.CCZ, 3, 1, 1)
+    _test_one_circuit(cirq.CCZ**0.5, 3, 10, 15)
 
 
 def test_circuit_with_block():
@@ -67,14 +65,11 @@ def test_circuit_with_block():
 
 
 def _test_one_circuit(
-    circuit: cirq.Circuit | cirq.Operation | Iterable[cirq.Operation],
+    circuit: cirq.CIRCUIT_LIKE,
     expected_qubits: int,
     expected_depth: int,
     expected_gates: int,
 ):
-    if not isinstance(circuit, cirq.Circuit):
-        circuit = cirq.Circuit(circuit)
-
     app = CirqApplication(circuit)
     trace = app.get_trace()
 
