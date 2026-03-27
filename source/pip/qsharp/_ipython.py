@@ -12,7 +12,7 @@ from time import monotonic
 from IPython.display import display, Javascript, clear_output
 from IPython.core.magic import register_cell_magic
 from ._native import QSharpError
-from ._qsharp import get_interpreter, qsharp_value_to_python_value
+from ._qsharp import _get_default_ctx, qsharp_value_to_python_value
 from . import telemetry_events
 import pathlib
 
@@ -37,7 +37,7 @@ def register_magic():
 
         try:
             results = qsharp_value_to_python_value(
-                get_interpreter().interpret(cell, callback)
+                _get_default_ctx()._interpreter.interpret(cell, callback)
             )
 
             durationMs = (monotonic() - start_time) * 1000

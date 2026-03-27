@@ -21,7 +21,14 @@ from ._qsharp import (
     BitFlipNoise,
     PhaseFlipNoise,
     CircuitGenerationMethod,
+    QdkContext,
+    new_context,
+    get_context,
+    context_of,
 )
+
+# Backward-compatible alias
+QSharpContext = QdkContext
 
 telemetry_events.on_import()
 
@@ -62,4 +69,8 @@ __all__ = [
     "BitFlipNoise",
     "PhaseFlipNoise",
     "CircuitGenerationMethod",
+    "QdkContext",
+    "new_context",
+    "get_context",
+    "context_of",
 ]

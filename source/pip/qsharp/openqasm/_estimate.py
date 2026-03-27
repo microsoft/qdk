@@ -71,7 +71,8 @@ def estimate(
     start = monotonic()
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
-        res_str = get_interpreter().estimate(
+        interp = getattr(source, "_qdk_get_interpreter", get_interpreter)()
+        res_str = interp.estimate(
             param_str, entry_expr=None, callable=source.__global_callable, args=args
         )
     elif isinstance(source, str):

@@ -49,6 +49,10 @@ def mock_qsharp() -> List[str]:
         stub.DepolarizingNoise = _T
         stub.BitFlipNoise = _T
         stub.PhaseFlipNoise = _T
+        stub.QdkContext = _T
+        stub.new_context = _not_impl
+        stub.get_context = _not_impl
+        stub.context_of = _not_impl
         stub.__all__ = [
             "run",
             "estimate",
@@ -65,6 +69,10 @@ def mock_qsharp() -> List[str]:
             "DepolarizingNoise",
             "BitFlipNoise",
             "PhaseFlipNoise",
+            "QdkContext",
+            "new_context",
+            "get_context",
+            "context_of",
             "estimator",
             "openqasm",
             "utils",

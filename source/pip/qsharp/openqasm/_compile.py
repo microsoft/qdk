@@ -70,7 +70,8 @@ def compile(
 
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
-        ll_str = get_interpreter().qir(
+        interp = getattr(source, "_qdk_get_interpreter", get_interpreter)()
+        ll_str = interp.qir(
             entry_expr=None, callable=source.__global_callable, args=args
         )
     elif isinstance(source, str):
@@ -91,7 +92,9 @@ def compile(
             **kwargs,
         )
     else:
-        raise ValueError("source must be a string or a callable with __global_callable attribute")
+        raise ValueError(
+            "source must be a string or a callable with __global_callable attribute"
+        )
     res = QirInputData("main", ll_str)
 
     durationMs = (monotonic() - start) * 1000

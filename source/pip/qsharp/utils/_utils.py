@@ -2,11 +2,16 @@
 # Licensed under the MIT License.
 
 from .._qsharp import run
-from typing import List
+from typing import List, Optional, TYPE_CHECKING
 import math
 
+if TYPE_CHECKING:
+    from .._qsharp import QdkContext
 
-def dump_operation(operation: str, num_qubits: int) -> List[List[complex]]:
+
+def dump_operation(
+    operation: str, num_qubits: int, *, ctx: Optional["QdkContext"] = None
+) -> List[List[complex]]:
     """
     Returns a square matrix of complex numbers representing the operation performed.
 
@@ -27,7 +32,7 @@ def dump_operation(operation: str, num_qubits: int) -> List[List[complex]]:
             Microsoft.Quantum.Diagnostics.DumpMachine();
             ResetAll(targets + extra);
     }}"""
-    result = run(code, shots=1, save_events=True)[0]
+    result = (ctx.run if ctx else run)(code, shots=1, save_events=True)[0]
     state = result["events"][-1].state_dump().get_dict()
     num_entries = pow(2, num_qubits)
     factor = math.sqrt(num_entries)

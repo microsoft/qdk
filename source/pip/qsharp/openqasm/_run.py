@@ -106,6 +106,7 @@ def run(
         source_str = source
 
     if callable:
+        interp = getattr(source, "_qdk_get_interpreter", get_interpreter)()
         for _ in range(shots):
             results.append(
                 {
@@ -116,7 +117,7 @@ def run(
                     "messages": [],
                 }
             )
-            run_results = get_interpreter().run(
+            run_results = interp.run(
                 source_str,
                 on_save_events if save_events else display_or_print,
                 noise,

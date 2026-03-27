@@ -508,16 +508,16 @@ def test_compile_qir_str_from_qsharp_callable_with_multiple_args_passed_as_tuple
 
 
 def test_init_from_provider_name() -> None:
-    config = qsharp.init(target_name="ionq.simulator")
-    assert config._config["targetProfile"] == "base"
-    config = qsharp.init(target_name="rigetti.sim.qvm")
-    assert config._config["targetProfile"] == "base"
-    config = qsharp.init(target_name="quantinuum.sim")
-    assert config._config["targetProfile"] == "adaptive_ri"
-    config = qsharp.init(target_name="Quantinuum")
-    assert config._config["targetProfile"] == "adaptive_ri"
-    config = qsharp.init(target_name="IonQ")
-    assert config._config["targetProfile"] == "base"
+    ctx = qsharp.init(target_name="ionq.simulator")
+    assert ctx.config._config["targetProfile"] == "base"
+    ctx = qsharp.init(target_name="rigetti.sim.qvm")
+    assert ctx.config._config["targetProfile"] == "base"
+    ctx = qsharp.init(target_name="quantinuum.sim")
+    assert ctx.config._config["targetProfile"] == "adaptive_ri"
+    ctx = qsharp.init(target_name="Quantinuum")
+    assert ctx.config._config["targetProfile"] == "adaptive_ri"
+    ctx = qsharp.init(target_name="IonQ")
+    assert ctx.config._config["targetProfile"] == "base"
 
 
 def test_run_with_result(capsys) -> None:
@@ -1201,3 +1201,181 @@ def test_swap_label_circuit_from_callable() -> None:
         q_1    ──────────────
         """
     )
+
+
+# --- QdkContext tests ---
+
+
+def test_context_eval() -> None:
+    ctx = qsharp.new_context()
+    result = ctx.eval("1 + 2")
+    assert result == 3
+
+
+def test_context_isolation() -> None:
+    ctx1 = qsharp.new_context()
+    ctx2 = qsharp.new_context()
+    ctx1.eval("function Foo() : Int { 42 }")
+    result1 = ctx1.eval("Foo()")
+    assert result1 == 42
+    # ctx2 should not have Foo defined
+    with pytest.raises(Exception):
+        ctx2.eval("Foo()")
+
+
+def test_context_run() -> None:
+    ctx = qsharp.new_context()
+    ctx.eval('operation Foo() : Result { Message("hi"); Zero }')
+    results = ctx.run("Foo()", 3)
+    assert results == [qsharp.Result.Zero, qsharp.Result.Zero, qsharp.Result.Zero]
+
+
+def test_module_level_backward_compat() -> None:
+    qsharp.init()
+    result = qsharp.eval("1 + 1")
+    assert result == 2
+
+
+def test_init_returns_context() -> None:
+    ctx = qsharp.init()
+    assert isinstance(ctx, qsharp.QdkContext)
+    # The context should be usable directly
+    result = ctx.eval("3 + 4")
+    assert result == 7
+    # Module-level eval should use the same context
+    result2 = qsharp.eval("3 + 4")
+    assert result2 == 7
+
+
+def test_context_callable_has_interpreter_ref() -> None:
+    """Callables created via eval carry a _qdk_get_interpreter attribute."""
+    ctx = qsharp.new_context()
+    ctx.eval("function Add(a : Int, b : Int) : Int { a + b }")
+    add_fn = ctx.code.Add
+    assert hasattr(add_fn, "_qdk_get_interpreter")
+    assert add_fn._qdk_get_interpreter() is ctx._interpreter
+
+
+def test_context_import_openqasm() -> None:
+    """import_openqasm loads an OpenQASM program into the context."""
+    ctx = qsharp.new_context()
+    ctx.import_openqasm(
+        """
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        h q;
+        """
+    )
+
+
+def test_context_dump_operation() -> None:
+    """dump_operation works with an explicit context."""
+    from qsharp.utils import dump_operation
+
+    ctx = qsharp.new_context()
+    matrix = dump_operation("qs => X(qs[0])", 1, ctx=ctx)
+    # X gate matrix should swap |0> and |1>
+    assert len(matrix) == 2
+    assert len(matrix[0]) == 2
+
+
+def test_backward_compat_alias() -> None:
+    """QSharpContext alias still works for backward compatibility."""
+    assert qsharp.QSharpContext is qsharp.QdkContext
+
+
+def test_get_context_returns_global() -> None:
+    """get_context() returns the global default context."""
+    ctx1 = qsharp.init()
+    ctx2 = qsharp.get_context()
+    assert ctx2 is ctx1
+
+
+def test_context_of_returns_origin() -> None:
+    """context_of() returns the context that compiled the callable."""
+    ctx = qsharp.new_context()
+    ctx.eval("function Hello() : Int { 1 }")
+    fn = ctx.code.Hello
+    assert qsharp.context_of(fn) is ctx
+
+
+def test_context_of_global_callable() -> None:
+    """context_of() works for callables in the global context."""
+    ctx = qsharp.init()
+    qsharp.eval("function Hi() : Int { 2 }")
+    fn = qsharp.code.Hi
+    assert qsharp.context_of(fn) is ctx
+
+
+def test_context_of_rejects_non_callable() -> None:
+    """context_of() raises TypeError for non-QDK objects."""
+    with pytest.raises(TypeError, match="Expected a QDK callable"):
+        qsharp.context_of(lambda: None)
+
+
+def test_cross_context_run_raises() -> None:
+    """Passing a callable from one context to another's run() raises."""
+    ctx_a = qsharp.new_context()
+    ctx_b = qsharp.new_context()
+    ctx_a.eval("operation Foo() : Result { use q = Qubit(); M(q) }")
+    foo = ctx_a.code.Foo
+    with pytest.raises(Exception, match="different QdkContext"):
+        ctx_b.run(foo, 1)
+
+
+def test_cross_context_compile_raises() -> None:
+    """Passing a callable from one context to another's compile() raises."""
+    ctx_a = qsharp.new_context(target_profile=qsharp.TargetProfile.Base)
+    ctx_b = qsharp.new_context(target_profile=qsharp.TargetProfile.Base)
+    ctx_a.eval("operation Bar() : Result { use q = Qubit(); M(q) }")
+    bar = ctx_a.code.Bar
+    with pytest.raises(Exception, match="different QdkContext"):
+        ctx_b.compile(bar)
+
+
+def test_cross_context_circuit_raises() -> None:
+    """Passing a callable from one context to another's circuit() raises."""
+    ctx_a = qsharp.new_context()
+    ctx_b = qsharp.new_context()
+    ctx_a.eval("operation Baz() : Unit { use q = Qubit(); H(q); }")
+    baz = ctx_a.code.Baz
+    with pytest.raises(Exception, match="different QdkContext"):
+        ctx_b.circuit(baz)
+
+
+def test_cross_context_estimate_raises() -> None:
+    """Passing a callable from one context to another's estimate() raises."""
+    ctx_a = qsharp.new_context()
+    ctx_b = qsharp.new_context()
+    ctx_a.eval("operation Qux() : Unit { use q = Qubit(); H(q); }")
+    qux = ctx_a.code.Qux
+    with pytest.raises(Exception, match="different QdkContext"):
+        ctx_b.estimate(qux)
+
+
+def test_cross_context_logical_counts_raises() -> None:
+    """Passing a callable from one context to another's logical_counts() raises."""
+    ctx_a = qsharp.new_context()
+    ctx_b = qsharp.new_context()
+    ctx_a.eval("operation Corge() : Unit { use q = Qubit(); H(q); }")
+    corge = ctx_a.code.Corge
+    with pytest.raises(Exception, match="different QdkContext"):
+        ctx_b.logical_counts(corge)
+
+
+def test_stale_callable_after_reinit() -> None:
+    """Callables from a prior init() become invalid after re-initialization."""
+    qsharp.init()
+    qsharp.eval("function Stale() : Int { 99 }")
+    old_fn = qsharp.code.Stale
+    # Reinitialize — old callable should now be stale
+    qsharp.init()
+    with pytest.raises(Exception, match="disposed"):
+        old_fn()
+
+
+def test_context_config_property() -> None:
+    """QdkContext exposes a .config property with the target profile."""
+    ctx = qsharp.new_context(target_profile=qsharp.TargetProfile.Base)
+    assert ctx.config.get_target_profile() == "base"

@@ -60,9 +60,8 @@ def circuit(
 
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
-        res = get_interpreter().circuit(
-            config, callable=source.__global_callable, args=args
-        )
+        interp = getattr(source, "_qdk_get_interpreter", get_interpreter)()
+        res = interp.circuit(config, callable=source.__global_callable, args=args)
     else:
         # remove any entries from kwargs with a None key or None value
         kwargs = {k: v for k, v in kwargs.items() if k is not None and v is not None}
