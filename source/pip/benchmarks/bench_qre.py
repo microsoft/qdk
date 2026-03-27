@@ -37,8 +37,8 @@ def bench_enumerate_isas():
 
     # Add the tests directory to sys.path to import test_qre
     # TODO: Remove this once the models in test_qre are moved to a proper module
-    sys.path.append(os.path.join(os.path.dirname(__file__), "../tests"))
-    from test_qre import ExampleLogicalFactory, ExampleFactory  # type: ignore
+    sys.path.append(os.path.join(os.path.dirname(__file__), "../tests/qre/"))
+    from conftest import ExampleLogicalFactory, ExampleFactory  # type: ignore
 
     ctx = GateBased(gate_time=50, measurement_time=100).context()
 
