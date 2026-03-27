@@ -145,20 +145,13 @@ class _Context:
 
     def handle_op(
         self,
-        op: (
-            cirq.Operation
-            | tuple[int, list[cirq.Qid] | cirq.Qid]
-            | tuple[int, list[cirq.Qid] | cirq.Qid, list[float] | float]
-            | PushBlock
-            | PopBlock
-        ),
+        op: cirq.OP_TREE | TraceGate | PushBlock | PopBlock,
     ) -> None:
         """Recursively convert a single operation into trace instructions.
 
         Supported operation forms:
 
-        - ``tuple``: A raw trace instruction as ``(id, qubits)`` or
-        ``(id, qubits, params)``, added directly to the current block.
+        - ``TraceGate``: A raw trace instruction, added directly to the current block.
         - ``PushBlock`` / ``PopBlock``: Control block nesting with repetitions.
         - ``GateOperation``: Dispatched via ``_to_trace`` if available on the
         gate, otherwise decomposed via ``_decompose_with_context_`` or
@@ -171,53 +164,48 @@ class _Context:
         Args:
             op: The operation to convert.
         """
-        if isinstance(op, tuple):
-            if len(op) == 2:
-                id, qubits = op
-                params = None
-            elif len(op) == 3:
-                id, qubits, params = op
-
+        if isinstance(op, TraceGate):
             qs = [
                 self.q_to_id[q]
-                for q in ([qubits] if isinstance(qubits, cirq.Qid) else qubits)
+                for q in ([op.qubits] if isinstance(op.qubits, cirq.Qid) else op.qubits)
             ]
 
-            if params is None:
-                self.block.add_operation(id, qs)
+            if op.params is None:
+                self.block.add_operation(op.id, qs)
             else:
                 self.block.add_operation(
-                    id, qs, params if isinstance(params, list) else [params]
+                    op.id, qs, op.params if isinstance(op.params, list) else [op.params]
                 )
         elif isinstance(op, PushBlock):
             self.push_block(op.repetitions)
         elif isinstance(op, PopBlock):
             self.pop_block()
-        elif isinstance(op, GateOperation):
-            gate = op.gate
+        elif isinstance(op, cirq.Operation):
+            if isinstance(op, GateOperation):
+                gate = op.gate
 
-            if hasattr(gate, "_to_trace"):
-                for sub_op in gate._to_trace(self.decomp_context, op):  # type: ignore
-                    self.handle_op(sub_op)
-            elif hasattr(gate, "_decompose_with_context_"):
-                for sub_op in gate._decompose_with_context_(op.qubits, self.decomp_context):  # type: ignore
-                    self.handle_op(sub_op)
-            elif hasattr(gate, "_decompose_"):
-                # decompose the gate and handle the resulting operations recursively
-                for sub_op in gate._decompose_(op.qubits):  # type: ignore
-                    self.handle_op(sub_op)
+                if hasattr(gate, "_to_trace"):
+                    for sub_op in gate._to_trace(self.decomp_context, op):  # type: ignore
+                        self.handle_op(sub_op)
+                elif hasattr(gate, "_decompose_with_context_"):
+                    for sub_op in gate._decompose_with_context_(op.qubits, self.decomp_context):  # type: ignore
+                        self.handle_op(sub_op)
+                elif hasattr(gate, "_decompose_"):
+                    # decompose the gate and handle the resulting operations recursively
+                    for sub_op in gate._decompose_(op.qubits):  # type: ignore
+                        self.handle_op(sub_op)
+                else:
+                    for sub_op in op._decompose_with_context_(self.decomp_context):  # type: ignore
+                        self.handle_op(sub_op)
+            elif isinstance(op, ClassicallyControlledOperation):
+                if random.random() < self.classical_control_probability:
+                    self.handle_op(op.without_classical_controls())
             else:
                 for sub_op in op._decompose_with_context_(self.decomp_context):  # type: ignore
                     self.handle_op(sub_op)
-        elif isinstance(op, ClassicallyControlledOperation):
-            if random.random() < self.classical_control_probability:
-                self.handle_op(op.without_classical_controls())
-        elif isinstance(op, Iterable):
-            for sub_op in op:
-                self.handle_op(sub_op)
-
         else:
-            for sub_op in op._decompose_with_context_(self.decomp_context):  # type: ignore
+            # op is Iterable[OP_TREE]
+            for sub_op in op:
                 self.handle_op(sub_op)
 
 
@@ -237,6 +225,13 @@ class PopBlock:
     """Signals the end of the current repeated block in the trace."""
 
     ...
+
+
+@dataclass(frozen=True, slots=True)
+class TraceGate:
+    id: int
+    qubits: list[cirq.Qid] | cirq.Qid
+    params: list[float] | float | None = None
 
 
 class _QidToTraceId(dict):
@@ -261,7 +256,7 @@ class _QidToTraceId(dict):
 
 def h_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
     if _approx_eq(abs(self.exponent), 1):
-        yield (H, [op.qubits[0]])
+        yield TraceGate(H, [op.qubits[0]])
     else:
         yield from op._decompose_with_context_(context)  # type: ignore
 
@@ -270,56 +265,56 @@ def x_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Opera
     q = [op.qubits[0]]
     exp = self.exponent
     if _approx_eq(exp, 1) or _approx_eq(exp, -1):
-        yield (PAULI_X, q)
+        yield TraceGate(PAULI_X, q)
     elif _approx_eq(exp, 0.5):
-        yield (SQRT_X, q)
+        yield TraceGate(SQRT_X, q)
     elif _approx_eq(exp, -0.5):
-        yield (SQRT_X_DAG, q)
+        yield TraceGate(SQRT_X_DAG, q)
     elif _approx_eq(exp, 0.25):
-        yield (SQRT_SQRT_X, q)
+        yield TraceGate(SQRT_SQRT_X, q)
     elif _approx_eq(exp, -0.25):
-        yield (SQRT_SQRT_X_DAG, q)
+        yield TraceGate(SQRT_SQRT_X_DAG, q)
     else:
-        yield (RX, q, exp * pi)
+        yield TraceGate(RX, q, exp * pi)
 
 
 def y_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
     q = [op.qubits[0]]
     exp = self.exponent
     if _approx_eq(exp, 1) or _approx_eq(exp, -1):
-        yield (PAULI_Y, q)
+        yield TraceGate(PAULI_Y, q)
     elif _approx_eq(exp, 0.5):
-        yield (SQRT_Y, q)
+        yield TraceGate(SQRT_Y, q)
     elif _approx_eq(exp, -0.5):
-        yield (SQRT_Y_DAG, q)
+        yield TraceGate(SQRT_Y_DAG, q)
     elif _approx_eq(exp, 0.25):
-        yield (SQRT_SQRT_Y, q)
+        yield TraceGate(SQRT_SQRT_Y, q)
     elif _approx_eq(exp, -0.25):
-        yield (SQRT_SQRT_Y_DAG, q)
+        yield TraceGate(SQRT_SQRT_Y_DAG, q)
     else:
-        yield (RY, q, exp * pi)
+        yield TraceGate(RY, q, exp * pi)
 
 
 def z_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
     q = [op.qubits[0]]
     exp = self.exponent
     if _approx_eq(exp, 1) or _approx_eq(exp, -1):
-        yield (PAULI_Z, q)
+        yield TraceGate(PAULI_Z, q)
     elif _approx_eq(exp, 0.5):
-        yield (S, q)
+        yield TraceGate(S, q)
     elif _approx_eq(exp, -0.5):
-        yield (S_DAG, q)
+        yield TraceGate(S_DAG, q)
     elif _approx_eq(exp, 0.25):
-        yield (T, q)
+        yield TraceGate(T, q)
     elif _approx_eq(exp, -0.25):
-        yield (T_DAG, q)
+        yield TraceGate(T_DAG, q)
     else:
-        yield (RZ, q, exp * pi)
+        yield TraceGate(RZ, q, exp * pi)
 
 
 def cx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
     if _approx_eq(abs(self.exponent), 1):
-        yield (CX, [op.qubits[0], op.qubits[1]])
+        yield TraceGate(CX, [op.qubits[0], op.qubits[1]])
     else:
         yield from op._decompose_with_context_(context)  # type: ignore
 
@@ -328,49 +323,49 @@ def cz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Oper
     exp = self.exponent
     c, t = op.qubits[0], op.qubits[1]
     if _approx_eq(abs(exp), 1):
-        yield (CZ, [c, t])
+        yield TraceGate(CZ, [c, t])
     elif _approx_eq(exp, 0.5):
         # controlled S gate
-        yield (T, [c])
-        yield (T, [t])
-        yield (CZ, [c, t])
-        yield (T_DAG, [t])
-        yield (CZ, [c, t])
+        yield TraceGate(T, [c])
+        yield TraceGate(T, [t])
+        yield TraceGate(CZ, [c, t])
+        yield TraceGate(T_DAG, [t])
+        yield TraceGate(CZ, [c, t])
     elif _approx_eq(exp, -0.5):
         # controlled S† gate
-        yield (T_DAG, [c])
-        yield (T_DAG, [t])
-        yield (CZ, [c, t])
-        yield (T, [t])
-        yield (CZ, [c, t])
+        yield TraceGate(T_DAG, [c])
+        yield TraceGate(T_DAG, [t])
+        yield TraceGate(CZ, [c, t])
+        yield TraceGate(T, [t])
+        yield TraceGate(CZ, [c, t])
     else:
         rads = exp / 2 * pi
-        yield (RZ, [c], [rads])
-        yield (RZ, [t], [rads])
-        yield (CZ, [c, t])
-        yield (RZ, [t], [-rads])
-        yield (CZ, [c, t])
+        yield TraceGate(RZ, [c], [rads])
+        yield TraceGate(RZ, [t], [rads])
+        yield TraceGate(CZ, [c, t])
+        yield TraceGate(RZ, [t], [-rads])
+        yield TraceGate(CZ, [c, t])
 
 
 def swap_pow_gate_to_trace(
     self, context: cirq.DecompositionContext, op: cirq.Operation
 ):
     if _approx_eq(abs(self.exponent), 1):
-        yield (SWAP, [op.qubits[0], op.qubits[1]])
+        yield TraceGate(SWAP, [op.qubits[0], op.qubits[1]])
     else:
         yield from op._decompose_with_context_(context)  # type: ignore
 
 
 def ccx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
     if _approx_eq(abs(self.exponent), 1):
-        yield (CCX, [op.qubits[0], op.qubits[1], op.qubits[2]])
+        yield TraceGate(CCX, [op.qubits[0], op.qubits[1], op.qubits[2]])
     else:
         yield from op._decompose_with_context_(context)  # type: ignore
 
 
 def ccz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
     if _approx_eq(abs(self.exponent), 1):
-        yield (CCZ, [op.qubits[0], op.qubits[1], op.qubits[2]])
+        yield TraceGate(CCZ, [op.qubits[0], op.qubits[1], op.qubits[2]])
     else:
         yield from op._decompose_with_context_(context)  # type: ignore
 
@@ -379,7 +374,7 @@ def measurement_gate_to_trace(
     self, context: cirq.DecompositionContext, op: cirq.Operation
 ):
     for q in op.qubits:
-        yield (MEAS_Z, [q])
+        yield TraceGate(MEAS_Z, [q])
 
 
 def reset_channel_to_trace(
