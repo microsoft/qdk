@@ -12,7 +12,7 @@ env:
   CARGO_TERM_COLOR: always
   NODE_VERSION: "22.14.0"
   PYTHON_VERSION: "3.11"
-  RUST_TOOLCHAIN_VERSION: "1.90"
+  RUST_TOOLCHAIN_VERSION: "1.93"
   RUST_TOOLCHAIN_COMPONENTS: rustfmt clippy
 
 jobs:
@@ -55,21 +55,14 @@ jobs:
       - name: File issue on failure
         if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
         id: create-issue
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WORKFLOW_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          python - <<'PY'
-          import os, pathlib
-          body_text = """
-          ## Info
-          See the corresponding [**workflow run**](${{ env.WORKFLOW_RUN_URL }}) for failure details, update the issue with any relevant information, and assign to the appropriate team member(s).
-          """
-          pathlib.Path("/tmp/ci_issue.md").write_text(body_text)
-          PY
           url="$(gh issue create \
             --title "CI failure: ${{ matrix.platform }} (${{ github.run_id }})" \
-            --body-file /tmp/ci_issue.md \
+            --body "See the corresponding [**workflow run**](${{ env.WORKFLOW_RUN_URL }}) for failure details, update the issue with any relevant information, and assign to the appropriate team member(s)." \
             --label ci_failure \
             --assignee swernli,idavis,minestarks,billti)"
           number="$(gh issue view "$url" --json number --jq .number)"

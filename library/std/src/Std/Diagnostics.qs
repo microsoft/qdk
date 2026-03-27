@@ -455,6 +455,30 @@ function NoNoise() : (Double, Double, Double) {
     (0.0, 0.0, 0.0)
 }
 
+/// # Summary
+/// Post-selects on the given qubit being in the given state in the computational basis.
+///
+/// # Description
+/// During simulation, this operation forces the collapse of the qubit into the state as long
+/// as that state has a non-zero probability of being measured, and will trigger a runtime
+/// failure if the state has zero probability of being measured.
+/// During resource estimation, this operation forces the next measurement of the qubit to
+/// return the given result, regardless of any state, allowing for estimation of specific
+/// branches of an adaptive algorithm.
+///
+/// # Input
+/// ## res
+/// The result corresponding to the state to post-select on.
+/// ## qubit
+/// The qubit to post-select on.
+///
+/// # Remarks
+/// This operation is useful for testing, simulation, and estimation purposes, but has
+/// no physical meaning and is not implementable on hardware.
+operation PostSelectZ(res : Result, qubit : Qubit) : Unit {
+    body intrinsic;
+}
+
 export
     DumpMachine,
     DumpRegister,
@@ -475,4 +499,5 @@ export
     BitFlipNoise,
     PhaseFlipNoise,
     DepolarizingNoise,
-    NoNoise;
+    NoNoise,
+    PostSelectZ;

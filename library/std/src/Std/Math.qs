@@ -815,7 +815,7 @@ function TrailingZeroCountL(a : BigInt) : Int {
 function HammingWeightI(n : Int) : Int {
     let i1 = n - ((n >>> 1) &&& 0x5555555555555555);
     let i2 = (i1 &&& 0x3333333333333333) + ((i1 >>> 2) &&& 0x3333333333333333);
-    // Multiplication may overflow. See https://github.com/microsoft/qsharp/issues/828
+    // Multiplication may overflow. See https://github.com/microsoft/qdk/issues/828
     (((i2 + (i2 >>> 4)) &&& 0xF0F0F0F0F0F0F0F) * 0x101010101010101) >>> 56
 }
 

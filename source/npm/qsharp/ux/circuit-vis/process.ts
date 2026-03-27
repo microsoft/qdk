@@ -10,12 +10,7 @@ import {
   groupTopPadding,
   groupBottomPadding,
 } from "./constants.js";
-import {
-  ComponentGrid,
-  Operation,
-  ConditionalRender,
-  SourceLocation,
-} from "./circuit.js";
+import { ComponentGrid, Operation, SourceLocation } from "./circuit.js";
 import { GateRenderData, GateType } from "./gateRenderData.js";
 import { Register, RegisterMap } from "./register.js";
 import { getMinGateWidth } from "./utils.js";
@@ -45,18 +40,20 @@ const processOperations = (
   maxTopPadding: number;
   maxBottomPadding: number;
 } => {
-  if (componentGrid.length === 0)
+  if (componentGrid.length === 0) {
     return {
       renderDataArray: [],
       svgWidth: startX + gatePadding * 2,
       maxTopPadding: 0,
       maxBottomPadding: 0,
     };
-  const numColumns: number = componentGrid.length;
-  const columnsWidths: number[] = new Array(numColumns).fill(minGateWidth);
+  }
 
   let maxTopPadding = 0;
   let maxBottomPadding = 0;
+
+  // Track the width of each column as we process it.
+  const columnsWidths: number[] = componentGrid.map(() => minGateWidth);
 
   // Get classical registers and their starting column index
   const classicalRegs: [number, Register][] =
@@ -97,14 +94,21 @@ const processOperations = (
           );
         }
 
+        const isCollapsedGroup =
+          renderData.type === GateType.Group && !renderData.isExpanded;
+
         if (
           op != null &&
-          [GateType.Unitary, GateType.Ket, GateType.ControlledUnitary].includes(
-            renderData.type,
-          )
+          ([
+            GateType.Unitary,
+            GateType.Ket,
+            GateType.ControlledUnitary,
+          ].includes(renderData.type) ||
+            isCollapsedGroup)
         ) {
-          // If gate is a unitary type, split targetsY into groups if there
-          // is a classical register between them for rendering
+          // Split multi-wire gate bodies into segments if there is a classical
+          // register wire between them. This prevents classical wires from
+          // visually intersecting/entering gate bodies.
 
           // Get y coordinates of classical registers in the same column as this operation
           const classicalRegY: number[] = classicalRegs
@@ -120,9 +124,16 @@ const processOperations = (
               return children[reg.result].y;
             });
 
+          const allowedThroughY = (renderData.classicalControlRegs ?? []).map(
+            (reg) => _getRegY(reg, registers),
+          );
+          const splitAroundY = classicalRegY.filter(
+            (y) => !allowedThroughY.includes(y),
+          );
+
           renderData.targetsY = _splitTargetsY(
             targets,
-            classicalRegY,
+            splitAroundY,
             registers,
           );
         }
@@ -136,13 +147,23 @@ const processOperations = (
       }),
   );
 
-  // Filter out invalid gates
-  const filteredArray: GateRenderData[][] = renderDataArray
-    .map((col) => col.filter(({ type }) => type != GateType.Invalid))
-    .filter((col) => col.length > 0);
+  // Filter out invalid gates and remove empty columns.
+  // Keep column widths in sync with the filtered columns.
+  const filteredColumns = renderDataArray
+    .map((col, colIndex) => ({
+      colIndex,
+      gates: col.filter(({ type }) => type != GateType.Invalid),
+    }))
+    .filter(({ gates }) => gates.length > 0);
+  const filteredArray: GateRenderData[][] = filteredColumns.map(
+    ({ gates }) => gates,
+  );
+  const filteredColumnWidths: number[] = filteredColumns.map(
+    ({ colIndex }) => columnsWidths[colIndex],
+  );
 
   // Fill in x coord of each gate
-  const endX: number = _fillRenderDataX(filteredArray, columnsWidths);
+  const endX: number = _fillRenderDataX(filteredArray, filteredColumnWidths);
 
   return {
     renderDataArray: filteredArray,
@@ -183,6 +204,29 @@ const _getClassicalRegStarts = (
 };
 
 /**
+ * Recursively collects classical control registers from source circuit children.
+ * Used inside _opToRenderData for collapsed groups whose children have not been rendered.
+ */
+function _collectClassicalControlsFromSourceChildren(
+  children: ComponentGrid,
+): Register[] {
+  const regs: Register[] = [];
+  for (const col of children) {
+    for (const op of col.components) {
+      if (op.kind === "unitary") {
+        for (const reg of op.controls ?? []) {
+          if (reg.result != null) regs.push(reg);
+        }
+      }
+      if (op.children != null) {
+        regs.push(..._collectClassicalControlsFromSourceChildren(op.children));
+      }
+    }
+  }
+  return regs;
+}
+
+/**
  * Maps operation to render data (e.g. gate type, position, dimensions, text)
  * required to render the image.
  *
@@ -198,6 +242,7 @@ const _opToRenderData = (
 ): GateRenderData => {
   const renderData: GateRenderData = {
     type: GateType.Invalid,
+    isExpanded: false,
     x: 0,
     controlsY: [],
     targetsY: [],
@@ -230,30 +275,33 @@ const _opToRenderData = (
       break;
   }
 
-  const {
-    gate,
-    args,
-    children,
-    dataAttributes,
-    isConditional,
-    conditionalRender,
-  } = op;
+  const { gate, args, children, dataAttributes } = op;
+
+  // Classically-controlled operations are encoded as operations whose `controls` are
+  // classical registers (i.e. `Register.result` is set), with IDs provided via
+  // `metadata.controlResultIds`.
+  const hasClassicalControls =
+    op.kind === "unitary" &&
+    ((controls?.some((reg) => reg.result != null) ?? false) ||
+      (op.metadata?.controlResultIds?.length ?? 0) > 0);
+
+  const hasChildren = children != null && children.length > 0;
+  const expandedAttr = dataAttributes?.["expanded"];
+  const defaultExpanded = hasClassicalControls && hasChildren;
+  const isExpanded =
+    expandedAttr === undefined ? defaultExpanded : expandedAttr === "true";
+  renderData.isExpanded = isExpanded;
 
   // Set y coords
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
   renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
 
-  if (isConditional) {
-    // Classically-controlled operations
-    if (children == null || children.length == 0)
-      throw new Error(
-        "No children operations found for classically-controlled operation.",
-      );
+  if (hasClassicalControls) {
+    // Classically-controlled operations.
+    // These are treated as composite/group operations when they have children.
+    // Expanded vs. collapsed rendering is controlled via the `expanded` state.
 
-    renderData.type = GateType.ClassicalControlled;
     renderData.label = gate;
-
-    _processChildren(renderData, children, registers, renderLocations);
 
     // Fill in the ID to be displayed in each control wire's circle.
     renderData.classicalControlIds =
@@ -266,22 +314,30 @@ const _opToRenderData = (
         )
         .map((id) => id ?? null) || [];
 
-    // Add additional width for classical control circle
-    renderData.width += controlCircleOffset;
-  } else if (
-    conditionalRender == ConditionalRender.AsGroup &&
-    children &&
-    (children.length || 0) > 0
-  ) {
-    // Grouped operations
+    if (hasChildren) {
+      renderData.type = GateType.Group;
+      if (isExpanded) {
+        _processChildren(renderData, children!, registers, renderLocations);
+
+        // Add additional width for classical control circle.
+        // (The group width comes from children layout; it doesn't account for controls.)
+        renderData.width += controlCircleOffset;
+      }
+    } else {
+      // Defensive fallback: a conditional without children is rendered as a unitary.
+      renderData.type = GateType.Unitary;
+    }
+  } else if (hasChildren) {
+    // Composite/grouped operations.
+    // Always represented as `GateType.Group` so the UI can determine expandability
+    // solely from gate type.
 
     renderData.type = GateType.Group;
-    // _zoomButton function in gateFormatter.ts relies on
-    // 'expanded' attribute to render zoom button
-    renderData.dataAttributes = { expanded: "true" };
     renderData.label = gate;
 
-    _processChildren(renderData, children, registers, renderLocations);
+    if (isExpanded) {
+      _processChildren(renderData, children!, registers, renderLocations);
+    }
   } else if (op.kind === "measurement") {
     renderData.type = GateType.Measure;
   } else if (op.kind === "ket") {
@@ -301,6 +357,32 @@ const _opToRenderData = (
     renderData.label = gate;
   }
 
+  // Collect classical control registers for this op and all descendants.
+  // For expanded groups, aggregate from already-rendered children to avoid re-walking source data.
+  // For collapsed groups with children, walk source data directly.
+  {
+    const ownControls =
+      op.kind === "unitary"
+        ? (controls ?? []).filter((r) => r.result != null)
+        : [];
+    const descendantControls: Register[] =
+      renderData.children != null
+        ? renderData.children
+            .flat()
+            .flatMap((c) => c.classicalControlRegs ?? [])
+        : hasChildren
+          ? _collectClassicalControlsFromSourceChildren(children!)
+          : [];
+    const seen = new Set<string>();
+    renderData.classicalControlRegs = [
+      ...ownControls,
+      ...descendantControls,
+    ].filter((r) => {
+      const key = `${r.qubit}:${r.result}`;
+      return seen.has(key) ? false : (seen.add(key), true);
+    });
+  }
+
   // If adjoint, add ' to the end of gate label
   if (isAdjoint && renderData.label.length > 0) renderData.label += "'";
 
@@ -308,9 +390,19 @@ const _opToRenderData = (
   // For now, we only display the first argument
   if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
 
-  // Minimum width is calculated based on the label and args
+  // Minimum width is calculated based on the label and args.
+  // If this is a collapsed composite (GateType.Group with no children render data),
+  // its width should be based on the summary gate rather than the full expanded layout.
   const minWidth = getMinGateWidth(renderData);
-  renderData.width = Math.max(minWidth, renderData.width);
+
+  const isCollapsedComposite =
+    renderData.type === GateType.Group && !isExpanded;
+
+  if (isCollapsedComposite) {
+    renderData.width = minWidth;
+  } else {
+    renderData.width = Math.max(minWidth, renderData.width);
+  }
 
   if (op.metadata?.source && renderLocations) {
     renderData.link = renderLocations([op.metadata.source]);
@@ -322,6 +414,14 @@ const _opToRenderData = (
       ...renderData.dataAttributes,
       ...dataAttributes,
     };
+
+  // By default, classically controlled groups are expanded unless explicitly overridden.
+  if (defaultExpanded && expandedAttr === undefined) {
+    renderData.dataAttributes = {
+      ...renderData.dataAttributes,
+      expanded: "true",
+    };
+  }
 
   return renderData;
 };
@@ -440,27 +540,32 @@ const _fillRenderDataX = (
   renderDataArray.forEach((col, colIndex) =>
     col.forEach((renderData) => {
       const x = colStartX[colIndex];
+      const columnWidth = columnWidths[colIndex];
+      const columnCenterX = x + columnWidth / 2;
       switch (renderData.type) {
-        case GateType.ClassicalControlled:
         case GateType.Group:
           {
+            // Center the group within the column, and offset nested child gates
+            // relative to the group's left edge (plus internal padding).
+            const groupLeftX = columnCenterX - renderData.width / 2;
+
             // Subtract startX offset from nested gates and add offset and padding
-            let offset: number = x - startX + groupPaddingX;
-            if (renderData.type === GateType.ClassicalControlled) {
+            let offset: number = groupLeftX - startX + groupPaddingX;
+            if (renderData.classicalControlIds != null) {
               offset += controlCircleOffset;
             }
 
             // Offset each x coord in children gates
             _offsetChildrenX(renderData.children, offset);
 
-            // Groups should be left-aligned in their column
-            renderData.x = x + renderData.width / 2;
+            // Center gate in column
+            renderData.x = columnCenterX;
           }
           break;
 
         default:
           // Center gate in column
-          renderData.x = x + columnWidths[colIndex] / 2;
+          renderData.x = columnCenterX;
           break;
       }
     }),

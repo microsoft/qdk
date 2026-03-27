@@ -1,5 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
+#![allow(unused_assignments)]
+// clippy false positive bug: https://github.com/rust-lang/rust/issues/147648. Remove when fixed.
 
 mod imports;
 #[cfg(test)]
@@ -255,7 +257,7 @@ pub struct Scope {
     ///
     /// Bug: Because we keep track of only one `valid_at` offset per name,
     /// when a variable is later shadowed in the same scope,
-    /// it is missed in the list. <a href=https://github.com/microsoft/qsharp/issues/897 />
+    /// it is missed in the list. <a href=https://github.com/microsoft/qdk/issues/897 />
     vars: FxHashMap<Rc<str>, (u32, NodeId)>,
     /// Type parameters.
     ty_vars: FxHashMap<Rc<str>, (ParamId, ClassConstraints)>,
@@ -2066,7 +2068,7 @@ fn get_scope_locals(scope: &Scope, offset: u32, vars: bool) -> Vec<Local> {
         names.extend(scope.vars.iter().filter_map(|(name, (valid_at, id))| {
             // Bug: Because we keep track of only one `valid_at` offset per name,
             // when a variable is later shadowed in the same scope,
-            // it is missed in the list. https://github.com/microsoft/qsharp/issues/897
+            // it is missed in the list. https://github.com/microsoft/qdk/issues/897
             if offset >= *valid_at {
                 Some(Local::Var(*id, name.clone()))
             } else {

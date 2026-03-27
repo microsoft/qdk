@@ -39,7 +39,11 @@ operation Main() : Bool {
 
     // Make sure that the obtained message is |𝜓⟩≈0.9394|0⟩−0.3429𝑖|1⟩
     Rx(-0.7, qBob);
-    let correct = Std.Diagnostics.CheckZero(qBob);
+    // This state dump should show that the state of `qBob` is |0⟩ state, which means that the teleportation was successful.
+    Std.Diagnostics.DumpMachine();
+    // We can further verify the teleport by measuring `qBob`, which should give us |0⟩ state with certainty.
+    // Note that verifying via measurement might require multiple runs or "shots" to investigate the distribution of outcomes.
+    let correct = M(qBob) == Zero;
     Message($"Teleportation successful: {correct}.");
 
     // Reset all qubits to |0⟩ state.

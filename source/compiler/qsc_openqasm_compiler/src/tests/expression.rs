@@ -24,4 +24,5 @@ mod implicit_cast_from_complex;
 mod implicit_cast_from_float;
 mod implicit_cast_from_int;
 mod indexed;
+mod roundtrip_cast;
 mod unary;

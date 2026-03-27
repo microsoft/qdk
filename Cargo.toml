@@ -36,21 +36,21 @@ resolver = "2"
 
 [workspace.package]
 authors = ["Microsoft"]
-homepage = "https://github.com/microsoft/qsharp"
-repository = "https://github.com/microsoft/qsharp"
+homepage = "https://github.com/microsoft/qdk"
+repository = "https://github.com/microsoft/qdk"
 edition = "2024"
 license = "MIT"
 version = "0.0.0"
 
 [workspace.dependencies]
-bitflags = "2.4"
-memchr = "2"
+bitflags = "2.11"
+memchr = "2.8"
 clap = "4.4"
-criterion = { version = "0.7", default-features = false }
+criterion = { version = "0.8", default-features = false }
 difference = "2.0"
-enum-iterator = "2.1"
+enum-iterator = "2.3"
 env_logger = "0.11"
-expect-test = "1.4"
+expect-test = "1.5"
 futures = "0.3"
 futures-util = "0.3"
 fasteval = "0.2"
@@ -60,17 +60,17 @@ indoc = "2.0"
 js-sys = "0.3"
 libfuzzer-sys = "0.4"
 log = "0.4"
-miette = { version = "7.2" }
-thiserror = "1.0"
-nalgebra = { version = "0.33" }
-ndarray = "0.15.4"
+miette = { version = "7.6" }
+thiserror = "2.0"
+nalgebra = { version = "0.34" }
+ndarray = "0.17"
 num-bigint = "0.4"
 num-complex = "0.4"
 num-derive = "0.4"
 num-traits = "0.2"
-pprof = { version = "0.14", features = ["criterion", "flamegraph"] }
+pprof = { version = "0.15", features = ["criterion", "flamegraph"] }
 probability = "0.20"
-proptest = "1.0"
+proptest = "1.10"
 indenter = "0.3"
 regex-lite = "0.1"
 rustc-hash = "1"
@@ -78,16 +78,16 @@ serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 sorted-vec = "0.8"
 sorted-iter = "0.1"
-wasm-bindgen = "0.2.100"
+wasm-bindgen = "0.2.114"
 wasm-bindgen-futures = "0.4"
 rand = "0.8"
 serde_json = "1.0"
-pyo3 = "0.27.2"
-quantum-sparse-sim = { git = "https://github.com/qir-alliance/qir-runner", rev = "8cd6fa698521ecf96d459f88254e53dd6e5d6877" }
+pyo3 = "0.28"
+quantum-sparse-sim = { git = "https://github.com/qir-alliance/qir-runner", rev = "818e686c04dfb061f9c566b1fa5c75abdc901fa3" }
 async-trait = "0.1"
-tokio = { version = "1.44", features = ["macros", "rt"] }
+tokio = { version = "1.50", features = ["macros", "rt"] }
 rayon = "1.11.0"
-bytemuck = "1.23.2"
+bytemuck = "1.25"
 wgpu = { version = "27.0.1" }
 
 [workspace.lints.clippy]

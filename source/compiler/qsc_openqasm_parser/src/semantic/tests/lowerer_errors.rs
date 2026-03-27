@@ -709,8 +709,8 @@ fn check_lowerer_error_spans_are_correct() {
                  : ^^^^^^^^^^^^^^^^^^^^^
              264 | 
                  `----
-              help: a function call must use parentheses, with any parameters inside
-                    those parentheses.
+              help: a function call must use parentheses, with any parameters inside those
+                    parentheses.
 
             Qasm.Lowerer.ExternDeclarationCannotReturnStretch
 

@@ -22,7 +22,7 @@ mod test_utils;
 mod tests;
 
 use compilation::Compilation;
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use futures::channel::mpsc::{TryRecvError, UnboundedReceiver, UnboundedSender, unbounded};
 use futures_util::StreamExt;
 use log::{trace, warn};
 use protocol::{
@@ -366,10 +366,11 @@ impl UpdateWorker<'_> {
 
     async fn apply_this_and_pending(&mut self, mut updates: Vec<Update>) {
         // Consume any backed up messages in the channel as well.
-        while let Ok(update) = self.recv.try_next() {
-            match update {
-                Some(update) => push_update(&mut updates, update),
-                None => return, // channel has been closed, don't bother with updates.
+        loop {
+            match self.recv.try_recv() {
+                Ok(update) => push_update(&mut updates, update),
+                Err(TryRecvError::Closed) => return, // channel has been closed, don't bother with updates.
+                Err(TryRecvError::Empty) => break,
             }
         }
 

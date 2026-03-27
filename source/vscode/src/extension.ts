@@ -14,7 +14,7 @@ import { CircuitEditorProvider } from "./circuitEditor.js";
 import { initProjectCreator } from "./createProject.js";
 import { activateDebugger } from "./debugger/activate.js";
 import { startOtherQSharpDiagnostics } from "./diagnostics.js";
-import { registerGhCopilotInstructionsCommand } from "./gh-copilot/instructions.js";
+import { removeDeprecatedCopilotInstructions } from "./gh-copilot/instructions.js";
 import { registerLanguageModelTools } from "./gh-copilot/tools.js";
 import { activateLanguageService } from "./language-service/activate.js";
 import {
@@ -88,7 +88,7 @@ export async function activate(
   await initProjectCreator(context);
   registerLanguageModelTools(context);
   // fire-and-forget
-  registerGhCopilotInstructionsCommand(context);
+  removeDeprecatedCopilotInstructions(context);
 
   // Show prompt after update if not suppressed
   maybeShowChangelogPrompt(context);

@@ -14,8 +14,14 @@ import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import prettier from "prettier";
+import { log } from "../dist/log.js";
 import { getCompiler } from "../dist/main.js";
 import { draw } from "../dist/ux/circuit-vis/index.js";
+
+/** @type {import("../dist/log.js").TelemetryEvent[]} */
+const telemetryEvents = [];
+log.setLogLevel("warn");
+log.setTelemetryCollector((event) => telemetryEvents.push(event));
 
 const documentTemplate = `<!doctype html><html>
   <head>
@@ -219,6 +225,22 @@ test("circuit snapshot tests - .qs files", async (t) => {
       await generateAndDrawCircuit(
         relName,
         circuitSource,
+        "circuit-static-collapsed",
+        "static",
+        0,
+      );
+
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
+        "circuit-static-expanded",
+        "static",
+        999999,
+      );
+
+      await generateAndDrawCircuit(
+        relName,
+        circuitSource,
         "circuit-eval-collapsed",
         "classicalEval",
         0,
@@ -241,7 +263,7 @@ test("circuit snapshot tests - .qs files", async (t) => {
  * @param {string} name
  * @param {string} circuitSource
  * @param {string} id
- * @param { "classicalEval" | "simulate"} generationMethod
+ * @param {"static" | "classicalEval" | "simulate"} generationMethod
  * @param {number} renderDepth
  */
 async function generateAndDrawCircuit(
