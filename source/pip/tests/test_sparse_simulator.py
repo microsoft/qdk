@@ -64,12 +64,11 @@ def test_sparse_bitflip_noise():
     noise.rzz.set_pauli_noise("XX", p_noise)
     noise.mresetz.set_bitflip(p_noise)
 
-    qsharp.set_quantum_seed(17)
-
     output = run(
         "IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 10.0, 10)",
         shots=1,
         noise=noise,
+        seed=17,
     )
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
@@ -87,12 +86,11 @@ def test_sparse_mixed_noise():
     noise.rzz.set_depolarizing(0.008)
     noise.rzz.loss = 0.005
 
-    qsharp.set_quantum_seed(23)
-
     output = run(
         "IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 4.0, 4)",
         shots=1,
         noise=noise,
+        seed=23,
     )
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
@@ -324,7 +322,7 @@ def generate_op_sequence(
 def test_sparse_permuted_rotations(noisy_gate: int, noise_number: int):
     qsharp.init(target_profile=TargetProfile.Base)
 
-    n_shots = 200
+    n_shots = 400
     n_qubits = 11
     seed = 20
     p_loss = 0.1
@@ -334,9 +332,7 @@ def test_sparse_permuted_rotations(noisy_gate: int, noise_number: int):
     random.seed(seed)
     i1, i2 = random.sample(range(n_qubits), 2)
     prefix = f"""
-operation tiny_coeffs(shots : Int) : Result[][] {{
-    mutable results = [];
-    for _ in 1..shots {{
+operation tiny_coeffs() : Result[] {{
     use q = Qubit[{n_qubits}];
     let i1 = {i1};
     let i2 = {i2};
@@ -376,15 +372,12 @@ operation tiny_coeffs(shots : Int) : Result[][] {{
     let m1 = M(q[i1]);
     let m2 = M(q[i2]);
     ResetAll(q);
-    results += [[m1, m2]];
-    }
-    results
+    [m1, m2]
 }
 """
 
     program = prefix + infix + suffix
     qsharp.eval(program)
-    qsharp.set_quantum_seed(seed)
 
     noise = NoiseConfig()
     p_combined_loss = 1.0 - ((1.0 - p_loss) ** noise_number)
@@ -400,7 +393,7 @@ operation tiny_coeffs(shots : Int) : Result[][] {{
         case _:
             raise ValueError("Invalid noisy_gate value")
 
-    output = run(f"tiny_coeffs({n_shots})", shots=1, noise=noise)[0]
+    output = run(f"tiny_coeffs()", shots=n_shots, noise=noise, seed=seed)
     result_strings = [
         result_array_to_string(cast(Sequence[Result], shot)) for shot in output
     ]
