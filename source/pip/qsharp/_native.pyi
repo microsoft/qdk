@@ -174,6 +174,7 @@ class Interpreter:
         self,
         entry_expr: Optional[str],
         output_fn: Optional[Callable[[Output], None]],
+        noise_config: Optional[NoiseConfig],
         noise: Optional[Tuple[float, float, float]],
         qubit_loss: Optional[float],
         callable: Optional[GlobalCallable | Closure],
@@ -185,6 +186,7 @@ class Interpreter:
 
         :param entry_expr: The entry expression.
         :param output_fn: A callback function that will be called with each output.
+        :param noise_config: The noise configuration to use in simulation.
         :param noise: A tuple with probabilities of Pauli-X, Pauli-Y, and Pauli-Z errors
             to use in simulation as a parametric Pauli noise.
         :param qubit_loss: The probability of qubit loss in simulation.
@@ -644,6 +646,7 @@ def resource_estimate_qasm_program(
 def run_qasm_program(
     source: str,
     output_fn: Callable[[Output], None],
+    noise_config: Optional[NoiseConfig],
     noise: Optional[Tuple[float, float, float]],
     qubit_loss: Optional[float],
     read_file: Callable[[str], Tuple[str, str]],
