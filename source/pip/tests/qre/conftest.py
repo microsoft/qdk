@@ -11,7 +11,7 @@ from qsharp.qre import (
     ISATransform,
     constraint,
 )
-from qsharp.qre._architecture import _Context
+from qsharp.qre._architecture import ISAContext
 from qsharp.qre.instruction_ids import LATTICE_SURGERY, T
 
 
@@ -30,7 +30,9 @@ class ExampleFactory(ISATransform):
             constraint(T),
         )
 
-    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
+    def provided_isa(
+        self, impl_isa: ISA, ctx: ISAContext
+    ) -> Generator[ISA, None, None]:
         yield ctx.make_isa(
             ctx.add_instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-8),
         )
@@ -48,7 +50,9 @@ class ExampleLogicalFactory(ISATransform):
             constraint(T, encoding=LOGICAL),
         )
 
-    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
+    def provided_isa(
+        self, impl_isa: ISA, ctx: ISAContext
+    ) -> Generator[ISA, None, None]:
         yield ctx.make_isa(
             ctx.add_instruction(T, encoding=LOGICAL, time=1000, error_rate=1e-10),
         )

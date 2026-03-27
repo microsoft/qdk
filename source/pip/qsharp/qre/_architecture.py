@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 class Architecture(ABC):
     @abstractmethod
-    def provided_isa(self, ctx: _Context) -> ISA:
+    def provided_isa(self, ctx: ISAContext) -> ISA:
         """
         Creates the ISA provided by this architecture, adding instructions
         directly to the context's provenance graph.
@@ -39,12 +39,12 @@ class Architecture(ABC):
         """
         ...
 
-    def context(self) -> _Context:
+    def context(self) -> ISAContext:
         """Create a new enumeration context for this architecture."""
-        return _Context(self)
+        return ISAContext(self)
 
 
-class _Context:
+class ISAContext:
     """
     Context passed through enumeration, holding shared state.
     """
@@ -58,7 +58,7 @@ class _Context:
         self._bindings: dict[str, ISA] = {}
         self._transforms: dict[int, Architecture | ISATransform] = {0: arch}
 
-    def _with_binding(self, name: str, isa: ISA) -> _Context:
+    def _with_binding(self, name: str, isa: ISA) -> ISAContext:
         """Return a new context with an additional binding (internal use)."""
         ctx = copy.copy(self)
         ctx._bindings = {**self._bindings, name: isa}

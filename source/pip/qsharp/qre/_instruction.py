@@ -10,7 +10,7 @@ from enum import IntEnum
 
 import pandas as pd
 
-from ._architecture import _Context, Architecture
+from ._architecture import ISAContext, Architecture
 from ._enumeration import _enumerate_instances
 from ._isa_enumeration import (
     ISA_ROOT,
@@ -97,7 +97,9 @@ class ISATransform(ABC):
         ...
 
     @abstractmethod
-    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
+    def provided_isa(
+        self, impl_isa: ISA, ctx: ISAContext
+    ) -> Generator[ISA, None, None]:
         """
         Yields ISAs provided by this transform given an implementation ISA.
 
@@ -113,7 +115,7 @@ class ISATransform(ABC):
     def enumerate_isas(
         cls,
         impl_isa: ISA | Iterable[ISA],
-        ctx: _Context,
+        ctx: ISAContext,
         **kwargs,
     ) -> Generator[ISA, None, None]:
         """
@@ -178,7 +180,7 @@ class InstructionSource:
     roots: list[int] = field(default_factory=list, init=False)
 
     @classmethod
-    def from_isa(cls, ctx: _Context, isa: ISA) -> InstructionSource:
+    def from_isa(cls, ctx: ISAContext, isa: ISA) -> InstructionSource:
         """
         Constructs an InstructionSource graph from an ISA.
 

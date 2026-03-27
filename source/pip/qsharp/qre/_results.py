@@ -8,7 +8,7 @@ from typing import Optional, Callable, Any, Iterable
 
 import pandas as pd
 
-from ._architecture import _Context
+from ._architecture import ISAContext
 from ._qre import (
     FactoryResult,
     instruction_name,
@@ -199,7 +199,7 @@ class EstimationTableEntry:
 
     @classmethod
     def from_result(
-        cls, result: EstimationResult, ctx: _Context
+        cls, result: EstimationResult, ctx: ISAContext
     ) -> EstimationTableEntry:
         return cls(
             qubits=result.qubits,

@@ -4,7 +4,7 @@
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Optional
 
-from ..._architecture import Architecture, _Context
+from ..._architecture import Architecture, ISAContext
 from ..._instruction import ISA, Encoding
 from ...instruction_ids import (
     CNOT,
@@ -71,7 +71,7 @@ class GateBased(Architecture):
         if self.two_qubit_gate_time is None:
             self.two_qubit_gate_time = self.gate_time
 
-    def provided_isa(self, ctx: _Context) -> ISA:
+    def provided_isa(self, ctx: ISAContext) -> ISA:
         # Value is initialized in __post_init__
         assert self.two_qubit_gate_time is not None
 

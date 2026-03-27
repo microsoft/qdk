@@ -19,7 +19,7 @@ from ..._instruction import (
     ISATransform,
     constraint,
 )
-from ..._architecture import _Context
+from ..._architecture import ISAContext
 from ...instruction_ids import CNOT, LATTICE_SURGERY, T, MEAS_ZZ
 from ..qec import SurfaceCode
 
@@ -103,7 +103,9 @@ class RoundBasedFactory(ISATransform):
             constraint(T),
         )
 
-    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
+    def provided_isa(
+        self, impl_isa: ISA, ctx: ISAContext
+    ) -> Generator[ISA, None, None]:
         cache_path = self._cache_path(impl_isa)
 
         # 1) Try to load from cache
