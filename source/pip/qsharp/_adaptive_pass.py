@@ -300,6 +300,9 @@ class AdaptiveProfilePass:
                 to noise table IDs. Takes precedence over ``noise`` if both are
                 given.
         """
+        if mod.get_flag("arrays"):
+            raise ValueError("QIR arrays are not currently supported.")
+
         if noise_intrinsics is not None:
             self._noise_intrinsics = noise_intrinsics
         elif noise is not None:

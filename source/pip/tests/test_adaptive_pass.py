@@ -37,11 +37,6 @@ def _sub(opcode_word: int) -> int:
     return (opcode_word >> 8) & 0xFF
 
 
-def _flags(opcode_word: int) -> int:
-    """Extract flags from opcode word."""
-    return opcode_word & 0xFFFF0000
-
-
 # ---------------------------------------------------------------------------
 # Test: Simple linear (H, CNOT, MResetZ on static qubits, no branching)
 # ---------------------------------------------------------------------------
@@ -66,7 +61,7 @@ declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
 declare void @__quantum__rt__tuple_record_output(i64, i8*)
 declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-attributes #0 = { "entry_point" "required_num_qubits"="2" "required_num_results"="1" }
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="1" }
 """
 
 
@@ -157,7 +152,7 @@ declare void @__quantum__qis__x__body(%Qubit*)
 declare void @__quantum__rt__tuple_record_output(i64, i8*)
 declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-attributes #0 = { "entry_point" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
 """
 
 
@@ -248,7 +243,7 @@ exit:
 declare void @__quantum__qis__h__body(%Qubit*)
 declare void @__quantum__rt__tuple_record_output(i64, i8*)
 
-attributes #0 = { "entry_point" "required_num_qubits"="1" "required_num_results"="0" }
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 """
 
 
@@ -371,7 +366,7 @@ declare void @__quantum__qis__x__body(%Qubit*)
 declare void @__quantum__rt__tuple_record_output(i64, i8*)
 declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-attributes #0 = { "entry_point" "required_num_qubits"="2" "required_num_results"="2" }
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
 """
 
 
@@ -422,7 +417,7 @@ declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
 declare i1 @__quantum__qis__read_result__body(%Result*)
 declare void @__quantum__rt__int_record_output(i64, i8*)
 
-attributes #0 = { "entry_point" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
 """
 
 
@@ -480,7 +475,7 @@ declare void @__quantum__qis__h__body(%Qubit*)
 declare void @__quantum__qis__reset__body(%Qubit*)
 declare void @__quantum__rt__tuple_record_output(i64, i8*)
 
-attributes #0 = { "entry_point" "required_num_qubits"="1" "required_num_results"="0" }
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 """
 
 
@@ -935,3 +930,43 @@ def test_quantum_op_tuple_length():
         assert (
             len(astuple(qop)) == 5
         ), f"Quantum op {i} has {len(astuple(qop))} fields, expected 5"
+
+
+ADAPTIVE_RIFLA_QIR = r"""
+%Result = type opaque
+%Qubit = type opaque
+
+@0 = internal constant [4 x i8] c"0_t\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(i8* null)
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+attributes #1 = { "irreversible" }
+
+; module flags
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !{!"i64"}}
+!5 = !{i32 5, !"float_computations", !{!"double"}}
+!6 = !{i32 7, !"backwards_branching", i2 3}
+!7 = !{i32 1, !"arrays", i1 true}
+"""
+
+
+def test_arrays_capability_is_rejected():
+    """Only Adaptive_RIFL is supported at the moment, no arrays."""
+    with pytest.raises(ValueError, match="QIR arrays are not currently supported"):
+        _run_pass(ADAPTIVE_RIFLA_QIR)
