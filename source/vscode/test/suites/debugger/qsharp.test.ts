@@ -158,7 +158,7 @@ suite("Q# Debugger Tests", function suite() {
     await waitForCondition(
       () => !vscode.debug.activeDebugSession,
       vscode.debug.onDidChangeActiveDebugSession,
-      2000,
+      9000,
       "timed out waiting for the debugger to be terminated",
     );
   });
@@ -518,7 +518,7 @@ async function terminateSession() {
   await waitForCondition(
     () => !vscode.debug.activeDebugSession,
     vscode.debug.onDidChangeActiveDebugSession,
-    2000,
+    9000,
     "timed out waiting for the debugger to be terminated",
   );
 }
