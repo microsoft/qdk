@@ -166,7 +166,7 @@ pub(crate) fn run_ast(
         // If seed is provided, we want to use a different seed for each shot
         // so that the results are different for each shot, but still deterministic
         sim.set_seed(seed.map(|s| s + i as u64));
-        let result = interpreter.run_with_sim(&mut sim, receiver, None)?;
+        let result = interpreter.run_with_sim(&mut sim, receiver, None, None)?;
         results.push(result);
     }
 

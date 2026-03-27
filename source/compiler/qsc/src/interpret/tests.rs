@@ -23,7 +23,7 @@ mod given_interpreter {
     fn run(interpreter: &mut Interpreter, expr: &str) -> (InterpretResult, String) {
         let mut cursor = Cursor::new(Vec::<u8>::new());
         let mut receiver = CursorReceiver::new(&mut cursor);
-        let res = interpreter.run(&mut receiver, Some(expr), None, None);
+        let res = interpreter.run(&mut receiver, Some(expr), None, None, None);
         (res, receiver.dump())
     }
 

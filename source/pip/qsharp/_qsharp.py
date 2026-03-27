@@ -706,6 +706,7 @@ def run(
         ]
     ] = None,
     qubit_loss: Optional[float] = None,
+    seed: Optional[int] = None,
 ) -> List[Any]:
     """
     Runs the given Q# expression for the given number of shots.
@@ -719,6 +720,7 @@ def run(
     :param save_events: If true, the output of each shot will be saved. If false, they will be printed.
     :param noise: The noise to use in simulation.
     :param qubit_loss: The probability of qubit loss in simulation.
+    :param seed: The seed to use for the random number generator in simulation, if any.
 
     :returns values: A list of results or runtime errors. If `save_events` is true,
     a List of ShotResults is returned.
@@ -773,7 +775,14 @@ def run(
         assert isinstance(entry_expr, str)
         run_entry_expr = entry_expr
 
+    shot_seed = seed
     for shot in range(shots):
+        # We also don't want every shot to return the same results, so we update the seed for
+        # the next shot with the shot number. This keeps the behavior deterministic if a seed
+        # was provided.
+        if seed is not None:
+            shot_seed = shot + seed
+
         results.append(
             {"result": None, "events": [], "messages": [], "matrices": [], "dumps": []}
         )
@@ -784,6 +793,7 @@ def run(
             qubit_loss,
             callable,
             args,
+            shot_seed,
         )
         run_results = qsharp_value_to_python_value(run_results)
         results[-1]["result"] = run_results

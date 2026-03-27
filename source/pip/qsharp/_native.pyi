@@ -178,6 +178,7 @@ class Interpreter:
         qubit_loss: Optional[float],
         callable: Optional[GlobalCallable | Closure],
         args: Optional[Any],
+        seed: Optional[int],
     ) -> Any:
         """
         Runs the given Q# expression with an independent instance of the simulator.
@@ -189,6 +190,7 @@ class Interpreter:
         :param qubit_loss: The probability of qubit loss in simulation.
         :param callable: The callable to run, if no entry expression is provided.
         :param args: The arguments to pass to the callable, if any.
+        :param seed: The seed to use for the random number generator in simulation, if any.
 
         :returns values: A result or runtime errors.
 
