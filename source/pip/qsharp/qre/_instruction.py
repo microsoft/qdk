@@ -189,7 +189,7 @@ class InstructionSource:
         transforms and architectures that generated them.
 
         Args:
-            ctx (_Context): The enumeration context containing the provenance graph.
+            ctx (ISAContext): The enumeration context containing the provenance graph.
             isa (ISA): Instructions in the ISA will serve as root nodes in the source graph.
 
         Returns:

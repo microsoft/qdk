@@ -47,7 +47,7 @@ class ISAQuery(ABC):
         requirements, and adds produced instructions directly to the graph.
 
         Args:
-            ctx (_Context): The enumeration context whose provenance graph
+            ctx (ISAContext): The enumeration context whose provenance graph
                 will be populated.
 
         Returns:
@@ -171,7 +171,7 @@ class RootNode(ISAQuery):
         yield ctx._isa
 
     def populate(self, ctx: ISAContext) -> int:
-        """Architecture ISA is already in the graph from ``_Context.__init__``.
+        """Architecture ISA is already in the graph from ``ISAContext.__init__``.
 
         Returns:
             int: 1, since architecture nodes start at index 1.
