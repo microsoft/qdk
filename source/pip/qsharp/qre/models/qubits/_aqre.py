@@ -5,8 +5,34 @@ from dataclasses import KW_ONLY, dataclass, field
 from typing import Optional
 
 from ..._architecture import Architecture, _Context
-from ...instruction_ids import CNOT, CZ, MEAS_Z, PAULI_I, H, T
 from ..._instruction import ISA, Encoding
+from ...instruction_ids import (
+    CNOT,
+    CZ,
+    MEAS_X,
+    MEAS_Y,
+    MEAS_Z,
+    PAULI_I,
+    PAULI_X,
+    PAULI_Y,
+    PAULI_Z,
+    RX,
+    RY,
+    RZ,
+    S_DAG,
+    SQRT_X,
+    SQRT_X_DAG,
+    SQRT_Y,
+    SQRT_Y_DAG,
+    SQRT_SQRT_X,
+    SQRT_SQRT_X_DAG,
+    SQRT_SQRT_Y,
+    SQRT_SQRT_Y_DAG,
+    T_DAG,
+    H,
+    S,
+    T,
+)
 
 
 @dataclass
@@ -54,46 +80,65 @@ class AQREGateBased(Architecture):
         # Value is initialized in __post_init__
         assert self.two_qubit_gate_time is not None
 
-        return ctx.make_isa(
-            ctx.add_instruction(
-                PAULI_I,
-                encoding=Encoding.PHYSICAL,
-                arity=1,
-                time=self.gate_time,
-                error_rate=self.error_rate,
-            ),
-            ctx.add_instruction(
-                CNOT,
-                encoding=Encoding.PHYSICAL,
-                arity=2,
-                time=self.two_qubit_gate_time,
-                error_rate=self.error_rate,
-            ),
-            ctx.add_instruction(
-                CZ,
-                encoding=Encoding.PHYSICAL,
-                arity=2,
-                time=self.two_qubit_gate_time,
-                error_rate=self.error_rate,
-            ),
-            ctx.add_instruction(
-                H,
-                encoding=Encoding.PHYSICAL,
-                arity=1,
-                time=self.gate_time,
-                error_rate=self.error_rate,
-            ),
-            ctx.add_instruction(
-                MEAS_Z,
-                encoding=Encoding.PHYSICAL,
-                arity=1,
-                time=self.measurement_time,
-                error_rate=self.error_rate,
-            ),
-            ctx.add_instruction(
-                T,
-                encoding=Encoding.PHYSICAL,
-                time=self.gate_time,
-                error_rate=self.error_rate,
-            ),
-        )
+        # NOTE: This can be improved with instruction coercion once implemented.
+        instructions = []
+
+        # Single-qubit gates
+        single = [
+            PAULI_I,
+            PAULI_X,
+            PAULI_Y,
+            PAULI_Z,
+            H,
+            SQRT_X,
+            SQRT_X_DAG,
+            SQRT_Y,
+            SQRT_Y_DAG,
+            S,
+            S_DAG,
+            SQRT_SQRT_X,
+            SQRT_SQRT_X_DAG,
+            SQRT_SQRT_Y,
+            SQRT_SQRT_Y_DAG,
+            T,
+            T_DAG,
+            RX,
+            RY,
+            RZ,
+        ]
+
+        for instr in single:
+            instructions.append(
+                ctx.add_instruction(
+                    instr,
+                    encoding=Encoding.PHYSICAL,
+                    arity=1,
+                    time=self.gate_time,
+                    error_rate=self.error_rate,
+                )
+            )
+
+        for instr in [MEAS_X, MEAS_Y, MEAS_Z]:
+            instructions.append(
+                ctx.add_instruction(
+                    instr,
+                    encoding=Encoding.PHYSICAL,
+                    arity=1,
+                    time=self.measurement_time,
+                    error_rate=self.error_rate,
+                )
+            )
+
+        # Two-qubit gates
+        for instr in [CNOT, CZ]:
+            instructions.append(
+                ctx.add_instruction(
+                    instr,
+                    encoding=Encoding.PHYSICAL,
+                    arity=2,
+                    time=self.two_qubit_gate_time,
+                    error_rate=self.error_rate,
+                )
+            )
+
+        return ctx.make_isa(*instructions)

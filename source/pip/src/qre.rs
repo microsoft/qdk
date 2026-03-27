@@ -1072,6 +1072,11 @@ impl Trace {
         self.0.compute_qubits()
     }
 
+    #[setter]
+    pub fn set_compute_qubits(&mut self, qubits: u64) {
+        self.0.set_compute_qubits(qubits);
+    }
+
     #[getter]
     pub fn base_error(&self) -> f64 {
         self.0.base_error()
@@ -1138,8 +1143,18 @@ impl Trace {
     }
 
     #[getter]
+    pub fn total_qubits(&self) -> u64 {
+        self.0.total_qubits()
+    }
+
+    #[getter]
     pub fn depth(&self) -> u64 {
         self.0.depth()
+    }
+
+    #[getter]
+    pub fn num_gates(&self) -> u64 {
+        self.0.num_gates()
     }
 
     #[pyo3(signature = (isa, max_error = None))]
@@ -1158,14 +1173,23 @@ impl Trace {
         self.0.add_operation(id, qubits, params);
     }
 
-    #[pyo3(signature = (repetitions = 1))]
-    pub fn add_block(mut slf: PyRefMut<'_, Self>, repetitions: u64) -> PyResult<Block> {
-        let block = slf.0.add_block(repetitions);
+    pub fn root_block(mut slf: PyRefMut<'_, Self>) -> Block {
+        let block = slf.0.root_block_mut();
         let ptr = NonNull::from(block);
-        Ok(Block {
+        Block {
             ptr,
             parent: slf.into(),
-        })
+        }
+    }
+
+    #[pyo3(signature = (repetitions = 1))]
+    pub fn add_block(mut slf: PyRefMut<'_, Self>, repetitions: u64) -> Block {
+        let block = slf.0.add_block(repetitions);
+        let ptr = NonNull::from(block);
+        Block {
+            ptr,
+            parent: slf.into(),
+        }
     }
 
     #[getter]
@@ -1177,6 +1201,7 @@ impl Trace {
         self.0.has_memory_qubits()
     }
 
+    #[setter]
     pub fn set_memory_qubits(&mut self, qubits: u64) {
         self.0.set_memory_qubits(qubits);
     }
@@ -1590,6 +1615,7 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         LOGICAL_MEMORY_QUBITS,
         ALGORITHM_COMPUTE_QUBITS,
         ALGORITHM_MEMORY_QUBITS,
+        NAME
     );
 
     m.add_submodule(&property_keys)?;

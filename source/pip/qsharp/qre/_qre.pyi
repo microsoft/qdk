@@ -1219,6 +1219,16 @@ class Trace:
         """
         ...
 
+    @compute_qubits.setter
+    def compute_qubits(self, qubits: int) -> None:
+        """
+        Sets the number of compute qubits.
+
+        Args:
+            qubits (int): The number of compute qubits to set.
+        """
+        ...
+
     @property
     def base_error(self) -> float:
         """
@@ -1257,7 +1267,8 @@ class Trace:
         """
         ...
 
-    def set_memory_qubits(self, qubits: int) -> None:
+    @memory_qubits.setter
+    def memory_qubits(self, qubits: int) -> None:
         """
         Sets the number of memory qubits.
 
@@ -1323,12 +1334,32 @@ class Trace:
         ...
 
     @property
+    def total_qubits(self) -> int:
+        """
+        The total number of qubits (compute + memory).
+
+        Returns:
+            int: The total number of qubits.
+        """
+        ...
+
+    @property
     def depth(self) -> int:
         """
         The trace depth.
 
         Returns:
             int: The trace depth.
+        """
+        ...
+
+    @property
+    def num_gates(self) -> int:
+        """
+        The total number of gates in the trace.
+
+        Returns:
+            int: The total number of gates.
         """
         ...
 
@@ -1369,6 +1400,15 @@ class Trace:
             id (int): The operation ID.
             qubits (list[int]): The qubits involved in the operation.
             params (list[float]): The operation parameters.
+        """
+        ...
+
+    def root_block(self) -> Block:
+        """
+        Returns the root block of the trace.
+
+        Returns:
+            Block: The root block of the trace.
         """
         ...
 

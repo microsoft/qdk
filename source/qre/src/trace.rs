@@ -66,12 +66,20 @@ impl Trace {
         self.compute_qubits
     }
 
+    pub fn set_compute_qubits(&mut self, compute_qubits: u64) {
+        self.compute_qubits = compute_qubits;
+    }
+
     pub fn add_operation(&mut self, id: u64, qubits: Vec<u64>, params: Vec<f64>) {
         self.block.add_operation(id, qubits, params);
     }
 
     pub fn add_block(&mut self, repetitions: u64) -> &mut Block {
         self.block.add_block(repetitions)
+    }
+
+    pub fn root_block_mut(&mut self) -> &mut Block {
+        &mut self.block
     }
 
     #[must_use]
@@ -213,6 +221,11 @@ impl Trace {
     #[must_use]
     pub fn depth(&self) -> u64 {
         self.block.depth()
+    }
+
+    #[must_use]
+    pub fn num_gates(&self) -> u64 {
+        self.deep_iter().map(|(_, m)| m).sum()
     }
 
     #[allow(

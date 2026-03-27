@@ -9,7 +9,7 @@ from typing import cast, Optional, Callable, Any, Iterable
 import pandas as pd
 
 from ._application import Application
-from ._architecture import Architecture
+from ._architecture import Architecture, _Context
 from ._qre import (
     _estimate_parallel,
     _estimate_with_graph,
@@ -17,6 +17,7 @@ from ._qre import (
     Trace,
     FactoryResult,
     instruction_name,
+    EstimationResult,
 )
 from ._trace import TraceQuery, PSSPC, LatticeSurgery
 from ._instruction import InstructionSource
@@ -209,17 +210,9 @@ def estimate(
     if name is not None:
         table.insert_column(0, "name", lambda entry: name)
 
-    for result in collection:
-        entry = EstimationTableEntry(
-            qubits=result.qubits,
-            runtime=result.runtime,
-            error=result.error,
-            source=InstructionSource.from_isa(arch_ctx, result.isa),
-            factories=result.factories.copy(),
-            properties=result.properties.copy(),
-        )
-
-        table.append(entry)
+    table.extend(
+        EstimationTableEntry.from_result(result, arch_ctx) for result in collection
+    )
 
     # Fill in the stats for this estimation run
     table.stats.num_traces = num_traces
@@ -405,6 +398,19 @@ class EstimationTableEntry:
     source: InstructionSource
     factories: dict[int, FactoryResult] = field(default_factory=dict)
     properties: dict[int, int | float | bool | str] = field(default_factory=dict)
+
+    @classmethod
+    def from_result(
+        cls, result: EstimationResult, ctx: _Context
+    ) -> EstimationTableEntry:
+        return cls(
+            qubits=result.qubits,
+            runtime=result.runtime,
+            error=result.error,
+            source=InstructionSource.from_isa(ctx, result.isa),
+            factories=result.factories.copy(),
+            properties=result.properties.copy(),
+        )
 
 
 @dataclass(slots=True)
