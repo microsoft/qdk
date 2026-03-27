@@ -14,7 +14,7 @@ from qsharp.qre import (
 from qsharp.qre.application import QSharpApplication
 from qsharp.qre.models import (
     SurfaceCode,
-    AQREGateBased,
+    GateBased,
     RoundBasedFactory,
     TwoDimensionalYokedSurfaceCode,
 )
@@ -24,7 +24,7 @@ from .conftest import ExampleFactory
 
 def test_estimation_max_error():
     app = QSharpApplication(LogicalCounts({"numQubits": 100, "measurementCount": 100}))
-    arch = AQREGateBased(gate_time=50, measurement_time=100)
+    arch = GateBased(gate_time=50, measurement_time=100)
 
     for max_error in [1e-1, 1e-2, 1e-3, 1e-4]:
         results = estimate(
@@ -76,7 +76,7 @@ def test_estimation_methods(post_process, use_graph):
     )
 
     app = QSharpApplication(counts)
-    arch = AQREGateBased(gate_time=50, measurement_time=100)
+    arch = GateBased(gate_time=50, measurement_time=100)
 
     results = estimate(
         app,

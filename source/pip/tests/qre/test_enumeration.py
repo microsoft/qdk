@@ -8,7 +8,7 @@ from typing import cast
 import pytest
 
 from qsharp.qre import LOGICAL
-from qsharp.qre.models import SurfaceCode, AQREGateBased
+from qsharp.qre.models import SurfaceCode, GateBased
 from qsharp.qre._isa_enumeration import (
     ISARefNode,
     _ComponentQuery,
@@ -293,7 +293,7 @@ def test_enumerate_instances_union_constraint_dict():
 
 
 def test_enumerate_isas():
-    ctx = AQREGateBased(gate_time=50, measurement_time=100).context()
+    ctx = GateBased(gate_time=50, measurement_time=100).context()
 
     # This will enumerate the 4 ISAs for the error correction code
     count = sum(1 for _ in SurfaceCode.q().enumerate(ctx))
@@ -348,7 +348,7 @@ def test_enumerate_isas():
 
 def test_binding_node():
     """Test binding nodes with ISARefNode for component bindings"""
-    ctx = AQREGateBased(gate_time=50, measurement_time=100).context()
+    ctx = GateBased(gate_time=50, measurement_time=100).context()
 
     # Test basic binding: same code used twice
     # Without binding: 12 codes × 12 codes = 144 combinations
@@ -453,7 +453,7 @@ def test_binding_node():
 
 def test_binding_node_errors():
     """Test error handling for binding nodes"""
-    ctx = AQREGateBased(gate_time=50, measurement_time=100).context()
+    ctx = GateBased(gate_time=50, measurement_time=100).context()
 
     # Test ISARefNode enumerate with undefined binding raises ValueError
     try:

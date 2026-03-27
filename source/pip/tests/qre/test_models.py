@@ -27,7 +27,7 @@ from qsharp.qre.instruction_ids import (
     SQRT_SQRT_Z_DAG,
 )
 from qsharp.qre.models import (
-    AQREGateBased,
+    GateBased,
     Majorana,
     RoundBasedFactory,
     MagicUpToClifford,
@@ -40,21 +40,21 @@ from qsharp.qre.property_keys import DISTANCE
 
 
 # ---------------------------------------------------------------------------
-# AQREGateBased architecture tests
+# GateBased architecture tests
 # ---------------------------------------------------------------------------
 
 
-class TestAQREGateBased:
+class TestGateBased:
     def test_default_error_rate(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         assert arch.error_rate == 1e-4
 
     def test_custom_error_rate(self):
-        arch = AQREGateBased(error_rate=1e-3, gate_time=50, measurement_time=100)
+        arch = GateBased(error_rate=1e-3, gate_time=50, measurement_time=100)
         assert arch.error_rate == 1e-3
 
     def test_provided_isa_contains_expected_instructions(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         isa = ctx.isa
 
@@ -62,7 +62,7 @@ class TestAQREGateBased:
             assert instr_id in isa
 
     def test_instruction_encodings_are_physical(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         isa = ctx.isa
 
@@ -71,7 +71,7 @@ class TestAQREGateBased:
 
     def test_instruction_error_rates_match(self):
         rate = 1e-3
-        arch = AQREGateBased(error_rate=rate, gate_time=50, measurement_time=100)
+        arch = GateBased(error_rate=rate, gate_time=50, measurement_time=100)
         ctx = arch.context()
         isa = ctx.isa
 
@@ -79,7 +79,7 @@ class TestAQREGateBased:
             assert isa[instr_id].expect_error_rate() == rate
 
     def test_gate_times(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         isa = ctx.isa
 
@@ -95,7 +95,7 @@ class TestAQREGateBased:
         assert isa[MEAS_Z].expect_time() == 100
 
     def test_arities(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         isa = ctx.isa
 
@@ -106,7 +106,7 @@ class TestAQREGateBased:
         assert isa[MEAS_Z].arity == 1
 
     def test_context_creation(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         assert ctx is not None
 
@@ -180,7 +180,7 @@ class TestSurfaceCode:
         assert sc.distance == 3
 
     def test_provides_lattice_surgery(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         sc = SurfaceCode(distance=3)
 
@@ -195,7 +195,7 @@ class TestSurfaceCode:
 
     def test_space_scales_with_distance(self):
         """Space = 2*d^2 - 1 physical qubits per logical qubit."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
 
         for d in [3, 5, 7, 9]:
             ctx = arch.context()
@@ -207,8 +207,8 @@ class TestSurfaceCode:
 
     def test_time_scales_with_distance(self):
         """Time = (h_time + 4*cnot_time + meas_time) * d."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
-        # h=50, cnot=50, meas=100 for AQREGateBased
+        arch = GateBased(gate_time=50, measurement_time=100)
+        # h=50, cnot=50, meas=100 for GateBased
         syndrome_time = 50 + 4 * 50 + 100  # = 350
 
         for d in [3, 5, 7]:
@@ -219,7 +219,7 @@ class TestSurfaceCode:
             assert ls.expect_time(1) == syndrome_time * d
 
     def test_error_rate_decreases_with_distance(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
 
         errors = []
         for d in [3, 5, 7, 9, 11]:
@@ -234,7 +234,7 @@ class TestSurfaceCode:
 
     def test_enumeration_via_query(self):
         """Enumerating SurfaceCode.q() should yield multiple distances."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
 
         count = 0
@@ -246,7 +246,7 @@ class TestSurfaceCode:
         assert count == 12
 
     def test_custom_crossing_prefactor(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
 
         sc_default = SurfaceCode(distance=5)
@@ -265,7 +265,7 @@ class TestSurfaceCode:
         assert abs(custom_error - 2 * default_error) < 1e-20
 
     def test_custom_error_correction_threshold(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
 
         ctx1 = arch.context()
         sc_low_threshold = SurfaceCode(error_correction_threshold=0.005, distance=5)
@@ -395,7 +395,7 @@ class TestThreeAux:
 class TestYokedSurfaceCode:
     def _get_lattice_surgery_isa(self, distance=5):
         """Helper to get a lattice surgery ISA from SurfaceCode."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         sc = SurfaceCode(distance=distance)
         isas = list(sc.provided_isa(ctx.isa, ctx))
@@ -479,9 +479,9 @@ class TestLitinski19Factory:
         reqs = Litinski19Factory.required_isa()
         assert reqs is not None
 
-    def test_table1_aqre_yields_t_and_ccz(self):
-        """AQREGateBased (error 1e-4) matches Table 1 scenario: T & CCZ."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+    def test_table1_yields_t_and_ccz(self):
+        """GateBased (error 1e-4) matches Table 1 scenario: T & CCZ."""
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         factory = Litinski19Factory()
 
@@ -496,7 +496,7 @@ class TestLitinski19Factory:
             assert len(isa) == 2
 
     def test_table1_instruction_properties(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         factory = Litinski19Factory()
 
@@ -516,7 +516,7 @@ class TestLitinski19Factory:
 
     def test_table1_t_error_rates_are_diverse(self):
         """T entries in Table 1 should span a range of error rates."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         factory = Litinski19Factory()
 
@@ -532,8 +532,8 @@ class TestLitinski19Factory:
             assert 0 < err < 1e-5
 
     def test_table1_1e3_clifford_yields_6_isas(self):
-        """AQREGateBased with 1e-3 error matches Table 1 at 1e-3 Clifford."""
-        arch = AQREGateBased(error_rate=1e-3, gate_time=50, measurement_time=100)
+        """GateBased with 1e-3 error matches Table 1 at 1e-3 Clifford."""
+        arch = GateBased(error_rate=1e-3, gate_time=50, measurement_time=100)
         ctx = arch.context()
         factory = Litinski19Factory()
 
@@ -550,7 +550,7 @@ class TestLitinski19Factory:
         """Table 2 scenario: T error ~10x higher than Clifford, no CCZ."""
         from qsharp.qre._qre import _ProvenanceGraph
 
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
 
         # Manually create ISA with T error rate 10x Clifford
@@ -578,7 +578,7 @@ class TestLitinski19Factory:
         """If T error > 10x Clifford, no entries match."""
         from qsharp.qre._qre import _ProvenanceGraph
 
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
 
         graph = _ProvenanceGraph()
@@ -597,11 +597,11 @@ class TestLitinski19Factory:
 
     def test_time_based_on_syndrome_extraction(self):
         """Time should be based on syndrome extraction time × cycles."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         factory = Litinski19Factory()
 
-        # For AQREGateBased: syndrome_extraction_time = 4*50 + 50 + 100 = 350
+        # For GateBased: syndrome_extraction_time = 4*50 + 50 + 100 = 350
         syndrome_time = 4 * 50 + 50 + 100  # 350 ns
 
         isas = list(factory.provided_isa(ctx.isa, ctx))
@@ -625,7 +625,7 @@ class TestMagicUpToClifford:
 
     def test_adds_clifford_equivalent_t_gates(self):
         """Given T gate, should add SQRT_SQRT_X/Y/Z and dagger variants."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         factory = Litinski19Factory()
         modifier = MagicUpToClifford()
@@ -650,7 +650,7 @@ class TestMagicUpToClifford:
 
     def test_adds_clifford_equivalent_ccz(self):
         """Given CCZ, should add CCX and CCY."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         factory = Litinski19Factory()
         modifier = MagicUpToClifford()
@@ -666,7 +666,7 @@ class TestMagicUpToClifford:
 
     def test_full_count_of_instructions(self):
         """T gate (1) + 5 equivalents (SQRT_SQRT_*) + CCZ (1) + 2 equivalents (CCX, CCY) = 9."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         factory = Litinski19Factory()
         modifier = MagicUpToClifford()
@@ -678,7 +678,7 @@ class TestMagicUpToClifford:
 
     def test_equivalent_instructions_share_properties(self):
         """Clifford equivalents should have same time, space, error rate."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         factory = Litinski19Factory()
         modifier = MagicUpToClifford()
@@ -709,7 +709,7 @@ class TestMagicUpToClifford:
 
     def test_modification_count_matches_factory_output(self):
         """MagicUpToClifford should produce one modified ISA per input ISA."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         factory = Litinski19Factory()
         modifier = MagicUpToClifford()
@@ -725,7 +725,7 @@ class TestMagicUpToClifford:
         """If no family member is present, ISA passes through unchanged."""
         from qsharp.qre._qre import _ProvenanceGraph
 
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         modifier = MagicUpToClifford()
 
@@ -758,7 +758,7 @@ class TestMagicUpToClifford:
 
 
 def test_isa_manipulation():
-    arch = AQREGateBased(gate_time=50, measurement_time=100)
+    arch = GateBased(gate_time=50, measurement_time=100)
     factory = Litinski19Factory()
     modifier = MagicUpToClifford()
 
@@ -813,7 +813,7 @@ class TestRoundBasedFactory:
         assert reqs is not None
 
     def test_produces_logical_t_gates(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
 
         for isa in RoundBasedFactory.q(use_cache=False).enumerate(arch.context()):
             t = isa[T]
@@ -826,7 +826,7 @@ class TestRoundBasedFactory:
 
     def test_error_rates_are_bounded(self):
         """Distilled T error rates should be bounded and mostly small."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)  # T error rate is 1e-4
+        arch = GateBased(gate_time=50, measurement_time=100)  # T error rate is 1e-4
 
         errors = []
         for isa in RoundBasedFactory.q(use_cache=False).enumerate(arch.context()):
@@ -843,7 +843,7 @@ class TestRoundBasedFactory:
 
     def test_max_produces_fewer_or_equal_results_than_sum(self):
         """Using max for physical_qubit_calculation may filter differently."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
 
         sum_count = sum(
             1 for _ in RoundBasedFactory.q(use_cache=False).enumerate(arch.context())
@@ -859,7 +859,7 @@ class TestRoundBasedFactory:
 
     def test_max_space_less_than_or_equal_sum_space(self):
         """max-aggregated space should be <= sum-aggregated space for each."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
 
         sum_spaces = sorted(
             isa[T].expect_space()
@@ -890,8 +890,8 @@ class TestRoundBasedFactory:
 
         assert count > 0
 
-    def test_round_based_aqre_sum(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+    def test_round_based_gate_based_sum(self):
+        arch = GateBased(gate_time=50, measurement_time=100)
 
         total_space = 0
         total_time = 0
@@ -909,8 +909,8 @@ class TestRoundBasedFactory:
         assert abs(total_error - 0.001_463_030_863_973_197_8) < 1e-8
         assert count == 107
 
-    def test_round_based_aqre_max(self):
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+    def test_round_based_gate_based_max(self):
+        arch = GateBased(gate_time=50, measurement_time=100)
 
         total_space = 0
         total_time = 0
@@ -960,10 +960,10 @@ class TestRoundBasedFactory:
 class TestCrossModelIntegration:
     def test_surface_code_feeds_into_litinski(self):
         """SurfaceCode -> Litinski19Factory pipeline works end to end."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
 
-        # SurfaceCode takes AQRE physical ISA -> LATTICE_SURGERY
+        # SurfaceCode takes gate-based physical ISA -> LATTICE_SURGERY
         sc = SurfaceCode(distance=5)
         sc_isas = list(sc.provided_isa(ctx.isa, ctx))
         assert len(sc_isas) == 1
@@ -989,7 +989,7 @@ class TestCrossModelIntegration:
 
     def test_litinski_with_magic_up_to_clifford_query(self):
         """Full query chain: Litinski19Factory -> MagicUpToClifford."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
 
         count = 0
@@ -1004,7 +1004,7 @@ class TestCrossModelIntegration:
 
     def test_surface_code_with_yoked_surface_code(self):
         """SurfaceCode -> YokedSurfaceCode pipeline provides MEMORY."""
-        arch = AQREGateBased(gate_time=50, measurement_time=100)
+        arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
 
         count = 0

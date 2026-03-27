@@ -12,7 +12,7 @@ from qsharp.qre import (
     property_name_to_key,
 )
 from qsharp.qre._qre import _ProvenanceGraph
-from qsharp.qre.models import SurfaceCode, AQREGateBased
+from qsharp.qre.models import SurfaceCode, GateBased
 from qsharp.qre._architecture import _make_instruction
 from qsharp.qre.instruction_ids import CCX, CCZ, LATTICE_SURGERY, T
 from qsharp.qre.property_keys import DISTANCE
@@ -166,7 +166,7 @@ def test_generic_function():
 
 
 def test_isa_from_architecture():
-    arch = AQREGateBased(gate_time=50, measurement_time=100)
+    arch = GateBased(gate_time=50, measurement_time=100)
     code = SurfaceCode()
     ctx = arch.context()
 

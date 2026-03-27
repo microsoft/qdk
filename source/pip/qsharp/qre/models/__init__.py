@@ -8,10 +8,10 @@ from .qec import (
     OneDimensionalYokedSurfaceCode,
     TwoDimensionalYokedSurfaceCode,
 )
-from .qubits import AQREGateBased, Majorana
+from .qubits import GateBased, Majorana
 
 __all__ = [
-    "AQREGateBased",
+    "GateBased",
     "Litinski19Factory",
     "Majorana",
     "MagicUpToClifford",

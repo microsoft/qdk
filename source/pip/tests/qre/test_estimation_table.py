@@ -12,7 +12,7 @@ from qsharp.qre import (
     estimate,
 )
 from qsharp.qre.application import QSharpApplication
-from qsharp.qre.models import SurfaceCode, AQREGateBased
+from qsharp.qre.models import SurfaceCode, GateBased
 from qsharp.qre._estimation import (
     EstimationTable,
     EstimationTableEntry,
@@ -220,7 +220,7 @@ def test_estimation_table_factory_summary_with_estimation():
     }
     """
     app = QSharpApplication(code)
-    arch = AQREGateBased(gate_time=50, measurement_time=100)
+    arch = GateBased(gate_time=50, measurement_time=100)
     results = estimate(
         app,
         arch,
@@ -251,7 +251,7 @@ def test_estimation_table_add_column_from_source():
     }
     """
     app = QSharpApplication(code)
-    arch = AQREGateBased(gate_time=50, measurement_time=100)
+    arch = GateBased(gate_time=50, measurement_time=100)
     results = estimate(
         app,
         arch,
@@ -285,7 +285,7 @@ def test_estimation_table_add_column_from_properties():
     }
     """
     app = QSharpApplication(code)
-    arch = AQREGateBased(gate_time=50, measurement_time=100)
+    arch = GateBased(gate_time=50, measurement_time=100)
     results = estimate(
         app,
         arch,
@@ -319,7 +319,7 @@ def test_estimation_table_insert_column_before_defaults():
     }
     """
     app = QSharpApplication(code)
-    arch = AQREGateBased(gate_time=50, measurement_time=100)
+    arch = GateBased(gate_time=50, measurement_time=100)
     results = estimate(
         app,
         arch,

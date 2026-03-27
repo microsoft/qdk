@@ -5,7 +5,7 @@ import timeit
 from dataclasses import dataclass, KW_ONLY, field
 from qsharp.qre import linear_function, generic_function
 from qsharp.qre._architecture import _make_instruction
-from qsharp.qre.models import AQREGateBased, SurfaceCode
+from qsharp.qre.models import GateBased, SurfaceCode
 from qsharp.qre._enumeration import _enumerate_instances
 
 
@@ -40,7 +40,7 @@ def bench_enumerate_isas():
     sys.path.append(os.path.join(os.path.dirname(__file__), "../tests"))
     from test_qre import ExampleLogicalFactory, ExampleFactory  # type: ignore
 
-    ctx = AQREGateBased(gate_time=50, measurement_time=100).context()
+    ctx = GateBased(gate_time=50, measurement_time=100).context()
 
     # Hierarchical factory using from_components
     query = SurfaceCode.q() * ExampleLogicalFactory.q(
