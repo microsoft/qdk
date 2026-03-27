@@ -22,7 +22,7 @@ from ._qre import (
     ISA,
     Constraint,
     ConstraintBound,
-    _Instruction,
+    Instruction,
     ISARequirements,
     instruction_name,
     property_name_to_key,
@@ -233,7 +233,7 @@ class InstructionSource:
 
     def add_node(
         self,
-        instruction: _Instruction,
+        instruction: Instruction,
         transform: Optional[ISATransform | Architecture],
         children: list[int],
     ) -> int:
@@ -313,7 +313,7 @@ class InstructionSource:
 
 @dataclass(frozen=True, slots=True)
 class _InstructionSourceNode:
-    instruction: _Instruction
+    instruction: Instruction
     transform: Optional[ISATransform | Architecture]
     children: list[int]
 
@@ -324,7 +324,7 @@ class _InstructionSourceNodeReference:
         self.node_id = node_id
 
     @property
-    def instruction(self) -> _Instruction:
+    def instruction(self) -> Instruction:
         return self.graph.nodes[self.node_id].instruction
 
     @property

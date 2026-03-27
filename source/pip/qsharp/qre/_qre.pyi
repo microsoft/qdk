@@ -33,7 +33,7 @@ class ISA:
         """
         ...
 
-    def __getitem__(self, id: int) -> _Instruction:
+    def __getitem__(self, id: int) -> Instruction:
         """
         Gets an instruction by its ID.
 
@@ -41,23 +41,23 @@ class ISA:
             id (int): The instruction ID.
 
         Returns:
-            _Instruction: The instruction.
+            Instruction: The instruction.
         """
         ...
 
     def get(
-        self, id: int, default: Optional[_Instruction] = None
-    ) -> Optional[_Instruction]:
+        self, id: int, default: Optional[Instruction] = None
+    ) -> Optional[Instruction]:
         """
         Gets an instruction by its ID, or returns a default value if not found.
 
         Args:
             id (int): The instruction ID.
-            default (Optional[_Instruction]): The default value to return if the
+            default (Optional[Instruction]): The default value to return if the
                 instruction is not found.
 
         Returns:
-            Optional[_Instruction]: The instruction, or the default value if not found.
+            Optional[Instruction]: The instruction, or the default value if not found.
         """
         ...
 
@@ -105,7 +105,7 @@ class ISA:
         """
         ...
 
-    def __iter__(self) -> Iterator[_Instruction]:
+    def __iter__(self) -> Iterator[Instruction]:
         """
         Returns an iterator over the instructions.
 
@@ -113,7 +113,7 @@ class ISA:
             The order of instructions is not guaranteed.
 
         Returns:
-            Iterator[_Instruction]: The instruction iterator.
+            Iterator[Instruction]: The instruction iterator.
         """
         ...
 
@@ -178,7 +178,7 @@ class ISARequirements:
         """
         ...
 
-class _Instruction:
+class Instruction:
     @staticmethod
     def fixed_arity(
         id: int,
@@ -188,7 +188,7 @@ class _Instruction:
         space: Optional[int],
         length: Optional[int],
         error_rate: float,
-    ) -> _Instruction:
+    ) -> Instruction:
         """
         Creates an instruction with a fixed arity.
 
@@ -207,7 +207,7 @@ class _Instruction:
             error_rate (float): The instruction error rate.
 
         Returns:
-            _Instruction: The instruction.
+            Instruction: The instruction.
         """
         ...
 
@@ -219,7 +219,7 @@ class _Instruction:
         space_fn: _IntFunction,
         error_rate_fn: _FloatFunction,
         length_fn: Optional[_IntFunction],
-    ) -> _Instruction:
+    ) -> Instruction:
         """
         Creates an instruction with variable arity.
 
@@ -236,11 +236,11 @@ class _Instruction:
                 If None, space_fn is used.
 
         Returns:
-            _Instruction: The instruction.
+            Instruction: The instruction.
         """
         ...
 
-    def with_id(self, id: int) -> _Instruction:
+    def with_id(self, id: int) -> Instruction:
         """
         Returns a copy of the instruction with the given ID.
 
@@ -252,7 +252,7 @@ class _Instruction:
             id (int): The instruction ID.
 
         Returns:
-            _Instruction: A copy of the instruction with the given ID.
+            Instruction: A copy of the instruction with the given ID.
         """
         ...
 
@@ -702,7 +702,7 @@ class _ProvenanceGraph:
     """
 
     def add_node(
-        self, instruction: _Instruction, transform_id: int, children: list[int]
+        self, instruction: Instruction, transform_id: int, children: list[int]
     ) -> int:
         """
         Adds a node to the provenance graph.
@@ -717,7 +717,7 @@ class _ProvenanceGraph:
         """
         ...
 
-    def instruction(self, node_index: int) -> _Instruction:
+    def instruction(self, node_index: int) -> Instruction:
         """
         Returns the instruction for a given node index.
 
@@ -774,7 +774,7 @@ class _ProvenanceGraph:
     @overload
     def add_instruction(
         self,
-        instruction: _Instruction,
+        instruction: Instruction,
     ) -> int: ...
     @overload
     def add_instruction(
@@ -791,7 +791,7 @@ class _ProvenanceGraph:
     ) -> int: ...
     def add_instruction(
         self,
-        id_or_instruction: int | _Instruction,
+        id_or_instruction: int | Instruction,
         encoding: int = 0,
         *,
         arity: Optional[int] = 1,
@@ -805,20 +805,20 @@ class _ProvenanceGraph:
         Adds an instruction to the provenance graph with no transform or
         children.
 
-        Can be called with a pre-existing ``_Instruction`` or with keyword
+        Can be called with a pre-existing ``Instruction`` or with keyword
         args to create one inline.
 
         Args:
-            id_or_instruction: An instruction ID (int) or ``_Instruction``.
-            encoding: 0 = Physical, 1 = Logical. Ignored for ``_Instruction``.
+            id_or_instruction: An instruction ID (int) or ``Instruction``.
+            encoding: 0 = Physical, 1 = Logical. Ignored for ``Instruction``.
             arity: Instruction arity, ``None`` for variable. Ignored for
-                ``_Instruction``.
-            time: Time in ns (or ``_IntFunction``). Ignored for ``_Instruction``.
+                ``Instruction``.
+            time: Time in ns (or ``_IntFunction``). Ignored for ``Instruction``.
             space: Space in physical qubits (or ``_IntFunction``). Ignored for
-                ``_Instruction``.
-            length: Arity including ancillas. Ignored for ``_Instruction``.
+                ``Instruction``.
+            length: Arity including ancillas. Ignored for ``Instruction``.
             error_rate: Error rate (or ``_FloatFunction``). Ignored for
-                ``_Instruction``.
+                ``Instruction``.
             **kwargs: Additional properties (e.g. ``distance=9``).
 
         Returns:
@@ -1511,21 +1511,21 @@ class InstructionFrontier:
         """
         ...
 
-    def insert(self, point: _Instruction):
+    def insert(self, point: Instruction):
         """
         Inserts an instruction to the frontier.
 
         Args:
-            point (_Instruction): The instruction to insert.
+            point (Instruction): The instruction to insert.
         """
         ...
 
-    def extend(self, points: list[_Instruction]) -> None:
+    def extend(self, points: list[Instruction]) -> None:
         """
         Extends the frontier with a list of instructions.
 
         Args:
-            points (list[_Instruction]): The instructions to insert.
+            points (list[Instruction]): The instructions to insert.
         """
         ...
 
@@ -1538,12 +1538,12 @@ class InstructionFrontier:
         """
         ...
 
-    def __iter__(self) -> Iterator[_Instruction]:
+    def __iter__(self) -> Iterator[Instruction]:
         """
         Returns an iterator over the instructions in the frontier.
 
         Returns:
-            Iterator[_Instruction]: The iterator.
+            Iterator[Instruction]: The iterator.
         """
         ...
 

@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from ._qre import (
     ISA,
     _ProvenanceGraph,
-    _Instruction,
+    Instruction,
     _IntFunction,
     _FloatFunction,
     constant_function,
@@ -71,7 +71,7 @@ class ISAContext:
 
     def add_instruction(
         self,
-        id_or_instruction: int | _Instruction,
+        id_or_instruction: int | Instruction,
         encoding: Encoding = 0,  # type: ignore
         *,
         arity: Optional[int] = 1,
@@ -80,7 +80,7 @@ class ISAContext:
         length: Optional[int | _IntFunction] = None,
         error_rate: float | _FloatFunction = 0.0,
         transform: ISATransform | None = None,
-        source: list[_Instruction] | None = None,
+        source: list[Instruction] | None = None,
         **kwargs: int,
     ) -> int:
         """
@@ -93,7 +93,7 @@ class ISAContext:
               ctx.add_instruction(T, encoding=LOGICAL, time=1000,
                                   error_rate=1e-8)
 
-        2. With a pre-existing ``_Instruction`` object (e.g. from
+        2. With a pre-existing ``Instruction`` object (e.g. from
            ``with_id()``)::
 
               ctx.add_instruction(existing_instruction)
@@ -107,26 +107,26 @@ class ISAContext:
 
         Args:
             id_or_instruction: Either an instruction ID (int) for creating
-                a new instruction, or an existing ``_Instruction`` object.
+                a new instruction, or an existing ``Instruction`` object.
             encoding: The instruction encoding (0 = Physical, 1 = Logical).
-                Ignored when passing an existing ``_Instruction``.
+                Ignored when passing an existing ``Instruction``.
             arity: The instruction arity. ``None`` for variable arity.
-                Ignored when passing an existing ``_Instruction``.
+                Ignored when passing an existing ``Instruction``.
             time: Instruction time in ns (or ``_IntFunction`` for variable
-                arity). Ignored when passing an existing ``_Instruction``.
+                arity). Ignored when passing an existing ``Instruction``.
             space: Instruction space in physical qubits (or ``_IntFunction``
                 for variable arity). Ignored when passing an existing
-                ``_Instruction``.
+                ``Instruction``.
             length: Arity including ancilla qubits. Ignored when passing an
-                existing ``_Instruction``.
+                existing ``Instruction``.
             error_rate: Instruction error rate (or ``_FloatFunction`` for
                 variable arity). Ignored when passing an existing
-                ``_Instruction``.
+                ``Instruction``.
             transform: The ``ISATransform`` that produced the instruction.
-            source: List of source ``_Instruction`` objects consumed by the
+            source: List of source ``Instruction`` objects consumed by the
                 transform.
             **kwargs: Additional properties (e.g. ``distance=9``). Ignored
-                when passing an existing ``_Instruction``.
+                when passing an existing ``Instruction``.
 
         Returns:
             The node index in the provenance graph.
@@ -146,7 +146,7 @@ class ISAContext:
                 **kwargs,
             )
 
-        if isinstance(id_or_instruction, _Instruction):
+        if isinstance(id_or_instruction, Instruction):
             instr = id_or_instruction
         else:
             instr = _make_instruction(
@@ -193,10 +193,10 @@ def _make_instruction(
     length: int | _IntFunction | None,
     error_rate: float | _FloatFunction,
     properties: dict[str, int],
-) -> _Instruction:
-    """Build an ``_Instruction`` from keyword arguments."""
+) -> Instruction:
+    """Build an ``Instruction`` from keyword arguments."""
     if arity is not None:
-        instr = _Instruction.fixed_arity(
+        instr = Instruction.fixed_arity(
             id,
             encoding,
             arity,
@@ -215,7 +215,7 @@ def _make_instruction(
         if isinstance(error_rate, (int, float)):
             error_rate = constant_function(float(error_rate))
 
-        instr = _Instruction.variable_arity(
+        instr = Instruction.variable_arity(
             id,
             encoding,
             time,

@@ -205,7 +205,7 @@ impl ISARequirementsIterator {
 }
 
 #[allow(clippy::unsafe_derive_deserialize)]
-#[pyclass(name = "_Instruction", from_py_object)]
+#[pyclass(from_py_object)]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Instruction(qre::Instruction);
