@@ -5,7 +5,7 @@
 
 These constants define the bytecode encoding used by the Python AdaptiveProfilePass
 (emitter) and the Rust GPU receiver. Values must stay in sync with the Rust
-``adaptive_bytecode`` module and the WGSL interpreter.
+``bytecode.rs`` module and the WGSL interpreter.
 
 Opcode word layout::
 
