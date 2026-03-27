@@ -227,6 +227,7 @@ class NeutralAtomDevice(Device):
         shots=1,
         noise: NoiseConfig | None = None,
         type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
+        seed: Optional[int] = None,
     ) -> List:
         """
         Simulate a QIR program on the NeutralAtomDevice device. This includes approximate layout and scheduling of the program
@@ -242,6 +243,7 @@ class NeutralAtomDevice(Device):
             Use `"cpu"` as a fallback option if you don't have a GPU in your system.
             If `None` (default), the GPU simulator will be tried first, falling back to
             CPU if a suitable GPU device could not be located.
+        :param seed: An optional random seed for reproducibility.
         :returns: The results of each shot of the simulation as a list.
         """
 
@@ -278,11 +280,12 @@ class NeutralAtomDevice(Device):
                     str(module),
                     shots,
                     noise,
+                    seed,
                 )
             case "cpu":
-                result = run_qir_cpu(str(module), shots, noise)
+                result = run_qir_cpu(str(module), shots, noise, seed)
             case "gpu":
-                result = run_qir_gpu(str(module), shots, noise)
+                result = run_qir_gpu(str(module), shots, noise, seed)
             case _:
                 raise ValueError(f"Simulation type {type} is not supported")
 

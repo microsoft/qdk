@@ -174,21 +174,25 @@ class Interpreter:
         self,
         entry_expr: Optional[str],
         output_fn: Optional[Callable[[Output], None]],
+        noise_config: Optional[NoiseConfig],
         noise: Optional[Tuple[float, float, float]],
         qubit_loss: Optional[float],
         callable: Optional[GlobalCallable | Closure],
         args: Optional[Any],
+        seed: Optional[int],
     ) -> Any:
         """
         Runs the given Q# expression with an independent instance of the simulator.
 
         :param entry_expr: The entry expression.
         :param output_fn: A callback function that will be called with each output.
+        :param noise_config: The noise configuration to use in simulation.
         :param noise: A tuple with probabilities of Pauli-X, Pauli-Y, and Pauli-Z errors
             to use in simulation as a parametric Pauli noise.
         :param qubit_loss: The probability of qubit loss in simulation.
         :param callable: The callable to run, if no entry expression is provided.
         :param args: The arguments to pass to the callable, if any.
+        :param seed: The seed to use for the random number generator in simulation, if any.
 
         :returns values: A result or runtime errors.
 
@@ -642,6 +646,7 @@ def resource_estimate_qasm_program(
 def run_qasm_program(
     source: str,
     output_fn: Callable[[Output], None],
+    noise_config: Optional[NoiseConfig],
     noise: Optional[Tuple[float, float, float]],
     qubit_loss: Optional[float],
     read_file: Callable[[str], Tuple[str, str]],

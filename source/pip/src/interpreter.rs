@@ -28,6 +28,7 @@ use crate::{
         gpu_full_state::{
             GpuContext, run_adaptive_parallel_shots, run_parallel_shots, try_create_gpu_adapter,
         },
+        unbind_noise_config,
     },
 };
 use miette::{Diagnostic, Report};
@@ -697,16 +698,18 @@ impl Interpreter {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature=(entry_expr=None, callback=None, noise=None, qubit_loss=None, callable=None, args=None))]
+    #[pyo3(signature=(entry_expr=None, callback=None, noise_config=None, noise=None, qubit_loss=None, callable=None, args=None, seed=None))]
     fn run(
         &mut self,
         py: Python,
         entry_expr: Option<&str>,
         callback: Option<Py<PyAny>>,
+        noise_config: Option<&Bound<NoiseConfig>>,
         noise: Option<(f64, f64, f64)>,
         qubit_loss: Option<f64>,
         callable: Option<Py<PyAny>>,
         args: Option<Py<PyAny>>,
+        seed: Option<u64>,
     ) -> PyResult<Py<PyAny>> {
         let mut receiver = OptionalCallbackReceiver { callback, py };
 
@@ -724,6 +727,10 @@ impl Interpreter {
             },
         };
 
+        // Convert NoiseConfig to a rust NoiseConfig.
+        let noise_config: Option<qdk_simulators::noise_config::NoiseConfig<f64, f64>> =
+            noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
+
         let result = match callable_val {
             Some(callable) => {
                 let (input_ty, output_ty) = self
@@ -732,12 +739,24 @@ impl Interpreter {
                     .ok_or(QSharpError::new_err("callable not found"))?;
                 let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
 
-                self.interpreter
-                    .invoke_with_noise(&mut receiver, callable, args, noise, qubit_loss)
+                self.interpreter.invoke_with_noise(
+                    &mut receiver,
+                    callable,
+                    args,
+                    noise,
+                    qubit_loss,
+                    noise_config,
+                    seed,
+                )
             }
-            _ => self
-                .interpreter
-                .run(&mut receiver, entry_expr, noise, qubit_loss),
+            _ => self.interpreter.run(
+                &mut receiver,
+                entry_expr,
+                noise,
+                qubit_loss,
+                noise_config,
+                seed,
+            ),
         };
 
         match result {

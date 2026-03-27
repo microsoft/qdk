@@ -379,6 +379,11 @@
         "path": "./resources/chat-instructions/openqasm.instructions.md"
       }
     ],
+    "chatSkills": [
+      {
+        "path": "./skills/qdk-programming/SKILL.md"
+      }
+    ],
     "commands": [
       {
         "command": "qsharp-vscode.gotoLocations",
