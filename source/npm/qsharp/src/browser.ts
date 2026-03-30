@@ -28,14 +28,10 @@ import {
   ILanguageServiceWorker,
   QSharpLanguageService,
   languageServiceProtocol,
-  qsharpGithubUriScheme,
-  qsharpLibraryUriScheme,
 } from "./language-service/language-service.js";
-import { LogLevel, log } from "./log.js";
+import { log } from "./log.js";
 import { ProjectLoader } from "./project.js";
 import { createProxy } from "./workers/browser.js";
-
-export { qsharpGithubUriScheme, qsharpLibraryUriScheme };
 
 // Create once. A module is stateless and can be efficiently passed to WebWorkers.
 let wasmModule: WebAssembly.Module | null = null;
@@ -190,31 +186,9 @@ export type {
   IStackFrame,
   IStructStepResult,
   ITestDescriptor,
-  IVariable,
-  IVariableChild,
   IWorkspaceEdit,
   VSDiagnostic,
 } from "../lib/web/qsc_wasm.js";
-export { type Dump, type ShotResult } from "./compiler/common.js";
-export { type CompilerState, type ProgramConfig } from "./compiler/compiler.js";
-export { QscEventTarget } from "./compiler/events.js";
-export { QdkDiagnostics } from "./diagnostics.js";
-export type {
-  LanguageServiceDiagnosticEvent,
-  LanguageServiceEvent,
-  LanguageServiceTestCallablesEvent,
-} from "./language-service/language-service.js";
-export { default as openqasm_samples } from "./openqasm-samples.generated.js";
-export type { ProjectLoader } from "./project.js";
-export { default as samples } from "./samples.generated.js";
-export type { CircuitGroup as CircuitData } from "./data-structures/circuit.js";
-export * as utils from "./utils.js";
-export { log, type LogLevel, type ProjectType, type TargetProfile };
-export type {
-  ICompiler,
-  ICompilerWorker,
-  IDebugService,
-  IDebugServiceWorker,
-  ILanguageService,
-  ILanguageServiceWorker,
-};
+export type { ProjectType, TargetProfile };
+
+export * from "./common-exports.js";

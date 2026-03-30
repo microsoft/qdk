@@ -22,14 +22,11 @@ import {
   ILanguageServiceWorker,
   QSharpLanguageService,
   languageServiceProtocol,
-  qsharpLibraryUriScheme,
 } from "./language-service/language-service.js";
 import { log } from "./log.js";
 import { createProxy } from "./workers/node.js";
 import { ProjectLoader } from "./project.js";
 import type { IProjectHost } from "./browser.js";
-
-export { qsharpLibraryUriScheme };
 
 // Only load the Wasm module when first needed, as it may only be used in a Worker,
 // and not in the main thread.
@@ -91,5 +88,4 @@ export function getLanguageServiceWorker(): ILanguageServiceWorker {
   );
 }
 
-export * as utils from "./utils.js";
-export type { IVariable, IVariableChild } from "./browser.js";
+export * from "./common-exports.js";
