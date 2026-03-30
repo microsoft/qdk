@@ -9,7 +9,7 @@ import pandas as pd
 class ISA:
     def __add__(self, other: ISA) -> ISA:
         """
-        Concatenates two ISAs (logical union). Instructions in the second
+        Concatenate two ISAs (logical union). Instructions in the second
         operand overwrite instructions in the first operand if they have the
         same ID.
         """
@@ -17,7 +17,7 @@ class ISA:
 
     def __contains__(self, id: int) -> bool:
         """
-        Checks if the ISA contains an instruction with the given ID.
+        Check if the ISA contains an instruction with the given ID.
 
         Args:
             id (int): The instruction ID.
@@ -29,13 +29,13 @@ class ISA:
 
     def satisfies(self, requirements: ISARequirements) -> bool:
         """
-        Checks if the ISA satisfies the given ISA requirements.
+        Check if the ISA satisfies the given ISA requirements.
         """
         ...
 
     def __getitem__(self, id: int) -> Instruction:
         """
-        Gets an instruction by its ID.
+        Get an instruction by its ID.
 
         Args:
             id (int): The instruction ID.
@@ -49,7 +49,7 @@ class ISA:
         self, id: int, default: Optional[Instruction] = None
     ) -> Optional[Instruction]:
         """
-        Gets an instruction by its ID, or returns a default value if not found.
+        Get an instruction by its ID, or return a default value if not found.
 
         Args:
             id (int): The instruction ID.
@@ -63,7 +63,7 @@ class ISA:
 
     def __len__(self) -> int:
         """
-        Returns the number of instructions in the ISA.
+        Return the number of instructions in the ISA.
 
         Returns:
             int: The number of instructions.
@@ -72,7 +72,7 @@ class ISA:
 
     def node_index(self, id: int) -> Optional[int]:
         """
-        Returns the provenance graph node index for the given instruction ID.
+        Return the provenance graph node index for the given instruction ID.
 
         Args:
             id (int): The instruction ID.
@@ -84,7 +84,7 @@ class ISA:
 
     def add_node(self, instruction_id: int, node_index: int) -> None:
         """
-        Adds a pre-existing provenance graph node to the ISA.
+        Add a pre-existing provenance graph node to the ISA.
 
         Args:
             instruction_id (int): The instruction ID.
@@ -94,7 +94,7 @@ class ISA:
 
     def as_frame(self) -> pd.DataFrame:
         """
-        Returns a pandas DataFrame representation of the ISA.
+        Return a pandas DataFrame representation of the ISA.
 
         The DataFrame will have one row per instruction, with columns for
         instruction properties such as time, space, and error rate. The exact
@@ -107,7 +107,7 @@ class ISA:
 
     def __iter__(self) -> Iterator[Instruction]:
         """
-        Returns an iterator over the instructions.
+        Return an iterator over the instructions.
 
         Note:
             The order of instructions is not guaranteed.
@@ -119,7 +119,7 @@ class ISA:
 
     def __str__(self) -> str:
         """
-        Returns a string representation of the ISA.
+        Return a string representation of the ISA.
 
         Note:
             The order of instructions in the output is not guaranteed.
@@ -136,7 +136,7 @@ class ISARequirements:
     def __new__(cls, constraints: list[Constraint], /) -> ISARequirements: ...
     def __new__(cls, *constraints: Constraint | list[Constraint]) -> ISARequirements:
         """
-        Creates an ISA requirements specification from a list of instructions
+        Create an ISA requirements specification from a list of instructions
         constraints.
 
         Args:
@@ -147,7 +147,7 @@ class ISARequirements:
 
     def __len__(self) -> int:
         """
-        Returns the number of constraints in the requirements specification.
+        Return the number of constraints in the requirements specification.
 
         Returns:
             int: The number of constraints.
@@ -156,7 +156,7 @@ class ISARequirements:
 
     def __iter__(self) -> Iterator[Constraint]:
         """
-        Returns an iterator over the constraints.
+        Return an iterator over the constraints.
 
         Note:
             The order of constraints is not guaranteed.
@@ -168,7 +168,7 @@ class ISARequirements:
 
     def as_frame(self) -> pd.DataFrame:
         """
-        Returns a pandas DataFrame representation of the ISA requirements.
+        Return a pandas DataFrame representation of the ISA requirements.
 
         The DataFrame will have one row per instruction, with columns for
         constraint properties such as encoding.
@@ -190,7 +190,7 @@ class Instruction:
         error_rate: float,
     ) -> Instruction:
         """
-        Creates an instruction with a fixed arity.
+        Create an instruction with a fixed arity.
 
         Note:
             This function is not intended to be called directly by the user, use qre.instruction instead.
@@ -221,7 +221,7 @@ class Instruction:
         length_fn: Optional[_IntFunction],
     ) -> Instruction:
         """
-        Creates an instruction with variable arity.
+        Create an instruction with variable arity.
 
         Note:
             This function is not intended to be called directly by the user, use qre.instruction instead.
@@ -242,7 +242,7 @@ class Instruction:
 
     def with_id(self, id: int) -> Instruction:
         """
-        Returns a copy of the instruction with the given ID.
+        Return a copy of the instruction with the given ID.
 
         Note:
             The created instruction will not inherit the source property of the
@@ -360,7 +360,7 @@ class Instruction:
 
     def set_source(self, index: int) -> None:
         """
-        Sets the source index for the instruction.
+        Set the source index for the instruction.
 
         Args:
             index (int): The source index to set.
@@ -370,7 +370,7 @@ class Instruction:
     @property
     def source(self) -> int:
         """
-        Gets the source index for the instruction.
+        Get the source index for the instruction.
 
         Returns:
             int: The source index for the instruction.
@@ -379,7 +379,7 @@ class Instruction:
 
     def set_property(self, key: int, value: int) -> None:
         """
-        Sets a property on the instruction.
+        Set a property on the instruction.
 
         Args:
             key (int): The property key.
@@ -389,7 +389,7 @@ class Instruction:
 
     def get_property(self, key: int) -> Optional[int]:
         """
-        Gets a property by its key.
+        Get a property by its key.
 
         Args:
             key (int): The property key.
@@ -401,7 +401,7 @@ class Instruction:
 
     def has_property(self, key: int) -> bool:
         """
-        Checks if the instruction has a property with the given key.
+        Check if the instruction has a property with the given key.
 
         Args:
             key (int): The property key.
@@ -413,7 +413,7 @@ class Instruction:
 
     def get_property_or(self, key: int, default: int) -> int:
         """
-        Gets a property by its key, or returns a default value if not found.
+        Get a property by its key, or return a default value if not found.
 
         Args:
             key (int): The property key.
@@ -426,7 +426,7 @@ class Instruction:
 
     def __getitem__(self, key: int) -> int:
         """
-        Gets a property by its key, or raises an error if not found.
+        Get a property by its key, or raise an error if not found.
 
         Args:
             key (int): The property key.
@@ -438,7 +438,7 @@ class Instruction:
 
     def __str__(self) -> str:
         """
-        Returns a string representation of the instruction.
+        Return a string representation of the instruction.
 
         Returns:
             str: A string representation of the instruction.
@@ -453,7 +453,7 @@ class ConstraintBound:
     @staticmethod
     def lt(value: float) -> ConstraintBound:
         """
-        Creates a less than constraint bound.
+        Create a less than constraint bound.
 
         Args:
             value (float): The value.
@@ -466,7 +466,7 @@ class ConstraintBound:
     @staticmethod
     def le(value: float) -> ConstraintBound:
         """
-        Creates a less equal constraint bound.
+        Create a less equal constraint bound.
 
         Args:
             value (float): The value.
@@ -479,7 +479,7 @@ class ConstraintBound:
     @staticmethod
     def eq(value: float) -> ConstraintBound:
         """
-        Creates an equal constraint bound.
+        Create an equal constraint bound.
 
         Args:
             value (float): The value.
@@ -492,7 +492,7 @@ class ConstraintBound:
     @staticmethod
     def gt(value: float) -> ConstraintBound:
         """
-        Creates a greater than constraint bound.
+        Create a greater than constraint bound.
 
         Args:
             value (float): The value.
@@ -505,7 +505,7 @@ class ConstraintBound:
     @staticmethod
     def ge(value: float) -> ConstraintBound:
         """
-        Creates a greater equal constraint bound.
+        Create a greater equal constraint bound.
 
         Args:
             value (float): The value.
@@ -586,7 +586,7 @@ class Constraint:
 
     def add_property(self, property: int) -> None:
         """
-        Adds a property requirement to the constraint.
+        Add a property requirement to the constraint.
 
         Args:
             property (int): The property key that must be present in matching instructions.
@@ -595,7 +595,7 @@ class Constraint:
 
     def has_property(self, property: int) -> bool:
         """
-        Checks if the constraint requires a specific property.
+        Check if the constraint requires a specific property.
 
         Args:
             property (int): The property key to check.
@@ -616,7 +616,7 @@ def constant_function(
     value: int | float,
 ) -> _IntFunction | _FloatFunction:
     """
-    Creates a constant function.
+    Create a constant function.
 
     Args:
         value (int | float): The constant value.
@@ -634,7 +634,7 @@ def linear_function(
     slope: int | float,
 ) -> _IntFunction | _FloatFunction:
     """
-    Creates a linear function.
+    Create a linear function.
 
     Args:
         slope (int | float): The slope.
@@ -654,14 +654,15 @@ def block_linear_function(
     block_size: int, slope: int | float, offset: int | float
 ) -> _IntFunction | _FloatFunction:
     """
-    Creates a block linear function that takes an arity (number of qubits) as
+    Create a block linear function that takes an arity (number of qubits) as
     input.  Given an arity, it will compute the number of blocks `num_blocks` by
     computing `ceil(arity / block_size)` and then return `slope * num_blocks +
     offset`.
 
     Args:
-        block_size (int): The block size. slope (int | float): The slope. offset
-        (int | float): The offset
+        block_size (int): The block size.
+        slope (int | float): The slope.
+        offset (int | float): The offset.
 
     Returns:
         _IntFunction | _FloatFunction: The block linear function.
@@ -676,7 +677,7 @@ def generic_function(
     func: Callable[[int], int | float],
 ) -> _IntFunction | _FloatFunction:
     """
-    Creates a generic function from a Python callable.
+    Create a generic function from a Python callable.
 
     Note:
         Only use this function if the other function constructors
@@ -705,7 +706,7 @@ class _ProvenanceGraph:
         self, instruction: Instruction, transform_id: int, children: list[int]
     ) -> int:
         """
-        Adds a node to the provenance graph.
+        Add a node to the provenance graph.
 
         Args:
             instruction (int): The instruction corresponding to the node.
@@ -719,7 +720,7 @@ class _ProvenanceGraph:
 
     def instruction(self, node_index: int) -> Instruction:
         """
-        Returns the instruction for a given node index.
+        Return the instruction for a given node index.
 
         Args:
             node_index (int): The index of the node in the provenance graph.
@@ -731,7 +732,7 @@ class _ProvenanceGraph:
 
     def transform_id(self, node_index: int) -> int:
         """
-        Returns the transform ID for a given node index.
+        Return the transform ID for a given node index.
 
         Args:
             node_index (int): The index of the node in the provenance graph.
@@ -743,7 +744,7 @@ class _ProvenanceGraph:
 
     def children(self, node_index: int) -> list[int]:
         """
-        Returns the list of child node indices for a given node index.
+        Return the list of child node indices for a given node index.
 
         Args:
             node_index (int): The index of the node in the provenance graph.
@@ -755,7 +756,7 @@ class _ProvenanceGraph:
 
     def num_nodes(self) -> int:
         """
-        Returns the number of nodes in the provenance graph.
+        Return the number of nodes in the provenance graph.
 
         Returns:
             int: The number of nodes in the provenance graph.
@@ -764,7 +765,7 @@ class _ProvenanceGraph:
 
     def num_edges(self) -> int:
         """
-        Returns the number of edges in the provenance graph.
+        Return the number of edges in the provenance graph.
 
         Returns:
             int: The number of edges in the provenance graph.
@@ -802,7 +803,7 @@ class _ProvenanceGraph:
         **kwargs: int,
     ) -> int:
         """
-        Adds an instruction to the provenance graph with no transform or
+        Add an instruction to the provenance graph with no transform or
         children.
 
         Can be called with a pre-existing ``Instruction`` or with keyword
@@ -828,7 +829,7 @@ class _ProvenanceGraph:
 
     def make_isa(self, node_indices: list[int]) -> ISA:
         """
-        Creates an ISA backed by this provenance graph from the given node
+        Create an ISA backed by this provenance graph from the given node
         indices.
 
         Args:
@@ -855,7 +856,7 @@ class _ProvenanceGraph:
         min_node_idx: Optional[int] = None,
     ) -> list[ISA]:
         """
-        Returns ISAs formed from Pareto-optimal graph nodes satisfying the
+        Return ISAs formed from Pareto-optimal graph nodes satisfying the
         given requirements.
 
         For each constraint in requirements, selects matching Pareto-optimal
@@ -877,7 +878,7 @@ class _ProvenanceGraph:
 
     def raw_node_count(self) -> int:
         """
-        Returns the raw node count (including the sentinel at index 0).
+        Return the raw node count (including the sentinel at index 0).
 
         Returns:
             int: The number of nodes in the graph.
@@ -886,7 +887,7 @@ class _ProvenanceGraph:
 
     def total_isa_count(self) -> int:
         """
-        Returns the total number of ISAs that can be formed from Pareto-optimal
+        Return the total number of ISAs that can be formed from Pareto-optimal
         nodes.
 
         Requires ``build_pareto_index`` to have been called.
@@ -905,7 +906,7 @@ class EstimationResult:
         cls, *, qubits: int = 0, runtime: int = 0, error: float = 0.0
     ) -> EstimationResult:
         """
-        Creates a new estimation result.
+        Create a new estimation result.
 
         Args:
             qubits (int): The number of logical qubits.
@@ -930,7 +931,7 @@ class EstimationResult:
     @qubits.setter
     def qubits(self, qubits: int) -> None:
         """
-        Sets the number of logical qubits.
+        Set the number of logical qubits.
 
         Args:
             qubits (int): The number of logical qubits to set.
@@ -950,7 +951,7 @@ class EstimationResult:
     @runtime.setter
     def runtime(self, runtime: int) -> None:
         """
-        Sets the runtime.
+        Set the runtime.
 
         Args:
             runtime (int): The runtime in nanoseconds to set.
@@ -970,7 +971,7 @@ class EstimationResult:
     @error.setter
     def error(self, error: float) -> None:
         """
-        Sets the error probability.
+        Set the error probability.
 
         Args:
             error (float): The error probability to set.
@@ -1009,7 +1010,7 @@ class EstimationResult:
 
     def set_property(self, key: int, value: bool | int | float | str) -> None:
         """
-        Sets a custom property.
+        Set a custom property.
 
         Args:
             key (int) The property key.
@@ -1020,7 +1021,7 @@ class EstimationResult:
 
     def __str__(self) -> str:
         """
-        Returns a string representation of the estimation result.
+        Return a string representation of the estimation result.
 
         Returns:
             str: A string representation of the estimation result.
@@ -1035,7 +1036,7 @@ class _EstimationCollection:
 
     def __new__(cls) -> _EstimationCollection:
         """
-        Creates a new estimation collection.
+        Create a new estimation collection.
 
         Returns:
             _EstimationCollection: The estimation collection.
@@ -1044,7 +1045,7 @@ class _EstimationCollection:
 
     def insert(self, result: EstimationResult) -> None:
         """
-        Inserts an estimation result into the collection.
+        Insert an estimation result into the collection.
 
         Args:
             result (EstimationResult): The estimation result to insert.
@@ -1053,7 +1054,7 @@ class _EstimationCollection:
 
     def __len__(self) -> int:
         """
-        Returns the number of estimation results in the collection.
+        Return the number of estimation results in the collection.
 
         Returns:
             int: The number of estimation results.
@@ -1062,7 +1063,7 @@ class _EstimationCollection:
 
     def __iter__(self) -> Iterator[EstimationResult]:
         """
-        Returns an iterator over the estimation results.
+        Return an iterator over the estimation results.
 
         Returns:
             Iterator[EstimationResult]: The estimation result iterator.
@@ -1072,7 +1073,7 @@ class _EstimationCollection:
     @property
     def total_jobs(self) -> int:
         """
-        Returns the total number of (trace, ISA) estimation jobs.
+        Return the total number of (trace, ISA) estimation jobs.
 
         Returns:
             int: The total number of jobs.
@@ -1082,7 +1083,7 @@ class _EstimationCollection:
     @property
     def successful_estimates(self) -> int:
         """
-        Returns the number of estimation jobs that completed successfully
+        Return the number of estimation jobs that completed successfully
         (before Pareto filtering).
 
         Returns:
@@ -1093,7 +1094,7 @@ class _EstimationCollection:
     @property
     def all_summaries(self) -> list[tuple[int, int, int, int]]:
         """
-        Returns lightweight summaries of ALL successful estimates as a list
+        Return lightweight summaries of ALL successful estimates as a list
         of (trace_index, isa_index, qubits, runtime) tuples.
 
         Returns:
@@ -1105,7 +1106,7 @@ class _EstimationCollection:
     @property
     def isas(self) -> list[ISA]:
         """
-        Returns the list of ISAs for which estimates were performed.
+        Return the list of ISAs for which estimates were performed.
 
         Returns:
             list[ISA]: The list of ISAs.
@@ -1167,7 +1168,7 @@ class Trace:
 
     def __new__(cls, compute_qubits: int) -> Trace:
         """
-        Creates a new trace.
+        Create a new trace.
 
         Returns:
             Trace: The trace.
@@ -1176,7 +1177,7 @@ class Trace:
 
     def clone_empty(self, compute_qubits: Optional[int] = None) -> Trace:
         """
-        Creates a new trace with the same metadata but empty block.
+        Create a new trace with the same metadata but empty block.
 
         Args:
             compute_qubits (Optional[int]): The number of compute qubits. If None,
@@ -1190,7 +1191,7 @@ class Trace:
     @classmethod
     def from_json(cls, json: str) -> Trace:
         """
-        Creates a trace from a JSON string.
+        Create a trace from a JSON string.
 
         Args:
             json (str): The JSON string.
@@ -1222,7 +1223,7 @@ class Trace:
     @compute_qubits.setter
     def compute_qubits(self, qubits: int) -> None:
         """
-        Sets the number of compute qubits.
+        Set the number of compute qubits.
 
         Args:
             qubits (int): The number of compute qubits to set.
@@ -1260,7 +1261,7 @@ class Trace:
 
     def has_memory_qubits(self) -> bool:
         """
-        Checks if the trace has memory qubits set.
+        Check if the trace has memory qubits set.
 
         Returns:
             bool: True if memory qubits are set, False otherwise.
@@ -1270,7 +1271,7 @@ class Trace:
     @memory_qubits.setter
     def memory_qubits(self, qubits: int) -> None:
         """
-        Sets the number of memory qubits.
+        Set the number of memory qubits.
 
         Args:
             qubits (int): The number of memory qubits.
@@ -1299,7 +1300,7 @@ class Trace:
 
     def set_property(self, key: int, value: Any) -> None:
         """
-        Sets a property.  All values of type `int`, `float`, `bool`, and `str`
+        Set a property.  All values of type `int`, `float`, `bool`, and `str`
         are supported.  Any other value is converted to a string using its
         `__str__` method.
 
@@ -1311,7 +1312,7 @@ class Trace:
 
     def get_property(self, key: int) -> Optional[int | float | bool | str]:
         """
-        Gets a property.
+        Get a property.
 
         Args:
             key (int): The property key.
@@ -1323,7 +1324,7 @@ class Trace:
 
     def has_property(self, key: int) -> bool:
         """
-        Checks if a property with the given key exists.
+        Check if a property with the given key exists.
 
         Args:
             key (int): The property key.
@@ -1367,7 +1368,7 @@ class Trace:
         self, isa: ISA, max_error: Optional[float] = None
     ) -> Optional[EstimationResult]:
         """
-        Estimates resources for the trace given a logical ISA.
+        Estimate resources for the trace given a logical ISA.
 
         Args:
             isa (ISA): The logical ISA.
@@ -1394,7 +1395,7 @@ class Trace:
         self, id: int, qubits: list[int], params: list[float] = []
     ) -> None:
         """
-        Adds an operation to the trace.
+        Add an operation to the trace.
 
         Args:
             id (int): The operation ID.
@@ -1405,7 +1406,7 @@ class Trace:
 
     def root_block(self) -> Block:
         """
-        Returns the root block of the trace.
+        Return the root block of the trace.
 
         Returns:
             Block: The root block of the trace.
@@ -1414,7 +1415,7 @@ class Trace:
 
     def add_block(self, repetitions: int = 1) -> Block:
         """
-        Adds a block to the trace.
+        Add a block to the trace.
 
         Args:
             repetitions (int): The number of times the block is repeated.
@@ -1436,7 +1437,7 @@ class Trace:
 
     def __str__(self) -> str:
         """
-        Returns a string representation of the trace.
+        Return a string representation of the trace.
 
         Returns:
             str: A string representation of the trace.
@@ -1456,7 +1457,7 @@ class Block:
         self, id: int, qubits: list[int], params: list[float] = []
     ) -> None:
         """
-        Adds an operation to the block.
+        Add an operation to the block.
 
         Args:
             id (int): The operation ID.
@@ -1467,7 +1468,7 @@ class Block:
 
     def add_block(self, repetitions: int = 1) -> Block:
         """
-        Adds a nested block to the block.
+        Add a nested block to the block.
 
         Args:
             repetitions (int): The number of times the block is repeated.
@@ -1479,7 +1480,7 @@ class Block:
 
     def __str__(self) -> str:
         """
-        Returns a string representation of the block.
+        Return a string representation of the block.
 
         Returns:
             str: A string representation of the block.
@@ -1502,7 +1503,7 @@ class InstructionFrontier:
 
     def __new__(cls, *, with_error_objective: bool = True) -> InstructionFrontier:
         """
-        Creates a new instruction frontier.
+        Create a new instruction frontier.
 
         Args:
             with_error_objective (bool): If True (default), the frontier uses
@@ -1513,7 +1514,7 @@ class InstructionFrontier:
 
     def insert(self, point: Instruction):
         """
-        Inserts an instruction to the frontier.
+        Insert an instruction into the frontier.
 
         Args:
             point (Instruction): The instruction to insert.
@@ -1522,7 +1523,7 @@ class InstructionFrontier:
 
     def extend(self, points: list[Instruction]) -> None:
         """
-        Extends the frontier with a list of instructions.
+        Extend the frontier with a list of instructions.
 
         Args:
             points (list[Instruction]): The instructions to insert.
@@ -1531,7 +1532,7 @@ class InstructionFrontier:
 
     def __len__(self) -> int:
         """
-        Returns the number of instructions in the frontier.
+        Return the number of instructions in the frontier.
 
         Returns:
             int: The number of instructions.
@@ -1540,7 +1541,7 @@ class InstructionFrontier:
 
     def __iter__(self) -> Iterator[Instruction]:
         """
-        Returns an iterator over the instructions in the frontier.
+        Return an iterator over the instructions in the frontier.
 
         Returns:
             Iterator[Instruction]: The iterator.
@@ -1552,7 +1553,7 @@ class InstructionFrontier:
         filename: str, *, with_error_objective: bool = True
     ) -> InstructionFrontier:
         """
-        Loads an instruction frontier from a file.
+        Load an instruction frontier from a file.
 
         Args:
             filename (str): The file name.
@@ -1567,7 +1568,7 @@ class InstructionFrontier:
 
     def dump(self, filename: str) -> None:
         """
-        Dumps the instruction frontier to a file.
+        Dump the instruction frontier to a file.
 
         Args:
             filename (str): The file name.
@@ -1581,7 +1582,7 @@ def _estimate_parallel(
     post_process: bool = False,
 ) -> _EstimationCollection:
     """
-    Estimates resources for multiple traces and ISAs in parallel.
+    Estimate resources for multiple traces and ISAs in parallel.
 
     Args:
         traces (list[Trace]): The list of traces.
@@ -1602,7 +1603,7 @@ def _estimate_with_graph(
     post_process: bool = False,
 ) -> _EstimationCollection:
     """
-    Estimates resources using a Pareto-filtered provenance graph.
+    Estimate resources using a Pareto-filtered provenance graph.
 
     Instead of forming the full Cartesian product of ISAs × traces, this
     function enumerates per-trace instruction combinations from the
@@ -1628,20 +1629,16 @@ def _binom_ppf(q: float, n: int, p: float) -> int:
     ...
 
 def _float_to_bits(f: float) -> int:
-    """
-    Converts a float to its bit representation as an integer.
-    """
+    """Convert a float to its bit representation as an integer."""
     ...
 
 def _float_from_bits(b: int) -> float:
-    """
-    Converts a float from its bit representation as an integer.
-    """
+    """Convert a float from its bit representation as an integer."""
     ...
 
 def instruction_name(id: int) -> Optional[str]:
     """
-    Returns the name of an instruction given its ID, if known.
+    Return the name of an instruction given its ID, if known.
 
     Args:
         id (int): The instruction ID.
@@ -1653,7 +1650,7 @@ def instruction_name(id: int) -> Optional[str]:
 
 def property_name_to_key(name: str) -> Optional[int]:
     """
-    Converts a property name to its corresponding key, if known.
+    Convert a property name to its corresponding key, if known.
 
     Args:
         name (str): The property name.
@@ -1665,7 +1662,7 @@ def property_name_to_key(name: str) -> Optional[int]:
 
 def property_name(id: int) -> Optional[str]:
     """
-    Converts a property key to its corresponding name, if known.
+    Convert a property key to its corresponding name, if known.
 
     Args:
         id (int): The property key.

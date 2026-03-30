@@ -102,7 +102,7 @@ def _enumerate_union_members(
 
 def _enumerate_instances(cls: Type[T], **kwargs) -> Generator[T, None, None]:
     """
-    Yields all instances of a dataclass given its class.
+    Yield all instances of a dataclass given its class.
 
     The enumeration logic supports defining domains for fields using the
     ``domain`` metadata key.  Additionally, boolean fields are automatically

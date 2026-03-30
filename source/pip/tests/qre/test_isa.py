@@ -19,6 +19,7 @@ from qsharp.qre.property_keys import DISTANCE
 
 
 def test_isa():
+    """Test ISA creation, instruction lookup, and dynamic node addition."""
     graph = _ProvenanceGraph()
     isa = graph.make_isa(
         [
@@ -59,6 +60,7 @@ def test_isa():
 
 
 def test_instruction_properties():
+    """Test getting and setting instruction properties."""
     # Test instruction with no properties
     instr_no_props = _make_instruction(T, 1, 1, 1000, None, None, 1e-8, {})
     assert instr_no_props.get_property(DISTANCE) is None
@@ -79,6 +81,7 @@ def test_instruction_properties():
 
 
 def test_instruction_constraints():
+    """Test constraint property filtering and ISA.satisfies behavior."""
     # Test constraint without properties
     c_no_props = constraint(T, encoding=LOGICAL)
     assert c_no_props.has_property(DISTANCE) is False
@@ -123,6 +126,7 @@ def test_instruction_constraints():
 
 
 def test_property_names():
+    """Test property name lookup and case-insensitive key resolution."""
     assert property_name(DISTANCE) == "DISTANCE"
 
     # An unregistered property
@@ -141,6 +145,7 @@ def test_property_names():
 
 
 def test_generic_function():
+    """Test generic_function wrapping for int and float return types."""
     from qsharp.qre._qre import _IntFunction, _FloatFunction
 
     def time(x: int) -> int:
@@ -166,6 +171,7 @@ def test_generic_function():
 
 
 def test_isa_from_architecture():
+    """Test generating logical ISAs from an architecture and QEC code."""
     arch = GateBased(gate_time=50, measurement_time=100)
     code = SurfaceCode()
     ctx = arch.context()

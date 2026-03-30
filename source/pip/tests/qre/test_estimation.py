@@ -23,6 +23,7 @@ from .conftest import ExampleFactory
 
 
 def test_estimation_max_error():
+    """Test that estimation results respect the max_error constraint."""
     app = QSharpApplication(LogicalCounts({"numQubits": 100, "measurementCount": 100}))
     arch = GateBased(gate_time=50, measurement_time=100)
 
@@ -53,6 +54,7 @@ def test_estimation_max_error():
     ],
 )
 def test_estimation_methods(post_process, use_graph):
+    """Test all combinations of post_process and use_graph estimation paths."""
     counts = LogicalCounts(
         {
             "numQubits": 1000,

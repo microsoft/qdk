@@ -73,11 +73,11 @@ def estimate(
             builds a graph of ISAs and prunes suboptimal ISAs during estimation.
             If False, use the Rust estimation path that does not perform any
             pruning and simply enumerates all ISAs for each trace.
-        name (Optional[str]): An optional name for the estimation.  If give, this
+        name (Optional[str]): An optional name for the estimation.  If given, this
             will be added as a first column to the results table for all entries.
 
     Returns:
-        EstimationTable: A table containing the optimal estimation results
+        EstimationTable: A table containing the optimal estimation results.
     """
 
     app_ctx = application.context()

@@ -51,6 +51,15 @@ class Litinski19Factory(ISATransform):
     def provided_isa(
         self, impl_isa: ISA, ctx: ISAContext
     ) -> Generator[ISA, None, None]:
+        """Yield ISAs with T and CCZ factory instructions.
+
+        Args:
+            impl_isa (ISA): The implementation ISA providing physical gates.
+            ctx (ISAContext): The enumeration context.
+
+        Yields:
+            ISA: An ISA containing distilled T and/or CCZ instructions.
+        """
         h = impl_isa[H]
         cnot = impl_isa[CNOT]
         meas_z = impl_isa[MEAS_Z]
@@ -126,6 +135,7 @@ class Litinski19Factory(ISATransform):
                 yield ctx.make_isa(make_node(t_entry))
 
     def _initialize_entries(self):
+        """Initialize the distillation protocol lookup tables."""
         self._entries = {
             # Assuming a Clifford error rate of at most 1e-4:
             1e-4: (
@@ -323,6 +333,16 @@ class Litinski19Factory(ISATransform):
 
 @dataclass(frozen=True, slots=True)
 class _Entry:
+    """A single distillation protocol entry from the Litinski tables.
+
+    Attributes:
+        protocol (list[tuple[_Protocol, int]] | _Protocol): The distillation
+            protocol or pipeline of protocols.
+        error_rate (float): Output error rate of the protocol.
+        space (int): Space cost in physical qubits.
+        cycles (float): Number of syndrome extraction cycles.
+    """
+
     protocol: list[tuple[_Protocol, int]] | _Protocol
     error_rate: float
     # Space estimation in number of physical qubits
@@ -333,6 +353,7 @@ class _Entry:
 
     @property
     def output_states(self) -> int:
+        """Return the number of output magic states."""
         if isinstance(self.protocol, list):
             return self.protocol[-1][0].output_states
         else:
@@ -340,6 +361,7 @@ class _Entry:
 
     @property
     def state(self) -> int:
+        """Return the magic state instruction ID (T or CCZ)."""
         if isinstance(self.protocol, list):
             return self.protocol[-1][0].state
         else:
@@ -348,6 +370,17 @@ class _Entry:
 
 @dataclass(frozen=True, slots=True)
 class _Protocol:
+    """Parameters for a single distillation protocol.
+
+    Attributes:
+        input_states (int): Number of input T states.
+        output_states (int): Number of output T states.
+        d_x (int): Spatial X distance.
+        d_z (int): Spatial Z distance.
+        d_m (int): Temporal distance.
+        state (int): Magic state instruction ID. Default is T.
+    """
+
     # Number of input T states in protocol
     input_states: int
     # Number of output T states in protocol

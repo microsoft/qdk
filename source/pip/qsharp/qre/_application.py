@@ -49,10 +49,25 @@ class Application(ABC, Generic[TraceParameters]):
 
     @abstractmethod
     def get_trace(self, parameters: TraceParameters) -> Trace:
-        """Return the trace corresponding to this application."""
+        """Return the trace corresponding to this application and parameters.
+
+        Args:
+            parameters (TraceParameters): The trace parameters.
+
+        Returns:
+            Trace: The trace for this application instance and parameters.
+        """
 
     @staticmethod
     def q(**kwargs) -> TraceQuery:
+        """Create a trace query for this application.
+
+        Args:
+            **kwargs: Domain overrides forwarded to trace parameter enumeration.
+
+        Returns:
+            TraceQuery: A trace query for this application type.
+        """
         return TraceQuery(NoneType, **kwargs)
 
     def context(self) -> _Context:
@@ -69,7 +84,14 @@ class Application(ABC, Generic[TraceParameters]):
         self,
         **kwargs,
     ) -> Generator[Trace, None, None]:
-        """Yields all traces of an application given its dataclass parameters."""
+        """Yield all traces of an application given its dataclass parameters.
+
+        Args:
+            **kwargs: Domain overrides forwarded to ``_enumerate_instances``.
+
+        Yields:
+            Trace: A trace for each enumerated set of trace parameters.
+        """
 
         param_type = get_type_hints(self.__class__.get_trace).get("parameters")
         if param_type is types.NoneType:
@@ -95,7 +117,7 @@ class Application(ABC, Generic[TraceParameters]):
         self,
         **kwargs,
     ) -> Generator[tuple[TraceParameters, Trace], None, None]:
-        """Yields (parameters, trace) pairs for an application.
+        """Yield (parameters, trace) pairs for an application.
 
         Like ``enumerate_traces``, but each yielded trace is accompanied by the
         trace parameters that were used to generate it.
@@ -103,9 +125,9 @@ class Application(ABC, Generic[TraceParameters]):
         Args:
             **kwargs: Domain overrides forwarded to ``_enumerate_instances``.
 
-        Returns:
-            Generator[tuple[TraceParameters, Trace], None, None]: A generator
-                of (parameters, trace) pairs.
+        Yields:
+            tuple[TraceParameters, Trace]: A pair of trace parameters and
+                the corresponding trace.
         """
 
         param_type = get_type_hints(self.__class__.get_trace).get("parameters")
@@ -136,7 +158,15 @@ class Application(ABC, Generic[TraceParameters]):
 
 
 class _Context:
+    """Enumeration context wrapping an application instance."""
+
     application: Application
 
     def __init__(self, application: Application, **kwargs):
+        """Initialize the context for the given application.
+
+        Args:
+            application (Application): The application instance.
+            **kwargs: Additional keyword arguments (reserved for future use).
+        """
         self.application = application

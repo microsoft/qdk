@@ -47,7 +47,7 @@ def constraint(
     **kwargs: bool,
 ) -> Constraint:
     """
-    Creates an instruction constraint.
+    Create an instruction constraint.
 
     Args:
         id (int): The instruction ID.
@@ -89,7 +89,7 @@ class ISATransform(ABC):
     @abstractmethod
     def required_isa() -> ISARequirements:
         """
-        Returns the requirements that an implementation ISA must satisfy.
+        Return the requirements that an implementation ISA must satisfy.
 
         Returns:
             ISARequirements: The requirements for the underlying ISA.
@@ -105,6 +105,8 @@ class ISATransform(ABC):
 
         Args:
             impl_isa (ISA): The implementation ISA that satisfies requirements.
+            ctx (ISAContext): The enumeration context whose provenance graph
+                stores the instructions.
 
         Yields:
             ISA: A provided logical ISA.
@@ -119,13 +121,14 @@ class ISATransform(ABC):
         **kwargs,
     ) -> Generator[ISA, None, None]:
         """
-        Enumerates all valid ISAs for this transform given implementation ISAs.
+        Enumerate all valid ISAs for this transform given implementation ISAs.
 
         This method iterates over all instances of the transform class (enumerating
-        hypterparameters) and filters implementation ISAs against requirements.
+        hyperparameters) and filters implementation ISAs against requirements.
 
         Args:
             impl_isa (ISA | Iterable[ISA]): One or more implementation ISAs.
+            ctx (ISAContext): The enumeration context.
             **kwargs: Arguments passed to parameter enumeration.
 
         Yields:
@@ -143,7 +146,7 @@ class ISATransform(ABC):
     @classmethod
     def q(cls, *, source: ISAQuery | None = None, **kwargs) -> ISAQuery:
         """
-        Creates an ISAQuery node for this transform.
+        Create an ISAQuery node for this transform.
 
         Args:
             source (Node | None): The source node providing implementation ISAs.
@@ -160,7 +163,7 @@ class ISATransform(ABC):
     @classmethod
     def bind(cls, name: str, node: ISAQuery) -> _BindingNode:
         """
-        Creates a BindingNode for this transform.
+        Create a BindingNode for this transform.
 
         This is a convenience method equivalent to `cls.q().bind(name, node)`.
 
@@ -182,7 +185,7 @@ class InstructionSource:
     @classmethod
     def from_isa(cls, ctx: ISAContext, isa: ISA) -> InstructionSource:
         """
-        Constructs an InstructionSource graph from an ISA.
+        Construct an InstructionSource graph from an ISA.
 
         The instruction source graph contains more information than the
         provenance graph in the context, as it connects the instructions to the
@@ -229,6 +232,11 @@ class InstructionSource:
         return graph
 
     def add_root(self, node_id: int) -> None:
+        """Add a root node to the instruction source graph.
+
+        Args:
+            node_id (int): The index of the node to add as a root.
+        """
         self.roots.append(node_id)
 
     def add_node(
@@ -237,11 +245,24 @@ class InstructionSource:
         transform: Optional[ISATransform | Architecture],
         children: list[int],
     ) -> int:
+        """Add a node to the instruction source graph.
+
+        Args:
+            instruction (Instruction): The instruction for this node.
+            transform (Optional[ISATransform | Architecture]): The transform
+                that produced the instruction.
+            children (list[int]): Indices of child nodes.
+
+        Returns:
+            int: The index of the newly added node.
+        """
         node_id = len(self.nodes)
         self.nodes.append(_InstructionSourceNode(instruction, transform, children))
         return node_id
 
     def __str__(self) -> str:
+        """Return a formatted string representation of the instruction source graph."""
+
         def _format_node(node: _InstructionSourceNode, indent: int = 0) -> str:
             result = " " * indent + f"{instruction_name(node.instruction.id) or '??'}"
             if node.transform is not None:
@@ -256,7 +277,7 @@ class InstructionSource:
 
     def __getitem__(self, id: int) -> _InstructionSourceNodeReference:
         """
-        Retrieves the first instruction source root node with the given
+        Retrieve the first instruction source root node with the given
         instruction ID.  Raises KeyError if no such node exists.
 
         Args:
@@ -273,7 +294,7 @@ class InstructionSource:
 
     def __contains__(self, id: int) -> bool:
         """
-        Checks if there is an instruction source root node with the given
+        Check if there is an instruction source root node with the given
         instruction ID.
 
         Args:
@@ -292,7 +313,7 @@ class InstructionSource:
         self, id: int, default: Optional[_InstructionSourceNodeReference] = None
     ) -> Optional[_InstructionSourceNodeReference]:
         """
-        Retrieves the first instruction source root node with the given
+        Retrieve the first instruction source root node with the given
         instruction ID.  Returns default if no such node exists.
 
         Args:
@@ -313,30 +334,43 @@ class InstructionSource:
 
 @dataclass(frozen=True, slots=True)
 class _InstructionSourceNode:
+    """A node in the instruction source graph."""
+
     instruction: Instruction
     transform: Optional[ISATransform | Architecture]
     children: list[int]
 
 
 class _InstructionSourceNodeReference:
+    """Reference to a node in an InstructionSource graph."""
+
     def __init__(self, graph: InstructionSource, node_id: int):
+        """Initialize a reference to a node in the instruction source graph.
+
+        Args:
+            graph (InstructionSource): The owning instruction source graph.
+            node_id (int): The index of the referenced node.
+        """
         self.graph = graph
         self.node_id = node_id
 
     @property
     def instruction(self) -> Instruction:
+        """The instruction at this node."""
         return self.graph.nodes[self.node_id].instruction
 
     @property
     def transform(self) -> Optional[ISATransform | Architecture]:
+        """The transform that produced this node's instruction, if any."""
         return self.graph.nodes[self.node_id].transform
 
     def __str__(self) -> str:
+        """Return a string representation of the referenced node."""
         return str(self.graph.nodes[self.node_id])
 
     def __getitem__(self, id: int) -> _InstructionSourceNodeReference:
         """
-        Retrieves the first child instruction source node with the given
+        Retrieve the first child instruction source node with the given
         instruction ID.  Raises KeyError if no such node exists.
 
         Args:
@@ -357,7 +391,7 @@ class _InstructionSourceNodeReference:
         self, id: int, default: Optional[_InstructionSourceNodeReference] = None
     ) -> Optional[_InstructionSourceNodeReference]:
         """
-        Retrieves the first child instruction source node with the given
+        Retrieve the first child instruction source node with the given
         instruction ID.  Returns default if no such node exists.
 
         Args:
@@ -379,6 +413,15 @@ class _InstructionSourceNodeReference:
 
 
 def _isa_as_frame(self: ISA) -> pd.DataFrame:
+    """Convert an ISA to a pandas DataFrame.
+
+    Args:
+        self (ISA): The ISA to convert.
+
+    Returns:
+        pd.DataFrame: A DataFrame with columns for id, encoding, arity,
+            space, time, and error.
+    """
     data = {
         "id": [instruction_name(inst.id) for inst in self],
         "encoding": [Encoding(inst.encoding).name for inst in self],
@@ -401,6 +444,14 @@ def _isa_as_frame(self: ISA) -> pd.DataFrame:
 
 
 def _requirements_as_frame(self: ISARequirements) -> pd.DataFrame:
+    """Convert ISA requirements to a pandas DataFrame.
+
+    Args:
+        self (ISARequirements): The requirements to convert.
+
+    Returns:
+        pd.DataFrame: A DataFrame with columns for id, encoding, and arity.
+    """
     data = {
         "id": [instruction_name(inst.id) for inst in self],
         "encoding": [Encoding(inst.encoding).name for inst in self],

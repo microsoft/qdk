@@ -9,6 +9,7 @@ from qsharp.qre.interop import trace_from_qir
 
 
 def _ll_files():
+    """Return the list of QIR .ll test files."""
     ll_dir = (
         Path(__file__).parent.parent.parent
         / "tests-integration"
@@ -21,6 +22,7 @@ def _ll_files():
 
 @pytest.mark.parametrize("ll_file", _ll_files(), ids=lambda p: p.stem)
 def test_trace_from_qir(ll_file):
+    """Test that trace_from_qir can parse real QIR output files."""
     # NOTE: This test is primarily to ensure that the function can parse real
     # QIR output without errors, rather than checking specific properties of the
     # trace.
@@ -190,6 +192,7 @@ def test_trace_from_qir_handles_all_instruction_ids():
 
 
 def test_rotation_buckets():
+    """Test that rotation bucketization preserves total count and depth."""
     from qsharp.qre.interop._qsharp import _bucketize_rotation_counts
 
     print()

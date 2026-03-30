@@ -57,7 +57,7 @@ class EstimationTable(list["EstimationTableEntry"]):
         function: Callable[[EstimationTableEntry], Any],
         formatter: Optional[Callable[[Any], Any]] = None,
     ) -> None:
-        """Adds a column to the estimation table.
+        """Add a column to the estimation table.
 
         Args:
             name (str): The name of the column.
@@ -76,7 +76,7 @@ class EstimationTable(list["EstimationTableEntry"]):
         function: Callable[[EstimationTableEntry], Any],
         formatter: Optional[Callable[[Any], Any]] = None,
     ) -> None:
-        """Inserts a column at the specified index in the estimation table.
+        """Insert a column at the specified index in the estimation table.
 
         Args:
             index (int): The index at which to insert the column.
@@ -90,6 +90,7 @@ class EstimationTable(list["EstimationTableEntry"]):
         self._columns.insert(index, (name, EstimationTableColumn(function, formatter)))
 
     def add_qubit_partition_column(self) -> None:
+        """Add columns for the physical compute, factory, and memory qubit counts."""
         self.add_column(
             "physical_compute_qubits",
             lambda entry: entry.properties.get(PHYSICAL_COMPUTE_QUBITS, 0),
@@ -104,7 +105,7 @@ class EstimationTable(list["EstimationTableEntry"]):
         )
 
     def add_factory_summary_column(self) -> None:
-        """Adds a column to the estimation table that summarizes the factories used in the estimation."""
+        """Add a column to the estimation table that summarizes the factories used in the estimation."""
 
         def summarize_factories(entry: EstimationTableEntry) -> str:
             if not entry.factories:
@@ -201,6 +202,15 @@ class EstimationTableEntry:
     def from_result(
         cls, result: EstimationResult, ctx: ISAContext
     ) -> EstimationTableEntry:
+        """Create an entry from an estimation result and architecture context.
+
+        Args:
+            result (EstimationResult): The raw estimation result.
+            ctx (ISAContext): The architecture context used for the estimation.
+
+        Returns:
+            EstimationTableEntry: A new table entry populated from the result.
+        """
         return cls(
             qubits=result.qubits,
             runtime=result.runtime,
@@ -213,6 +223,16 @@ class EstimationTableEntry:
 
 @dataclass(slots=True)
 class EstimationTableStats:
+    """Statistics for a single estimation run.
+
+    Attributes:
+        num_traces (int): Number of traces evaluated.
+        num_isas (int): Number of ISAs evaluated.
+        total_jobs (int): Total estimation jobs executed.
+        successful_estimates (int): Number of jobs that produced a result.
+        pareto_results (int): Number of Pareto-optimal results retained.
+    """
+
     num_traces: int = 0
     num_isas: int = 0
     total_jobs: int = 0
@@ -261,7 +281,7 @@ def plot_estimates(
     figsize: tuple[float, float] = (15, 8),
     scatter_args: dict[str, Any] = {"marker": "x"},
 ):
-    """Returns a plot of the estimates displaying qubits vs runtime.
+    """Plot estimation results displaying qubits vs runtime.
 
     Creates a log-log scatter plot where the x-axis shows the total runtime and
     the y-axis shows the total number of physical qubits.

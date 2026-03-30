@@ -46,14 +46,17 @@ from qsharp.qre.property_keys import DISTANCE
 
 class TestGateBased:
     def test_default_error_rate(self):
+        """Test that default error rate is 1e-4."""
         arch = GateBased(gate_time=50, measurement_time=100)
         assert arch.error_rate == 1e-4
 
     def test_custom_error_rate(self):
+        """Test that a custom error rate is accepted."""
         arch = GateBased(error_rate=1e-3, gate_time=50, measurement_time=100)
         assert arch.error_rate == 1e-3
 
     def test_provided_isa_contains_expected_instructions(self):
+        """Test that GateBased ISA contains all expected physical instructions."""
         arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         isa = ctx.isa
@@ -62,6 +65,7 @@ class TestGateBased:
             assert instr_id in isa
 
     def test_instruction_encodings_are_physical(self):
+        """Test that all GateBased ISA instructions have PHYSICAL encoding."""
         arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         isa = ctx.isa
@@ -70,6 +74,7 @@ class TestGateBased:
             assert isa[instr_id].encoding == PHYSICAL
 
     def test_instruction_error_rates_match(self):
+        """Test that all instruction error rates match the architecture error rate."""
         rate = 1e-3
         arch = GateBased(error_rate=rate, gate_time=50, measurement_time=100)
         ctx = arch.context()
@@ -79,6 +84,7 @@ class TestGateBased:
             assert isa[instr_id].expect_error_rate() == rate
 
     def test_gate_times(self):
+        """Test that gate times match the configured gate and measurement times."""
         arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         isa = ctx.isa
@@ -95,6 +101,7 @@ class TestGateBased:
         assert isa[MEAS_Z].expect_time() == 100
 
     def test_arities(self):
+        """Test that instruction arities match expected values."""
         arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         isa = ctx.isa
@@ -106,6 +113,7 @@ class TestGateBased:
         assert isa[MEAS_Z].arity == 1
 
     def test_context_creation(self):
+        """Test that context creation succeeds."""
         arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         assert ctx is not None
@@ -118,10 +126,12 @@ class TestGateBased:
 
 class TestMajorana:
     def test_default_error_rate(self):
+        """Test that default Majorana error rate is 1e-5."""
         arch = Majorana()
         assert arch.error_rate == 1e-5
 
     def test_provided_isa_contains_expected_instructions(self):
+        """Test that Majorana ISA contains all expected instructions."""
         arch = Majorana()
         ctx = arch.context()
         isa = ctx.isa
@@ -130,6 +140,7 @@ class TestMajorana:
             assert instr_id in isa
 
     def test_all_times_are_1us(self):
+        """Test that all Majorana instruction times are 1000 ns."""
         arch = Majorana()
         ctx = arch.context()
         isa = ctx.isa
@@ -138,6 +149,7 @@ class TestMajorana:
             assert isa[instr_id].expect_time() == 1000
 
     def test_clifford_error_rates_match_qubit_error(self):
+        """Test that Clifford error rates match the qubit error rate."""
         for rate in [1e-4, 1e-5, 1e-6]:
             arch = Majorana(error_rate=rate)
             ctx = arch.context()
@@ -157,6 +169,7 @@ class TestMajorana:
             assert isa[T].expect_error_rate() == t_rate
 
     def test_two_qubit_measurement_arities(self):
+        """Test that two-qubit measurement instructions have arity 2."""
         arch = Majorana()
         ctx = arch.context()
         isa = ctx.isa
@@ -172,14 +185,17 @@ class TestMajorana:
 
 class TestSurfaceCode:
     def test_required_isa(self):
+        """Test that SurfaceCode has non-None required ISA."""
         reqs = SurfaceCode.required_isa()
         assert reqs is not None
 
     def test_default_distance(self):
+        """Test SurfaceCode with explicit distance parameter."""
         sc = SurfaceCode(distance=3)
         assert sc.distance == 3
 
     def test_provides_lattice_surgery(self):
+        """Test that SurfaceCode provides a logical LATTICE_SURGERY instruction."""
         arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         sc = SurfaceCode(distance=3)
@@ -219,6 +235,7 @@ class TestSurfaceCode:
             assert ls.expect_time(1) == syndrome_time * d
 
     def test_error_rate_decreases_with_distance(self):
+        """Test that logical error rate decreases as code distance increases."""
         arch = GateBased(gate_time=50, measurement_time=100)
 
         errors = []
@@ -246,6 +263,7 @@ class TestSurfaceCode:
         assert count == 12
 
     def test_custom_crossing_prefactor(self):
+        """Test that doubling the crossing prefactor doubles the error rate."""
         arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
 
@@ -265,6 +283,7 @@ class TestSurfaceCode:
         assert abs(custom_error - 2 * default_error) < 1e-20
 
     def test_custom_error_correction_threshold(self):
+        """Test that a lower error correction threshold yields a higher logical error."""
         arch = GateBased(gate_time=50, measurement_time=100)
 
         ctx1 = arch.context()
@@ -290,10 +309,12 @@ class TestSurfaceCode:
 
 class TestThreeAux:
     def test_required_isa(self):
+        """Test that ThreeAux has non-None required ISA."""
         reqs = ThreeAux.required_isa()
         assert reqs is not None
 
     def test_provides_lattice_surgery(self):
+        """Test that ThreeAux provides a LATTICE_SURGERY instruction."""
         arch = Majorana()
         ctx = arch.context()
         ta = ThreeAux(distance=3)
@@ -340,6 +361,7 @@ class TestThreeAux:
             assert ls.expect_time(1) == expected_time
 
     def test_error_rate_decreases_with_distance(self):
+        """Test that ThreeAux error rate decreases with increasing distance."""
         arch = Majorana()
 
         errors = []
@@ -374,6 +396,7 @@ class TestThreeAux:
         assert error_double != error_single
 
     def test_enumeration_via_query(self):
+        """Test that ThreeAux.q() enumerates all distance and rail combinations."""
         arch = Majorana()
         ctx = arch.context()
 
@@ -402,6 +425,7 @@ class TestYokedSurfaceCode:
         return isas[0], ctx
 
     def test_provides_memory_instruction(self):
+        """Test that YokedSurfaceCode provides a MEMORY instruction."""
         ls_isa, ctx = self._get_lattice_surgery_isa()
         ysc = TwoDimensionalYokedSurfaceCode()
 
@@ -410,6 +434,7 @@ class TestYokedSurfaceCode:
         assert MEMORY in isas[0]
 
     def test_memory_is_logical(self):
+        """Test that the MEMORY instruction has LOGICAL encoding."""
         ls_isa, ctx = self._get_lattice_surgery_isa()
         ysc = TwoDimensionalYokedSurfaceCode()
 
@@ -418,6 +443,7 @@ class TestYokedSurfaceCode:
         assert mem.encoding == LOGICAL
 
     def test_memory_arity_is_variable(self):
+        """Test that MEMORY instruction has variable arity (None)."""
         ls_isa, ctx = self._get_lattice_surgery_isa()
         ysc = TwoDimensionalYokedSurfaceCode()
 
@@ -427,6 +453,7 @@ class TestYokedSurfaceCode:
         assert mem.arity is None
 
     def test_space_increases_with_arity(self):
+        """Test that MEMORY space increases with the number of qubits."""
         ls_isa, ctx = self._get_lattice_surgery_isa()
         ysc = TwoDimensionalYokedSurfaceCode()
 
@@ -438,6 +465,7 @@ class TestYokedSurfaceCode:
             assert spaces[i] < spaces[i + 1]
 
     def test_time_increases_with_arity(self):
+        """Test that MEMORY time increases with the number of qubits."""
         ls_isa, ctx = self._get_lattice_surgery_isa()
         ysc = TwoDimensionalYokedSurfaceCode()
 
@@ -449,6 +477,7 @@ class TestYokedSurfaceCode:
             assert times[i] < times[i + 1]
 
     def test_error_rate_increases_with_arity(self):
+        """Test that MEMORY error rate increases with the number of qubits."""
         ls_isa, ctx = self._get_lattice_surgery_isa()
         ysc = TwoDimensionalYokedSurfaceCode()
 
@@ -460,6 +489,7 @@ class TestYokedSurfaceCode:
             assert errors[i] < errors[i + 1]
 
     def test_distance_property_propagated(self):
+        """Test that the distance property is propagated to the MEMORY instruction."""
         d = 7
         ls_isa, ctx = self._get_lattice_surgery_isa(distance=d)
         ysc = TwoDimensionalYokedSurfaceCode()
@@ -476,6 +506,7 @@ class TestYokedSurfaceCode:
 
 class TestLitinski19Factory:
     def test_required_isa(self):
+        """Test that Litinski19Factory has non-None required ISA."""
         reqs = Litinski19Factory.required_isa()
         assert reqs is not None
 
@@ -496,6 +527,7 @@ class TestLitinski19Factory:
             assert len(isa) == 2
 
     def test_table1_instruction_properties(self):
+        """Test that Table 1 T and CCZ instructions have valid properties."""
         arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         factory = Litinski19Factory()
@@ -620,6 +652,7 @@ class TestLitinski19Factory:
 
 class TestMagicUpToClifford:
     def test_required_isa_is_empty(self):
+        """Test that MagicUpToClifford has non-None required ISA."""
         reqs = MagicUpToClifford.required_isa()
         assert reqs is not None
 
@@ -758,6 +791,7 @@ class TestMagicUpToClifford:
 
 
 def test_isa_manipulation():
+    """Test Litinski19Factory and MagicUpToClifford ISA integration."""
     arch = GateBased(gate_time=50, measurement_time=100)
     factory = Litinski19Factory()
     modifier = MagicUpToClifford()
@@ -809,10 +843,12 @@ def test_isa_manipulation():
 
 class TestRoundBasedFactory:
     def test_required_isa(self):
+        """Test that RoundBasedFactory has non-None required ISA."""
         reqs = RoundBasedFactory.required_isa()
         assert reqs is not None
 
     def test_produces_logical_t_gates(self):
+        """Test that RoundBasedFactory produces logical T gates with valid properties."""
         arch = GateBased(gate_time=50, measurement_time=100)
 
         for isa in RoundBasedFactory.q(use_cache=False).enumerate(arch.context()):
@@ -891,6 +927,7 @@ class TestRoundBasedFactory:
         assert count > 0
 
     def test_round_based_gate_based_sum(self):
+        """Test RoundBasedFactory aggregated totals with GateBased sum mode."""
         arch = GateBased(gate_time=50, measurement_time=100)
 
         total_space = 0
@@ -910,6 +947,7 @@ class TestRoundBasedFactory:
         assert count == 107
 
     def test_round_based_gate_based_max(self):
+        """Test RoundBasedFactory aggregated totals with GateBased max mode."""
         arch = GateBased(gate_time=50, measurement_time=100)
 
         total_space = 0
@@ -931,6 +969,7 @@ class TestRoundBasedFactory:
         assert count == 77
 
     def test_round_based_msft_sum(self):
+        """Test RoundBasedFactory aggregated totals with Majorana sum mode."""
         arch = Majorana()
 
         total_space = 0
