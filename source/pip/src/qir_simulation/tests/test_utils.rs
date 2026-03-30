@@ -1285,6 +1285,7 @@ fn noise_table_f64_to_f32(
         ryy: noise_table_f64_to_f32_table(noise.ryy),
         rzz: noise_table_f64_to_f32_table(noise.rzz),
         swap: noise_table_f64_to_f32_table(noise.swap),
+        ccx: noise_table_f64_to_f32_table(noise.ccx),
         mov: noise_table_f64_to_f32_table(noise.mov),
         mz: noise_table_f64_to_f32_table(noise.mz),
         mresetz: noise_table_f64_to_f32_table(noise.mresetz),
