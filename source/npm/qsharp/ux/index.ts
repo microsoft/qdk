@@ -27,6 +27,7 @@ export { MoleculeViewer } from "./chem/index.js";
 export {
   OrbitalEntanglement,
   type OrbitalEntanglementProps,
+  orbitalEntanglementToSvg,
 } from "./orbitalEntanglement.js";
 export {
   ensureTheme,

@@ -17,6 +17,8 @@ import {
   type TraceData,
   MoleculeViewer,
   OrbitalEntanglement,
+  type OrbitalEntanglementProps,
+  orbitalEntanglementToSvg,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
@@ -306,34 +308,39 @@ function renderAtoms({ model, el }: RenderArgs) {
 }
 
 function renderOrbitalEntanglement({ model, el }: RenderArgs) {
-  const onChange = () => {
+  /** Read model state and build the full props object for OrbitalEntanglement. */
+  function getWidgetProps(
+    extra?: Partial<OrbitalEntanglementProps>,
+  ): OrbitalEntanglementProps {
     const s1Entropies = model.get("s1_entropies") as number[];
     const mutualInformation = model.get("mutual_information") as number[][];
     const labels = model.get("labels") as string[];
     const selectedIndices = model.get("selected_indices") as number[] | null;
-    const options = (model.get("options") || {}) as Record<string, unknown>;
+    const opts = (model.get("options") || {}) as Record<string, unknown>;
 
-    prender(
-      <OrbitalEntanglement
-        s1Entropies={s1Entropies}
-        mutualInformation={mutualInformation}
-        labels={labels}
-        selectedIndices={selectedIndices ?? undefined}
-        gapDeg={options.gap_deg as number | undefined}
-        radius={options.radius as number | undefined}
-        arcWidth={options.arc_width as number | undefined}
-        lineScale={options.line_scale as number | null | undefined}
-        miThreshold={options.mi_threshold as number | undefined}
-        s1Vmax={options.s1_vmax as number | null | undefined}
-        miVmax={options.mi_vmax as number | null | undefined}
-        title={options.title as string | null | undefined}
-        width={options.width as number | undefined}
-        height={options.height as number | undefined}
-        selectionColor={options.selection_color as string | undefined}
-        selectionLinewidth={options.selection_linewidth as number | undefined}
-      />,
-      el,
-    );
+    return {
+      s1Entropies,
+      mutualInformation,
+      labels,
+      selectedIndices: selectedIndices ?? undefined,
+      gapDeg: opts.gap_deg as number | undefined,
+      radius: opts.radius as number | undefined,
+      arcWidth: opts.arc_width as number | undefined,
+      lineScale: opts.line_scale as number | null | undefined,
+      miThreshold: opts.mi_threshold as number | undefined,
+      s1Vmax: opts.s1_vmax as number | null | undefined,
+      miVmax: opts.mi_vmax as number | null | undefined,
+      title: opts.title as string | null | undefined,
+      width: opts.width as number | undefined,
+      height: opts.height as number | undefined,
+      selectionColor: opts.selection_color as string | undefined,
+      selectionLinewidth: opts.selection_linewidth as number | undefined,
+      ...extra,
+    };
+  }
+
+  const onChange = () => {
+    prender(<OrbitalEntanglement {...getWidgetProps()} />, el);
   };
 
   onChange();
@@ -344,12 +351,25 @@ function renderOrbitalEntanglement({ model, el }: RenderArgs) {
   model.on("change:options", onChange);
 
   // Handle SVG export requests from Python
-  model.on("msg:custom", (msg: { type: string }) => {
+  model.on("msg:custom", (msg: { type: string; dark_mode?: boolean }) => {
     if (msg.type === "export_svg") {
-      const svgEl = el.querySelector("svg");
-      if (svgEl) {
-        const serializer = new XMLSerializer();
-        const svgString = serializer.serializeToString(svgEl);
+      let svgString: string | undefined;
+
+      if (msg.dark_mode !== undefined) {
+        // Re-render with explicit dark_mode for standalone SVG
+        svgString = orbitalEntanglementToSvg(
+          getWidgetProps({ darkMode: msg.dark_mode }),
+        );
+      } else {
+        // Serialize the current DOM SVG
+        const svgEl = el.querySelector("svg");
+        if (svgEl) {
+          const serializer = new XMLSerializer();
+          svgString = serializer.serializeToString(svgEl);
+        }
+      }
+
+      if (svgString) {
         model.send({
           type: "svg_data",
           svg: svgString,

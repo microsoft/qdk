@@ -42,6 +42,7 @@ export interface OrbitalEntanglementProps {
   height?: number;
   selectionColor?: string;
   selectionLinewidth?: number;
+  darkMode?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +158,20 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
     height = 660,
     selectionColor = "#222222",
     selectionLinewidth = 2.5,
+    darkMode,
   } = props;
+
+  const isStatic = darkMode !== undefined;
+  const fgColor = isStatic
+    ? darkMode
+      ? "#e0e0e0"
+      : "#222222"
+    : "currentColor";
+  const bgColor = isStatic
+    ? darkMode
+      ? "#1e1e1e"
+      : "transparent"
+    : "transparent";
 
   const n = s1Entropies.length;
 
@@ -309,7 +323,8 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       width={width}
       height={height}
       class="qs-orbital-entanglement"
-      style={{ background: "transparent" }}
+      style={{ background: bgColor }}
+      {...(isStatic ? { "xmlns:xlink": "http://www.w3.org/1999/xlink" } : {})}
     >
       {/* Title */}
       {title && (
@@ -319,7 +334,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
           text-anchor="middle"
           font-size="14"
           font-weight="bold"
-          fill="currentColor"
+          fill={fgColor}
         >
           {title}
         </text>
@@ -418,7 +433,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
                 dominant-baseline="central"
                 font-size={fsPx}
                 font-weight="bold"
-                fill="currentColor"
+                fill={fgColor}
                 transform={`rotate(${rot},${lx},${ly})`}
               >
                 {labels[i]}
@@ -436,7 +451,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
           y={cbY - 2}
           text-anchor="middle"
           font-size="9"
-          fill="currentColor"
+          fill={fgColor}
         >
           Single-orbital entropy
         </text>
@@ -453,7 +468,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
             />
           );
         })}
-        <text x={cbX} y={cbY + cbH + 10} font-size="8" fill="currentColor">
+        <text x={cbX} y={cbY + cbH + 10} font-size="8" fill={fgColor}>
           0
         </text>
         <text
@@ -461,7 +476,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
           y={cbY + cbH + 10}
           text-anchor="end"
           font-size="8"
-          fill="currentColor"
+          fill={fgColor}
         >
           {s1Max.toFixed(2)}
         </text>
@@ -474,7 +489,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
           y={cbY + cbH + 22}
           text-anchor="middle"
           font-size="9"
-          fill="currentColor"
+          fill={fgColor}
         >
           Mutual information
         </text>
@@ -491,7 +506,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
             />
           );
         })}
-        <text x={cbX} y={cbY + cbH * 2 + 34} font-size="8" fill="currentColor">
+        <text x={cbX} y={cbY + cbH * 2 + 34} font-size="8" fill={fgColor}>
           0
         </text>
         <text
@@ -499,7 +514,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
           y={cbY + cbH * 2 + 34}
           text-anchor="end"
           font-size="8"
-          fill="currentColor"
+          fill={fgColor}
         >
           {miMax.toFixed(2)}
         </text>

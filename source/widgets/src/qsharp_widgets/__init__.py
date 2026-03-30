@@ -321,7 +321,7 @@ class OrbitalEntanglement(anywidget.AnyWidget):
             if self._svg_event is not None:
                 self._svg_event.set()
 
-    def export_svg(self, path=None, timeout=5):
+    def export_svg(self, path=None, timeout=5, dark_mode=None):
         """Export the rendered diagram as an SVG string or file.
 
         Parameters
@@ -331,6 +331,11 @@ class OrbitalEntanglement(anywidget.AnyWidget):
             returned.  Otherwise the SVG markup string is returned.
         timeout : float
             Seconds to wait for the front-end to respond.
+        dark_mode : bool, optional
+            When ``True`` the exported SVG uses light-on-dark colours;
+            when ``False`` it uses dark-on-light colours.  If ``None``
+            (the default) the current in-notebook rendering is serialised
+            as-is (colours follow the host theme via CSS variables).
 
         Returns
         -------
@@ -341,7 +346,10 @@ class OrbitalEntanglement(anywidget.AnyWidget):
 
         self._svg_data = None
         self._svg_event = threading.Event()
-        self.send({"type": "export_svg"})
+        msg: dict[str, object] = {"type": "export_svg"}
+        if dark_mode is not None:
+            msg["dark_mode"] = bool(dark_mode)
+        self.send(msg)
         if not self._svg_event.wait(timeout=timeout):
             raise TimeoutError(
                 "Timed out waiting for the front-end to return the SVG. "
