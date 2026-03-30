@@ -20,12 +20,12 @@ _The Japanese word for "form", a pattern of learning and practicing new skills._
                 @[svg]({"path": "./media/Copilot.svg"})
             </td>
             <td role="heading" aria-level="4" style="border:none;">
-                <b>Self-paced AI-assisted learning</b>
+                <b>Self-paced learning</b>
             </td>
         </tr>
         <tr class="transparent" style="border:none;">
             <td style="border:none;">
-                Quantum katas are self-paced learning tutorials assisted by Copilot in Microsoft Quantum.
+                Quantum katas are self-paced learning tutorials in Microsoft Quantum.
             </td>
         </tr>
         <tr class="transparent" style="border:none;">

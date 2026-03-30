@@ -186,6 +186,7 @@ fn remap_block_ids_out_of_order_with_one_branch() {
             },
             BlockId(3),
             BlockId(1),
+            None,
         )]),
     );
     program
@@ -278,6 +279,7 @@ fn remap_block_ids_simple_loop() {
             },
             BlockId(6),
             BlockId(2),
+            None,
         )]),
     );
     program
@@ -433,6 +435,7 @@ fn remap_block_ids_nested_branching_loops() {
             },
             BlockId(6),
             BlockId(2),
+            None,
         )]),
     );
     program.blocks.insert(
@@ -444,6 +447,7 @@ fn remap_block_ids_nested_branching_loops() {
             },
             BlockId(4),
             BlockId(2),
+            None,
         )]),
     );
     program
@@ -527,6 +531,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             },
             BlockId(6),
             BlockId(2),
+            None,
         )]),
     );
     program
@@ -541,6 +546,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             },
             BlockId(1),
             BlockId(3),
+            None,
         )]),
     );
     program
@@ -555,6 +561,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
             },
             BlockId(5),
             BlockId(0),
+            None,
         )]),
     );
     program

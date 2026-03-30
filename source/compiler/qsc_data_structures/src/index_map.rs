@@ -39,7 +39,7 @@ impl<K, V> IndexMap<K, V> {
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.values.is_empty()
+        self.values.iter().all(Option::is_none)
     }
 
     // `Iter` does implement `Iterator`, but it has an additional bound on `K`.

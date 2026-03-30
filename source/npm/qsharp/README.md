@@ -46,9 +46,9 @@ All operations return a Promise which resolves then the operation is complete. S
 may also emit events, such as debug messages or state dumps as they are processed. The service
 itself can also emit events which can be subscribed to using `addEventListener`.
 
-See the Q# playground code at <https://github.com/microsoft/qsharp/tree/main/source/playground> for
+See the Q# playground code at <https://github.com/microsoft/qdk/tree/main/source/playground> for
 an example of code that uses this package. The unit tests at
-<https://github.com/microsoft/qsharp/tree/main/source/npm/test> are also a good reference.
+<https://github.com/microsoft/qdk/tree/main/source/npm/test> are also a good reference.
 
 Promises, Events, and Cancellation are based on JavaScript or Web standards, or the VS Code API:
 

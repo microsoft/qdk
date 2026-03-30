@@ -12,6 +12,7 @@ import venv
 import shutil
 import subprocess
 import functools
+import tomllib
 
 from prereqs import check_prereqs, add_wasm_tools_to_path
 
@@ -193,6 +194,9 @@ def install_build_package(cwd, interpreter):
 
 
 def use_python_env(folder):
+    # Copy the process env vars to modify for pip subprocess calls
+    pip_env = os.environ.copy()
+
     # Check if in a virtual environment
     if (
         os.environ.get("VIRTUAL_ENV") is None
@@ -212,13 +216,19 @@ def use_python_env(folder):
         if not os.path.exists(python_bin):
             python_bin = os.path.join(venv_dir, "Scripts", "python.exe")
         print(f"Using python from {python_bin}")
+
+        # Update the PATH in the pip_env to include the current interpreter's bin/ directory
+        pip_env["PATH"] = (
+            os.path.dirname(python_bin) + os.pathsep + pip_env.get("PATH", "")
+        )
+        pip_env["VIRTUAL_ENV"] = os.path.dirname(os.path.dirname(python_bin))
     else:
         # Already in a virtual environment, use current Python
         python_bin = sys.executable
 
     install_build_package(qdk_python_src, python_bin)
 
-    return python_bin
+    return (python_bin, pip_env)
 
 
 if npm_install_needed:
@@ -341,11 +351,19 @@ def install_python_test_requirements(cwd, interpreter, check: bool = True):
         subprocess.run(command_args, check=check, text=True, cwd=cwd)
 
 
-def build_qsharp_wheel(cwd, interpreter, pip_env_dir):
+def build_qsharp_wheel(cwd, interpreter, pip_env):
+    # Read the build dependencies out of the pyproject.toml and install them first.
+    with open(os.path.join(cwd, "pyproject.toml"), "rb") as f:
+        requires = tomllib.load(f)["build-system"]["requires"]
+
+    command_args = [interpreter, "-m", "pip", "install", *requires]
+    subprocess.run(command_args, check=True, text=True, cwd=cwd, env=pip_env)
+
     command_args = [
         interpreter,
         "-m",
         "build",
+        "--no-isolation",
         "--wheel",
         "-v",
     ]
@@ -363,11 +381,11 @@ def build_qsharp_wheel(cwd, interpreter, pip_env_dir):
 
     command_args.append(cwd)
 
-    subprocess.run(command_args, check=True, text=True, cwd=cwd, env=pip_env_dir)
+    subprocess.run(command_args, check=True, text=True, cwd=cwd, env=pip_env)
 
 
-def run_python_tests(cwd, interpreter):
-    test_env = os.environ.copy()
+def run_python_tests(cwd, interpreter, pip_env):
+    test_env = pip_env.copy()
     if args.gpu_tests:
         test_env["QDK_GPU_TESTS"] = "1"
 
@@ -428,10 +446,7 @@ def run_ci_historic_benchmark():
 if build_pip:
     step_start("Building the pip package")
 
-    python_bin = use_python_env(pip_src)
-
-    # copy the process env vars
-    pip_env: dict[str, str] = os.environ.copy()
+    (python_bin, pip_env) = use_python_env(pip_src)
 
     build_qsharp_wheel(pip_src, python_bin, pip_env)
     step_end()
@@ -441,7 +456,7 @@ if build_pip:
 
         install_python_test_requirements(pip_src, python_bin)
         install_qsharp_python_package(pip_src, wheels_dir, python_bin)
-        run_python_tests(os.path.join(pip_src, "tests"), python_bin)
+        run_python_tests(os.path.join(pip_src, "tests"), python_bin, pip_env)
 
         step_end()
 
@@ -476,7 +491,7 @@ if build_qdk:
     step_start("Building the qdk python package")
 
     # Reuse (or create) the pip environment so qsharp wheel can be built/installed consistently.
-    python_bin = use_python_env(qdk_python_src)
+    (python_bin, pip_env) = use_python_env(qdk_python_src)
 
     # Build the qdk wheel (no dependency build needed; it's a thin meta-package)
     qdk_build_args = [
@@ -516,13 +531,13 @@ if build_qdk:
         subprocess.run(install_args, check=True, text=True, cwd=qdk_python_src)
 
         # Run its test suite
-        run_python_tests(os.path.join(qdk_python_src, "tests"), python_bin)
+        run_python_tests(os.path.join(qdk_python_src, "tests"), python_bin, pip_env)
         step_end()
 
 if build_widgets:
     step_start("Building the Python widgets")
 
-    python_bin = use_python_env(qdk_python_src)
+    (python_bin, _) = use_python_env(qdk_python_src)
 
     widgets_build_args = [
         python_bin,
@@ -657,7 +672,7 @@ if build_vscode:
 if build_jupyterlab:
     step_start("Building the JupyterLab extension")
 
-    python_bin = use_python_env(jupyterlab_src)
+    (python_bin, _) = use_python_env(jupyterlab_src)
 
     pip_build_args = [
         python_bin,
@@ -695,10 +710,7 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("carbon.")
         )
     ]
-    python_bin = use_python_env(samples_src)
-
-    # copy the process env vars
-    pip_env: dict[str, str] = os.environ.copy()
+    (python_bin, pip_env) = use_python_env(samples_src)
 
     # Install the qsharp package
     pip_install_args = [
@@ -711,7 +723,7 @@ if build_pip and build_widgets and args.integration_tests:
         "--find-links=" + wheels_dir,
         f"qsharp",
     ]
-    subprocess.run(pip_install_args, check=True, text=True, cwd=pip_src)
+    subprocess.run(pip_install_args, check=True, text=True, cwd=pip_src, env=pip_env)
 
     # Install the widgets package from the folder so dependencies are installed properly
     pip_install_args = [
@@ -741,7 +753,10 @@ if build_pip and build_widgets and args.integration_tests:
     qiskit_notebooks = [
         notebook
         for notebook in notebook_files
-        if ("qiskit" in os.path.basename(notebook).lower() or "estimation-openqasm" in os.path.basename(notebook).lower())
+        if (
+            "qiskit" in os.path.basename(notebook).lower()
+            or "estimation-openqasm" in os.path.basename(notebook).lower()
+        )
     ]
     other_notebooks = [
         notebook for notebook in notebook_files if notebook not in qiskit_notebooks
@@ -811,7 +826,7 @@ if build_pip and build_widgets and args.integration_tests:
 
     install_python_test_requirements(pip_src, python_bin)
     for test_project_dir in test_projects_directories:
-        run_python_tests(test_project_dir, python_bin)
+        run_python_tests(test_project_dir, python_bin, pip_env)
     step_end()
 
 if ci_bench:

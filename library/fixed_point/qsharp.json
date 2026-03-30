@@ -6,7 +6,7 @@
       "github": {
         "owner": "Microsoft",
         "repo": "qdk",
-        "ref": "v1.25.0",
+        "ref": "v1.26.0",
         "path": "library/signed"
       }
     }

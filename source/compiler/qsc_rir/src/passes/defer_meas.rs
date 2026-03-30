@@ -47,12 +47,12 @@ pub fn defer_measurements(program: &mut Program) {
             }
 
             // Measurements and output recordings should maintain their order relative to the same type.
-            (Instruction::Call(a_id, _, _), Instruction::Call(b_id, _, _))
+            (Instruction::Call(a_id, _, _, _), Instruction::Call(b_id, _, _, _))
                 if measure_call_ids.contains(a_id) && measure_call_ids.contains(b_id) =>
             {
                 std::cmp::Ordering::Equal
             }
-            (Instruction::Call(a_id, _, _), Instruction::Call(b_id, _, _))
+            (Instruction::Call(a_id, _, _, _), Instruction::Call(b_id, _, _, _))
                 if output_recording_ids.contains(a_id) && output_recording_ids.contains(b_id) =>
             {
                 std::cmp::Ordering::Equal
@@ -60,21 +60,21 @@ pub fn defer_measurements(program: &mut Program) {
 
             // Output recording should come after any other instruction except for terminator instructions,
             // which are handled above.
-            (Instruction::Call(a_id, _, _), _) if output_recording_ids.contains(a_id) => {
+            (Instruction::Call(a_id, _, _, _), _) if output_recording_ids.contains(a_id) => {
                 std::cmp::Ordering::Greater
             }
-            (_, Instruction::Call(b_id, _, _)) if output_recording_ids.contains(b_id) => {
+            (_, Instruction::Call(b_id, _, _, _)) if output_recording_ids.contains(b_id) => {
                 std::cmp::Ordering::Less
             }
 
             // Measurements should come after any other instruction except for terminator instructions,
             // and output recording instructions, which are handled above.
-            (Instruction::Call(a_id, _, _), Instruction::Call(..))
+            (Instruction::Call(a_id, _, _, _), Instruction::Call(..))
                 if measure_call_ids.contains(a_id) =>
             {
                 std::cmp::Ordering::Greater
             }
-            (Instruction::Call(..), Instruction::Call(b_id, _, _))
+            (Instruction::Call(..), Instruction::Call(b_id, _, _, _))
                 if measure_call_ids.contains(b_id) =>
             {
                 std::cmp::Ordering::Less

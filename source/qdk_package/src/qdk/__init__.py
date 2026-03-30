@@ -10,6 +10,7 @@ Design goals:
 Optional extras:
     azure   -> installs `azure-quantum`, available as `qdk.azure`.
     qiskit  -> installs `qiskit`, available as `qdk.qiskit`.
+    cirq    -> installs `cirq-core` + `cirq-ionq`, available as `qdk.cirq`.
     jupyter -> installs `qsharp-widgets` + `qsharp-jupyterlab`; exposes `qdk.widgets`.
 
 """

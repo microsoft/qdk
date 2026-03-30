@@ -7,6 +7,7 @@ mod bindings;
 mod branching;
 mod calls;
 mod classical_args;
+mod debug_metadata;
 mod dynamic_vars;
 mod intrinsics;
 mod loops;
@@ -17,7 +18,7 @@ mod qubits;
 mod results;
 mod returns;
 
-use crate::{Error, ProgramEntry, partially_evaluate};
+use crate::{Error, PartialEvalConfig, ProgramEntry, partially_evaluate};
 use expect_test::Expect;
 use qsc::{PackageType, incremental::Compiler};
 use qsc_data_structures::{
@@ -38,13 +39,19 @@ pub fn assert_block_instructions(program: &Program, block_id: BlockId, expected_
 }
 
 pub fn assert_blocks(program: &Program, expected_blocks: &Expect) {
-    let all_blocks = program
+    let mut str = program
         .blocks
         .iter()
         .fold("Blocks:".to_string(), |acc, (id, block)| {
             acc + &format!("\nBlock {}:", id.0) + &block.to_string()
         });
-    expected_blocks.assert_eq(&all_blocks);
+
+    let dbg_info = program.dbg_info.to_string();
+    if !dbg_info.is_empty() {
+        str += "\n";
+        str += &dbg_info;
+    }
+    expected_blocks.assert_eq(&str);
 }
 
 pub fn assert_callable(program: &Program, callable_id: CallableId, expected_callable: &Expect) {
@@ -58,7 +65,13 @@ pub fn assert_error(error: &Error, expected_error: &Expect) {
 
 #[must_use]
 pub fn get_partial_evaluation_error(source: &str) -> Error {
-    let maybe_program = compile_and_partially_evaluate(source, TargetCapabilityFlags::all());
+    let maybe_program = compile_and_partially_evaluate(
+        source,
+        TargetCapabilityFlags::all(),
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    );
     match maybe_program {
         Ok(_) => panic!("partial evaluation succeeded"),
         Err(error) => error,
@@ -70,7 +83,13 @@ pub fn get_partial_evaluation_error_with_capabilities(
     source: &str,
     capabilities: TargetCapabilityFlags,
 ) -> Error {
-    let maybe_program = compile_and_partially_evaluate(source, capabilities);
+    let maybe_program = compile_and_partially_evaluate(
+        source,
+        capabilities,
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    );
     match maybe_program {
         Ok(_) => panic!("partial evaluation succeeded"),
         Err(error) => error,
@@ -79,7 +98,13 @@ pub fn get_partial_evaluation_error_with_capabilities(
 
 #[must_use]
 pub fn get_rir_program(source: &str) -> Program {
-    let maybe_program = compile_and_partially_evaluate(source, TargetCapabilityFlags::all());
+    let maybe_program = compile_and_partially_evaluate(
+        source,
+        TargetCapabilityFlags::all(),
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    );
     match maybe_program {
         Ok(program) => {
             // Verify the program can go through transformations.
@@ -91,11 +116,88 @@ pub fn get_rir_program(source: &str) -> Program {
 }
 
 #[must_use]
+pub fn get_rir_program_with_dbg_metadata(source: &str) -> Program {
+    let maybe_program = compile_and_partially_evaluate(
+        source,
+        TargetCapabilityFlags::all(),
+        PartialEvalConfig {
+            generate_debug_metadata: true,
+        },
+    );
+    match maybe_program {
+        Ok(program) => {
+            // Verify the program can go through transformations.
+            check_and_transform(&mut program.clone());
+            validate(&program);
+            program
+        }
+        Err(error) => panic!("partial evaluation failed: {error:?}"),
+    }
+}
+
+fn validate(program: &Program) {
+    let mut dbg_scopes = program.dbg_info.dbg_scopes.clone();
+    let mut dbg_locations = program.dbg_info.dbg_locations.clone();
+
+    // All scope and inlined_at references should be to existing dbg scopes and locations.
+    for (dbg_location, _) in dbg_locations.values() {
+        assert!(dbg_scopes.contains_key(dbg_location.scope));
+        if let Some(inlined_at) = dbg_location.inlined_at {
+            assert!(dbg_locations.contains_key(inlined_at));
+        }
+    }
+
+    // All dbg location references in instructions should be to existing dbg locations.
+    for instruction in program.blocks.iter().flat_map(|(_, block)| &block.0) {
+        if let Some(dbg_location) = instruction.metadata().map(|metadata| metadata.dbg_location) {
+            assert!(dbg_locations.contains_key(dbg_location));
+        }
+    }
+
+    // Ensure all entries are referenced by removing referenced scopes/locations from the lists and then checking if any remain at the end.
+    for instruction in program.blocks.iter().flat_map(|(_, block)| &block.0) {
+        if let Some(dbg_location) = instruction.metadata().map(|metadata| metadata.dbg_location) {
+            let mut to_remove = vec![dbg_location];
+            let mut next = dbg_locations.get(dbg_location);
+
+            while let Some(entry) = next {
+                // remove referenced scope
+                dbg_scopes.remove(entry.0.scope);
+
+                if let Some(inlined_at) = entry.0.inlined_at {
+                    // collect referenced dbg locations
+                    next = dbg_locations.get(inlined_at);
+                    to_remove.push(inlined_at);
+                } else {
+                    break;
+                }
+            }
+            for id in to_remove {
+                dbg_locations.remove(id);
+            }
+        }
+    }
+
+    assert!(
+        dbg_locations.is_empty(),
+        "unreferenced entry in dbg locations"
+    );
+
+    assert!(dbg_scopes.is_empty(), "unreferenced entry in dbg scopes");
+}
+
+#[must_use]
 pub fn get_rir_program_with_capabilities(
     source: &str,
     capabilities: TargetCapabilityFlags,
 ) -> Program {
-    let maybe_program = compile_and_partially_evaluate(source, capabilities);
+    let maybe_program = compile_and_partially_evaluate(
+        source,
+        capabilities,
+        PartialEvalConfig {
+            generate_debug_metadata: false,
+        },
+    );
     match maybe_program {
         Ok(program) => program,
         Err(error) => panic!("partial evaluation failed: {error:?}"),
@@ -105,6 +207,7 @@ pub fn get_rir_program_with_capabilities(
 fn compile_and_partially_evaluate(
     source: &str,
     capabilities: TargetCapabilityFlags,
+    config: PartialEvalConfig,
 ) -> Result<Program, Error> {
     let compilation_context = CompilationContext::new(source, capabilities);
     partially_evaluate(
@@ -112,6 +215,7 @@ fn compile_and_partially_evaluate(
         &compilation_context.compute_properties,
         &compilation_context.entry,
         capabilities,
+        config,
     )
 }
 

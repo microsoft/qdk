@@ -53,7 +53,7 @@ impl<'a> CycleDetector<'a> {
                     .expect("node map should exist");
                 let kind = match mutability {
                     Mutability::Immutable => LocalKind::Immutable(expr_id),
-                    Mutability::Mutable => LocalKind::Mutable,
+                    Mutability::Mutable => LocalKind::Mutable(None),
                 };
                 locals_map.insert(
                     ident.id,

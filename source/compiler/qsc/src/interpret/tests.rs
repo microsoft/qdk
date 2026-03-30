@@ -23,7 +23,7 @@ mod given_interpreter {
     fn run(interpreter: &mut Interpreter, expr: &str) -> (InterpretResult, String) {
         let mut cursor = Cursor::new(Vec::<u8>::new());
         let mut receiver = CursorReceiver::new(&mut cursor);
-        let res = interpreter.run(&mut receiver, Some(expr), None, None);
+        let res = interpreter.run(&mut receiver, Some(expr), None, None, None, None);
         (res, receiver.dump())
     }
 
@@ -2341,7 +2341,7 @@ mod given_interpreter {
             );
         }
 
-        /// Found via fuzzing, see #2426 <https://github.com/microsoft/qsharp/issues/2426>
+        /// Found via fuzzing, see #2426 <https://github.com/microsoft/qdk/issues/2426>
         #[test]
         fn recursive_type_constraint_should_fail() {
             let sources = SourceMap::new(

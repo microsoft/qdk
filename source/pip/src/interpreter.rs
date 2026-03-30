@@ -25,7 +25,10 @@ use crate::{
     qir_simulation::{
         IdleNoiseParams, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
         cpu_simulators::{run_clifford, run_cpu_full_state},
-        gpu_full_state::{GpuContext, run_parallel_shots, try_create_gpu_adapter},
+        gpu_full_state::{
+            GpuContext, run_adaptive_parallel_shots, run_parallel_shots, try_create_gpu_adapter,
+        },
+        unbind_noise_config,
     },
 };
 use miette::{Diagnostic, Report};
@@ -132,6 +135,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(try_create_gpu_adapter, m)?)?;
     m.add_function(wrap_pyfunction!(run_cpu_full_state, m)?)?;
     m.add_function(wrap_pyfunction!(run_parallel_shots, m)?)?;
+    m.add_function(wrap_pyfunction!(run_adaptive_parallel_shots, m)?)?;
     m.add("QSharpError", py.get_type::<QSharpError>())?;
     register_noisy_simulator_submodule(py, m)?;
     register_generic_estimator_submodule(m)?;
@@ -147,7 +151,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
 
 // This ordering must match the _native.pyi file.
 #[derive(Clone, Copy, Default, PartialEq)]
-#[pyclass(eq, eq_int, module = "qsharp._native")]
+#[pyclass(eq, eq_int, from_py_object, module = "qsharp._native")]
 #[allow(non_camel_case_types)]
 /// A Q# target profile.
 ///
@@ -247,7 +251,7 @@ impl From<TargetProfile> for Profile {
 
 // This ordering must match the _native.pyi file.
 #[derive(Clone, Copy, Default, PartialEq)]
-#[pyclass(eq, eq_int, module = "qsharp._native")]
+#[pyclass(eq, eq_int, from_py_object, module = "qsharp._native")]
 #[allow(non_camel_case_types)]
 /// Represents the output semantics for OpenQASM 3 compilation.
 /// Each has implications on the output of the compilation
@@ -311,7 +315,7 @@ impl From<OutputSemantics> for qsc::openqasm::OutputSemantics {
 
 // This ordering must match the _native.pyi file.
 #[derive(Clone, Copy, Default, PartialEq)]
-#[pyclass(eq, eq_int, module = "qsharp._native")]
+#[pyclass(eq, eq_int, from_py_object, module = "qsharp._native")]
 #[allow(non_camel_case_types)]
 /// Represents the type of compilation output to create
 pub enum ProgramType {
@@ -694,16 +698,18 @@ impl Interpreter {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature=(entry_expr=None, callback=None, noise=None, qubit_loss=None, callable=None, args=None))]
+    #[pyo3(signature=(entry_expr=None, callback=None, noise_config=None, noise=None, qubit_loss=None, callable=None, args=None, seed=None))]
     fn run(
         &mut self,
         py: Python,
         entry_expr: Option<&str>,
         callback: Option<Py<PyAny>>,
+        noise_config: Option<&Bound<NoiseConfig>>,
         noise: Option<(f64, f64, f64)>,
         qubit_loss: Option<f64>,
         callable: Option<Py<PyAny>>,
         args: Option<Py<PyAny>>,
+        seed: Option<u64>,
     ) -> PyResult<Py<PyAny>> {
         let mut receiver = OptionalCallbackReceiver { callback, py };
 
@@ -721,6 +727,10 @@ impl Interpreter {
             },
         };
 
+        // Convert NoiseConfig to a rust NoiseConfig.
+        let noise_config: Option<qdk_simulators::noise_config::NoiseConfig<f64, f64>> =
+            noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
+
         let result = match callable_val {
             Some(callable) => {
                 let (input_ty, output_ty) = self
@@ -729,12 +739,24 @@ impl Interpreter {
                     .ok_or(QSharpError::new_err("callable not found"))?;
                 let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
 
-                self.interpreter
-                    .invoke_with_noise(&mut receiver, callable, args, noise, qubit_loss)
+                self.interpreter.invoke_with_noise(
+                    &mut receiver,
+                    callable,
+                    args,
+                    noise,
+                    qubit_loss,
+                    noise_config,
+                    seed,
+                )
             }
-            _ => self
-                .interpreter
-                .run(&mut receiver, entry_expr, noise, qubit_loss),
+            _ => self.interpreter.run(
+                &mut receiver,
+                entry_expr,
+                noise,
+                qubit_loss,
+                noise_config,
+                seed,
+            ),
         };
 
         match result {
@@ -1234,7 +1256,7 @@ impl StateDumpData {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[pyclass(eq, eq_int, ord)]
+#[pyclass(eq, eq_int, from_py_object, ord)]
 /// A Q# measurement result.
 pub(crate) enum Result {
     Zero,
@@ -1278,7 +1300,7 @@ impl Result {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-#[pyclass(eq, eq_int)]
+#[pyclass(eq, eq_int, from_py_object)]
 /// A Q# Pauli operator.
 pub(crate) enum Pauli {
     I,
@@ -1395,11 +1417,12 @@ impl CircuitConfig {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Copy)]
 pub(crate) enum CircuitGenerationMethod {
     ClassicalEval,
     Simulate,
+    Static,
 }
 
 impl From<CircuitGenerationMethod> for qsc::interpret::CircuitGenerationMethod {
@@ -1409,6 +1432,7 @@ impl From<CircuitGenerationMethod> for qsc::interpret::CircuitGenerationMethod {
                 qsc::interpret::CircuitGenerationMethod::ClassicalEval
             }
             CircuitGenerationMethod::Simulate => qsc::interpret::CircuitGenerationMethod::Simulate,
+            CircuitGenerationMethod::Static => qsc::interpret::CircuitGenerationMethod::Static,
         }
     }
 }
@@ -1457,7 +1481,7 @@ where
     }
 }
 
-#[pyclass(unsendable)]
+#[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 struct GlobalCallable(Value);
 
@@ -1476,7 +1500,7 @@ impl From<GlobalCallable> for Value {
     }
 }
 
-#[pyclass(unsendable)]
+#[pyclass(from_py_object, unsendable)]
 #[derive(Clone)]
 struct Closure(Value);
 

@@ -11,11 +11,15 @@
 // imports mocha for the browser, defining the `mocha` global.
 require("mocha/mocha"); // eslint-disable-line @typescript-eslint/no-require-imports
 
-export function runMochaTests(requireTestModules: () => void): Promise<void> {
+export function runMochaTests(
+  requireTestModules: () => void,
+  options?: Mocha.MochaOptions,
+): Promise<void> {
   return new Promise((c, e) => {
     mocha.setup({
       ui: "tdd",
       reporter: undefined,
+      ...options,
     });
 
     // Load the test suites. This needs to come

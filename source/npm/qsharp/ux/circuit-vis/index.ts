@@ -24,9 +24,17 @@ export const draw = (
   circuitGroup: CircuitGroup,
   container: HTMLElement,
   options: DrawOptions = {},
-): void => {
+): {
+  userSetZoomLevel: (zoomLevel: number) => void;
+} => {
   const sqore = new Sqore(circuitGroup, options);
   sqore.draw(container);
+  return {
+    userSetZoomLevel: (zoomLevel: number) => {
+      sqore.zoomOnResize = false;
+      sqore.updateZoomLevel(zoomLevel);
+    },
+  };
 };
 
 export type { DrawOptions, EditorHandlers } from "./sqore.js";

@@ -26,7 +26,7 @@ use std::rc::Rc;
 /// Instances of this enum represent a Q# type. This is used
 /// to send the definitions of Q# UDTs defined by the user to Python
 /// and creating equivalent Python dataclasses in `qsharp.code.*`.
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub(super) enum TypeIR {
     Primitive(PrimitiveKind),
@@ -80,7 +80,7 @@ impl TypeIR {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[pyclass(eq, eq_int, ord)]
+#[pyclass(eq, eq_int, from_py_object, ord)]
 pub(super) enum TypeKind {
     Primitive,
     Tuple,
@@ -89,7 +89,7 @@ pub(super) enum TypeKind {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[pyclass(eq, eq_int, ord)]
+#[pyclass(eq, eq_int, from_py_object, ord)]
 pub(super) enum PrimitiveKind {
     Bool,
     Int,
@@ -100,7 +100,7 @@ pub(super) enum PrimitiveKind {
     Result,
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub(super) struct UdtIR {
     #[pyo3(get)]
@@ -127,7 +127,7 @@ pub(super) struct UdtValue {
     fields: Vec<(String, Py<PyAny>)>,
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub(super) enum PrimitiveValue {
     Bool(bool),

@@ -476,3 +476,154 @@ fn bin_op_with_const_lhs_and_non_const_rhs_sized() {
         "#]],
     );
 }
+
+#[test]
+fn int_add_bitarray_promotes_to_int() {
+    let source = r#"
+        int a = 5;
+        bit[4] b = "1010";
+        a + b;
+    "#;
+
+    check_stmt_kinds(
+        source,
+        &expect![[r#"
+            ClassicalDeclarationStmt [9-19]:
+                symbol_id: 8
+                ty_span: [9-12]
+                ty_exprs: <empty>
+                init_expr: Expr [17-18]:
+                    ty: int
+                    kind: Lit: Int(5)
+            ClassicalDeclarationStmt [28-46]:
+                symbol_id: 9
+                ty_span: [28-34]
+                ty_exprs:
+                    Expr [32-33]:
+                        ty: const uint
+                        const_value: Int(4)
+                        kind: Lit: Int(4)
+                init_expr: Expr [39-45]:
+                    ty: bit[4]
+                    kind: Lit: Bitstring("1010")
+            ExprStmt [55-61]:
+                expr: Expr [55-60]:
+                    ty: int
+                    kind: BinaryOpExpr:
+                        op: Add
+                        lhs: Expr [55-56]:
+                            ty: int
+                            kind: SymbolId(8)
+                        rhs: Expr [59-60]:
+                            ty: int
+                            kind: Cast [59-60]:
+                                ty: int
+                                ty_exprs: <empty>
+                                expr: Expr [59-60]:
+                                    ty: bit[4]
+                                    kind: SymbolId(9)
+                                kind: Implicit
+        "#]],
+    );
+}
+
+#[test]
+fn bitarray_add_int_promotes_to_int() {
+    let source = r#"
+        bit[4] a = "1010";
+        int b = 5;
+        a + b;
+    "#;
+
+    check_stmt_kinds(
+        source,
+        &expect![[r#"
+            ClassicalDeclarationStmt [9-27]:
+                symbol_id: 8
+                ty_span: [9-15]
+                ty_exprs:
+                    Expr [13-14]:
+                        ty: const uint
+                        const_value: Int(4)
+                        kind: Lit: Int(4)
+                init_expr: Expr [20-26]:
+                    ty: bit[4]
+                    kind: Lit: Bitstring("1010")
+            ClassicalDeclarationStmt [36-46]:
+                symbol_id: 9
+                ty_span: [36-39]
+                ty_exprs: <empty>
+                init_expr: Expr [44-45]:
+                    ty: int
+                    kind: Lit: Int(5)
+            ExprStmt [55-61]:
+                expr: Expr [55-60]:
+                    ty: int
+                    kind: BinaryOpExpr:
+                        op: Add
+                        lhs: Expr [55-56]:
+                            ty: int
+                            kind: Cast [55-56]:
+                                ty: int
+                                ty_exprs: <empty>
+                                expr: Expr [55-56]:
+                                    ty: bit[4]
+                                    kind: SymbolId(8)
+                                kind: Implicit
+                        rhs: Expr [59-60]:
+                            ty: int
+                            kind: SymbolId(9)
+        "#]],
+    );
+}
+
+#[test]
+fn const_int_add_non_const_bitarray_result_is_non_const() {
+    let source = r#"
+        const int a = 5;
+        bit[4] b = "1010";
+        a + b;
+    "#;
+
+    check_stmt_kinds(
+        source,
+        &expect![[r#"
+            ClassicalDeclarationStmt [9-25]:
+                symbol_id: 8
+                ty_span: [15-18]
+                ty_exprs: <empty>
+                init_expr: Expr [23-24]:
+                    ty: const int
+                    const_value: Int(5)
+                    kind: Lit: Int(5)
+            ClassicalDeclarationStmt [34-52]:
+                symbol_id: 9
+                ty_span: [34-40]
+                ty_exprs:
+                    Expr [38-39]:
+                        ty: const uint
+                        const_value: Int(4)
+                        kind: Lit: Int(4)
+                init_expr: Expr [45-51]:
+                    ty: bit[4]
+                    kind: Lit: Bitstring("1010")
+            ExprStmt [61-67]:
+                expr: Expr [61-66]:
+                    ty: int
+                    kind: BinaryOpExpr:
+                        op: Add
+                        lhs: Expr [61-62]:
+                            ty: int
+                            kind: SymbolId(8)
+                        rhs: Expr [65-66]:
+                            ty: int
+                            kind: Cast [65-66]:
+                                ty: int
+                                ty_exprs: <empty>
+                                expr: Expr [65-66]:
+                                    ty: bit[4]
+                                    kind: SymbolId(9)
+                                kind: Implicit
+        "#]],
+    );
+}

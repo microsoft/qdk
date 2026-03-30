@@ -18,17 +18,19 @@
 //                          Q# extension logs are usually more relevant for debugging tests.
 //                          To control the Q# extension log level see: suites/extensionUtils.ts
 
-// import { runTests } from "@vscode/test-web";
+import { runTests } from "@vscode/test-web";
 import { readFileSync } from "node:fs";
 import { SourceMap } from "node:module";
 import path, { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+const isCI = !!process.env.CI;
+
 const attachArgName = "--waitForDebugger=";
-// const verboseArgName = "--verbose";
+const verboseArgName = "--verbose";
 const suiteArgName = "--suite=";
 
-// const verbose = process.argv.includes(verboseArgName);
+const verbose = process.argv.includes(verboseArgName);
 const waitForDebugger = process.argv.find((arg) =>
   arg.startsWith(attachArgName),
 );
@@ -46,9 +48,29 @@ if (waitForDebugger && !selectedSuite) {
 
 const thisDir = dirname(fileURLToPath(import.meta.url));
 // The folder containing the Extension Manifest package.json
-// const extensionDevelopmentPath = join(thisDir, "..");
+const extensionDevelopmentPath = join(thisDir, "..");
 
 try {
+  // Run the "empty" suite first to verify VS Code can be downloaded and launched.
+  // This catches flaky infrastructure failures (e.g. VS Code download issues)
+  // before running the real test suites. If it fails in CI, we skip the tests
+  // with a warning instead of failing the build.
+  console.log("Running empty suite to verify VS Code test environment...");
+  try {
+    await runSuite("empty");
+  } catch (err) {
+    if (isCI) {
+      console.warn(
+        "WARNING: VS Code test environment setup failed. " +
+          "Skipping integration tests in CI due to infrastructure issue.",
+      );
+      console.warn(`Error: ${err}`);
+      process.exit(0);
+    }
+    throw err;
+  }
+  console.log("Empty suite succeeded.");
+
   const suites = ["language-service", "debugger"];
   const toRun =
     selectedSuite && suites.includes(selectedSuite) ? [selectedSuite] : suites;
@@ -63,8 +85,8 @@ try {
 }
 
 async function runSuite(name) {
-  // const extensionTestsPath = join(thisDir, "out", name, "index");
-  // const workspacePath = join(thisDir, "suites", name, "test-workspace");
+  const extensionTestsPath = join(thisDir, "out", name, "index");
+  const workspacePath = join(thisDir, "suites", name, "test-workspace");
 
   // Capture console output before running tests,
   // so that we can map stack traces to original source files.
@@ -72,22 +94,20 @@ async function runSuite(name) {
 
   try {
     // Start a web server that serves VS Code in a browser, run the tests
-    // TODO: reenable tests once network failures are addressed
-    // (https://github.com/microsoft/qdk/pull/2764)
     void name;
-    // await runTests({
-    //   headless: true, // pass false to see VS Code UI
-    //   browserType: "chromium",
-    //   extensionDevelopmentPath,
-    //   extensionTestsPath,
-    //   folderPath: workspacePath,
-    //   quality: "stable",
-    //   printServerLog: verbose,
-    //   verbose,
-    //   waitForDebugger: waitForDebugger
-    //     ? Number(waitForDebugger.slice(attachArgName.length))
-    //     : undefined,
-    // });
+    await runTests({
+      headless: true, // pass false to see VS Code UI
+      browserType: "chromium",
+      extensionDevelopmentPath,
+      extensionTestsPath,
+      folderPath: workspacePath,
+      quality: "stable",
+      printServerLog: verbose,
+      verbose,
+      waitForDebugger: waitForDebugger
+        ? Number(waitForDebugger.slice(attachArgName.length))
+        : undefined,
+    });
   } finally {
     restoreConsole();
   }

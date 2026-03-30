@@ -174,21 +174,25 @@ class Interpreter:
         self,
         entry_expr: Optional[str],
         output_fn: Optional[Callable[[Output], None]],
+        noise_config: Optional[NoiseConfig],
         noise: Optional[Tuple[float, float, float]],
         qubit_loss: Optional[float],
         callable: Optional[GlobalCallable | Closure],
         args: Optional[Any],
+        seed: Optional[int],
     ) -> Any:
         """
         Runs the given Q# expression with an independent instance of the simulator.
 
         :param entry_expr: The entry expression.
         :param output_fn: A callback function that will be called with each output.
+        :param noise_config: The noise configuration to use in simulation.
         :param noise: A tuple with probabilities of Pauli-X, Pauli-Y, and Pauli-Z errors
             to use in simulation as a parametric Pauli noise.
         :param qubit_loss: The probability of qubit loss in simulation.
         :param callable: The callable to run, if no entry expression is provided.
         :param args: The arguments to pass to the callable, if any.
+        :param seed: The seed to use for the random number generator in simulation, if any.
 
         :returns values: A result or runtime errors.
 
@@ -465,6 +469,13 @@ class CircuitGenerationMethod(Enum):
     Use simulation to generate the circuit.
     """
 
+    Static: CircuitGenerationMethod
+    """
+    Compile the program and transform to a circuit using partial evaluation.
+    Only works for AdaptiveRIF-compliant programs.
+    Requires a non-Unrestricted target profile (e.g. TargetProfile.Adaptive_RIF).
+    """
+
 class Circuit:
     def json(self) -> str: ...
     def __repr__(self) -> str: ...
@@ -635,6 +646,7 @@ def resource_estimate_qasm_program(
 def run_qasm_program(
     source: str,
     output_fn: Callable[[Output], None],
+    noise_config: Optional[NoiseConfig],
     noise: Optional[Tuple[float, float, float]],
     qubit_loss: Optional[float],
     read_file: Callable[[str], Tuple[str, str]],
@@ -1020,6 +1032,25 @@ def run_parallel_shots(
     """ """
     ...
 
+def run_adaptive_parallel_shots(
+    input: dict,
+    shots: int,
+    noise: Optional[NoiseConfig],
+    seed: Optional[int],
+) -> List[str]:
+    """
+    Run the given list of QIR instructions in a CPU full-state simulator,
+    using the given `NoiseConfig`, if any.
+
+    The input is an `AdaptiveProgram` converted to a dict using the
+    .as_dict() method.
+
+    Returns a list of result strings. Each result string is composed
+    of '0's, '1's, and 'L's, representing if each measurement result
+    was a Zero, One, or Loss respectively.
+    """
+    ...
+
 # This is a little clunky, but until we move to Python 3.11 as a minimum, the NotRequired annotation
 # for Dict fields that may be missing is not availalble. See https://peps.python.org/pep-0655/#motivation
 class _GpuShotResultsBase(TypedDict):
@@ -1069,6 +1100,15 @@ class GpuContext:
         """
         ...
 
+    def set_adaptive_program(self, program: dict) -> None:
+        """
+        Sets an Adaptive Profile QIR program for GPU execution.
+
+        The program dict contains bytecode instructions, block/function tables,
+        quantum op pool, and side tables produced by AdaptiveProfilePass.
+        """
+        ...
+
     def set_noise(self, noise: NoiseConfig) -> None:
         """
         Sets the noise configuration for the GPU simulation.
@@ -1078,5 +1118,11 @@ class GpuContext:
     def run_shots(self, shot_count: int, seed: int) -> GpuShotResults:
         """
         Runs the specified number of shots of the loaded program on the GPU.
+        """
+        ...
+
+    def run_adaptive_shots(self, shot_count: int, seed: int) -> GpuShotResults:
+        """
+        Runs the specified number of shots of the loaded adaptive program on the GPU.
         """
         ...

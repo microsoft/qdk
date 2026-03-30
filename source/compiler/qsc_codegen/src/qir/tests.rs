@@ -58,6 +58,7 @@ fn single_qubit_call() {
         rir::CallableId(0),
         vec![rir::Operand::Literal(rir::Literal::Qubit(0))],
         None,
+        None,
     );
     expect!["  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))"]
         .assert_eq(&call.to_qir(&program));
@@ -76,6 +77,7 @@ fn qubit_rotation_call() {
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],
         None,
+        None,
     );
     expect!["  call void @__quantum__qis__rx__body(double 3.141592653589793, %Qubit* inttoptr (i64 0 to %Qubit*))"]
         .assert_eq(&call.to_qir(&program));
@@ -93,6 +95,7 @@ fn qubit_rotation_round_number_call() {
             rir::Operand::Literal(rir::Literal::Double(3.0)),
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],
+        None,
         None,
     );
     expect![
@@ -116,6 +119,7 @@ fn qubit_rotation_variable_angle_call() {
             }),
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],
+        None,
         None,
     );
     expect![

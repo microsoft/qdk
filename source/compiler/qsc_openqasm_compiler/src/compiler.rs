@@ -329,7 +329,7 @@ impl QasmCompiler {
         if let Some(inputs) = &input {
             for input in inputs {
                 let qsharp_ty = self.map_semantic_type_to_qsharp_type(&input.ty, input.ty_span);
-                if matches!(qsharp_ty, crate::types::Type::Angle(..)) {
+                if matches!(qsharp_ty, crate::types::Type::Angle) {
                     let message =
                         "use `float` types for passing input, using `angle` types".to_string();
                     let kind = CompilerErrorKind::NotSupported(message, input.span);
@@ -504,8 +504,8 @@ impl QasmCompiler {
                     .map(|symbol| {
                         let qsharp_ty =
                             self.map_semantic_type_to_qsharp_type(&symbol.ty, symbol.ty_span);
-                        if matches!(qsharp_ty, crate::types::Type::Angle(..)) {
-                            crate::types::Type::Double(symbol.ty.is_const())
+                        if matches!(qsharp_ty, crate::types::Type::Angle) {
+                            crate::types::Type::Double
                         } else {
                             qsharp_ty
                         }
@@ -751,7 +751,7 @@ impl QasmCompiler {
             rhs_span,
             rhs_span,
             rhs_span,
-            &crate::types::Type::ResultArray(crate::types::ArrayDimensions::One, false),
+            &crate::types::Type::ResultArray(crate::types::ArrayDimensions::One),
             temp_var_stmt_init_expr,
         );
         let temp_var_expr = build_path_ident_expr("bitarray", rhs_span, rhs_span);
@@ -1885,6 +1885,17 @@ impl QasmCompiler {
     }
 
     fn compile_cast_expr(&mut self, cast: &Cast) -> qsast::Expr {
+        // Optimization: eliminate round-trip casts (e.g. Bit → UInt(1) → Bit)
+        let inner = unwrap_parens(&cast.expr);
+        if let semast::ExprKind::Cast(inner_cast) = inner.kind.as_ref()
+            && Self::maps_to_same_qsharp_type(&cast.ty, &inner_cast.expr.ty)
+        {
+            let result = self.compile_expr(&inner_cast.expr);
+            // Wrap in parens to preserve grouping, since the removed casts
+            // acted as implicit grouping delimiters in the output.
+            return wrap_expr_in_parens(result, cast.span);
+        }
+
         let expr = self.compile_expr(&cast.expr);
         let cast_expr = match cast.expr.ty {
             qsc_openqasm_parser::semantic::types::Type::Bit(_) => {
@@ -2073,7 +2084,7 @@ impl QasmCompiler {
 
     /// Pushes an unsupported error with the supplied message.
     pub fn push_unsupported_error_message<S: AsRef<str>>(&mut self, message: S, span: Span) {
-        let kind = CompilerErrorKind::NotSupported(message.as_ref().to_string(), span);
+        let kind = unsupported_err(message, span);
         self.push_compiler_error(kind);
     }
 
@@ -2479,6 +2490,21 @@ impl QasmCompiler {
         ty: &qsc_openqasm_parser::semantic::types::Type,
         span: Span,
     ) -> crate::types::Type {
+        let mut errors = Vec::new();
+        let mapped = Self::semantic_type_for_qsharp_type(ty, span, &mut errors);
+        for error in errors {
+            self.push_compiler_error(error);
+        }
+        mapped
+    }
+
+    /// Mapping from an `OpenQASM` semantic type to its Q# equivalent.
+    /// Returns the mapped type and any errors that would have been pushed.
+    fn semantic_type_for_qsharp_type(
+        ty: &qsc_openqasm_parser::semantic::types::Type,
+        span: Span,
+        errs: &mut Vec<CompilerErrorKind>,
+    ) -> crate::types::Type {
         use qsc_openqasm_parser::semantic::types::Type;
         if ty.is_array()
             && matches!(
@@ -2486,16 +2512,15 @@ impl QasmCompiler {
                 Some(qsc_openqasm_parser::semantic::types::ArrayDimensions::Err)
             )
         {
-            self.push_unsupported_error_message("arrays with more than 7 dimensions", span);
+            errs.push(unsupported_err("arrays with more than 7 dimensions", span));
             return crate::types::Type::Err;
         }
 
-        let is_const = ty.is_const();
         match ty {
-            Type::Bit(_) => crate::types::Type::Result(is_const),
+            Type::Bit(_) => crate::types::Type::Result,
             Type::Qubit => crate::types::Type::Qubit,
             Type::HardwareQubit => {
-                self.push_unsupported_error_message("hardware qubits", span);
+                errs.push(unsupported_err("hardware qubits", span));
                 crate::types::Type::Err
             }
             Type::QubitArray(_) => {
@@ -2504,28 +2529,28 @@ impl QasmCompiler {
             Type::Int(width, _) | Type::UInt(width, _) => {
                 if let Some(width) = width {
                     if *width > 64 {
-                        crate::types::Type::BigInt(is_const)
+                        crate::types::Type::BigInt
                     } else {
-                        crate::types::Type::Int(is_const)
+                        crate::types::Type::Int
                     }
                 } else {
-                    crate::types::Type::Int(is_const)
+                    crate::types::Type::Int
                 }
             }
-            Type::Float(_, _) => crate::types::Type::Double(is_const),
-            Type::Angle(_, _) => crate::types::Type::Angle(is_const),
-            Type::Complex(_, _) => crate::types::Type::Complex(is_const),
-            Type::Bool(_) => crate::types::Type::Bool(is_const),
+            Type::Float(_, _) => crate::types::Type::Double,
+            Type::Angle(_, _) => crate::types::Type::Angle,
+            Type::Complex(_, _) => crate::types::Type::Complex,
+            Type::Bool(_) => crate::types::Type::Bool,
             Type::Duration(_) => {
-                self.push_unsupported_error_message("duration type values", span);
+                errs.push(unsupported_err("duration type values", span));
                 crate::types::Type::Err
             }
             Type::Stretch(_) => {
-                self.push_unsupported_error_message("stretch type values", span);
+                errs.push(unsupported_err("stretch type values", span));
                 crate::types::Type::Err
             }
             Type::BitArray(_, _) => {
-                crate::types::Type::ResultArray(crate::types::ArrayDimensions::One, is_const)
+                crate::types::Type::ResultArray(crate::types::ArrayDimensions::One)
             }
             Type::Array(array)
                 if !matches!(
@@ -2546,12 +2571,12 @@ impl QasmCompiler {
             }
             Type::StaticArrayRef(array_ref) if array_ref.is_mutable => {
                 let msg = format!("mutable array references `{ty}`");
-                self.push_unsupported_error_message(msg, span);
+                errs.push(unsupported_err(msg, span));
                 crate::types::Type::Err
             }
             Type::DynArrayRef(array_ref) if array_ref.is_mutable => {
                 let msg = format!("mutable array references `{ty}`");
-                self.push_unsupported_error_message(msg, span);
+                errs.push(unsupported_err(msg, span));
                 crate::types::Type::Err
             }
             Type::Gate(cargs, qargs) => crate::types::Type::Gate(*cargs, *qargs),
@@ -2571,15 +2596,16 @@ impl QasmCompiler {
                 };
                 let args = args
                     .iter()
-                    .map(|arg| self.map_semantic_type_to_qsharp_type(arg, Span::default()))
+                    .map(|arg| Self::semantic_type_for_qsharp_type(arg, Span::default(), errs))
                     .collect::<Vec<_>>();
-                let return_ty = self.map_semantic_type_to_qsharp_type(return_ty, Span::default());
+                let return_ty =
+                    Self::semantic_type_for_qsharp_type(return_ty, Span::default(), errs);
                 crate::types::Type::Callable(kind, args.into(), return_ty.into())
             }
             Type::Err => crate::types::Type::Err,
             _ => {
                 let msg = format!("converting `{ty}` to Q# type");
-                self.push_unimplemented_error_message(msg, span);
+                errs.push(CompilerErrorKind::Unimplemented(msg, span));
                 crate::types::Type::Err
             }
         }
@@ -2592,13 +2618,13 @@ impl QasmCompiler {
         match base_ty {
             qsc_openqasm_parser::semantic::types::ArrayBaseType::Duration => unreachable!(),
             qsc_openqasm_parser::semantic::types::ArrayBaseType::Bool => {
-                crate::types::Type::BoolArray(dims, false)
+                crate::types::Type::BoolArray(dims)
             }
             qsc_openqasm_parser::semantic::types::ArrayBaseType::Angle(_) => {
-                crate::types::Type::AngleArray(dims, false)
+                crate::types::Type::AngleArray(dims)
             }
             qsc_openqasm_parser::semantic::types::ArrayBaseType::Complex(_) => {
-                crate::types::Type::ComplexArray(dims, false)
+                crate::types::Type::ComplexArray(dims)
             }
             qsc_openqasm_parser::semantic::types::ArrayBaseType::Float(_) => {
                 crate::types::Type::DoubleArray(dims)
@@ -2607,15 +2633,26 @@ impl QasmCompiler {
             | qsc_openqasm_parser::semantic::types::ArrayBaseType::UInt(width) => {
                 if let Some(width) = width {
                     if *width > 64 {
-                        crate::types::Type::BigIntArray(dims, false)
+                        crate::types::Type::BigIntArray(dims)
                     } else {
-                        crate::types::Type::IntArray(dims, false)
+                        crate::types::Type::IntArray(dims)
                     }
                 } else {
-                    crate::types::Type::IntArray(dims, false)
+                    crate::types::Type::IntArray(dims)
                 }
             }
         }
+    }
+
+    /// Returns `true` if both `OpenQASM` types map to the same Q# type without errors.
+    fn maps_to_same_qsharp_type(
+        a: &qsc_openqasm_parser::semantic::types::Type,
+        b: &qsc_openqasm_parser::semantic::types::Type,
+    ) -> bool {
+        let mut errs = Vec::new();
+        let ty_a = Self::semantic_type_for_qsharp_type(a, Span::default(), &mut errs);
+        let ty_b = Self::semantic_type_for_qsharp_type(b, Span::default(), &mut errs);
+        errs.is_empty() && ty_a == ty_b
     }
 
     fn get_argument_validation_stmts(
@@ -2647,4 +2684,17 @@ impl QasmCompiler {
 
         Some(body)
     }
+}
+
+/// Follows `ExprKind::Paren` chains, returning the innermost expression.
+fn unwrap_parens(expr: &semast::Expr) -> &semast::Expr {
+    let mut current = expr;
+    while let semast::ExprKind::Paren(inner) = current.kind.as_ref() {
+        current = inner;
+    }
+    current
+}
+
+fn unsupported_err<S: AsRef<str>>(message: S, span: Span) -> CompilerErrorKind {
+    CompilerErrorKind::NotSupported(message.as_ref().to_string(), span)
 }

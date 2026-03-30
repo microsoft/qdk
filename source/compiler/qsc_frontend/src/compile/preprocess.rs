@@ -147,7 +147,7 @@ impl MutVisitor for Conditional {
                     }),
                     _ => {}
                 }
-                stmt.kind = Box::new(StmtKind::Empty);
+                *stmt.kind = StmtKind::Empty;
             }
         }
     }
