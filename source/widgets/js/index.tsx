@@ -317,26 +317,19 @@ function renderOrbitalEntanglement({ model, el }: RenderArgs) {
     const labels = model.get("labels") as string[];
     const selectedIndices = model.get("selected_indices") as number[] | null;
     const opts = (model.get("options") || {}) as Record<string, unknown>;
+    const camelOpts: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(opts)) {
+      camelOpts[k.replace(/_([a-z])/g, (_, c) => c.toUpperCase())] = v;
+    }
 
     return {
       s1Entropies,
       mutualInformation,
       labels,
       selectedIndices: selectedIndices ?? undefined,
-      gapDeg: opts.gap_deg as number | undefined,
-      radius: opts.radius as number | undefined,
-      arcWidth: opts.arc_width as number | undefined,
-      lineScale: opts.line_scale as number | null | undefined,
-      miThreshold: opts.mi_threshold as number | undefined,
-      s1Vmax: opts.s1_vmax as number | null | undefined,
-      miVmax: opts.mi_vmax as number | null | undefined,
-      title: opts.title as string | null | undefined,
-      width: opts.width as number | undefined,
-      height: opts.height as number | undefined,
-      selectionColor: opts.selection_color as string | undefined,
-      selectionLinewidth: opts.selection_linewidth as number | undefined,
+      ...camelOpts,
       ...extra,
-    };
+    } as OrbitalEntanglementProps;
   }
 
   const onChange = () => {

@@ -320,8 +320,8 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      width={width}
-      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      width={isStatic ? width : "100%"}
       class="qs-orbital-entanglement"
       style={{ background: bgColor }}
       {...(isStatic ? { "xmlns:xlink": "http://www.w3.org/1999/xlink" } : {})}

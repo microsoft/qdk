@@ -9,6 +9,13 @@ from typing import Literal
 import anywidget
 import traitlets
 
+import re as _re
+
+
+def _snake_to_camel(name: str) -> str:
+    return _re.sub(r"_([a-z])", lambda m: m.group(1).upper(), name)
+
+
 try:
     __version__ = importlib.metadata.version("qsharp_widgets")
 except importlib.metadata.PackageNotFoundError:
@@ -330,24 +337,8 @@ class OrbitalEntanglement(anywidget.AnyWidget):
         }
         if self.selected_indices is not None:
             props["selectedIndices"] = list(self.selected_indices)
-        # Map snake_case options to camelCase props
-        _key_map = {
-            "gap_deg": "gapDeg",
-            "radius": "radius",
-            "arc_width": "arcWidth",
-            "line_scale": "lineScale",
-            "mi_threshold": "miThreshold",
-            "s1_vmax": "s1Vmax",
-            "mi_vmax": "miVmax",
-            "title": "title",
-            "width": "width",
-            "height": "height",
-            "selection_color": "selectionColor",
-            "selection_linewidth": "selectionLinewidth",
-        }
         for k, v in (self.options or {}).items():
-            if k in _key_map:
-                props[_key_map[k]] = v
+            props[_snake_to_camel(k)] = v
         if dark_mode is not None:
             props["darkMode"] = bool(dark_mode)
         return props
