@@ -703,6 +703,7 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("repeat_until_success.")
             or f.startswith("python-deps.")
             or f.startswith("cirq_submission_to_azure.")
+            or f.startswith("neutral_atom_simulator.")
             or f.startswith("qir_circuit_submission_to_azure.")
             or f.startswith("qiskit_submission_to_azure")
             or f.startswith("pennylane_submission_to_azure.")
