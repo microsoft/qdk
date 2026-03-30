@@ -3,7 +3,7 @@
 
 from dataclasses import KW_ONLY, dataclass, field
 
-from ..._architecture import Architecture, _Context
+from ..._architecture import Architecture, ISAContext
 from ...instruction_ids import (
     T,
     PREP_X,
@@ -47,7 +47,7 @@ class Majorana(Architecture):
     _: KW_ONLY
     error_rate: float = field(default=1e-5, metadata={"domain": [1e-4, 1e-5, 1e-6]})
 
-    def provided_isa(self, ctx: _Context) -> ISA:
+    def provided_isa(self, ctx: ISAContext) -> ISA:
         if abs(self.error_rate - 1e-4) <= 1e-8:
             t_error_rate = 0.05
         elif abs(self.error_rate - 1e-5) <= 1e-8:

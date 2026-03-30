@@ -205,7 +205,7 @@ impl ISARequirementsIterator {
 }
 
 #[allow(clippy::unsafe_derive_deserialize)]
-#[pyclass(name = "_Instruction")]
+#[pyclass(from_py_object)]
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Instruction(qre::Instruction);
@@ -566,7 +566,7 @@ impl ConstraintBound {
 }
 
 #[derive(Clone)]
-#[pyclass(name = "_ProvenanceGraph")]
+#[pyclass(name = "_ProvenanceGraph", from_py_object)]
 pub struct ProvenanceGraph(Arc<RwLock<qre::ProvenanceGraph>>);
 
 impl Default for ProvenanceGraph {

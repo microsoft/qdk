@@ -12,7 +12,7 @@ from ..._instruction import (
     ConstraintBound,
     LOGICAL,
 )
-from ..._isa_enumeration import _Context
+from ..._isa_enumeration import ISAContext
 from ..._qre import linear_function
 from ...instruction_ids import CNOT, H, LATTICE_SURGERY, MEAS_Z
 from ...property_keys import (
@@ -73,7 +73,9 @@ class SurfaceCode(ISATransform):
             constraint(MEAS_Z, error_rate=ConstraintBound.lt(0.01)),
         )
 
-    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
+    def provided_isa(
+        self, impl_isa: ISA, ctx: ISAContext
+    ) -> Generator[ISA, None, None]:
         cnot = impl_isa[CNOT]
         h = impl_isa[H]
         meas_z = impl_isa[MEAS_Z]

@@ -3,13 +3,7 @@
 
 from ._application import Application
 from ._architecture import Architecture
-from ._estimation import (
-    estimate,
-    EstimationTable,
-    EstimationTableColumn,
-    EstimationTableEntry,
-    plot_estimates,
-)
+from ._estimation import estimate
 from ._instruction import (
     LOGICAL,
     PHYSICAL,
@@ -36,6 +30,12 @@ from ._qre import (
     instruction_name,
     property_name,
     property_name_to_key,
+)
+from ._results import (
+    EstimationTable,
+    EstimationTableColumn,
+    EstimationTableEntry,
+    plot_estimates,
 )
 from ._trace import LatticeSurgery, PSSPC, TraceQuery, TraceTransform
 

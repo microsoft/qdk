@@ -7,7 +7,7 @@ from typing import Generator
 
 from ..._instruction import ISATransform, constraint, LOGICAL
 from ..._qre import ISA, ISARequirements, generic_function
-from ..._architecture import _Context
+from ..._architecture import ISAContext
 from ...instruction_ids import LATTICE_SURGERY, MEMORY
 from ...property_keys import DISTANCE
 
@@ -58,7 +58,9 @@ class OneDimensionalYokedSurfaceCode(ISATransform):
             constraint(LATTICE_SURGERY, LOGICAL, arity=None, distance=True),
         )
 
-    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
+    def provided_isa(
+        self, impl_isa: ISA, ctx: ISAContext
+    ) -> Generator[ISA, None, None]:
         lattice_surgery = impl_isa[LATTICE_SURGERY]
         distance = lattice_surgery.get_property(DISTANCE)
         assert distance is not None
@@ -178,7 +180,9 @@ class TwoDimensionalYokedSurfaceCode(ISATransform):
             constraint(LATTICE_SURGERY, LOGICAL, arity=None, distance=True),
         )
 
-    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
+    def provided_isa(
+        self, impl_isa: ISA, ctx: ISAContext
+    ) -> Generator[ISA, None, None]:
         lattice_surgery = impl_isa[LATTICE_SURGERY]
         distance = lattice_surgery.get_property(DISTANCE)
         assert distance is not None

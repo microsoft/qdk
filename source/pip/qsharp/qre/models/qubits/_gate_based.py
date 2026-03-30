@@ -4,7 +4,7 @@
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Optional
 
-from ..._architecture import Architecture, _Context
+from ..._architecture import Architecture, ISAContext
 from ..._instruction import ISA, Encoding
 from ...instruction_ids import (
     CNOT,
@@ -36,15 +36,10 @@ from ...instruction_ids import (
 
 
 @dataclass
-class AQREGateBased(Architecture):
+class GateBased(Architecture):
     """
-    A generic gate-based architecture based on the qubit parameters in Azure
-    Quantum Resource Estimator (AQRE,
-    [arXiv:2211.07629](https://arxiv.org/abs/2211.07629)).  The error rate can
-    be set arbitrarily and is either 1e-3 or 1e-4 in the reference.  Typical
-    gate times are 50ns and measurement times are 100ns for superconducting
-    transmon qubits
-    [arXiv:cond-mat/0703002](https://arxiv.org/abs/cond-mat/0703002).
+    A generic gate-based architecture.  The error rate can be set arbitrarily
+    and is either 1e-3 or 1e-4 in the reference.
 
     Args:
         error_rate: The error rate for all gates. Defaults to 1e-4.
@@ -76,7 +71,7 @@ class AQREGateBased(Architecture):
         if self.two_qubit_gate_time is None:
             self.two_qubit_gate_time = self.gate_time
 
-    def provided_isa(self, ctx: _Context) -> ISA:
+    def provided_isa(self, ctx: ISAContext) -> ISA:
         # Value is initialized in __post_init__
         assert self.two_qubit_gate_time is not None
 

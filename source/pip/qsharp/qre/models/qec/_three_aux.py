@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Generator
 
-from ..._architecture import _Context
+from ..._architecture import ISAContext
 from ..._instruction import (
     LOGICAL,
     ISATransform,
@@ -59,7 +59,9 @@ class ThreeAux(ISATransform):
             constraint(MEAS_ZZ, arity=2),
         )
 
-    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
+    def provided_isa(
+        self, impl_isa: ISA, ctx: ISAContext
+    ) -> Generator[ISA, None, None]:
         meas_x = impl_isa[MEAS_X]
         meas_z = impl_isa[MEAS_Z]
         meas_xx = impl_isa[MEAS_XX]

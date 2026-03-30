@@ -11,7 +11,7 @@ from math import ceil
 from pathlib import Path
 from typing import Callable, Generator, Iterable, Optional, Sequence
 
-from ..._qre import ISA, InstructionFrontier, ISARequirements, _Instruction, _binom_ppf
+from ..._qre import ISA, InstructionFrontier, ISARequirements, Instruction, _binom_ppf
 from ..._instruction import (
     LOGICAL,
     PHYSICAL,
@@ -19,7 +19,7 @@ from ..._instruction import (
     ISATransform,
     constraint,
 )
-from ..._architecture import _Context
+from ..._architecture import ISAContext
 from ...instruction_ids import CNOT, LATTICE_SURGERY, T, MEAS_ZZ
 from ..qec import SurfaceCode
 
@@ -103,7 +103,9 @@ class RoundBasedFactory(ISATransform):
             constraint(T),
         )
 
-    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
+    def provided_isa(
+        self, impl_isa: ISA, ctx: ISAContext
+    ) -> Generator[ISA, None, None]:
         cache_path = self._cache_path(impl_isa)
 
         # 1) Try to load from cache
@@ -190,7 +192,7 @@ class RoundBasedFactory(ISATransform):
         ]
 
     def _logical_units(
-        self, lattice_surgery_instruction: _Instruction
+        self, lattice_surgery_instruction: Instruction
     ) -> list[_DistillationUnit]:
         logical_cycle_time = lattice_surgery_instruction.expect_time(1)
         logical_error = lattice_surgery_instruction.expect_error_rate(1)
@@ -214,8 +216,8 @@ class RoundBasedFactory(ISATransform):
             ),
         ]
 
-    def _state_from_pipeline(self, pipeline: _Pipeline) -> _Instruction:
-        return _Instruction.fixed_arity(
+    def _state_from_pipeline(self, pipeline: _Pipeline) -> Instruction:
+        return Instruction.fixed_arity(
             T,
             int(LOGICAL),
             1,

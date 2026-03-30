@@ -19,7 +19,7 @@ from .._native import (
     _FloatFunction,
     generic_function,
     instruction_name,
-    _Instruction,
+    Instruction,
     InstructionFrontier,
     _IntFunction,
     ISA,

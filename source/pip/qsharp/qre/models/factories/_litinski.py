@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from math import ceil
 from typing import Generator
 
-from ..._architecture import _Context
+from ..._architecture import ISAContext
 from ..._qre import ISARequirements, ConstraintBound, ISA
 from ..._instruction import ISATransform, constraint, LOGICAL
 from ...instruction_ids import T, CNOT, H, MEAS_Z, CCZ
@@ -48,7 +48,9 @@ class Litinski19Factory(ISATransform):
             constraint(MEAS_Z, error_rate=ConstraintBound.le(1e-3)),
         )
 
-    def provided_isa(self, impl_isa: ISA, ctx: _Context) -> Generator[ISA, None, None]:
+    def provided_isa(
+        self, impl_isa: ISA, ctx: ISAContext
+    ) -> Generator[ISA, None, None]:
         h = impl_isa[H]
         cnot = impl_isa[CNOT]
         meas_z = impl_isa[MEAS_Z]

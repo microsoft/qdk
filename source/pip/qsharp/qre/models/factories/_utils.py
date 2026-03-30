@@ -3,7 +3,7 @@
 
 from typing import Generator
 
-from ..._architecture import _Context
+from ..._architecture import ISAContext
 from ..._qre import ISARequirements, ISA
 from ..._instruction import ISATransform
 from ...instruction_ids import (
@@ -58,7 +58,7 @@ class MagicUpToClifford(ISATransform):
     def required_isa() -> ISARequirements:
         return ISARequirements()
 
-    def provided_isa(self, impl_isa, ctx: _Context) -> Generator[ISA, None, None]:
+    def provided_isa(self, impl_isa, ctx: ISAContext) -> Generator[ISA, None, None]:
         # Families of equivalent gates under Clifford conjugation.
         families = [
             [
