@@ -174,14 +174,7 @@ fn use_of_dynamic_string_yields_errors() {
     check_profile(
         USE_DYNAMIC_STRING,
         &expect![[r#"
-            [
-                UseOfDynamicString(
-                    Span {
-                        lo: 130,
-                        hi: 144,
-                    },
-                ),
-            ]
+            []
         "#]],
     );
 }

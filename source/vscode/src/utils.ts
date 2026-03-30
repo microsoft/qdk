@@ -35,14 +35,14 @@ export function getRandomGuid(): string {
 
 /**
  * This is temporary until we're able to report proper stdlib and project URIs from
- * the wasm layer. See https://github.com/microsoft/qsharp/blob/f8d344b32a1f1f918f3c91edf58c975db10f4370/wasm/src/diagnostic.rs
+ * the wasm layer. See https://github.com/microsoft/qdk/blob/f8d344b32a1f1f918f3c91edf58c975db10f4370/wasm/src/diagnostic.rs
  *
  * @param maybeUri A source name returned from a Q# diagnostic
  * @returns A VS code URI that's okay to use in a Diagnostic object
  */
 export function getSourceUri(maybeUri: string): vscode.Uri {
   // An error without a span (e.g. "no entrypoint found") gets reported as a "project-level" error.
-  // See: https://github.com/microsoft/qsharp/blob/f8d344b32a1f1f918f3c91edf58c975db10f4370/wasm/src/diagnostic.rs#L191
+  // See: https://github.com/microsoft/qdk/blob/f8d344b32a1f1f918f3c91edf58c975db10f4370/wasm/src/diagnostic.rs#L191
   // Ideally this would be a proper URI pointing to the project root or root document.
   // For now, make up a fake file path for display purposes.
   if (maybeUri === "<project>") {
@@ -54,7 +54,7 @@ export function getSourceUri(maybeUri: string): vscode.Uri {
   } catch {
     // Not a URI, assume it's a filename from the stdlib
     // This URI should ideally be properly propagated from
-    // https://github.com/microsoft/qsharp/blob/f8d344b32a1f1f918f3c91edf58c975db10f4370/wasm/src/diagnostic.rs#L105
+    // https://github.com/microsoft/qdk/blob/f8d344b32a1f1f918f3c91edf58c975db10f4370/wasm/src/diagnostic.rs#L105
     return vscode.Uri.from({ scheme: qsharpLibraryUriScheme, path: maybeUri });
   }
 }

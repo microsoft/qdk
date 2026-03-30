@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::debug::{DbgInfo, InstructionDbgMetadata};
 use indenter::{Indented, indented};
 use qsc_data_structures::{attrs::Attributes, index_map::IndexMap, target::TargetCapabilityFlags};
 use std::fmt::{self, Display, Formatter, Write};
@@ -16,6 +17,7 @@ pub struct Program {
     pub num_results: u32,
     pub attrs: Attributes,
     pub tags: Vec<String>,
+    pub dbg_info: DbgInfo,
 }
 
 impl Display for Program {
@@ -39,6 +41,9 @@ impl Display for Program {
         write!(indent, "\nconfig: {}", self.config)?;
         write!(indent, "\nnum_qubits: {}", self.num_qubits)?;
         write!(indent, "\nnum_results: {}", self.num_results)?;
+        if !self.dbg_info.dbg_scopes.is_empty() || !self.dbg_info.dbg_locations.is_empty() {
+            write!(indent, "\n{}", self.dbg_info)?;
+        }
         writeln!(indent, "\ntags:")?;
         indent = set_indentation(indent, 2);
         for (idx, tag) in self.tags.iter().enumerate() {
@@ -304,12 +309,22 @@ impl Display for FcmpConditionCode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub enum Instruction {
     Store(Operand, Variable),
-    Call(CallableId, Vec<Operand>, Option<Variable>),
+    Call(
+        CallableId,
+        Vec<Operand>,
+        Option<Variable>,
+        Option<Box<InstructionDbgMetadata>>,
+    ),
     Jump(BlockId),
-    Branch(Variable, BlockId, BlockId),
+    Branch(
+        Variable,
+        BlockId,
+        BlockId,
+        Option<Box<InstructionDbgMetadata>>,
+    ),
     Add(Operand, Operand, Variable),
     Sub(Operand, Operand, Variable),
     Mul(Operand, Operand, Variable),
@@ -331,7 +346,18 @@ pub enum Instruction {
     BitwiseOr(Operand, Operand, Variable),
     BitwiseXor(Operand, Operand, Variable),
     Phi(Vec<(Operand, BlockId)>, Variable),
+    Convert(Operand, Variable),
     Return,
+}
+
+impl Instruction {
+    #[must_use]
+    pub fn metadata(&self) -> Option<&InstructionDbgMetadata> {
+        match self {
+            Self::Call(_, _, _, metadata) | Self::Branch(_, _, _, metadata) => metadata.as_deref(),
+            _ => None,
+        }
+    }
 }
 
 impl Display for Instruction {
@@ -354,9 +380,13 @@ impl Display for Instruction {
             condition: Variable,
             if_true: BlockId,
             if_false: BlockId,
+            metadata: Option<&InstructionDbgMetadata>,
         ) -> fmt::Result {
             let mut indent = set_indentation(indented(f), 0);
             write!(indent, "Branch {condition}, {}, {}", if_true.0, if_false.0)?;
+            if let Some(metadata) = metadata {
+                write!(f, " {metadata}")?;
+            }
             Ok(())
         }
 
@@ -365,6 +395,7 @@ impl Display for Instruction {
             callable_id: CallableId,
             args: &[Operand],
             variable: Option<Variable>,
+            metadata: Option<&InstructionDbgMetadata>,
         ) -> fmt::Result {
             let mut indent = set_indentation(indented(f), 0);
             if let Some(variable) = variable {
@@ -375,6 +406,9 @@ impl Display for Instruction {
                 write!(indent, "{arg}, ")?;
             }
             write!(indent, ")")?;
+            if let Some(metadata) = metadata {
+                write!(f, " {metadata}")?;
+            }
             Ok(())
         }
 
@@ -430,11 +464,11 @@ impl Display for Instruction {
         match &self {
             Self::Store(value, variable) => write_unary_instruction(f, "Store", value, *variable)?,
             Self::Jump(block_id) => write!(f, "Jump({})", block_id.0)?,
-            Self::Call(callable_id, args, variable) => {
-                write_call(f, *callable_id, args, *variable)?;
+            Self::Call(callable_id, args, variable, metadata) => {
+                write_call(f, *callable_id, args, *variable, metadata.as_deref())?;
             }
-            Self::Branch(condition, if_true, if_false) => {
-                write_branch(f, *condition, *if_true, *if_false)?;
+            Self::Branch(condition, if_true, if_false, metadata) => {
+                write_branch(f, *condition, *if_true, *if_false, metadata.as_deref())?;
             }
             Self::Add(lhs, rhs, variable) => {
                 write_binary_instruction(f, "Add", lhs, rhs, *variable)?;
@@ -498,6 +532,10 @@ impl Display for Instruction {
             }
             Self::Phi(args, variable) => {
                 write_phi_instruction(f, args, *variable)?;
+            }
+            Self::Convert(operand, variable) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{variable} = Convert {operand}")?;
             }
             Self::Return => write!(f, "Return")?,
         }

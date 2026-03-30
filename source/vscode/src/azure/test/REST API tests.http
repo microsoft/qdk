@@ -46,28 +46,28 @@ Content-type: application/json
 
 // Note change of endpoint and token from here on. This should be for the account used above, but have the 'https://quantum.microsoft.com/user_impersonation' scope.
 
-GET https://{{QUANTUM_ENDPOINT}}/subscriptions/{{QUANTUM_SUBID}}/resourceGroups/{{QUANTUM_RG}}/providers/Microsoft.Quantum/Workspaces/{{QUANTUM_WORKSPACE}}/quotas?api-version=2025-12-01-preview
+GET https://{{QUANTUM_ENDPOINT}}/subscriptions/{{QUANTUM_SUBID}}/resourceGroups/{{QUANTUM_RG}}/providers/Microsoft.Quantum/Workspaces/{{QUANTUM_WORKSPACE}}/quotas?api-version=2026-01-15-preview
 Authorization: Bearer {{QUANTUM_TOKEN}}
 Content-type: application/json
 
 ### Provider status
-GET https://{{QUANTUM_ENDPOINT}}/subscriptions/{{QUANTUM_SUBID}}/resourceGroups/{{QUANTUM_RG}}/providers/Microsoft.Quantum/Workspaces/{{QUANTUM_WORKSPACE}}/providerStatus?api-version=2025-12-01-preview
+GET https://{{QUANTUM_ENDPOINT}}/subscriptions/{{QUANTUM_SUBID}}/resourceGroups/{{QUANTUM_RG}}/providers/Microsoft.Quantum/Workspaces/{{QUANTUM_WORKSPACE}}/providerStatus?api-version=2026-01-15-preview
 Authorization: Bearer {{QUANTUM_TOKEN}}
 Content-type: application/json
 
 ### Provider status via API key
-GET https://{{QUANTUM_ENDPOINT}}/subscriptions/{{QUANTUM_SUBID}}/resourceGroups/{{QUANTUM_RG}}/providers/Microsoft.Quantum/Workspaces/{{QUANTUM_WORKSPACE}}/providerStatus?api-version=2025-12-01-preview
+GET https://{{QUANTUM_ENDPOINT}}/subscriptions/{{QUANTUM_SUBID}}/resourceGroups/{{QUANTUM_RG}}/providers/Microsoft.Quantum/Workspaces/{{QUANTUM_WORKSPACE}}/providerStatus?api-version=2026-01-15-preview
 x-ms-quantum-api-key: {{QUANTUM_KEY}}
 Content-type: application/json
 
 ### Get jobs for the workspace
-GET https://{{QUANTUM_ENDPOINT}}/subscriptions/{{QUANTUM_SUBID}}/resourceGroups/{{QUANTUM_RG}}/providers/Microsoft.Quantum/Workspaces/{{QUANTUM_WORKSPACE}}/jobs?api-version=2025-12-01-preview
+GET https://{{QUANTUM_ENDPOINT}}/subscriptions/{{QUANTUM_SUBID}}/resourceGroups/{{QUANTUM_RG}}/providers/Microsoft.Quantum/Workspaces/{{QUANTUM_WORKSPACE}}/jobs?api-version=2026-01-15-preview
 Authorization: Bearer {{QUANTUM_TOKEN}}
 Content-type: application/json
 
 ### Get a container sasURI
 
-POST https://{{QUANTUM_ENDPOINT}}/subscriptions/{{QUANTUM_SUBID}}/resourceGroups/{{QUANTUM_RG}}/providers/Microsoft.Quantum/Workspaces/{{QUANTUM_WORKSPACE}}/storage/sasUri?api-version=2025-12-01-preview
+POST https://{{QUANTUM_ENDPOINT}}/subscriptions/{{QUANTUM_SUBID}}/resourceGroups/{{QUANTUM_RG}}/providers/Microsoft.Quantum/Workspaces/{{QUANTUM_WORKSPACE}}/storage/sasUri?api-version=2026-01-15-preview
 Accept: application/json
 Content-Type: application/json
 Authorization: Bearer {{QUANTUM_TOKEN}}

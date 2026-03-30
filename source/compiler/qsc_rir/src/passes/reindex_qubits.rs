@@ -88,7 +88,7 @@ impl ReindexQubitPass {
             // Assume qubits only appear in void call instructions.
             let instr = &instrs[i];
             match instr {
-                Instruction::Call(call_id, args, _)
+                Instruction::Call(call_id, args, _, _)
                     if program.get_callable(*call_id).call_type == CallableType::Reset =>
                 {
                     // Generate any new qubit ids and skip adding the instruction.
@@ -101,7 +101,7 @@ impl ReindexQubitPass {
                         }
                     }
                 }
-                Instruction::Call(call_id, args, None) => {
+                Instruction::Call(call_id, args, None, metadata) => {
                     let mut ids_used = Vec::new();
 
                     // Map the qubit args, if any, and copy over the instruction.
@@ -140,13 +140,19 @@ impl ReindexQubitPass {
                                 self.cx_id,
                                 vec![new_args[0], Operand::Literal(Literal::Qubit(next_qubit_id))],
                                 None,
+                                metadata.clone(),
                             ));
                             self.highest_used_id = self.highest_used_id.max(next_qubit_id);
                         } else {
                             // The call was to mz and the qubit is not reused later in the block, so
                             // there is no need to remap it at all as this is the last operation. Skip
                             // the rest of the logic.
-                            block.0.push(Instruction::Call(*call_id, new_args, None));
+                            block.0.push(Instruction::Call(
+                                *call_id,
+                                new_args,
+                                None,
+                                metadata.clone(),
+                            ));
                             continue;
                         }
                     }
@@ -159,8 +165,9 @@ impl ReindexQubitPass {
                         *call_id
                     };
 
-                    block.0.push(Instruction::Call(call_id, new_args, None));
-
+                    block
+                        .0
+                        .push(Instruction::Call(call_id, new_args, None, metadata.clone()));
                     if program.get_callable(call_id).call_type == CallableType::Measurement {
                         // Generate any new qubit ids after a measurement.
                         for arg in args {
@@ -182,7 +189,7 @@ impl ReindexQubitPass {
 
 fn qubit_used_in_instrs<'a>(id: u32, instrs: impl Iterator<Item = &'a Instruction>) -> bool {
     for instr in instrs {
-        if let Instruction::Call(_, args, _) = instr {
+        if let Instruction::Call(_, args, _, _) = instr {
             for arg in args {
                 if let Operand::Literal(Literal::Qubit(qubit_id)) = arg
                     && *qubit_id == id

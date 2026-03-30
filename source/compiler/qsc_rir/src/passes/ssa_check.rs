@@ -149,7 +149,8 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
                 | Instruction::BitwiseOr(Operand::Literal(_), Operand::Variable(var), _)
                 | Instruction::BitwiseXor(Operand::Variable(var), Operand::Literal(_), _)
                 | Instruction::BitwiseXor(Operand::Literal(_), Operand::Variable(var), _)
-                | Instruction::Branch(var, _, _) => {
+                | Instruction::Convert(Operand::Variable(var), _)
+                | Instruction::Branch(var, _, _, _) => {
                     add_use(var.variable_id, block_id, idx);
                 }
 
@@ -177,7 +178,7 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
                 }
 
                 // Multiple variables
-                Instruction::Call(_, vals, _) => {
+                Instruction::Call(_, vals, _, _) => {
                     for val in vals {
                         if let Operand::Variable(var) = val {
                             add_use(var.variable_id, block_id, idx);
@@ -215,7 +216,8 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
                 | Instruction::BitwiseNot(Operand::Literal(_), _)
                 | Instruction::BitwiseAnd(Operand::Literal(_), Operand::Literal(_), _)
                 | Instruction::BitwiseOr(Operand::Literal(_), Operand::Literal(_), _)
-                | Instruction::BitwiseXor(Operand::Literal(_), Operand::Literal(_), _) => {
+                | Instruction::BitwiseXor(Operand::Literal(_), Operand::Literal(_), _)
+                | Instruction::Convert(Operand::Literal(_), _) => {
                     panic!("{block_id:?}, instruction {idx} has no variables: {instr}")
                 }
 

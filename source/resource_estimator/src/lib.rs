@@ -59,7 +59,7 @@ pub fn estimate_expr(
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .run_with_sim(&mut counter, &mut out, Some(expr))
+        .run_with_sim(&mut counter, &mut out, Some(expr), None)
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     estimate_physical_resources(counter.logical_resources(), params)
         .map_err(|e| vec![Error::Estimation(e)])
@@ -75,7 +75,7 @@ pub fn estimate_call(
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .invoke_with_sim(&mut counter, &mut out, callable, args)
+        .invoke_with_sim(&mut counter, &mut out, callable, args, None)
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     estimate_physical_resources(counter.logical_resources(), params)
         .map_err(|e| vec![Error::Estimation(e)])
@@ -89,7 +89,7 @@ pub fn logical_counts_expr(
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .run_with_sim(&mut counter, &mut out, Some(expr))
+        .run_with_sim(&mut counter, &mut out, Some(expr), None)
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     Ok(counter.logical_resources())
 }
@@ -103,7 +103,7 @@ pub fn logical_counts_call(
     let mut stdout = std::io::sink();
     let mut out = GenericReceiver::new(&mut stdout);
     interpreter
-        .invoke_with_sim(&mut counter, &mut out, callable, args)
+        .invoke_with_sim(&mut counter, &mut out, callable, args, None)
         .map_err(|e| e.into_iter().map(Error::Interpreter).collect::<Vec<_>>())?;
     Ok(counter.logical_resources())
 }

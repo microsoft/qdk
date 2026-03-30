@@ -47,7 +47,7 @@ Date:   Wed Apr 19 10:42:03 2023 -0700
     Fix mapping of spans for non-ASCII code (#182)
 
     This builds on the branch for the PR at
-    https://github.com/microsoft/qsharp/pull/180 (which fixes the code
+    https://github.com/microsoft/qdk/pull/180 (which fixes the code
     sharing issue with non-ASCII chars), not not strictly dependent.
 
     The excessive comments on the `mapUtf8UnitsToUtf16Units` function should

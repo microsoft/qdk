@@ -180,7 +180,7 @@ fn map_variable_use_in_block(block: &mut Block, var_map: &mut FxHashMap<Variable
             }
 
             // Replace any arguments with the new values of stored variables.
-            Instruction::Call(_, args, _) => {
+            Instruction::Call(_, args, _, _) => {
                 *args = args
                     .iter()
                     .map(|arg| match arg {
@@ -196,7 +196,7 @@ fn map_variable_use_in_block(block: &mut Block, var_map: &mut FxHashMap<Variable
             }
 
             // Replace the branch condition with the new value of the variable.
-            Instruction::Branch(var, _, _) => {
+            Instruction::Branch(var, _, _, _) => {
                 *var = var.map_to_variable(var_map);
             }
 
@@ -226,6 +226,11 @@ fn map_variable_use_in_block(block: &mut Block, var_map: &mut FxHashMap<Variable
             // Single variable instructions, replace operand with new value.
             Instruction::BitwiseNot(operand, _) | Instruction::LogicalNot(operand, _) => {
                 *operand = operand.mapped(var_map);
+            }
+
+            Instruction::Convert(operand, var) => {
+                *operand = operand.mapped(var_map);
+                *var = var.map_to_variable(var_map);
             }
 
             // Phi nodes are handled separately in the SSA transformation, but need to be passed through

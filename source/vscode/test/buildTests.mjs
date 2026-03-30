@@ -12,6 +12,7 @@ const thisDir = dirname(fileURLToPath(import.meta.url));
 /** @type {import("esbuild").BuildOptions} */
 const buildOptions = {
   entryPoints: [
+    join(thisDir, "suites", "empty", "index.ts"),
     join(thisDir, "suites", "language-service", "index.ts"),
     join(thisDir, "suites", "debugger", "index.ts"),
   ],

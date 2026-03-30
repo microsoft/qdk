@@ -10,6 +10,7 @@ from ._native import (
     QirInstruction,
     run_clifford,
     run_parallel_shots,
+    run_adaptive_parallel_shots,
     run_cpu_full_state,
     NoiseConfig,
     GpuContext,
@@ -24,6 +25,7 @@ from pyqir import (
 )
 from ._qsharp import QirInputData, Result
 from typing import TYPE_CHECKING
+from ._adaptive_pass import AdaptiveProfilePass, OP_RECORD_OUTPUT
 
 if TYPE_CHECKING:  # This is in the pyi file only
     from ._native import GpuShotResults
@@ -472,6 +474,17 @@ def preprocess_simulation_input(
     return (mod, shots, noise, seed)
 
 
+def is_adaptive(mod: pyqir.Module) -> bool:
+    """Check if the QIR module uses the Adaptive Profile."""
+    entry = next(filter(pyqir.is_entry_point, mod.functions), None)
+    if entry is None:
+        return False
+    func_attrs = entry.attributes.func
+    if "qir_profiles" not in func_attrs:
+        return False
+    return func_attrs["qir_profiles"].string_value == "adaptive_profile"
+
+
 def run_qir_clifford(
     input: Union[QirInputData, str, bytes],
     shots: Optional[int] = 1,
@@ -516,28 +529,56 @@ def run_qir_cpu(
     )
 
 
+def str_to_result(result: str):
+    match result:
+        case "0":
+            return Result.Zero
+        case "1":
+            return Result.One
+        case "L":
+            return Result.Loss
+        case _:
+            raise ValueError(f"Invalid result {result}")
+
+
 def run_qir_gpu(
     input: Union[QirInputData, str, bytes],
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
-) -> List[str]:
+) -> List:
     (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
-    if noise is None:
-        (gates, num_qubits, num_results) = AggregateGatesPass().run(mod)
-    else:
-        (gates, num_qubits, num_results) = CorrelatedNoisePass(noise).run(mod)
-    recorder = OutputRecordingPass()
-    recorder.run(mod)
+    if is_adaptive(mod):
+        program = AdaptiveProfilePass().run(mod, noise)
+        results = run_adaptive_parallel_shots(program.as_dict(), shots, noise, seed)
 
-    return list(
-        map(
-            recorder.process_output,
-            run_parallel_shots(gates, shots, num_qubits, num_results, noise, seed),
+        # Extract recorded output result indices from the bytecode.
+        # OP_RECORD_OUTPUT with aux1=0 is result_record_output where
+        # src0 is the result index in the results buffer.
+        recorded_result_indices = []
+        for ins in program.instructions:
+            if (ins.opcode & 0xFF) == OP_RECORD_OUTPUT and ins.aux1 == 0:
+                recorded_result_indices.append(ins.src0)
+        # Filter shot_results to only include recorded output indices
+        filtered = []
+        for s in results:
+            filtered.append([str_to_result(s[i]) for i in recorded_result_indices])
+        return filtered
+    else:
+        if noise is None:
+            (gates, num_qubits, num_results) = AggregateGatesPass().run(mod)
+        else:
+            (gates, num_qubits, num_results) = CorrelatedNoisePass(noise).run(mod)
+        recorder = OutputRecordingPass()
+        recorder.run(mod)
+        return list(
+            map(
+                recorder.process_output,
+                run_parallel_shots(gates, shots, num_qubits, num_results, noise, seed),
+            )
         )
-    )
 
 
 def prepare_qir_with_correlated_noise(
@@ -566,6 +607,9 @@ class GpuSimulator:
 
     def __init__(self):
         self.gpu_context = GpuContext()
+        self._is_adaptive = False
+        self._recorded_result_indices = []
+        self.tables = None
 
     def load_noise_tables(
         self,
@@ -594,14 +638,33 @@ class GpuSimulator:
         multiple programs sequentially by calling this method multiple times before calling `run_shots`
         without needing to create a new simulator instance or reloading noise tables.
         """
-        (self.gates, self.required_num_qubits, self.required_num_results) = (
-            prepare_qir_with_correlated_noise(
-                input, self.tables if not self.tables is None else []
+        # Parse the QIR module to detect profile
+        (mod, _, _, _) = preprocess_simulation_input(input, None, None, None)
+        if is_adaptive(mod):
+            self._is_adaptive = True
+            # Build noise_intrinsics dict from loaded noise tables (if any)
+            noise_intrinsics = None
+            if self.tables is not None:
+                noise_intrinsics = {name: table_id for table_id, name, _ in self.tables}
+            program = AdaptiveProfilePass().run(mod, noise_intrinsics=noise_intrinsics)
+            self.gpu_context.set_adaptive_program(program.as_dict())
+
+            # Extract recorded output result indices from the bytecode.
+            # OP_RECORD_OUTPUT with aux1=0 is result_record_output where
+            # src0 is the result index in the results buffer.
+            self._recorded_result_indices = []
+            for instr in program.instructions:
+                if instr.opcode & 0xFF == OP_RECORD_OUTPUT and instr.aux1 == 0:
+                    self._recorded_result_indices.append(instr.src0)
+        else:
+            (self.gates, self.required_num_qubits, self.required_num_results) = (
+                prepare_qir_with_correlated_noise(
+                    input, self.tables if not self.tables is None else []
+                )
             )
-        )
-        self.gpu_context.set_program(
-            self.gates, self.required_num_qubits, self.required_num_results
-        )
+            self.gpu_context.set_program(
+                self.gates, self.required_num_qubits, self.required_num_results
+            )
 
     def run_shots(self, shots: int, seed: Optional[int] = None) -> "GpuShotResults":
         """
@@ -609,6 +672,16 @@ class GpuSimulator:
         If noise is to be applied, ensure that noise has been loaded prior to running shots.
         """
         seed = seed if seed is not None else random.randint(0, 2**32 - 1)
+        if self._is_adaptive:
+            results = self.gpu_context.run_adaptive_shots(shots, seed=seed)
+            # Filter shot_results to only include recorded output indices
+            if self._recorded_result_indices:
+                indices = self._recorded_result_indices
+                filtered = []
+                for s in results["shot_results"]:
+                    filtered.append("".join(s[i] for i in indices))
+                results["shot_results"] = filtered
+            return results
         return self.gpu_context.run_shots(shots, seed=seed)
 
 
@@ -618,7 +691,7 @@ def run_qir(
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
     type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
-) -> List[str]:
+) -> List:
     """
     Simulate the given QIR source.
 

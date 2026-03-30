@@ -9,6 +9,8 @@ use num_bigint::BigUint;
 use num_complex::Complex;
 use num_traits::Zero;
 use qdk_simulators::QuantumSim;
+use qdk_simulators::cpu_full_state_simulator::noise::{Fault, PauliFault};
+use qdk_simulators::noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable};
 use rand::{Rng, RngCore};
 use rand::{SeedableRng, rngs::StdRng};
 
@@ -502,14 +504,18 @@ impl SequentialAllocator {
 pub struct SparseSim {
     /// Noiseless Sparse simulator to be used by this instance.
     pub sim: QuantumSim,
+    /// Noise configuration for this simulator instance, which defines the probabilities of different faults occurring during simulation.
+    pub noise_config: Option<CumulativeNoiseConfig<Fault>>,
     /// Pauli noise that is applied after a gate or before a measurement is executed.
     /// Service functions aren't subject to noise.
+    /// Note: this is legacy functionality maintained for backward compatibility.
     pub noise: PauliNoise,
     /// Loss probability for the qubit, which is applied before a measurement.
+    /// Note: this is legacy functionality maintained for backward compatibility.
     pub loss: f64,
     /// A bit vector that tracks which qubits were lost.
     pub lost_qubits: BigUint,
-    /// Random number generator to sample Pauli noise.
+    /// Random number generator to sample any noise.
     /// Noise is not applied when rng is None.
     pub rng: Option<StdRng>,
 }
@@ -525,6 +531,7 @@ impl SparseSim {
     pub fn new() -> Self {
         Self {
             sim: QuantumSim::new(None),
+            noise_config: None,
             noise: PauliNoise::default(),
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
@@ -537,6 +544,18 @@ impl SparseSim {
         let mut sim = SparseSim::new();
         sim.set_noise(noise);
         sim
+    }
+
+    #[must_use]
+    pub fn new_with_noise_config(noise_config: CumulativeNoiseConfig<Fault>) -> Self {
+        Self {
+            sim: QuantumSim::new(None),
+            noise_config: Some(noise_config),
+            noise: PauliNoise::default(),
+            loss: f64::zero(),
+            lost_qubits: BigUint::zero(),
+            rng: Some(StdRng::from_entropy()),
+        }
     }
 
     fn set_noise(&mut self, noise: &PauliNoise) {
@@ -560,6 +579,80 @@ impl SparseSim {
     #[must_use]
     fn is_noiseless(&self) -> bool {
         self.rng.is_none()
+    }
+
+    fn apply_faults(
+        &mut self,
+        get_table: impl Fn(&CumulativeNoiseConfig<Fault>) -> &CumulativeNoiseTable<Fault>,
+        qs: &[usize],
+    ) {
+        if self.rng.is_none() {
+            return;
+        }
+        if !self.noise.is_noiseless() || !self.loss.is_zero() {
+            // Use the legacy noise application if configured, to maintain backward compatibility.
+            for &q in qs {
+                self.apply_noise(q);
+            }
+            return;
+        }
+
+        let noise_config = self
+            .noise_config
+            .take()
+            .expect("noise config should always be present");
+        let noise_table = get_table(&noise_config);
+
+        if noise_table.loss > 0.0 {
+            // Check each qubit for loss before applying other faults, since loss will prevent other faults from being applied and also prevent gates from executing.
+            for &q in qs {
+                if self.is_qubit_lost(q) {
+                    continue;
+                }
+                let p = self
+                    .rng
+                    .as_mut()
+                    .expect("RNG should be present")
+                    .gen_range(0.0..1.0);
+                if p < noise_table.loss {
+                    // The qubit is lost, so we reset it.
+                    // It is not safe to release the qubit here, as that may
+                    // interfere with later operations (gates or measurements)
+                    // or even normal qubit release at end of scope.
+                    if self.sim.measure(q) {
+                        self.sim.x(q);
+                    }
+                    // Mark the qubit as lost.
+                    self.lost_qubits.set_bit(q as u64, true);
+                }
+            }
+        }
+
+        let fault = noise_table
+            .sampler
+            .sample(self.rng.as_mut().expect("RNG should be present"));
+        match fault {
+            Fault::None => {}
+            Fault::Pauli(paulis) => {
+                assert!(paulis.len() == qs.len());
+                for (&q, pauli) in qs.iter().zip(paulis.iter()) {
+                    if self.is_qubit_lost(q) {
+                        continue;
+                    }
+                    match pauli {
+                        PauliFault::I => {}
+                        PauliFault::X => self.sim.x(q),
+                        PauliFault::Y => self.sim.y(q),
+                        PauliFault::Z => self.sim.z(q),
+                    }
+                }
+            }
+            Fault::S | Fault::Loss => {
+                panic!("Unexpected fault type from noise table sampler: {fault:?}");
+            }
+        }
+
+        self.noise_config = Some(noise_config);
     }
 
     fn apply_noise(&mut self, q: usize) {
@@ -628,44 +721,39 @@ impl Backend for SparseSim {
                 self.sim.mcx(&[ctl0, ctl1], q);
             }
         }
-        self.apply_noise(ctl0);
-        self.apply_noise(ctl1);
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.ccx, &[ctl0, ctl1, q]);
     }
 
     fn cx(&mut self, ctl: usize, q: usize) {
         if !self.is_qubit_lost(ctl) && !self.is_qubit_lost(q) {
             self.sim.mcx(&[ctl], q);
         }
-        self.apply_noise(ctl);
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.cx, &[ctl, q]);
     }
 
     fn cy(&mut self, ctl: usize, q: usize) {
         if !self.is_qubit_lost(ctl) && !self.is_qubit_lost(q) {
             self.sim.mcy(&[ctl], q);
         }
-        self.apply_noise(ctl);
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.cy, &[ctl, q]);
     }
 
     fn cz(&mut self, ctl: usize, q: usize) {
         if !self.is_qubit_lost(ctl) && !self.is_qubit_lost(q) {
             self.sim.mcz(&[ctl], q);
         }
-        self.apply_noise(ctl);
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.cz, &[ctl, q]);
     }
 
     fn h(&mut self, q: usize) {
         if !self.is_qubit_lost(q) {
             self.sim.h(q);
         }
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.h, &[q]);
     }
 
     fn m(&mut self, q: usize) -> val::Result {
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.mz, &[q]);
         if self.is_qubit_lost(q) {
             // If the qubit is lost, we cannot measure it.
             // Mark it as no longer lost so it becomes usable again, since
@@ -677,7 +765,7 @@ impl Backend for SparseSim {
     }
 
     fn mresetz(&mut self, q: usize) -> val::Result {
-        self.apply_noise(q); // Applying noise before measurement
+        self.apply_faults(|noise| &noise.mresetz, &[q]);
         if self.is_qubit_lost(q) {
             // If the qubit is lost, we cannot measure it.
             // Mark it as no longer lost so it becomes usable again, since
@@ -689,7 +777,6 @@ impl Backend for SparseSim {
         if res {
             self.sim.x(q);
         }
-        self.apply_noise(q); // Applying noise after reset
         val::Result::Val(res)
     }
 
@@ -702,7 +789,7 @@ impl Backend for SparseSim {
         if !self.is_qubit_lost(q) {
             self.sim.rx(theta, q);
         }
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.rx, &[q]);
     }
 
     fn rxx(&mut self, theta: f64, q0: usize, q1: usize) {
@@ -726,15 +813,14 @@ impl Backend for SparseSim {
                 self.sim.h(q0);
             }
         }
-        self.apply_noise(q0);
-        self.apply_noise(q1);
+        self.apply_faults(|noise| &noise.rxx, &[q0, q1]);
     }
 
     fn ry(&mut self, theta: f64, q: usize) {
         if !self.is_qubit_lost(q) {
             self.sim.ry(theta, q);
         }
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.ry, &[q]);
     }
 
     fn ryy(&mut self, theta: f64, q0: usize, q1: usize) {
@@ -766,15 +852,14 @@ impl Backend for SparseSim {
                 self.sim.h(q0);
             }
         }
-        self.apply_noise(q0);
-        self.apply_noise(q1);
+        self.apply_faults(|noise| &noise.ryy, &[q0, q1]);
     }
 
     fn rz(&mut self, theta: f64, q: usize) {
         if !self.is_qubit_lost(q) {
             self.sim.rz(theta, q);
         }
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.rz, &[q]);
     }
 
     fn rzz(&mut self, theta: f64, q0: usize, q1: usize) {
@@ -794,22 +879,21 @@ impl Backend for SparseSim {
                 self.sim.mcx(&[q1], q0);
             }
         }
-        self.apply_noise(q0);
-        self.apply_noise(q1);
+        self.apply_faults(|noise| &noise.rzz, &[q0, q1]);
     }
 
     fn sadj(&mut self, q: usize) {
         if !self.is_qubit_lost(q) {
             self.sim.sadj(q);
         }
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.s_adj, &[q]);
     }
 
     fn s(&mut self, q: usize) {
         if !self.is_qubit_lost(q) {
             self.sim.s(q);
         }
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.s, &[q]);
     }
 
     fn sx(&mut self, q: usize) {
@@ -818,50 +902,49 @@ impl Backend for SparseSim {
             self.sim.s(q);
             self.sim.h(q);
         }
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.sx, &[q]);
     }
 
     fn swap(&mut self, q0: usize, q1: usize) {
         if !self.is_qubit_lost(q0) && !self.is_qubit_lost(q1) {
             self.sim.swap_qubit_ids(q0, q1);
         }
-        self.apply_noise(q0);
-        self.apply_noise(q1);
+        self.apply_faults(|noise| &noise.swap, &[q0, q1]);
     }
 
     fn tadj(&mut self, q: usize) {
         if !self.is_qubit_lost(q) {
             self.sim.tadj(q);
         }
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.t_adj, &[q]);
     }
 
     fn t(&mut self, q: usize) {
         if !self.is_qubit_lost(q) {
             self.sim.t(q);
         }
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.t, &[q]);
     }
 
     fn x(&mut self, q: usize) {
         if !self.is_qubit_lost(q) {
             self.sim.x(q);
         }
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.x, &[q]);
     }
 
     fn y(&mut self, q: usize) {
         if !self.is_qubit_lost(q) {
             self.sim.y(q);
         }
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.y, &[q]);
     }
 
     fn z(&mut self, q: usize) {
         if !self.is_qubit_lost(q) {
             self.sim.z(q);
         }
-        self.apply_noise(q);
+        self.apply_faults(|noise| &noise.z, &[q]);
     }
 
     fn qubit_allocate(&mut self) -> usize {
@@ -1005,6 +1088,20 @@ impl Backend for SparseSim {
                     self.sim.apply(&matrix, &qubits, None);
                 }
 
+                Some(Ok(Value::unit()))
+            }
+            "PostSelectZ" => {
+                let [result, qubit] = unwrap_tuple(arg);
+                let id = qubit.unwrap_qubit().deref().0;
+                let Value::Result(val::Result::Val(val)) = result else {
+                    panic!("first argument to PostSelectZ should be a measurement result",);
+                };
+                let prob = self.sim.force_collapse(val, id);
+                if prob.is_zero() {
+                    return Some(Err(
+                        "post-selection condition has zero probability".to_string()
+                    ));
+                }
                 Some(Ok(Value::unit()))
             }
             _ => None,

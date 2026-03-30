@@ -98,10 +98,12 @@ fn add_simple_measurement_block(program: &mut Program) {
                     Operand::Literal(Literal::Result(0)),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(2),
                 vec![Operand::Literal(Literal::Qubit(1))],
+                None,
                 None,
             ),
             Instruction::Call(
@@ -111,6 +113,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                     Operand::Literal(Literal::Result(1)),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(1),
@@ -118,6 +121,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Result(2)),
                 ],
+                None,
                 None,
             ),
             Instruction::Call(
@@ -127,6 +131,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                     Operand::Literal(Literal::Pointer),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(4),
@@ -134,6 +139,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                     Operand::Literal(Literal::Result(0)),
                     Operand::Literal(Literal::Pointer),
                 ],
+                None,
                 None,
             ),
             Instruction::Call(
@@ -143,6 +149,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                     Operand::Literal(Literal::Pointer),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(4),
@@ -150,6 +157,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                     Operand::Literal(Literal::Result(2)),
                     Operand::Literal(Literal::Pointer),
                 ],
+                None,
                 None,
             ),
             Instruction::Return,
@@ -175,10 +183,12 @@ fn add_branching_measurement_block(program: &mut Program) {
                     Operand::Literal(Literal::Result(0)),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(1),
                 vec![Operand::Literal(Literal::Qubit(0))],
+                None,
                 None,
             ),
             Instruction::Call(
@@ -188,6 +198,7 @@ fn add_branching_measurement_block(program: &mut Program) {
                     Operand::Literal(Literal::Result(1)),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(3),
@@ -196,6 +207,7 @@ fn add_branching_measurement_block(program: &mut Program) {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -204,6 +216,7 @@ fn add_branching_measurement_block(program: &mut Program) {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );

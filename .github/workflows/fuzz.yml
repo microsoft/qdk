@@ -233,15 +233,6 @@ jobs:
 
           </details>
 
-          <details><summary><b>Fuzzing <code>stderr</code> Log</b> (last 62kB), includes the stack trace: Click.</summary>
-          The fragment of interest starts with "panicked at".
-
-          ```gdb
-          ${{ env.STDERR_LOG }}
-          ```
-
-          </details>
-
           <details><summary><b>The branch/commit the bug has been found in:</b> Click.</summary>
           If the developers fail to repro the bug in the latest <code>main</code> then the branch/commit info below can help them to make sure
           that they are using the correct way to repro. If the bug is reproducible in the branch/commit below, but not in latest <code>main</code>,

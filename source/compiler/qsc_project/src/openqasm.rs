@@ -140,7 +140,7 @@ fn get_file_name_from_uri(uri: &Arc<str>) -> Arc<str> {
     // Extract the file name or return the original URI if it fails
     path.file_name()
         .and_then(|name| name.to_str().map(|s| s.to_string().into()))
-        .map_or_else(|| uri.clone(), |f| f)
+        .unwrap_or_else(|| uri.clone())
 }
 
 pub fn get_first_profile_pragma(program: &Program) -> Option<Profile> {

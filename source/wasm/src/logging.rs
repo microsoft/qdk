@@ -121,5 +121,5 @@ pub fn set_log_level(level: i32) {
         5 => LevelFilter::Trace,
         _ => LevelFilter::Off,
     });
-    log::info!("Log level set to {}", level);
+    log::info!("Log level set to {level}");
 }

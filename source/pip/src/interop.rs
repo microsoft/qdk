@@ -35,6 +35,7 @@ use crate::interpreter::{
     CircuitConfig, OptionalCallbackReceiver, OutputSemantics, ProgramType, QSharpError, QasmError,
     TargetProfile, format_error, format_errors,
 };
+use crate::qir_simulation::{NoiseConfig, unbind_noise_config};
 
 use resource_estimator as re;
 
@@ -71,12 +72,13 @@ use resource_estimator as re;
 #[pyfunction]
 #[allow(clippy::too_many_arguments)]
 #[pyo3(
-    signature = (source, callback=None, noise=None, qubit_loss=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, **kwargs)
+    signature = (source, callback=None, noise_config=None,noise=None, qubit_loss=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, **kwargs)
 )]
 pub(crate) fn run_qasm_program(
     py: Python,
     source: &str,
     callback: Option<Py<PyAny>>,
+    noise_config: Option<&Bound<NoiseConfig>>,
     noise: Option<(f64, f64, f64)>,
     qubit_loss: Option<f64>,
     read_file: Option<Py<PyAny>>,
@@ -134,7 +136,18 @@ pub(crate) fn run_qasm_program(
         },
     };
     let loss = qubit_loss.unwrap_or(0.0);
-    let result = run_ast(&mut interpreter, &mut receiver, shots, seed, noise, loss);
+    // Convert NoiseConfig to a rust NoiseConfig.
+    let noise_config: Option<qdk_simulators::noise_config::NoiseConfig<f64, f64>> =
+        noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
+    let result = run_ast(
+        &mut interpreter,
+        &mut receiver,
+        shots,
+        seed,
+        noise_config.as_ref(),
+        noise,
+        loss,
+    );
     match result {
         Ok(result) => {
             let list: Result<Vec<_>, _> = result
@@ -152,6 +165,7 @@ pub(crate) fn run_ast(
     receiver: &mut impl Receiver,
     shots: usize,
     seed: Option<u64>,
+    noise_config: Option<&qdk_simulators::noise_config::NoiseConfig<f64, f64>>,
     noise: Option<PauliNoise>,
     loss: f64,
 ) -> Result<Vec<qsc::interpret::Value>, Vec<interpret::Error>> {
@@ -160,13 +174,18 @@ pub(crate) fn run_ast(
         let mut sim = if let Some(noise) = noise {
             SparseSim::new_with_noise(&noise)
         } else {
-            SparseSim::new()
+            match noise_config {
+                Some(noise_config) => SparseSim::new_with_noise_config(noise_config.clone().into()),
+                None => SparseSim::new(),
+            }
         };
-        sim.set_loss(loss);
+        if loss > 0.0 {
+            sim.set_loss(loss);
+        }
         // If seed is provided, we want to use a different seed for each shot
         // so that the results are different for each shot, but still deterministic
         sim.set_seed(seed.map(|s| s + i as u64));
-        let result = interpreter.run_with_sim(&mut sim, receiver, None)?;
+        let result = interpreter.run_with_sim(&mut sim, receiver, None, None)?;
         results.push(result);
     }
 
@@ -587,10 +606,19 @@ pub(crate) fn circuit_qasm_program(
 
     let package_type = PackageType::Exe;
     let language_features = LanguageFeatures::default();
+    let target_profile = if matches!(
+        config.generation_method,
+        Some(crate::interpreter::CircuitGenerationMethod::Static)
+    ) {
+        TargetProfile::Adaptive_RIF.into()
+    } else {
+        TargetProfile::Unrestricted.into()
+    };
+
     let mut interpreter = create_interpreter_from_ast(
         package,
         source_map,
-        TargetProfile::Unrestricted.into(),
+        target_profile,
         language_features,
         package_type,
     )

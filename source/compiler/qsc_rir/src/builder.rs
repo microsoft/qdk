@@ -231,6 +231,7 @@ pub fn bell_program() -> Program {
                 CallableId(0),
                 vec![Operand::Literal(Literal::Qubit(0))],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(1),
@@ -238,6 +239,7 @@ pub fn bell_program() -> Program {
                     Operand::Literal(Literal::Qubit(0)),
                     Operand::Literal(Literal::Qubit(1)),
                 ],
+                None,
                 None,
             ),
             Instruction::Call(
@@ -247,6 +249,7 @@ pub fn bell_program() -> Program {
                     Operand::Literal(Literal::Result(0)),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(2),
@@ -254,6 +257,7 @@ pub fn bell_program() -> Program {
                     Operand::Literal(Literal::Qubit(1)),
                     Operand::Literal(Literal::Result(1)),
                 ],
+                None,
                 None,
             ),
             Instruction::Call(
@@ -263,6 +267,7 @@ pub fn bell_program() -> Program {
                     Operand::Literal(Literal::Tag(0, 3)),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(4),
@@ -271,6 +276,7 @@ pub fn bell_program() -> Program {
                     Operand::Literal(Literal::Tag(1, 5)),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(4),
@@ -278,6 +284,7 @@ pub fn bell_program() -> Program {
                     Operand::Literal(Literal::Result(1)),
                     Operand::Literal(Literal::Tag(2, 5)),
                 ],
+                None,
                 None,
             ),
             Instruction::Return,
@@ -321,10 +328,12 @@ pub fn teleport_program() -> Program {
                 CallableId(2),
                 vec![Operand::Literal(Literal::Qubit(0))],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(0),
                 vec![Operand::Literal(Literal::Qubit(2))],
+                None,
                 None,
             ),
             Instruction::Call(
@@ -334,6 +343,7 @@ pub fn teleport_program() -> Program {
                     Operand::Literal(Literal::Qubit(1)),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(3),
@@ -342,10 +352,12 @@ pub fn teleport_program() -> Program {
                     Operand::Literal(Literal::Qubit(2)),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(0),
                 vec![Operand::Literal(Literal::Qubit(0))],
+                None,
                 None,
             ),
             Instruction::Call(
@@ -355,6 +367,7 @@ pub fn teleport_program() -> Program {
                     Operand::Literal(Literal::Result(0)),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(5),
@@ -363,6 +376,7 @@ pub fn teleport_program() -> Program {
                     variable_id: VariableId(0),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -371,6 +385,7 @@ pub fn teleport_program() -> Program {
                 },
                 BlockId(1),
                 BlockId(2),
+                None,
             ),
         ]),
     );
@@ -380,6 +395,7 @@ pub fn teleport_program() -> Program {
             Instruction::Call(
                 CallableId(1),
                 vec![Operand::Literal(Literal::Qubit(1))],
+                None,
                 None,
             ),
             Instruction::Jump(BlockId(2)),
@@ -395,6 +411,7 @@ pub fn teleport_program() -> Program {
                     Operand::Literal(Literal::Result(1)),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(5),
@@ -403,6 +420,7 @@ pub fn teleport_program() -> Program {
                     variable_id: VariableId(1),
                     ty: Ty::Boolean,
                 }),
+                None,
             ),
             Instruction::Branch(
                 Variable {
@@ -411,6 +429,7 @@ pub fn teleport_program() -> Program {
                 },
                 BlockId(3),
                 BlockId(4),
+                None,
             ),
         ]),
     );
@@ -420,6 +439,7 @@ pub fn teleport_program() -> Program {
             Instruction::Call(
                 CallableId(2),
                 vec![Operand::Literal(Literal::Qubit(1))],
+                None,
                 None,
             ),
             Instruction::Jump(BlockId(4)),
@@ -435,6 +455,7 @@ pub fn teleport_program() -> Program {
                     Operand::Literal(Literal::Result(2)),
                 ],
                 None,
+                None,
             ),
             Instruction::Call(
                 CallableId(6),
@@ -442,6 +463,7 @@ pub fn teleport_program() -> Program {
                     Operand::Literal(Literal::Result(2)),
                     Operand::Literal(Literal::Tag(0, 3)),
                 ],
+                None,
                 None,
             ),
             Instruction::Return,

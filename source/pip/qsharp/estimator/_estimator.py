@@ -591,8 +591,9 @@ class EstimatorResult(dict):
             self.plot = self._plot
             self.summary_data_frame = self._summary_data_frame
 
-    def _is_succeeded(self):
-        return "status" in self and self["status"] == "success"
+    @staticmethod
+    def _is_succeeded(data):
+        return "status" in data and data["status"] == "success"
 
     def data(self, idx: Optional[int] = None) -> Any:
         """

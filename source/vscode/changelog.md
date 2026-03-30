@@ -1,5 +1,133 @@
 # QDK Changelog
 
+## v1.26.0
+
+Below are some of the highlights for the 1.26 release of the QDK.
+
+### Conditional branches in circuit diagrams
+
+With this release, branches based on measurement results (e.g., `if (M(q) == One) { ... }`) are now shown in circuit diagrams as classically controlled operations, with a label indicating the measurement result that triggers the branch. This makes it easier to understand the structure of algorithms that involve mid-circuit measurements and classical control flow.
+
+Note that the expression in the condition may result from complex processing on multiple measurement results, and the circuit will trace and correctly show the results involved in the condition, for example:
+
+```qsharp
+import Std.Math.PI;
+operation Main() : Result {
+    use q = Qubit();
+    use reg = Qubit[2];
+
+    ApplyToEach(H, reg);
+    let num = MeasureInteger(reg);
+
+    if num == 3 {
+        Y(q);
+    } else {
+        Rx(PI() / 4.0, q);
+    }
+
+    MResetZ(q)
+}
+```
+
+<img width="668" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/conditional_circuit.webp" />
+
+As with other circuit operations or gates, clicking on the box for a conditional branch will navigate to the corresponding source code location.
+
+### Quantum state visualizer in the circuit editor
+
+The [Quantum Circuit Editor](https://learn.microsoft.com/en-us/azure/quantum/qdk-circuit-editor) now includes a state visualizer panel that shows the resulting quantum state from running the circuit, with live updates as the circuit is edited. It visualizes the probability density and phase for each basis state. The panel may be collapsed or expanded by clicking on the vertical divider.
+
+<img width="833" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/editor_state_visualizer.webp" />
+
+### Python improvements for language interop
+
+You can now import OpenQASM code and use it directly as a Q# operation via `import_openqasm`:
+
+```python
+from qdk.openqasm import import_openqasm
+from qdk import qsharp
+
+import_openqasm("""
+    include "stdgates.inc";
+    qubit[2] qs;
+    h qs[0];
+    cx qs[0], qs[1];
+""", name="Entangle")
+
+qsharp.eval("{ use qs = Qubit[2]; Entangle(qs); MResetEachZ(qs) }")
+# [One, One]
+```
+
+The QDK now also supports passing Q# callables across the Python boundary, enabling advanced coding patterns for composable code. Continuing from the sample above, we can define a Q# operation that takes another operation as an argument, and pass the code we imported from OpenQASM:
+
+```python
+qsharp.eval("""
+operation TestAntiCorrelation(entangler : Qubit[] => Unit) : Result[] {
+    use qs = Qubit[2];
+    X(qs[1]);
+    entangler(qs);
+    MResetEachZ(qs)
+}
+""")
+
+from qsharp.code import Entangle, TestAntiCorrelation
+
+TestAntiCorrelation(Entangle)
+# [Zero, One]
+```
+
+### Support for doc comments on struct fields
+
+Doc comments on struct fields are now shown in the hover text for the field in VS Code. See the description in the PR at [#2891](https://github.com/microsoft/qdk/pull/2891) for details.
+
+### New Table Lookup sample
+
+We added a [Hypercube Lookup](https://github.com/microsoft/qdk/pull/2910/changes) sample demonstrating usage of the recently added [table lookup library](https://github.com/microsoft/qdk/tree/main/library/table_lookup). See the extensive comments in the sample's [Main.qs](https://github.com/microsoft/qdk/blob/main/samples/algorithms/HypercubeLookup/src/Main.qs) file for details.
+
+## Other notable changes
+
+- Use 'build' package to build wheels by @idavis in [#2822]<https://github.com/microsoft/qdk/pull/2822>
+- Introduce a new lint: avoid block namespace by @filipw in [#2862]<https://github.com/microsoft/qdk/pull/2862>
+- Fix copilot histogram display by @billti in [#2886]<https://github.com/microsoft/qdk/pull/2886>
+- Show doc comments on hover of struct fields by @swernli in [#2891]<https://github.com/microsoft/qdk/pull/2891>
+- Creating an explicit namespace with the same name as a callable breaks Python interop by @swernli in [#2896]<https://github.com/microsoft/qdk/pull/2896>
+- Unresolved names in call expression avoid ambiguous type error by @swernli in [#2892]<https://github.com/microsoft/qdk/pull/2892>
+- Fix issue with shadowing in `qsharp.code` by @swernli in [#2908]<https://github.com/microsoft/qdk/pull/2908>
+- CSS updates by @billti in [#2899]<https://github.com/microsoft/qdk/pull/2899>
+- Fix `**kwargs` typehints by @orpuente-MS in [#2884]<https://github.com/microsoft/qdk/pull/2884>
+- Combine kernels for op application by @billti in [#2898]<https://github.com/microsoft/qdk/pull/2898>
+- Better feedback on incorrect syntax for qubit allocation by @swernli in [#2897]<https://github.com/microsoft/qdk/pull/2897>
+- Table lookup sample by @DmitryVasilevsky in [#2910]<https://github.com/microsoft/qdk/pull/2910>
+- Add QIR noise intrinsic by @orpuente-MS in [#2915]<https://github.com/microsoft/qdk/pull/2915>
+- Pointing to windows-2025 image on SDLSources stage by @igormasson in [#2918]<https://github.com/microsoft/qdk/pull/2918>
+- Ket Labels on Results from Azure by @ScottCarda-MS in [#2917]<https://github.com/microsoft/qdk/pull/2917>
+- Deprecate `borrow` keyword with Lint and Code-Action by @ScottCarda-MS in [#2929]<https://github.com/microsoft/qdk/pull/2929>
+- [VSCode] Update to latest Quantum DP and CP api-version by @xinyi-joffre in [#2922]<https://github.com/microsoft/qdk/pull/2922>
+- Atom visualizer improvements by @billti in [#2935]<https://github.com/microsoft/qdk/pull/2935>
+- Add `load_csv_dir` method to `NoiseConfig` class by @orpuente-MS in [#2928]<https://github.com/microsoft/qdk/pull/2928>
+- Added CY gate to GPU, CPU and Clifford simulators by @DmitryVasilevsky in [#2927]<https://github.com/microsoft/qdk/pull/2927>
+- Circuit Editor State Visualization Panel by @ScottCarda-MS in [#2870]<https://github.com/microsoft/qdk/pull/2870>
+- Allow Passing of Q# callables and closures in Python by @swernli in [#2940]<https://github.com/microsoft/qdk/pull/2940>
+- Use tagged aggregates in QIR by @swernli in [#2964]<https://github.com/microsoft/qdk/pull/2964>
+- Change `import_openqasm` to hoist qubits into the arguments of the generated Q# operation by @swernli in [#2920]<https://github.com/microsoft/qdk/pull/2920>
+- Sign vsix before publishing by @idavis in [#2967]<https://github.com/microsoft/qdk/pull/2967>
+- Get VSCode Extension, Manifest, and Signature files for Publishing by @idavis in [#2969]<https://github.com/microsoft/qdk/pull/2969>
+- Reset gate and MZ in addition to MResetZ in GPU simulator by @DmitryVasilevsky in [#2939]<https://github.com/microsoft/qdk/pull/2939>
+- Remove container creation when retrieving linked storage account from the service by @rigidit in [#2968]<https://github.com/microsoft/qdk/pull/2968>
+- Update azure-quantum Python dependency by @swernli in [#2976]<https://github.com/microsoft/qdk/pull/2976>
+- [Circuit Diagrams] 1 - RIR debug metadata by @minestarks in [#2942]<https://github.com/microsoft/qdk/pull/2942>
+- [Circuit Diagrams] 2 - ASCII art changes to render conditionals and complex groups by @minestarks in [#2944]<https://github.com/microsoft/qdk/pull/2944>
+- [Circuit Diagrams] 3 - SVG rendering changes for classically controlled circuits by @minestarks in [#2945]<https://github.com/microsoft/qdk/pull/2945>
+- [Circuit diagrams] 4 - Show conditionals in circuits based on RIR debug metadata by @minestarks in [#2943]<https://github.com/microsoft/qdk/pull/2943>
+- Fix zoom behavior in circuit diagrams by @minestarks in [#2979]<https://github.com/microsoft/qdk/pull/2979>
+
+## New Contributors
+
+- @igormasson made their first contribution in https://github.com/microsoft/qdk/pull/2918
+- @rigidit made their first contribution in https://github.com/microsoft/qdk/pull/2968
+
+**Full Changelog**: <https://github.com/microsoft/qdk/compare/v1.25.1...v1.26.0>
+
 ## v1.25.1
 
 Below are some of the highlights for the 1.25 release of the QDK.
@@ -8,7 +136,7 @@ Below are some of the highlights for the 1.25 release of the QDK.
 
 The QDK has been updated to reflect Microsoft's branding for quantum computing, including updating the name of the VS Code extension to "Microsoft Quantum Development Kit" and updating the extension logo to the Mobius strip design.
 
-<img width="128" height="128" alt="mobius" src="https://github.com/user-attachments/assets/ead2c7ca-b78f-41ab-9e5c-144e7e6e9106" />
+<img width="128" alt="mobius" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/mobius_logo.webp" />
 
 ### New simulators
 
@@ -22,15 +150,13 @@ Both simulators are currently exposed via the new `NeutralAtomDevice` Python cla
 
 When running the simulators with qubit loss configured, lost qubits will be indicated in the measurement results with the special `Loss` result value when using _raw_ labels, or with a `-` character when using _ket_ labels.
 
-<img width="600" alt="NoiseConfig" src="https://github.com/user-attachments/assets/0856308f-cc50-44e8-bdd2-c4f7c0ea3d48" />
+<img width="588" alt="NoiseConfig" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/noise_with_loss.webp" />
 
 ### Neutral Atom device visualizer
 
 The `NeutralAtomDevice` class includes a `show_trace` method that takes the compiled program and visualizes the execution on an animated representation of a neutral atom device. This allows users to see how qubits are manipulated over time, including gate operations, measurements, and movement. This visualization can help with understanding the unique characteristics of neutral atom hardware, and how programs map to operations on the physical device. See the notebooks mentioned in the prior section for example usage.
 
-<video width="793" autoplay loop muted>
-    <source src="https://github.com/user-attachments/assets/1733d210-df53-4b1a-987a-0ca62c1aa79b" type="video/mp4">
-</video>
+<video src="https://raw.githubusercontent.com/microsoft/qdk/main/media/atom_circuit.mp4" autoplay loop muted playsinline></video>
 
 ### Circuit visualization improvements
 
@@ -38,15 +164,13 @@ In circuit diagrams, loops (`for`, `while`, etc.) from the source code are now r
 
 This release also includes other usability improvements to circuit diagrams, including labels at the top of expanded components, the ability to navigate to the call site of an operation by clicking on the corresponding component in the circuit diagram, and automatic expansion of trivial components.
 
-<video width="1200" autoplay loop muted>
-  <source src="https://github.com/user-attachments/assets/d8720cc4-cc63-47f7-a740-1def1700fd32" type="video/mp4">
-</video>
+<video src="https://raw.githubusercontent.com/microsoft/qdk/main/media/circuit_groups.mp4" autoplay loop muted playsinline></video>
 
 ### Molecule visualizer
 
 A `MoleculeViewer` class has been added to the collection of widgets (`from qdk.widgets import MoleculeViewer`) that can display 3D visualizations of molecules using data in `.xyz` and `.cube` formats. This is most useful when used in conjunction with the new [qdk-chemistry](https://pypi.org/project/qdk-chemistry/) package, which provides advanced tools for quantum chemistry exploration.
 
-<img width="600" alt="MoleculeViewer" src="https://github.com/user-attachments/assets/0ddb86e7-6c5c-4e8f-a9f1-747f6824461d" />
+<img width="600" alt="MoleculeViewer" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/molecule_widget.webp" />
 
 ### TableLookup library
 

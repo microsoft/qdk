@@ -291,30 +291,59 @@ def test_dump_operation() -> None:
 
 def test_run_with_noise_produces_noisy_results() -> None:
     qsharp.init()
-    qsharp.set_quantum_seed(0)
     result = qsharp.run(
         "{ mutable errors=0; for _ in 0..100 { use q1=Qubit(); use q2=Qubit(); H(q1); CNOT(q1, q2); if MResetZ(q1) != MResetZ(q2) { set errors+=1; } } errors }",
         shots=1,
         noise=qsharp.BitFlipNoise(0.1),
+        seed=0,
     )
     assert result[0] > 5
     result = qsharp.run(
         "{ mutable errors=0; for _ in 0..100 { use q=Qubit(); if MResetZ(q) != Zero { set errors+=1; } } errors }",
         shots=1,
         noise=qsharp.BitFlipNoise(0.1),
+        seed=0,
     )
     assert result[0] > 5
 
 
 def test_run_with_loss_produces_lossy_results() -> None:
     qsharp.init()
-    qsharp.set_quantum_seed(0)
     result = qsharp.run(
         "{ use q = Qubit(); X(q); MResetZ(q) }",
         shots=1,
         qubit_loss=1.0,
+        seed=0,
     )
     assert result[0] == qsharp.Result.Loss
+
+
+def test_run_with_callable_and_seed_produces_deterministic_shot_results() -> None:
+    qsharp.init()
+    # Uses an operation that verifies both quantum and classical randomness
+    qsharp.eval(
+        "operation Rand() : (Int, Int) { use qs = Qubit[32]; for q in qs { H(q); }; (MeasureInteger(qs), Std.Random.DrawRandomInt(0, 1_000_000)) }"
+    )
+    result1 = qsharp.run(
+        qsharp.code.Rand,
+        shots=10,
+        seed=42,
+    )
+    result2 = qsharp.run(
+        qsharp.code.Rand,
+        shots=10,
+        seed=42,
+    )
+    assert (
+        result1[0] != result1[2]
+    )  # Check that we actually got some randomness in the results
+    assert result1 == result2
+    result3 = qsharp.run(
+        qsharp.code.Rand,
+        shots=10,
+        seed=None,
+    )
+    assert result1 != result3
 
 
 def test_compile_qir_input_data() -> None:
@@ -552,7 +581,9 @@ def test_run_with_result_from_qsharp_callable(capsys) -> None:
     assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
 
 
-def test_run_with_result_from_python_callable_while_global_qubits_allocated(capsys) -> None:
+def test_run_with_result_from_python_callable_while_global_qubits_allocated(
+    capsys,
+) -> None:
     qsharp.init()
     qsharp.eval("use q = Qubit();")
     qsharp.eval(
@@ -564,7 +595,9 @@ def test_run_with_result_from_python_callable_while_global_qubits_allocated(caps
     assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
 
 
-def test_run_with_result_from_qsharp_callable_while_global_qubits_allocated(capsys) -> None:
+def test_run_with_result_from_qsharp_callable_while_global_qubits_allocated(
+    capsys,
+) -> None:
     qsharp.init()
     qsharp.eval("use q = Qubit();")
     qsharp.eval(
@@ -983,6 +1016,7 @@ def test_function_defined_before_namespace_keeps_both_accessible() -> None:
     assert qsharp.code.Four.Two() == 42
     from qsharp.code import Four
     from qsharp.code.Four import Two
+
     assert Four() == 4
     assert Two() == 42
 
@@ -995,6 +1029,7 @@ def test_namespace_defined_before_function_keeps_both_accessible() -> None:
     assert qsharp.code.Four.Two() == 42
     from qsharp.code import Four
     from qsharp.code.Four import Two
+
     assert Four() == 4
     assert Two() == 42
 
@@ -1079,6 +1114,55 @@ def test_circuit_with_generation_method() -> None:
         """\
         q_0    ── X ──── |0〉 ──
         q_1    ────────────────
+        """
+    )
+
+
+def test_circuit_with_static_generation_method() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qsharp.eval(
+        """
+    operation Foo() : Result {
+        use q = Qubit();
+        H(q);
+        let r = M(q);
+        if r == One { X(q); }
+        Reset(q);
+        r
+    }
+    """
+    )
+    circuit = qsharp.circuit(
+        "Foo()", generation_method=qsharp.CircuitGenerationMethod.Static
+    )
+    assert str(circuit) == dedent(
+        """\
+        q_0    ── H ──── M ──── if: c_0 = |1〉 ──── |0〉 ──
+                         ╘═══════════ ● ═════════════════
+        """
+    )
+
+
+def test_circuit_from_qsharp_callable_static() -> None:
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qsharp.eval(
+        """
+    operation Foo() : Unit {
+        use q = Qubit();
+        H(q);
+        let r = M(q);
+        if r == One { X(q); }
+        Reset(q);
+    }
+    """
+    )
+    circuit = qsharp.circuit(
+        qsharp.code.Foo, generation_method=qsharp.CircuitGenerationMethod.Static
+    )
+    assert str(circuit) == dedent(
+        """\
+        q_0    ── H ──── M ──── if: c_0 = |1〉 ──── |0〉 ──
+                         ╘═══════════ ● ═════════════════
         """
     )
 

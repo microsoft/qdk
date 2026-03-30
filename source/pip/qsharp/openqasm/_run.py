@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from time import monotonic
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, cast, Dict, List, Optional, Tuple, Union
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
 from .._native import QasmError, Output, run_qasm_program  # type: ignore
@@ -13,9 +13,11 @@ from .._qsharp import (
     PhaseFlipNoise,
     ShotResult,
     StateDump,
+    StateDumpData,
     get_interpreter,
     ipython_helper,
     python_args_to_interpreter_args,
+    NoiseConfig,
 )
 from .. import telemetry_events
 from ._ipython import display_or_print
@@ -24,7 +26,7 @@ from ._ipython import display_or_print
 def run(
     source: Union[str, Callable],
     shots: int = 1024,
-    *args,
+    *args: Any,
     on_result: Optional[Callable[[ShotResult], None]] = None,
     save_events: bool = False,
     noise: Optional[
@@ -34,6 +36,7 @@ def run(
             BitFlipNoise,
             PhaseFlipNoise,
             DepolarizingNoise,
+            NoiseConfig,
         ]
     ] = None,
     qubit_loss: Optional[float] = None,
@@ -91,15 +94,23 @@ def run(
         if output.is_matrix():
             results[-1]["matrices"].append(output)
         elif output.is_state_dump():
-            results[-1]["dumps"].append(StateDump(output.state_dump()))
+            dump_data = cast(StateDumpData, output.state_dump())
+            results[-1]["dumps"].append(StateDump(dump_data))
         elif output.is_message():
             results[-1]["messages"].append(str(output))
 
     callable = None
+    source_str: Optional[str] = None
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         callable = source.__global_callable
-        source = None
+    elif isinstance(source, str):
+        source_str = source
+
+    noise_config = None
+    if isinstance(noise, NoiseConfig):
+        noise_config = noise
+        noise = None
 
     if callable:
         for _ in range(shots):
@@ -113,8 +124,9 @@ def run(
                 }
             )
             run_results = get_interpreter().run(
-                source,
+                source_str,
                 on_save_events if save_events else display_or_print,
+                noise_config,
                 noise,
                 qubit_loss=qubit_loss,
                 callable=callable,
@@ -141,6 +153,11 @@ def run(
                 "The `on_result` and `save_events` parameters are not supported when running QASM programs."
             )
 
+        if source_str is None:
+            raise QasmError(
+                "source must be a string or a callable with __global_callable attribute"
+            )
+
         # remove any entries from kwargs with a None key or None value
         kwargs = {k: v for k, v in kwargs.items() if k is not None and v is not None}
 
@@ -150,8 +167,9 @@ def run(
         kwargs["shots"] = shots
 
         results = run_qasm_program(
-            source,
+            source_str,
             display_or_print,
+            noise_config,
             noise,
             qubit_loss,
             read_file,

@@ -9,6 +9,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+indenter = { workspace = true }
 log = { workspace = true }
 miette = { workspace = true }
 num-bigint = { workspace = true }
@@ -19,6 +20,8 @@ qsc_data_structures = { path = "../qsc_data_structures" }
 qsc_frontend = { path = "../qsc_frontend" }
 qsc_fir = { path = "../qsc_fir" }
 qsc_hir = { path = "../qsc_hir" }
+qsc_partial_eval = { path = "../qsc_partial_eval" }
+qsc_rir = { path = "../qsc_rir" }
 qsc_lowerer = { path = "../qsc_lowerer" }
 regex-lite = { workspace = true }
 rustc-hash = { workspace = true }
