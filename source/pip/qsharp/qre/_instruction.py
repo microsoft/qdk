@@ -165,7 +165,7 @@ class ISATransform(ABC):
         """
         Create a BindingNode for this transform.
 
-        This is a convenience method equivalent to `cls.q().bind(name, node)`.
+        This is a convenience method equivalent to ``cls.q().bind(name, node)``.
 
         Args:
             name (str): The name to bind the transform's output to.

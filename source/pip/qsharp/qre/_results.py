@@ -28,8 +28,8 @@ class EstimationTable(list["EstimationTableEntry"]):
     Extends ``list[EstimationTableEntry]`` and provides configurable columns for
     displaying estimation data.  By default the table includes *qubits*,
     *runtime* (displayed as a ``pandas.Timedelta``), and *error* columns.
-    Additional columns can be added or inserted with :meth:`add_column` and
-    :meth:`insert_column`.
+    Additional columns can be added or inserted with ``add_column`` and
+    ``insert_column``.
     """
 
     def __init__(self):
@@ -65,7 +65,7 @@ class EstimationTable(list["EstimationTableEntry"]):
                 takes an EstimationTableEntry and returns the value for this
                 column.
             formatter (Optional[Callable[[Any], Any]]): An optional function
-                that formats the output of `function` for display purposes.
+                that formats the output of ``function`` for display purposes.
         """
         self._columns.append((name, EstimationTableColumn(function, formatter)))
 
@@ -85,7 +85,7 @@ class EstimationTable(list["EstimationTableEntry"]):
                 takes an EstimationTableEntry and returns the value for this
                 column.
             formatter (Optional[Callable[[Any], Any]]): An optional function
-                that formats the output of `function` for display purposes.
+                that formats the output of ``function`` for display purposes.
         """
         self._columns.insert(index, (name, EstimationTableColumn(function, formatter)))
 
@@ -118,9 +118,9 @@ class EstimationTable(list["EstimationTableEntry"]):
         self.add_column("factories", summarize_factories)
 
     def as_frame(self):
-        """Convert the estimation table to a :class:`pandas.DataFrame`.
+        """Convert the estimation table to a ``pandas.DataFrame``.
 
-        Each row corresponds to an :class:`EstimationTableEntry` and each
+        Each row corresponds to an ``EstimationTableEntry`` and each
         column is determined by the columns registered on this table.  Column
         formatters, when present, are applied to the values before they are
         placed in the frame.
@@ -146,7 +146,7 @@ class EstimationTable(list["EstimationTableEntry"]):
     def plot(self, **kwargs):
         """Plot this table's results.
 
-        Convenience wrapper around :func:`plot_estimates`.  All keyword
+        Convenience wrapper around ``plot_estimates``.  All keyword
         arguments are forwarded.
 
         Returns:
@@ -157,11 +157,11 @@ class EstimationTable(list["EstimationTableEntry"]):
 
 @dataclass(frozen=True, slots=True)
 class EstimationTableColumn:
-    """Definition of a single column in an :class:`EstimationTable`.
+    """Definition of a single column in an ``EstimationTable``.
 
     Attributes:
         function: A callable that extracts the raw column value from an
-            :class:`EstimationTableEntry`.
+            ``EstimationTableEntry``.
         formatter: An optional callable that transforms the raw value for
             display purposes (e.g. converting nanoseconds to a
             ``pandas.Timedelta``).
@@ -173,7 +173,7 @@ class EstimationTableColumn:
 
 @dataclass(frozen=True, slots=True)
 class EstimationTableEntry:
-    """A single row in an :class:`EstimationTable`.
+    """A single row in an ``EstimationTable``.
 
     Each entry represents one Pareto-optimal estimation result for a
     particular combination of application trace and architecture ISA.
@@ -185,7 +185,7 @@ class EstimationTableEntry:
         source: The instruction source derived from the architecture ISA used
             for this estimation.
         factories: A mapping from instruction id to the
-            :class:`FactoryResult` describing the magic-state factory used
+            ``FactoryResult`` describing the magic-state factory used
             and the number of copies required.
         properties: Additional key-value properties attached to the
             estimation result.
@@ -286,10 +286,10 @@ def plot_estimates(
     Creates a log-log scatter plot where the x-axis shows the total runtime and
     the y-axis shows the total number of physical qubits.
 
-    *data* may be a single `EstimationTable` or an iterable of tables.  When
+    *data* may be a single ``EstimationTable`` or an iterable of tables.  When
     multiple tables are provided, each is plotted as a separate series.  If a
-    table has a `EstimationTable.name` (set via the *name* parameter of
-    `estimate`), it is used as the legend label for that series.
+    table has a ``EstimationTable.name`` (set via the *name* parameter of
+    ``estimate``), it is used as the legend label for that series.
 
     When *runtime_unit* is ``None`` (the default), the x-axis uses
     human-readable time-unit tick labels spanning nanoseconds to centuries.

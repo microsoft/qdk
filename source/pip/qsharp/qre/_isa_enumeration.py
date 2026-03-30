@@ -20,7 +20,7 @@ class ISAQuery(ABC):
 
     Enumeration nodes define the structure of the search space for ISAs starting
     from architectures and modified by ISA transforms such as error correction
-    schemes. They can be composed using operators like `+` (sum) and `*`
+    schemes. They can be composed using operators like ``+`` (sum) and ``*``
     (product) to build complex enumeration strategies.
     """
 
@@ -42,7 +42,7 @@ class ISAQuery(ABC):
         """
         Populate the provenance graph with instructions from this node.
 
-        Unlike `enumerate`, this does not yield ISA objects.  Each transform
+        Unlike ``enumerate``, this does not yield ISA objects.  Each transform
         queries the graph for Pareto-optimal instructions matching its
         requirements, and adds produced instructions directly to the graph.
 
@@ -188,15 +188,15 @@ class _ComponentQuery(ISAQuery):
     """
     Query node that enumerates ISAs based on a component type and source.
 
-    This node takes a component type (which must have an `enumerate_isas` class
+    This node takes a component type (which must have an ``enumerate_isas`` class
     method) and a source node. It enumerates the source node to get base ISAs,
-    and then calls `enumerate_isas` on the component type for each base ISA
+    and then calls ``enumerate_isas`` on the component type for each base ISA
     to generate derived ISAs.
 
     Attributes:
         component: The component type to query (e.g., a QEC code class).
         source: The source node providing input ISAs (default: ISA_ROOT).
-        kwargs: Additional keyword arguments passed to `enumerate_isas`.
+        kwargs: Additional keyword arguments passed to ``enumerate_isas``.
     """
 
     component: type

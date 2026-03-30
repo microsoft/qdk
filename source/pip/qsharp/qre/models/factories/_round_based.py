@@ -47,12 +47,12 @@ class RoundBasedFactory(ISATransform):
     the overall space requirements.
 
     Space requirements are calculated using a user-provided function that
-    aggregates per-round space (e.g., sum or max).  The `sum` function models
-    the case in which qubits are not reused across rounds, while the `max`
+    aggregates per-round space (e.g., sum or max).  The ``sum`` function models
+    the case in which qubits are not reused across rounds, while the ``max``
     function models the case in which qubits are reused across rounds.
 
     For the enumeration of logical-level distillation units, the factory relies
-    on a user-provided `ISAQuery` (defaulting to `SurfaceCode.q()`) to explore
+    on a user-provided ``ISAQuery`` (defaulting to ``SurfaceCode.q()``) to explore
     different surface code configurations and their corresponding lattice
     surgery instructions.  These need to be provided by the user and cannot
     automatically be derived from the provided implementation ISA, as they can

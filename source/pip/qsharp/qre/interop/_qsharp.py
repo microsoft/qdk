@@ -25,7 +25,7 @@ def _bucketize_rotation_counts(
     Return a list of (count, depth) pairs representing the rotation layers in
     the trace.
 
-    The following properties hold for the returned list `result`:
+    The following properties hold for the returned list ``result``:
         - sum(depth for _, depth in result) == rotation_depth
         - sum(count * depth for count, depth in result) == rotation_count
         - count > 0 for each (count, _) in result
