@@ -29,11 +29,11 @@ native_circuit = transpile(circuit, backend=backend)
 job = backend.run(native_circuit, shots=1000, noise=NoiseConfig())
 ```
 
-See [#3047](https://github.com/microsoft/qdk/pull/3047) and [#3026](https://github.com/microsoft/qdk/pull/3026) for details.
+See the [neutral atom simulator sample notebook](https://github.com/microsoft/qdk/blob/main/samples/python_interop/neutral_atom_simulator.ipynb) for a walkthrough.
 
-### Adaptive QIR programs on GPU simulator
+### Updated samples for circuit compatibility
 
-The GPU simulator now supports running Adaptive_RIFL QIR programs. This works by compiling the adaptive QIR to bytecode and then executing a bytecode interpreter as a GPU shader, enabling thousands of adaptive QIR simulations to run in parallel on the GPU. This significantly improves performance for programs that use mid-circuit measurement and classical control flow during simulation. See [#3039](https://github.com/microsoft/qdk/pull/3039) for details.
+Many of the [built-in samples](https://github.com/microsoft/qdk/tree/main/samples) have been updated so they can now generate circuit diagrams and be submitted to Azure Quantum. Previously, some samples used patterns that were incompatible with circuit generation, such as `Message` calls with dynamic values. These checks have been relaxed, and the samples have been restructured so that `Main()` is circuit-compatible while validation logic lives in separate `@Test()` operations. See [#2999](https://github.com/microsoft/qdk/pull/2999) for details.
 
 ### `PostSelectZ` operation
 
@@ -41,10 +41,11 @@ A new operation, `Std.Diagnostics.PostSelectZ`, allows a program to force the co
 
 ### Circuit visualization improvements
 
-Classically controlled gate groups can now be expanded and collapsed in circuit diagrams, matching the behavior of other expandable groups. This provides a more consistent interaction model when exploring circuits with complex classical control flow. Internal rendering for conditional groups has also been simplified. See [#2985](https://github.com/microsoft/qdk/pull/2985) for details.
+Classically controlled gate groups can now be expanded and collapsed in circuit diagrams, matching the behavior of other expandable groups. This provides a more consistent interaction model when exploring circuits with complex classical control flow. See [#2985](https://github.com/microsoft/qdk/pull/2985) for details.
 
 ## Other notable changes
 
+- Add support for Adaptive_RIFL QIR programs in GPU simulator by @orpuente-MS in [#3039](https://github.com/microsoft/qdk/pull/3039)
 - Support `NoiseConfig` for Q# and OpenQASM on sparse simulation by @swernli in [#3062](https://github.com/microsoft/qdk/pull/3062)
 - Support explicit seed in `qsharp.run` by @swernli in [#3065](https://github.com/microsoft/qdk/pull/3065)
 - Add `qdk-programming` Copilot skill for Q#, OpenQASM and Python by @minestarks in [#3058](https://github.com/microsoft/qdk/pull/3058)
@@ -52,7 +53,6 @@ Classically controlled gate groups can now be expanded and collapsed in circuit 
 - RCA: Allow updates to mutable variables within a dynamic scope if the variable is also defined within that scope by @swernli in [#3053](https://github.com/microsoft/qdk/pull/3053)
 - OpenQASM: Fix const propagation in bitarray-to-int promotion by @minestarks in [#3030](https://github.com/microsoft/qdk/pull/3030)
 - Add `IntAsDouble` and `Truncate` support in QIR by @swernli in [#3024](https://github.com/microsoft/qdk/pull/3024)
-- Update samples for circuit compatibility, relax RCA dynamic string checks by @swernli in [#2999](https://github.com/microsoft/qdk/pull/2999)
 - Fix collapse/expand issue by @ScottCarda-MS in [#3016](https://github.com/microsoft/qdk/pull/3016)
 - Refactor RCA by @swernli in [#2835](https://github.com/microsoft/qdk/pull/2835), [#3015](https://github.com/microsoft/qdk/pull/3015)
 
