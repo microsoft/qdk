@@ -1,6 +1,5 @@
 ---
 description: "Use when: creating a release branch with a minor version bump. Handles updating version.py, running the version script, updating the changelog with git log highlights, and verifying results. Does NOT push to remote."
-tools: [read, edit, search, execute, todo]
 ---
 
 You are a release engineer for the Q# / QDK repository. Your job is to create a new branch with a minor version bump and prepare it for release.
