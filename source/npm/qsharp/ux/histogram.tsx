@@ -92,7 +92,7 @@ function resultToKet(result: string): string {
   }
 }
 
-export type HistogramProps = {
+export function Histogram(props: {
   shotCount: number;
   data: Map<string, number>;
   filter: string;
@@ -101,14 +101,7 @@ export type HistogramProps = {
   labels?: "raw" | "kets" | "none";
   items?: "all" | "top-10" | "top-25";
   sort?: "a-to-z" | "high-to-low" | "low-to-high";
-  onSettingsChange?: (settings: {
-    labels: "raw" | "kets" | "none";
-    items: "all" | "top-10" | "top-25";
-    sort: "a-to-z" | "high-to-low" | "low-to-high";
-  }) => void;
-};
-
-export function Histogram(props: HistogramProps) {
+}) {
   const [hoverLabel, setHoverLabel] = useState("");
   const [scale, setScale] = useState({ zoom: 1.0, offset: 1.0 });
   const [menuSelection, setMenuSelection] = useState(() => {
@@ -222,26 +215,6 @@ export function Histogram(props: HistogramProps) {
       setScale({ zoom: 1, offset: 1 });
     }
     gMenu.current.style.display = "none";
-
-    // Notify parent of settings change
-    if (props.onSettingsChange) {
-      const sortValues: ("a-to-z" | "high-to-low" | "low-to-high")[] = [
-        "a-to-z",
-        "high-to-low",
-        "low-to-high",
-      ];
-      const labelsValues: ("raw" | "kets" | "none")[] = ["raw", "kets", "none"];
-      const itemsValues: ("all" | "top-10" | "top-25")[] = [
-        "all",
-        "top-10",
-        "top-25",
-      ];
-      props.onSettingsChange({
-        sort: sortValues[newMenuSelection["sortOrder"] ?? 0],
-        labels: labelsValues[newMenuSelection["labels"] ?? 0],
-        items: itemsValues[newMenuSelection["itemCount"] ?? 0],
-      });
-    }
   }
 
   function toggleInfo() {
@@ -271,7 +244,7 @@ export function Histogram(props: HistogramProps) {
 
   function onWheel(e: WheelEvent): void {
     // Ctrl+scroll is the event sent by pinch-to-zoom on a trackpad. Shift+scroll is common for
-    // panning horizontally.
+    // panning horizontally. See https://danburzo.ro/dom-gestures/ for the messy details.
     if (!e.ctrlKey && !e.shiftKey) return;
 
     // When using a mouse wheel, the deltaY is the scroll amount, but if the shift key is pressed
@@ -402,163 +375,137 @@ export function Histogram(props: HistogramProps) {
         <text class="histo-label" x="2" y="97">
           {histogramLabel}
         </text>
-        {
-          <text class="hover-text" x="85" y="6">
-            {hoverLabel}
-          </text>
-        }
+        <text class="hover-text" x="85" y="6">
+          {hoverLabel}
+        </text>
 
         {/* The settings icon */}
-        {
-          <g
-            class="menu-icon"
-            transform="translate(2, 2) scale(0.3 0.3)"
-            onClick={toggleMenu}
-          >
-            <rect
-              width="24"
-              height="24"
-              fill="white"
-              stroke-widths="0.5"
-            ></rect>
-            <path
-              d="M3 5 H21 M3 12 H21 M3 19 H21"
-              stroke-width="1.75"
-              stroke-linecap="round"
-            />
-            <rect x="6" y="3" width="4" height="4" rx="1" stroke-width="1.5" />
-            <rect
-              x="15"
-              y="10"
-              width="4"
-              height="4"
-              rx="1"
-              stroke-width="1.5"
-            />
-            <rect x="9" y="17" width="4" height="4" rx="1" stroke-width="1.5" />
-          </g>
-        }
+        <g
+          class="menu-icon"
+          transform="translate(2, 2) scale(0.3 0.3)"
+          onClick={toggleMenu}
+        >
+          <rect width="24" height="24" fill="white" stroke-widths="0.5"></rect>
+          <path
+            d="M3 5 H21 M3 12 H21 M3 19 H21"
+            stroke-width="1.75"
+            stroke-linecap="round"
+          />
+          <rect x="6" y="3" width="4" height="4" rx="1" stroke-width="1.5" />
+          <rect x="15" y="10" width="4" height="4" rx="1" stroke-width="1.5" />
+          <rect x="9" y="17" width="4" height="4" rx="1" stroke-width="1.5" />
+        </g>
 
         {/* The info icon */}
-        {
-          <g
-            class="menu-icon"
-            transform="translate(156, 2) scale(0.3 0.3)"
-            onClick={toggleInfo}
-          >
-            <rect width="24" height="24" stroke-width="0"></rect>
-            <circle cx="12" cy="13" r="10" stroke-width="1.5" />
-            <path
-              stroke-width="2.5"
-              stroke-linecap="round"
-              d="M12 8 V8 M12 12.5 V18"
-            />
-          </g>
-        }
+        <g
+          class="menu-icon"
+          transform="translate(156, 2) scale(0.3 0.3)"
+          onClick={toggleInfo}
+        >
+          <rect width="24" height="24" stroke-width="0"></rect>
+          <circle cx="12" cy="13" r="10" stroke-width="1.5" />
+          <path
+            stroke-width="2.5"
+            stroke-linecap="round"
+            d="M12 8 V8 M12 12.5 V18"
+          />
+        </g>
 
         {/* The menu box */}
-        {
-          <g
-            id="menu"
-            ref={gMenu}
-            transform="translate(8, 2)"
-            style="display: none;"
-          >
-            <rect
-              x="0"
-              y="0"
-              rx="2"
-              width={menuBoxWidth}
-              height={menuBoxHeight}
-              class="menu-box"
-            ></rect>
+        <g
+          id="menu"
+          ref={gMenu}
+          transform="translate(8, 2)"
+          style="display: none;"
+        >
+          <rect
+            x="0"
+            y="0"
+            rx="2"
+            width={menuBoxWidth}
+            height={menuBoxHeight}
+            class="menu-box"
+          ></rect>
 
-            {
-              // Menu items
-              menuItems.map((item, col) => {
-                return item.options.map((option, row) => {
-                  let classList = "menu-item";
-                  if (menuSelection[item.category] === row)
-                    classList += " menu-selected";
-                  return (
-                    <>
-                      <rect
-                        x={2 + col * menuItemWidth}
-                        y={2 + row * menuItemHeight}
-                        width="32"
-                        height="10"
-                        rx="1"
-                        class={classList}
-                        onClick={() => menuClicked(item.category, row)}
-                      ></rect>
-                      <text
-                        x={18 + col * menuItemWidth}
-                        y={7 + row * menuItemHeight}
-                        dominant-baseline="middle"
-                        text-anchor="middle"
-                        class="menu-text"
-                      >
-                        {option}
-                      </text>
-                    </>
-                  );
-                });
-              })
-            }
-            {
-              // Column separators
-              menuItems.map((item, idx) => {
-                return idx >= menuItems.length - 1 ? null : (
-                  <line
-                    class="menu-separator"
-                    x1={37 + idx * menuItemWidth}
-                    y1="2"
-                    x2={37 + idx * menuItemWidth}
-                    y2={maxMenuOptions * menuItemHeight + 1}
-                  ></line>
+          {
+            // Menu items
+            menuItems.map((item, col) => {
+              return item.options.map((option, row) => {
+                let classList = "menu-item";
+                if (menuSelection[item.category] === row)
+                  classList += " menu-selected";
+                return (
+                  <>
+                    <rect
+                      x={2 + col * menuItemWidth}
+                      y={2 + row * menuItemHeight}
+                      rx="1"
+                      class={classList}
+                      onClick={() => menuClicked(item.category, row)}
+                    ></rect>
+                    <text
+                      x={5 + col * menuItemWidth}
+                      y={9 + row * menuItemHeight}
+                      class="menu-text"
+                    >
+                      {option}
+                    </text>
+                  </>
                 );
-              })
-            }
-          </g>
-        }
+              });
+            })
+          }
+          {
+            // Column separators
+            menuItems.map((item, idx) => {
+              return idx >= menuItems.length - 1 ? null : (
+                <line
+                  class="menu-separator"
+                  x1={37 + idx * menuItemWidth}
+                  y1="2"
+                  x2={37 + idx * menuItemWidth}
+                  y2={maxMenuOptions * menuItemHeight + 1}
+                ></line>
+              );
+            })
+          }
+        </g>
 
         {/* The info box */}
-        {
-          <g ref={gInfo} style="display: none;">
-            <rect
-              width="155"
-              height="76"
-              rx="5"
-              x="5"
-              y="6"
-              class="help-info"
-              onClick={toggleInfo}
-            />
-            <text y="6" class="help-info-text">
-              <tspan x="10" dy="10">
-                This histogram shows the frequency of unique 'shot' results.
-              </tspan>
-              <tspan x="10" dy="10">
-                Click the top-left 'settings' icon for display options.
-              </tspan>
-              <tspan x="10" dy="10">
-                You can zoom the chart using the pinch-to-zoom gesture,
-              </tspan>
-              <tspan x="10" dy="10">
-                or use Ctrl+scroll wheel to zoom in/out.
-              </tspan>
-              <tspan x="10" dy="10">
-                To pan left &amp; right, press Shift while zooming.
-              </tspan>
-              <tspan x="10" dy="10">
-                Click on a bar to filter the shot details to that result.
-              </tspan>
-              <tspan x="10" dy="10">
-                Click anywhere in this box to dismiss it.
-              </tspan>
-            </text>
-          </g>
-        }
+        <g ref={gInfo} style="display: none;">
+          <rect
+            width="155"
+            height="76"
+            rx="5"
+            x="5"
+            y="6"
+            class="help-info"
+            onClick={toggleInfo}
+          />
+          <text y="6" class="help-info-text">
+            <tspan x="10" dy="10">
+              This histogram shows the frequency of unique 'shot' results.
+            </tspan>
+            <tspan x="10" dy="10">
+              Click the top-left 'settings' icon for display options.
+            </tspan>
+            <tspan x="10" dy="10">
+              You can zoom the chart using the pinch-to-zoom gesture,
+            </tspan>
+            <tspan x="10" dy="10">
+              or use Ctrl+scroll wheel to zoom in/out.
+            </tspan>
+            <tspan x="10" dy="10">
+              To pan left &amp; right, press Shift while zooming.
+            </tspan>
+            <tspan x="10" dy="10">
+              Click on a bar to filter the shot details to that result.
+            </tspan>
+            <tspan x="10" dy="10">
+              Click anywhere in this box to dismiss it.
+            </tspan>
+          </text>
+        </g>
       </svg>
     </>
   );
