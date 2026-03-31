@@ -7,7 +7,7 @@ pub(crate) mod gpu_full_state;
 
 use crate::qir_simulation::correlated_noise::parse_noise_table;
 
-use num_traits::Float;
+use num_traits::{Float, Unsigned};
 use pyo3::{
     Bound, FromPyObject, Py, PyRef, PyResult, Python,
     exceptions::{PyAttributeError, PyKeyError, PyTypeError, PyValueError},
@@ -752,88 +752,68 @@ fn from_intrinsics_table_ref<T: Float>(
         .collect()
 }
 
-fn pydict_to_adaptive_program(program: &Bound<'_, PyDict>) -> PyResult<bytecode::AdaptiveProgram> {
-    use bytecode::{AdaptiveProgram, Block, Function, Instruction, PhiNodeEntry, SwitchCase};
+fn extract_key<T>(dict: &Bound<'_, PyDict>, key: &'static str) -> PyResult<T>
+where
+    T: for<'a, 'py> FromPyObject<'a, 'py, Error = pyo3::PyErr>,
+{
     use pyo3::types::PyDictMethods;
+    dict.get_item(key)?
+        .ok_or_else(move || PyKeyError::new_err(key))?
+        .extract()
+}
 
-    // Extract scalar fields
-    let num_qubits: u32 = program
-        .get_item("num_qubits")?
-        .ok_or_else(|| PyKeyError::new_err("num_qubits"))?
-        .extract()?;
-    let num_results: u32 = program
-        .get_item("num_results")?
-        .ok_or_else(|| PyKeyError::new_err("num_results"))?
-        .extract()?;
-    let num_registers: u32 = program
-        .get_item("num_registers")?
-        .ok_or_else(|| PyKeyError::new_err("num_registers"))?
-        .extract()?;
-    let entry_block: u32 = program
-        .get_item("entry_block")?
-        .ok_or_else(|| PyKeyError::new_err("entry_block"))?
-        .extract()?;
+fn adaptive_program_from_pydict<Word>(
+    dict: &Bound<'_, PyDict>,
+) -> PyResult<bytecode::AdaptiveProgram<Word>>
+where
+    Word: Unsigned + Default + for<'a, 'py> FromPyObject<'a, 'py, Error = pyo3::PyErr>,
+{
+    use bytecode::{AdaptiveProgram, Block, Function, Instruction, Op, PhiNodeEntry, SwitchCase};
 
-    // Extract array fields
-    let blocks: Vec<(u32, u32, u32)> = program
-        .get_item("blocks")?
-        .ok_or_else(|| PyKeyError::new_err("blocks"))?
-        .extract()?;
-    #[allow(clippy::type_complexity)]
-    let instructions: Vec<(u32, u32, u32, u32, u32, u32, u32, u32)> = program
-        .get_item("instructions")?
-        .ok_or_else(|| PyKeyError::new_err("instructions"))?
-        .extract()?;
-    let quantum_ops_raw: Vec<(u32, u32, u32, u32, f64)> = program
-        .get_item("quantum_ops")?
-        .ok_or_else(|| PyKeyError::new_err("quantum_ops"))?
-        .extract()?;
-    let functions: Vec<(u32, u32, u32)> = program
-        .get_item("functions")?
-        .ok_or_else(|| PyKeyError::new_err("functions"))?
-        .extract()?;
-    let phi_entries: Vec<(u32, u32)> = program
-        .get_item("phi_entries")?
-        .ok_or_else(|| PyKeyError::new_err("phi_entries"))?
-        .extract()?;
-    let switch_cases: Vec<(u32, u32)> = program
-        .get_item("switch_cases")?
-        .ok_or_else(|| PyKeyError::new_err("switch_cases"))?
-        .extract()?;
-    let mut call_args: Vec<u32> = program
-        .get_item("call_args")?
-        .ok_or_else(|| PyKeyError::new_err("call_args"))?
-        .extract()?;
+    type BlockTuple<W> = (W, W, W);
+    type InsTuple<W> = (W, W, W, W, W, W, W, W);
+    type OpTuple<W> = (W, W, W, W, f64);
+    type FunTuple<W> = (W, W, W);
+    type PhiTuple<W> = (W, W);
+    type SwitchTuple<W> = (W, W);
 
-    // Build quantum Op pool using existing gate constructors
-    let quantum_ops = bytecode::build_op_pool(&quantum_ops_raw);
+    let num_qubits: u32 = extract_key(dict, "num_qubits")?;
+    let num_results: u32 = extract_key(dict, "num_results")?;
+    let num_registers: u32 = extract_key(dict, "num_registers")?;
+    let entry_block: Word = extract_key(dict, "entry_block")?;
 
-    // Convert instructions to Instruction structs
-    let bytecode: Vec<Instruction> = instructions
-        .iter()
-        .map(|t| Instruction::from_tuple(*t))
+    let instructions = extract_key::<Vec<InsTuple<Word>>>(dict, "instructions")?
+        .into_iter()
+        .map(Instruction::from_tuple)
         .collect();
 
-    // Convert block table: strip block_id and pred_count, keep (instr_offset, instr_count)
-    let mut block_table: Vec<Block> = blocks
-        .iter()
-        .map(|&(_block_id, instr_offset, instr_count)| (instr_offset, instr_count))
+    let quantum_ops = extract_key::<Vec<OpTuple<Word>>>(dict, "quantum_ops")?
+        .into_iter()
+        .map(Op::from_tuple)
+        .collect();
+
+    let mut block_table = extract_key::<Vec<BlockTuple<Word>>>(dict, "blocks")?
+        .into_iter()
+        .map(|(_block_id, instr_offset, instr_count)| (instr_offset, instr_count))
         .map(Block::from_tuple)
         .collect();
 
-    // Convert function table
-    let mut function_table: Vec<Function> =
-        functions.iter().map(|&t| Function::from_tuple(t)).collect();
+    let mut function_table = extract_key::<Vec<FunTuple<Word>>>(dict, "functions")?
+        .into_iter()
+        .map(Function::from_tuple)
+        .collect();
 
-    // Convert phi entries and switch cases
-    let mut phi_entries: Vec<PhiNodeEntry> = phi_entries
-        .iter()
-        .map(|&t| PhiNodeEntry::from_tuple(t))
+    let mut phi_entries = extract_key::<Vec<PhiTuple<Word>>>(dict, "phi_entries")?
+        .into_iter()
+        .map(PhiNodeEntry::from_tuple)
         .collect();
-    let mut switch_cases: Vec<SwitchCase> = switch_cases
-        .iter()
-        .map(|&t| SwitchCase::from_tuple(t))
+
+    let mut switch_cases = extract_key::<Vec<SwitchTuple<Word>>>(dict, "switch_cases")?
+        .into_iter()
+        .map(SwitchCase::from_tuple)
         .collect();
+
+    let mut call_args = extract_key::<Vec<Word>>(dict, "call_args")?;
 
     // WebGPU requires that arrays have at least one element,
     // so, we push a dummy element on each of these arrays if they are empty.
@@ -844,7 +824,7 @@ fn pydict_to_adaptive_program(program: &Bound<'_, PyDict>) -> PyResult<bytecode:
     push_default_if_empty(&mut call_args);
 
     Ok(AdaptiveProgram {
-        instructions: bytecode,
+        instructions,
         block_table,
         function_table,
         quantum_ops,

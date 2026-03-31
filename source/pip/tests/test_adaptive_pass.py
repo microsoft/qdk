@@ -12,7 +12,7 @@ from dataclasses import astuple, asdict
 import pyqir
 import pytest
 
-from qsharp._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram
+from qsharp._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram, Bytecode
 from qsharp._adaptive_bytecode import *
 
 
@@ -24,7 +24,7 @@ from qsharp._adaptive_bytecode import *
 def _run_pass(ir: str, name: str = "test.ll") -> AdaptiveProgram:
     """Parse an LLVM IR string and run through AdaptiveProfilePass."""
     mod = pyqir.Module.from_ir(pyqir.Context(), ir, name)
-    return AdaptiveProfilePass().run(mod)
+    return AdaptiveProfilePass(Bytecode.Bit32).run(mod)
 
 
 def _primary(opcode_word: int) -> int:

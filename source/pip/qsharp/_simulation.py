@@ -25,7 +25,7 @@ from pyqir import (
 )
 from ._qsharp import QirInputData, Result
 from typing import TYPE_CHECKING
-from ._adaptive_pass import AdaptiveProfilePass, OP_RECORD_OUTPUT
+from ._adaptive_pass import AdaptiveProfilePass, Bytecode, OP_RECORD_OUTPUT
 
 if TYPE_CHECKING:  # This is in the pyi file only
     from ._native import GpuShotResults
@@ -551,7 +551,7 @@ def run_qir_gpu(
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
     if is_adaptive(mod):
-        program = AdaptiveProfilePass().run(mod, noise)
+        program = AdaptiveProfilePass(Bytecode.Bit32).run(mod, noise)
         results = run_adaptive_parallel_shots(program.as_dict(), shots, noise, seed)
 
         # Extract recorded output result indices from the bytecode.
@@ -646,7 +646,9 @@ class GpuSimulator:
             noise_intrinsics = None
             if self.tables is not None:
                 noise_intrinsics = {name: table_id for table_id, name, _ in self.tables}
-            program = AdaptiveProfilePass().run(mod, noise_intrinsics=noise_intrinsics)
+            program = AdaptiveProfilePass(Bytecode.Bit32).run(
+                mod, noise_intrinsics=noise_intrinsics
+            )
             self.gpu_context.set_adaptive_program(program.as_dict())
 
             # Extract recorded output result indices from the bytecode.

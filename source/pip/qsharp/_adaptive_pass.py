@@ -12,10 +12,17 @@ Adaptive Profile specification.
 
 from __future__ import annotations
 from dataclasses import dataclass, astuple
+from enum import Enum
 import pyqir
 import struct
 from typing import Any, Dict, List, Optional, Tuple, TypeAlias, cast
 from ._adaptive_bytecode import *
+
+
+class Bytecode(Enum):
+    Bit32 = 1
+    Bit64 = 2
+
 
 # ---------------------------------------------------------------------------
 # Gate name → OpID mapping (must match shader_types.rs OpID enum)
@@ -201,8 +208,8 @@ class IntOperand:
 
 
 class FloatOperand:
-    def __init__(self, val: float = 0.0) -> None:
-        self.val: int = encode_float_as_bits(val)
+    def __init__(self, val: float, bytecode_kind: Bytecode) -> None:
+        self.val: int = encode_float_as_bits(val, bytecode_kind)
 
 
 @dataclass
@@ -255,14 +262,17 @@ def unwrap_operands(
     return (dst, src0, src1, aux0, aux1, aux2, aux3)
 
 
-def encode_float_as_bits(val: float) -> int:
-    return struct.unpack("<I", struct.pack("<f", val))[0]
+def encode_float_as_bits(val: float, bytecode_kind: Bytecode) -> int:
+    if bytecode_kind == Bytecode.Bit32:
+        return struct.unpack("<I", struct.pack("<f", val))[0]
+    else:
+        return struct.unpack("<Q", struct.pack("<d", val))[0]
 
 
 class AdaptiveProfilePass:
     """Walks Adaptive Profile QIR and emits the intermediate format for Rust."""
 
-    def __init__(self):
+    def __init__(self, bytecode_kind: Bytecode):
         # Output tables.
         self.blocks: List[Block] = []
         self.instructions: List[Instruction] = []
@@ -275,6 +285,7 @@ class AdaptiveProfilePass:
         self.register_types: List[RegisterType] = []
 
         # Internal tracking.
+        self._bytecode_kind = bytecode_kind
         self._next_reg: int = 0
         self._next_block: int = 0
         self._next_qop: int = 0
@@ -429,7 +440,7 @@ class AdaptiveProfilePass:
 
         if isinstance(value, pyqir.FloatConstant):
             val = value.value
-            return FloatOperand(val)
+            return FloatOperand(val, self._bytecode_kind)
 
         # Forward reference (e.g. phi incoming from a later block).
         # Pre-allocate a register; the defining instruction will reuse it
@@ -752,7 +763,7 @@ class AdaptiveProfilePass:
             angle = self._resolve_angle_operand(call.args[0])
         else:
             qubit_arg_offset = 0
-            angle = FloatOperand()
+            angle = FloatOperand(0.0, self._bytecode_kind)
         qubit_arg_offset = 1 if gate_name in ROTATION_GATES else 0
         q1, q2, q3 = self._resolve_qubit_operands(call.args[qubit_arg_offset:])
         qop_idx = self._emit_quantum_op(op_id, q1.val, q2.val, q3.val, angle.val)
