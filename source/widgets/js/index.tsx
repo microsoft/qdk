@@ -16,8 +16,8 @@ import {
   type ZoneLayout,
   type TraceData,
   MoleculeViewer,
-  OrbitalEntanglement,
-  type OrbitalEntanglementProps,
+  Entanglement,
+  type EntanglementProps,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
@@ -88,8 +88,8 @@ function render({ model, el }: RenderArgs) {
     case "MoleculeViewer":
       renderMoleculeViewer({ model, el });
       break;
-    case "OrbitalEntanglement":
-      renderOrbitalEntanglement({ model, el });
+    case "Entanglement":
+      renderEntanglement({ model, el });
       break;
     default:
       throw new Error(`Unknown component type ${componentType}`);
@@ -306,11 +306,11 @@ function renderAtoms({ model, el }: RenderArgs) {
   model.on("change:trace_data", onChange);
 }
 
-function renderOrbitalEntanglement({ model, el }: RenderArgs) {
-  /** Read model state and build the full props object for OrbitalEntanglement. */
+function renderEntanglement({ model, el }: RenderArgs) {
+  /** Read model state and build the full props object for Entanglement. */
   function getWidgetProps(
-    extra?: Partial<OrbitalEntanglementProps>,
-  ): OrbitalEntanglementProps {
+    extra?: Partial<EntanglementProps>,
+  ): EntanglementProps {
     const s1Entropies = model.get("s1_entropies") as number[];
     const mutualInformation = model.get("mutual_information") as number[][];
     const labels = model.get("labels") as string[];
@@ -328,11 +328,11 @@ function renderOrbitalEntanglement({ model, el }: RenderArgs) {
       selectedIndices: selectedIndices ?? undefined,
       ...camelOpts,
       ...extra,
-    } as OrbitalEntanglementProps;
+    } as EntanglementProps;
   }
 
   const onChange = () => {
-    prender(<OrbitalEntanglement {...getWidgetProps()} />, el);
+    prender(<Entanglement {...getWidgetProps()} />, el);
   };
 
   onChange();

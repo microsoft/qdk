@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 /**
- * Orbital entanglement chord diagram.
+ * Entanglement chord diagram.
  *
  * Renders single-orbital entropies and mutual information as an SVG chord
  * diagram.  Arc length is proportional to single-orbital entropy; chord
@@ -13,7 +13,7 @@
 // Types
 // ---------------------------------------------------------------------------
 
-export interface OrbitalEntanglementProps {
+export interface EntanglementProps {
   /** Single-orbital entropies, length N. */
   s1Entropies: number[];
   /** Mutual information matrix, N×N (row-major flat array or nested). */
@@ -133,7 +133,7 @@ function chordPath(
 // Component
 // ---------------------------------------------------------------------------
 
-export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
+export function Entanglement(props: EntanglementProps) {
   const {
     s1Entropies,
     mutualInformation,
@@ -146,7 +146,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
     miThreshold = 0,
     s1Vmax = null,
     miVmax = null,
-    title = "Orbital Entanglement",
+    title = "Entanglement",
     width = 600,
     height = 660,
     selectionColor = "var(--qdk-focus-border)",
@@ -223,7 +223,6 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
     prevAngle = ang;
     prevTier = tier[idx];
   }
-  // wrap‑around
   const firstIdx = indexOrder[0];
   const lastIdx = indexOrder[indexOrder.length - 1];
   const wrapGap = arcMids[firstIdx] + 360 - arcMids[lastIdx];
@@ -231,7 +230,6 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
     tier[firstIdx] = (tier[lastIdx] + 1) % maxTiers;
   }
 
-  // --- chord computation ---
   const miRowSums = mutualInformation.map((row) =>
     row.reduce((a, b) => a + b, 0),
   );
@@ -276,21 +274,16 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       });
     }
   }
-  // lightest first so darkest draws on top
   chords.sort((a, b) => a.val - b.val);
 
-  // --- selected set ---
   const selectedSet = new Set(selectedIndices ?? []);
 
-  // --- viewBox ---
   const maxOffset = baseOffset + Math.max(0, ...tier) * tierStep + 0.15;
   const lim = radius + maxOffset;
-  // Map [-lim, lim] to [0, width/height] with some padding for color bars
-  const diagramH = height - 60; // leave room for legends
+  const diagramH = height - 60;
   const vbPad = lim * 0.05;
   const vbSize = (lim + vbPad) * 2;
 
-  // color-bar dimensions (drawn inside the SVG)
   const cbY = diagramH + 8;
   const cbW = width * 0.6;
   const cbX = (width - cbW) / 2;
@@ -304,18 +297,15 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       width="100%"
       class="qs-orbital-entanglement"
     >
-      {/* Title */}
       {title && (
         <text x={width / 2} y={20} class="qs-orbital-entanglement-title">
           {title}
         </text>
       )}
 
-      {/* Diagram group — centred and scaled to fit */}
       <g
         transform={`translate(${width / 2},${(diagramH + 30) / 2}) scale(${Math.min(width, diagramH) / vbSize / 2})`}
       >
-        {/* Chord lines (lightest → darkest) */}
         {chords.map((ch, ci) => {
           const c = colormapEval(CHORD_CMAP, ch.val / miMax);
           const lw = Math.min(Math.sqrt(ch.val) * lineScale, maxLw);
@@ -331,7 +321,6 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
           );
         })}
 
-        {/* Arcs */}
         {Array.from({ length: n }, (_, i) => (
           <path
             key={`arc-${i}`}
@@ -345,7 +334,6 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
           />
         ))}
 
-        {/* Selection outlines */}
         {Array.from({ length: n }, (_, i) =>
           selectedSet.has(i) ? (
             <path
@@ -363,7 +351,6 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
           ) : null,
         )}
 
-        {/* Labels & tick lines */}
         {Array.from({ length: n }, (_, i) => {
           const mid = arcMids[i];
           const t = tier[i];
@@ -389,8 +376,6 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
                 })()
               : null;
 
-          // Font size in SVG user units — we're in a scaled group so
-          // approximate by dividing the pt size by the scale factor.
           const fsPx = labelFontSize / (Math.min(width, diagramH) / vbSize / 2);
 
           return (
@@ -410,8 +395,6 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
         })}
       </g>
 
-      {/* ---- color-bar legends ---- */}
-      {/* Arc (entropy) color bar */}
       <g>
         <text x={width / 2} y={cbY - 2} class="qs-orbital-entanglement-legend-title">
           Single-orbital entropy
@@ -441,7 +424,6 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
         </text>
       </g>
 
-      {/* Chord (MI) color bar */}
       <g>
         <text
           x={width / 2}

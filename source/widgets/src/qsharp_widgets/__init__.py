@@ -231,11 +231,11 @@ class Atoms(anywidget.AnyWidget):
         super().__init__(machine_layout=machine_layout, trace_data=trace_data)
 
 
-class OrbitalEntanglement(anywidget.AnyWidget):
+class Entanglement(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "static" / "index.js"
     _css = pathlib.Path(__file__).parent / "static" / "index.css"
 
-    comp = traitlets.Unicode("OrbitalEntanglement").tag(sync=True)
+    comp = traitlets.Unicode("Entanglement").tag(sync=True)
     s1_entropies = traitlets.List().tag(sync=True)
     mutual_information = traitlets.List().tag(sync=True)
     labels = traitlets.List().tag(sync=True)
@@ -253,7 +253,7 @@ class OrbitalEntanglement(anywidget.AnyWidget):
         **options,
     ):
         """
-        Displays an orbital entanglement chord diagram.
+        Displays an entanglement chord diagram.
 
         Can be constructed either from a ``Wavefunction`` object or from raw
         entropy / mutual-information arrays.
