@@ -220,7 +220,10 @@ def test_run_imported_with_noise_produces_noisy_results() -> None:
         name="Program1",
     )
     result = qsharp_run(
-        "{ use q = Qubit(); Program1(q) }", shots=1, noise=BitFlipNoise(0.1)
+        "{ use q = Qubit(); Program1(q) }",
+        shots=1,
+        noise=BitFlipNoise(0.1),
+        seed=0,
     )
     assert result[0] > 5
 
