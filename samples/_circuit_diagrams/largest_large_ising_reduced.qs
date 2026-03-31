@@ -5,8 +5,8 @@ operation CliffordIsing() : Result[] {
     // Use specifically tailored parameters to get Clifford only
     // rotation values.
     IsingModel2DEvolution(
-        31,
-        32,
+        10,
+        10,
         PI() / 2.0,
         PI() / 2.0,
         300.0,

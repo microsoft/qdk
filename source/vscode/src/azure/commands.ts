@@ -6,7 +6,11 @@ import * as vscode from "vscode";
 import { getCircuitOrErrorWithTimeout, getConfig } from "../circuit";
 import { qsharpExtensionId } from "../common";
 import { getUploadSupplementalData } from "../config";
-import { FullProgramConfig, getActiveProgram } from "../programConfig";
+import {
+  FullProgramConfig,
+  getActiveProgram,
+  getProgramForDocument,
+} from "../programConfig";
 import { getQirForProgram, QirGenerationError } from "../qirGeneration";
 import {
   EventType,
@@ -562,8 +566,33 @@ export async function compileAndSubmit(
     {},
   );
 
+  // If the active file is largest_large_ising.qs, use the smaller
+  // largest_large_ising_reduced.qs sibling for QIR generation to stay
+  // within the QIR input size limit, while the original file is still
+  // used for circuit diagram generation.
+  let qirProgram = program;
+  if (program.projectUri.endsWith("largest_large_ising.qs")) {
+    const reducedUri = vscode.Uri.parse(
+      program.projectUri.replace(
+        "largest_large_ising.qs",
+        "largest_large_ising_reduced.qs",
+      ),
+    );
+    const reducedDoc = await vscode.workspace.openTextDocument(reducedUri);
+    const reducedResult = await getProgramForDocument(reducedDoc, {
+      targetProfileFallback: targetProfile,
+    });
+    if (reducedResult.success) {
+      qirProgram = reducedResult.programConfig;
+    } else {
+      log.warn(
+        "Failed to load reduced program for QIR generation, using original",
+      );
+    }
+  }
+
   const qir = await getQirForProgram(
-    program,
+    qirProgram,
     targetProfile,
     telemetryDocumentType,
   );
@@ -694,13 +723,15 @@ async function uploadSupplementalData(
  * Generates a circuit diagram for the program, or throws if it can't be generated.
  */
 async function getCircuitJson(program: FullProgramConfig): Promise<string> {
+  // Turn off circuit grouping when generating for Azure supplemental data
+  const config = { ...getConfig(), groupByScope: false };
   const circuit = await getCircuitOrErrorWithTimeout(
     extensionUri,
     {
       program,
     },
-    getConfig(),
-    5000, // If we can't generate in 5 seconds, give up - something's wrong or program is way too complex
+    config,
+    5 * 60 * 1000, // 5 minutes - large programs like Ising models need more time
   );
 
   if (circuit.result === "success") {
