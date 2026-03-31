@@ -16,7 +16,6 @@
  */
 
 import { useState, useRef, useEffect } from "preact/hooks";
-import { h } from "preact";
 
 // ---------------------------------------------------------------------------
 // Types
