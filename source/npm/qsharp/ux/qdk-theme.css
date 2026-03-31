@@ -120,6 +120,21 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   --qdk-gate-reset: #282;
   --qdk-atom-fill: #0078d4;
   --qdk-atom-trail: #fa0;
+
+  /* Circuit diagram: unitary gate box colors */
+  --qdk-circuit-unitary-fill: #e0e0e0;
+  --qdk-circuit-unitary-text: #1e1e1e;
+  --qdk-circuit-unitary-hover: #cccccc;
+
+  /* Circuit diagram: measurement gate colors */
+  --qdk-circuit-measure-fill: #0078d4;
+  --qdk-circuit-measure-text: #fff;
+  --qdk-circuit-measure-hover: #005a9e;
+
+  /* Circuit diagram: ket/state-prep gate colors */
+  --qdk-circuit-ket-fill: #f0f0f0;
+  --qdk-circuit-ket-text: #1e1e1e;
+  --qdk-circuit-ket-hover: #e4e4e4;
 }
 
 /* Set these variables on the body element if attributes indicate a dark theme choice */
@@ -171,4 +186,19 @@ body[data-vscode-theme-kind="vscode-high-contrast"] {
   --qdk-gate-reset: #8e8;
   --qdk-atom-fill: #9df;
   --qdk-atom-trail: #fa0;
+
+  /* Circuit diagram: unitary gate box colors */
+  --qdk-circuit-unitary-fill: #2d2d30;
+  --qdk-circuit-unitary-text: #d4d4d4;
+  --qdk-circuit-unitary-hover: #3e3e42;
+
+  /* Circuit diagram: measurement gate colors */
+  --qdk-circuit-measure-fill: #0078d4;
+  --qdk-circuit-measure-text: #fff;
+  --qdk-circuit-measure-hover: #1a8ad4;
+
+  /* Circuit diagram: ket/state-prep gate colors */
+  --qdk-circuit-ket-fill: #232326;
+  --qdk-circuit-ket-text: #d4d4d4;
+  --qdk-circuit-ket-hover: #2a2a2e;
 }

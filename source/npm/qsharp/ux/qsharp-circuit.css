@@ -69,12 +69,12 @@
 
   /* Background for gates */
   .gate-unitary {
-    fill: var(--vscode-input-background, #333333);
+    fill: var(--qdk-circuit-unitary-fill);
   }
 
   /* Text for gates */
   .gate text {
-    fill: var(--vscode-input-foreground, #ffffff);
+    fill: var(--qdk-circuit-unitary-text);
   }
 
   a.qs-circuit-source-link .qs-qubit-label {
@@ -83,12 +83,15 @@
 
   /* Hover effect for clickable gates */
   a.qs-circuit-source-link:hover .gate-unitary {
-    fill: var(--vscode-button-secondaryHoverBackground, #4d4d4d);
+    fill: var(--qdk-circuit-unitary-hover);
   }
 
-  a.qs-circuit-source-link:hover .gate-measure,
+  a.qs-circuit-source-link:hover .gate-measure {
+    fill: var(--qdk-circuit-measure-hover);
+  }
+
   a.qs-circuit-source-link:hover .gate-ket {
-    fill: var(--vscode-button-hoverBackground, #005a9e);
+    fill: var(--qdk-circuit-ket-hover);
   }
 
   a.qs-circuit-source-link:hover .qs-qubit-label {
@@ -138,25 +141,25 @@
 
   /* Measurement gate */
   .gate-measure {
-    fill: var(--vscode-button-background, #007acc);
+    fill: var(--qdk-circuit-measure-fill);
   }
 
   /* Measurement gate icon */
   .qs-line-measure,
   .arc-measure {
-    stroke: var(--vscode-button-foreground, #ffffff);
+    stroke: var(--qdk-circuit-measure-text);
     fill: none;
     stroke-width: 1;
   }
 
   /* Ket gate */
   .gate-ket {
-    fill: var(--vscode-button-background, #007acc);
+    fill: var(--qdk-circuit-ket-fill);
   }
 
   /* Ket gate text */
   text.ket-text {
-    fill: var(--vscode-button-foreground, #ffffff);
+    fill: var(--qdk-circuit-ket-text);
     stroke: none;
   }
 
