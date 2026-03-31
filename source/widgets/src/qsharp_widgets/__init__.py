@@ -242,9 +242,6 @@ class OrbitalEntanglement(anywidget.AnyWidget):
     selected_indices = traitlets.List(allow_none=True, default_value=None).tag(sync=True)
     options = traitlets.Dict().tag(sync=True)
 
-    _svg_data = None
-    _svg_event = None
-
     def __init__(
         self,
         wavefunction=None,
@@ -320,99 +317,6 @@ class OrbitalEntanglement(anywidget.AnyWidget):
             selected_indices=selected_indices,
             options=options,
         )
-        self.on_msg(self._handle_msg)
-
-    def _handle_msg(self, widget, content, buffers):
-        if content.get("type") == "svg_data":
-            self._svg_data = content["svg"]
-            if self._svg_event is not None:
-                self._svg_event.set()
-
-    def _build_props(self, dark_mode=None):
-        """Build the props dict expected by the JS rendering component."""
-        props = {
-            "s1Entropies": list(self.s1_entropies),
-            "mutualInformation": [list(row) for row in self.mutual_information],
-            "labels": list(self.labels),
-        }
-        if self.selected_indices is not None:
-            props["selectedIndices"] = list(self.selected_indices)
-        for k, v in (self.options or {}).items():
-            props[_snake_to_camel(k)] = v
-        if dark_mode is not None:
-            props["darkMode"] = bool(dark_mode)
-        return props
-
-    def _render_svg_server_side(self, dark_mode=None):
-        """Render SVG via the bundled Node.js script (no frontend needed)."""
-        import json
-        import shutil
-        import subprocess
-
-        node = shutil.which("node")
-        if node is None:
-            raise RuntimeError(
-                "Node.js is required for server-side SVG export but "
-                "'node' was not found on PATH."
-            )
-        script = pathlib.Path(__file__).parent / "static" / "render_svg.mjs"
-        payload = json.dumps(
-            {"component": "OrbitalEntanglement", "props": self._build_props(dark_mode)}
-        )
-        result = subprocess.run(
-            [node, str(script)],
-            input=payload,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(
-                f"Server-side SVG render failed:\n{result.stderr}"
-            )
-        return result.stdout
-
-    def export_svg(self, path=None, timeout=5, dark_mode=None):
-        """Export the rendered diagram as an SVG string or file.
-
-        Parameters
-        ----------
-        path : str or Path, optional
-            When given the SVG is written to this file and the path is
-            returned.  Otherwise the SVG markup string is returned.
-        timeout : float
-            Seconds to wait for the front-end to respond.
-        dark_mode : bool, optional
-            When ``True`` the exported SVG uses light-on-dark colours;
-            when ``False`` it uses dark-on-light colours.  If ``None``
-            (the default) the current in-notebook rendering is serialised
-            as-is (colours follow the host theme via CSS variables).
-
-        Returns
-        -------
-        str
-            SVG markup (when *path* is ``None``) or the file path.
-        """
-        import threading
-
-        self._svg_data = None
-        self._svg_event = threading.Event()
-        msg: dict[str, object] = {"type": "export_svg"}
-        if dark_mode is not None:
-            msg["dark_mode"] = bool(dark_mode)
-        self.send(msg)
-        if not self._svg_event.wait(timeout=timeout):
-            # No frontend responded — fall back to server-side rendering.
-            svg = self._render_svg_server_side(dark_mode)
-        else:
-            svg = self._svg_data
-        self._svg_event = None
-        if path is not None:
-            from pathlib import Path as _P
-
-            _P(path).write_text(svg, encoding="utf-8")
-            return str(path)
-        return svg
 
 
 class MoleculeViewer(anywidget.AnyWidget):

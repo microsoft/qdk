@@ -266,6 +266,59 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   fill: var(--qdk-host-foreground);
 }
 
+/* Orbital entanglement */
+
+.qs-orbital-entanglement {
+  max-width: 600px;
+  color: var(--qdk-host-foreground);
+  background-color: var(--qdk-host-background);
+  font-family: var(--qdk-font-family);
+}
+
+.qs-orbital-entanglement-title,
+.qs-orbital-entanglement-legend-title,
+.qs-orbital-entanglement-legend-value,
+.qs-orbital-entanglement-label {
+  fill: currentColor;
+}
+
+.qs-orbital-entanglement-title {
+  text-anchor: middle;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.qs-orbital-entanglement-legend-title {
+  text-anchor: middle;
+  font-size: 9px;
+}
+
+.qs-orbital-entanglement-legend-value {
+  font-size: 8px;
+}
+
+.qs-orbital-entanglement-legend-value-end {
+  text-anchor: end;
+}
+
+.qs-orbital-entanglement-label {
+  dominant-baseline: central;
+  font-weight: 600;
+}
+
+.qs-orbital-entanglement-label-start {
+  text-anchor: start;
+}
+
+.qs-orbital-entanglement-label-end {
+  text-anchor: end;
+}
+
+.qs-orbital-entanglement-label-tick {
+  stroke: var(--qdk-mid-gray);
+  stroke-width: 0.005;
+}
+
 /* RE details */
 
 .estimate-details {

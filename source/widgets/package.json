@@ -1,7 +1,7 @@
 {
   "scripts": {
     "dev": "npm run build -- --sourcemap=inline --watch",
-    "build": "npx esbuild js/index.tsx --minify --format=esm --bundle --outdir=src/qsharp_widgets/static && npx esbuild js/render_svg.mjs --minify --format=esm --bundle --platform=node --outfile=src/qsharp_widgets/static/render_svg.mjs --loader:.css=text && npx esbuild js/render_png.mjs --minify --format=esm --bundle --platform=node --outfile=src/qsharp_widgets/static/render_png.mjs --external:playwright && cp ../../node_modules/3dmol/build/3Dmol-min.js src/qsharp_widgets/static/3Dmol-min.js"
+    "build": "npx esbuild js/index.tsx --minify --format=esm --bundle --outdir=src/qsharp_widgets/static && npx esbuild js/render_png.mjs --minify --format=esm --bundle --platform=node --outfile=src/qsharp_widgets/static/render_png.mjs --external:playwright && cp ../../node_modules/3dmol/build/3Dmol-min.js src/qsharp_widgets/static/3Dmol-min.js"
   },
   "devDependencies": {}
 }

@@ -1,18 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { h } from "preact";
-import { renderToString } from "preact-render-to-string";
-
 /**
  * Orbital entanglement chord diagram.
  *
  * Renders single-orbital entropies and mutual information as an SVG chord
  * diagram.  Arc length is proportional to single-orbital entropy; chord
  * thickness is proportional to pairwise mutual information.
- *
- * The diagram is rendered entirely as native SVG so that the markup can be
- * serialised to a standalone `.svg` file from the Python widget.
  */
 
 // ---------------------------------------------------------------------------
@@ -42,7 +36,6 @@ export interface OrbitalEntanglementProps {
   height?: number;
   selectionColor?: string;
   selectionLinewidth?: number;
-  darkMode?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,22 +149,9 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
     title = "Orbital Entanglement",
     width = 600,
     height = 660,
-    selectionColor = "#222222",
+    selectionColor = "var(--qdk-focus-border)",
     selectionLinewidth = 2.5,
-    darkMode,
   } = props;
-
-  const isStatic = darkMode !== undefined;
-  const fgColor = isStatic
-    ? darkMode
-      ? "#e0e0e0"
-      : "#222222"
-    : "currentColor";
-  const bgColor = isStatic
-    ? darkMode
-      ? "#1e1e1e"
-      : "transparent"
-    : "transparent";
 
   const n = s1Entropies.length;
 
@@ -300,7 +280,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
   chords.sort((a, b) => a.val - b.val);
 
   // --- selected set ---
-  const selectedSet = new Set((selectedIndices ?? []).map(String));
+  const selectedSet = new Set(selectedIndices ?? []);
 
   // --- viewBox ---
   const maxOffset = baseOffset + Math.max(0, ...tier) * tierStep + 0.15;
@@ -321,21 +301,12 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox={`0 0 ${width} ${height}`}
-      width={isStatic ? width : "100%"}
+      width="100%"
       class="qs-orbital-entanglement"
-      style={{ background: bgColor }}
-      {...(isStatic ? { "xmlns:xlink": "http://www.w3.org/1999/xlink" } : {})}
     >
       {/* Title */}
       {title && (
-        <text
-          x={width / 2}
-          y={20}
-          text-anchor="middle"
-          font-size="14"
-          font-weight="bold"
-          fill={fgColor}
-        >
+        <text x={width / 2} y={20} class="qs-orbital-entanglement-title">
           {title}
         </text>
       )}
@@ -376,7 +347,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
 
         {/* Selection outlines */}
         {Array.from({ length: n }, (_, i) =>
-          selectedSet.has(labels[i]) ? (
+          selectedSet.has(i) ? (
             <path
               key={`sel-${i}`}
               d={arcPath(
@@ -412,8 +383,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
                       y1={ry}
                       x2={lx}
                       y2={ly}
-                      stroke="#aaaaaa"
-                      stroke-width={0.005}
+                      class="qs-orbital-entanglement-label-tick"
                     />
                   );
                 })()
@@ -427,13 +397,10 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
             <g key={`label-${i}`}>
               {tickLine}
               <text
+                class={`qs-orbital-entanglement-label ${ha === "end" ? "qs-orbital-entanglement-label-end" : "qs-orbital-entanglement-label-start"}`}
                 x={lx}
                 y={ly}
-                text-anchor={ha}
-                dominant-baseline="central"
                 font-size={fsPx}
-                font-weight="bold"
-                fill={fgColor}
                 transform={`rotate(${rot},${lx},${ly})`}
               >
                 {labels[i]}
@@ -446,13 +413,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
       {/* ---- color-bar legends ---- */}
       {/* Arc (entropy) color bar */}
       <g>
-        <text
-          x={width / 2}
-          y={cbY - 2}
-          text-anchor="middle"
-          font-size="9"
-          fill={fgColor}
-        >
+        <text x={width / 2} y={cbY - 2} class="qs-orbital-entanglement-legend-title">
           Single-orbital entropy
         </text>
         {Array.from({ length: numCbStops }, (_, k) => {
@@ -468,15 +429,13 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
             />
           );
         })}
-        <text x={cbX} y={cbY + cbH + 10} font-size="8" fill={fgColor}>
+        <text x={cbX} y={cbY + cbH + 10} class="qs-orbital-entanglement-legend-value">
           0
         </text>
         <text
           x={cbX + cbW}
           y={cbY + cbH + 10}
-          text-anchor="end"
-          font-size="8"
-          fill={fgColor}
+          class="qs-orbital-entanglement-legend-value qs-orbital-entanglement-legend-value-end"
         >
           {s1Max.toFixed(2)}
         </text>
@@ -487,9 +446,7 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
         <text
           x={width / 2}
           y={cbY + cbH + 22}
-          text-anchor="middle"
-          font-size="9"
-          fill={fgColor}
+          class="qs-orbital-entanglement-legend-title"
         >
           Mutual information
         </text>
@@ -506,29 +463,21 @@ export function OrbitalEntanglement(props: OrbitalEntanglementProps) {
             />
           );
         })}
-        <text x={cbX} y={cbY + cbH * 2 + 34} font-size="8" fill={fgColor}>
+        <text
+          x={cbX}
+          y={cbY + cbH * 2 + 34}
+          class="qs-orbital-entanglement-legend-value"
+        >
           0
         </text>
         <text
           x={cbX + cbW}
           y={cbY + cbH * 2 + 34}
-          text-anchor="end"
-          font-size="8"
-          fill={fgColor}
+          class="qs-orbital-entanglement-legend-value qs-orbital-entanglement-legend-value-end"
         >
           {miMax.toFixed(2)}
         </text>
       </g>
     </svg>
   );
-}
-
-// ---------------------------------------------------------------------------
-// SVG serialisation
-// ---------------------------------------------------------------------------
-
-export function orbitalEntanglementToSvg(
-  props: OrbitalEntanglementProps,
-): string {
-  return renderToString(h(OrbitalEntanglement, props));
 }

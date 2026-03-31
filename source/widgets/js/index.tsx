@@ -18,7 +18,6 @@ import {
   MoleculeViewer,
   OrbitalEntanglement,
   type OrbitalEntanglementProps,
-  orbitalEntanglementToSvg,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
@@ -342,34 +341,6 @@ function renderOrbitalEntanglement({ model, el }: RenderArgs) {
   model.on("change:labels", onChange);
   model.on("change:selected_indices", onChange);
   model.on("change:options", onChange);
-
-  // Handle SVG export requests from Python
-  model.on("msg:custom", (msg: { type: string; dark_mode?: boolean }) => {
-    if (msg.type === "export_svg") {
-      let svgString: string | undefined;
-
-      if (msg.dark_mode !== undefined) {
-        // Re-render with explicit dark_mode for standalone SVG
-        svgString = orbitalEntanglementToSvg(
-          getWidgetProps({ darkMode: msg.dark_mode }),
-        );
-      } else {
-        // Serialize the current DOM SVG
-        const svgEl = el.querySelector("svg");
-        if (svgEl) {
-          const serializer = new XMLSerializer();
-          svgString = serializer.serializeToString(svgEl);
-        }
-      }
-
-      if (svgString) {
-        model.send({
-          type: "svg_data",
-          svg: svgString,
-        });
-      }
-    }
-  });
 }
 
 function renderMoleculeViewer({ model, el }: RenderArgs) {
