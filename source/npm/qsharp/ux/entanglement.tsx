@@ -340,7 +340,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
     for (const [, indices] of groupEntries) {
       const color =
         groupEntries.length === 1
-          ? selectionColorProp ?? palette[0]
+          ? (selectionColorProp ?? palette[0])
           : palette[colorIdx % palette.length];
       for (const idx of indices) {
         nodeGroupColor.set(idx, color);
