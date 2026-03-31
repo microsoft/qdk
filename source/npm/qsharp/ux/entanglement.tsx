@@ -863,5 +863,3 @@ export function Entanglement(props: EntanglementProps) {
     />
   );
 }
-
-
