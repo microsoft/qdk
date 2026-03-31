@@ -7,7 +7,6 @@ import pytest
 from qsharp import (
     init,
     TargetProfile,
-    set_quantum_seed,
     BitFlipNoise,
     CircuitGenerationMethod,
     QSharpError,
@@ -34,7 +33,6 @@ import qsharp.code as code
 
 
 def test_run_with_noise_produces_noisy_results() -> None:
-    set_quantum_seed(0)
     result = run(
         """
         include "stdgates.inc";
@@ -54,6 +52,7 @@ def test_run_with_noise_produces_noisy_results() -> None:
         """,
         shots=1,
         noise=BitFlipNoise(0.1),
+        seed=0,
     )
     assert result[0] > 5
     result = run(
@@ -69,12 +68,12 @@ def test_run_with_noise_produces_noisy_results() -> None:
         """,
         shots=1,
         noise=BitFlipNoise(0.1),
+        seed=0,
     )
     assert result[0] > 5
 
 
 def test_run_with_qubit_loss_produces_lossy_results() -> None:
-    set_quantum_seed(0)
     result = run(
         """
         qubit q1;
@@ -83,12 +82,12 @@ def test_run_with_qubit_loss_produces_lossy_results() -> None:
         """,
         shots=1,
         qubit_loss=1.0,
+        seed=0,
     )
     assert result[0] == Result.Loss
 
 
 def test_run_with_qubit_loss_detects_loss_with_mresetzchecked() -> None:
-    set_quantum_seed(0)
     result = run(
         """
         include "qdk.inc";
@@ -98,12 +97,12 @@ def test_run_with_qubit_loss_detects_loss_with_mresetzchecked() -> None:
         """,
         shots=1,
         qubit_loss=1.0,
+        seed=0,
     )
     assert result[0] == 2
 
 
 def test_run_without_qubit_loss_does_not_detect_loss_with_mresetzchecked() -> None:
-    set_quantum_seed(0)
     result = run(
         """
         include "qdk.inc";
@@ -112,12 +111,12 @@ def test_run_without_qubit_loss_does_not_detect_loss_with_mresetzchecked() -> No
         r = mresetz_checked(q1);
         """,
         shots=1,
+        seed=0,
     )
     assert result[0] == 0
 
 
 def test_mresetzchecked_not_present_without_qdk_inc() -> None:
-    set_quantum_seed(0)
     with pytest.raises(QasmError) as excinfo:
         run(
             """
@@ -127,6 +126,7 @@ def test_mresetzchecked_not_present_without_qdk_inc() -> None:
             r = mresetz_checked(q1);
             """,
             shots=1,
+            seed=0,
         )
     assert "undefined symbol: mresetz_checked" in str(excinfo.value)
 
@@ -179,7 +179,6 @@ def test_import_can_declare_files_with_namespaces() -> None:
 
 def test_run_imported_with_noise_produces_noisy_results() -> None:
     init()
-    set_quantum_seed(0)
     import_openqasm(
         """
         include "stdgates.inc";
@@ -203,6 +202,7 @@ def test_run_imported_with_noise_produces_noisy_results() -> None:
         "{ use (q1, q2) = (Qubit(), Qubit()); Program0(q1, q2) }",
         shots=1,
         noise=BitFlipNoise(0.1),
+        seed=0,
     )
     assert result[0] > 5
 
