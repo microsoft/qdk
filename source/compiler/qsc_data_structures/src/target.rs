@@ -7,7 +7,7 @@ bitflags! {
     /// These flags describe the capabilities of the target execution environment. They are used to determine which language features we can
     /// emit into generated code for that target, and correlate to which design-time errors are surfaced by the capabilities check pass.
     /// Note that the flags are in increasing order of capability and are expected to be largely additive. The code uses this "well-ordered"
-    /// property to perform some checks using comparison operators, inaddition to the user bitwise membership checks offered by bitflags.
+    /// property to perform some checks using comparison operators, in addition to the bitwise membership checks offered by bitflags.
     /// Empty bitflags (0) corresponds to a "Base profile" target where no branching or classical computations are supported.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct TargetCapabilityFlags: u32 {
@@ -22,7 +22,7 @@ bitflags! {
         /// Supports statically sized arrays (i.e. array literals and array indexing with non-constant indices).
         const StaticSizedArrays = 0b0001_0000;
         /// Catch-all for high level language constructs not covered by other flags. New flags should be added above this one,
-        /// such that this flag is reserved for the "all capabilities" targets that can run anything the langauge can express.
+        /// such that this flag is reserved for the "all capabilities" targets that can run anything the language can express.
         const HigherLevelConstructs = 0b1000_0000;
     }
 }
