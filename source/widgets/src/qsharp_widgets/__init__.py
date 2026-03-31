@@ -240,6 +240,7 @@ class Entanglement(anywidget.AnyWidget):
     mutual_information = traitlets.List().tag(sync=True)
     labels = traitlets.List().tag(sync=True)
     selected_indices = traitlets.List(allow_none=True, default_value=None).tag(sync=True)
+    groups = traitlets.Dict(allow_none=True, default_value=None).tag(sync=True)
     options = traitlets.Dict().tag(sync=True)
 
     def __init__(
@@ -250,6 +251,7 @@ class Entanglement(anywidget.AnyWidget):
         mutual_information=None,
         labels=None,
         selected_indices=None,
+        groups=None,
         **options,
     ):
         """
@@ -273,13 +275,18 @@ class Entanglement(anywidget.AnyWidget):
         labels : list[str], optional
             Orbital labels.  Defaults to ``["0", "1", …]``.
         selected_indices : list[int], optional
-            Orbital indices to highlight.
+            Orbital indices to highlight (single group, legacy API).
+        groups : dict[str, list[int]], optional
+            Named groups of orbital indices.  Each group is rendered with
+            a distinct outline colour and, when grouped, its members are
+            placed adjacent on the ring.  Takes precedence over
+            *selected_indices* for grouping when both are provided.
         **options
             Forwarded to the JS component as visual knobs
             (``gap_deg``, ``radius``, ``arc_width``, ``line_scale``,
             ``mi_threshold``, ``s1_vmax``, ``mi_vmax``, ``title``,
             ``width``, ``height``, ``selection_color``,
-            ``selection_linewidth``).
+            ``selection_linewidth``, ``group_colors``).
         """
         if wavefunction is not None:
             import numpy as np
@@ -315,6 +322,7 @@ class Entanglement(anywidget.AnyWidget):
             mutual_information=mutual_information,
             labels=labels,
             selected_indices=selected_indices,
+            groups=groups,
             options=options,
         )
 

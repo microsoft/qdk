@@ -315,6 +315,7 @@ function renderEntanglement({ model, el }: RenderArgs) {
     const mutualInformation = model.get("mutual_information") as number[][];
     const labels = model.get("labels") as string[];
     const selectedIndices = model.get("selected_indices") as number[] | null;
+    const groups = model.get("groups") as Record<string, number[]> | null;
     const opts = (model.get("options") || {}) as Record<string, unknown>;
     const camelOpts: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(opts)) {
@@ -326,6 +327,7 @@ function renderEntanglement({ model, el }: RenderArgs) {
       mutualInformation,
       labels,
       selectedIndices: selectedIndices ?? undefined,
+      groups: groups ?? undefined,
       ...camelOpts,
       ...extra,
     } as EntanglementProps;
@@ -340,6 +342,7 @@ function renderEntanglement({ model, el }: RenderArgs) {
   model.on("change:mutual_information", onChange);
   model.on("change:labels", onChange);
   model.on("change:selected_indices", onChange);
+  model.on("change:groups", onChange);
   model.on("change:options", onChange);
 }
 

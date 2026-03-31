@@ -30,6 +30,16 @@ export interface ChordDiagramProps {
   labels?: string[];
   /** Indices of nodes to highlight with an outline. */
   selectedIndices?: number[];
+  /**
+   * Named groups of node indices.  When provided together with
+   * `groupSelected`, nodes belonging to each group are placed adjacent
+   * on the ring in group order.  Each group gets a distinct outline
+   * colour (see `groupColors`).  Takes precedence over
+   * `selectedIndices` for grouping / highlighting when both are given.
+   */
+  groups?: Record<string, number[]>;
+  /** Override outline colours for each group (cycles if fewer than groups). */
+  groupColors?: string[];
 
   // --- visual knobs (all optional with sensible defaults) ---
   gapDeg?: number;
@@ -104,6 +114,8 @@ export interface EntanglementProps {
   selectionLinewidth?: number;
   nodeColormap?: [string, string, string];
   edgeColormap?: [string, string, string];
+  groups?: Record<string, number[]>;
+  groupColors?: string[];
   groupSelected?: boolean;
   darkMode?: boolean;
   static?: boolean;
@@ -237,12 +249,28 @@ function chordPath(
 // Component
 // ---------------------------------------------------------------------------
 
+// Default palette for multi-group outlines.
+const DEFAULT_GROUP_COLORS = [
+  "#FFD700",
+  "#FF6B6B",
+  "#4ECDC4",
+  "#45B7D1",
+  "#96CEB4",
+  "#FFEAA7",
+  "#DDA0DD",
+  "#98D8C8",
+  "#F7DC6F",
+  "#BB8FCE",
+];
+
 export function ChordDiagram(props: ChordDiagramProps) {
   const {
     nodeValues,
     pairwiseWeights,
     labels: labelsProp,
     selectedIndices,
+    groups,
+    groupColors: groupColorsProp,
     gapDeg = 3,
     radius = 1,
     arcWidth = 0.08,
@@ -293,8 +321,35 @@ export function ChordDiagram(props: ChordDiagramProps) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
 
   // --- grouping toggle (only relevant when there is a selection) ---
-  const hasSelection =
-    selectedIndices !== undefined && selectedIndices.length > 0;
+  // Build the canonical group list: either from `groups` or the legacy
+  // `selectedIndices` (treated as a single unnamed group).
+  const groupEntries: [string, number[]][] = [];
+  if (groups && Object.keys(groups).length > 0) {
+    for (const [name, indices] of Object.entries(groups)) {
+      groupEntries.push([name, indices]);
+    }
+  } else if (selectedIndices && selectedIndices.length > 0) {
+    groupEntries.push(["selected", selectedIndices]);
+  }
+
+  // Map from orbital index → outline colour for that group.
+  const nodeGroupColor = new Map<number, string>();
+  {
+    const palette = groupColorsProp ?? DEFAULT_GROUP_COLORS;
+    let colorIdx = 0;
+    for (const [, indices] of groupEntries) {
+      const color =
+        groupEntries.length === 1
+          ? selectionColorProp ?? palette[0]
+          : palette[colorIdx % palette.length];
+      for (const idx of indices) {
+        nodeGroupColor.set(idx, color);
+      }
+      colorIdx++;
+    }
+  }
+
+  const hasSelection = nodeGroupColor.size > 0;
   const [isGrouped, setIsGrouped] = useState(groupSelected);
   // Sync if the prop changes externally
   useEffect(() => setIsGrouped(groupSelected), [groupSelected]);
@@ -346,23 +401,25 @@ export function ChordDiagram(props: ChordDiagramProps) {
   const gapTotal = gapDeg * n;
   const arcDegs = totals.map((t) => ((360 - gapTotal) * t) / grand);
 
-  // --- selected set ---
-  const selectedSet = new Set((selectedIndices ?? []).map(String));
-
-  // --- ring ordering (group selected orbitals together when requested) ---
+  // --- ring ordering (group nodes together when requested) ---
   const order: number[] = Array.from({ length: n }, (_, i) => i);
-  if (isGrouped && selectedIndices && selectedIndices.length > 0) {
-    const sel: number[] = [];
-    const unsel: number[] = [];
-    for (let i = 0; i < n; i++) {
-      if (selectedSet.has(String(i))) {
-        sel.push(i);
-      } else {
-        unsel.push(i);
+  if (isGrouped && groupEntries.length > 0) {
+    const grouped: number[] = [];
+    const groupedSet = new Set<number>();
+    for (const [, indices] of groupEntries) {
+      for (const idx of indices) {
+        if (!groupedSet.has(idx)) {
+          grouped.push(idx);
+          groupedSet.add(idx);
+        }
       }
     }
+    const ungrouped: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (!groupedSet.has(i)) ungrouped.push(i);
+    }
     order.length = 0;
-    order.push(...sel, ...unsel);
+    order.push(...grouped, ...ungrouped);
   }
 
   const starts: number[] = new Array(n);
@@ -627,8 +684,9 @@ export function ChordDiagram(props: ChordDiagramProps) {
         ))}
 
         {/* Selection outlines */}
-        {Array.from({ length: n }, (_, i) =>
-          selectedSet.has(String(i)) ? (
+        {Array.from({ length: n }, (_, i) => {
+          const gc = nodeGroupColor.get(i);
+          return gc ? (
             <path
               key={`sel-${i}`}
               d={arcPath(
@@ -638,12 +696,12 @@ export function ChordDiagram(props: ChordDiagramProps) {
                 radius,
               )}
               fill="none"
-              stroke={selectionColor}
+              stroke={gc}
               stroke-width={selectionLinewidth / scale}
               style={{ pointerEvents: "none" }}
             />
-          ) : null,
-        )}
+          ) : null;
+        })}
 
         {/* Labels & tick lines */}
         {Array.from({ length: n }, (_, i) => {
