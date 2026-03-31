@@ -224,6 +224,7 @@ def _run_qasm(
         output_fn,
         None,
         None,
+        None,
         read_file,
         list_directory,
         resolve,

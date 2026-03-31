@@ -8,7 +8,13 @@ use wgpu::{
     Queue,
 };
 
-use crate::shader_types::{DiagnosticsData, Uniforms, WorkgroupCollationBuffer};
+use crate::{
+    gpu_context::RunParams,
+    shader_types::{
+        DiagnosticsData, MAX_QUBIT_COUNT, MAX_QUBITS_PER_WORKGROUP, THREADS_PER_WORKGROUP,
+        Uniforms, WorkgroupCollationBuffer,
+    },
+};
 
 #[derive(Debug, Default)]
 pub struct GpuResources {
@@ -32,6 +38,7 @@ pub struct GpuKernels {
     pub init_op: ComputePipeline,
     pub prepare_op: ComputePipeline,
     pub execute_op: ComputePipeline,
+    pub interpret_classical: ComputePipeline,
 }
 
 #[derive(Debug)]
@@ -51,8 +58,9 @@ const STATE_VECTOR_BUF_IDX: usize = 3;
 const RESULTS_BUF_IDX: usize = 4;
 const DIAGNOSTICS_BUF_IDX: usize = 5;
 const UNIFORM_BUF_IDX: usize = 6;
-const CORRELATED_NOISE_TABLES_BUF_IDX: usize = 7;
-const CORRELATED_NOISE_ENTRIES_BUF_IDX: usize = 8;
+// Both base and adaptive layouts use binding 7 for BatchData (noise tables + entries,
+// and additionally the adaptive program in the adaptive layout).
+const BATCH_DATA_BUF_IDX: usize = 7;
 
 impl Default for GpuDeviceResources {
     fn default() -> Self {
@@ -109,15 +117,88 @@ impl Default for GpuDeviceResources {
                     usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
                     buffer: None,
                 },
+                // BatchData: noise tables + noise entries
                 BufferBinding {
-                    name: "CorrelatedNoiseTables",
+                    name: "BatchData",
+                    is_uniform: false,
+                    read_only: true,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+            ],
+        }
+    }
+}
+
+impl GpuDeviceResources {
+    #[allow(clippy::too_many_lines)]
+    fn adaptive() -> Self {
+        Self {
+            kernels: None,
+            bind_group: None,
+            // --------------------------------------------------------------
+            // Bind group layout: 8 bindings in @group(0)
+            // --------------------------------------------------------------
+            // Bindings 0-6:  quantum ops (ops, state vector, results, noise, etc.)
+            // Binding  7:    BatchData (noise tables + noise entries + program)
+            // Interpreter state and registers are embedded in ShotData (binding 1).
+            // The termination counter is stored in the diagnostics buffer (binding 5).
+            //
+            // This stays within the WebGPU minimum of 8 storage buffers per shader stage.
+            // --------------------------------------------------------------
+            bound_buffers: vec![
+                BufferBinding {
+                    name: "WorkgroupCollation",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "ShotState",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "Ops",
                     is_uniform: false,
                     read_only: true,
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
                     buffer: None,
                 },
                 BufferBinding {
-                    name: "CorrelatedNoiseEntries",
+                    name: "StateVector",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "Results",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "Diagnostics",
+                    is_uniform: false,
+                    read_only: false,
+                    usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                BufferBinding {
+                    name: "Uniforms",
+                    is_uniform: true,
+                    read_only: false,
+                    usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+                    buffer: None,
+                },
+                // BatchData: noise tables + noise entries + adaptive program
+                BufferBinding {
+                    name: "BatchData",
                     is_uniform: false,
                     read_only: true,
                     usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
@@ -201,15 +282,26 @@ impl GpuResources {
         }
     }
 
-    pub async fn create_device(&mut self, dbg_capture: bool) -> Result<(), String> {
+    pub async fn create_device(&mut self, dbg_capture: bool, adaptive: bool) -> Result<(), String> {
         // If we already had a prior device and it was capturing, stop any existing capture on it.
         self.stop_graphics_debugger_capture();
 
         // Per the WebGPU spec, creating a device multiple times from the same adapter is disallowed,
         // so recreate the adapter as well if creating a device and queue.
         let adapter = Self::try_get_adapter()?;
-
         let adapter_limits = adapter.limits();
+
+        // The gpu simulator uses 7 storage buffers in a single
+        // bind group, which is within the WebGPU minimum guarantee.
+        if adapter_limits.max_storage_buffers_per_shader_stage < 7 {
+            return Err(format!(
+                "GPU adapter supports only {} storage buffers per shader stage, \
+                 but the gpu simulator requires 7. \
+                 Consider a discrete GPU or the CPU simulator.",
+                adapter_limits.max_storage_buffers_per_shader_stage,
+            ));
+        }
+
         let required_limits = wgpu::Limits {
             max_storage_buffer_binding_size: 1u32 << 30, // 1GB
             ..adapter_limits
@@ -235,7 +327,11 @@ impl GpuResources {
             }
         }
         // Drop any resources created with a prior device, since the new device will be used now
-        self.device_resources = GpuDeviceResources::default();
+        self.device_resources = if adaptive {
+            GpuDeviceResources::adaptive()
+        } else {
+            GpuDeviceResources::default()
+        };
 
         // Create the fixed sized buffers
         self.device_resources.bound_buffers[UNIFORM_BUF_IDX].buffer = Some(create_dst_buffer(
@@ -260,9 +356,9 @@ impl GpuResources {
         self.create_bind_group_layout()
     }
 
-    pub async fn ensure_device(&mut self, dbg_capture: bool) -> Result<(), String> {
+    pub async fn ensure_device(&mut self, dbg_capture: bool, adaptive: bool) -> Result<(), String> {
         if self.device.is_none() {
-            self.create_device(dbg_capture).await?;
+            self.create_device(dbg_capture, adaptive).await?;
         }
         Ok(())
     }
@@ -313,6 +409,8 @@ impl GpuResources {
         threads_per_workgroup: i32,
         max_qubit_count: i32,
         max_qubits_per_workgroup: i32,
+        noise_table_count: usize,
+        noise_entry_count: usize,
     ) -> Result<(), String> {
         let adapter = self.adapter.as_ref().ok_or("GPU adapter not initialized")?;
         let device = self.device.as_ref().ok_or("GPU device not initialized")?;
@@ -322,7 +420,10 @@ impl GpuResources {
             .ok_or("Bind group layout not initialized")?; // This is created with the device, so should exist here
 
         // Create the shader module and bind group layout
-        let raw_shader_src = include_str!("simulator.wgsl");
+        let raw_shader_src = concat!(
+            include_str!("common.wgsl"),
+            include_str!("simulator_base.wgsl"),
+        );
         let mut shader_src = raw_shader_src
             .replace("{{QUBIT_COUNT}}", &qubit_count.to_string())
             .replace("{{RESULT_COUNT}}", &(result_count + 1).to_string()) // +1 for result code per shot
@@ -336,6 +437,103 @@ impl GpuResources {
             .replace(
                 "{{MAX_QUBITS_PER_WORKGROUP}}",
                 &max_qubits_per_workgroup.to_string(),
+            )
+            .replace("{{NOISE_TABLE_COUNT}}", &noise_table_count.to_string())
+            .replace("{{NOISE_ENTRY_COUNT}}", &noise_entry_count.to_string());
+
+        // Strip out DX12-incompatible code sections if needed
+        if adapter.get_info().backend == wgpu::Backend::Dx12 {
+            shader_src = strip_dx12_sections(&shader_src);
+        }
+
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("GPU Simulator Shader Module"),
+            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("GPU simulator pipeline layout"),
+            bind_group_layouts: &[bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let get_kernel = |name: &str| -> ComputePipeline {
+            device.create_compute_pipeline(&ComputePipelineDescriptor {
+                label: Some(&format!("GPU kernel - {name}")),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some(name),
+                compilation_options: Default::default(),
+                cache: None,
+            })
+        };
+
+        let dummy_kernel = get_kernel("initialize");
+
+        self.device_resources.kernels = Some(GpuKernels {
+            init_op: get_kernel("initialize"),
+            prepare_op: get_kernel("prepare_op"),
+            execute_op: get_kernel("execute"),
+            interpret_classical: dummy_kernel,
+        });
+
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn create_shaders_adaptive(&mut self, params: &RunParams) -> Result<(), String> {
+        let adapter = self.adapter.as_ref().ok_or("GPU adapter not initialized")?;
+        let device = self.device.as_ref().ok_or("GPU device not initialized")?;
+        let bind_group_layout = self
+            .bind_group_layout
+            .as_ref()
+            .ok_or("Bind group layout not initialized")?; // This is created with the device, so should exist here
+
+        // Create the shader module and bind group layout
+        let raw_shader_src = concat!(
+            include_str!("common.wgsl"),
+            include_str!("simulator_adaptive.wgsl"),
+        );
+        let mut shader_src = raw_shader_src
+            .replace("{{QUBIT_COUNT}}", &params.qubit_count.to_string())
+            .replace("{{RESULT_COUNT}}", &(params.result_count + 1).to_string()) // +1 for result code per shot
+            .replace(
+                "{{WORKGROUPS_PER_SHOT}}",
+                &params.workgroups_per_shot.to_string(),
+            )
+            .replace(
+                "{{ENTRIES_PER_THREAD}}",
+                &params.entries_per_thread.to_string(),
+            )
+            .replace(
+                "{{THREADS_PER_WORKGROUP}}",
+                &THREADS_PER_WORKGROUP.to_string(),
+            )
+            .replace("{{MAX_QUBIT_COUNT}}", &MAX_QUBIT_COUNT.to_string())
+            .replace(
+                "{{MAX_QUBITS_PER_WORKGROUP}}",
+                &MAX_QUBITS_PER_WORKGROUP.to_string(),
+            )
+            .replace("{{MAX_REGISTERS}}", &params.num_registers.to_string())
+            .replace(
+                "{{INSTRUCTIONS_SIZE}}",
+                &params.num_instructions.to_string(),
+            )
+            .replace("{{BLOCK_TABLE_SIZE}}", &params.num_blocks.to_string())
+            .replace("{{FUNCTION_TABLE_SIZE}}", &params.num_functions.to_string())
+            .replace("{{PHI_TABLE_SIZE}}", &params.num_phi_entries.to_string())
+            .replace(
+                "{{SWITCH_CASES_SIZE}}",
+                &params.num_switch_cases.to_string(),
+            )
+            .replace("{{CALL_ARGS_SIZE}}", &params.num_call_args.to_string())
+            .replace(
+                "{{NOISE_TABLE_COUNT}}",
+                &params.noise_table_count.to_string(),
+            )
+            .replace(
+                "{{NOISE_ENTRY_COUNT}}",
+                &params.noise_entry_count.to_string(),
             );
 
         // Strip out DX12-incompatible code sections if needed
@@ -369,6 +567,7 @@ impl GpuResources {
             init_op: get_kernel("initialize"),
             prepare_op: get_kernel("prepare_op"),
             execute_op: get_kernel("execute"),
+            interpret_classical: get_kernel("interpret_classical"),
         });
 
         Ok(())
@@ -399,18 +598,8 @@ impl GpuResources {
         let bind_group_layout = self.bind_group_layout.as_ref().ok_or("Missing layout")?;
         let bound_buffers = &mut self.device_resources.bound_buffers;
 
-        // Even if correlated noise is not used, the buffers still need to exist anyway to be bound
-        // NoiseTableMetadata is 16 bytes, NoiseTableEntry is 16 bytes
-        Self::ensure_buffer(
-            device,
-            &mut bound_buffers[CORRELATED_NOISE_TABLES_BUF_IDX],
-            16,
-        );
-        Self::ensure_buffer(
-            device,
-            &mut bound_buffers[CORRELATED_NOISE_ENTRIES_BUF_IDX],
-            16,
-        );
+        // Even if correlated noise is not used, the batch data buffer needs to exist to be bound
+        Self::ensure_buffer(device, &mut bound_buffers[BATCH_DATA_BUF_IDX], 16);
 
         // Ensure all buffers are created
         if bound_buffers.iter().any(|entry| entry.buffer.is_none()) {
@@ -464,19 +653,10 @@ impl GpuResources {
         self.upload_data(ops, OPS_BUF_IDX)
     }
 
-    pub fn upload_noise_metadata(&mut self, metadata: &[u8]) -> Result<(), String> {
-        self.upload_data(metadata, CORRELATED_NOISE_TABLES_BUF_IDX)
-    }
-
-    pub fn upload_noise_entries(&mut self, entries: &[u8]) -> Result<(), String> {
-        self.upload_data(entries, CORRELATED_NOISE_ENTRIES_BUF_IDX)
-    }
-
-    pub fn free_noise_buffers(&mut self) -> Result<(), String> {
-        self.device_resources.bound_buffers[CORRELATED_NOISE_TABLES_BUF_IDX].buffer = None;
-        self.device_resources.bound_buffers[CORRELATED_NOISE_ENTRIES_BUF_IDX].buffer = None;
-        self.device_resources.bind_group = None; // Invalidate bind group to recreate later
-        Ok(())
+    /// Clear the `BatchData` buffer (used by both base and adaptive modes).
+    pub fn free_batch_data_buffer(&mut self) {
+        self.device_resources.bound_buffers[BATCH_DATA_BUF_IDX].buffer = None;
+        self.device_resources.bind_group = None;
     }
 
     fn try_get_buffer(&self, buf_idx: usize) -> Result<&Buffer, String> {
@@ -524,6 +704,11 @@ impl GpuResources {
     fn upload_data(&mut self, data: &[u8], buf_idx: usize) -> Result<(), String> {
         let device = self.device.as_ref().ok_or("GPU device not initialized")?;
         let queue = self.queue.as_ref().ok_or("GPU queue not initialized")?;
+
+        // Skip uploading empty data, the placeholder buffers from bind group creation suffice
+        if data.is_empty() {
+            return Ok(());
+        }
 
         let dst_buffer = &mut self.device_resources.bound_buffers[buf_idx];
 
@@ -604,14 +789,144 @@ impl GpuResources {
         let results_data = &data[..results_bytes];
 
         let diagnositcs_data = &data[results_bytes..];
+        // In adaptive mode, the GPU diagnostics buffer may be larger than the Rust struct
+        // (due to ShotData including InterpreterState + registers on the GPU side).
+        // Only read the bytes that map to the Rust DiagnosticsData layout.
+        let diag_rust_size = std::mem::size_of::<DiagnosticsData>();
         // Keep this on the heap to avoid large stack frames in debug builds.
-        let diagnostics = Box::new(*from_bytes::<DiagnosticsData>(diagnositcs_data));
+        let diagnostics = Box::new(*from_bytes::<DiagnosticsData>(
+            &diagnositcs_data[..diag_rust_size],
+        ));
         let batch_results: Vec<u32> = cast_slice(results_data).to_vec();
 
         drop(data);
         download.unmap();
 
         Ok((batch_results, diagnostics))
+    }
+}
+
+// Adaptive Profile implementations.
+impl GpuResources {
+    #[must_use]
+    pub fn adaptive() -> Self {
+        Self {
+            adapter: None,
+            device: None,
+            bind_group_layout: None,
+            dbg_capture: false,
+            queue: None,
+            device_resources: GpuDeviceResources::adaptive(),
+        }
+    }
+
+    pub fn get_bind_group_adaptive(&mut self) -> Result<BindGroup, String> {
+        if let Some(ref bind_group) = self.device_resources.bind_group {
+            // Already created. BindGroup largely wraps ref-counted handles, so cloning is cheap.
+            return Ok(bind_group.clone());
+        }
+
+        let device = self.device.as_ref().ok_or("GPU device not initialized")?;
+        let bind_group_layout = self.bind_group_layout.as_ref().ok_or("Missing layout")?;
+        let bound_buffers = &mut self.device_resources.bound_buffers;
+
+        // Even if correlated noise is not used, the batch data buffer needs to exist to be bound
+        Self::ensure_buffer(device, &mut bound_buffers[BATCH_DATA_BUF_IDX], 16);
+
+        // Ensure all buffers are created
+        if bound_buffers.iter().any(|entry| entry.buffer.is_none()) {
+            return Err(
+                "All buffers to bind must be created before creating the bind group".to_string(),
+            );
+        }
+
+        #[allow(clippy::cast_possible_truncation)]
+        let entries: Vec<BindGroupEntry> = bound_buffers
+            .iter()
+            .enumerate()
+            .map(|(idx, buffer_bindings)| BindGroupEntry {
+                binding: idx as u32,
+                resource: buffer_bindings
+                    .buffer
+                    .as_ref()
+                    .expect("Buffer should exist")
+                    .as_entire_binding(),
+            })
+            .collect();
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Simulator Bind Group"),
+            layout: bind_group_layout,
+            entries: &entries,
+        });
+        self.device_resources.bind_group = Some(bind_group.clone());
+        Ok(bind_group)
+    }
+
+    // --- Adaptive interpreter buffer uploads ---
+
+    /// Upload the combined batch data (noise tables + noise entries + program) to binding 7.
+    pub fn upload_batch_data(&mut self, data: &[u8]) -> Result<(), String> {
+        self.upload_data(data, BATCH_DATA_BUF_IDX)
+    }
+
+    /// Write interpreter state + registers into the shots buffer at the correct offset.
+    /// The data is a contiguous block of per-shot interpreter state + register data that
+    /// starts at `shot_base_offset` bytes from the beginning of the shots buffer.
+    pub fn upload_interpreter_data_to_shots(
+        &self,
+        data: &[u8],
+        shot_base_offset: usize,
+    ) -> Result<(), String> {
+        let queue = self.queue.as_ref().ok_or("GPU queue not initialized")?;
+        let buf = self.try_get_buffer(SHOT_STATE_BUF_IDX)?;
+        queue.write_buffer(buf, shot_base_offset as u64, data);
+        Ok(())
+    }
+
+    /// Zero the diagnostics header (`error_code` + `termination_count`) before each batch.
+    pub fn reset_diagnostics_header(&self) -> Result<(), String> {
+        let queue = self.queue.as_ref().ok_or("GPU queue not initialized")?;
+        let buf = self.try_get_buffer(DIAGNOSTICS_BUF_IDX)?;
+        queue.write_buffer(buf, 0, &[0u8; 8]); // error_code (4 bytes) + termination_count (4 bytes)
+        Ok(())
+    }
+
+    /// Read back the termination count from the diagnostics buffer (offset 4, size 4).
+    pub async fn download_termination_count(&self) -> Result<u32, String> {
+        let device = self.device.as_ref().ok_or("GPU device not initialized")?;
+        let diag_buf = self.try_get_buffer(DIAGNOSTICS_BUF_IDX)?;
+
+        let download = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Termination Count Download"),
+            size: 4,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self.get_encoder("Termination Count Copy Encoder")?;
+        // termination_count is at byte offset 4 in DiagnosticsData (after error_code)
+        encoder.copy_buffer_to_buffer(diag_buf, 4, &download, 0, 4);
+        self.submit_command_buffer(encoder.finish())?;
+
+        let buffer_slice = download.slice(..);
+        let (sender, receiver) = futures::channel::oneshot::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        device
+            .poll(PollType::wait_indefinitely())
+            .expect("GPU poll failed");
+        receiver
+            .await
+            .expect("Failed to receive map completion")
+            .expect("Buffer mapping failed");
+
+        let data = buffer_slice.get_mapped_range();
+        let value = *from_bytes::<u32>(&data);
+        drop(data);
+        download.unmap();
+        Ok(value)
     }
 }
 
