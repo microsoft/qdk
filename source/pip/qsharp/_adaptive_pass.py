@@ -200,11 +200,14 @@ RegisterType: TypeAlias = int
 @dataclass
 class IntOperand:
     val: int = 0
+    bits: int = 32
 
     def __post_init__(self):
-        # Mask to u32 range so negative Python ints become their
-        # two's-complement u32 representation (e.g. -7 → 0xFFFFFFF9).
-        self.val = self.val & 0xFFFFFFFF
+        # Mask to the appropriate word-width so negative Python ints become
+        # their two's-complement representation
+        # (e.g. -7 → 0xFFFFFFF9 for 32-bit, 0xFFFFFFFFFFFFFFF9 for 64-bit).
+        mask = (1 << self.bits) - 1
+        self.val = self.val & mask
 
 
 class FloatOperand:
@@ -294,6 +297,7 @@ class AdaptiveProfilePass:
         self._func_to_id: Dict[str, int] = {}  # function name → function ID
         self._current_func_is_entry: bool = True
         self._noise_intrinsics: Optional[Dict[str, int]] = None
+        self._int_bits = 32 if bytecode_kind == Bytecode.Bit32 else 64
 
     def run(
         self,
@@ -436,7 +440,7 @@ class AdaptiveProfilePass:
 
         if isinstance(value, pyqir.IntConstant):
             val = value.value
-            return IntOperand(val)
+            return IntOperand(val, self._int_bits)
 
         if isinstance(value, pyqir.FloatConstant):
             val = value.value

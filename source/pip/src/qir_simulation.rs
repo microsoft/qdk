@@ -762,7 +762,7 @@ where
         .extract()
 }
 
-fn adaptive_program_from_pydict<Word>(
+pub(crate) fn adaptive_program_from_pydict<Word>(
     dict: &Bound<'_, PyDict>,
 ) -> PyResult<bytecode::AdaptiveProgram<Word>>
 where

@@ -9,8 +9,10 @@ from ._native import (
     QirInstructionId,
     QirInstruction,
     run_clifford,
+    run_clifford_adaptive,
     run_parallel_shots,
     run_adaptive_parallel_shots,
+    run_cpu_adaptive,
     run_cpu_full_state,
     NoiseConfig,
     GpuContext,
@@ -25,7 +27,12 @@ from pyqir import (
 )
 from ._qsharp import QirInputData, Result
 from typing import TYPE_CHECKING
-from ._adaptive_pass import AdaptiveProfilePass, Bytecode, OP_RECORD_OUTPUT
+from ._adaptive_pass import (
+    AdaptiveProfilePass,
+    AdaptiveProgram,
+    Bytecode,
+    OP_RECORD_OUTPUT,
+)
 
 if TYPE_CHECKING:  # This is in the pyi file only
     from ._native import GpuShotResults
@@ -485,50 +492,6 @@ def is_adaptive(mod: pyqir.Module) -> bool:
     return func_attrs["qir_profiles"].string_value == "adaptive_profile"
 
 
-def run_qir_clifford(
-    input: Union[QirInputData, str, bytes],
-    shots: Optional[int] = 1,
-    noise: Optional[NoiseConfig] = None,
-    seed: Optional[int] = None,
-) -> List:
-    (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
-    if noise is None:
-        (gates, num_qubits, num_results) = AggregateGatesPass().run(mod)
-    else:
-        (gates, num_qubits, num_results) = CorrelatedNoisePass(noise).run(mod)
-    recorder = OutputRecordingPass()
-    recorder.run(mod)
-
-    return list(
-        map(
-            recorder.process_output,
-            run_clifford(gates, num_qubits, num_results, shots, noise, seed),
-        )
-    )
-
-
-def run_qir_cpu(
-    input: Union[QirInputData, str, bytes],
-    shots: Optional[int] = 1,
-    noise: Optional[NoiseConfig] = None,
-    seed: Optional[int] = None,
-) -> List:
-    (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
-    if noise is None:
-        (gates, num_qubits, num_results) = AggregateGatesPass().run(mod)
-    else:
-        (gates, num_qubits, num_results) = CorrelatedNoisePass(noise).run(mod)
-    recorder = OutputRecordingPass()
-    recorder.run(mod)
-
-    return list(
-        map(
-            recorder.process_output,
-            run_cpu_full_state(gates, num_qubits, num_results, shots, noise, seed),
-        )
-    )
-
-
 def str_to_result(result: str):
     match result:
         case "0":
@@ -539,6 +502,83 @@ def str_to_result(result: str):
             return Result.Loss
         case _:
             raise ValueError(f"Invalid result {result}")
+
+
+def run_adaptive(
+    rust_run_adaptive_fn: Callable,
+    program: AdaptiveProgram,
+    shots: int,
+    noise: Optional[NoiseConfig],
+    seed: int,
+):
+    """
+    Runs an adaptive program given a rust simulator. Adds output recording logic.
+    """
+    results = rust_run_adaptive_fn(program.as_dict(), shots, noise, seed)
+    # Extract recorded output result indices from the bytecode.
+    # OP_RECORD_OUTPUT with aux1=0 is result_record_output where
+    # src0 is the result index in the results buffer.
+    recorded_result_indices = []
+    for ins in program.instructions:
+        if (ins.opcode & 0xFF) == OP_RECORD_OUTPUT and ins.aux1 == 0:
+            recorded_result_indices.append(ins.src0)
+    # Filter shot_results to only include recorded output indices
+    filtered = []
+    for s in results:
+        filtered.append([str_to_result(s[i]) for i in recorded_result_indices])
+    return filtered
+
+
+def run_qir_clifford(
+    input: Union[QirInputData, str, bytes],
+    shots: Optional[int] = 1,
+    noise: Optional[NoiseConfig] = None,
+    seed: Optional[int] = None,
+) -> List:
+    (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
+    if is_adaptive(mod):
+        program = AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise)
+        return run_adaptive(run_clifford_adaptive, program, shots, noise, seed)
+    else:
+        if noise is None:
+            (gates, num_qubits, num_results) = AggregateGatesPass().run(mod)
+        else:
+            (gates, num_qubits, num_results) = CorrelatedNoisePass(noise).run(mod)
+        recorder = OutputRecordingPass()
+        recorder.run(mod)
+
+        return list(
+            map(
+                recorder.process_output,
+                run_clifford(gates, num_qubits, num_results, shots, noise, seed),
+            )
+        )
+
+
+def run_qir_cpu(
+    input: Union[QirInputData, str, bytes],
+    shots: Optional[int] = 1,
+    noise: Optional[NoiseConfig] = None,
+    seed: Optional[int] = None,
+) -> List:
+    (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
+    if is_adaptive(mod):
+        program = AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise)
+        return run_adaptive(run_cpu_adaptive, program, shots, noise, seed)
+    else:
+        if noise is None:
+            (gates, num_qubits, num_results) = AggregateGatesPass().run(mod)
+        else:
+            (gates, num_qubits, num_results) = CorrelatedNoisePass(noise).run(mod)
+        recorder = OutputRecordingPass()
+        recorder.run(mod)
+
+        return list(
+            map(
+                recorder.process_output,
+                run_cpu_full_state(gates, num_qubits, num_results, shots, noise, seed),
+            )
+        )
 
 
 def run_qir_gpu(
@@ -552,20 +592,7 @@ def run_qir_gpu(
     DecomposeCcxPass().run(mod)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit32).run(mod, noise)
-        results = run_adaptive_parallel_shots(program.as_dict(), shots, noise, seed)
-
-        # Extract recorded output result indices from the bytecode.
-        # OP_RECORD_OUTPUT with aux1=0 is result_record_output where
-        # src0 is the result index in the results buffer.
-        recorded_result_indices = []
-        for ins in program.instructions:
-            if (ins.opcode & 0xFF) == OP_RECORD_OUTPUT and ins.aux1 == 0:
-                recorded_result_indices.append(ins.src0)
-        # Filter shot_results to only include recorded output indices
-        filtered = []
-        for s in results:
-            filtered.append([str_to_result(s[i]) for i in recorded_result_indices])
-        return filtered
+        return run_adaptive(run_adaptive_parallel_shots, program, shots, noise, seed)
     else:
         if noise is None:
             (gates, num_qubits, num_results) = AggregateGatesPass().run(mod)

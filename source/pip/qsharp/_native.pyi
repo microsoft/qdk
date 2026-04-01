@@ -1005,6 +1005,42 @@ def run_cpu_full_state(
     """
     ...
 
+def run_cpu_adaptive(
+    input: dict,
+    shots: int,
+    noise: Optional[NoiseConfig] = None,
+    seed: Optional[int] = None,
+) -> List[str]:
+    """
+    Run an adaptive profile QIR program on a CPU full-state simulator.
+
+    The input is an `AdaptiveProgram` converted to a dict using the
+    .as_dict() method. Uses 64-bit bytecode for full LLVM i64 semantics.
+
+    Returns a list of result strings. Each result string is composed
+    of '0's, '1's, and 'L's, representing if each measurement result
+    was a Zero, One, or Loss respectively.
+    """
+    ...
+
+def run_clifford_adaptive(
+    input: dict,
+    shots: int,
+    noise: Optional[NoiseConfig] = None,
+    seed: Optional[int] = None,
+) -> List[str]:
+    """
+    Run an adaptive profile QIR program on a Clifford stabilizer simulator.
+
+    The input is an `AdaptiveProgram` converted to a dict using the
+    .as_dict() method. Uses 64-bit bytecode for full LLVM i64 semantics.
+
+    Returns a list of result strings. Each result string is composed
+    of '0's, '1's, and 'L's, representing if each measurement result
+    was a Zero, One, or Loss respectively.
+    """
+    ...
+
 def try_create_gpu_adapter() -> str:
     """
     Checks if a compatible GPU adapter is available on the system.

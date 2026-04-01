@@ -4,11 +4,15 @@
 #[cfg(test)]
 mod tests;
 
-use crate::qir_simulation::{NoiseConfig, QirInstruction, QirInstructionId, unbind_noise_config};
+use crate::qir_simulation::{
+    NoiseConfig, QirInstruction, QirInstructionId, adaptive_program_from_pydict,
+    unbind_noise_config,
+};
 use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList};
-use pyo3::{PyResult, pyfunction};
+use pyo3::{PyResult, pyfunction, types::PyDict};
 use qdk_simulators::{
     MeasurementResult, Simulator,
+    bytecode::{self, runtime::run_shot as adaptive_run_shot},
     cpu_full_state_simulator::{NoiselessSimulator, NoisySimulator},
     noise_config::{self, CumulativeNoiseConfig},
     stabilizer_simulator::StabilizerSimulator,
@@ -266,4 +270,156 @@ fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Adaptive Profile CPU simulation
+// ---------------------------------------------------------------------------
+
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+pub fn run_cpu_adaptive<'py>(
+    py: Python<'py>,
+    input: &Bound<'py, PyDict>,
+    shots: u32,
+    noise_config: Option<&Bound<'py, NoiseConfig>>,
+    seed: Option<u32>,
+) -> PyResult<Py<PyAny>> {
+    use qdk_simulators::cpu_full_state_simulator::noise::Fault;
+
+    let program: bytecode::AdaptiveProgram<u64> = adaptive_program_from_pydict(input)?;
+
+    let noise: noise_config::NoiseConfig<f64, f64> = if let Some(nc) = noise_config {
+        unbind_noise_config(py, nc)
+    } else {
+        noise_config::NoiseConfig::NOISELESS
+    };
+
+    let output = if noise_config.is_some() {
+        let make_simulator =
+            |num_qubits, num_results, seed, noise: Arc<CumulativeNoiseConfig<Fault>>| {
+                NoisySimulator::new(num_qubits, num_results, seed, noise)
+            };
+        run_adaptive(&program, shots, seed, noise, make_simulator)
+    } else {
+        let make_simulator =
+            |num_qubits, num_results, seed, _noise: Arc<CumulativeNoiseConfig<Fault>>| {
+                NoiselessSimulator::new(num_qubits, num_results, seed, ())
+            };
+        run_adaptive(&program, shots, seed, noise, make_simulator)
+    };
+
+    let mut array = Vec::with_capacity(shots as usize);
+    for val in output {
+        array.push(
+            val.into_py_any(py).map_err(|e| {
+                PyValueError::new_err(format!("failed to create Python string: {e}"))
+            })?,
+        );
+    }
+
+    PyList::new(py, array)
+        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
+        .into_py_any(py)
+}
+
+#[pyfunction]
+#[allow(clippy::too_many_arguments)]
+pub fn run_clifford_adaptive<'py>(
+    py: Python<'py>,
+    input: &Bound<'py, PyDict>,
+    shots: u32,
+    noise_config: Option<&Bound<'py, NoiseConfig>>,
+    seed: Option<u32>,
+) -> PyResult<Py<PyAny>> {
+    use qdk_simulators::stabilizer_simulator::noise::Fault;
+
+    let program: bytecode::AdaptiveProgram<u64> = adaptive_program_from_pydict(input)?;
+
+    let noise: noise_config::NoiseConfig<f64, f64> = if let Some(nc) = noise_config {
+        unbind_noise_config(py, nc)
+    } else {
+        noise_config::NoiseConfig::NOISELESS
+    };
+
+    let make_simulator =
+        |num_qubits, num_results, seed, noise: Arc<CumulativeNoiseConfig<Fault>>| {
+            StabilizerSimulator::new(num_qubits, num_results, seed, noise)
+        };
+    let output = run_adaptive(&program, shots, seed, noise, make_simulator);
+
+    let mut array = Vec::with_capacity(shots as usize);
+    for val in output {
+        array.push(
+            val.into_py_any(py).map_err(|e| {
+                PyValueError::new_err(format!("failed to create Python string: {e}"))
+            })?,
+        );
+    }
+
+    PyList::new(py, array)
+        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
+        .into_py_any(py)
+}
+
+fn run_adaptive<SimulatorBuilder, Noise, S>(
+    program: &bytecode::AdaptiveProgram<u64>,
+    shots: u32,
+    seed: Option<u32>,
+    mut noise: noise_config::NoiseConfig<f64, f64>,
+    make_simulator: SimulatorBuilder,
+) -> Vec<String>
+where
+    SimulatorBuilder: Fn(usize, usize, u32, Arc<Noise>) -> S + Send + Sync,
+    Noise: From<noise_config::NoiseConfig<f64, f64>> + Send + Sync,
+    S: Simulator,
+{
+    if !noise.rz.is_noiseless() {
+        if noise.s.is_noiseless() {
+            noise.s = noise.rz.clone();
+        }
+        if noise.z.is_noiseless() {
+            noise.z = noise.rz.clone();
+        }
+        if noise.s_adj.is_noiseless() {
+            noise.s_adj = noise.rz.clone();
+        }
+    }
+
+    let noise: Noise = noise.into();
+    let noise = Arc::new(noise);
+
+    let num_qubits = program.num_qubits as usize;
+    let num_results = program.num_results as usize;
+
+    let mut rng = if let Some(seed) = seed {
+        StdRng::seed_from_u64(seed.into())
+    } else {
+        StdRng::from_entropy()
+    };
+
+    let output = (0..shots)
+        .map(|_| rng.r#gen())
+        .collect::<Vec<u32>>()
+        .par_iter()
+        .map(|shot_seed| {
+            let mut simulator = make_simulator(num_qubits, num_results, *shot_seed, noise.clone());
+            adaptive_run_shot(program, &mut simulator);
+            simulator.take_measurements()
+        })
+        .collect::<Vec<_>>();
+
+    let mut values = Vec::with_capacity(shots as usize);
+    for shot_result in output {
+        let mut buffer = String::with_capacity(shot_result.len());
+        for measurement in shot_result {
+            match measurement {
+                MeasurementResult::Zero => write!(&mut buffer, "0").expect("write should succeed"),
+                MeasurementResult::One => write!(&mut buffer, "1").expect("write should succeed"),
+                MeasurementResult::Loss => write!(&mut buffer, "L").expect("write should succeed"),
+            }
+        }
+        values.push(buffer);
+    }
+    values
 }

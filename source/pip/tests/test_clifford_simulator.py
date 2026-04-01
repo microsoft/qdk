@@ -101,7 +101,7 @@ def test_s_adj_noise_inherits_from_rz():
     assert output == [Result.One]
 
 
-def test_program_with_branching_fails():
+def test_program_with_branching_succeeds():
     qsharp.init(target_profile=TargetProfile.Adaptive_RI)
     qsharp.eval(
         """
@@ -116,14 +116,8 @@ def test_program_with_branching_fails():
         """
     )
     ir = qsharp.compile("Main()")
-    try:
-        run_qir_clifford(str(ir), 1, NoiseConfig())
-        assert False, "Expected ValueError for branching control flow"
-    except ValueError as e:
-        assert (
-            "simulation of programs with branching control flow is not supported"
-            in str(e)
-        )
+    results = run_qir_clifford(str(ir), 1, NoiseConfig())
+    assert len(results) == 1
 
 
 def test_program_with_unconditional_branching_succeeds():

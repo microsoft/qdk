@@ -5,6 +5,8 @@
 //!
 //! Values must stay in sync with the Python `_adaptive_opcodes.py` module.
 
+pub mod runtime;
+
 use bytemuck::{Pod, Zeroable};
 use num_traits::Unsigned;
 
@@ -167,8 +169,8 @@ impl<Word: Default> Function<Word> {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Zeroable)]
 pub struct PhiNodeEntry<Word> {
-    block_id: Word,
-    val_reg: Word,
+    pub block_id: Word,
+    pub val_reg: Word,
 }
 
 impl<Word> PhiNodeEntry<Word> {
@@ -186,8 +188,8 @@ impl<Word> PhiNodeEntry<Word> {
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Default, Zeroable)]
 pub struct SwitchCase<Word> {
-    case_val: Word,
-    target_block: Word,
+    pub case_val: Word,
+    pub target_block: Word,
 }
 
 impl<Word> SwitchCase<Word> {
