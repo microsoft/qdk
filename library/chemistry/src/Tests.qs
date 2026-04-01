@@ -81,7 +81,7 @@ operation OptimizedBEOperatorZeroTestHelper(pauliBasis : Pauli, targetRegisterSi
             }
         } else {
 
-            // Test Identitfy Pauli
+            // Test Identify Pauli
             // |0> -> |0>
             // |+> -> |+>
             Message($"Test ZI Pauli on qubit {idxTest}");
@@ -175,7 +175,7 @@ operation OptimizedBEOperatorPlusTestHelper(pauliBasis : Pauli, targetRegisterSi
             }
 
         } else {
-            // Test Identitfy Pauli
+            // Test Identify Pauli
             // |0> -> |0>
             // |+> -> |+>
             Message($"Test I Pauli on qubit {idxTest}");

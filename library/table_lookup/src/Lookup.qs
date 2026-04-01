@@ -136,7 +136,7 @@ operation Lookup(
 ) : Unit is Adj + Ctl {
     body (...) {
         if (options.lookupAlgorithm == DoStdLookup()) {
-            // Don't do anthing beyond standard library select.
+            // Don't do anything beyond standard library select.
             Std.TableLookup.Select(data, address, target);
             return ();
         }
@@ -181,7 +181,7 @@ operation Lookup(
         }
 
         if options.lookupAlgorithm == DoStdLookup() {
-            // Don't do anthing beyond standard library select.
+            // Don't do anything beyond standard library select.
             Controlled Std.TableLookup.Select(controls, (data, address, target));
             return ();
         }
@@ -242,7 +242,7 @@ operation Lookup(
 
     adjoint (...) {
         if (options.unlookupAlgorithm == DoStdUnlookup()) {
-            // Don't do anthing beyond standard library select.
+            // Don't do anything beyond standard library select.
             Adjoint Std.TableLookup.Select(data, address, target);
             return ();
         }
@@ -280,7 +280,7 @@ operation Lookup(
 
     controlled adjoint (controls, ...) {
         if options.unlookupAlgorithm == DoStdUnlookup() {
-            // Don't do anthing beyond standard library select.
+            // Don't do anything beyond standard library select.
             Controlled Adjoint Std.TableLookup.Select(controls, (data, address, target));
             return ();
         }
