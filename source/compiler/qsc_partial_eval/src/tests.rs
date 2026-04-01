@@ -22,7 +22,9 @@ use crate::{Error, PartialEvalConfig, ProgramEntry, partially_evaluate};
 use expect_test::Expect;
 use qsc::{PackageType, incremental::Compiler};
 use qsc_data_structures::{
-    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+    language_features::LanguageFeatures,
+    source::SourceMap,
+    target::{Profile, TargetCapabilityFlags},
 };
 use qsc_fir::fir::PackageStore;
 use qsc_frontend::compile::PackageStore as HirPackageStore;
@@ -100,7 +102,7 @@ pub fn get_partial_evaluation_error_with_capabilities(
 pub fn get_rir_program(source: &str) -> Program {
     let maybe_program = compile_and_partially_evaluate(
         source,
-        TargetCapabilityFlags::all(),
+        Profile::AdaptiveRIF.into(),
         PartialEvalConfig {
             generate_debug_metadata: false,
         },
@@ -119,7 +121,7 @@ pub fn get_rir_program(source: &str) -> Program {
 pub fn get_rir_program_with_dbg_metadata(source: &str) -> Program {
     let maybe_program = compile_and_partially_evaluate(
         source,
-        TargetCapabilityFlags::all(),
+        Profile::AdaptiveRIF.into(),
         PartialEvalConfig {
             generate_debug_metadata: true,
         },
