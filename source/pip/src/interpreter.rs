@@ -24,7 +24,9 @@ use crate::{
     noisy_simulator::register_noisy_simulator_submodule,
     qir_simulation::{
         IdleNoiseParams, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
-        cpu_simulators::{run_clifford, run_clifford_adaptive, run_cpu_adaptive, run_cpu_full_state},
+        cpu_simulators::{
+            run_clifford, run_clifford_adaptive, run_cpu_adaptive, run_cpu_full_state,
+        },
         gpu_full_state::{
             GpuContext, run_adaptive_parallel_shots, run_parallel_shots, try_create_gpu_adapter,
         },
