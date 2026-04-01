@@ -647,4 +647,4 @@ Congratulations! In this kata you learned how to apply multi-qubit quantum gates
 - In Q#, controlled gates are applied using the `Controlled` functor.
 - `ApplyControlledOnBitString` operation allows us to construct multi-qubit controlled gates with different control patterns.
 
-Next, you will learn about quantum measurements in the "Measurements in Single-Qubit Systems" kata.
+Next, you will learn about quantum measurements in the "Preparing Quantum States" kata.
