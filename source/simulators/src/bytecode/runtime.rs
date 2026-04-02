@@ -144,7 +144,7 @@ const OPID_CY: u64 = 29;
 const OPID_CORRELATED_NOISE: u64 = 131;
 
 // Sentinel
-const VOID_RETURN: u64 = 0xFFFF_FFFF;
+const VOID_RETURN: u64 = 0xFFFF_FFFF_FFFF_FFFF;
 
 // ---------------------------------------------------------------------------
 // Runtime state

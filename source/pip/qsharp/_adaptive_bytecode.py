@@ -127,6 +127,3 @@ REG_TYPE_I64 = 2
 REG_TYPE_F32 = 3
 REG_TYPE_F64 = 4
 REG_TYPE_PTR = 5
-
-# ── Sentinel values ──────────────────────────────────────────────────────────
-VOID_RETURN = 0xFFFFFFFF  # Function does not have a return value.

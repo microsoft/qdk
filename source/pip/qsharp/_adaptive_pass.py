@@ -272,6 +272,13 @@ def encode_float_as_bits(val: float, bytecode_kind: Bytecode) -> int:
         return struct.unpack("<Q", struct.pack("<d", val))[0]
 
 
+def void_return(bytecode_kind: Bytecode):
+    if bytecode_kind == Bytecode.Bit32:
+        return 0xFFFF_FFFF
+    else:
+        return 0xFFFF_FFFF_FFFF_FFFF
+
+
 class AdaptiveProfilePass:
     """Walks Adaptive Profile QIR and emits the intermediate format for Rust."""
 
@@ -978,7 +985,7 @@ class AdaptiveProfilePass:
                 self.call_args.append(reg.val)
         # Allocate return register if function has non-void return type
         if call.type.is_void:
-            return_reg = VOID_RETURN  # no return
+            return_reg = void_return(self._bytecode_kind)  # no return
         else:
             return_reg = self._alloc_reg(call, REG_TYPE_I32)
         self._emit(
