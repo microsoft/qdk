@@ -881,6 +881,7 @@ class AdaptiveProfilePass:
         reference when ``mod.functions`` has already been iterated (two-pass
         compilation).  ``operands`` is not affected by this behavior.
         """
+        # operands layout: [cond, default_block, case_val0, case_block0, ...]
         cond_reg = self._resolve_operand(switch_instr.operands[0])
         default_block = self._block_to_id[switch_instr.default]
         case_offset = len(self.switch_cases)
