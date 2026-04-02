@@ -11,11 +11,7 @@
     clippy::cast_possible_truncation,
     clippy::cast_possible_wrap,
     clippy::cast_precision_loss,
-    clippy::cast_sign_loss,
-    clippy::float_cmp,
-    clippy::match_same_arms,
-    clippy::single_match_else,
-    clippy::too_many_lines
+    clippy::cast_sign_loss
 )]
 
 use crate::{
@@ -230,44 +226,41 @@ fn dispatch_quantum_gate<S: Simulator>(
     let op = &program.quantum_ops[op_idx];
     let op_id = op.op_id;
 
-    match op_id {
-        OPID_CORRELATED_NOISE => {
-            let qubit_count = rt.resolve_u64(instr.aux1, instr.opcode, 4) as usize;
-            let arg_offset = rt.resolve_u64(instr.aux2, instr.opcode, 5) as usize;
-            let table_id = op.q1 as u32;
-            let targets: Vec<usize> = (0..qubit_count)
-                .map(|i| rt.read_reg(program.call_args[arg_offset + i]) as usize)
-                .collect();
-            sim.correlated_noise_intrinsic(table_id, &targets);
-        }
-        _ => {
-            let q1 = rt.resolve_u64(instr.aux1, instr.opcode, 4) as usize;
-            let q2 = rt.resolve_u64(instr.aux2, instr.opcode, 5) as usize;
-            let angle = op.angle;
-            match op_id {
-                OPID_X => sim.x(q1),
-                OPID_Y => sim.y(q1),
-                OPID_Z => sim.z(q1),
-                OPID_H => sim.h(q1),
-                OPID_S => sim.s(q1),
-                OPID_S_ADJ => sim.s_adj(q1),
-                OPID_T => sim.t(q1),
-                OPID_T_ADJ => sim.t_adj(q1),
-                OPID_SX => sim.sx(q1),
-                OPID_SX_ADJ => sim.sx_adj(q1),
-                OPID_RX => sim.rx(angle, q1),
-                OPID_RY => sim.ry(angle, q1),
-                OPID_RZ => sim.rz(angle, q1),
-                OPID_CX => sim.cx(q1, q2),
-                OPID_CY => sim.cy(q1, q2),
-                OPID_CZ => sim.cz(q1, q2),
-                OPID_RXX => sim.rxx(angle, q1, q2),
-                OPID_RYY => sim.ryy(angle, q1, q2),
-                OPID_RZZ => sim.rzz(angle, q1, q2),
-                OPID_SWAP => sim.swap(q1, q2),
-                OPID_MOVE => sim.mov(q1),
-                _ => panic!("unsupported quantum gate op_id={op_id}"),
-            }
+    if op_id == OPID_CORRELATED_NOISE {
+        let qubit_count = rt.resolve_u64(instr.aux1, instr.opcode, 4) as usize;
+        let arg_offset = rt.resolve_u64(instr.aux2, instr.opcode, 5) as usize;
+        let table_id = op.q1 as u32;
+        let targets: Vec<usize> = (0..qubit_count)
+            .map(|i| rt.read_reg(program.call_args[arg_offset + i]) as usize)
+            .collect();
+        sim.correlated_noise_intrinsic(table_id, &targets);
+    } else {
+        let q1 = rt.resolve_u64(instr.aux1, instr.opcode, 4) as usize;
+        let q2 = rt.resolve_u64(instr.aux2, instr.opcode, 5) as usize;
+        let angle = op.angle;
+        match op_id {
+            OPID_X => sim.x(q1),
+            OPID_Y => sim.y(q1),
+            OPID_Z => sim.z(q1),
+            OPID_H => sim.h(q1),
+            OPID_S => sim.s(q1),
+            OPID_S_ADJ => sim.s_adj(q1),
+            OPID_T => sim.t(q1),
+            OPID_T_ADJ => sim.t_adj(q1),
+            OPID_SX => sim.sx(q1),
+            OPID_SX_ADJ => sim.sx_adj(q1),
+            OPID_RX => sim.rx(angle, q1),
+            OPID_RY => sim.ry(angle, q1),
+            OPID_RZ => sim.rz(angle, q1),
+            OPID_CX => sim.cx(q1, q2),
+            OPID_CY => sim.cy(q1, q2),
+            OPID_CZ => sim.cz(q1, q2),
+            OPID_RXX => sim.rxx(angle, q1, q2),
+            OPID_RYY => sim.ryy(angle, q1, q2),
+            OPID_RZZ => sim.rzz(angle, q1, q2),
+            OPID_SWAP => sim.swap(q1, q2),
+            OPID_MOVE => sim.mov(q1),
+            _ => panic!("unsupported quantum gate op_id={op_id}"),
         }
     }
 }
@@ -310,6 +303,7 @@ fn dispatch_reset<S: Simulator>(
 // Main interpreter entry point
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_lines)]
 pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
     const MAX_STEPS: u64 = 10_000_000;
 
@@ -553,6 +547,7 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
             OP_FCMP => {
                 let a = rt.resolve_f64(instr.src0, flags, 0);
                 let b = rt.resolve_f64(instr.src1, flags, 1);
+                #[allow(clippy::float_cmp)]
                 let result = match subcode {
                     FCMP_OEQ => a == b,
                     FCMP_ONE => a != b,
@@ -596,13 +591,25 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
             }
 
             // ----- Type conversion -----
-            OP_ZEXT => {
+            OP_ZEXT | OP_TRUNC | OP_INTTOPTR => {
                 let val = rt.resolve_u64(instr.src0, flags, 0);
                 rt.write_reg(instr.dst, val);
                 rt.pc += 1;
             }
 
             OP_SEXT => {
+                // Sign-extend a narrower integer (src_bits wide) to a full i64.
+                //
+                // Uses the shift-left-then-arithmetic-shift-right trick:
+                //   1. Shift left by (64 - src_bits) to move the narrow sign bit
+                //      into bit 63 (the i64 sign position).
+                //   2. Arithmetic shift right by the same amount to replicate the
+                //      sign bit across all upper bits.
+                //
+                // Example: sext i1 true (value 1, src_bits=1)
+                //   shift = 63
+                //   1 << 63 = 0x8000..0  (sign bit set)
+                //   >> 63   = 0xFFFF..F  (-1 as i64)
                 let val = rt.resolve_i64(instr.src0, flags, 0);
                 let src_bits = instr.aux0 as u32;
                 let result = if src_bits > 0 && src_bits < 64 {
@@ -615,21 +622,9 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
                 rt.pc += 1;
             }
 
-            OP_TRUNC => {
-                let val = rt.resolve_u64(instr.src0, flags, 0);
-                rt.write_reg(instr.dst, val);
-                rt.pc += 1;
-            }
-
             OP_FPEXT | OP_FPTRUNC => {
                 let val = rt.resolve_f64(instr.src0, flags, 0);
                 rt.write_f64(instr.dst, val);
-                rt.pc += 1;
-            }
-
-            OP_INTTOPTR => {
-                let val = rt.resolve_u64(instr.src0, flags, 0);
-                rt.write_reg(instr.dst, val);
                 rt.pc += 1;
             }
 
@@ -661,17 +656,18 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
             }
 
             // ----- Data movement -----
+            #[allow(clippy::match_same_arms)]
+            OP_MOV => {
+                let val = rt.resolve_u64(instr.src0, flags, 0);
+                rt.write_reg(instr.dst, val);
+                rt.pc += 1;
+            }
+
             OP_SELECT => {
                 let cond = rt.resolve_u64(instr.src0, flags, 0) != 0;
                 let true_val = rt.resolve_u64(instr.aux0, flags, 3);
                 let false_val = rt.resolve_u64(instr.aux1, flags, 4);
                 rt.write_reg(instr.dst, if cond { true_val } else { false_val });
-                rt.pc += 1;
-            }
-
-            OP_MOV => {
-                let val = rt.resolve_u64(instr.src0, flags, 0);
-                rt.write_reg(instr.dst, val);
                 rt.pc += 1;
             }
 

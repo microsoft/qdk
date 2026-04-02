@@ -800,7 +800,7 @@ def test_zext(sim_type):
 SEXT_QIR = """
   ; sext i1 true to i64 → -1 (all ones), check -1 < 0 → true
   %s = sext i1 true to i64
-  %flag = icmp slt i64 %s, 0
+  %flag = icmp eq i64 %s, -1
 """
 
 
