@@ -13,10 +13,9 @@ see ``test_adaptive_cpu_bytecode.py``.
 """
 
 from collections import Counter
-
 import pytest
-
 from qsharp._simulation import run_qir, Result
+from typing import Literal
 
 SIM_TYPES = ["cpu", "clifford"]
 
@@ -39,7 +38,12 @@ def map_result_list_to_str(results):
     return results_str
 
 
-def _run(qir: str, shots: int, seed: int = 42, sim_type: str = "cpu"):
+def _run(
+    qir: str,
+    shots: int,
+    seed: int = 42,
+    sim_type: Literal["clifford", "cpu"] = "cpu",
+):
     """Run *qir* on the given simulator and return shot results as a list of strings."""
     results = run_qir(qir, shots, seed=seed, type=sim_type)
     return [map_result_list_to_str(r) for r in results]

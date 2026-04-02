@@ -13,16 +13,16 @@ This is a CPU counterpart to ``test_adaptive_gpu_noise.py``.
 from collections import Counter
 from typing import Optional, List
 import pytest
-import qsharp.openqasm
-
 from qsharp._simulation import run_qir, NoiseConfig, Result
+import qsharp.openqasm
+from typing import Literal
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 SHOTS = 100
-
 SIM_TYPES = ["cpu", "clifford"]
 
 
@@ -48,7 +48,7 @@ def get_histogram(
     noise: Optional[NoiseConfig] = None,
     record: Optional[List[int]] = None,
     shots=SHOTS,
-    sim_type: str = "cpu",
+    sim_type: Literal["clifford", "cpu"] = "cpu",
 ):
     qir = format_qir(
         qir_fragment,
@@ -72,7 +72,7 @@ def check_result(
     num_results: int = 1,
     noise: Optional[NoiseConfig] = None,
     record: Optional[List[int]] = None,
-    sim_type: str = "cpu",
+    sim_type: Literal["clifford", "cpu"] = "cpu",
 ):
     """Assert every shot produces *expected*."""
     counts = get_histogram(
@@ -210,7 +210,9 @@ def test_z_noise_on_h_i_h_yields_1(sim_type):
 def test_probabilistic_x_noise(sim_type):
     noise = NoiseConfig()
     noise.cx.ix = 0.5
-    counts = get_histogram(I_QIR, shots=1000, num_qubits=2, noise=noise, sim_type=sim_type)
+    counts = get_histogram(
+        I_QIR, shots=1000, num_qubits=2, noise=noise, sim_type=sim_type
+    )
 
     assert counts["0"] > 400, f"Expected ~500 '0' results, got {counts['0']}"
     assert counts["1"] > 400, f"Expected ~500 '1' results, got {counts['1']}"

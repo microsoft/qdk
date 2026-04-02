@@ -15,9 +15,10 @@ This is a CPU counterpart to ``test_adaptive_gpu_bytecode.py``.
 
 from collections import Counter
 import pytest
-import qsharp.openqasm
-
 from qsharp._simulation import run_qir, Result
+import qsharp.openqasm
+from typing import Literal
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -26,7 +27,6 @@ from qsharp._simulation import run_qir, Result
 # Deterministic programs need a single shot but we run multiple shots
 # to verify that multiple shots yield the same result.
 SHOTS = 100
-
 SIM_TYPES = ["cpu", "clifford"]
 
 
@@ -43,7 +43,12 @@ def map_result_list_to_str(results):
     return results_str
 
 
-def _run(qir: str, shots: int = SHOTS, seed: int = 42, sim_type: str = "cpu"):
+def _run(
+    qir: str,
+    shots: int = SHOTS,
+    seed: int = 42,
+    sim_type: Literal["clifford", "cpu"] = "cpu",
+):
     """Run *qir* on the given simulator and return shot results as a list of strings."""
     results = run_qir(qir, shots, seed=seed, type=sim_type)
     return [map_result_list_to_str(r) for r in results]
@@ -57,7 +62,7 @@ def check_result(
     num_qubits: int = 1,
     num_results: int = 1,
     record=None,
-    sim_type: str = "cpu",
+    sim_type: Literal["clifford", "cpu"] = "cpu",
 ):
     """Assert every shot produces *expected*."""
     qir = format_qir(
@@ -74,7 +79,9 @@ def check_result(
     }, f"Expected all {SHOTS} shots to be '{expected}', got {counts}"
 
 
-def check_arith_result(qir_fragment: str, expected: str, sim_type: str = "cpu"):
+def check_arith_result(
+    qir_fragment: str, expected: str, sim_type: Literal["clifford", "cpu"] = "cpu"
+):
     body = build_arith_body(qir_fragment)
     check_result(body, expected, sim_type=sim_type)
 
@@ -458,7 +465,9 @@ entry:
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_record_output_ordering(sim_type):
     """Two results recorded: result0=1, result1=0 → '10'."""
-    check_result(RECORD_OUTPUT_QIR, "10", num_qubits=2, num_results=2, sim_type=sim_type)
+    check_result(
+        RECORD_OUTPUT_QIR, "10", num_qubits=2, num_results=2, sim_type=sim_type
+    )
 
 
 # #########################################################################
@@ -1004,7 +1013,9 @@ measure:
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_and_i1_boolean(sim_type):
     """Deterministic boolean AND: both qubits |1⟩ → and i1 true, true → X → 1."""
-    check_result(AND_I1_QIR, "1", num_qubits=2, num_results=3, record=[2], sim_type=sim_type)
+    check_result(
+        AND_I1_QIR, "1", num_qubits=2, num_results=3, record=[2], sim_type=sim_type
+    )
 
 
 # =========================================================================
@@ -1033,7 +1044,9 @@ measure:
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_or_i1_boolean(sim_type):
     """Deterministic boolean OR: q0=1, q1=0 → or i1 true, false → true → X → 1."""
-    check_result(OR_I1_QIR, "1", num_qubits=2, num_results=3, record=[2], sim_type=sim_type)
+    check_result(
+        OR_I1_QIR, "1", num_qubits=2, num_results=3, record=[2], sim_type=sim_type
+    )
 
 
 # =========================================================================
@@ -1061,7 +1074,9 @@ measure:
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_xor_i1_not(sim_type):
     """XOR i1 used as NOT: measure 0 → XOR true → true → X → 1."""
-    check_result(XOR_NOT_QIR, "1", num_qubits=1, num_results=2, record=[1], sim_type=sim_type)
+    check_result(
+        XOR_NOT_QIR, "1", num_qubits=1, num_results=2, record=[1], sim_type=sim_type
+    )
 
 
 # #########################################################################
@@ -1329,7 +1344,12 @@ entry:
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_call_with_return_value(sim_type):
     """Call a function returning i64, use result in comparison."""
-    check_result(CALL_WITH_RETVAL_QIR, "1", extra_decls=CALL_WITH_RETVAL_QIR_FN, sim_type=sim_type)
+    check_result(
+        CALL_WITH_RETVAL_QIR,
+        "1",
+        extra_decls=CALL_WITH_RETVAL_QIR_FN,
+        sim_type=sim_type,
+    )
 
 
 # =========================================================================
@@ -1495,7 +1515,12 @@ entry:
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_call_inttoptr_arg(sim_type):
     """Call a helper with an inttoptr constant expression argument."""
-    check_result(CALL_INTTOPTR_ARG_QIR, "1", extra_decls=CALL_INTTOPTR_ARG_QIR_FN, sim_type=sim_type)
+    check_result(
+        CALL_INTTOPTR_ARG_QIR,
+        "1",
+        extra_decls=CALL_INTTOPTR_ARG_QIR_FN,
+        sim_type=sim_type,
+    )
 
 
 # =========================================================================
@@ -1522,7 +1547,12 @@ def test_sitofp_negative(sim_type):
 # #########################################################################
 
 
-def _run_openqasm(qasm_src: str, shots: int = SHOTS, seed: int = 42, sim_type: str = "cpu"):
+def _run_openqasm(
+    qasm_src: str,
+    shots: int = SHOTS,
+    seed: int = 42,
+    sim_type: Literal["clifford", "cpu"] = "cpu",
+):
     """Compile OpenQASM source via the adaptive pass and run on the given simulator."""
     qir = qsharp.openqasm.compile(
         qasm_src,

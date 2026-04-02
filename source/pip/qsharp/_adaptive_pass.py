@@ -20,8 +20,8 @@ from ._adaptive_bytecode import *
 
 
 class Bytecode(Enum):
-    Bit32 = 1
-    Bit64 = 2
+    Bit32 = 32
+    Bit64 = 64
 
 
 # ---------------------------------------------------------------------------
@@ -199,8 +199,8 @@ RegisterType: TypeAlias = int
 
 @dataclass
 class IntOperand:
-    val: int = 0
-    bits: int = 32
+    val: int
+    bits: int
 
     def __post_init__(self):
         # Mask to the appropriate word-width so negative Python ints become
@@ -289,6 +289,7 @@ class AdaptiveProfilePass:
 
         # Internal tracking.
         self._bytecode_kind = bytecode_kind
+        self._int_bits = bytecode_kind.value
         self._next_reg: int = 0
         self._next_block: int = 0
         self._next_qop: int = 0
@@ -297,7 +298,6 @@ class AdaptiveProfilePass:
         self._func_to_id: Dict[str, int] = {}  # function name → function ID
         self._current_func_is_entry: bool = True
         self._noise_intrinsics: Optional[Dict[str, int]] = None
-        self._int_bits = 32 if bytecode_kind == Bytecode.Bit32 else 64
 
     def run(
         self,
@@ -457,10 +457,10 @@ class AdaptiveProfilePass:
             # Try extracting as a qubit/result pointer constant.
             qid = pyqir.qubit_id(value)
             if qid is not None:
-                return IntOperand(qid)
+                return IntOperand(qid, self._int_bits)
             rid = pyqir.result_id(value)
             if rid is not None:
-                return IntOperand(rid)
+                return IntOperand(rid, self._int_bits)
             # Null pointer
             if value.is_null:
                 reg = self._alloc_reg(value, REG_TYPE_PTR)
@@ -717,7 +717,11 @@ class AdaptiveProfilePass:
     def _resolve_qubit_operands(
         self, args: List[pyqir.Value]
     ) -> Tuple[IntOperand | Reg, IntOperand | Reg, IntOperand | Reg]:
-        qs: List[IntOperand | Reg] = [IntOperand(), IntOperand(), IntOperand()]
+        qs: List[IntOperand | Reg] = [
+            IntOperand(0, self._int_bits),
+            IntOperand(0, self._int_bits),
+            IntOperand(0, self._int_bits),
+        ]
         for i, arg in enumerate(args):
             qs[i] = self._resolve_qubit_operand(arg)
         return (qs[0], qs[1], qs[2])
@@ -813,8 +817,8 @@ class AdaptiveProfilePass:
             self._emit(
                 OP_QUANTUM_GATE,
                 aux0=qop_idx,
-                aux1=IntOperand(qubit_count),
-                aux2=IntOperand(arg_offset),
+                aux1=IntOperand(qubit_count, self._int_bits),
+                aux2=IntOperand(arg_offset, self._int_bits),
             )
         elif self._noise_intrinsics is not None:
             raise ValueError(f"Missing noise intrinsic: {callee_name}")
@@ -877,19 +881,14 @@ class AdaptiveProfilePass:
         reference when ``mod.functions`` has already been iterated (two-pass
         compilation).  ``operands`` is not affected by this behavior.
         """
-        # operands layout: [cond, default_block, case_val0, case_block0, ...]
-        ops = switch_instr.operands
-        cond_reg = self._resolve_operand(ops[0])
-        default_block = self._block_to_id[ops[1]]
+        cond_reg = self._resolve_operand(switch_instr.operands[0])
+        default_block = self._block_to_id[switch_instr.default]
         case_offset = len(self.switch_cases)
-        num_case_pairs = (len(ops) - 2) // 2
-        for i in range(num_case_pairs):
-            case_val = ops[2 + 2 * i]
-            case_block = ops[2 + 2 * i + 1]
-            target_block = self._block_to_id[case_block]
+        for case_val, block in switch_instr.cases:
+            target_block = self._block_to_id[block]
             switch_case = SwitchCase(case_val.value, target_block)
             self.switch_cases.append(switch_case)
-        case_count = num_case_pairs
+        case_count = len(switch_instr.cases)
         self._emit(
             OP_SWITCH,
             src0=cond_reg,
@@ -914,7 +913,7 @@ class AdaptiveProfilePass:
                 self._emit(OP_RET, dst=ret_reg)
             else:
                 # Void return — use immediate 0 as exit code.
-                self._emit(OP_RET, dst=IntOperand(0))
+                self._emit(OP_RET, dst=IntOperand(0, self._int_bits))
 
     # ------------------------------------------------------------------
     # Comparison emitters
