@@ -22,10 +22,10 @@ def _bucketize_rotation_counts(
     rotation_count: int, rotation_depth: int
 ) -> list[tuple[int, int]]:
     """
-    Returns a list of (count, depth) pairs representing the rotation layers in
+    Return a list of (count, depth) pairs representing the rotation layers in
     the trace.
 
-    The following properties hold for the returned list `result`:
+    The following properties hold for the returned list ``result``:
         - sum(depth for _, depth in result) == rotation_depth
         - sum(count * depth for count, depth in result) == rotation_count
         - count > 0 for each (count, _) in result
@@ -55,6 +55,18 @@ def _bucketize_rotation_counts(
 
 
 def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts) -> Trace:
+    """Convert a Q# entry expression into a resource-estimation Trace.
+
+    Evaluates the entry expression to obtain logical counts, then builds
+    a trace containing the corresponding quantum operations.
+
+    Args:
+        entry_expr (str | Callable | LogicalCounts): A Q# entry expression
+            string, a callable, or pre-computed logical counts.
+
+    Returns:
+        Trace: A trace representing the resource profile of the program.
+    """
 
     start = time.time_ns()
     counts = (
@@ -115,6 +127,21 @@ def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts) -> Trace:
 def trace_from_entry_expr_cached(
     entry_expr: str | Callable | LogicalCounts, cache_path: Optional[Path]
 ) -> Trace:
+    """Convert a Q# entry expression into a Trace, with optional caching.
+
+    If *cache_path* is provided and exists, the trace is loaded from disk.
+    Otherwise, the trace is computed via ``trace_from_entry_expr`` and
+    optionally written to *cache_path*.
+
+    Args:
+        entry_expr (str | Callable | LogicalCounts): A Q# entry expression
+            string, a callable, or pre-computed logical counts.
+        cache_path (Optional[Path]): Path for reading/writing the cached
+            trace. If None, caching is disabled.
+
+    Returns:
+        Trace: A trace representing the resource profile of the program.
+    """
     if cache_path and cache_path.exists():
         return Trace.from_json(cache_path.read_text())
 

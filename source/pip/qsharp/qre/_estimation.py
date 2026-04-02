@@ -46,7 +46,7 @@ def estimate(
     the total number of qubits and the total runtime.
 
     Note:
-        The pruning strategy used when `use_graph` is set to True (default)
+        The pruning strategy used when ``use_graph`` is set to True (default)
         filters ISA instructions by comparing their per-instruction space, time,
         and error independently. However, the total qubit count of a result
         depends on the interaction between factory space and runtime:
@@ -55,8 +55,8 @@ def estimate(
         instruction that is dominated on per-instruction metrics can still
         contribute to a globally Pareto-optimal result (e.g., a factory with
         higher time may need fewer copies, leading to fewer total qubits). As a
-        consequence, `use_graph=True` may miss some results that
-        `use_graph=False` would find. Use `use_graph=False` when completeness of
+        consequence, ``use_graph=True`` may miss some results that
+        ``use_graph=False`` would find. Use ``use_graph=False`` when completeness of
         the Pareto frontier is required.
 
     Args:
@@ -73,11 +73,11 @@ def estimate(
             builds a graph of ISAs and prunes suboptimal ISAs during estimation.
             If False, use the Rust estimation path that does not perform any
             pruning and simply enumerates all ISAs for each trace.
-        name (Optional[str]): An optional name for the estimation.  If give, this
+        name (Optional[str]): An optional name for the estimation.  If given, this
             will be added as a first column to the results table for all entries.
 
     Returns:
-        EstimationTable: A table containing the optimal estimation results
+        EstimationTable: A table containing the optimal estimation results.
     """
 
     app_ctx = application.context()

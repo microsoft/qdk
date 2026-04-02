@@ -45,4 +45,12 @@ class CirqApplication(Application[None]):
             self._circuit = self.circuit_or_qasm
 
     def get_trace(self, parameters: None = None) -> Trace:
+        """Return the resource estimation trace for the Cirq circuit.
+
+        Args:
+            parameters (None): Unused. Defaults to None.
+
+        Returns:
+            Trace: The resource estimation trace.
+        """
         return trace_from_cirq(self._circuit)

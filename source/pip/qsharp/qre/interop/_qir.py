@@ -105,6 +105,7 @@ def trace_from_qir(input: str | bytes) -> Trace:
 
 
 def _add_gate(trace: Trace, gate: tuple) -> None:
+    """Add a single QIR gate tuple to the trace."""
     op = gate[0]
 
     for qir_id, instr_id, arity in _GATE_MAP:

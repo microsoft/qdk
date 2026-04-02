@@ -23,8 +23,8 @@ class MagicUpToClifford(ISATransform):
     """
     An ISA transform that adds Clifford equivalent representations of magic
     states.  For example, if the input ISA contains a T gate, the provided ISA
-    will also contain `SQRT_SQRT_X`, `SQRT_SQRT_X_DAG`, `SQRT_SQRT_Y`,
-    `SQRT_SQRT_Y_DAG`, and `T_DAG`.  The same is applied for `CCZ` gates and
+    will also contain ``SQRT_SQRT_X``, ``SQRT_SQRT_X_DAG``, ``SQRT_SQRT_Y``,
+    ``SQRT_SQRT_Y_DAG``, and ``T_DAG``.  The same is applied for ``CCZ`` gates and
     their Clifford equivalents.
 
     Example:

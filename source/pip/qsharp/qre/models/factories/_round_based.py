@@ -47,12 +47,12 @@ class RoundBasedFactory(ISATransform):
     the overall space requirements.
 
     Space requirements are calculated using a user-provided function that
-    aggregates per-round space (e.g., sum or max).  The `sum` function models
-    the case in which qubits are not reused across rounds, while the `max`
+    aggregates per-round space (e.g., sum or max).  The ``sum`` function models
+    the case in which qubits are not reused across rounds, while the ``max``
     function models the case in which qubits are reused across rounds.
 
     For the enumeration of logical-level distillation units, the factory relies
-    on a user-provided `ISAQuery` (defaulting to `SurfaceCode.q()`) to explore
+    on a user-provided ``ISAQuery`` (defaulting to ``SurfaceCode.q()``) to explore
     different surface code configurations and their corresponding lattice
     surgery instructions.  These need to be provided by the user and cannot
     automatically be derived from the provided implementation ISA, as they can
@@ -172,6 +172,7 @@ class RoundBasedFactory(ISATransform):
             )
 
     def _physical_units(self, gate_time, clifford_error) -> list[_DistillationUnit]:
+        """Return physical distillation units for the given gate parameters."""
         return [
             _DistillationUnit(
                 num_input_states=15,
@@ -194,6 +195,7 @@ class RoundBasedFactory(ISATransform):
     def _logical_units(
         self, lattice_surgery_instruction: Instruction
     ) -> list[_DistillationUnit]:
+        """Return logical distillation units derived from a lattice surgery instruction."""
         logical_cycle_time = lattice_surgery_instruction.expect_time(1)
         logical_error = lattice_surgery_instruction.expect_error_rate(1)
 
@@ -217,6 +219,7 @@ class RoundBasedFactory(ISATransform):
         ]
 
     def _state_from_pipeline(self, pipeline: _Pipeline) -> Instruction:
+        """Create a T-gate instruction from a distillation pipeline."""
         return Instruction.fixed_arity(
             T,
             int(LOGICAL),
@@ -247,11 +250,14 @@ class RoundBasedFactory(ISATransform):
         return hashlib.sha256(data).hexdigest()
 
     def _cache_path(self, impl_isa: ISA) -> Path:
+        """Return the cache file path for the given implementation ISA."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         return self.cache_dir / f"{self._cache_key(impl_isa)}.json"
 
 
 class _Pipeline:
+    """A multi-round distillation pipeline."""
+
     def __init__(
         self,
         units: Sequence[_DistillationUnit],
@@ -276,6 +282,12 @@ class _Pipeline:
         failure_probability_requirement: float = 0.01,
         physical_qubit_calculation: Callable[[Iterable], int] = sum,
     ) -> Optional[_Pipeline]:
+        """Create a pipeline if the configuration is feasible.
+
+        Returns:
+            Optional[_Pipeline]: The pipeline, or None if the required
+                number of units per round is infeasible.
+        """
         pipeline = cls(
             units,
             initial_input_error_rate,
@@ -287,6 +299,7 @@ class _Pipeline:
         return pipeline
 
     def _compute_units_per_round(self) -> bool:
+        """Adjust the number of units per round to meet output requirements."""
         if len(self.rounds) > 0:
             states_needed_next = self.rounds[-1].unit.num_output_states
 
@@ -298,6 +311,7 @@ class _Pipeline:
         return True
 
     def _add_rounds(self, units: Sequence[_DistillationUnit]):
+        """Append distillation rounds from the given units."""
         per_round_failure_prob_req = self.failure_probability_requirement / len(units)
 
         for unit in units:
@@ -313,23 +327,29 @@ class _Pipeline:
 
     @property
     def space(self) -> int:
+        """Total physical-qubit space of the pipeline."""
         return self.physical_qubit_calculation(round.space for round in self.rounds)
 
     @property
     def time(self) -> int:
+        """Total time of the pipeline in nanoseconds."""
         return sum(round.unit.time for round in self.rounds)
 
     @property
     def error_rate(self) -> float:
+        """Output error rate of the pipeline."""
         return self.output_error_rate
 
     @property
     def num_output_states(self) -> int:
+        """Number of output magic states produced by the pipeline."""
         return self.rounds[-1].compute_num_output_states()
 
 
 @dataclass(slots=True)
 class _DistillationUnit:
+    """A single distillation unit with fixed input/output characteristics."""
+
     num_input_states: int
     time: int
     space: int
@@ -339,12 +359,14 @@ class _DistillationUnit:
     num_output_states: int = 1
 
     def error_rate(self, input_error_rate: float) -> float:
+        """Compute the output error rate for a given input error rate."""
         result = 0.0
         for c in self.error_rate_coeffs:
             result = result * input_error_rate + c
         return result
 
     def failure_probability(self, input_error_rate: float) -> float:
+        """Compute the failure probability for a given input error rate."""
         result = 0.0
         for c in self.failure_probability_coeffs:
             result = result * input_error_rate + c
@@ -353,6 +375,8 @@ class _DistillationUnit:
 
 @dataclass(slots=True)
 class _DistillationRound:
+    """A single round in a distillation pipeline."""
+
     unit: _DistillationUnit
     failure_probability_requirement: float
     input_error_rate: float
@@ -363,6 +387,7 @@ class _DistillationRound:
         self.failure_probability = self.unit.failure_probability(self.input_error_rate)
 
     def adjust_num_units_to(self, output_states_needed_next: int) -> bool:
+        """Adjust the number of units to produce at least the required output states."""
         if self.failure_probability == 0.0:
             self.num_units = output_states_needed_next
             return True
@@ -396,17 +421,21 @@ class _DistillationRound:
 
     @property
     def space(self) -> int:
+        """Total physical-qubit space for this round."""
         return self.num_units * self.unit.space
 
     @property
     def num_input_states(self) -> int:
+        """Total number of input states consumed by this round."""
         return self.num_units * self.unit.num_input_states
 
     @property
     def max_num_output_states(self) -> int:
+        """Maximum number of output states this round can produce."""
         return self.num_units * self.unit.num_output_states
 
     def compute_num_output_states(self) -> int:
+        """Compute the expected number of output states accounting for failure probability."""
         failure_prob = self.failure_probability
 
         if failure_prob <= 1e-8:

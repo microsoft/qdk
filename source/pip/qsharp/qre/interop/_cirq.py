@@ -256,6 +256,14 @@ class PopBlock:
 
 @dataclass(frozen=True, slots=True)
 class TraceGate:
+    """A raw trace instruction emitted during Cirq circuit conversion.
+
+    Attributes:
+        id (int): The instruction ID.
+        qubits (list[cirq.Qid] | cirq.Qid): The target qubits.
+        params (list[float] | float | None): Optional gate parameters.
+    """
+
     id: int
     qubits: list[cirq.Qid] | cirq.Qid
     params: list[float] | float | None = None
@@ -282,6 +290,7 @@ class _QidToTraceId(dict):
 
 
 def h_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+    """Convert an HPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(H, [op.qubits[0]])
     else:
@@ -289,6 +298,7 @@ def h_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Opera
 
 
 def x_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+    """Convert an XPowGate into trace instructions."""
     q = [op.qubits[0]]
     exp = self.exponent
     if _approx_eq(exp, 1) or _approx_eq(exp, -1):
@@ -306,6 +316,7 @@ def x_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Opera
 
 
 def y_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+    """Convert a YPowGate into trace instructions."""
     q = [op.qubits[0]]
     exp = self.exponent
     if _approx_eq(exp, 1) or _approx_eq(exp, -1):
@@ -323,6 +334,7 @@ def y_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Opera
 
 
 def z_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+    """Convert a ZPowGate into trace instructions."""
     q = [op.qubits[0]]
     exp = self.exponent
     if _approx_eq(exp, 1) or _approx_eq(exp, -1):
@@ -340,6 +352,7 @@ def z_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Opera
 
 
 def cx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+    """Convert a CXPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(CX, [op.qubits[0], op.qubits[1]])
     else:
@@ -347,6 +360,7 @@ def cx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Oper
 
 
 def cz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+    """Convert a CZPowGate into trace instructions."""
     exp = self.exponent
     c, t = op.qubits[0], op.qubits[1]
     if _approx_eq(abs(exp), 1):
@@ -377,6 +391,7 @@ def cz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Oper
 def swap_pow_gate_to_trace(
     self, context: cirq.DecompositionContext, op: cirq.Operation
 ):
+    """Convert a SwapPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(SWAP, [op.qubits[0], op.qubits[1]])
     else:
@@ -384,6 +399,7 @@ def swap_pow_gate_to_trace(
 
 
 def ccx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+    """Convert a CCXPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(CCX, [op.qubits[0], op.qubits[1], op.qubits[2]])
     else:
@@ -391,6 +407,7 @@ def ccx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Ope
 
 
 def ccz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+    """Convert a CCZPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(CCZ, [op.qubits[0], op.qubits[1], op.qubits[2]])
     else:
@@ -400,6 +417,7 @@ def ccz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Ope
 def measurement_gate_to_trace(
     self, context: cirq.DecompositionContext, op: cirq.Operation
 ):
+    """Convert a MeasurementGate into trace instructions."""
     for q in op.qubits:
         yield TraceGate(MEAS_Z, [q])
 
@@ -407,6 +425,7 @@ def measurement_gate_to_trace(
 def reset_channel_to_trace(
     self, context: cirq.DecompositionContext, op: cirq.Operation
 ):
+    """Convert a ResetChannel into trace instructions (no-op)."""
     yield from ()
 
 
@@ -428,10 +447,10 @@ ResetChannel._to_trace = reset_channel_to_trace
 
 
 def phase_gradient_decompose(self, qubits):
-    """
-    Overrides implementation of PhaseGradientGate._decompose_ to skip rotations
-    with very small angles.  In particular the original implementation may lead
-    to FP overflows for large values of i.
+    """Override PhaseGradientGate._decompose_ to skip rotations with very small angles.
+
+    The original implementation may lead to floating-point overflows for
+    large values of i.
     """
 
     for i, q in enumerate(qubits):

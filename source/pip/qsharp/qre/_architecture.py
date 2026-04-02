@@ -24,14 +24,16 @@ if TYPE_CHECKING:
 
 
 class Architecture(ABC):
+    """Abstract base class for quantum hardware architectures."""
+
     @abstractmethod
     def provided_isa(self, ctx: ISAContext) -> ISA:
         """
-        Creates the ISA provided by this architecture, adding instructions
+        Create the ISA provided by this architecture, adding instructions
         directly to the context's provenance graph.
 
         Args:
-            ctx: The enumeration context whose provenance graph stores
+            ctx (ISAContext): The enumeration context whose provenance graph stores
                 the instructions.
 
         Returns:
@@ -40,7 +42,11 @@ class Architecture(ABC):
         ...
 
     def context(self) -> ISAContext:
-        """Create a new enumeration context for this architecture."""
+        """Create a new enumeration context for this architecture.
+
+        Returns:
+            ISAContext: A new enumeration context.
+        """
         return ISAContext(self)
 
 
@@ -50,6 +56,11 @@ class ISAContext:
     """
 
     def __init__(self, arch: Architecture):
+        """Initialize the ISA context for the given architecture.
+
+        Args:
+            arch (Architecture): The architecture providing the base ISA.
+        """
         self._provenance: _ProvenanceGraph = _ProvenanceGraph()
 
         # Let the architecture create instructions directly in the graph.
@@ -172,11 +183,11 @@ class ISAContext:
 
     def make_isa(self, *node_indices: int) -> ISA:
         """
-        Creates an ISA backed by this context's provenance graph from the
+        Create an ISA backed by this context's provenance graph from the
         given node indices.
 
         Args:
-            *node_indices: Node indices in the provenance graph.
+            *node_indices (int): Node indices in the provenance graph.
 
         Returns:
             ISA: An ISA referencing the provenance graph.

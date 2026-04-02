@@ -28,6 +28,7 @@ from qsharp.qre.property_keys import (
 
 
 def _assert_estimation_result(trace: Trace, result: EstimationResult, isa: ISA):
+    """Assert that an estimation result matches expected qubit, runtime, and error values."""
     actual_qubits = (
         isa[LATTICE_SURGERY].expect_space(trace.compute_qubits)
         + isa[T].expect_space() * result.factories[T].copies
@@ -52,6 +53,7 @@ def _assert_estimation_result(trace: Trace, result: EstimationResult, isa: ISA):
 
 
 def test_trace_properties():
+    """Test setting and getting typed properties on a Trace."""
     trace = Trace(42)
 
     INT = 0
@@ -77,6 +79,7 @@ def test_trace_properties():
 
 
 def test_qsharp_application():
+    """Test QSharpApplication trace generation and estimation from a Q# program."""
     code = """
     {{
         use (a, b, c) = (Qubit(), Qubit(), Qubit());
@@ -163,6 +166,7 @@ def test_qsharp_application():
 
 
 def test_application_enumeration():
+    """Test that Application.q() enumerates the correct number of traces."""
     @dataclass(kw_only=True)
     class _Params:
         size: int = field(default=1, metadata={"domain": range(1, 4)})
@@ -178,6 +182,7 @@ def test_application_enumeration():
 
 
 def test_trace_enumeration():
+    """Test trace query enumeration with PSSPC and LatticeSurgery transforms."""
     code = """
     {{
         use (a, b, c) = (Qubit(), Qubit(), Qubit());
@@ -201,6 +206,7 @@ def test_trace_enumeration():
 
 
 def test_rotation_error_psspc():
+    """Test that PSSPC base error stays below 1.0 for a single rotation gate."""
     # This test helps to bound the variables for the number of rotations in PSSPC
 
     # Create a trace with a single rotation gate and ensure that the base error

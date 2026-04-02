@@ -19,8 +19,8 @@ class ISAQuery(ABC):
     Abstract base class for all nodes in the ISA enumeration tree.
 
     Enumeration nodes define the structure of the search space for ISAs starting
-    from architectures and mofied by ISA transforms such as error correction
-    schemes. They can be composed using operators like `+` (sum) and `*`
+    from architectures and modified by ISA transforms such as error correction
+    schemes. They can be composed using operators like ``+`` (sum) and ``*``
     (product) to build complex enumeration strategies.
     """
 
@@ -30,8 +30,8 @@ class ISAQuery(ABC):
         Yields all ISA instances represented by this enumeration node.
 
         Args:
-            ctx (Context): The enumeration context containing shared state,
-            e.g., access to the underlying architecture.
+            ctx (ISAContext): The enumeration context containing shared state,
+                e.g., access to the underlying architecture.
 
         Yields:
             ISA: A possible ISA that can be generated from this node.
@@ -40,9 +40,9 @@ class ISAQuery(ABC):
 
     def populate(self, ctx: ISAContext) -> int:
         """
-        Populates the provenance graph with instructions from this node.
+        Populate the provenance graph with instructions from this node.
 
-        Unlike `enumerate`, this does not yield ISA objects.  Each transform
+        Unlike ``enumerate``, this does not yield ISA objects.  Each transform
         queries the graph for Pareto-optimal instructions matching its
         requirements, and adds produced instructions directly to the graph.
 
@@ -63,7 +63,7 @@ class ISAQuery(ABC):
 
     def __add__(self, other: ISAQuery) -> _SumNode:
         """
-        Performs a union of two enumeration nodes.
+        Perform a union of two enumeration nodes.
 
         Enumerating the sum node yields all ISAs from this node, followed by all
         ISAs from the other node.  Duplicate ISAs may be produced if both nodes
@@ -97,7 +97,7 @@ class ISAQuery(ABC):
 
     def __mul__(self, other: ISAQuery) -> _ProductNode:
         """
-        Performs the cross product of two enumeration nodes.
+        Perform the cross product of two enumeration nodes.
 
         Enumerating the product node yields ISAs resulting from the Cartesian
         product of ISAs from both nodes. The ISAs are combined using
@@ -188,15 +188,15 @@ class _ComponentQuery(ISAQuery):
     """
     Query node that enumerates ISAs based on a component type and source.
 
-    This node takes a component type (which must have an `enumerate_isas` class
+    This node takes a component type (which must have an ``enumerate_isas`` class
     method) and a source node. It enumerates the source node to get base ISAs,
-    and then calls `enumerate_isas` on the component type for each base ISA
+    and then calls ``enumerate_isas`` on the component type for each base ISA
     to generate derived ISAs.
 
     Attributes:
         component: The component type to query (e.g., a QEC code class).
         source: The source node providing input ISAs (default: ISA_ROOT).
-        kwargs: Additional keyword arguments passed to `enumerate_isas`.
+        kwargs: Additional keyword arguments passed to ``enumerate_isas``.
     """
 
     component: type
@@ -218,7 +218,7 @@ class _ComponentQuery(ISAQuery):
 
     def populate(self, ctx: ISAContext) -> int:
         """
-        Populates the graph by querying matching instructions.
+        Populate the graph by querying matching instructions.
 
         Runs the source first to ensure dependency instructions are in
         the graph, then queries the graph for all instructions matching
@@ -270,7 +270,7 @@ class _ProductNode(ISAQuery):
         )
 
     def populate(self, ctx: ISAContext) -> int:
-        """Populates the graph from each source sequentially (no cross product).
+        """Populate the graph from each source sequentially (no cross product).
 
         Returns:
             int: The starting node index before any source populated.
@@ -306,7 +306,7 @@ class _SumNode(ISAQuery):
             yield from source.enumerate(ctx)
 
     def populate(self, ctx: ISAContext) -> int:
-        """Populates the graph from each source sequentially.
+        """Populate the graph from each source sequentially.
 
         Returns:
             int: The starting node index before any source populated.
@@ -403,7 +403,7 @@ class _BindingNode(ISAQuery):
 
     def enumerate(self, ctx: ISAContext) -> Generator[ISA, None, None]:
         """
-        Enumerates child nodes with the bound component in context.
+        Enumerate child nodes with the bound component in context.
 
         Args:
             ctx (Context): The enumeration context.
@@ -418,7 +418,7 @@ class _BindingNode(ISAQuery):
             yield from self.node.enumerate(new_ctx)
 
     def populate(self, ctx: ISAContext) -> int:
-        """Populates the graph from both the component and the child node.
+        """Populate the graph from both the component and the child node.
 
         Returns:
             int: The starting node index of the component's additions.
