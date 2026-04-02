@@ -896,6 +896,11 @@ class NoiseTable:
         The phase flip noise to use in simulation.
         """
 
+    def is_noiseless(self) -> bool:
+        """
+        Returns `true` if there is no noise set.
+        """
+
 class NoiseIntrinsicsTable:
     def __contains__(self, name: str) -> bool:
         """

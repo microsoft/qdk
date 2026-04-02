@@ -258,6 +258,25 @@ class NeutralAtomDevice(Device):
         if noise is None:
             noise = NoiseConfig()
 
+        # Override s, s_adj, and z noise if they are unset
+        # and rz noise is set.
+        if noise and not noise.rz.is_noiseless():
+            if noise.s.is_noiseless():
+                noise.s.x = noise.rz.x
+                noise.s.y = noise.rz.y
+                noise.s.z = noise.rz.z
+                noise.s.loss = noise.rz.loss
+            if noise.s_adj.is_noiseless():
+                noise.s_adj.x = noise.rz.x
+                noise.s_adj.y = noise.rz.y
+                noise.s_adj.z = noise.rz.z
+                noise.s_adj.loss = noise.rz.loss
+            if noise.z.is_noiseless():
+                noise.z.x = noise.rz.x
+                noise.z.y = noise.rz.y
+                noise.z.z = noise.rz.z
+                noise.z.loss = noise.rz.loss
+
         compiled = self.compile(qir)
         module = Module.from_ir(Context(), str(compiled))
         ValidateNoConditionalBranches().run(module)

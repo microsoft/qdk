@@ -418,9 +418,9 @@ impl NoiseTable {
         if let Some(p) = self.pauli_noise.get(&key) {
             return Ok(*p);
         }
-        Err(PyAttributeError::new_err(format!(
-            "'NoiseTable' object has no attribute '{pauli}'",
-        )))
+        // If pauli string is valid but is not in the noise table
+        // it means it has not been set. Just return 0 in this case.
+        Ok(0.0)
     }
 
     /// Set the probability of noise for an element on the [`NoiseTable`]
@@ -609,6 +609,10 @@ or one argument of type 'list[tuple[str, float]]', but found {py_args:?}"
     ///
     pub fn set_phaseflip(&mut self, value: Probability) -> PyResult<()> {
         self.set_pauli_noise_elt("Z", value)
+    }
+
+    pub fn is_noiseless(&self) -> PyResult<bool> {
+        Ok(self.pauli_noise.is_empty() && self.loss == 0.0)
     }
 }
 
