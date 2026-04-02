@@ -310,9 +310,7 @@ pub fn estimate_with_graph(
     let runtime_affecting_ids: Vec<FxHashSet<u64>> = traces
         .iter()
         .map(|trace| {
-            let has_factories = trace
-                .get_resource_states()
-                .is_some_and(|rs| !rs.is_empty());
+            let has_factories = trace.get_resource_states().is_some_and(|rs| !rs.is_empty());
             if has_factories {
                 trace.deep_iter().map(|(gate, _)| gate.id).collect()
             } else {
