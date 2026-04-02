@@ -91,7 +91,7 @@ operation TestOperation(a : Double, b : Double, op : (FixedPoint, FixedPoint) =>
 
     let expected = reference(a, b);
     let difference = expected - measured;
-    Fact(difference < 0.001, $"Difference of {difference} is outside of the expected range. Expected {expected} and measured result was {measured}. (Inputs were {name}({a}, {b})");
+    Fact(difference < 0.001, $"Difference of {difference} is outside of the expected range. Expected {expected} and measured result was {measured}. (Inputs were {name}({a}, {b}))");
     ResetAll(register1 + register2);
 }
 
@@ -117,6 +117,6 @@ operation TestOperation3(a : Double, b : Double, op : (FixedPoint, FixedPoint, F
 
     let expected = reference(a, b);
     let difference = expected - measured;
-    Fact(difference < 0.001, $"Difference of {difference} is outside of the expected range. Expected {expected} and measured result was {measured}. (Inputs were {name}({a}, {b})");
+    Fact(difference < 0.001, $"Difference of {difference} is outside of the expected range. Expected {expected} and measured result was {measured}. (Inputs were {name}({a}, {b}))");
     ResetAll(register1 + register2);
 }

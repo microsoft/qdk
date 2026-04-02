@@ -2098,6 +2098,7 @@ dependencies = [
  "miette",
  "num-bigint",
  "num-complex",
+ "qdk_simulators",
  "qsc_ast",
  "qsc_circuit",
  "qsc_codegen",

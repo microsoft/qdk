@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+pub mod bytecode;
 pub mod noise_config;
 pub use quantum_sparse_sim::QuantumSim;
 pub mod cpu_full_state_simulator;

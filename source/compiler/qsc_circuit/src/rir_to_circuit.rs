@@ -369,7 +369,10 @@ fn process_variables(
             let expr = expr_from_operand(&state.variables, operand)?;
             store_expr_in_variable(&mut state.variables, *variable, expr)?;
         }
-        instruction @ (Instruction::Store(..) | Instruction::BitwiseNot(..)) => {
+        instruction @ (Instruction::Store(..)
+        | Instruction::BitwiseNot(..)
+        | Instruction::Alloca(..)
+        | Instruction::Load(..)) => {
             return Err(Error::UnsupportedFeature(format!(
                 "unsupported instruction in block: {instruction:?}"
             )));

@@ -17,6 +17,7 @@ from .._qsharp import (
     get_interpreter,
     ipython_helper,
     python_args_to_interpreter_args,
+    NoiseConfig,
 )
 from .. import telemetry_events
 from ._ipython import display_or_print
@@ -35,6 +36,7 @@ def run(
             BitFlipNoise,
             PhaseFlipNoise,
             DepolarizingNoise,
+            NoiseConfig,
         ]
     ] = None,
     qubit_loss: Optional[float] = None,
@@ -105,6 +107,11 @@ def run(
     elif isinstance(source, str):
         source_str = source
 
+    noise_config = None
+    if isinstance(noise, NoiseConfig):
+        noise_config = noise
+        noise = None
+
     if callable:
         for _ in range(shots):
             results.append(
@@ -119,6 +126,7 @@ def run(
             run_results = get_interpreter().run(
                 source_str,
                 on_save_events if save_events else display_or_print,
+                noise_config,
                 noise,
                 qubit_loss=qubit_loss,
                 callable=callable,
@@ -161,6 +169,7 @@ def run(
         results = run_qasm_program(
             source_str,
             display_or_print,
+            noise_config,
             noise,
             qubit_loss,
             read_file,
