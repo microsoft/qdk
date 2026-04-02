@@ -155,7 +155,7 @@ fn run<SimulatorBuilder, Noise, S>(
     num_results: u32,
     shots: u32,
     seed: Option<u32>,
-    mut noise: noise_config::NoiseConfig<f64, f64>,
+    noise: noise_config::NoiseConfig<f64, f64>,
     make_simulator: SimulatorBuilder,
 ) -> Vec<String>
 where
@@ -164,18 +164,6 @@ where
     Noise: From<noise_config::NoiseConfig<f64, f64>> + Send + Sync,
     S: Simulator,
 {
-    if !noise.rz.is_noiseless() {
-        if noise.s.is_noiseless() {
-            noise.s = noise.rz.clone();
-        }
-        if noise.z.is_noiseless() {
-            noise.z = noise.rz.clone();
-        }
-        if noise.s_adj.is_noiseless() {
-            noise.s_adj = noise.rz.clone();
-        }
-    }
-
     let noise: Noise = noise.into();
     let noise = Arc::new(noise);
 
@@ -366,7 +354,7 @@ fn run_adaptive<SimulatorBuilder, Noise, S>(
     program: &bytecode::AdaptiveProgram<u64>,
     shots: u32,
     seed: Option<u32>,
-    mut noise: noise_config::NoiseConfig<f64, f64>,
+    noise: noise_config::NoiseConfig<f64, f64>,
     make_simulator: SimulatorBuilder,
 ) -> Vec<String>
 where
@@ -374,18 +362,6 @@ where
     Noise: From<noise_config::NoiseConfig<f64, f64>> + Send + Sync,
     S: Simulator,
 {
-    if !noise.rz.is_noiseless() {
-        if noise.s.is_noiseless() {
-            noise.s = noise.rz.clone();
-        }
-        if noise.z.is_noiseless() {
-            noise.z = noise.rz.clone();
-        }
-        if noise.s_adj.is_noiseless() {
-            noise.s_adj = noise.rz.clone();
-        }
-    }
-
     let noise: Noise = noise.into();
     let noise = Arc::new(noise);
 
