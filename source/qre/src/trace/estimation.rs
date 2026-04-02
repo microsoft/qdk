@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, RwLock, atomic::AtomicUsize},
 };
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{EstimationCollection, ISA, ProvenanceGraph, ResultSummary, Trace};
 
@@ -158,8 +158,28 @@ fn combination_context_hash(combination: &[CombinationEntry], exclude_idx: usize
 /// A combination is prunable if, for any instruction slot, there exists a
 /// successful combination with the same instructions in all other slots and
 /// an instruction at that slot with `space <=` and `time <=`.
-fn is_dominated(combination: &[CombinationEntry], trace_pruning: &[SlotWitnesses]) -> bool {
+///
+/// However, for instruction slots that affect the algorithm runtime (gate
+/// instructions) when the trace has factory instructions (resource states),
+/// time-based dominance is **unsound**.  A faster gate instruction reduces
+/// the algorithm runtime, which reduces the number of factory runs per copy,
+/// requiring more factory copies and potentially more total qubits.  The
+/// "dominated" combination (with a slower gate) can therefore produce a
+/// Pareto-optimal result with fewer qubits but more runtime.
+///
+/// When `runtime_affecting_ids` is non-empty, slots whose instruction ID
+/// appears in that set are skipped entirely during the dominance check.
+fn is_dominated(
+    combination: &[CombinationEntry],
+    trace_pruning: &[SlotWitnesses],
+    runtime_affecting_ids: &FxHashSet<u64>,
+) -> bool {
     for (slot_idx, entry) in combination.iter().enumerate() {
+        // Skip dominance check for runtime-affecting slots when factories
+        // exist, because shorter gate time can increase factory overhead.
+        if runtime_affecting_ids.contains(&entry.instruction_id) {
+            continue;
+        }
         let ctx_hash = combination_context_hash(combination, slot_idx);
         let map = trace_pruning[slot_idx]
             .read()
@@ -282,6 +302,25 @@ pub fn estimate_with_graph(
     // jobs.
     let mut max_slots = 0;
 
+    // For each trace, collect the set of instruction IDs that affect the
+    // algorithm runtime (gate instructions from the trace block structure).
+    // When a trace also has resource states (factories), dominance pruning
+    // on these slots is unsound because shorter gate time can increase
+    // factory overhead (see `is_dominated` documentation).
+    let runtime_affecting_ids: Vec<FxHashSet<u64>> = traces
+        .iter()
+        .map(|trace| {
+            let has_factories = trace
+                .get_resource_states()
+                .is_some_and(|rs| !rs.is_empty());
+            if has_factories {
+                trace.deep_iter().map(|(gate, _)| gate.id).collect()
+            } else {
+                FxHashSet::default()
+            }
+        })
+        .collect();
+
     for (trace_idx, trace) in traces.iter().enumerate() {
         if trace.base_error() > max_error {
             continue;
@@ -384,6 +423,7 @@ pub fn estimate_with_graph(
             let next_job = &next_job;
             let jobs = &jobs;
             let pruning_witnesses = &pruning_witnesses;
+            let runtime_affecting_ids = &runtime_affecting_ids;
             let isa_index = Arc::clone(&isa_index);
             scope.spawn(move || {
                 let mut local_results = Vec::new();
@@ -397,7 +437,11 @@ pub fn estimate_with_graph(
 
                     // Dominance pruning: skip if a cheaper instruction at any
                     // slot already succeeded with the same surrounding context.
-                    if is_dominated(combination, &pruning_witnesses[*trace_idx]) {
+                    if is_dominated(
+                        combination,
+                        &pruning_witnesses[*trace_idx],
+                        &runtime_affecting_ids[*trace_idx],
+                    ) {
                         continue;
                     }
 
