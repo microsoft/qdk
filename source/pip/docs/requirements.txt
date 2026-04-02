@@ -1,0 +1,10 @@
+# Core Sphinx documentation tools
+sphinx>=7.0
+furo>=2024.1.29         # modern, responsive HTML theme
+sphinx-copybutton       # adds copy button to code blocks
+
+# Docstring style support (Google / NumPy)
+# Already bundled with Sphinx via sphinx.ext.napoleon — no extra install needed.
+
+# If you want Markdown support in .rst files (optional):
+# myst-parser

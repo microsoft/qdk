@@ -22,3 +22,5 @@ __pycache__/
 *.so
 samples/scratch/
 *.pyd
+/source/pip/python-api-yaml/
+/source/pip/docs/_build/

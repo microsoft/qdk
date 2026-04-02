@@ -1,0 +1,7 @@
+# Requirements for generate_docs.py
+# Generates DocFX YAML API docs for publishing to Microsoft Learn.
+#
+# Usage:
+#   pip install -r generate_docs_requirements.txt
+#   python generate_docs.py
+pyyaml>=6.0
