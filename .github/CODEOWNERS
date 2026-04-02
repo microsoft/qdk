@@ -1,4 +1,4 @@
-- @billti @idavis @minestarks @swernli
+* @billti @idavis @minestarks @swernli
 
 /.github/ISSUE_TEMPLATE/fuzz_bug_report.md @billti @idavis @swernli
 /.github/workflows/fuzz.yml @billti @idavis @swernli
