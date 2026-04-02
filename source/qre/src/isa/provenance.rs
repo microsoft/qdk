@@ -239,13 +239,27 @@ impl ProvenanceGraph {
             // may have pruned nodes from this range as duplicates of
             // earlier, equivalent nodes outside the range.
             let matching: Vec<(u64, usize)> = if min_idx > 0 {
-                (min_idx..self.nodes.len())
+                let mut m: Vec<(u64, usize)> = (min_idx..self.nodes.len())
                     .filter(|&node_idx| {
                         let instr = &self.nodes[node_idx].instruction;
                         instr.id == constraint.id() && constraint.is_satisfied_by(instr)
                     })
                     .map(|node_idx| (constraint.id(), node_idx))
-                    .collect()
+                    .collect();
+
+                // Fall back to the full graph for passthrough instructions
+                // that the source does not modify (e.g. architecture base
+                // gates that a wrapper leaves unchanged).
+                if m.is_empty() {
+                    m = (1..min_idx)
+                        .filter(|&node_idx| {
+                            let instr = &self.nodes[node_idx].instruction;
+                            instr.id == constraint.id() && constraint.is_satisfied_by(instr)
+                        })
+                        .map(|node_idx| (constraint.id(), node_idx))
+                        .collect();
+                }
+                m
             } else {
                 let Some(pareto) = self.pareto_index.get(&constraint.id()) else {
                     return Vec::new();
