@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   Worker,
   isMainThread,
@@ -36,7 +34,7 @@ export function createWorker<
 
   const port = parentPort!;
   const { wasmModule, qscLogLevel } = workerData || {};
-  initSync(wasmModule);
+  initSync({ module: wasmModule });
 
   const postMessage = port.postMessage.bind(port);
 

@@ -93,7 +93,7 @@ export async function instantiateWasm() {
   }
 
   // Set the promise to signal this is in flight, then wait on the result.
-  wasmInstancePromise = initWasm(wasmModule);
+  wasmInstancePromise = initWasm({ module_or_path: wasmModule });
   await wasmInstancePromise;
 
   // Once ready, set up logging and telemetry as soon as possible after instantiating
