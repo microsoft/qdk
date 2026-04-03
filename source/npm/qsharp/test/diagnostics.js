@@ -4,6 +4,7 @@
 //@ts-check
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { QdkDiagnostics } from "../dist/diagnostics.js";
 import { log } from "../dist/log.js";
@@ -11,7 +12,15 @@ import {
   getCompiler,
   getCompilerWorker,
   getProjectLoader,
+  loadWasmModule,
 } from "../dist/main.js";
+
+const distDir = new URL("../dist/", import.meta.url);
+const compilerWorkerPath = new URL("compiler/worker-node.js", distDir).href;
+
+// Load the wasm module before running any tests
+const wasmPath = new URL("../lib/web/qsc_wasm_bg.wasm", import.meta.url);
+await loadWasmModule(readFileSync(wasmPath).buffer);
 
 /** @type {import("../dist/log.js").TelemetryEvent[]} */
 const telemetryEvents = [];
@@ -34,7 +43,7 @@ function getInvalidQirProgramConfig() {
 }
 
 test("getQir throws QdkDiagnostics", async () => {
-  const compiler = getCompiler();
+  const compiler = await getCompiler();
   const invalidConfig = getInvalidQirProgramConfig();
   await assert.rejects(
     () => compiler.getQir(invalidConfig),
@@ -49,7 +58,7 @@ test("getQir throws QdkDiagnostics", async () => {
 });
 
 test("getQir throws QdkDiagnostics - worker", async () => {
-  const compiler = getCompilerWorker();
+  const compiler = getCompilerWorker(compilerWorkerPath);
   const invalidConfig = getInvalidQirProgramConfig();
   try {
     await assert.rejects(
@@ -77,7 +86,7 @@ const dummyHost = {
 };
 
 test("loadQSharpProject throws QdkDiagnostics", async () => {
-  const loader = getProjectLoader(dummyHost);
+  const loader = await getProjectLoader(dummyHost);
   await assert.rejects(
     () => loader.loadQSharpProject("/not/a/real/dir"),
     (err) => {
