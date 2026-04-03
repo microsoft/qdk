@@ -3,155 +3,45 @@
 
 // This module is the main entry point for use in Node.js environments. For browser environments,
 // the "./browser.js" file is the entry point module.
+//
+// Most functionality is shared with browser.ts. This module only provides
+// Node.js-specific worker creation (using node:worker_threads) and
+// re-exports everything else from browser.ts.
 
-import * as wasm from "../lib/web/qsc_wasm.js";
-import initWasm from "../lib/web/qsc_wasm.js";
+import { type ICompilerWorker, compilerProtocol } from "./compiler/compiler.js";
 import {
-  Compiler,
-  ICompiler,
-  ICompilerWorker,
-  compilerProtocol,
-} from "./compiler/compiler.js";
-import {
-  IDebugService,
-  IDebugServiceWorker,
-  QSharpDebugService,
+  type IDebugServiceWorker,
   debugServiceProtocol,
 } from "./debug-service/debug-service.js";
-import { callAndTransformExceptions } from "./diagnostics.js";
 import {
-  ILanguageService,
-  ILanguageServiceWorker,
-  QSharpLanguageService,
+  type ILanguageServiceWorker,
   languageServiceProtocol,
 } from "./language-service/language-service.js";
-import { log } from "./log.js";
+import { getWasmModule } from "./browser.js";
 import { createProxy } from "./workers/node.js";
-import { ProjectLoader } from "./project.js";
-import type { IProjectHost } from "./browser.js";
 
-// Create once. A module is stateless and can be efficiently passed to WebWorkers.
-let wasmModule: WebAssembly.Module;
-let wasmModulePromise: Promise<void> | null = null;
-
-// Used to track if an instance is already instantiated
-let wasmInstancePromise: Promise<wasm.InitOutput> | null = null;
-
-async function wasmLoader(uriOrBuffer: string | ArrayBuffer) {
-  if (typeof uriOrBuffer === "string") {
-    log.info("Fetching wasm module from %s", uriOrBuffer);
-    performance.mark("fetch-wasm-start");
-    const wasmRequst = await fetch(uriOrBuffer);
-    const wasmBuffer = await wasmRequst.arrayBuffer();
-    const fetchTiming = performance.measure("fetch-wasm", "fetch-wasm-start");
-    log.logTelemetry({
-      id: "fetch-wasm",
-      data: {
-        duration: fetchTiming.duration,
-        uri: uriOrBuffer,
-      },
-    });
-
-    wasmModule = await WebAssembly.compile(wasmBuffer);
-  } else {
-    log.info("Compiling wasm module from provided buffer");
-    wasmModule = await WebAssembly.compile(uriOrBuffer);
-  }
-}
-
-export function loadWasmModule(
-  uriOrBuffer: string | ArrayBuffer,
-): Promise<void> {
-  // Only initiate if not already in flight, to avoid race conditions
-  if (!wasmModulePromise) {
-    wasmModulePromise = wasmLoader(uriOrBuffer);
-  }
-  return wasmModulePromise;
-}
-
-async function instantiateWasm() {
-  // Ensure loading the module has been initiated, and wait for it.
-  if (!wasmModulePromise) throw "Wasm module must be loaded first";
-  await wasmModulePromise;
-  if (!wasmModule) throw "Wasm module failed to load";
-
-  if (wasmInstancePromise) {
-    // Either in flight or already complete. The prior request will do the init,
-    // so just wait on that.
-    await wasmInstancePromise;
-    return;
-  }
-
-  // Set the promise to signal this is in flight, then wait on the result.
-  wasmInstancePromise = initWasm(wasmModule);
-  await wasmInstancePromise;
-
-  // Once ready, set up logging and telemetry as soon as possible after instantiating
-  wasm.initLogging(log.logWithLevel, log.getLogLevel());
-  log.onLevelChanged = (level) => wasm.setLogLevel(level);
-}
-
-export async function getLibrarySourceContent(
-  path: string,
-): Promise<string | undefined> {
-  await instantiateWasm();
-  return wasm.get_library_source_content(path);
-}
-
-export async function getCompiler(): Promise<ICompiler> {
-  await instantiateWasm();
-  return new Compiler(wasm);
-}
-
-export async function getProjectLoader(
-  host: IProjectHost,
-): Promise<ProjectLoader> {
-  await instantiateWasm();
-  return new ProjectLoader(wasm, host);
-}
+export {
+  loadWasmModule,
+  getLibrarySourceContent,
+  getCompiler,
+  getProjectLoader,
+  getDebugService,
+  getLanguageService,
+  getTargetProfileFromEntryPoint,
+} from "./browser.js";
 
 export function getCompilerWorker(worker: string): ICompilerWorker {
-  return createProxy(worker, wasmModule, compilerProtocol);
-}
-
-export async function getDebugService(): Promise<IDebugService> {
-  await instantiateWasm();
-  return new QSharpDebugService(wasm);
+  return createProxy(worker, getWasmModule(), compilerProtocol);
 }
 
 export function getDebugServiceWorker(worker: string): IDebugServiceWorker {
-  return createProxy(worker, wasmModule, debugServiceProtocol);
+  return createProxy(worker, getWasmModule(), debugServiceProtocol);
 }
 
-export async function getLanguageService(
-  host?: IProjectHost,
-): Promise<ILanguageService> {
-  await instantiateWasm();
-  return new QSharpLanguageService(wasm, host);
-}
-
-export async function getLanguageServiceWorker(
+export function getLanguageServiceWorker(
   worker: string,
-): Promise<ILanguageServiceWorker> {
-  return createProxy(worker, wasmModule, languageServiceProtocol);
+): ILanguageServiceWorker {
+  return createProxy(worker, getWasmModule(), languageServiceProtocol);
 }
 
-/// Extracts the target profile from a Q# source file's entry point.
-/// Scans the provided source code for an EntryPoint argument specifying
-/// a profile and returns the corresponding TargetProfile value, if found.
-/// Returns undefined if no profile is specified or if the profile is not recognized.
-export async function getTargetProfileFromEntryPoint(
-  fileName: string,
-  source: string,
-): Promise<wasm.TargetProfile | undefined> {
-  await instantiateWasm();
-  return callAndTransformExceptions(
-    async () =>
-      wasm.get_target_profile_from_entry_point(fileName, source) as
-        | wasm.TargetProfile
-        | undefined,
-  );
-}
-
-export { StepResultId } from "../lib/web/qsc_wasm.js";
 export * from "./common-exports.js";

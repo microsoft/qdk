@@ -37,6 +37,13 @@ import { createProxy } from "./workers/browser.js";
 let wasmModule: WebAssembly.Module | null = null;
 let wasmModulePromise: Promise<void> | null = null;
 
+// Getter for wasmModule that works across CJS/ESM boundaries.
+// Direct `export let` live bindings don't survive CJS bundling.
+export function getWasmModule(): WebAssembly.Module {
+  if (!wasmModule) throw "Wasm module must be loaded first";
+  return wasmModule;
+}
+
 // Used to track if an instance is already instantiated
 let wasmInstancePromise: Promise<wasm.InitOutput> | null = null;
 
@@ -72,7 +79,7 @@ export function loadWasmModule(
   return wasmModulePromise;
 }
 
-async function instantiateWasm() {
+export async function instantiateWasm() {
   // Ensure loading the module has been initiated, and wait for it.
   if (!wasmModulePromise) throw "Wasm module must be loaded first";
   await wasmModulePromise;

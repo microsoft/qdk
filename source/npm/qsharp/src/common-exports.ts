@@ -26,3 +26,4 @@ export type {
 export type { ProjectLoader } from "./project.js";
 export type { CircuitGroup as CircuitData } from "./data-structures/circuit.js";
 export type { LogLevel } from "./log.js";
+export { StepResultId } from "../lib/web/qsc_wasm.js";
