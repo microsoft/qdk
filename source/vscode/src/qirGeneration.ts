@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+declare const __PLATFORM_DIR__: string;
+
 import {
   getCompilerWorker,
   log,
@@ -208,7 +210,7 @@ async function getQirForActiveWindowCommand() {
 export function initCodegen(context: vscode.ExtensionContext) {
   compilerWorkerScriptPath = vscode.Uri.joinPath(
     context.extensionUri,
-    "./out/compilerWorker.js",
+    `./out/${__PLATFORM_DIR__}/compilerWorker.js`,
   ).toString();
 
   context.subscriptions.push(

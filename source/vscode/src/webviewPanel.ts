@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+declare const __PLATFORM_DIR__: string;
+
 import * as vscode from "vscode";
 import {
   IOperationInfo,
@@ -47,7 +49,7 @@ export function registerWebViewCommands(context: ExtensionContext) {
 
   const compilerWorkerScriptPath = Uri.joinPath(
     context.extensionUri,
-    "./out/compilerWorker.js",
+    `./out/${__PLATFORM_DIR__}/compilerWorker.js`,
   ).toString();
 
   context.subscriptions.push(

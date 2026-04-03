@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+declare const __PLATFORM_DIR__: string;
+
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { IDebugServiceWorker, getDebugServiceWorker, log } from "qsharp-lang";
@@ -22,7 +24,7 @@ export async function activateDebugger(
 ): Promise<void> {
   const debugWorkerScriptPath = vscode.Uri.joinPath(
     context.extensionUri,
-    "./out/debugger/debug-service-worker.js",
+    `./out/${__PLATFORM_DIR__}/debugger/debug-service-worker.js`,
   );
 
   debugServiceWorkerFactory = () =>

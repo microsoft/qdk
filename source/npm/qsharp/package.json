@@ -17,9 +17,21 @@
       "node": "./dist/main.js",
       "default": "./dist/browser.js"
     },
-    "./compiler-worker": "./dist/compiler/worker-browser.js",
-    "./language-service-worker": "./dist/language-service/worker-browser.js",
-    "./debug-service-worker": "./dist/debug-service/worker-browser.js",
+    "./compiler-worker": {
+      "browser": "./dist/compiler/worker-browser.js",
+      "node": "./dist/compiler/worker-node.js",
+      "default": "./dist/compiler/worker-browser.js"
+    },
+    "./language-service-worker": {
+      "browser": "./dist/language-service/worker-browser.js",
+      "node": "./dist/language-service/worker-node.js",
+      "default": "./dist/language-service/worker-browser.js"
+    },
+    "./debug-service-worker": {
+      "browser": "./dist/debug-service/worker-browser.js",
+      "node": "./dist/debug-service/worker-node.js",
+      "default": "./dist/debug-service/worker-browser.js"
+    },
     "./katas": "./dist/katas.js",
     "./katas-md": "./dist/katas-md.js",
     "./state-viz": "./ux/circuit-vis/state-viz/worker/index.ts",

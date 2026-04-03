@@ -3,6 +3,8 @@
 
 /// <reference types="user-agent-data-types" />
 
+declare const __PLATFORM_DIR__: string;
+
 import * as vscode from "vscode";
 import TelemetryReporter from "@vscode/extension-telemetry";
 import { log } from "qsharp-lang";
@@ -402,7 +404,7 @@ export function sendTelemetryEvent<E extends keyof EventTypes>(
 }
 
 function getBrowserRelease(): string {
-  if (typeof navigator === "undefined") {
+  if (__PLATFORM_DIR__ === "node") {
     return `Node/${process.versions.node}`;
   }
   if (navigator.userAgentData?.brands) {

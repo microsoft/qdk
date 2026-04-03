@@ -9,7 +9,8 @@ import {
   parentPort,
   workerData,
 } from "node:worker_threads";
-import * as wasm from "../../lib/nodejs/qsc_wasm.cjs";
+import * as wasm from "../../lib/web/qsc_wasm.js";
+import { initSync } from "../../lib/web/qsc_wasm.js";
 import { log } from "../log.js";
 import {
   IServiceEventMessage,
@@ -29,21 +30,21 @@ import {
 export function createWorker<
   TService extends ServiceMethods<TService>,
   TServiceEventMsg extends IServiceEventMessage,
->(protocol: ServiceProtocol<TService, TServiceEventMsg>): void {
+>(protocol: ServiceProtocol<TService, TServiceEventMsg>): (data: any) => void {
   if (isMainThread)
     throw "Worker script should be loaded in a Worker thread only";
 
   const port = parentPort!;
+  const { wasmModule, qscLogLevel } = workerData || {};
+  initSync(wasmModule);
 
   const postMessage = port.postMessage.bind(port);
 
   const invokeService = initService<TService, TServiceEventMsg>(
     postMessage,
     protocol,
-    wasm as any, // Need to cast due to difference in web and node wasm types
-    workerData && typeof workerData.qscLogLevel === "number"
-      ? workerData.qscLogLevel
-      : undefined,
+    wasm,
+    qscLogLevel === "number" ? workerData.qscLogLevel : undefined,
   );
 
   function messageHandler(data: any) {
@@ -56,6 +57,7 @@ export function createWorker<
   }
 
   port.addListener("message", messageHandler);
+  return messageHandler;
 }
 
 /**
@@ -74,11 +76,11 @@ export function createProxy<
   TServiceEventMsg extends IServiceEventMessage,
 >(
   workerArg: string,
+  wasmModule: WebAssembly.Module,
   serviceProtocol: ServiceProtocol<TService, TServiceEventMsg>,
 ): TService & IServiceProxy {
-  const thisDir = dirname(fileURLToPath(import.meta.url));
-  const worker = new Worker(join(thisDir, workerArg), {
-    workerData: { qscLogLevel: log.getLogLevel() },
+  const worker = new Worker(new URL(workerArg), {
+    workerData: { wasmModule, qscLogLevel: log.getLogLevel() },
   });
 
   // Create the proxy which will forward method calls to the worker

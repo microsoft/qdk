@@ -23,7 +23,10 @@ const commonBuildOptions = {
   format: "cjs",
   target: ["es2020"],
   sourcemap: "linked",
-  define: { "import.meta.url": "undefined" },
+  define: {
+    "import.meta.url": "undefined",
+    __PLATFORM_DIR__: JSON.stringify("browser"),
+  },
 };
 
 /** @type {import("esbuild").Plugin} */
@@ -73,14 +76,7 @@ const inlineStateComputeWorkerPlugin = {
   },
 };
 
-/**
- *
- * @param {string} [platform]
- */
-export function copyWasmToVsCode(platform) {
-  if (platform !== "browser" && platform !== "node") {
-    throw new Error(`Invalid platform: ${platform}`);
-  }
+export function copyWasmToVsCode() {
   // Copy the wasm module into the extension directory
   const qsharpWasm = join(
     thisDir,
@@ -88,12 +84,13 @@ export function copyWasmToVsCode(platform) {
     "npm",
     "qsharp",
     "lib",
-    platform === "browser" ? "web" : "nodejs",
+    "web",
     "qsc_wasm_bg.wasm",
   );
-  const qsharpDest = join(thisDir, platform, `wasm`);
+  const qsharpDest = join(thisDir, "wasm");
 
   console.log("Copying the wasm file to VS Code from: " + qsharpWasm);
+  console.log("Destination: " + qsharpDest);
   mkdirSync(qsharpDest, { recursive: true });
   copyFileSync(qsharpWasm, join(qsharpDest, "qsc_wasm_bg.wasm"));
 }
@@ -165,7 +162,7 @@ function getBuildOptions(onlyUI, platform) {
     return {
       ...commonBuildOptions,
       platform: "browser",
-      outdir: join(thisDir, "out", "browser"),
+      outdir: join(thisDir, "out", "webview"),
       entryPoints: [
         join(thisDir, "src", "webview/webview.tsx"),
         join(thisDir, "src", "webview/editor.tsx"),
@@ -175,14 +172,21 @@ function getBuildOptions(onlyUI, platform) {
   } else if (platform === "browser") {
     return {
       ...commonBuildOptions,
-      platform: "browser",
+      platform,
       outdir: join(thisDir, "out", "browser"),
     };
   } else if (platform === "node") {
     return {
       ...commonBuildOptions,
-      platform: "node",
-      outdir: join(thisDir, "out", "nodejs"),
+      platform,
+      outdir: join(thisDir, "out", "node"),
+      banner: {
+        js: 'const _importMetaUrl = require("url").pathToFileURL(__filename).href;',
+      },
+      define: {
+        "import.meta.url": "_importMetaUrl",
+        __PLATFORM_DIR__: JSON.stringify("node"),
+      },
     };
   } else {
     throw new Error(`Invalid platform: ${platform}`);
@@ -213,7 +217,6 @@ function buildUI() {
  * @param {string} [platform]
  */
 function buildExtensionHost(platform) {
-  copyWasmToVsCode(platform);
   buildBundle(false, platform);
 }
 
@@ -271,6 +274,7 @@ if (thisFilePath === resolve(process.argv[1])) {
     watchVsCode();
   } else {
     buildUI();
+    copyWasmToVsCode();
     buildExtensionHost("browser");
     buildExtensionHost("node");
   }

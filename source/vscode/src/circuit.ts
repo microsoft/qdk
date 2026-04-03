@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
+declare const __PLATFORM_DIR__: string;
 
 import { escapeHtml } from "markdown-it/lib/common/utils.mjs";
 import {
@@ -280,7 +281,7 @@ export async function getCircuitOrErrorWithTimeout(
 
   const compilerWorkerScriptPath = Uri.joinPath(
     extensionUri,
-    "./out/compilerWorker.js",
+    `./out/${__PLATFORM_DIR__}/compilerWorker.js`,
   ).toString();
 
   const worker = getCompilerWorker(compilerWorkerScriptPath);

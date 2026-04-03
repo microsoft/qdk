@@ -4,4 +4,4 @@
 import { createWorker } from "../workers/node.js";
 import { compilerProtocol } from "./compiler.js";
 
-createWorker(compilerProtocol);
+export const messageHandler = createWorker(compilerProtocol);

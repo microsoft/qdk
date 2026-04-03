@@ -18,7 +18,7 @@
     "Notebooks"
   ],
   "browser": "./out/browser/extension.js",
-  "main": "./out/main/extension.js",
+  "main": "./out/node/extension.js",
   "virtualWorkspaces": true,
   "activationEvents": [
     "onNotebook:jupyter-notebook",

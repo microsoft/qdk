@@ -4,4 +4,4 @@
 import { createWorker } from "../workers/node.js";
 import { debugServiceProtocol } from "./debug-service.js";
 
-createWorker(debugServiceProtocol);
+export const messageHandler = createWorker(debugServiceProtocol);
