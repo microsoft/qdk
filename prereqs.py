@@ -70,11 +70,11 @@ def add_wasm_tools_to_path():
 
     if bindgen_path not in os.environ["PATH"]:
         print(f"Adding {bindgen_path} to PATH")
-        os.environ["PATH"] += os.pathsep + bindgen_path
+        os.environ["PATH"] = bindgen_path + os.pathsep + os.environ["PATH"]
 
     if wasmopt_path not in os.environ["PATH"]:
         print(f"Adding {wasmopt_path} to PATH")
-        os.environ["PATH"] += os.pathsep + wasmopt_path
+        os.environ["PATH"] = wasmopt_path + os.pathsep + os.environ["PATH"]
 
 
 def check_prereqs(install=False, skip_wasm=False):
