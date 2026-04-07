@@ -507,6 +507,18 @@ fn read_measurement_result(shot_idx: u32, result_id: u32) -> bool {
     return atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]) == 1u;
 }
 
+// Return true if the id corresponds to a rotation gate.
+fn is_rotation_gate(id: u32) -> bool {
+    return (12 <= id && id <= 14) || (17 <= id && id <= 19);
+}
+
+// Return true if the angle for the current rotation gate is dynamic.
+fn is_dynamic_angle(shot_idx: u32) -> bool {
+    let state = shots[shot_idx].interp;
+    let instr = fetch_instr(state.pc - 1);
+    return (instr.opcode | FLAG_SRC0_IMM) != 0;
+}
+
 // For every qubit, each 'execute' kernel thread will update its own workgroup storage location for accumulating probabilities
 // The final probabilities will be reduced and written back to the shot state after the parallel execution completes.
 struct QubitProbabilityPerThread {
@@ -1352,71 +1364,71 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     shot.unitary = op.unitary;
 
-    // For rotation gates, recompute the unitary from the (possibly dynamic) angle
-    // stored in the instruction's src0 field. The op pool unitary was built at upload
-    // time and may not reflect a runtime-computed angle.
-    if op_type == 0u {
-        if op.id == OPID_RX || op.id == OPID_RY || op.id == OPID_RZ {
-            let angle = resolve_gate_angle(shot_idx);
-            let half = angle * 0.5;
-            let c = cos(half);
-            let s = sin(half);
-            if op.id == OPID_RX {
-                // [[cos(θ/2), -i·sin(θ/2)], [-i·sin(θ/2), cos(θ/2)]]
-                shot.unitary[0] = vec2f(c, 0.0);
-                shot.unitary[1] = vec2f(0.0, -s);
-                shot.unitary[4] = vec2f(0.0, -s);
-                shot.unitary[5] = vec2f(c, 0.0);
-            } else if op.id == OPID_RY {
-                // [[cos(θ/2), -sin(θ/2)], [sin(θ/2), cos(θ/2)]]
-                shot.unitary[0] = vec2f(c, 0.0);
-                shot.unitary[1] = vec2f(-s, 0.0);
-                shot.unitary[4] = vec2f(s, 0.0);
-                shot.unitary[5] = vec2f(c, 0.0);
-            } else {
-                // RZ: [[1, 0], [0, e^(iθ)]]
-                shot.unitary[0] = vec2f(1.0, 0.0);
-                shot.unitary[1] = vec2f(0.0, 0.0);
-                shot.unitary[4] = vec2f(0.0, 0.0);
-                shot.unitary[5] = vec2f(cos(angle), sin(angle));
-            }
-        } else if op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ {
-            let angle = resolve_gate_angle(shot_idx);
-            let half = angle * 0.5;
-            let c = cos(half);
-            let s = sin(half);
-            if op.id == OPID_RXX {
-                // exp(-i·θ/2·X⊗X)
-                shot.unitary[0]  = vec2f(c, 0.0);    // 00,00
-                shot.unitary[3]  = vec2f(0.0, -s);   // 00,11
-                shot.unitary[5]  = vec2f(c, 0.0);    // 01,01
-                shot.unitary[6]  = vec2f(0.0, -s);   // 01,10
-                shot.unitary[9]  = vec2f(0.0, -s);   // 10,01
-                shot.unitary[10] = vec2f(c, 0.0);    // 10,10
-                shot.unitary[12] = vec2f(0.0, -s);   // 11,00
-                shot.unitary[15] = vec2f(c, 0.0);    // 11,11
-            } else if op.id == OPID_RYY {
-                // exp(-i·θ/2·Y⊗Y)
-                shot.unitary[0]  = vec2f(c, 0.0);    // 00,00
-                shot.unitary[3]  = vec2f(0.0, s);    // 00,11 (+i·sin)
-                shot.unitary[5]  = vec2f(c, 0.0);    // 01,01
-                shot.unitary[6]  = vec2f(0.0, -s);   // 01,10
-                shot.unitary[9]  = vec2f(0.0, -s);   // 10,01
-                shot.unitary[10] = vec2f(c, 0.0);    // 10,10
-                shot.unitary[12] = vec2f(0.0, s);    // 11,00 (+i·sin)
-                shot.unitary[15] = vec2f(c, 0.0);    // 11,11
-            } else {
-                // RZZ: diag(1, e^(iθ), e^(iθ), 1)
-                shot.unitary[0]  = vec2f(1.0, 0.0);
-                shot.unitary[5]  = vec2f(cos(angle), sin(angle));
-                shot.unitary[10] = vec2f(cos(angle), sin(angle));
-                shot.unitary[15] = vec2f(1.0, 0.0);
-            }
-        }
-    }
-
     switch op_type {
         case 0u { // Gate
+            // For rotation gates, recompute the unitary from the dynamic angle stored
+            // in the instruction's src0 field if needed. The op pool unitary was built
+            // at upload time and may not reflect a runtime-computed angle.
+            if is_rotation_gate(op.id) && is_dynamic_angle(shot_idx) {
+                if op.id == OPID_RX || op.id == OPID_RY || op.id == OPID_RZ {
+                    let angle = resolve_gate_angle(shot_idx);
+                    let half = angle * 0.5;
+                    let c = cos(half);
+                    let s = sin(half);
+                    if op.id == OPID_RX {
+                        // [[cos(θ/2), -i·sin(θ/2)], [-i·sin(θ/2), cos(θ/2)]]
+                        shot.unitary[0] = vec2f(c, 0.0);
+                        shot.unitary[1] = vec2f(0.0, -s);
+                        shot.unitary[4] = vec2f(0.0, -s);
+                        shot.unitary[5] = vec2f(c, 0.0);
+                    } else if op.id == OPID_RY {
+                        // [[cos(θ/2), -sin(θ/2)], [sin(θ/2), cos(θ/2)]]
+                        shot.unitary[0] = vec2f(c, 0.0);
+                        shot.unitary[1] = vec2f(-s, 0.0);
+                        shot.unitary[4] = vec2f(s, 0.0);
+                        shot.unitary[5] = vec2f(c, 0.0);
+                    } else {
+                        // RZ: [[1, 0], [0, e^(iθ)]]
+                        shot.unitary[0] = vec2f(1.0, 0.0);
+                        shot.unitary[1] = vec2f(0.0, 0.0);
+                        shot.unitary[4] = vec2f(0.0, 0.0);
+                        shot.unitary[5] = vec2f(cos(angle), sin(angle));
+                    }
+                } else if op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ {
+                    let angle = resolve_gate_angle(shot_idx);
+                    let half = angle * 0.5;
+                    let c = cos(half);
+                    let s = sin(half);
+                    if op.id == OPID_RXX {
+                        // exp(-i·θ/2·X⊗X)
+                        shot.unitary[0]  = vec2f(c, 0.0);
+                        shot.unitary[3]  = vec2f(0.0, -s);
+                        shot.unitary[5]  = vec2f(c, 0.0);
+                        shot.unitary[6]  = vec2f(0.0, -s);
+                        shot.unitary[9]  = vec2f(0.0, -s);
+                        shot.unitary[10] = vec2f(c, 0.0);
+                        shot.unitary[12] = vec2f(0.0, -s);
+                        shot.unitary[15] = vec2f(c, 0.0);
+                    } else if op.id == OPID_RYY {
+                        // exp(-i·θ/2·Y⊗Y)
+                        shot.unitary[0]  = vec2f(c, 0.0);
+                        shot.unitary[3]  = vec2f(0.0, s);
+                        shot.unitary[5]  = vec2f(c, 0.0);
+                        shot.unitary[6]  = vec2f(0.0, -s);
+                        shot.unitary[9]  = vec2f(0.0, -s);
+                        shot.unitary[10] = vec2f(c, 0.0);
+                        shot.unitary[12] = vec2f(0.0, s);
+                        shot.unitary[15] = vec2f(c, 0.0);
+                    } else {
+                        // RZZ: diag(1, e^(iθ), e^(iθ), 1)
+                        shot.unitary[0]  = vec2f(1.0, 0.0);
+                        shot.unitary[5]  = vec2f(cos(angle), sin(angle));
+                        shot.unitary[10] = vec2f(cos(angle), sin(angle));
+                        shot.unitary[15] = vec2f(1.0, 0.0);
+                    }
+                }
+            }
+
             shot.op_idx = op_idx;
             shot.op_type = op.id;
 
