@@ -772,10 +772,15 @@ impl<'a> Analyzer<'a> {
                     // `UseOfDynamicGeneric` runtime feature to cover all cases.
                     dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicGeneric;
                 }
-                Ty::Array(_) => {
+                Ty::Array(..) => {
                     // If the type of the index expression is an array, we need to add the `UseOfDynamicallySizedArray`
                     // runtime feature since the result of the index expression can be used in a context that requires array-specific runtime features.
                     dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicallySizedArray;
+                }
+                Ty::Tuple(..) => {
+                    // If the type of the index expression is a tuple, we need to add the `UseOfDynamicTuple`
+                    // runtime feature since the result of the index expression can be used in a context that requires tuple-specific runtime features.
+                    dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicTuple;
                 }
                 _ => {
                     // Other dynamic content types are already handled by the `derive_runtime_features_for_value_kind_associated_to_type` function

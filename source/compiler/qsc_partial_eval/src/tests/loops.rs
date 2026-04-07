@@ -626,6 +626,80 @@ fn nested_loops_over_arrays_of_arrays_unroll_outer_loop() {
     "#]].assert_eq(&program.to_string());
 }
 
+#[test]
+fn for_loop_over_arrays_of_tuples_unrolled() {
+    let program = get_rir_program_with_capabilities(
+        indoc! {
+            r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                for (idx, theta) in Std.Arrays.Enumerated([0.0, 1.0]) {
+                    Rx(theta, q);
+                }
+            }
+        }
+        "#,
+        },
+        Profile::AdaptiveRIFLA.into(),
+    );
+
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
+                    name: __quantum__qis__rx__body
+                    call_type: Regular
+                    input_type:
+                        [0]: Double
+                        [1]: Qubit
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 3: Callable:
+                    name: __quantum__rt__tuple_record_output
+                    call_type: OutputRecording
+                    input_type:
+                        [0]: Integer
+                        [1]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Call id(1), args( Pointer, )
+                    Variable(0, Integer) = Store Integer(0)
+                    Variable(0, Integer) = Store Integer(1)
+                    Variable(0, Integer) = Store Integer(2)
+                    Variable(1, Integer) = Store Integer(0)
+                    Call id(2), args( Double(0), Qubit(0), )
+                    Variable(1, Integer) = Store Integer(1)
+                    Call id(2), args( Double(1), Qubit(0), )
+                    Variable(1, Integer) = Store Integer(2)
+                    Call id(3), args( Integer(0), Tag(0, 3), )
+                    Return
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays)
+            num_qubits: 1
+            num_results: 0
+            tags:
+                [0]: 0_t
+    "#]].assert_eq(&program.to_string());
+}
+
 // For now, loops over qubits are unrolled since we don't support qubit variables.
 #[test]
 fn for_loop_over_qubits() {
