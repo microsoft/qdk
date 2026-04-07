@@ -1,7 +1,9 @@
 @0 = internal constant [4 x i8] c"0_r\00"
+@array0 = internal constant [2 x ptr] [ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr)]
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
+  %var_5 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -26,8 +28,21 @@ block_4:
   call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__reset__body(ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__reset__body(ptr inttoptr (i64 1 to ptr))
+  store i64 0, ptr %var_5
+  br label %block_5
+block_5:
+  %var_11 = load i64, ptr %var_5
+  %var_6 = icmp slt i64 %var_11, 2
+  br i1 %var_6, label %block_6, label %block_7
+block_6:
+  %var_12 = load i64, ptr %var_5
+  %var_7 = getelementptr ptr, ptr @array0, i64 %var_12
+  %var_13 = load ptr, ptr %var_7
+  call void @__quantum__qis__reset__body(ptr %var_13)
+  %var_9 = add i64 %var_12, 1
+  store i64 %var_9, ptr %var_5
+  br label %block_5
+block_7:
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @0)
   ret i64 0
 }

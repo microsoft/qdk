@@ -268,10 +268,6 @@ fn nested_classical_for_loop() {
                 Call id(2), args( Qubit(2), ) !dbg dbg_location=35
                 Variable(4, Integer) = Store Integer(3)
                 Variable(1, Integer) = Store Integer(3)
-                Variable(5, Integer) = Store Integer(0)
-                Variable(5, Integer) = Store Integer(1)
-                Variable(5, Integer) = Store Integer(2)
-                Variable(5, Integer) = Store Integer(3)
                 Call id(3), args( Integer(0), Tag(0, 3), )
                 Return
 

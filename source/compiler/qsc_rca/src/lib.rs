@@ -703,7 +703,7 @@ impl RuntimeFeatureFlags {
             capabilities |= TargetCapabilityFlags::FloatingPointComputations;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicQubit) {
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+            capabilities |= TargetCapabilityFlags::StaticSizedArrays;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicBigInt) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;

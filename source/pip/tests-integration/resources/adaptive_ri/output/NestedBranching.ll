@@ -44,11 +44,11 @@ block_4:
   %var_24 = icmp eq i1 %var_23, false
   br label %block_6
 block_5:
-  %var_81 = phi i1 [false, %block_1], [%var_9, %block_3]
-  br i1 %var_81, label %block_7, label %block_8
+  %var_79 = phi i1 [false, %block_1], [%var_9, %block_3]
+  br i1 %var_79, label %block_7, label %block_8
 block_6:
-  %var_82 = phi i1 [false, %block_2], [%var_24, %block_4]
-  br i1 %var_82, label %block_9, label %block_10
+  %var_80 = phi i1 [false, %block_2], [%var_24, %block_4]
+  br i1 %var_80, label %block_9, label %block_10
 block_7:
   br label %block_31
 block_8:
@@ -68,11 +68,11 @@ block_12:
   %var_28 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 2 to %Result*))
   br label %block_14
 block_13:
-  %var_83 = phi i1 [false, %block_8], [%var_13, %block_11]
-  br i1 %var_83, label %block_15, label %block_16
+  %var_81 = phi i1 [false, %block_8], [%var_13, %block_11]
+  br i1 %var_81, label %block_15, label %block_16
 block_14:
-  %var_84 = phi i1 [false, %block_10], [%var_28, %block_12]
-  br i1 %var_84, label %block_17, label %block_18
+  %var_82 = phi i1 [false, %block_10], [%var_28, %block_12]
+  br i1 %var_82, label %block_17, label %block_18
 block_15:
   br label %block_29
 block_16:
@@ -92,11 +92,11 @@ block_20:
   %var_34 = icmp eq i1 %var_33, false
   br label %block_22
 block_21:
-  %var_85 = phi i1 [false, %block_16], [%var_19, %block_19]
-  br i1 %var_85, label %block_23, label %block_24
+  %var_83 = phi i1 [false, %block_16], [%var_19, %block_19]
+  br i1 %var_83, label %block_23, label %block_24
 block_22:
-  %var_86 = phi i1 [false, %block_18], [%var_34, %block_20]
-  br i1 %var_86, label %block_25, label %block_26
+  %var_84 = phi i1 [false, %block_18], [%var_34, %block_20]
+  br i1 %var_84, label %block_25, label %block_26
 block_23:
   br label %block_27
 block_24:
@@ -106,25 +106,25 @@ block_25:
 block_26:
   br label %block_28
 block_27:
-  %var_87 = phi i64 [2, %block_23], [3, %block_24]
+  %var_85 = phi i64 [2, %block_23], [3, %block_24]
   br label %block_29
 block_28:
-  %var_88 = phi i64 [6, %block_25], [7, %block_26]
+  %var_86 = phi i64 [6, %block_25], [7, %block_26]
   br label %block_30
 block_29:
-  %var_89 = phi i64 [1, %block_15], [%var_87, %block_27]
+  %var_87 = phi i64 [1, %block_15], [%var_85, %block_27]
   br label %block_31
 block_30:
-  %var_90 = phi i64 [5, %block_17], [%var_88, %block_28]
+  %var_88 = phi i64 [5, %block_17], [%var_86, %block_28]
   br label %block_32
 block_31:
-  %var_91 = phi i64 [0, %block_7], [%var_89, %block_29]
+  %var_89 = phi i64 [0, %block_7], [%var_87, %block_29]
   br label %block_33
 block_32:
-  %var_92 = phi i64 [4, %block_9], [%var_90, %block_30]
+  %var_90 = phi i64 [4, %block_9], [%var_88, %block_30]
   br label %block_33
 block_33:
-  %var_93 = phi i64 [%var_91, %block_31], [%var_92, %block_32]
+  %var_91 = phi i64 [%var_89, %block_31], [%var_90, %block_32]
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 1 to %Qubit*))
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 2 to %Qubit*))
@@ -173,8 +173,8 @@ block_42:
   call void @__quantum__qis__z__body(%Qubit* inttoptr (i64 7 to %Qubit*))
   br label %block_45
 block_43:
-  %var_94 = phi i1 [false, %block_35], [%var_51, %block_38]
-  br i1 %var_94, label %block_46, label %block_47
+  %var_92 = phi i1 [false, %block_35], [%var_51, %block_38]
+  br i1 %var_92, label %block_46, label %block_47
 block_44:
   br label %block_48
 block_45:
@@ -215,8 +215,8 @@ block_55:
   call void @__quantum__qis__z__body(%Qubit* inttoptr (i64 7 to %Qubit*))
   br label %block_58
 block_56:
-  %var_95 = phi i1 [false, %block_47], [%var_63, %block_51]
-  br i1 %var_95, label %block_59, label %block_60
+  %var_93 = phi i1 [false, %block_47], [%var_63, %block_51]
+  br i1 %var_93, label %block_59, label %block_60
 block_57:
   br label %block_61
 block_58:
@@ -304,7 +304,7 @@ block_82:
   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([10 x i8], [10 x i8]* @3, i64 0, i64 0))
   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([10 x i8], [10 x i8]* @4, i64 0, i64 0))
   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([10 x i8], [10 x i8]* @5, i64 0, i64 0))
-  call void @__quantum__rt__int_record_output(i64 %var_93, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @6, i64 0, i64 0))
+  call void @__quantum__rt__int_record_output(i64 %var_91, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @6, i64 0, i64 0))
   call void @__quantum__rt__tuple_record_output(i64 2, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @7, i64 0, i64 0))
   call void @__quantum__rt__array_record_output(i64 4, i8* getelementptr inbounds ([8 x i8], [8 x i8]* @8, i64 0, i64 0))
   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* getelementptr inbounds ([10 x i8], [10 x i8]* @9, i64 0, i64 0))

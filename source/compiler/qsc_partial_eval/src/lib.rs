@@ -1155,6 +1155,13 @@ impl<'a> PartialEvaluator<'a> {
                     bin_op_expr_span,
                 )
             }
+            VarTy::Qubit => Err(Error::Unexpected(
+                format!(
+                    "unsupported LHS variable type {} in binary operation",
+                    lhs_eval_var.ty
+                ),
+                bin_op_expr_span,
+            )),
         }
     }
 
@@ -1540,6 +1547,23 @@ impl<'a> PartialEvaluator<'a> {
         self.check_unresolved_call_capabilities(call_expr_id, callee_expr_id, &call_scope)?;
         self.assign_current_dbg_location(call_expr_id);
 
+        if store_item_id.package == PackageId::CORE
+            && callable_decl.name.name.as_ref() == "ReleaseQubitArray"
+        {
+            // This is a special case, where we must statically releaes the given qubits rather than call into the stdlib, which may try
+            // to unroll the loop over the qubits to be released. Instead, iterate over the qubits here and release them directly.
+            let Value::Array(qubit_vals) = args_value else {
+                return Err(Error::Unexpected(
+                    "expected an array of qubits as argument to ReleaseQubitArray".to_string(),
+                    args_span,
+                ));
+            };
+            for qubit_val in qubit_vals.iter().cloned() {
+                self.release_qubit(qubit_val, args_span)?;
+            }
+            return Ok(EvalControlFlow::Continue(Value::unit()));
+        }
+
         // We generate instructions differently depending on whether we are calling an intrinsic or a specialization
         // with an implementation.
         let value = match spec_decl {
@@ -1748,7 +1772,7 @@ impl<'a> PartialEvaluator<'a> {
             "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
                 Ok(self.allocate_qubit())
             }
-            "__quantum__rt__qubit_release" => Ok(self.release_qubit(args_value)),
+            "__quantum__rt__qubit_release" => self.release_qubit(args_value, args_span),
             "PermuteLabels" => {
                 if self.eval_context.is_currently_evaluating_any_branch() {
                     // If we are in a dynamic branch anywhere up the call stack, we cannot support relabel,
@@ -1859,6 +1883,13 @@ impl<'a> PartialEvaluator<'a> {
         let ret_val = match output_var {
             None => Value::unit(),
             Some(output_var) => {
+                if output_var.ty == rir::Ty::Prim(rir::Prim::Qubit) {
+                    // We don't actually accept custom intrinsics that return qubits, so emit an error here.
+                    return Err(Error::UnsupportedCustomIntrinsicType(
+                        callable_decl.output.to_string(),
+                        callee_expr_span,
+                    ));
+                }
                 let rir_var = map_rir_var_to_eval_var(output_var).map_err(|()| {
                     Error::UnsupportedCustomIntrinsicType(
                         callable_decl.output.to_string(),
@@ -3096,12 +3127,17 @@ impl<'a> PartialEvaluator<'a> {
         result_value
     }
 
-    fn release_qubit(&mut self, args_value: Value) -> Value {
-        let qubit = args_value.unwrap_qubit();
+    fn release_qubit(&mut self, args_value: Value, arg_span: PackageSpan) -> Result<Value, Error> {
+        let Value::Qubit(qubit) = args_value else {
+            return Err(Error::Unimplemented(
+                "release release of dynamic qubit variable".to_string(),
+                arg_span,
+            ));
+        };
         self.resource_manager.release_qubit(&qubit);
 
         // The value of a qubit release is unit.
-        Value::unit()
+        Ok(Value::unit())
     }
 
     fn resolve_args(
@@ -4216,6 +4252,7 @@ fn map_eval_var_type_to_rir_type(var_ty: VarTy) -> rir::Ty {
         VarTy::Boolean => rir::Ty::Prim(rir::Prim::Boolean),
         VarTy::Integer => rir::Ty::Prim(rir::Prim::Integer),
         VarTy::Double => rir::Ty::Prim(rir::Prim::Double),
+        VarTy::Qubit => rir::Ty::Prim(rir::Prim::Qubit),
     }
 }
 
@@ -4251,6 +4288,7 @@ fn map_rir_type_to_eval_var_type(ty: rir::Ty) -> Result<VarTy, ()> {
         rir::Ty::Prim(rir::Prim::Boolean) => Ok(VarTy::Boolean),
         rir::Ty::Prim(rir::Prim::Integer) => Ok(VarTy::Integer),
         rir::Ty::Prim(rir::Prim::Double) => Ok(VarTy::Double),
+        rir::Ty::Prim(rir::Prim::Qubit) => Ok(VarTy::Qubit),
         _ => Err(()),
     }
 }
@@ -4260,6 +4298,7 @@ fn try_get_eval_var_type(value: &Value) -> Option<VarTy> {
         Value::Bool(_) => Some(VarTy::Boolean),
         Value::Int(_) => Some(VarTy::Integer),
         Value::Double(_) => Some(VarTy::Double),
+        Value::Qubit(_) => Some(VarTy::Qubit),
         Value::Var(var) => Some(var.ty),
         _ => None,
     }
