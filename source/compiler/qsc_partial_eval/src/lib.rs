@@ -1777,7 +1777,8 @@ impl<'a> PartialEvaluator<'a> {
             | "ApplyIdleNoise"
             | "GlobalPhase"
             | "Message"
-            | "PostSelectZ" => Ok(Value::unit()),
+            | "PostSelectZ"
+            | "Fact" => Ok(Value::unit()),
             "CheckZero" => Err(Error::UnsupportedSimulationIntrinsic(
                 "CheckZero".to_string(),
                 callee_expr_span,
