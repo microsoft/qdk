@@ -235,9 +235,9 @@ fn dispatch_quantum_gate<S: Simulator>(
             .collect();
         sim.correlated_noise_intrinsic(table_id, &targets);
     } else {
+        let angle = rt.resolve_f64(instr.src0, instr.opcode, 0);
         let q1 = rt.resolve_u64(instr.aux1, instr.opcode, 4) as usize;
         let q2 = rt.resolve_u64(instr.aux2, instr.opcode, 5) as usize;
-        let angle = op.angle;
         match op_id {
             OPID_X => sim.x(q1),
             OPID_Y => sim.y(q1),

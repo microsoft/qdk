@@ -1113,7 +1113,7 @@ pub fn build_op_pool(compact_ops: &[bytecode::Op<u32>]) -> Vec<Op> {
                  angle,
              }| {
                 #[allow(clippy::cast_possible_truncation)]
-                let angle_f32 = angle as f32;
+                let angle_f32 = f32::from_bits(angle);
                 match op_id {
                     ops::ID => Op::new_id_gate(q1),
                     ops::RESETZ => Op::new_resetz_gate(q1),

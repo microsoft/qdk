@@ -375,3 +375,63 @@ def test_teleport_chain_histogram(sim_type):
     assert count_00 > 4000, f"Expected ~5000 '00' results, got {count_00}"
     assert count_11 > 4000, f"Expected ~5000 '11' results, got {count_11}"
     assert count_00 + count_11 == 10000, "All shots should produce a result"
+
+
+DYNAMIC_ROTATION_ANGLE_QIR = r"""
+%Result = type opaque
+%Qubit = type opaque
+
+@0 = internal constant [4 x i8] c"0_r\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(i8* null)
+  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %var_1 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+  %var_2 = icmp eq i1 %var_1, false
+  br i1 %var_2, label %block_1, label %block_2
+block_1:
+  br label %block_3
+block_2:
+  br label %block_3
+block_3:
+  %var_3 = phi double [0.5, %block_1], [1.0, %block_2]
+  call void @__quantum__qis__rx__body(double %var_3, %Qubit* inttoptr (i64 1 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+declare i1 @__quantum__rt__read_result(%Result*)
+declare void @__quantum__qis__rx__body(double, %Qubit*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+attributes #1 = { "irreversible" }
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !{!"i64"}}
+!5 = !{i32 5, !"float_computations", !{!"double"}}
+"""
+
+
+def test_dynamic_rotation_angle():
+    results = _run(DYNAMIC_ROTATION_ANGLE_QIR, shots=10_000, seed=42, sim_type="cpu")
+    assert len(results) == 10_000
+
+    counts = Counter(results)
+    count_0 = counts.get("0", 0)
+    count_1 = counts.get("1", 0)
+
+    assert count_1 > 1400, f"Expected ~15% '1' results, got {count_1}"
+    assert count_0 > 8400, f"Expected ~85% '0' results, got {count_0}"
+    assert count_0 + count_1 == 10_000, "All shots should produce a result"

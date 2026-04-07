@@ -167,7 +167,7 @@ class QuantumOp:
     q1: int
     q2: int
     q3: int
-    angle: float
+    angle: int
 
 
 @dataclass
@@ -423,7 +423,7 @@ class AdaptiveProfilePass:
         q1: int = 0,
         q2: int = 0,
         q3: int = 0,
-        angle: float = 0.0,
+        angle: int = 0,
     ) -> int:
         idx = self._next_qop
         self._next_qop += 1
@@ -784,6 +784,7 @@ class AdaptiveProfilePass:
         qop_idx = self._emit_quantum_op(op_id, q1.val, q2.val, q3.val, angle.val)
         self._emit(
             OP_QUANTUM_GATE,
+            src0=angle,
             aux0=qop_idx,
             aux1=q1,
             aux2=q2,

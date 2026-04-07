@@ -1064,9 +1064,9 @@ def try_create_gpu_adapter() -> str:
 
 def run_parallel_shots(
     input: List[QirInstruction],
-    shots: int,
     qubit_count: int,
     result_count: int,
+    shots: int,
     noise: Optional[NoiseConfig],
     seed: Optional[int],
 ) -> List[str]:

@@ -209,12 +209,12 @@ pub struct Op<Word> {
     pub q1: Word,
     pub q2: Word,
     pub q3: Word,
-    pub angle: f64,
+    pub angle: Word,
 }
 
 impl<Word> Op<Word> {
     #[must_use]
-    pub fn from_tuple(t: (Word, Word, Word, Word, f64)) -> Self {
+    pub fn from_tuple(t: (Word, Word, Word, Word, Word)) -> Self {
         Self {
             op_id: t.0,
             q1: t.1,

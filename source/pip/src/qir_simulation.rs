@@ -776,7 +776,7 @@ where
 
     type BlockTuple<W> = (W, W, W);
     type InsTuple<W> = (W, W, W, W, W, W, W, W);
-    type OpTuple<W> = (W, W, W, W, f64);
+    type OpTuple<W> = (W, W, W, W, W);
     type FunTuple<W> = (W, W, W);
     type PhiTuple<W> = (W, W);
     type SwitchTuple<W> = (W, W);

@@ -37,6 +37,18 @@ except OSError as e:
 from qsharp._simulation import GpuSimulator
 
 
+# Acquiring the GPU resources takes time, so we acquire them once and use them
+# for all the tests. This is fine since pytest runs tests sequencially.
+sim = GpuSimulator()
+
+
+def run_shots(qir: str, shots: int = 10_000, seed: int = 42):
+    """Run *qir* on the GPU and return the shot_results list."""
+    global sim
+    sim.set_program(qir)
+    return sim.run_shots(shots, seed=seed)
+
+
 # ---------------------------------------------------------------------------
 # QIR source
 # ---------------------------------------------------------------------------
@@ -124,12 +136,12 @@ def test_measure_and_correct_histogram():
     Run 10000 shots and verify ~50/50 split of "0" and "1" outcomes.
     The measurement result records whether H collapsed to |1⟩ (then X corrects).
     """
-    sim = GpuSimulator()
-    sim.set_program(MEASURE_AND_CORRECT_QIR)
-    results = sim.run_shots(10000, seed=42)
-
+    results = run_shots(MEASURE_AND_CORRECT_QIR)
     shot_results = results["shot_results"]
     assert len(shot_results) == 10000
+    assert all(
+        code == 0 for code in results["shot_result_codes"]
+    ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
 
     counts = Counter(shot_results)
     # Each shot produces a single-bit result string: "0" or "1"
@@ -143,19 +155,6 @@ def test_measure_and_correct_histogram():
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_measure_and_correct_no_errors():
-    """Example 1: All shots should complete without GPU errors."""
-    sim = GpuSimulator()
-    sim.set_program(MEASURE_AND_CORRECT_QIR)
-    results = sim.run_shots(1000, seed=123)
-
-    shot_result_codes = results["shot_result_codes"]
-    assert all(
-        code == 0 for code in shot_result_codes
-    ), f"Some shots had non-zero error codes: {[c for c in shot_result_codes if c != 0]}"
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_conditional_loop_all_results_are_one():
     """Example 3: The loop exits only when measurement yields 1.
 
@@ -163,31 +162,18 @@ def test_conditional_loop_all_results_are_one():
     until that outcome.
     """
     shots = 5000
-    sim = GpuSimulator()
-    sim.set_program(CONDITIONAL_LOOP_QIR)
-    results = sim.run_shots(shots, seed=99)
-
+    results = run_shots(CONDITIONAL_LOOP_QIR, shots=shots)
     shot_results = results["shot_results"]
     assert len(shot_results) == shots
+    assert all(
+        code == 0 for code in results["shot_result_codes"]
+    ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
 
     counts = Counter(shot_results)
     # Every shot should exit with result "1"
     assert (
         counts.get("1", 0) == shots
     ), f"Expected all {shots} shots to produce '1', got counts: {counts}"
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_conditional_loop_no_errors():
-    """Example 3: All shots should complete without GPU errors."""
-    sim = GpuSimulator()
-    sim.set_program(CONDITIONAL_LOOP_QIR)
-    results = sim.run_shots(1000, seed=456)
-
-    shot_result_codes = results["shot_result_codes"]
-    assert all(
-        code == 0 for code in shot_result_codes
-    ), f"Some shots had non-zero error codes: {[c for c in shot_result_codes if c != 0]}"
 
 
 # Example 2: Loop with phi node — GHZ state preparation
@@ -295,12 +281,12 @@ def test_loop_with_phi_ghz_histogram():
     Creates (|00000⟩ + |11111⟩)/√2. All 5 measurements must agree.
     Run 10000 shots and verify only "00000" and "11111" appear near 50/50.
     """
-    sim = GpuSimulator()
-    sim.set_program(LOOP_WITH_PHI_QIR)
-    results = sim.run_shots(10000, seed=42)
-
+    results = run_shots(LOOP_WITH_PHI_QIR)
     shot_results = results["shot_results"]
     assert len(shot_results) == 10000
+    assert all(
+        code == 0 for code in results["shot_result_codes"]
+    ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
 
     counts = Counter(shot_results)
     # Only "00000" and "11111" should appear
@@ -317,19 +303,6 @@ def test_loop_with_phi_ghz_histogram():
     assert count_00000 + count_11111 == 10000, "All shots should produce a result"
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_loop_with_phi_no_errors():
-    """Example 2: All shots should complete without GPU errors."""
-    sim = GpuSimulator()
-    sim.set_program(LOOP_WITH_PHI_QIR)
-    results = sim.run_shots(1000, seed=123)
-
-    shot_result_codes = results["shot_result_codes"]
-    assert all(
-        code == 0 for code in shot_result_codes
-    ), f"Some shots had non-zero error codes: {[c for c in shot_result_codes if c != 0]}"
-
-
 # ---------------------------------------------------------------------------
 # Tests — Example 4: Boolean computation (AND gate)
 # ---------------------------------------------------------------------------
@@ -342,12 +315,12 @@ def test_boolean_computation_histogram():
     r2=1 only when both r0=1 AND r1=1 (~25% of shots).
     Run 10000 shots and verify ~25% "1" and ~75% "0".
     """
-    sim = GpuSimulator()
-    sim.set_program(BOOLEAN_COMPUTATION_QIR)
-    results = sim.run_shots(10000, seed=42)
-
+    results = run_shots(BOOLEAN_COMPUTATION_QIR)
     shot_results = results["shot_results"]
     assert len(shot_results) == 10000
+    assert all(
+        code == 0 for code in results["shot_result_codes"]
+    ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
 
     counts = Counter(shot_results)
     count_0 = counts.get("0", 0)
@@ -356,19 +329,6 @@ def test_boolean_computation_histogram():
     assert 1500 < count_1 < 3500, f"Expected ~2500 '1' results (~25%), got {count_1}"
     assert 6500 < count_0 < 8500, f"Expected ~7500 '0' results (~75%), got {count_0}"
     assert count_0 + count_1 == 10000, "All shots should produce a result"
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_boolean_computation_no_errors():
-    """Example 4: All shots should complete without GPU errors."""
-    sim = GpuSimulator()
-    sim.set_program(BOOLEAN_COMPUTATION_QIR)
-    results = sim.run_shots(1000, seed=456)
-
-    shot_result_codes = results["shot_result_codes"]
-    assert all(
-        code == 0 for code in shot_result_codes
-    ), f"Some shots had non-zero error codes: {[c for c in shot_result_codes if c != 0]}"
 
 
 # ---------------------------------------------------------------------------
@@ -456,12 +416,12 @@ def test_teleport_chain_histogram():
     Final measurements of q0 and q4 (results 2 and 3, labeled "0_t0" and
     "0_t1") should be correlated: both "0" or both "1", near 50/50.
     """
-    sim = GpuSimulator()
-    sim.set_program(TELEPORT_CHAIN_QIR)
-    results = sim.run_shots(10000, seed=42)
-
+    results = run_shots(TELEPORT_CHAIN_QIR)
     shot_results = results["shot_results"]
     assert len(shot_results) == 10000
+    assert all(
+        code == 0 for code in results["shot_result_codes"]
+    ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
 
     counts = Counter(shot_results)
     # Only "00" and "11" should appear (results 4 and 5 are correlated)
@@ -478,14 +438,66 @@ def test_teleport_chain_histogram():
     assert count_00 + count_11 == 10000, "All shots should produce a result"
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_teleport_chain_no_errors():
-    """Example 5: All shots should complete without GPU errors."""
-    sim = GpuSimulator()
-    sim.set_program(TELEPORT_CHAIN_QIR)
-    results = sim.run_shots(1000, seed=789)
+DYNAMIC_ROTATION_ANGLE_QIR = r"""
+%Result = type opaque
+%Qubit = type opaque
 
-    shot_result_codes = results["shot_result_codes"]
+@0 = internal constant [4 x i8] c"0_r\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(i8* null)
+  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %var_1 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+  %var_2 = icmp eq i1 %var_1, false
+  br i1 %var_2, label %block_1, label %block_2
+block_1:
+  br label %block_3
+block_2:
+  br label %block_3
+block_3:
+  %var_3 = phi double [0.5, %block_1], [1.0, %block_2]
+  call void @__quantum__qis__rx__body(double %var_3, %Qubit* inttoptr (i64 1 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+declare i1 @__quantum__rt__read_result(%Result*)
+declare void @__quantum__qis__rx__body(double, %Qubit*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+attributes #1 = { "irreversible" }
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !{!"i64"}}
+!5 = !{i32 5, !"float_computations", !{!"double"}}
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_dynamic_rotation_angle():
+    results = run_shots(DYNAMIC_ROTATION_ANGLE_QIR)
+    shot_results = results["shot_results"]
+    assert len(shot_results) == 10_000
     assert all(
-        code == 0 for code in shot_result_codes
-    ), f"Some shots had non-zero error codes: {[c for c in shot_result_codes if c != 0]}"
+        code == 0 for code in results["shot_result_codes"]
+    ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
+
+    counts = Counter(shot_results)
+    count_0 = counts.get("0", 0)
+    count_1 = counts.get("1", 0)
+
+    assert count_1 > 1400, f"Expected ~15% '1' results, got {count_1}"
+    assert count_0 > 8400, f"Expected ~85% '0' results, got {count_0}"
+    assert count_0 + count_1 == 10_000, "All shots should produce a result"

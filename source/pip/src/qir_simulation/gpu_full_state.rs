@@ -38,9 +38,9 @@ pub fn try_create_gpu_adapter() -> PyResult<String> {
 pub fn run_parallel_shots<'py>(
     py: Python<'py>,
     input: &Bound<'py, PyList>,
-    shots: i32,
     qubit_count: i32,
     result_count: i32,
+    shots: i32,
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<Py<PyAny>> {
