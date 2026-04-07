@@ -120,9 +120,15 @@ body[data-vscode-theme-kind="vscode-high-contrast-light"] {
   --qdk-gate-reset: #282;
   --qdk-atom-fill: #0078d4;
   --qdk-atom-trail: #fa0;
-}
 
-/* Set these variables on the body element if attributes indicate a dark theme choice */
+  /* Chord diagram: 3-stop colormaps (low → mid → high) */
+  --qdk-chord-node-lo: #d8d8d8;
+  --qdk-chord-node-mid: #c82020;
+  --qdk-chord-node-hi: #1a1a1a;
+  --qdk-chord-edge-lo: #d8d8d8;
+  --qdk-chord-edge-mid: #2060b0;
+  --qdk-chord-edge-hi: #1a1a1a;
+}
 body[data-theme="dark"],
 body[data-jp-theme-light="false"],
 body[data-vscode-theme-kind="vscode-dark"],
@@ -171,4 +177,12 @@ body[data-vscode-theme-kind="vscode-high-contrast"] {
   --qdk-gate-reset: #8e8;
   --qdk-atom-fill: #9df;
   --qdk-atom-trail: #fa0;
+
+  /* Chord diagram: 3-stop colormaps (low → mid → high) */
+  --qdk-chord-node-lo: #3a3a3a;
+  --qdk-chord-node-mid: #e04040;
+  --qdk-chord-node-hi: #f0f0f0;
+  --qdk-chord-edge-lo: #3a3a3a;
+  --qdk-chord-edge-mid: #4090e0;
+  --qdk-chord-edge-hi: #f0f0f0;
 }

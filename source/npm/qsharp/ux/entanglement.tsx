@@ -8,9 +8,6 @@
  * diagram.  Arc length is proportional to the node value; chord thickness
  * is proportional to pairwise weight.
  *
- * The diagram is rendered entirely as native SVG so that the markup can be
- * serialised to a standalone `.svg` file from the Python widget.
- *
  * `Entanglement` is a thin wrapper that supplies orbital-specific
  * defaults (title, legend labels, colormaps, scale maxima).
  */
@@ -177,6 +174,45 @@ const DEFAULT_EDGE_CMAP: [string, string, string] = [
 ];
 
 /**
+ * Convert a CSS computed colour (e.g. "rgb(200, 32, 32)") to "#rrggbb".
+ * Returns the input unchanged when it already looks like a hex colour.
+ * Returns `null` when the value cannot be parsed.
+ */
+function cssColorToHex(css: string): string | null {
+  const trimmed = css.trim();
+  if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed;
+  if (/^#[0-9a-f]{3}$/i.test(trimmed)) {
+    const [, r, g, b] = trimmed.split("");
+    return `#${r}${r}${g}${g}${b}${b}`;
+  }
+  const m = trimmed.match(
+    /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*[\d.]+)?\s*\)$/,
+  );
+  if (!m) return null;
+  const hex = (n: number) => n.toString(16).padStart(2, "0");
+  return `#${hex(Number(m[1]))}${hex(Number(m[2]))}${hex(Number(m[3]))}`;
+}
+
+/**
+ * Read a 3-stop colourmap from CSS custom properties on the given element.
+ * Returns the fallback when the properties are absent or unparseable.
+ */
+function readCSSColormap(
+  el: Element,
+  lo: string,
+  mid: string,
+  hi: string,
+  fallback: [string, string, string],
+): [string, string, string] {
+  const style = getComputedStyle(el);
+  const cLo = cssColorToHex(style.getPropertyValue(lo));
+  const cMid = cssColorToHex(style.getPropertyValue(mid));
+  const cHi = cssColorToHex(style.getPropertyValue(hi));
+  if (cLo && cMid && cHi) return [cLo, cMid, cHi];
+  return fallback;
+}
+
+/**
  * Detect whether the host background is dark or light by sampling the
  * computed background-color of the nearest ancestor with one.
  * Returns a high-contrast colour for selection outlines.
@@ -250,18 +286,54 @@ function chordPath(
 // ---------------------------------------------------------------------------
 
 // Default palette for multi-group outlines.
-const DEFAULT_GROUP_COLORS = [
-  "#FFD700",
-  "#FF6B6B",
-  "#4ECDC4",
-  "#45B7D1",
-  "#96CEB4",
-  "#FFEAA7",
-  "#DDA0DD",
-  "#98D8C8",
-  "#F7DC6F",
-  "#BB8FCE",
-];
+// Used only as a static fallback; at mount time the component generates
+// a theme-aware palette for the actual number of groups.
+const DEFAULT_GROUP_COLORS = ["#FFD700"];
+
+/**
+ * Generate `n` maximally-spaced highlight colours.
+ *
+ * Hues are evenly distributed around the wheel with a golden-angle
+ * offset so that adjacent groups always contrast well, even for large n.
+ * Saturation and lightness adapt to the host background luminance so
+ * outlines remain vivid in both light and dark themes.
+ */
+function generateGroupPalette(n: number, isDark: boolean): string[] {
+  if (n <= 0) return [];
+  const s = isDark ? 75 : 80; // saturation %
+  const l = isDark ? 65 : 48; // lightness  %
+  const goldenAngle = 137.508; // degrees – spreads hues well
+  const startHue = 48; // start near gold
+  const palette: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const h = (startHue + i * goldenAngle) % 360;
+    palette.push(`hsl(${h.toFixed(1)},${s}%,${l}%)`);
+  }
+  return palette;
+}
+
+/**
+ * Measure whether the host background is dark by walking up the DOM.
+ * Returns true for dark backgrounds, false for light (or unknown).
+ */
+function detectIsDark(el: Element | null): boolean {
+  if (!el || typeof getComputedStyle === "undefined") return false;
+  let node: Element | null = el;
+  while (node) {
+    const bg = getComputedStyle(node).backgroundColor;
+    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") {
+      const m = bg.match(/\d+/g);
+      if (m) {
+        const lum =
+          (0.299 * Number(m[0]) + 0.587 * Number(m[1]) + 0.114 * Number(m[2])) /
+          255;
+        return lum <= 0.5;
+      }
+    }
+    node = node.parentElement;
+  }
+  return false;
+}
 
 export function ChordDiagram(props: ChordDiagramProps) {
   const {
@@ -302,8 +374,12 @@ export function ChordDiagram(props: ChordDiagramProps) {
   // is `currentColor` / `transparent` for plain-browser contexts.
   // When darkMode is explicitly true/false, concrete hex values are
   // used so exported SVGs are fully self-contained.
-  const FONT_FAMILY = '"Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+  const FONT_FAMILY_FALLBACK =
+    '"Segoe UI", Roboto, Helvetica, Arial, sans-serif';
   const hasExplicitTheme = darkMode !== undefined;
+  const fontFamily = hasExplicitTheme
+    ? FONT_FAMILY_FALLBACK
+    : `var(--qdk-font-family, ${FONT_FAMILY_FALLBACK})`;
   const textColor = hasExplicitTheme
     ? darkMode
       ? "#e0e0e0"
@@ -314,6 +390,12 @@ export function ChordDiagram(props: ChordDiagramProps) {
       ? "#1e1e1e"
       : "transparent"
     : "var(--qdk-host-background, transparent)";
+  const mutedColor = hasExplicitTheme
+    ? darkMode
+      ? "#666666"
+      : "#aaaaaa"
+    : "var(--qdk-foreground-muted, #aaaaaa)";
+  const midGray = hasExplicitTheme ? "#888888" : "var(--qdk-mid-gray, #888888)";
 
   const n = nodeValues.length;
 
@@ -333,9 +415,13 @@ export function ChordDiagram(props: ChordDiagramProps) {
   }
 
   // Map from orbital index → outline colour for that group.
+  // The palette is generated at mount to match the number of groups and
+  // the host theme.  Before mount, fall back to DEFAULT_GROUP_COLORS.
+  const [autoPalette, setAutoPalette] =
+    useState<string[]>(DEFAULT_GROUP_COLORS);
+  const palette = groupColorsProp ?? autoPalette;
   const nodeGroupColor = new Map<number, string>();
   {
-    const palette = groupColorsProp ?? DEFAULT_GROUP_COLORS;
     let colorIdx = 0;
     for (const [, indices] of groupEntries) {
       const color =
@@ -357,12 +443,47 @@ export function ChordDiagram(props: ChordDiagramProps) {
   // --- background-aware selection colour ---
   const svgRef = useRef<SVGSVGElement>(null);
   const [autoSelectionColor, setAutoSelectionColor] = useState("#FFD700");
+  // --- CSS-resolved colormaps (read from --qdk-chord-* custom props) ---
+  const [resolvedNodeCmap, setResolvedNodeCmap] =
+    useState<[string, string, string]>(nodeColormap);
+  const [resolvedEdgeCmap, setResolvedEdgeCmap] =
+    useState<[string, string, string]>(edgeColormap);
   useEffect(() => {
     if (svgRef.current) {
+      const isDark = detectIsDark(svgRef.current);
       setAutoSelectionColor(detectSelectionColor(svgRef.current));
+      // Generate a theme-aware palette sized to the actual group count.
+      if (!groupColorsProp) {
+        const nGroups = Math.max(groupEntries.length, 1);
+        setAutoPalette(generateGroupPalette(nGroups, isDark));
+      }
+      if (!hasExplicitTheme) {
+        setResolvedNodeCmap(
+          readCSSColormap(
+            svgRef.current,
+            "--qdk-chord-node-lo",
+            "--qdk-chord-node-mid",
+            "--qdk-chord-node-hi",
+            nodeColormap,
+          ),
+        );
+        setResolvedEdgeCmap(
+          readCSSColormap(
+            svgRef.current,
+            "--qdk-chord-edge-lo",
+            "--qdk-chord-edge-mid",
+            "--qdk-chord-edge-hi",
+            edgeColormap,
+          ),
+        );
+      }
     }
   }, []);
   const selectionColor = selectionColorProp ?? autoSelectionColor;
+  // Use prop colormaps when explicit darkMode is set; otherwise prefer
+  // CSS-resolved values which respect the host theme.
+  const activeNodeCmap = hasExplicitTheme ? nodeColormap : resolvedNodeCmap;
+  const activeEdgeCmap = hasExplicitTheme ? edgeColormap : resolvedEdgeCmap;
 
   // --- labels ---
   const labels: string[] =
@@ -376,7 +497,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
     edgeVmax ?? Math.max(...pairwiseWeights.flatMap((row) => row), 1);
 
   const arcColours = nodeValues.map((v) =>
-    colormapEval(nodeColormap, v / nodeMax),
+    colormapEval(activeNodeCmap, v / nodeMax),
   );
 
   // --- line scale ---
@@ -566,7 +687,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
       width={width}
       height={height}
       class="qs-chord-diagram"
-      style={{ background: bgColor, fontFamily: FONT_FAMILY }}
+      style={{ background: bgColor, fontFamily: fontFamily }}
       ref={svgRef}
     >
       {/* Title */}
@@ -608,7 +729,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
             width={80}
             height={20}
             rx={10}
-            fill={isGrouped ? selectionColor : "#888888"}
+            fill={isGrouped ? selectionColor : midGray}
             opacity={0.85}
           />
           <circle cx={isGrouped ? -10 : -70} cy={0} r={7} fill="white" />
@@ -632,7 +753,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
       >
         {/* Chord lines — when hovering, split into dimmed background + bright foreground */}
         {(isHovering ? bgChords : chords).map((ch, ci) => {
-          const c = colormapEval(edgeColormap, ch.val / edgeMax);
+          const c = colormapEval(activeEdgeCmap, ch.val / edgeMax);
           const lwPx = Math.min(Math.sqrt(ch.val) * lineScale, maxLw);
           const lw = lwPx / scale;
           return (
@@ -649,7 +770,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
         })}
         {/* Highlighted chords for hovered orbital (drawn on top) */}
         {fgChords.map((ch, ci) => {
-          const c = colormapEval(edgeColormap, ch.val / edgeMax);
+          const c = colormapEval(activeEdgeCmap, ch.val / edgeMax);
           const lwPx = Math.min(Math.sqrt(ch.val) * lineScale, maxLw);
           const lw = lwPx / scale;
           return (
@@ -723,7 +844,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
                       y1={ry}
                       x2={lx}
                       y2={ly}
-                      stroke="#aaaaaa"
+                      stroke={mutedColor}
                       stroke-width={0.5 / scale}
                     />
                   );
@@ -791,7 +912,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
                 y={cbY}
                 width={cbW / numCbStops + 0.5}
                 height={cbH}
-                fill={colormapEval(nodeColormap, t)}
+                fill={colormapEval(activeNodeCmap, t)}
               />
             );
           })}
@@ -846,7 +967,7 @@ export function ChordDiagram(props: ChordDiagramProps) {
                 y={cbY + cbH + cbSpacing}
                 width={cbW / numCbStops + 0.5}
                 height={cbH}
-                fill={colormapEval(edgeColormap, t)}
+                fill={colormapEval(activeEdgeCmap, t)}
               />
             );
           })}
