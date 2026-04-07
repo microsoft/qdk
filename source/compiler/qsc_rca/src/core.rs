@@ -759,7 +759,30 @@ impl<'a> Analyzer<'a> {
         if let ComputeKind::Dynamic { value_kind, .. } = &index_expr_compute_kind
             && *value_kind == ValueKind::Variable
         {
-            let dynamic_runtime_features = RuntimeFeatureFlags::UseOfDynamicIndex;
+            let mut dynamic_runtime_features = RuntimeFeatureFlags::UseOfDynamicIndex;
+
+            // If the array itself is variable, then we additionally need the runtime feature for a dynamic array.
+            if array_expr_compute_kind.is_variable_value_kind() {
+                dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicArray;
+            }
+
+            match expr_type {
+                Ty::Param(..) => {
+                    // For generic type parameters, we don't know what features they might require later, so we add the
+                    // `UseOfDynamicGeneric` runtime feature to cover all cases.
+                    dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicGeneric;
+                }
+                Ty::Array(_) => {
+                    // If the type of the index expression is an array, we need to add the `UseOfDynamicallySizedArray`
+                    // runtime feature since the result of the index expression can be used in a context that requires array-specific runtime features.
+                    dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicallySizedArray;
+                }
+                _ => {
+                    // Other dynamic content types are already handled by the `derive_runtime_features_for_value_kind_associated_to_type` function
+                    // called below, so we don't need to do anything else here.
+                }
+            }
+
             let dynamic_runtime_kind = ValueKind::new_variable_from_type(expr_type);
             compute_kind = compute_kind.aggregate(ComputeKind::Dynamic {
                 runtime_features: dynamic_runtime_features,

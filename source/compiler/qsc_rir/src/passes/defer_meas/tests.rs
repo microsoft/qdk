@@ -6,7 +6,7 @@
 use crate::{
     builder,
     rir::{
-        Block, BlockId, CallableId, Instruction, Literal, Operand, Program, Ty, Variable,
+        Block, BlockId, CallableId, Instruction, Literal, Operand, Prim, Program, Ty, Variable,
         VariableId,
     },
 };
@@ -128,7 +128,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                 CallableId(3),
                 vec![
                     Operand::Literal(Literal::Integer(3)),
-                    Operand::Literal(Literal::Pointer),
+                    Operand::Literal(Literal::NullPointer),
                 ],
                 None,
                 None,
@@ -137,7 +137,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Result(0)),
-                    Operand::Literal(Literal::Pointer),
+                    Operand::Literal(Literal::NullPointer),
                 ],
                 None,
                 None,
@@ -146,7 +146,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Result(1)),
-                    Operand::Literal(Literal::Pointer),
+                    Operand::Literal(Literal::NullPointer),
                 ],
                 None,
                 None,
@@ -155,7 +155,7 @@ fn add_simple_measurement_block(program: &mut Program) {
                 CallableId(4),
                 vec![
                     Operand::Literal(Literal::Result(2)),
-                    Operand::Literal(Literal::Pointer),
+                    Operand::Literal(Literal::NullPointer),
                 ],
                 None,
                 None,
@@ -205,14 +205,14 @@ fn add_branching_measurement_block(program: &mut Program) {
                 vec![Operand::Literal(Literal::Result(0))],
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
