@@ -54,6 +54,6 @@ pub enum Error {
         algorithm_runtime: u64,
     },
     /// Unsupported instruction in trace transformation
-    #[error("unsupported instruction {id} in trace transformation '{name}'")]
+    #[error("unsupported instruction {} in trace transformation '{name}'", instruction_name(*id).unwrap_or(&id.to_string()))]
     UnsupportedInstruction { id: u64, name: &'static str },
 }

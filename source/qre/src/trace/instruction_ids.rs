@@ -154,6 +154,9 @@ pub fn is_pauli_measurement(id: u64) -> bool {
         MEAS_X
             | MEAS_Y
             | MEAS_Z
+            | MEAS_RESET_X
+            | MEAS_RESET_Y
+            | MEAS_RESET_Z
             | MEAS_XX
             | MEAS_YY
             | MEAS_ZZ
