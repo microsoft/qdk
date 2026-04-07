@@ -202,10 +202,14 @@ def wasm_checks(install, installed_rust_targets):
     if version_match:
         found_ver = tuple(int(g) for g in version_match.groups())
         if found_ver < wasm_bindgen_ver:
-            print(
-                f"wasm-bindgen v{wasm_bindgen_ver[0]}.{wasm_bindgen_ver[1]}.{wasm_bindgen_ver[2]} or later is required. Please update."
-            )
-            exit(1)
+            if install == True:
+                print("wasm-bindgen is out of date. Attempting to update...")
+                install_wasm_bindgen()
+            else:
+                print(
+                    f"wasm-bindgen v{wasm_bindgen_ver[0]}.{wasm_bindgen_ver[1]}.{wasm_bindgen_ver[2]} or later is required. Please update."
+                )
+                exit(1)
     else:
         print("Unable to determine the wasm-bindgen version")
 
