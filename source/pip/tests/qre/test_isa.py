@@ -144,6 +144,43 @@ def test_property_names():
     assert property_name_to_key("distance") == DISTANCE
 
 
+def test_block_linear_function():
+    """Test block_linear_function creation and behavior."""
+    from qsharp.qre._qre import block_linear_function
+
+    # Test int version with offset
+    int_fn = block_linear_function(block_size=4, slope=2, offset=1)
+    assert int_fn(0) == 1
+    assert int_fn(3) == 3
+    assert int_fn(4) == 3
+    assert int_fn(7) == 5
+    assert int_fn(8) == 5
+
+    # Test int version without offset (should default to 0)
+    int_fn_no_offset = block_linear_function(block_size=4, slope=2)
+    assert int_fn_no_offset(0) == 0
+    assert int_fn_no_offset(3) == 2
+    assert int_fn_no_offset(4) == 2
+    assert int_fn_no_offset(7) == 4
+    assert int_fn_no_offset(8) == 4
+
+    # Test float version with offset
+    float_fn = block_linear_function(block_size=4, slope=0.5, offset=0.25)
+    assert float_fn(0) == 0.25
+    assert float_fn(3) == 0.75
+    assert float_fn(4) == 0.75
+    assert float_fn(7) == 1.25
+    assert float_fn(8) == 1.25
+
+    # Test float version without offset (should default to 0.0)
+    float_fn_no_offset = block_linear_function(block_size=4, slope=0.5)
+    assert float_fn_no_offset(0) == 0.0
+    assert float_fn_no_offset(3) == 0.5
+    assert float_fn_no_offset(4) == 0.5
+    assert float_fn_no_offset(7) == 1.0
+    assert float_fn_no_offset(8) == 1.0
+
+
 def test_generic_function():
     """Test generic_function wrapping for int and float return types."""
     from qsharp.qre._qre import _IntFunction, _FloatFunction

@@ -735,6 +735,20 @@ pub struct IntFunction(qre::VariableArityFunction<u64>);
 #[pyclass(name = "_FloatFunction")]
 pub struct FloatFunction(qre::VariableArityFunction<f64>);
 
+#[pymethods]
+impl IntFunction {
+    fn __call__(&self, arity: u64) -> u64 {
+        self.0.evaluate(arity)
+    }
+}
+
+#[pymethods]
+impl FloatFunction {
+    fn __call__(&self, arity: u64) -> f64 {
+        self.0.evaluate(arity)
+    }
+}
+
 #[pyfunction]
 pub fn constant_function<'py>(value: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
     if let Ok(v) = value.extract::<u64>() {
@@ -762,22 +776,21 @@ pub fn linear_function<'py>(slope: &Bound<'py, PyAny>) -> PyResult<Bound<'py, Py
     }
 }
 
-// TODO: Assign default value to offset?
 #[pyfunction]
-#[pyo3(signature = (block_size, slope, offset))]
+#[pyo3(signature = (block_size, slope, offset = None))]
 pub fn block_linear_function<'py>(
     block_size: u64,
     slope: &Bound<'py, PyAny>,
-    offset: &Bound<'py, PyAny>,
+    offset: Option<&Bound<'py, PyAny>>,
 ) -> PyResult<Bound<'py, PyAny>> {
     if let Ok(s) = slope.extract() {
-        let offset = offset.extract::<u64>()?;
+        let offset = offset.map_or_else(|| Ok(0), PyAnyMethods::extract::<u64>)?;
         IntFunction(qre::VariableArityFunction::block_linear(
             block_size, s, offset,
         ))
         .into_bound_py_any(slope.py())
     } else if let Ok(s) = slope.extract::<f64>() {
-        let offset = offset.extract()?;
+        let offset = offset.map_or_else(|| Ok(0.0), PyAnyMethods::extract::<f64>)?;
         FloatFunction(qre::VariableArityFunction::block_linear(
             block_size, s, offset,
         ))

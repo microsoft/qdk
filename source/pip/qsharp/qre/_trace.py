@@ -166,7 +166,6 @@ class TraceQuery(_Node):
                 instances = _enumerate_instances(t, **transformer_kwargs)
                 transformer_instances.append(instances)
 
-            # TODO: make parallel
             for combination in product(*transformer_instances):
                 transformed = trace
                 for transformer in combination:

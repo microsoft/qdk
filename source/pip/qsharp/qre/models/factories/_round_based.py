@@ -322,7 +322,6 @@ class _Pipeline:
                     self.output_error_rate,
                 )
             )
-            # TODO: handle case when output_error_rate is larger than input_error_rate
             self.output_error_rate = unit.error_rate(self.output_error_rate)
 
     @property

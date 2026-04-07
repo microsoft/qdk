@@ -605,8 +605,11 @@ class Constraint:
         """
         ...
 
-class _IntFunction: ...
-class _FloatFunction: ...
+class _IntFunction:
+    def __call__(self, arity: int) -> int: ...
+
+class _FloatFunction:
+    def __call__(self, arity: int) -> float: ...
 
 @overload
 def constant_function(value: int) -> _IntFunction: ...
@@ -645,13 +648,15 @@ def linear_function(
     ...
 
 @overload
-def block_linear_function(block_size: int, slope: int, offset: int) -> _IntFunction: ...
+def block_linear_function(
+    block_size: int, slope: int, offset: Optional[int] = None
+) -> _IntFunction: ...
 @overload
 def block_linear_function(
-    block_size: int, slope: float, offset: float
+    block_size: int, slope: float, offset: Optional[float] = None
 ) -> _FloatFunction: ...
 def block_linear_function(
-    block_size: int, slope: int | float, offset: int | float
+    block_size: int, slope: int | float, offset: Optional[int | float] = None
 ) -> _IntFunction | _FloatFunction:
     """
     Create a block linear function that takes an arity (number of qubits) as
@@ -662,7 +667,8 @@ def block_linear_function(
     Args:
         block_size (int): The block size.
         slope (int | float): The slope.
-        offset (int | float): The offset.
+        offset (Optional[int | float]): The offset.  Default is `None`, which is
+          treated as 0 for int and 0.0 for float.
 
     Returns:
         _IntFunction | _FloatFunction: The block linear function.
