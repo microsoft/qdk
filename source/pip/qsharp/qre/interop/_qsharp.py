@@ -54,7 +54,7 @@ def _bucketize_rotation_counts(
     return result
 
 
-def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts) -> Trace:
+def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts, *args) -> Trace:
     """Convert a Q# entry expression into a resource-estimation Trace.
 
     Evaluates the entry expression to obtain logical counts, then builds
@@ -63,6 +63,7 @@ def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts) -> Trace:
     Args:
         entry_expr (str | Callable | LogicalCounts): A Q# entry expression
             string, a callable, or pre-computed logical counts.
+        *args: The arguments to pass to the callable, if one is provided.
 
     Returns:
         Trace: A trace representing the resource profile of the program.
@@ -70,7 +71,7 @@ def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts) -> Trace:
 
     start = time.time_ns()
     counts = (
-        logical_counts(entry_expr)
+        logical_counts(entry_expr, *args)
         if not isinstance(entry_expr, LogicalCounts)
         else entry_expr
     )
@@ -125,7 +126,7 @@ def trace_from_entry_expr(entry_expr: str | Callable | LogicalCounts) -> Trace:
 
 
 def trace_from_entry_expr_cached(
-    entry_expr: str | Callable | LogicalCounts, cache_path: Optional[Path]
+    entry_expr: str | Callable | LogicalCounts, cache_path: Optional[Path], *args
 ) -> Trace:
     """Convert a Q# entry expression into a Trace, with optional caching.
 
@@ -145,7 +146,7 @@ def trace_from_entry_expr_cached(
     if cache_path and cache_path.exists():
         return Trace.from_json(cache_path.read_text())
 
-    trace = trace_from_entry_expr(entry_expr)
+    trace = trace_from_entry_expr(entry_expr, *args)
 
     if cache_path:
         cache_path.parent.mkdir(parents=True, exist_ok=True)

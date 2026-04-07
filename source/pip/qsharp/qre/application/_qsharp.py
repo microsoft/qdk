@@ -22,24 +22,21 @@ class QSharpApplication(Application[None]):
     ``LogicalCounts``.
 
     Attributes:
+        entry_expr (str | Callable | LogicalCounts): The Q# entry
+            expression, a callable returning logical counts, or
+            pre-computed logical counts.
+        args (tuple): The arguments to pass to the callable, if one is
+            provided. Default is an empty tuple.
         cache_dir (Path): Directory for caching compiled traces.
         use_cache (bool): Whether to use the trace cache. Default is False.
     """
 
+    entry_expr: str | Callable | LogicalCounts
+    args: tuple = ()
     cache_dir: Path = field(
         default=Path.home() / ".cache" / "re3" / "qsharp", repr=False
     )
     use_cache: bool = field(default=False, repr=False)
-
-    def __init__(self, entry_expr: str | Callable | LogicalCounts):
-        """Initialize the Q# application.
-
-        Args:
-            entry_expr (str | Callable | LogicalCounts): The Q# entry
-                expression, a callable returning logical counts, or
-                pre-computed logical counts.
-        """
-        self._entry_expr = entry_expr
 
     def get_trace(self, parameters: None = None) -> Trace:
         """Return the resource estimation trace for the Q# program.
@@ -50,10 +47,9 @@ class QSharpApplication(Application[None]):
         Returns:
             Trace: The resource estimation trace.
         """
-        # TODO: make caching work for `Callable` as well
-        if self.use_cache and isinstance(self._entry_expr, str):
-            cache_path = self.cache_dir / f"{self._entry_expr}.json"
+        if self.use_cache and isinstance(self.entry_expr, str):
+            cache_path = self.cache_dir / f"{self.entry_expr}.json"
         else:
             cache_path = None
 
-        return trace_from_entry_expr_cached(self._entry_expr, cache_path)
+        return trace_from_entry_expr_cached(self.entry_expr, cache_path, *self.args)

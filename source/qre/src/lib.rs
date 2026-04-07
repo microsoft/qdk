@@ -26,7 +26,7 @@ pub use trace::{
 mod utils;
 pub use utils::{binom_ppf, float_from_bits, float_to_bits};
 
-/// A resourc estimation error.
+/// A resource estimation error.
 #[derive(Clone, Debug, Error, PartialEq)]
 pub enum Error {
     /// The resource estimation exceeded the maximum allowed error.

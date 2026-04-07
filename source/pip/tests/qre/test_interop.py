@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+import qsharp
+from qsharp.qre.application import QSharpApplication, QIRApplication
 from qsharp.qre.interop import trace_from_qir
 
 
@@ -27,7 +29,8 @@ def test_trace_from_qir(ll_file):
     # QIR output without errors, rather than checking specific properties of the
     # trace.
     try:
-        trace_from_qir(ll_file.read_text())
+        app = QIRApplication(ll_file.read_text())
+        _ = app.get_trace()
     except ValueError as e:
         # The only reason of failure is presence of control flow
         assert (
@@ -195,8 +198,6 @@ def test_rotation_buckets():
     """Test that rotation bucketization preserves total count and depth."""
     from qsharp.qre.interop._qsharp import _bucketize_rotation_counts
 
-    print()
-
     r_count = 15066
     r_depth = 14756
     q_count = 291
@@ -206,7 +207,6 @@ def test_rotation_buckets():
     a_count = 0
     a_depth = 0
     for c, d in result:
-        print(c, d)
         assert c <= q_count
         assert c > 0
         a_count += c * d
@@ -214,3 +214,44 @@ def test_rotation_buckets():
 
     assert a_count == r_count
     assert a_depth == r_depth
+
+
+def test_qsharp_from_string():
+    code = """
+    {{
+        use (a, b, c) = (Qubit(), Qubit(), Qubit());
+        T(a);
+        CCNOT(a, b, c);
+        Rz(1.2345, a);
+    }}
+    """
+
+    app = QSharpApplication(code)
+    trace = app.get_trace()
+
+    assert trace.total_qubits == 3, "unexpected number of qubits in trace"
+    assert trace.depth == 3, "unexpected depth of trace"
+    assert trace.num_gates == 3, "unexpected number of gates in trace"
+
+
+def test_qsharp_from_callable():
+    qsharp.eval(
+        """
+    operation Test(numTs: Int) : Unit {{
+        use (a, b, c) = (Qubit(), Qubit(), Qubit());
+        for i in 1..numTs {{
+            T(a);
+        }}
+        CCNOT(a, b, c);
+        Rz(1.2345, a);
+    }}
+    """
+    )
+
+    for num_ts in range(1, 6):
+        app = QSharpApplication(qsharp.code.Test, args=(num_ts,))  # type: ignore
+        trace = app.get_trace()
+
+        assert trace.total_qubits == 3, "unexpected number of qubits in trace"
+        assert trace.depth == 2 + num_ts, "unexpected depth of trace"
+        assert trace.num_gates == 2 + num_ts, "unexpected number of gates in trace"
