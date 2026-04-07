@@ -28,7 +28,7 @@ import Utils.RangeAsIntArray;
 /// state.
 /// ## Prepare
 /// An operation that, given an index register, a data register, and a
-/// garbage register initially in the $\ket{0}$, $\let{00\dots 0}$, and
+/// garbage register initially in the $\ket{0}$, $\ket{00\dots 0}$, and
 /// $\ket{00\dots 0}$ states (respectively),
 /// prepares the state represented by this UDT value on those registers.
 struct MixedStatePreparation {
@@ -42,13 +42,13 @@ struct MixedStatePreparation {
 /// mixed state.
 ///
 /// # Input
-/// ## NTotalQubits
+/// ## NumTotalQubits
 /// The total number of qubits required by the represented state preparation
 /// operation.
-/// ## NIndexQubits
+/// ## NumIndexQubits
 /// The number of qubits required for the index register used by the
 /// represented state preparation operation.
-/// ## NGarbageQubits
+/// ## NumGarbageQubits
 /// The number of qubits required for the garbage register used by the
 /// represented state preparation operation.
 struct MixedStatePreparationRequirements {
@@ -58,7 +58,7 @@ struct MixedStatePreparationRequirements {
 }
 
 /// # Summary
-/// Returns an operation that prepares a a purification of a given mixed state.
+/// Returns an operation that prepares a purification of a given mixed state.
 /// A "purified mixed state" refers to states of the form |ψ⟩ = Σᵢ √𝑝ᵢ |𝑖⟩ |garbageᵢ⟩ specified by a vector of
 /// coefficients {𝑝ᵢ}. States of this form can be reduced to mixed states ρ ≔ 𝑝ᵢ |𝑖⟩⟨𝑖| by tracing over the "garbage"
 /// register (that is, a mixed state that is diagonal in the computational basis).
@@ -128,8 +128,8 @@ struct MixedStatePreparationRequirements {
 /// let coefficients = [1.0, 2.0, 3.0, 4.0, 5.0];
 /// let targetError = 1e-3;
 /// let purifiedState = PurifiedMixedState(targetError, coefficients);
-/// using (indexRegister = Qubit[purifiedState.Requirements.NIndexQubits]) {
-///     using (garbageRegister = Qubit[purifiedState.Requirements.NGarbageQubits]) {
+/// using (indexRegister = Qubit[purifiedState.Requirements.NumIndexQubits]) {
+///     using (garbageRegister = Qubit[purifiedState.Requirements.NumGarbageQubits]) {
 ///         purifiedState.Prepare(LittleEndian(indexRegister), [], garbageRegister);
 ///     }
 /// }

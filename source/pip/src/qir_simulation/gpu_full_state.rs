@@ -1,7 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::qir_simulation::{NoiseConfig, QirInstruction, QirInstructionId, unbind_noise_config};
+use crate::qir_simulation::{
+    NoiseConfig, QirInstruction, QirInstructionId, pydict_to_adaptive_program, unbind_noise_config,
+};
 use pyo3::{
     IntoPyObjectExt, PyResult,
     exceptions::{PyOSError, PyRuntimeError, PyValueError},
@@ -150,6 +152,13 @@ impl GpuContext {
         qubit_count: i32,
         result_count: i32,
     ) -> PyResult<()> {
+        let mut gpu_context = self
+            .native_context
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?;
+
+        gpu_context.switch_to_base();
+
         let mut ops: Vec<Op> = Vec::with_capacity(input.len());
         for intr in input {
             // Error if the instruction can't be converted
@@ -161,10 +170,7 @@ impl GpuContext {
                 ops.push(op);
             }
         }
-        self.native_context
-            .lock()
-            .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?
-            .set_program(&ops, qubit_count, result_count);
+        gpu_context.set_program(&ops, qubit_count, result_count);
 
         // Save the result count for formatting later
         self.last_set_result_count = result_count.try_into().map_err(|e| {
@@ -192,6 +198,12 @@ impl GpuContext {
             .native_context
             .lock()
             .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?;
+
+        if gpu_context.is_adaptive() {
+            return Err(PyRuntimeError::new_err(
+                "Context should be non-adaptive. Try setting a base profile program first with `.set_program()`",
+            ));
+        }
 
         let results = gpu_context
             .run_shots_sync(shot_count, seed, 0)
@@ -226,6 +238,95 @@ impl GpuContext {
 
         if let Some(diagnostics) = results.diagnostics {
             // DiagnosticsData doesn't implement Serialize, so use Debug formatting
+            dict.set_item("diagnostics", format!("{diagnostics:?}"))
+                .map_err(|e| {
+                    PyValueError::new_err(format!("failed to set diagnostics in dict: {e}"))
+                })?;
+        }
+        dict.into_py_any(py)
+    }
+
+    fn set_adaptive_program(&mut self, program: &Bound<'_, PyDict>) -> PyResult<()> {
+        let mut gpu_context = self
+            .native_context
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?;
+
+        gpu_context.swith_to_adaptive();
+
+        let adaptive_program = pydict_to_adaptive_program(program)?;
+        let num_results = adaptive_program.num_results;
+
+        gpu_context
+            .set_adaptive_program(adaptive_program)
+            .map_err(PyValueError::new_err)?;
+
+        // Save the result count for formatting later
+        self.last_set_result_count = num_results.try_into().map_err(|e| {
+            PyValueError::new_err(format!("invalid result count {num_results}: {e}"))
+        })?;
+
+        Ok(())
+    }
+
+    fn run_adaptive_shots(
+        &self,
+        py: Python<'_>,
+        shot_count: i32,
+        seed: u32,
+    ) -> PyResult<Py<PyAny>> {
+        let mut gpu_context = self
+            .native_context
+            .lock()
+            .map_err(|_| PyRuntimeError::new_err("Unable to obtain lock on the GPU context"))?;
+
+        if !gpu_context.is_adaptive() {
+            return Err(PyRuntimeError::new_err(
+                "Context should be adaptive. Try setting an adaptive program first with `.set_adaptive_program()`",
+            ));
+        }
+
+        let results = gpu_context
+            .run_adaptive_shots_sync(shot_count, seed, 0)
+            .map_err(PyRuntimeError::new_err)?;
+
+        Self::format_results(py, results, self.last_set_result_count)
+    }
+}
+
+impl GpuContext {
+    fn format_results(
+        py: Python<'_>,
+        results: gpu_context::RunResults,
+        result_count: usize,
+    ) -> PyResult<Py<PyAny>> {
+        let str_results = results
+            .shot_results
+            .iter()
+            .map(|shot_results| {
+                let mut bitstring = String::with_capacity(result_count);
+                for res in shot_results {
+                    let char = match res {
+                        0 => '0',
+                        1 => '1',
+                        _ => 'L',
+                    };
+                    bitstring.push(char);
+                }
+                bitstring
+            })
+            .collect::<Vec<String>>();
+
+        let dict = PyDict::new(py);
+        dict.set_item("shot_results", PyList::new(py, str_results)?)
+            .map_err(|e| PyValueError::new_err(format!("failed to set results in dict: {e}")))?;
+        dict.set_item(
+            "shot_result_codes",
+            PyList::new(py, results.shot_result_codes)?,
+        )
+        .map_err(|e| PyValueError::new_err(format!("failed to set result codes in dict: {e}")))?;
+
+        if let Some(diagnostics) = results.diagnostics {
             dict.set_item("diagnostics", format!("{diagnostics:?}"))
                 .map_err(|e| {
                     PyValueError::new_err(format!("failed to set diagnostics in dict: {e}"))
@@ -305,4 +406,46 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
         }
     };
     Some(op)
+}
+
+#[pyfunction]
+pub fn run_adaptive_parallel_shots<'py>(
+    py: Python<'py>,
+    input: &Bound<'py, PyDict>,
+    shots: i32,
+    noise_config: Option<&Bound<'py, NoiseConfig>>,
+    seed: Option<u32>,
+) -> PyResult<Py<PyAny>> {
+    let noise = noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
+    let rng_seed = seed.unwrap_or(0xfeed_face);
+    let program = pydict_to_adaptive_program(input)?;
+    let result_count: usize = program.num_results as usize;
+    let sim_results = qdk_simulators::run_adaptive_shots_sync(program, &noise, shots, rng_seed, 0)
+        .map_err(PyRuntimeError::new_err)?;
+
+    // Collect and format the results into a Python list of strings
+
+    // Turn each shot's results into a string, with '0' for 0, '1' for 1, and 'L' for lost qubits
+    // The results are a flat list of u32, with each shot's results in sequence + one error code,
+    // so we need to chunk them up accordingly
+    let str_results = sim_results
+        .shot_results
+        .iter()
+        .map(|shot_results| {
+            let mut bitstring = String::with_capacity(result_count);
+            for res in shot_results {
+                let char = match res {
+                    0 => '0',
+                    1 => '1',
+                    _ => 'L', // lost qubit
+                };
+                bitstring.push(char);
+            }
+            bitstring
+        })
+        .collect::<Vec<String>>();
+
+    PyList::new(py, str_results)
+        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
+        .into_py_any(py)
 }

@@ -42,26 +42,21 @@ suite("Q# Debugger Tests", function suite() {
   test("Launch with debugProgram command", async () => {
     await vscode.window.showTextDocument(fooUri);
 
-    // launch debugger
+    // Listen for session end before launching to avoid a race
+    const sessionEnded = new Promise<void>((resolve, reject) => {
+      vscode.debug.onDidTerminateDebugSession(() => {
+        resolve();
+      });
+      setTimeout(
+        () =>
+          reject(new Error("Timed out waiting for debug session to terminate")),
+        2000,
+      );
+    });
+
     await vscode.commands.executeCommand(`${qsharpExtensionId}.debugProgram`);
 
-    await waitUntilPausedAndAssertStackTrace([
-      {
-        id: 0,
-        source: {
-          name: "foo.qs",
-          path: "vscode-test-web://mount/src/foo.qs",
-          sourceReference: 0,
-          adapterData: "qsharp-adapter-data",
-        },
-        line: 5,
-        column: 9,
-        name: "Foo ",
-        endLine: 5,
-        endColumn: 15,
-      },
-      { id: 0, line: 0, column: 0, name: "entry", source: undefined },
-    ]);
+    await sessionEnded;
   });
 
   test("Launch with launch.json configuration - workspaceFolder substitution", async () => {
@@ -72,6 +67,7 @@ suite("Q# Debugger Tests", function suite() {
       type: "qsharp",
       request: "launch",
       program: "${workspaceFolder}src/foo.qs",
+      stopOnEntry: true,
     });
 
     await waitUntilPausedAndAssertStackTrace([
@@ -102,6 +98,7 @@ suite("Q# Debugger Tests", function suite() {
       type: "qsharp",
       request: "launch",
       program: "${file}",
+      stopOnEntry: true,
     });
 
     await waitUntilPausedAndAssertStackTrace([
@@ -158,7 +155,7 @@ suite("Q# Debugger Tests", function suite() {
     await waitForCondition(
       () => !vscode.debug.activeDebugSession,
       vscode.debug.onDidChangeActiveDebugSession,
-      2000,
+      9000,
       "timed out waiting for the debugger to be terminated",
     );
   });
@@ -518,7 +515,7 @@ async function terminateSession() {
   await waitForCondition(
     () => !vscode.debug.activeDebugSession,
     vscode.debug.onDidChangeActiveDebugSession,
-    2000,
+    9000,
     "timed out waiting for the debugger to be terminated",
   );
 }

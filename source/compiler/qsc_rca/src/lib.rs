@@ -756,7 +756,11 @@ impl RuntimeFeatureFlags {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicExponent) {
-            capabilities |= TargetCapabilityFlags::BackwardsBranching;
+            // capabilities |= TargetCapabilityFlags::BackwardsBranching;
+
+            // For now, we are mapping use of a dynamic exponent to higher level constructs
+            // until we support emiting the equivalent loop.
+            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicResult) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;

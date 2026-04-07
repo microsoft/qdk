@@ -10,6 +10,7 @@
   height: 100%;
   margin: 0;
   overflow: hidden;
+  position: relative;
   /* border: 1px solid gray; */
 }
 
@@ -18,15 +19,22 @@
   height: 100%;
 }
 
-#view-dropdown-container {
+#controls-overlay {
   position: absolute;
-  top: 10px; /* distance from bottom */
-  left: 10px; /* distance from right */
-  height: 20px;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 32px;
   padding: 10px;
-  border-radius: 4px;
   z-index: 10;
   font-family: system-ui;
+}
+
+.controls-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 #viewSelector {
@@ -51,31 +59,25 @@
   background-color: var(--qdk-host-background);
 }
 
-#cube-dropdown-container {
-  position: absolute;
-  top: 40px; /* distance from bottom */
-  left: 10px; /* distance from right */
-  padding: 10px;
-  height: 20px;
-  border-radius: 4px;
-  z-index: 10;
-  font-family: system-ui;
-}
-
-#isoval-slider-container {
-  position: absolute;
-  top: 70px; /* distance from bottom */
-  left: 10px; /* distance from right */
-  padding: 10px;
-  height: 40px;
-  border-radius: 4px;
-  z-index: 10;
-  font-family: system-ui;
-}
-
 #isovalSlider {
   width: 100px;
   outline: none;
+}
+
+.data-overlay-row {
+  display: flex;
+  gap: 8px;
+}
+
+.data-overlay-key {
+  min-width: 80px;
+  font-weight: normal;
+  white-space: nowrap;
+}
+
+.data-overlay-value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 #isovalInput {
