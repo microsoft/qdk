@@ -25,7 +25,9 @@ use crate::{Analyzer, ComputePropertiesLookup, PackageStoreComputeProperties};
 use expect_test::Expect;
 use qsc::incremental::Compiler;
 use qsc_data_structures::{
-    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+    language_features::LanguageFeatures,
+    source::SourceMap,
+    target::{Profile, TargetCapabilityFlags},
 };
 use qsc_fir::fir::{ItemKind, LocalItemId, Package, PackageStore, StoreItemId};
 use qsc_frontend::compile::PackageStore as HirPackageStore;
@@ -37,6 +39,7 @@ pub struct CompilationContext {
     pub fir_store: PackageStore,
     pub compute_properties: PackageStoreComputeProperties,
     lowerer: Lowerer,
+    capabilities: TargetCapabilityFlags,
 }
 
 impl CompilationContext {
@@ -53,13 +56,14 @@ impl CompilationContext {
         )
         .expect("should be able to create a new compiler");
         let fir_store = lower_hir_package_store(compiler.package_store());
-        let analyzer = Analyzer::init(&fir_store);
+        let analyzer = Analyzer::init(&fir_store, capabilities);
         let compute_properties = analyzer.analyze_all();
         Self {
             compiler,
             fir_store,
             compute_properties,
             lowerer: Lowerer::new(),
+            capabilities,
         }
     }
 
@@ -84,6 +88,7 @@ impl CompilationContext {
         package_compute_properties.clear();
         let analyzer = Analyzer::init_with_compute_properties(
             &self.fir_store,
+            self.capabilities,
             self.compute_properties.clone(),
         );
         self.compute_properties = analyzer.analyze_package(package_id);
@@ -92,7 +97,7 @@ impl CompilationContext {
 
 impl Default for CompilationContext {
     fn default() -> Self {
-        Self::new(TargetCapabilityFlags::all())
+        Self::new(Profile::AdaptiveRIF.into())
     }
 }
 
