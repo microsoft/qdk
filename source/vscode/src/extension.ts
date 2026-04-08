@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
+declare const __PLATFORM_DIR__: string;
 
 import {
   getLibrarySourceContent,
@@ -49,6 +50,12 @@ export async function activate(
     // Direct logging to the output window
     initOutputWindowLogger();
   }
+
+  log.info(`Platform: ${__PLATFORM_DIR__}`);
+  log.info(
+    `UI Kind: ${vscode.env.uiKind === vscode.UIKind.Web ? "Web" : "Desktop"}`,
+  );
+  log.info(`Remote: ${vscode.env.remoteName ?? "local"}`);
 
   log.info("Q# extension activating.");
   initTelemetry(context);
