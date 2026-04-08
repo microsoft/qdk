@@ -3,7 +3,7 @@
 
 //@ts-check
 
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuildBuild, context } from "esbuild";
@@ -172,19 +172,35 @@ function getBuildOptions(onlyUI, platform) {
   } else if (platform === "browser") {
     return {
       ...commonBuildOptions,
-      platform,
+      platform: "browser",
       outdir: join(thisDir, "out", "browser"),
     };
   } else if (platform === "node") {
     return {
       ...commonBuildOptions,
-      platform,
+      platform: "node",
       outdir: join(thisDir, "out", "node"),
+      entryPoints: [join(thisDir, "src", "extension.ts")],
+      external: ["vscode", "web-worker"],
       banner: {
         js: 'const _importMetaUrl = require("url").pathToFileURL(__filename).href;',
       },
       define: {
         "import.meta.url": "_importMetaUrl",
+        __PLATFORM_DIR__: JSON.stringify("node"),
+      },
+    };
+  } else if (platform === "node-worker") {
+    return {
+      ...commonBuildOptions,
+      platform: "node",
+      outdir: join(thisDir, "out", "node"),
+      entryPoints: [
+        join(thisDir, "src", "compilerWorker.ts"),
+        join(thisDir, "src", "debugger/debug-service-worker.ts"),
+      ],
+      define: {
+        "import.meta.url": "undefined",
         __PLATFORM_DIR__: JSON.stringify("node"),
       },
     };
@@ -218,6 +234,20 @@ function buildUI() {
  */
 function buildExtensionHost(platform) {
   buildBundle(false, platform);
+}
+
+/**
+ * Copy external node dependencies into node_modules/ under the extension
+ * directory so they can be resolved at runtime (e.g. when installed as a VSIX).
+ */
+function copyNodeExternals() {
+  const nodeExternals = ["web-worker"];
+  for (const pkg of nodeExternals) {
+    const src = join(libsDir, pkg);
+    const dest = join(thisDir, "node_modules", pkg);
+    console.log(`Copying external dependency ${pkg} to ${dest}`);
+    cpSync(src, dest, { recursive: true });
+  }
 }
 
 function getTimeStr() {
@@ -277,5 +307,7 @@ if (thisFilePath === resolve(process.argv[1])) {
     copyWasmToVsCode();
     buildExtensionHost("browser");
     buildExtensionHost("node");
+    buildExtensionHost("node-worker");
+    copyNodeExternals();
   }
 }
