@@ -4,5 +4,6 @@
 import { createWorker } from "../workers/worker.js";
 import { compilerProtocol } from "./compiler.js";
 
-const messageHandler = createWorker(compilerProtocol);
+// message handler exported for backwards compatibility
+export const messageHandler = createWorker(compilerProtocol);
 addEventListener("message", messageHandler);

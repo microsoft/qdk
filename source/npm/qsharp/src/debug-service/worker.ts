@@ -4,5 +4,6 @@
 import { createWorker } from "../workers/worker.js";
 import { debugServiceProtocol } from "./debug-service.js";
 
-const messageHandler = createWorker(debugServiceProtocol);
+// message handler exported for backwards compatibility
+export const messageHandler = createWorker(debugServiceProtocol);
 addEventListener("message", messageHandler);

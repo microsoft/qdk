@@ -1,4 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import "qsharp-lang/compiler-worker";
+import { messageHandler } from "qsharp-lang/compiler-worker";
+
+self.onmessage = messageHandler;

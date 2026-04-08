@@ -4,5 +4,6 @@
 import { createWorker } from "../workers/worker.js";
 import { languageServiceProtocol } from "./language-service.js";
 
-const messageHandler = createWorker(languageServiceProtocol);
+// message handler exported for backwards compatibility
+export const messageHandler = createWorker(languageServiceProtocol);
 addEventListener("message", messageHandler);
