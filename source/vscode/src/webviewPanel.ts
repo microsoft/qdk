@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-declare const __PLATFORM_DIR__: string;
-
 import * as vscode from "vscode";
 import {
   IOperationInfo,
@@ -33,7 +31,7 @@ import {
 } from "./telemetry";
 import { getRandomGuid } from "./utils";
 import { getPauliNoiseModel, getQubitLossSetting } from "./config";
-import { qsharpExtensionId } from "./common";
+import { getPlatformEnv, qsharpExtensionId } from "./common";
 import { resourceEstimateCommand } from "./estimate";
 
 const QSharpWebViewType = "qsharp-webview";
@@ -49,7 +47,7 @@ export function registerWebViewCommands(context: ExtensionContext) {
 
   const compilerWorkerScriptPath = Uri.joinPath(
     context.extensionUri,
-    `./out/${__PLATFORM_DIR__}/compilerWorker.js`,
+    `./out/${getPlatformEnv()}/compilerWorker.js`,
   ).toString();
 
   context.subscriptions.push(

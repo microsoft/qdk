@@ -3,8 +3,6 @@
 
 /// <reference types="user-agent-data-types" />
 
-declare const __PLATFORM_DIR__: string;
-
 import * as vscode from "vscode";
 import TelemetryReporter from "@vscode/extension-telemetry";
 import { log } from "qsharp-lang";
@@ -14,6 +12,7 @@ import {
   isOpenQasmDocument,
   isQdkNotebookCell,
   isQsharpDocument,
+  getPlatformEnv,
 } from "./common";
 
 export enum EventType {
@@ -404,7 +403,7 @@ export function sendTelemetryEvent<E extends keyof EventTypes>(
 }
 
 function getBrowserRelease(): string {
-  if (__PLATFORM_DIR__ === "node") {
+  if (getPlatformEnv() === "node") {
     return `Node/${process.versions.node}`;
   }
   if (navigator.userAgentData?.brands) {

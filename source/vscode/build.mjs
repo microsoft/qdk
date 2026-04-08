@@ -25,7 +25,7 @@ const commonBuildOptions = {
   sourcemap: "linked",
   define: {
     "import.meta.url": "undefined",
-    __PLATFORM_DIR__: JSON.stringify("browser"),
+    __PLATFORM__: JSON.stringify("browser"),
   },
 };
 
@@ -187,7 +187,7 @@ function getBuildOptions(onlyUI, platform) {
       },
       define: {
         "import.meta.url": "_importMetaUrl",
-        __PLATFORM_DIR__: JSON.stringify("node"),
+        __PLATFORM__: JSON.stringify("node"),
       },
     };
   } else if (platform === "node-worker") {
@@ -201,7 +201,7 @@ function getBuildOptions(onlyUI, platform) {
       ],
       define: {
         "import.meta.url": "undefined",
-        __PLATFORM_DIR__: JSON.stringify("node"),
+        __PLATFORM__: JSON.stringify("node"),
       },
     };
   } else {

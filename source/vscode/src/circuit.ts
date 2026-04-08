@@ -1,6 +1,5 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
-declare const __PLATFORM_DIR__: string;
 
 import { escapeHtml } from "markdown-it/lib/common/utils.mjs";
 import {
@@ -27,7 +26,7 @@ import {
 import { getRandomGuid } from "./utils";
 import { sendMessageToPanel } from "./webviewPanel";
 import { ICircuitConfig, IPosition } from "../../npm/qsharp/lib/web/qsc_wasm";
-import { basename } from "./common";
+import { basename, getPlatformEnv } from "./common";
 
 const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
 
@@ -281,7 +280,7 @@ export async function getCircuitOrErrorWithTimeout(
 
   const compilerWorkerScriptPath = Uri.joinPath(
     extensionUri,
-    `./out/${__PLATFORM_DIR__}/compilerWorker.js`,
+    `./out/${getPlatformEnv()}/compilerWorker.js`,
   ).toString();
 
   const worker = getCompilerWorker(compilerWorkerScriptPath);

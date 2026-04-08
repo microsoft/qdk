@@ -1,6 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
-declare const __PLATFORM_DIR__: string;
+declare const __PLATFORM__: string;
 
 import { TextDocument, Uri, Range, Location } from "vscode";
 import {
@@ -148,7 +148,11 @@ export function toVsCodeDiagnostic(d: VSDiagnostic): vscode.Diagnostic {
 export function loadCompilerWorker(extensionUri: vscode.Uri): ICompilerWorker {
   const compilerWorkerScriptPath = vscode.Uri.joinPath(
     extensionUri,
-    `./out/${__PLATFORM_DIR__}/compilerWorker.js`,
+    `./out/${__PLATFORM__}/compilerWorker.js`,
   ).toString();
   return getCompilerWorker(compilerWorkerScriptPath);
+}
+
+export function getPlatformEnv(): string {
+  return __PLATFORM__;
 }

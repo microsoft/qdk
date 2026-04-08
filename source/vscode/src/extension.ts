@@ -1,6 +1,5 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
-declare const __PLATFORM_DIR__: string;
 
 import {
   getLibrarySourceContent,
@@ -36,7 +35,7 @@ import {
   maybeShowChangelogPrompt,
   registerChangelogCommand,
 } from "./changelog.js";
-import { toVsCodeRange } from "./common.js";
+import { getPlatformEnv, toVsCodeRange } from "./common.js";
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -51,7 +50,7 @@ export async function activate(
     initOutputWindowLogger();
   }
 
-  log.info(`Platform: ${__PLATFORM_DIR__}`);
+  log.info(`Platform: ${getPlatformEnv()}`);
   log.info(
     `UI Kind: ${vscode.env.uiKind === vscode.UIKind.Web ? "Web" : "Desktop"}`,
   );

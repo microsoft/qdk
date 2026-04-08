@@ -1,13 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-declare const __PLATFORM_DIR__: string;
-
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
 import { IDebugServiceWorker, getDebugServiceWorker, log } from "qsharp-lang";
 import * as vscode from "vscode";
-import { qsharpExtensionId } from "../common";
+import { getPlatformEnv, qsharpExtensionId } from "../common";
 import { clearCommandDiagnostics } from "../diagnostics";
 import {
   getActiveQdkDocumentUri,
@@ -24,7 +22,7 @@ export async function activateDebugger(
 ): Promise<void> {
   const debugWorkerScriptPath = vscode.Uri.joinPath(
     context.extensionUri,
-    `./out/${__PLATFORM_DIR__}/debugger/debug-service-worker.js`,
+    `./out/${getPlatformEnv()}/debugger/debug-service-worker.js`,
   );
 
   debugServiceWorkerFactory = () =>

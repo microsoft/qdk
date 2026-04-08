@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-declare const __PLATFORM_DIR__: string;
-
 import {
   getCompilerWorker,
   log,
@@ -10,7 +8,7 @@ import {
   TargetProfile,
 } from "qsharp-lang";
 import * as vscode from "vscode";
-import { qsharpExtensionId } from "./common";
+import { getPlatformEnv, qsharpExtensionId } from "./common";
 import { invokeAndReportCommandDiagnostics } from "./diagnostics";
 import { FullProgramConfig, getActiveProgram } from "./programConfig";
 import {
@@ -210,7 +208,7 @@ async function getQirForActiveWindowCommand() {
 export function initCodegen(context: vscode.ExtensionContext) {
   compilerWorkerScriptPath = vscode.Uri.joinPath(
     context.extensionUri,
-    `./out/${__PLATFORM_DIR__}/compilerWorker.js`,
+    `./out/${getPlatformEnv()}/compilerWorker.js`,
   ).toString();
 
   context.subscriptions.push(

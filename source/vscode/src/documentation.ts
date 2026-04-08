@@ -1,12 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-declare const __PLATFORM_DIR__: string;
-
 import { getCompilerWorker, IDocFile } from "qsharp-lang";
 import { Uri } from "vscode";
 import { sendMessageToPanel } from "./webviewPanel";
 import { getActiveProgram } from "./programConfig";
+import { getPlatformEnv } from "./common";
 
 export async function showDocumentationCommand(extensionUri: Uri) {
   const program = await getActiveProgram();
@@ -24,7 +23,7 @@ export async function showDocumentationCommand(extensionUri: Uri) {
   // Get API documentation from compiler.
   const compilerWorkerScriptPath = Uri.joinPath(
     extensionUri,
-    `./out/${__PLATFORM_DIR__}/compilerWorker.js`,
+    `./out/${getPlatformEnv()}/compilerWorker.js`,
   ).toString();
   const worker = getCompilerWorker(compilerWorkerScriptPath);
   const docFiles = await worker.getDocumentation(program.programConfig);
