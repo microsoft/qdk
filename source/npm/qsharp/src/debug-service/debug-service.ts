@@ -13,7 +13,7 @@ import type {
   IStructStepResult,
   IVariable,
 } from "../../lib/web/qsc_wasm.js";
-import { ProgramConfig } from "../browser.js";
+import { ProgramConfig } from "../main.js";
 import { eventStringToMsg } from "../compiler/common.js";
 import {
   IQscEventTarget,

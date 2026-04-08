@@ -18,7 +18,7 @@ import type {
   VSDiagnostic,
   ITestDescriptor,
 } from "../../lib/web/qsc_wasm.js";
-import { IProjectHost } from "../browser.js";
+import { IProjectHost } from "../main.js";
 import { log } from "../log.js";
 import {
   IServiceEventTarget,

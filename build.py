@@ -135,7 +135,7 @@ npm_install_needed = (
 npm_cmd = "npm.cmd" if platform.system() == "Windows" else "npm"
 
 build_type = "debug" if args.debug else "release"
-wasm_targets = ["web", "nodejs"] if not args.web_only else ["web"]
+wasm_targets = ["web"] if not args.web_only else ["web"]
 run_tests = args.test
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
