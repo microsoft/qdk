@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// Logging infrastructure for JavaScript environments (e.g. browser and node.js)
+// Logging infrastructure shared across browser and Node.js environments
 //
 // Ideally this should be the only module to have global side effects and run code
 // on module load (i.e. other modules should consist almost entirely of declarations

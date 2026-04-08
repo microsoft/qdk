@@ -30,8 +30,6 @@ import {
 } from "./events.js";
 import { callAndTransformExceptions } from "../diagnostics.js";
 
-// The wasm types generated for the node.js bundle are just the exported APIs,
-// so use those as the set used by the shared compiler
 type Wasm = typeof import("../../lib/web/qsc_wasm.js");
 
 // These need to be async/promise results for when communicating across a WebWorker, however

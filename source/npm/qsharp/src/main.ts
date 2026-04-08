@@ -1,8 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// This module is the default entry point for browser and node environments, still named this way for
-// backward compatibility.
+// This module is the single entry point for both browser and Node.js environments.
 
 import * as wasm from "../lib/web/qsc_wasm.js";
 import initWasm, {
