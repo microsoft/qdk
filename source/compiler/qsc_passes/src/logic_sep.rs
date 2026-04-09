@@ -178,6 +178,14 @@ impl SepCheck {
             ExprKind::If(cond, then_expr, else_expr) => {
                 self.handle_if_expr(prior, cond, then_expr, else_expr.as_deref())
             }
+            ExprKind::Parallel(limit, body) => {
+                if let Some(limit) = limit {
+                    self.op_call_allowed = false;
+                    self.visit_expr(limit);
+                    self.op_call_allowed = prior;
+                }
+                self.handle_expr(body, prior)
+            }
 
             ExprKind::Array(_)
             | ExprKind::ArrayRepeat(..)

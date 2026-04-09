@@ -334,8 +334,15 @@ pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: &'a Expr) {
             vis.visit_pat(pat);
             vis.visit_expr(expr);
         }
-        ExprKind::Paren(expr) | ExprKind::Return(expr) | ExprKind::UnOp(_, expr) => {
+        ExprKind::Parallel(expr)
+        | ExprKind::Paren(expr)
+        | ExprKind::Return(expr)
+        | ExprKind::UnOp(_, expr) => {
             vis.visit_expr(expr);
+        }
+        ExprKind::ParallelLimited(limit, body) => {
+            vis.visit_expr(limit);
+            vis.visit_expr(body);
         }
         ExprKind::Path(path) => vis.visit_path_kind(path),
         ExprKind::Range(start, step, end) => {

@@ -142,7 +142,7 @@
       "patterns": [
         {
           "name": "keyword.control.qsharp",
-          "match": "\\b(use|borrow|mutable|let|set|if|elif|else|repeat|until|fixup|for|in|while|return|fail|within|apply)\\b"
+          "match": "\\b(use|borrow|mutable|let|set|if|elif|else|repeat|until|fixup|for|in|while|return|fail|within|apply|parallel)\\b"
         },
         {
           "name": "keyword.other.qsharp",

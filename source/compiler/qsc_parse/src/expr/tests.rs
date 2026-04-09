@@ -3117,3 +3117,35 @@ fn call_with_incomplete_struct_arg() {
             ]"#]],
     );
 }
+
+#[test]
+fn parallel_expr() {
+    check(
+        expr,
+        "parallel x",
+        &expect![[
+            r#"Expr _id_ [0-10]: Parallel: Expr _id_ [9-10]: Path: Path _id_ [9-10] (Ident _id_ [9-10] "x")"#
+        ]],
+    );
+}
+
+#[test]
+fn parallel_limited_expr() {
+    check(
+        expr,
+        "parallel within 4 { }",
+        &expect![[r#"
+            Expr _id_ [0-21]: ParallelLimited: Expr _id_ [16-17]: Lit: Int(4) Expr _id_ [18-21]: Expr Block: Block _id_ [18-21]: <empty>"#]],
+    );
+}
+
+#[test]
+fn parallel_limited_with_path_body() {
+    check(
+        expr,
+        "parallel within 2 x",
+        &expect![[
+            r#"Expr _id_ [0-19]: ParallelLimited: Expr _id_ [16-17]: Lit: Int(2) Expr _id_ [18-19]: Path: Path _id_ [18-19] (Ident _id_ [18-19] "x")"#
+        ]],
+    );
+}

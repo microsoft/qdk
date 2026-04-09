@@ -540,6 +540,16 @@ impl<W: Write> Visitor<'_> for QSharpGen<W> {
                 }
                 self.visit_expr(expr);
             }
+            ExprKind::Parallel(expr) => {
+                self.write("parallel ");
+                self.visit_expr(expr);
+            }
+            ExprKind::ParallelLimited(limit, body) => {
+                self.write("parallel within ");
+                self.visit_expr(limit);
+                self.write(" ");
+                self.visit_expr(body);
+            }
             ExprKind::Paren(expr) => {
                 self.write("(");
                 self.visit_expr(expr);

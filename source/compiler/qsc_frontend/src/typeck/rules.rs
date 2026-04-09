@@ -455,7 +455,14 @@ impl<'a> Context<'a> {
                 Lit::Result(_) => converge(Ty::Prim(Prim::Result)),
                 Lit::String(_) => converge(Ty::Prim(Prim::String)),
             },
-            ExprKind::Paren(expr) => self.infer_expr(expr),
+            ExprKind::Paren(expr) | ExprKind::Parallel(expr) => self.infer_expr(expr),
+            ExprKind::ParallelLimited(limit, body) => {
+                let limit_span = limit.span;
+                let limit = self.infer_expr(limit);
+                self.inferrer.eq(limit_span, Ty::Prim(Prim::Int), limit.ty);
+                let body = self.infer_expr(body);
+                body.diverge_if(limit.diverges)
+            }
             ExprKind::Path(path) => self.infer_path_kind(expr, path),
             ExprKind::Range(start, step, end) => {
                 let mut diverges = false;
