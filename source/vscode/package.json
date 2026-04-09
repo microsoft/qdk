@@ -20,6 +20,7 @@
   "browser": "./out/extension.js",
   "virtualWorkspaces": true,
   "activationEvents": [
+    "onUri",
     "onNotebook:jupyter-notebook",
     "onDebug",
     "onDebugResolve:qsharp",

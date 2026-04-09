@@ -38,6 +38,7 @@ import {
   getAzurePortalWorkspaceLink,
   getJobFiles,
   getPythonCodeForWorkspace,
+  parseConnectionString,
   queryWorkspaces,
   submitJob,
   uploadBlob,
@@ -479,6 +480,19 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       },
     ),
   );
+
+  return {
+    /**
+     * Adds a workspace connection programmatically (e.g. from a URI handler).
+     * The workspace is persisted and its refresh cycle is started.
+     */
+    async addWorkspace(workspace: WorkspaceConnection) {
+      workspaceTreeProvider.updateWorkspace(workspace);
+      await saveWorkspaceList();
+      startRefreshCycle(workspaceTreeProvider, workspace);
+    },
+    parseConnectionString,
+  };
 }
 
 type Buckets = {

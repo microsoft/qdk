@@ -79,7 +79,42 @@ export async function activate(
   context.subscriptions.push(CircuitEditorProvider.register(context));
   context.subscriptions.push(...registerChangelogCommand(context));
 
-  await initAzureWorkspaces(context);
+  /// Handle incoming workspace connection URIs from the Azure portal. The URI will be in the format:
+  /// `vscode://quantum.qsharp-lang-vscode/connectWorkspace?connectionString=SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<https://...>`
+  const azureApi = await initAzureWorkspaces(context);
+  context.subscriptions.push(
+    vscode.window.registerUriHandler({
+      async handleUri(uri: vscode.Uri) {
+        if (uri.path === "/connectWorkspace") {
+          const params = new URLSearchParams(uri.query);
+          const connStr = params.get("connectionString");
+          if (!connStr) {
+            vscode.window.showErrorMessage(
+              "No connection string provided in the workspace URI.",
+            );
+            return;
+          }
+
+          const workspace = azureApi.parseConnectionString(connStr);
+          if (!workspace) {
+            vscode.window.showErrorMessage(
+              "The workspace URI contained an invalid connection string.",
+            );
+            return;
+          }
+
+          const confirmed = await vscode.window.showInformationMessage(
+            `Add quantum workspace "${workspace.name}" to your connections?`,
+            { modal: true },
+            "Add Workspace",
+          );
+          if (confirmed === "Add Workspace") {
+            await azureApi.addWorkspace(workspace);
+          }
+        }
+      },
+    }),
+  );
   initCodegen(context);
   await activateDebugger(context);
   registerCreateNotebookCommand(context);
