@@ -708,6 +708,8 @@ pub enum ExprKind {
     Index(Box<Expr>, Box<Expr>),
     /// A literal.
     Lit(Lit),
+    /// A parallel expression: `parallel a`.
+    Parallel(Box<Expr>),
     /// A range: `start..step..end`, `start..end`, `start...`, `...end`, or `...`.
     Range(Option<Box<Expr>>, Option<Box<Expr>>, Option<Box<Expr>>),
     /// A repeat-until loop with an optional fixup: `repeat { ... } until a fixup { ... }`.
@@ -762,6 +764,7 @@ impl Display for ExprKind {
             ExprKind::If(cond, body, els) => display_if(indent, cond, body, els.as_deref())?,
             ExprKind::Index(array, index) => display_index(indent, array, index)?,
             ExprKind::Lit(lit) => write!(indent, "Lit: {lit}")?,
+            ExprKind::Parallel(expr) => write!(indent, "Parallel: {expr}")?,
             ExprKind::Range(start, step, end) => {
                 display_range(indent, start.as_deref(), step.as_deref(), end.as_deref())?;
             }

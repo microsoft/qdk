@@ -362,7 +362,10 @@ pub fn walk_expr(vis: &mut impl MutVisitor, expr: &mut Expr) {
             vis.visit_pat(pat);
             vis.visit_expr(expr);
         }
-        ExprKind::Paren(expr) | ExprKind::Return(expr) | ExprKind::UnOp(_, expr) => {
+        ExprKind::Parallel(expr)
+        | ExprKind::Paren(expr)
+        | ExprKind::Return(expr)
+        | ExprKind::UnOp(_, expr) => {
             vis.visit_expr(expr);
         }
         ExprKind::Path(path) => vis.visit_path_kind(path),

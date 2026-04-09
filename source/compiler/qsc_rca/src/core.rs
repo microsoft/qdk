@@ -1921,6 +1921,12 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ExprKind::Index(array_expr_id, index_expr_id) => {
                 self.analyze_expr_index(*array_expr_id, *index_expr_id, &expr.ty)
             }
+            ExprKind::Parallel(expr) => {
+                self.visit_expr(*expr);
+                // The compute kind of a parallel expression is the same as the compute kind of its inner expression.
+                let application_instance = self.get_current_application_instance();
+                *application_instance.get_expr_compute_kind(*expr)
+            }
             ExprKind::Range(start_expr_id, step_expr_id, end_expr_id) => self.analyze_expr_range(
                 start_expr_id.to_owned(),
                 step_expr_id.to_owned(),

@@ -455,7 +455,7 @@ impl<'a> Context<'a> {
                 Lit::Result(_) => converge(Ty::Prim(Prim::Result)),
                 Lit::String(_) => converge(Ty::Prim(Prim::String)),
             },
-            ExprKind::Paren(expr) => self.infer_expr(expr),
+            ExprKind::Parallel(expr) | ExprKind::Paren(expr) => self.infer_expr(expr),
             ExprKind::Path(path) => self.infer_path_kind(expr, path),
             ExprKind::Range(start, step, end) => {
                 let mut diverges = false;

@@ -47,6 +47,7 @@ pub enum Keyword {
     Open,
     Operation,
     Or,
+    Parallel,
     PauliI,
     PauliX,
     PauliY,
@@ -106,6 +107,7 @@ impl Keyword {
             Self::Open => "open",
             Self::Operation => "operation",
             Self::Or => "or",
+            Self::Parallel => "parallel",
             Self::PauliI => "PauliI",
             Self::PauliX => "PauliX",
             Self::PauliY => "PauliY",
@@ -197,6 +199,7 @@ impl FromStr for Keyword {
             // in the standard library for priority order.
             "PauliY" => Ok(Self::PauliY),
             "borrow" => Ok(Self::Borrow),
+            "parallel" => Ok(Self::Parallel),
             "_" => Ok(Self::Underscore),
             _ => Err(()),
         }
