@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from ._application import Application
-from ._architecture import Architecture
+from ._architecture import Architecture, ISAContext
 from ._estimation import estimate
 from ._instruction import (
     LOGICAL,
@@ -69,6 +69,7 @@ __all__ = [
     "InstructionSource",
     "ISA",
     "ISA_ROOT",
+    "ISAContext",
     "ISAQuery",
     "ISARefNode",
     "ISARequirements",

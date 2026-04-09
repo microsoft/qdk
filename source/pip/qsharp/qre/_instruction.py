@@ -151,7 +151,17 @@ class ISATransform(ABC):
         Args:
             source (Node | None): The source node providing implementation ISAs.
                 Defaults to ISA_ROOT.
-            **kwargs: Additional arguments for parameter enumeration.
+            **kwargs: Fixed values or domains for dataclass fields.  Keyword-only
+                fields with a ``metadata["domain"]`` are enumerated automatically;
+                passing a value for such a field overrides or restricts the
+                domain.  Non-keyword-only fields passed here are used as fixed
+                values for all enumerated instances.
+
+                For example, given a transform with a non-keyword-only field
+                ``threshold`` and a keyword-only field ``distance`` with a
+                domain, calling ``MyTransform.q(threshold=0.03)`` fixes
+                ``threshold`` to 0.03 while still enumerating over all values
+                in the ``distance`` domain.
 
         Returns:
             ISAQuery: An enumeration node representing this transform.
