@@ -682,6 +682,12 @@ impl Lowerer {
                 let index = self.lower_expr(index);
                 fir::ExprKind::Index(container, index)
             }
+            hir::ExprKind::Parallel(expr) => {
+                self.exec_graph.push(ExecGraphNode::ParStart);
+                let expr = self.lower_expr(expr);
+                self.exec_graph.push(ExecGraphNode::ParEnd);
+                fir::ExprKind::Parallel(expr)
+            }
             hir::ExprKind::Lit(lit) => lower_lit(lit),
             hir::ExprKind::Range(start, step, end) => {
                 let start = start.as_ref().map(|s| self.lower_expr(s));
@@ -799,7 +805,8 @@ impl Lowerer {
             | fir::ExprKind::Block(..)
             | fir::ExprKind::If(..)
             | fir::ExprKind::Return(..)
-            | fir::ExprKind::While(..) => {}
+            | fir::ExprKind::While(..)
+            | fir::ExprKind::Parallel(..) => {}
 
             fir::ExprKind::Assign(..)
             | fir::ExprKind::AssignField(..)

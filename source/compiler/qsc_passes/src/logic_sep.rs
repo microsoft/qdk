@@ -178,6 +178,7 @@ impl SepCheck {
             ExprKind::If(cond, then_expr, else_expr) => {
                 self.handle_if_expr(prior, cond, then_expr, else_expr.as_deref())
             }
+            ExprKind::Parallel(expr) => self.handle_expr(expr, prior),
 
             ExprKind::Array(_)
             | ExprKind::ArrayRepeat(..)

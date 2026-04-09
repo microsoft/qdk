@@ -171,7 +171,7 @@ pub fn walk_expr<'a>(vis: &mut impl MutVisitor<'a>, expr: ExprId) {
             vis.visit_expr(*array);
             vis.visit_expr(*index);
         }
-        ExprKind::Return(expr) | ExprKind::UnOp(_, expr) => {
+        ExprKind::Parallel(expr) | ExprKind::Return(expr) | ExprKind::UnOp(_, expr) => {
             vis.visit_expr(*expr);
         }
         ExprKind::Range(start, step, end) => {

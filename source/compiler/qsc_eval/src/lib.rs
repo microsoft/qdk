@@ -602,6 +602,8 @@ pub struct State {
     error_behavior: ErrorBehavior,
     last_error: Option<(Error, Vec<Frame>)>,
     exec_graph_config: ExecGraphConfig,
+    parallel_section_count: u32,
+    delayed_release_qubits: Vec<usize>,
 }
 
 impl State {
@@ -634,6 +636,8 @@ impl State {
             error_behavior,
             last_error: None,
             exec_graph_config,
+            parallel_section_count: 0,
+            delayed_release_qubits: Vec::new(),
         }
     }
 
@@ -831,6 +835,24 @@ impl State {
                     env.leave_scope();
                     continue;
                 }
+                Some(ExecGraphNode::ParStart) => {
+                    self.parallel_section_count += 1;
+                    self.idx += 1;
+                    continue;
+                }
+                Some(ExecGraphNode::ParEnd) => {
+                    self.parallel_section_count -= 1;
+                    if self.parallel_section_count == 0 {
+                        // After finishing all parallel sections, we should check for any delayed qubit releases that need to be performed.
+                        let call_stack = self.capture_stack_if_trace_enabled(sim);
+                        for qubit_id in self.delayed_release_qubits.drain(..) {
+                            sim.qubit_release(qubit_id, &call_stack)
+                                .expect("delayed release should never fail");
+                        }
+                    }
+                    self.idx += 1;
+                    continue;
+                }
                 Some(ExecGraphNode::Debug(dbg_node)) => match dbg_node {
                     ExecGraphDebugNode::PushScope => {
                         self.push_scope(env);
@@ -965,7 +987,7 @@ impl State {
         self.val_register.take().unwrap_or_else(Value::unit)
     }
 
-    #[allow(clippy::similar_names)]
+    #[allow(clippy::similar_names, clippy::too_many_lines)]
     fn eval_expr<B: Backend>(
         &mut self,
         env: &mut Env,
@@ -1069,6 +1091,9 @@ impl State {
             }
             ExprKind::While(..) => {
                 panic!("while expr should be handled by control flow")
+            }
+            ExprKind::Parallel(..) => {
+                panic!("parallel expr should be handled by control flow")
             }
         }
 
@@ -1354,9 +1379,16 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                let is_zero = sim
-                    .qubit_release(qubit.0, &call_stack)
-                    .map_err(|e| Error::SimulationError(e, callee_span))?;
+                let is_zero = if self.parallel_section_count == 0 {
+                    sim.qubit_release(qubit.0, &call_stack)
+                        .map_err(|e| Error::SimulationError(e, callee_span))?
+                } else {
+                    // If we are in a parallel section, delay the release of the qubit but check
+                    // the qubit state immediate to ensure semantics and error reporting are consistent.
+                    self.delayed_release_qubits.push(qubit.0);
+                    sim.qubit_is_zero(qubit.0)
+                        .map_err(|e| Error::SimulationError(e, callee_span))?
+                };
                 let is_borrowed = self.dirty_qubits.remove(&qubit.0);
                 if is_zero || is_borrowed {
                     Value::unit()

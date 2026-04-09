@@ -24,8 +24,8 @@ use qsc_eval::{
     output::GenericReceiver,
     resolve_closure,
     val::{
-        self, Value, Var, VarTy, index_array, slice_array, update_functor_app, update_index_range,
-        update_index_single,
+        self, QubitRef, Value, Var, VarTy, index_array, slice_array, update_functor_app,
+        update_index_range, update_index_single,
     },
 };
 use qsc_fir::{
@@ -193,6 +193,8 @@ struct PartialEvaluator<'a> {
     entry: Option<&'a ProgramEntry>,
     config: PartialEvalConfig,
     dbg_context: DbgContext,
+    parallel_section_count: usize,
+    delayed_release_qubits: Vec<QubitRef>,
 }
 
 #[derive(Clone, Copy)]
@@ -295,6 +297,8 @@ impl<'a> PartialEvaluator<'a> {
             entry,
             config,
             dbg_context: Default::default(),
+            parallel_section_count: 0,
+            delayed_release_qubits: Vec::new(),
         }
     }
 
@@ -1287,6 +1291,7 @@ impl<'a> PartialEvaluator<'a> {
                 "literal should have been classically evaluated".to_string(),
                 expr_package_span,
             )),
+            ExprKind::Parallel(expr_id) => self.eval_expr_parallel(*expr_id),
             ExprKind::Range(_, _, _) => Err(Error::Unexpected(
                 "dynamic ranges are invalid".to_string(),
                 expr_package_span,
@@ -3132,7 +3137,13 @@ impl<'a> PartialEvaluator<'a> {
                 arg_span,
             ));
         };
-        self.resource_manager.release_qubit(&qubit);
+        if self.parallel_section_count == 0 {
+            self.resource_manager.release_qubit(&qubit);
+        } else {
+            // If we are in a parallel section, delay the release of the qubit until
+            // after all parallel sections are completed.
+            self.delayed_release_qubits.push(qubit);
+        }
 
         // The value of a qubit release is unit.
         Ok(Value::unit())
@@ -4039,6 +4050,19 @@ impl<'a> PartialEvaluator<'a> {
         })?;
 
         Ok(Value::Var(eval_variable))
+    }
+
+    fn eval_expr_parallel(&mut self, expr_id: ExprId) -> Result<EvalControlFlow, Error> {
+        self.parallel_section_count += 1;
+        let result = self.try_eval_expr(expr_id)?;
+        self.parallel_section_count -= 1;
+        if self.parallel_section_count == 0 {
+            // After finishing all parallel sections, release any qubits that were delayed.
+            for qubit in self.delayed_release_qubits.drain(..) {
+                self.resource_manager.release_qubit(&qubit);
+            }
+        }
+        Ok(result)
     }
 }
 

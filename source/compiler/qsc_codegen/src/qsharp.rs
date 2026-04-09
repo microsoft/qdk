@@ -540,6 +540,10 @@ impl<W: Write> Visitor<'_> for QSharpGen<W> {
                 }
                 self.visit_expr(expr);
             }
+            ExprKind::Parallel(expr) => {
+                self.write("parallel ");
+                self.visit_expr(expr);
+            }
             ExprKind::Paren(expr) => {
                 self.write("(");
                 self.visit_expr(expr);

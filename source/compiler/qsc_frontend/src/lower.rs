@@ -797,6 +797,9 @@ impl With<'_> {
                 self.lower_lambda(lambda, expr.span)
             }
             ast::ExprKind::Lit(lit) => self.lower_lit(lit),
+            ast::ExprKind::Parallel(expr) => {
+                hir::ExprKind::Parallel(Box::new(self.lower_expr(expr)))
+            }
             ast::ExprKind::Paren(_) => unreachable!("parentheses should be removed earlier"),
             ast::ExprKind::Path(PathKind::Ok(path)) => {
                 let args = self
