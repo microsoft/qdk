@@ -9,11 +9,7 @@ from typing import Optional, Callable, Any, Iterable
 import pandas as pd
 
 from ._architecture import ISAContext
-from ._qre import (
-    FactoryResult,
-    instruction_name,
-    EstimationResult,
-)
+from ._qre import FactoryResult, instruction_name, EstimationResult, property_name
 from ._instruction import InstructionSource
 from .property_keys import (
     PHYSICAL_COMPUTE_QUBITS,
@@ -116,6 +112,34 @@ class EstimationTable(list["EstimationTableEntry"]):
             )
 
         self.add_column("factories", summarize_factories)
+
+    def add_property_column(
+        self,
+        property_key: int,
+        column_name: Optional[str] = None,
+        default_value: Any = None,
+    ) -> None:
+        """Add a column for a specific property key from the estimation results.
+
+        Args:
+            property_key (int): The property key to add as a column.
+            column_name (Optional[str]): An optional name for the column. If not provided, the column will be named "property_{property_key}".
+            default_value (Any): The default value to use if the property key is not present in an entry's properties. Defaults to None.
+        """
+        if column_name is None:
+            # property_name may return None for unknown and custom property keys
+            column_name = property_name(property_key)
+
+            if column_name is None:
+                column_name = f"property_{property_key}"
+            else:
+                # Normalize the column name to lowercase
+                column_name = column_name.lower()
+
+        self.add_column(
+            column_name,
+            lambda entry: entry.properties.get(property_key, default_value),
+        )
 
     def as_frame(self):
         """Convert the estimation table to a ``pandas.DataFrame``.
