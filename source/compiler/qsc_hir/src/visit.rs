@@ -113,6 +113,7 @@ pub fn walk_stmt<'a>(vis: &mut impl Visitor<'a>, stmt: &'a Stmt) {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: &'a Expr) {
     match &expr.kind {
         ExprKind::Array(exprs) => exprs.iter().for_each(|e| vis.visit_expr(e)),
@@ -161,6 +162,12 @@ pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: &'a Expr) {
         ExprKind::Index(array, index) => {
             vis.visit_expr(array);
             vis.visit_expr(index);
+        }
+        ExprKind::Parallel(limit, expr) => {
+            if let Some(limit) = limit {
+                vis.visit_expr(limit);
+            }
+            vis.visit_expr(expr);
         }
         ExprKind::Return(expr) | ExprKind::UnOp(_, expr) => {
             vis.visit_expr(expr);

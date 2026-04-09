@@ -48,6 +48,8 @@ use qsc_lowerer::map_fir_package_to_hir;
 use rand::{SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::array;
+use std::collections::VecDeque;
+use std::mem::take;
 use std::{
     cell::RefCell,
     fmt::{self, Display, Formatter},
@@ -562,10 +564,6 @@ impl Env {
     pub fn track_qubit(&mut self, qubit: Rc<Qubit>) {
         self.qubits.insert(qubit);
     }
-
-    pub fn release_qubit(&mut self, qubit: &Rc<Qubit>) {
-        self.qubits.remove(qubit);
-    }
 }
 
 #[derive(Default)]
@@ -602,6 +600,7 @@ pub struct State {
     error_behavior: ErrorBehavior,
     last_error: Option<(Error, Vec<Frame>)>,
     exec_graph_config: ExecGraphConfig,
+    delayed_release_qubits: DelayedQubitReleaseStack,
 }
 
 impl State {
@@ -634,6 +633,7 @@ impl State {
             error_behavior,
             last_error: None,
             exec_graph_config,
+            delayed_release_qubits: DelayedQubitReleaseStack::default(),
         }
     }
 
@@ -781,17 +781,7 @@ impl State {
                     self.idx += 1;
                     match self.eval_expr(env, sim, globals, out, *expr) {
                         Ok(()) => continue,
-                        Err(e) => {
-                            if self.error_behavior == ErrorBehavior::StopOnError {
-                                let error_str = e.to_string();
-                                self.set_last_error(e, self.capture_stack());
-                                // Clear the execution graph stack to indicate that execution has failed.
-                                // This will prevent further execution steps.
-                                self.exec_graph_stack.clear();
-                                return Ok(StepResult::Fail(error_str));
-                            }
-                            return Err((e, self.capture_stack()));
-                        }
+                        Err(e) => return self.handle_error(e),
                     }
                 }
                 Some(ExecGraphNode::Jump(idx)) => {
@@ -829,6 +819,63 @@ impl State {
                 Some(ExecGraphNode::Ret) => {
                     self.leave_frame();
                     env.leave_scope();
+                    continue;
+                }
+                Some(ExecGraphNode::ParStart(has_limit)) => {
+                    let limit = if *has_limit {
+                        let limit_val = self.take_val_register().unwrap_int();
+                        if limit_val < 0 {
+                            let package = map_fir_package_to_hir(self.package);
+                            return self.handle_error(Error::InvalidNegativeInt(
+                                limit_val,
+                                PackageSpan {
+                                    package,
+                                    span: self.current_span,
+                                },
+                            ));
+                        }
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        Some(limit_val as usize)
+                    } else {
+                        None
+                    };
+                    self.delayed_release_qubits.add_layer(limit);
+                    self.idx += 1;
+                    continue;
+                }
+                Some(ExecGraphNode::ParEnd) => {
+                    // After finishing all parallel sections, we should check for any delayed qubit releases that need to be performed.
+                    let call_stack = self.capture_stack_if_trace_enabled(sim);
+                    for qubit in self.delayed_release_qubits.remove_layer() {
+                        env.qubits.remove(&qubit);
+                        let is_borrowed = self.dirty_qubits.remove(&qubit.0);
+                        match (
+                            sim.qubit_release(qubit.0, &call_stack).map_err(|e| {
+                                let package_span = PackageSpan {
+                                    package: map_fir_package_to_hir(self.package),
+                                    span: self.current_span,
+                                };
+
+                                Error::SimulationError(e, package_span)
+                            }),
+                            is_borrowed,
+                        ) {
+                            (Ok(true), _) | (Ok(_), true) => {}
+                            (Ok(false), false) => {
+                                let package_span = PackageSpan {
+                                    package: map_fir_package_to_hir(self.package),
+                                    span: self.current_span,
+                                };
+
+                                return self.handle_error(Error::ReleasedQubitNotZero(
+                                    qubit.0,
+                                    package_span,
+                                ));
+                            }
+                            (Err(e), _) => return self.handle_error(e),
+                        }
+                    }
+                    self.idx += 1;
                     continue;
                 }
                 Some(ExecGraphNode::Debug(dbg_node)) => match dbg_node {
@@ -907,6 +954,19 @@ impl State {
         Ok(StepResult::Return(self.get_result()))
     }
 
+    fn handle_error(&mut self, error: Error) -> Result<StepResult, (Error, Vec<Frame>)> {
+        if self.error_behavior == ErrorBehavior::StopOnError {
+            let error_str = error.to_string();
+            self.set_last_error(error, self.capture_stack());
+            // Clear the execution graph stack to indicate that execution has failed.
+            // This will prevent further execution steps.
+            self.exec_graph_stack.clear();
+            Ok(StepResult::Fail(error_str))
+        } else {
+            Err((error, self.capture_stack()))
+        }
+    }
+
     fn check_for_break(
         &self,
         breakpoints: &[StmtId],
@@ -965,7 +1025,7 @@ impl State {
         self.val_register.take().unwrap_or_else(Value::unit)
     }
 
-    #[allow(clippy::similar_names)]
+    #[allow(clippy::similar_names, clippy::too_many_lines)]
     fn eval_expr<B: Backend>(
         &mut self,
         env: &mut Env,
@@ -1069,6 +1129,9 @@ impl State {
             }
             ExprKind::While(..) => {
                 panic!("while expr should be handled by control flow")
+            }
+            ExprKind::Parallel(..) => {
+                panic!("parallel expr should be handled by control flow")
             }
         }
 
@@ -1335,28 +1398,43 @@ impl State {
         let name = &callee.name.name;
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
-                let q = sim
-                    .qubit_allocate(&call_stack)
-                    .map_err(|e| Error::SimulationError(e, callee_span))?;
-                let q = Rc::new(Qubit(q));
-                env.track_qubit(Rc::clone(&q));
-                if let Some(counter) = &mut self.qubit_counter {
-                    counter.allocated(q.0);
+                if let Some(q) = self.delayed_release_qubits.allocate_delayed_qubit() {
+                    Value::Qubit(
+                        env.qubits
+                            .get(&q)
+                            .expect("qubit should be tracked")
+                            .clone()
+                            .into(),
+                    )
+                } else {
+                    let q = sim
+                        .qubit_allocate(&call_stack)
+                        .map_err(|e| Error::SimulationError(e, callee_span))?;
+                    let q = Rc::new(Qubit(q));
+                    env.track_qubit(Rc::clone(&q));
+                    if let Some(counter) = &mut self.qubit_counter {
+                        counter.allocated(q.0);
+                    }
+                    if name.as_ref() == "__quantum__rt__qubit_borrow" {
+                        self.dirty_qubits.insert(q.0);
+                    }
+                    Value::Qubit(q.into())
                 }
-                if name.as_ref() == "__quantum__rt__qubit_borrow" {
-                    self.dirty_qubits.insert(q.0);
-                }
-                Value::Qubit(q.into())
             }
             "__quantum__rt__qubit_release" => {
                 let qubit = arg
                     .unwrap_qubit()
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
-                env.release_qubit(&qubit);
-                let is_zero = sim
-                    .qubit_release(qubit.0, &call_stack)
-                    .map_err(|e| Error::SimulationError(e, callee_span))?;
+                let is_zero = if self.delayed_release_qubits.delay_release_qubit(*qubit) {
+                    // If the qubit is delayed for release, we don't check if it's zero yet.
+                    // The actual release will be handled later when the parallel section ends.
+                    true
+                } else {
+                    env.qubits.remove(&qubit);
+                    sim.qubit_release(qubit.0, &call_stack)
+                        .map_err(|e| Error::SimulationError(e, callee_span))?
+                };
                 let is_borrowed = self.dirty_qubits.remove(&qubit.0);
                 if is_zero || is_borrowed {
                     Value::unit()
@@ -1863,6 +1941,141 @@ impl State {
         {
             *count += 1;
         }
+    }
+}
+
+#[derive(Debug, Default)]
+struct DelayedQubitReleaseLayer {
+    released_qubits: Vec<Qubit>,
+    available_qubits: VecDeque<Qubit>,
+    used_qubits: FxHashSet<Qubit>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Default)]
+pub struct DelayedQubitReleaseStack {
+    layers: Vec<DelayedQubitReleaseLayer>,
+}
+
+impl DelayedQubitReleaseStack {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.layers.is_empty()
+    }
+
+    /// Add a new layer for tracking delayed qubit releases to the stack,
+    /// optionally with the specified limit on the number of qubits that are allocated
+    /// fresh before reuse begins.
+    /// To help accomodate nested delayed release and reuse, the new layer will inherit any
+    /// available qubits from the previous layer.
+    pub fn add_layer(&mut self, limit: Option<usize>) {
+        let new_layer = if let Some(DelayedQubitReleaseLayer {
+            available_qubits, ..
+        }) = self.layers.last_mut()
+        {
+            DelayedQubitReleaseLayer {
+                available_qubits: take(available_qubits),
+                limit,
+                ..Default::default()
+            }
+        } else {
+            DelayedQubitReleaseLayer {
+                limit,
+                ..Default::default()
+            }
+        };
+        self.layers.push(new_layer);
+    }
+
+    /// Remove the top layer from the stack and return any qubits that should be released.
+    /// If there is a parent layer, release of the qubits in this layer will be delayed by
+    /// into the parent, and only unused available qubits will be returned to the parent
+    /// layer's available qubits.
+    pub fn remove_layer(&mut self) -> Vec<Qubit> {
+        if let Some(DelayedQubitReleaseLayer {
+            released_qubits,
+            available_qubits,
+            used_qubits,
+            ..
+        }) = self.layers.pop()
+        {
+            if let Some(DelayedQubitReleaseLayer {
+                released_qubits: parent_released_qubits,
+                available_qubits: parent_available_qubits,
+                ..
+            }) = self.layers.last_mut()
+            {
+                // Available qubits that were never used in the current layer must have come from the parents available qubits,
+                // so we need to return those to the parent layer's available qubits.
+                let mut available_qubits: Vec<Qubit> = available_qubits.into();
+                let mut new_parent_available_qubits: Vec<Qubit> = available_qubits
+                    .extract_if(.., |q| !used_qubits.contains(q))
+                    .collect();
+                new_parent_available_qubits.sort_unstable();
+                *parent_available_qubits = new_parent_available_qubits.into();
+
+                // The remaining qubits that were released or available but used in the current layer
+                // should be added to the parent layer's delayed release qubits.
+                parent_released_qubits.extend(released_qubits);
+                parent_released_qubits.extend(available_qubits);
+                parent_released_qubits.sort_unstable();
+
+                // Since th parent layer is now responsible for releasing the qubits, we don't return any qubits to be released.
+                Vec::new()
+            } else {
+                // This is the last layer, so return all qubits managed by the layer to be released.
+                released_qubits
+                    .into_iter()
+                    .chain(available_qubits)
+                    .collect()
+            }
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Add a qubit to the list of qubits that should be released when the current layer is removed.
+    /// If there is no configured delayed release layer, the qubit will not be added to any layer and the function
+    /// returns false so the caller can handle the qubit release immediately.
+    pub fn delay_release_qubit(&mut self, qubit: Qubit) -> bool {
+        if let Some(DelayedQubitReleaseLayer {
+            released_qubits, ..
+        }) = self.layers.last_mut()
+        {
+            released_qubits.push(qubit);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Allocate a qubit from the current delayed release layer, if available.
+    /// If the layer has a limit and the number of released qubits exceeds the limit,
+    /// the available qubits will be replenished from the released qubits.
+    /// If there is no configured delayed release layer or no available qubits, the
+    /// function returns None so the caller can perform a fresh qubit allocation.
+    pub fn allocate_delayed_qubit(&mut self) -> Option<Qubit> {
+        if let Some(DelayedQubitReleaseLayer {
+            available_qubits,
+            released_qubits,
+            used_qubits,
+            limit,
+        }) = self.layers.last_mut()
+        {
+            if let Some(limit) = limit
+                && released_qubits.len() >= *limit
+            {
+                let mut qubits = take(released_qubits);
+                qubits.extend(take(available_qubits));
+                qubits.sort_unstable();
+                *available_qubits = qubits.into();
+            }
+            if let Some(qubit) = available_qubits.pop_front() {
+                used_qubits.insert(qubit);
+                return Some(qubit);
+            }
+        }
+        None
     }
 }
 
