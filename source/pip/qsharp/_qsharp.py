@@ -342,7 +342,7 @@ def get_interpreter() -> Interpreter:
     """
     Returns the Q# interpreter.
 
-    :returns: The Q# interpreter.
+    :return: The Q# interpreter.
     """
     global _interpreter
     if _interpreter is None:
@@ -355,7 +355,7 @@ def get_config() -> Config:
     """
     Returns the Q# interpreter configuration.
 
-    :returns: The Q# interpreter configuration.
+    :return: The Q# interpreter configuration.
     """
     global _config
     if _config is None:
@@ -1061,7 +1061,7 @@ def dump_machine() -> StateDump:
     """
     Returns the sparse state vector of the simulator as a StateDump object.
 
-    :returns: The state of the simulator.
+    :return: The state of the simulator.
     """
     ipython_helper()
     return StateDump(get_interpreter().dump_machine())

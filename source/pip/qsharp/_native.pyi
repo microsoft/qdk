@@ -327,7 +327,7 @@ class Interpreter:
         """
         Returns the sparse state vector of the simulator as a StateDump object.
 
-        :returns: The state of the simulator.
+        :return: The state of the simulator.
         """
         ...
 

@@ -244,7 +244,7 @@ class NeutralAtomDevice(Device):
             If `None` (default), the GPU simulator will be tried first, falling back to
             CPU if a suitable GPU device could not be located.
         :param seed: An optional random seed for reproducibility.
-        :returns: The results of each shot of the simulation as a list.
+        :return: The results of each shot of the simulation as a list.
         """
 
         from ._validate import ValidateNoConditionalBranches

@@ -13,7 +13,7 @@ def dump_operation(operation: str, num_qubits: int) -> List[List[complex]]:
     :param operation: The operation to be performed, which must operate on a list of qubits.
     :param num_qubits: The number of qubits to be used.
 
-    :returns: The matrix representing the operation.
+    :return: The matrix representing the operation.
     """
     code = f"""{{
         let op = {operation};
