@@ -27,7 +27,7 @@ const buildOptions = {
   external: ["vscode"],
   format: "cjs",
   platform: "browser",
-  target: ["es2020"],
+  target: ["es2022"],
   sourcemap: "linked",
   //logLevel: "debug",
   define: { "import.meta.url": "undefined" },
