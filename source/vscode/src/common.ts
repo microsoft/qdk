@@ -1,6 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
-declare const __PLATFORM__: string;
+declare const __PLATFORM__: "browser" | "node";
 
 import { TextDocument, Uri, Range, Location } from "vscode";
 import {
