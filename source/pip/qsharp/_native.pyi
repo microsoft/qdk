@@ -429,6 +429,10 @@ class StateDumpData:
     def _repr_latex_(self) -> Optional[str]: ...
 
 class CircuitConfig:
+    """
+    Configuration options for circuit generation.
+    """
+
     def __init__(
         self,
         *,
@@ -438,10 +442,6 @@ class CircuitConfig:
         group_by_scope: bool = False,
         prune_classical_qubits: bool = False,
     ) -> None: ...
-
-    """
-    Configuration options for circuit generation.
-    """
 
     max_operations: Optional[int]
     """
@@ -481,6 +481,14 @@ class CircuitGenerationMethod(Enum):
     """
 
 class Circuit:
+    """
+    A quantum circuit diagram generated from a Q# or OpenQASM program.
+
+    Returned by :func:`qsharp.circuit` and :func:`qsharp.dump_circuit`.
+    Use :meth:`json` to obtain a JSON representation suitable for rendering
+    with the Q# circuit widget.
+    """
+
     def json(self) -> str: ...
     def __repr__(self) -> str: ...
     def __str__(self) -> str: ...

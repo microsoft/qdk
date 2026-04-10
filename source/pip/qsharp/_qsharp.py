@@ -143,10 +143,11 @@ def ipython_helper():
 
 
 class Config:
-    _config: Dict[str, Any]
     """
     Configuration hints for the language service.
     """
+
+    _config: Dict[str, Any]
 
     def __init__(
         self,

@@ -72,15 +72,19 @@ def estimate(
     Estimates resources for Qiskit QuantumCircuit.
 
     :param circuit: The input Qiskit QuantumCircuit object.
+    :type circuit: QuantumCircuit
     :param params: The parameters to configure physical estimation.
-    :**options: Additional options for the execution.
-        - Any options for the transpiler, exporter, or Qiskit passes
-            configuration. Defaults to backend config values. Common
-            values include: 'optimization_level', 'basis_gates',
-            'includes', 'search_path'.
-    :raises QasmError: If there is an error generating or parsing QASM.
+    :type params: EstimatorParams or dict or list, optional
+    :param **options: Additional options for the transpiler, exporter, or Qiskit passes
+        configuration. Defaults to backend config values. Common options:
 
-    :returns `EstimatorResult`: The estimated resources.
+        - ``optimization_level`` (int): Transpiler optimization level.
+        - ``basis_gates`` (list): Basis gates for transpilation.
+        - ``includes`` (list): Include paths for QASM resolution.
+        - ``search_path`` (str): Search path for resolving file references.
+    :raises QasmError: If there is an error generating or parsing QASM.
+    :return: The estimated resources.
+    :rtype: EstimatorResult
     """
     from ..._qsharp import ipython_helper
 

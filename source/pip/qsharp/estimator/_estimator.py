@@ -85,6 +85,12 @@ def validating_field(validation_func, default=None):
 
 
 class QubitParams:
+    """
+    Predefined qubit model name constants for use with :class:`EstimatorQubitParams`.
+
+    Pass one of these string constants as the ``name`` field to select a built-in
+    qubit model for resource estimation.
+    """
     GATE_US_E3 = "qubit_gate_us_e3"
     GATE_US_E4 = "qubit_gate_us_e4"
     GATE_NS_E3 = "qubit_gate_ns_e3"
@@ -94,6 +100,13 @@ class QubitParams:
 
 
 class QECScheme:
+    """
+    Predefined quantum error correction scheme name constants for use with
+    :class:`EstimatorQecScheme`.
+
+    Pass one of these string constants as the ``name`` field to select a
+    built-in QEC scheme for resource estimation.
+    """
     SURFACE_CODE = "surface_code"
     FLOQUET_CODE = "floquet_code"
 
@@ -128,12 +141,29 @@ def check_time(name, value):
 
 @dataclass
 class MeasurementErrorRate(AutoValidatingParams):
+    """
+    Measurement error rate specified separately for process and readout errors.
+
+    Used as the value of ``one_qubit_measurement_error_rate`` or
+    ``two_qubit_joint_measurement_error_rate`` in :class:`EstimatorQubitParams`
+    when process and readout error rates differ.
+
+    :param process: Error rate during the measurement process. Must be in ``(0, 1)``.
+    :param readout: Error rate during readout. Must be in ``(0, 1)``.
+    """
     process: float = field(metadata={"validate": _check_error_rate})
     readout: float = field(metadata={"validate": _check_error_rate})
 
 
 @dataclass
 class EstimatorQubitParams(AutoValidatingParams):
+    """
+    Physical qubit parameters for resource estimation.
+
+    Specify a built-in qubit model by setting ``name`` to one of the
+    :class:`QubitParams` constants, or fully define a custom model by setting
+    ``instruction_set`` and all relevant timing and error-rate fields.
+    """
     @staticmethod
     def check_instruction_set(name, value):
         if value not in [
@@ -224,6 +254,13 @@ class EstimatorQubitParams(AutoValidatingParams):
 
 @dataclass
 class EstimatorQecScheme(AutoValidatingParams):
+    """
+    Quantum error correction scheme parameters for resource estimation.
+
+    Specify a built-in scheme by setting ``name`` to one of the
+    :class:`QECScheme` constants, or define a custom scheme by setting
+    the threshold and code-distance parameters directly.
+    """
     name: Optional[str] = None
     error_correction_threshold: Optional[float] = validating_field(_check_error_rate)
     crossing_prefactor: Optional[float] = None
@@ -235,6 +272,12 @@ class EstimatorQecScheme(AutoValidatingParams):
 
 @dataclass
 class ProtocolSpecificDistillationUnitSpecification(AutoValidatingParams):
+    """
+    Protocol-specific specification for a magic-state distillation unit.
+
+    Defines the number of physical qubits and the duration (in logical cycle
+    time units) for one round of distillation under a specific QEC code.
+    """
     num_unit_qubits: Optional[int] = None
     duration_in_qubit_cycle_time: Optional[int] = None
 
@@ -248,6 +291,14 @@ class ProtocolSpecificDistillationUnitSpecification(AutoValidatingParams):
 
 @dataclass
 class DistillationUnitSpecification(AutoValidatingParams):
+    """
+    Specification for a magic-state distillation unit.
+
+    Either select a built-in unit by setting ``name``, or define a custom unit
+    by providing ``num_input_ts``, ``num_output_ts``, ``failure_probability_formula``,
+    ``output_error_rate_formula``, and optionally physical and logical qubit
+    specifications.
+    """
     name: Optional[str] = None
     display_name: Optional[str] = None
     num_input_ts: Optional[int] = None
@@ -356,6 +407,16 @@ class DistillationUnitSpecification(AutoValidatingParams):
 
 @dataclass
 class ErrorBudgetPartition(AutoValidatingParams):
+    """
+    Partition of the total error budget across algorithm components.
+
+    The three fields must sum to the overall error budget. Defaults to equal
+    thirds of ``0.001`` (i.e. each component gets ``~3.33e-4``).
+
+    :param logical: Budget allocated to logical errors in the algorithm.
+    :param t_states: Budget allocated to T-state distillation errors.
+    :param rotations: Budget allocated to rotation synthesis errors.
+    """
     logical: float = 0.001 / 3
     t_states: float = 0.001 / 3
     rotations: float = 0.001 / 3
@@ -363,6 +424,12 @@ class ErrorBudgetPartition(AutoValidatingParams):
 
 @dataclass
 class EstimatorConstraints(AutoValidatingParams):
+    """
+    Optional runtime and resource constraints for resource estimation.
+
+    At most one of ``max_duration`` or ``max_physical_qubits`` may be set
+    simultaneously.
+    """
     @staticmethod
     def at_least_one(name, value):
         if value < 1:
@@ -382,9 +449,11 @@ class EstimatorConstraints(AutoValidatingParams):
 
 class EstimatorInputParamsItem:
     """
-    Input params for microsoft.estimator target
+    Input parameters for a single resource estimation job.
 
-    :ivar error_budget Total error budget for execution of the algorithm
+    Contains qubit model, QEC scheme, distillation unit specifications, constraints,
+    and error budget settings. Used directly for single-point estimation or as a
+    base class for batching via :class:`EstimatorParams`.
     """
 
     def __init__(self):
@@ -479,6 +548,17 @@ class EstimatorInputParamsItem:
 
 
 class EstimatorParams(EstimatorInputParamsItem):
+    """
+    Top-level input parameters for the Microsoft Resource Estimator.
+
+    Extends :class:`EstimatorInputParamsItem` with support for batching: pass
+    ``num_items`` to create a batching job where each item can override the
+    top-level parameters.
+
+    :param num_items: Number of batching items. If ``None``, creates a
+        single-point estimation job.
+    :type num_items: int, optional
+    """
     MAX_NUM_ITEMS: int = 1000
 
     def __init__(self, num_items: Optional[int] = None):
