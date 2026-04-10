@@ -40,7 +40,7 @@ use qsc_data_structures::{
     line_column::{Encoding, Range},
     source::{Source, SourceMap},
     span::Span,
-    target::TargetCapabilityFlags,
+    target::{Profile, TargetCapabilityFlags},
 };
 use qsc_eval::{
     Env, ErrorBehavior, State, VariableInfo,
@@ -1096,7 +1096,7 @@ impl Interpreter {
         entry_expr: Option<&str>,
         tracer_config: TracerConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
-        if self.capabilities == TargetCapabilityFlags::all() {
+        if self.capabilities > Profile::AdaptiveRIF.into() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
@@ -1116,7 +1116,7 @@ impl Interpreter {
         args: Value,
         tracer_config: TracerConfig,
     ) -> std::result::Result<Circuit, Vec<Error>> {
-        if self.capabilities == TargetCapabilityFlags::all() {
+        if self.capabilities > Profile::AdaptiveRIF.into() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 

@@ -29,7 +29,7 @@ import
 ///   Computation, Vol. 10, 2010.
 ///   https://arxiv.org/abs/0910.2530
 operation ApplyOuterTTKAdder(xs : Qubit[], ys : Qubit[]) : Unit is Adj + Ctl {
-    Fact(Length(xs) <= Length(ys), "Input register ys must be at lease as long as xs.");
+    Fact(Length(xs) <= Length(ys), "Input register ys must be at least as long as xs.");
     for i in 1..Length(xs) - 1 {
         CNOT(xs[i], ys[i]);
     }
@@ -106,7 +106,7 @@ operation ApplyInnerTTKAdderWithCarry(xs : Qubit[], ys : Qubit[]) : Unit is Adj 
         (Controlled ApplyInnerTTKAdderWithCarry)([], (xs, ys));
     }
     controlled (controls, ...) {
-        Fact(Length(xs) + 1 == Length(ys), "ys must be one qubit longer then xs.");
+        Fact(Length(xs) + 1 == Length(ys), "ys must be one qubit longer than xs.");
         Fact(Length(xs) > 0, "Array should not be empty.");
 
 

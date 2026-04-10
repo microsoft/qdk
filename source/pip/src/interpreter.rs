@@ -180,6 +180,10 @@ pub(crate) enum TargetProfile {
     /// capabilities, as well as the optional floating-point computation
     /// extension defined by the QIR specification.
     Adaptive_RIF,
+    /// Target supports the Adaptive profile with integer & floating-point
+    /// computation extensions as well as loop extension and statically-sized
+    /// arrays extension.
+    Adaptive_RIFLA,
     /// Target supports the full set of capabilities required to run any Q# program.
     ///
     /// This option maps to the Full Profile as defined by the QIR specification.
@@ -208,7 +212,8 @@ impl TargetProfile {
             0 => Self::Base,
             1 => Self::Adaptive_RI,
             2 => Self::Adaptive_RIF,
-            3 => Self::Unrestricted,
+            3 => Self::Adaptive_RIFLA,
+            4 => Self::Unrestricted,
             _ => return Err(PyValueError::new_err("invalid state")),
         };
         Ok(())
@@ -237,6 +242,7 @@ impl From<Profile> for TargetProfile {
             Profile::Base => TargetProfile::Base,
             Profile::AdaptiveRI => TargetProfile::Adaptive_RI,
             Profile::AdaptiveRIF => TargetProfile::Adaptive_RIF,
+            Profile::AdaptiveRIFLA => TargetProfile::Adaptive_RIFLA,
             Profile::Unrestricted => TargetProfile::Unrestricted,
         }
     }
@@ -248,6 +254,7 @@ impl From<TargetProfile> for Profile {
             TargetProfile::Base => Profile::Base,
             TargetProfile::Adaptive_RI => Profile::AdaptiveRI,
             TargetProfile::Adaptive_RIF => Profile::AdaptiveRIF,
+            TargetProfile::Adaptive_RIFLA => Profile::AdaptiveRIFLA,
             TargetProfile::Unrestricted => Profile::Unrestricted,
         }
     }

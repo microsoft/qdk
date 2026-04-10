@@ -1,0 +1,13 @@
+START
+METADATA	entry_point
+METADATA	output_labeling_schema
+METADATA	qir_profiles	adaptive_profile
+METADATA	required_num_qubits	1
+METADATA	required_num_results	5
+OUTPUT	TUPLE	5	0_t
+OUTPUT	RESULT	0	1_t0r
+OUTPUT	RESULT	1	2_t1r
+OUTPUT	RESULT	1	3_t2r
+OUTPUT	RESULT	0	4_t3r
+OUTPUT	RESULT	0	5_t4r
+END	0

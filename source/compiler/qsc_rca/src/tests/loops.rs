@@ -3,6 +3,7 @@
 
 use super::{CompilationContext, check_last_statement_compute_properties};
 use expect_test::expect;
+use qsc_data_structures::target::Profile;
 
 #[test]
 fn check_rca_for_classical_for_loop() {
@@ -310,6 +311,94 @@ fn check_rca_for_dynamic_while_loop_with_assignments_in_both_the_condition_and_t
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
                     runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_static_for_loop() {
+    let mut compilation_context = CompilationContext::new(Profile::AdaptiveRIF.into());
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let loop =
+            for i in 0..5 { X(q); };
+        loop"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(0x0)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_static_for_loop_with_loop_and_array_support() {
+    let mut compilation_context = CompilationContext::new(Profile::AdaptiveRIFLA.into());
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let loop =
+            for i in 0..5 { X(q); };
+        loop"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_static_for_loop_over_array() {
+    let mut compilation_context = CompilationContext::new(Profile::AdaptiveRIF.into());
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let loop =
+            for a in [1.0, 2.0, 3.0] { Rx(a, q); };
+        loop"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(0x0)
+                    value_kind: Constant
+                dynamic_param_applications: <empty>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_static_for_loop_over_array_with_loop_and_array_support() {
+    let mut compilation_context = CompilationContext::new(Profile::AdaptiveRIFLA.into());
+    compilation_context.update(
+        r#"
+        use q = Qubit();
+        let loop =
+            for a in [1.0, 2.0, 3.0] { Rx(a, q); };
+        loop"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_last_statement_compute_properties(
+        package_store_compute_properties,
+        &expect![[r#"
+            ApplicationsGeneratorSet:
+                inherent: Dynamic:
+                    runtime_features: RuntimeFeatureFlags(0x0)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );

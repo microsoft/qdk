@@ -35,9 +35,9 @@ operation CheckAllTestCases<'T : Eq + Show>(test_cases : (String, Int, Qubit[] =
 /// This is a good alternative to `CheckAllTestCases` when you want custom output based on the results of your tests,
 /// or more control over how test results are rendered.
 /// # Input
-/// Takes a list of test cases. A test case is a tuple of `(String, () => 'T, 'T)`, where
-/// the first String is the name of the test, the function is the test case itself, and the
-/// final element of the tuple is the expected return value from the test case.
+/// Takes a list of test cases. A test case is a tuple of `(String, Int, Qubit[] => Unit, Qubit[] => 'T, 'T)`, where
+/// the first String is the name of the test, the Int is the number of qubits, the first operation prepares the state,
+/// the second operation is the test case itself, and the final element is the expected return value.
 ///
 /// # Example
 /// ```qsharp

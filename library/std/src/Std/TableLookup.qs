@@ -303,7 +303,7 @@ operation PhaseLookup(qs : Qubit[], data : Bool[]) : Unit {
     let m2 = 1 <<< n2;
     Fact(m1 * m2 == m, "Length of halves must match total length.");
 
-    // Allocate auxilliary qubits
+    // Allocate auxiliary qubits
     use aux_qubits1 = Qubit[2^n1 - n1 - 1];
     use aux_qubits2 = Qubit[2^n2 - n2 - 1];
 
@@ -361,7 +361,7 @@ operation ConstructPowerProducts(qubits : Qubit[], aux_qubits : Qubit[]) : Qubit
             power_products += [next_power_product];
         }
     }
-    Fact(next_available == Length(aux_qubits), "All auxilliary qubits should be used.");
+    Fact(next_available == Length(aux_qubits), "All auxiliary qubits should be used.");
     return power_products;
 }
 

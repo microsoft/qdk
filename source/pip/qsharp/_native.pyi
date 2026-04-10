@@ -107,6 +107,13 @@ class TargetProfile(Enum):
     extension defined by the QIR specification.
     """
 
+    Adaptive_RIFLA: TargetProfile
+    """
+    Target supports the Adaptive profile with integer & floating-point
+    computation extensions as well as loop extension and statically-sized
+    arrays extension.
+    """
+
     Unrestricted: TargetProfile
     """
     Describes the unrestricted set of capabilities required to run any Q# program.
