@@ -148,6 +148,7 @@ function loadCircuit(file) {
   } catch (e) {
     throw new Error(
       `Failed to parse JSON from ${file}: ${/** @type {Error} */ (e).message}`,
+      { cause: e },
     );
   }
 }

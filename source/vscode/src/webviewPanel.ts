@@ -168,7 +168,7 @@ export function registerWebViewCommands(context: ExtensionContext) {
       clearTimeout(compilerTimeout);
     } catch (e: any) {
       log.error("Histogram error. ", e.toString());
-      throw new Error("Run failed. " + e.toString());
+      throw new Error("Run failed. " + e.toString(), { cause: e });
     } finally {
       worker.terminate();
     }

@@ -36,7 +36,7 @@ var today_str = mm + "/" + dd + "/" + yyyy;
 docs.forEach((doc) => {
   // If the filename contains a /, then we need to create the directory
   const parts = doc.filename.split("/");
-  let fullPath = "";
+  let fullPath;
   switch (parts.length) {
     case 1:
       if (doc.filename !== "toc.yml" && doc.filename !== "index.md") {
@@ -57,7 +57,7 @@ docs.forEach((doc) => {
     default:
       throw new Error(`Invalid file path: ${doc.filename}`);
   }
-  var contents = "";
+  var contents;
   if (doc.filename === "toc.yml") {
     contents = doc.contents;
   } else {
