@@ -1075,6 +1075,8 @@ def dump_circuit() -> Circuit:
     in the simulator up to the current point.
 
     Requires the interpreter to be initialized with `trace_circuit=True`.
+
+    :raises QSharpError: If the interpreter was not initialized with ``trace_circuit=True``.
     """
     ipython_helper()
     return get_interpreter().dump_circuit()
