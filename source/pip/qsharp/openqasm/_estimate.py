@@ -34,6 +34,7 @@ def estimate(
     :type source: str
     :param params: The parameters to configure estimation.
     :type params: Dict, List, or EstimatorParams, optional
+    :param *args: The arguments to pass to the callable, if one is provided.
     :param **kwargs: Additional keyword arguments. Common options:
 
         - ``name`` (str): The name of the circuit. This is used as the entry point for the program.

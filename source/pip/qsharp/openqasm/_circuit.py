@@ -28,6 +28,20 @@ def circuit(
     :param source: An OpenQASM program. Alternatively, a callable can be provided,
         which must be an already imported global callable.
     :type source: str, optional
+    :param *args: The arguments to pass to the callable, if one is provided.
+    :param generation_method: The method to use for circuit generation.
+        ``CircuitGenerationMethod.ClassicalEval`` evaluates classical control flow at circuit
+        generation time. ``CircuitGenerationMethod.Simulate`` runs a full simulation to trace
+        the circuit. ``CircuitGenerationMethod.Static`` uses partial evaluation and requires
+        a non-``Unrestricted`` target profile. Defaults to ``None`` (auto-selected).
+    :param max_operations: The maximum number of operations to include in the circuit.
+        Defaults to ``None`` (no limit).
+    :param source_locations: If ``True``, annotates each gate with its source location.
+        Defaults to ``False``.
+    :param group_by_scope: If ``True``, groups operations by their Q# scope.
+        Defaults to ``True``.
+    :param prune_classical_qubits: If ``True``, removes qubits that are never used in a quantum
+        gate. Defaults to ``False``.
     :param **kwargs: Additional keyword arguments. Common options:
 
         - ``name`` (str): The name of the program. This is used as the entry point for the program.

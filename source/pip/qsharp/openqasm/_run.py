@@ -53,6 +53,7 @@ def run(
     :type source: str
     :param shots: The number of shots to run. Defaults to ``1024``.
     :type shots: int
+    :param *args: The arguments to pass to the callable, if one is provided.
     :param on_result: A callback function that will be called with each result.
         Only used when a callable is provided.
     :type on_result: Callable, optional

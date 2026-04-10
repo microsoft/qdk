@@ -260,6 +260,9 @@ def init(
     :param project_root: An optional path to a root directory with a Q# project to include.
         It must contain a qsharp.json project manifest.
 
+    :param language_features: An optional list of language feature flags to enable.
+        These correspond to experimental or preview Q# language features.
+
     :param trace_circuit: Enables tracing of circuit during execution.
         Passing `True` is required for the `dump_circuit` function to return a circuit.
         The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
@@ -866,6 +869,7 @@ def compile(
     :param entry_expr: The Q# expression that will be used as the entrypoint
         for the program. Alternatively, a callable can be provided, which must
         be a Q# callable.
+    :param *args: The arguments to pass to the callable, if one is provided.
 
     :return: The compiled program. Use ``str()`` to get the QIR string.
     :rtype: QirInputData
@@ -919,6 +923,24 @@ def circuit(
     :param operation: The operation to synthesize. This can be a name of
     an operation of a lambda expression. The operation must take only
     qubits or arrays of qubits as parameters.
+
+    :param generation_method: The method to use for circuit generation.
+        ``CircuitGenerationMethod.ClassicalEval`` evaluates classical control flow at circuit
+        generation time. ``CircuitGenerationMethod.Simulate`` runs a full simulation to trace
+        the circuit. ``CircuitGenerationMethod.Static`` uses partial evaluation and requires
+        a non-``Unrestricted`` target profile. Defaults to ``None`` (auto-selected).
+
+    :param max_operations: The maximum number of operations to include in the circuit.
+        Defaults to ``None`` (no limit).
+
+    :param source_locations: If ``True``, annotates each gate with its source location.
+        Defaults to ``False``.
+
+    :param group_by_scope: If ``True``, groups operations by their Q# scope (e.g. operation body).
+        Defaults to ``True``.
+
+    :param prune_classical_qubits: If ``True``, removes qubits that are never used in a quantum
+        gate (e.g. qubits only used as classical controls). Defaults to ``False``.
 
     :return: The synthesized circuit.
     :rtype: Circuit
