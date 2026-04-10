@@ -292,13 +292,13 @@ class AdaptiveProfilePass:
     ) -> AdaptiveProgram:
         """Process module and return the AdaptiveProgram.
 
-        Args:
-            mod: The QIR module to process.
-            noise: Optional NoiseConfig. When provided, noise intrinsic calls
-                are resolved to correlated noise ops using the intrinsics table.
-            noise_intrinsics: Optional dict mapping noise intrinsic callee names
-                to noise table IDs. Takes precedence over ``noise`` if both are
-                given.
+        :param mod: The QIR module to process.
+        :param noise: Optional NoiseConfig. When provided, noise intrinsic calls
+            are resolved to correlated noise ops using the intrinsics table.
+        :param noise_intrinsics: Optional dict mapping noise intrinsic callee names
+            to noise table IDs. Takes precedence over ``noise`` if both are given.
+        :return: The processed adaptive program.
+        :rtype: AdaptiveProgram
         """
         if mod.get_flag("arrays"):
             raise ValueError("QIR arrays are not currently supported.")

@@ -49,8 +49,7 @@ class QsJobSet(Job):
     def submit(self):
         """Submit the job to the backend for execution.
 
-        Raises:
-            JobError: if trying to re-submit the job.
+        :raises JobError: If trying to re-submit the job.
         """
         if len(self._jobs) > 0:
             raise JobError("Jobs have already been submitted.")

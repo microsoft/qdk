@@ -83,19 +83,10 @@ class QirTarget:
         It forwards the attribute lookup to the internal _target object, effectively
         making this class act as a proxy or wrapper around the target.
 
-        Args:
-            item (str): The name of the attribute being accessed.
-
-        Returns:
-            Any: The value of the requested attribute from the _target object.
-
-        Raises:
-            AttributeError: If the requested item is "_target" or if the attribute
-                           does not exist on the _target object.
-
-        Note:
-            The special handling of "_target" prevents infinite recursion and
-            maintains proper encapsulation of the internal target object.
+        :param item: The name of the attribute being accessed.
+        :return: The value of the requested attribute from the ``_target`` object.
+        :raises AttributeError: If the requested item is ``"_target"`` or if the attribute
+            does not exist on the ``_target`` object.
         """
         if item == "_target":
             raise AttributeError(item)
@@ -120,33 +111,17 @@ class QirTarget:
         operations and gates that can be used when compiling Q#/OpenQASM code to QIR (Quantum
         Intermediate Representation) format.
 
-        Args:
-            num_qubits (Union[int, None], optional): The number of qubits for the target.
-                If None, the target will support any number of qubits. Defaults to None.
-            target_profile (TargetProfile, optional): The target profile that determines
-                which control flow operations are supported. If not TargetProfile.Base,
-                adds control flow operations like if_else, switch_case, and while_loop.
-                Defaults to TargetProfile.Base.
-            supports_barrier (bool, optional): Whether to include barrier operations
-                in the target. Defaults to False.
-            supports_delay (bool, optional): Whether to include delay operations
-                in the target. Defaults to False.
-
-        Returns:
-            Target: A Qiskit Target object configured with quantum gates and operations
-                including:
-                - Basic single-qubit gates (X, Y, Z, H, S, T, SX, I)
-                - Rotation gates (RX, RY, RZ) with parameters
-                - Two-qubit gates (CX, CY, CZ, SWAP, controlled rotations)
-                - Three-qubit gates (CCX)
-                - Multi-qubit rotation gates (RXX, RYY, RZZ)
-                - Measurement and reset operations
-                - Control flow operations (when target_profile != Base)
-                - Optional barrier and delay operations
-
-        Note:
-            The target includes reset operations even for base profile since the
-            compiler can implement workarounds using decompositions.
+        :param num_qubits: The number of qubits for the target.
+            If ``None``, the target will support any number of qubits. Defaults to ``None``.
+        :param target_profile: The target profile that determines which control flow operations
+            are supported. If not ``TargetProfile.Base``, adds control flow operations like
+            ``if_else``, ``switch_case``, and ``while_loop``. Defaults to ``TargetProfile.Base``.
+        :param supports_barrier: Whether to include barrier operations in the target.
+            Defaults to ``False``.
+        :param supports_delay: Whether to include delay operations in the target.
+            Defaults to ``False``.
+        :return: A Qiskit ``Target`` object configured with quantum gates and operations.
+        :rtype: Target
         """
 
         target = Target(num_qubits=num_qubits)

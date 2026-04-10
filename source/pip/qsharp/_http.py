@@ -13,18 +13,14 @@ def fetch_github(owner: str, repo: str, ref: str, path: str) -> str:
     """
     Fetches the content of a file from a GitHub repository.
 
-    Args:
-        owner (str): The owner of the GitHub repository.
-        repo (str): The name of the GitHub repository.
-        ref (str): The reference (branch, tag, or commit) of the repository.
-        path (str): The path to the file within the repository.
-
-    Returns:
-        str: The content of the file as a string.
-
-    Raises:
-        urllib.error.HTTPError: If there is an error fetching the file from GitHub.
-        urllib.error.URLError: If there is an error with the URL.
+    :param owner: The owner of the GitHub repository.
+    :param repo: The name of the GitHub repository.
+    :param ref: The reference (branch, tag, or commit) of the repository.
+    :param path: The path to the file within the repository.
+    :return: The content of the file as a string.
+    :rtype: str
+    :raises urllib.error.HTTPError: If there is an error fetching the file from GitHub.
+    :raises urllib.error.URLError: If there is an error with the URL.
     """
 
     import urllib.request

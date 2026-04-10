@@ -357,26 +357,21 @@ class Interpreter:
         """
         Imports OpenQASM source code into the active Q# interpreter.
 
-        Args:
-            source (str): An OpenQASM program or fragment.
-            output_fn: The function to handle the output of the execution.
-            read_file: A callable that reads a file and returns its content and path.
-            list_directory: A callable that lists the contents of a directory.
-            resolve_path: A callable that resolves a file path given a base path and a relative path.
-            fetch_github: A callable that fetches a file from GitHub.
-            **kwargs: Additional keyword arguments to pass to the execution.
-              - name (str): The name of the program. This is used as the entry point for the program.
-              - search_path (Optional[str]): The optional search path for resolving file references.
-              - output_semantics (OutputSemantics, optional): The output semantics for the compilation.
-              - program_type (ProgramType, optional): The type of program compilation to perform.
+        :param source: An OpenQASM program or fragment.
+        :param output_fn: The function to handle the output of the execution.
+        :param read_file: A callable that reads a file and returns its content and path.
+        :param list_directory: A callable that lists the contents of a directory.
+        :param resolve_path: A callable that resolves a file path given a base path and a relative path.
+        :param fetch_github: A callable that fetches a file from GitHub.
+        :param **kwargs: Common options:
 
-        Returns:
-            value: The value returned by the last statement in the source code.
-
-        Raises:
-            QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-            QSharpError: If there is an error compiling the program.
-            QSharpError: If there is an error evaluating the source code.
+          - ``name`` (str): The name of the program.
+          - ``search_path`` (str): The optional search path for resolving file references.
+          - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
+          - ``program_type`` (ProgramType): The type of program compilation to perform.
+        :return: The value returned by the last statement in the source code.
+        :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+        :raises QSharpError: If there is an error compiling or evaluating the program.
         """
         ...
 
@@ -511,7 +506,8 @@ def physical_estimates(logical_resources: str, params: str) -> str:
     :param logical_resources: The logical resources to estimate from.
     :param params: The parameters to configure physical estimation.
 
-    :returns resources: The estimated resources.
+    :return: The estimated resources.
+    :rtype: str
     """
     ...
 
@@ -526,28 +522,24 @@ def circuit_qasm_program(
     """
     Synthesizes a circuit for an OpenQASM program.
 
-    Note:
+    .. note::
         This call while exported is not intended to be used directly by the user.
         It is intended to be used by the Python wrapper which will handle the
         callbacks and other Python specific details.
 
-    Args:
-        source (str): An OpenQASM program. Alternatively, a callable can be provided,
-            which must be an already imported global callable.
-        read_file (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
-        list_directory (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
-        resolve_path (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.
-        fetch_github (Callable[[str, str, str, str], str]): A callable that fetches a file from GitHub.
-        **kwargs: Additional keyword arguments to pass to the execution.
-          - name (str): The name of the program. This is used as the entry point for the program.
-          - search_path (Optional[str]): The optional search path for resolving file references.
-    Returns:
-        Circuit: The synthesized circuit.
+    :param source: An OpenQASM program.
+    :param read_file: A callable that reads a file and returns its content and path.
+    :param list_directory: A callable that lists the contents of a directory.
+    :param resolve_path: A callable that resolves a file path given a base path and a relative path.
+    :param fetch_github: A callable that fetches a file from GitHub.
+    :param **kwargs: Common options:
 
-    Raises:
-        QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-        QSharpError: If there is an error evaluating the program.
-        QSharpError: If there is an error synthesizing the circuit.
+      - ``name`` (str): The name of the program.
+      - ``search_path`` (str): The optional search path for resolving file references.
+    :return: The synthesized circuit.
+    :rtype: Circuit
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If there is an error evaluating or synthesizing the circuit.
     """
     ...
 
@@ -563,29 +555,26 @@ def compile_qasm_program_to_qir(
     Compiles the OpenQASM source code into a program that can be submitted to a
     target as QIR (Quantum Intermediate Representation).
 
-    Note:
+    .. note::
         This call while exported is not intended to be used directly by the user.
         It is intended to be used by the Python wrapper which will handle the
         callbacks and other Python specific details.
 
-    Args:
-        source (str): The OpenQASM source code to estimate the resource requirements for.
-        read_file (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
-        list_directory (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
-        resolve_path (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.
-        fetch_github (Callable[[str, str, str, str], str]): A callable that fetches a file from GitHub.
-        **kwargs: Additional keyword arguments to pass to the compilation when source program is provided.
-          - name (str): The name of the circuit. This is used as the entry point for the program.
-          - target_profile (TargetProfile): The target profile to use for code generation.
-          - search_path (Optional[str]): The optional search path for resolving file references.
-          - output_semantics (OutputSemantics, optional): The output semantics for the compilation.
+    :param source: The OpenQASM source code to compile to QIR.
+    :param read_file: A callable that reads a file and returns its content and path.
+    :param list_directory: A callable that lists the contents of a directory.
+    :param resolve_path: A callable that resolves a file path given a base path and a relative path.
+    :param fetch_github: A callable that fetches a file from GitHub.
+    :param **kwargs: Common options:
 
-    Returns:
-        str: The converted QIR code as a string.
-
-    Raises:
-        QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-        QSharpError: If there is an error compiling the program.
+      - ``name`` (str): The name of the circuit.
+      - ``target_profile`` (TargetProfile): The target profile to use for code generation.
+      - ``search_path`` (str): The optional search path for resolving file references.
+      - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
+    :return: The converted QIR code as a string.
+    :rtype: str
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If there is an error compiling the program.
     """
     ...
 
@@ -600,23 +589,22 @@ def compile_qasm_to_qsharp(
     """
     Converts a OpenQASM program to Q#.
 
-    Note:
+    .. note::
         This call while exported is not intended to be used directly by the user.
         It is intended to be used by the Python wrapper which will handle the
         callbacks and other Python specific details.
 
-    Args:
-        source (str): The OpenQASM source code to estimate the resource requirements for.
-        read_file (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
-        list_directory (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
-        resolve_path (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.
-        fetch_github (Callable[[str, str, str, str], str]): A callable that fetches a file from GitHub.
-        **kwargs: Additional keyword arguments to pass to the execution.
-          - name (str): The name of the circuit. This is used as the entry point for the program.
-          - search_path (Optional[str]): The optional search path for resolving file references.
+    :param source: The OpenQASM source code to convert.
+    :param read_file: A callable that reads a file and returns its content and path.
+    :param list_directory: A callable that lists the contents of a directory.
+    :param resolve_path: A callable that resolves a file path given a base path and a relative path.
+    :param fetch_github: A callable that fetches a file from GitHub.
+    :param **kwargs: Common options:
 
-    Returns:
-        str: The converted Q# code as a string.
+      - ``name`` (str): The name of the circuit.
+      - ``search_path`` (str): The optional search path for resolving file references.
+    :return: The converted Q# code as a string.
+    :rtype: str
     """
     ...
 
@@ -632,23 +620,23 @@ def resource_estimate_qasm_program(
     """
     Estimates the resource requirements for executing OpenQASM source code.
 
-    Note:
+    .. note::
         This call while exported is not intended to be used directly by the user.
         It is intended to be used by the Python wrapper which will handle the
         callbacks and other Python specific details.
 
-    Args:
-        source (str): The OpenQASM source code to estimate the resource requirements for.
-        job_params (str): The parameters for the job.
-        read_file (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
-        list_directory (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
-        resolve_path (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.
-        fetch_github (Callable[[str, str, str, str], str]): A callable that fetches a file from GitHub.
-        **kwargs: Additional keyword arguments to pass to the execution.
-          - name (str): The name of the circuit. This is used as the entry point for the program. Defaults to 'program'.
-          - search_path (str): The optional search path for resolving imports.
-    Returns:
-        str: The estimated resource requirements for executing the OpenQASM source code.
+    :param source: The OpenQASM source code to estimate resource requirements for.
+    :param job_params: The parameters for the job as a JSON string.
+    :param read_file: A callable that reads a file and returns its content and path.
+    :param list_directory: A callable that lists the contents of a directory.
+    :param resolve_path: A callable that resolves a file path given a base path and a relative path.
+    :param fetch_github: A callable that fetches a file from GitHub.
+    :param **kwargs: Common options:
+
+      - ``name`` (str): The name of the circuit. Defaults to ``'program'``.
+      - ``search_path`` (str): The optional search path for resolving imports.
+    :return: The estimated resource requirements as a JSON string.
+    :rtype: str
     """
     ...
 
@@ -668,34 +656,32 @@ def run_qasm_program(
     Runs the given OpenQASM program for the given number of shots.
     Each shot uses an independent instance of the simulator.
 
-    Note:
+    .. note::
         This call while exported is not intended to be used directly by the user.
         It is intended to be used by the Python wrapper which will handle the
         callbacks and other Python specific details.
 
-    Args:
-        source (str): The OpenQASM source code to execute.
-        output_fn (Callable[[Output], None]): The function to handle the output of the execution.
-        noise: The noise to use in simulation.
-        qubit_loss: The probability of qubit loss in simulation.
-        read_file (Callable[[str], Tuple[str, str]]): The function to read a file and return its contents.
-        list_directory (Callable[[str], List[Dict[str, str]]]): The function to list the contents of a directory.
-        resolve_path (Callable[[str, str], str]): The function to resolve a path given a base path and a relative path.
-        fetch_github (Callable[[str, str, str, str], str]): The function to fetch a file from GitHub.
-        **kwargs: Additional keyword arguments to pass to the execution.
-          - target_profile (TargetProfile): The target profile to use for execution.
-          - name (str): The name of the circuit. This is used as the entry point for the program. Defaults to 'program'.
-          - search_path (str): The optional search path for resolving imports.
-          - output_semantics (OutputSemantics, optional): The output semantics for the compilation.
-          - shots (int): The number of shots to run the program for. Defaults to 1.
-          - seed (int): The seed to use for the random number generator.
+    :param source: The OpenQASM source code to execute.
+    :param output_fn: The function to handle the output of the execution.
+    :param noise_config: Optional noise configuration for noisy simulation.
+    :param noise: Optional Pauli noise as a tuple of ``(x, y, z)`` probabilities.
+    :param qubit_loss: The probability of qubit loss in simulation.
+    :param read_file: A callable that reads a file and returns its contents.
+    :param list_directory: A callable that lists the contents of a directory.
+    :param resolve_path: A callable that resolves a path given a base path and a relative path.
+    :param fetch_github: A callable that fetches a file from GitHub.
+    :param **kwargs: Common options:
 
-    Returns:
-        Any: The result of the execution.
-
-    Raises:
-        QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-        QSharpError: If there is an error interpreting the input.
+      - ``target_profile`` (TargetProfile): The target profile to use for execution.
+      - ``name`` (str): The name of the circuit. Defaults to ``'program'``.
+      - ``search_path`` (str): The optional search path for resolving imports.
+      - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
+      - ``shots`` (int): The number of shots to run. Defaults to ``1``.
+      - ``seed`` (int): The seed to use for the random number generator.
+    :return: The result of the execution.
+    :rtype: Any
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If there is an error interpreting the input.
     """
     ...
 
@@ -871,7 +857,8 @@ class NoiseTable:
         The correlated pauli noise to use in simulation. Setting an element
         that was previously set overrides that entry with the new value.
 
-        Example:
+        Example::
+
             noise_table = NoiseTable(2)
             noise_table.set_pauli_noise([("XI", 1e-10), ("XZ", 1e-8)])
         """
@@ -882,7 +869,8 @@ class NoiseTable:
         The correlated pauli noise to use in simulation. Setting an element
         that was previously set overrides that entry with the new value.
 
-        Example:
+        Example::
+
             noise_table = NoiseTable(2)
             noise_table.set_pauli_noise(["XI", "XZ"], [1e-10, 3.7e-8])
         """
@@ -893,7 +881,8 @@ class NoiseTable:
         The correlated pauli noise to use in simulation. Setting an element
         that was previously set overrides that entry with the new value.
 
-        Example:
+        Example::
+
             noise_table = NoiseTable(2)
             noise_table.set_pauli_noise("XZ", 1e-10)
         """

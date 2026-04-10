@@ -661,8 +661,10 @@ class EstimatorResult(dict):
         Plots all result items in a space time plot, where the x-axis shows
         total runtime, and the y-axis shows total number of physical qubits.
         Both axes are in log-scale.
-        Attributes:
-            labels (list): List of labels for the legend.
+
+        :param **kwargs: Common options:
+
+            - ``labels`` (list): List of labels for the legend. Defaults to ``[]``.
         """
         try:
             import matplotlib.pyplot as plt

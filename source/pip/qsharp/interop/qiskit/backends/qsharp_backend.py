@@ -175,19 +175,18 @@ def _run_qasm(
     Any gates, such as matrix unitaries, that are not able to be
     transpiled will result in an error.
 
-    Parameters:
-    source (str): The input OpenQASM 3 string to be processed.
-        **options: Additional keyword arguments to pass to the execution. Defaults to backend config values.
-        - target_profile (TargetProfile): The target profile to use for the compilation.
-        - output_semantics (OutputSemantics, optional): The output semantics for the compilation.
-        - name (str): The name of the circuit. This is used as the entry point for the program. Defaults to 'program'.
-        - search_path (str): The optional search path for resolving qasm imports.
-        - shots (int): The number of shots to run the program for. Defaults to 1.
-        - seed (int): The seed to use for the random number generator.
-        - output_fn (Optional[Callable[[Output], None]]): A callback function that will be called with each output. Defaults to None.
+    :param source: The input OpenQASM 3 string to be processed.
+    :param default_options: Default backend option values.
+    :param **options: Common options:
 
-    :returns values: A result or runtime errors.
-
+        - ``target_profile`` (TargetProfile): The target profile to use for the compilation.
+        - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
+        - ``name`` (str): The name of the circuit. Defaults to ``'program'``.
+        - ``search_path`` (str): The optional search path for resolving qasm imports.
+        - ``shots`` (int): The number of shots to run the program for.
+        - ``seed`` (int): The seed to use for the random number generator.
+        - ``output_fn`` (Callable): A callback for each output. Defaults to ``None``.
+    :return: A list of results or runtime errors.
     :raises QSharpError: If there is an error evaluating the source code.
     :raises QasmError: If there is an error generating, parsing, or compiling QASM.
     """

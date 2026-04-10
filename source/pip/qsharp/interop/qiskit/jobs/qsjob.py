@@ -25,6 +25,13 @@ RunInputCallable = Callable[[QuantumCircuit, str, Dict[str, Any]], Result]
 
 
 class QsJob(JobV1, ABC):
+    """
+    Abstract base class for Q# Qiskit jobs.
+
+    Manages asynchronous execution of a quantum circuit via a callable submitted
+    to a thread pool. Concrete subclasses must implement :meth:`result` and
+    :meth:`_submit_duration`.
+    """
 
     def __init__(
         self,
@@ -36,7 +43,21 @@ class QsJob(JobV1, ABC):
         executor=None,
         **kwargs,
     ) -> None:
-        super().__init__(backend, job_id, **kwargs)
+        """
+        :param backend: The backend on which the job is run.
+        :type backend: Optional[BackendV2]
+        :param job_id: A unique identifier for the job.
+        :type job_id: str
+        :param job_callable: The callable that executes the circuit and returns a result.
+        :type job_callable: RunInputCallable
+        :param run_input: The quantum circuit to execute.
+        :type run_input: QuantumCircuit
+        :param input_params: Parameters forwarded to ``job_callable`` at execution time.
+        :type input_params: Dict[str, Any]
+        :param executor: Thread pool executor. Uses a default single-threaded executor if
+            not provided.
+        :param **kwargs: Additional keyword arguments passed to :class:`~qiskit.providers.JobV1`.
+        """
 
         self._run_input = run_input
         self._input_params = input_params
@@ -49,8 +70,7 @@ class QsJob(JobV1, ABC):
     def submit(self):
         """Submit the job to the backend for execution.
 
-        Raises:
-            JobError: if trying to re-submit the job.
+        :raises JobError: If trying to re-submit the job.
         """
         if self._future is not None:
             raise JobError("Job has already been submitted.")
@@ -114,6 +134,12 @@ class QsJob(JobV1, ABC):
 
 
 class QsSimJob(QsJob):
+    """
+    A Qiskit job that runs a quantum circuit on the Q# simulator.
+
+    Submits the circuit for simulation and returns a :class:`~qiskit.result.Result`
+    containing shot-level measurement outcomes.
+    """
 
     def result(self, timeout: Optional[float] = None) -> Result:
         return self._result(timeout=timeout)
@@ -121,8 +147,7 @@ class QsSimJob(QsJob):
     def submit(self):
         """Submit the job to the backend for execution.
 
-        Raises:
-            JobError: if trying to re-submit the job.
+        :raises JobError: If trying to re-submit the job.
         """
         shots = self._input_params.get("shots", -1)
         telemetry_events.on_qiskit_run(shots, 1)
@@ -141,6 +166,12 @@ class QsSimJob(QsJob):
 
 
 class ReJob(QsJob):
+    """
+    A Qiskit job that runs the Q# Resource Estimator.
+
+    Submits the circuit to the resource estimator and returns an
+    :class:`~qsharp.estimator.EstimatorResult` with the computed resource estimates.
+    """
 
     def result(self, timeout: Optional[float] = None) -> EstimatorResult:
         return self._result(timeout=timeout)
@@ -148,8 +179,7 @@ class ReJob(QsJob):
     def submit(self):
         """Submit the job to the backend for execution.
 
-        Raises:
-            JobError: if trying to re-submit the job.
+        :raises JobError: If trying to re-submit the job.
         """
 
         telemetry_events.on_qiskit_run_re()

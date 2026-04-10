@@ -29,22 +29,21 @@ class NeutralAtomSampler(cirq.Sampler):
     3. QIR → ``NeutralAtomDevice.simulate()`` (decompose, schedule, simulate)
     4. Raw shots → :class:`NeutralAtomCirqResult`
 
-    Args:
-        noise: Optional :class:`~qsharp._simulation.NoiseConfig` describing
-            per-gate noise. The device decomposes gates to the native set
-            ``{Rz, SX, CZ, MResetZ}``; configure noise on those native gates.
-            For example, a Cirq ``X`` gate arriving via QASM 2.0 is decomposed
-            to ``SX·SX``, so ``noise.sx`` is the relevant field. Defaults to
-            ``None`` (noiseless).
-        simulator_type: Force a particular simulator backend.
-            - ``"clifford"`` — Clifford-only, fast. Requires a Clifford circuit.
-            - ``"cpu"`` — Full state-vector on CPU.
-            - ``"gpu"`` — Full state-vector on GPU.
-            - ``None`` (default) — GPU if available, CPU otherwise.
-        seed: Optional integer seed for reproducibility. Defaults to ``None``.
-        device: An existing :class:`~qsharp._device._atom.NeutralAtomDevice`
-            instance to reuse across calls. A default-configured device is
-            created lazily on the first call when not provided.
+    :param noise: Optional :class:`~qsharp._simulation.NoiseConfig` describing
+        per-gate noise. The device decomposes gates to the native set
+        ``{Rz, SX, CZ, MResetZ}``; configure noise on those native gates.
+        For example, a Cirq ``X`` gate arriving via QASM 2.0 is decomposed
+        to ``SX·SX``, so ``noise.sx`` is the relevant field. Defaults to
+        ``None`` (noiseless).
+    :param simulator_type: Force a particular simulator backend.
+        ``"clifford"`` — Clifford-only, fast. Requires a Clifford circuit.
+        ``"cpu"`` — Full state-vector on CPU.
+        ``"gpu"`` — Full state-vector on GPU.
+        ``None`` (default) — GPU if available, CPU otherwise.
+    :param seed: Optional integer seed for reproducibility. Defaults to ``None``.
+    :param device: An existing :class:`~qsharp._device._atom.NeutralAtomDevice`
+        instance to reuse across calls. A default-configured device is
+        created lazily on the first call when not provided.
 
     Example::
 
