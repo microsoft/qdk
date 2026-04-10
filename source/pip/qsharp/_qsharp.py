@@ -263,6 +263,8 @@ def init(
     :param trace_circuit: Enables tracing of circuit during execution.
         Passing `True` is required for the `dump_circuit` function to return a circuit.
         The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
+    :return: The Q# interpreter configuration.
+    :rtype: Config
     """
     from ._fs import read_file, list_directory, exists, join, resolve
     from ._http import fetch_github
@@ -343,6 +345,7 @@ def get_interpreter() -> Interpreter:
     Returns the Q# interpreter.
 
     :return: The Q# interpreter.
+    :rtype: Interpreter
     """
     global _interpreter
     if _interpreter is None:
@@ -356,6 +359,7 @@ def get_config() -> Config:
     Returns the Q# interpreter configuration.
 
     :return: The Q# interpreter configuration.
+    :rtype: Config
     """
     global _config
     if _config is None:
@@ -410,6 +414,8 @@ class StateDump:
         :param state: The state to check against, provided either as a dictionary of state indices to complex amplitudes,
             or as a list of real amplitudes.
         :param tolerance: The tolerance for the check. Defaults to 1e-10.
+        :return: ``True`` if the state dump is equal to the given state within the given tolerance, ignoring global phase.
+        :rtype: bool
         """
         phase = None
         # Convert a dense list of real amplitudes to a dictionary of state indices to complex amplitudes
@@ -436,6 +442,9 @@ class StateDump:
     def as_dense_state(self) -> List[complex]:
         """
         Returns the state dump as a dense list of complex amplitudes. This will include zero amplitudes.
+
+        :return: A dense list of complex amplitudes, one per computational basis state.
+        :rtype: List[complex]
         """
         return [self.__inner.get(i, complex(0)) for i in range(2**self.qubit_count)]
 
@@ -464,7 +473,8 @@ def eval(
 
     :param source: The Q# source code to evaluate.
     :param save_events: If true, all output will be saved and returned. If false, they will be printed.
-    :returns value: The value returned by the last statement in the source code or the saved output if `save_events` is true.
+    :return: The value returned by the last statement in the source code, or the saved output if ``save_events`` is true.
+    :rtype: Any
     :raises QSharpError: If there is an error evaluating the source code.
     """
     ipython_helper()
@@ -726,9 +736,8 @@ def run(
     :param qubit_loss: The probability of qubit loss in simulation.
     :param seed: The seed to use for the random number generator in simulation, if any.
 
-    :returns values: A list of results or runtime errors. If `save_events` is true,
-    a List of ShotResults is returned.
-
+    :return: A list of results or runtime errors. If ``save_events`` is true, a list of ``ShotResult`` is returned.
+    :rtype: List[Any]
     :raises QSharpError: If there is an error interpreting the input.
     :raises ValueError: If the number of shots is less than 1.
     """
@@ -858,9 +867,8 @@ def compile(
         for the program. Alternatively, a callable can be provided, which must
         be a Q# callable.
 
-    :returns QirInputData: The compiled program.
-
-    To get the QIR string from the compiled program, use `str()`.
+    :return: The compiled program. Use ``str()`` to get the QIR string.
+    :rtype: QirInputData
 
     Example:
 
@@ -912,6 +920,8 @@ def circuit(
     an operation of a lambda expression. The operation must take only
     qubits or arrays of qubits as parameters.
 
+    :return: The synthesized circuit.
+    :rtype: Circuit
     :raises QSharpError: If there is an error synthesizing the circuit.
     """
     ipython_helper()
@@ -956,7 +966,8 @@ def estimate(
         which must be a Q# callable.
     :param params: The parameters to configure physical estimation.
 
-    :returns `EstimatorResult`: The estimated resources.
+    :return: The estimated resources.
+    :rtype: EstimatorResult
     """
 
     ipython_helper()
@@ -1015,7 +1026,8 @@ def logical_counts(
     :param entry_expr: The entry expression. Alternatively, a callable can be provided,
         which must be a Q# callable.
 
-    :returns `LogicalCounts`: Program resources in terms of logical gate counts.
+    :return: Program resources in terms of logical gate counts.
+    :rtype: LogicalCounts
     """
 
     ipython_helper()
@@ -1062,6 +1074,7 @@ def dump_machine() -> StateDump:
     Returns the sparse state vector of the simulator as a StateDump object.
 
     :return: The state of the simulator.
+    :rtype: StateDump
     """
     ipython_helper()
     return StateDump(get_interpreter().dump_machine())
@@ -1076,6 +1089,8 @@ def dump_circuit() -> Circuit:
 
     Requires the interpreter to be initialized with `trace_circuit=True`.
 
+    :return: The current circuit trace.
+    :rtype: Circuit
     :raises QSharpError: If the interpreter was not initialized with ``trace_circuit=True``.
     """
     ipython_helper()

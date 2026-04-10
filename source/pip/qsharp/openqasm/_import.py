@@ -40,6 +40,7 @@ def import_openqasm(
         - ``program_type`` (ProgramType): The type of program compilation to perform.
           Defaults to ``ProgramType.Operation``.
     :return: The value returned by the last statement in the source code.
+    :rtype: Any
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
     :raises QSharpError: If there is an error compiling the program.
     """

@@ -1070,10 +1070,9 @@ class LogicalCounts(dict):
         Estimates resources for the current logical counts, using the
         Parallel Synthesis Sequential Pauli Computation (PSSPC) layout method.
 
-        :param logical_counts: The logical counts.
         :param params: The parameters to configure physical estimation.
-
-        :returns resources: The estimated resources.
+        :return: The estimated resources.
+        :rtype: EstimatorResult
         """
         if params is None:
             params = [{}]
