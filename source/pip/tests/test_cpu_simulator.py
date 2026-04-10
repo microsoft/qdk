@@ -489,16 +489,7 @@ def test_ccx_gate_gets_decomposed():
     """
     qsharp.eval(program)
     input = qsharp.compile("Main()")
-
     output = run_qir_cpu(str(input), shots=1000)
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     histogram = Counter(result)
-    total = sum(histogram.values())
-    assert total > 0, "No measurement results recorded."
-    for bitstring in histogram:
-        assert bitstring.endswith("111"), f"Unexpected suffix in '{bitstring}'."
-    probability_111 = histogram.get("111", 0) / total
-    assert probability_111 == 1.0, (
-        f"Probability of 111 outside expected range. "
-        f"Actual={probability_111:.2%}, Shots={total}."
-    )
+    assert histogram.get("111", 0) == 1000
