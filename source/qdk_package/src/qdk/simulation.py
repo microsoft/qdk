@@ -3,9 +3,15 @@
 
 """Simulation utilities for the Q# ecosystem.
 
-Exposes :class:`~qsharp._device._atom.NeutralAtomDevice` and
-:class:`~qsharp._simulation.NoiseConfig` for configuring and running
-noise-aware quantum simulations.
+This module exposes the core building blocks for noise-aware quantum simulation:
+
+- ``NeutralAtomDevice`` — models a neutral atom quantum device with configurable
+  zone layouts, qubit registers, and movement constraints. Used to compile
+  and simulate circuits on a realistic hardware topology.
+
+- ``NoiseConfig`` — configures per-gate Pauli noise (including qubit loss) for
+  use with the Q# simulator. Assign noise tables to individual gate intrinsics
+  to model depolarizing, bit-flip, phase-flip, or correlated noise channels.
 """
 
 from qsharp._device._atom import NeutralAtomDevice
