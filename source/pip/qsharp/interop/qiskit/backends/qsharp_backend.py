@@ -34,26 +34,32 @@ class QSharpBackend(BackendBase):
         transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
         skip_transpilation: bool = False,
-        **fields,
+        **options,
     ):
         """
-        Parameters:
-            target (Target): The target to use for the backend.
-            qiskit_pass_options (Dict): Options for the Qiskit passes.
-            transpile_options (Dict): Options for the transpiler.
-            qasm_export_options (Dict): Options for the QASM3 exporter.
-            **options: Additional options for the execution.
-              - name (str): The name of the circuit. This is used as the entry point for the program.
-                  The circuit name will be used if not specified.
-              - target_profile (TargetProfile): The target profile to use for the compilation.
-              - output_semantics (OutputSemantics, optional): The output semantics for the compilation. Defaults to `Qiskit`.
-              - shots (int): The number of shots to run the program for. Defaults to `1024`.
-              - seed (int): The seed to use for the random number generator. Defaults to `None`.
-              - search_path (str): The path to search for imports. Defaults to '.'.
-              - output_fn (Callable[[Output], None]): A callback function to
-                  receive the output of the circuit. Defaults to `None`.
-              - executor(ThreadPoolExecutor or other Executor):
-                  The executor to be used to submit the job. Defaults to SynchronousExecutor.
+        :param target: The target to use for the backend.
+        :type target: Target, optional
+        :param qiskit_pass_options: Options for the Qiskit passes.
+        :type qiskit_pass_options: Dict, optional
+        :param transpile_options: Options for the transpiler.
+        :type transpile_options: Dict, optional
+        :param qasm_export_options: Options for the QASM3 exporter.
+        :type qasm_export_options: Dict, optional
+        :param skip_transpilation: Skip Qiskit transpilation.
+        :type skip_transpilation: bool
+        :param **options: Default option overrides. These can also be overridden per-call via
+            :meth:`run`. Common options:
+
+            - ``name`` (str): The name of the circuit used as the entry point. Defaults to the circuit name.
+            - ``target_profile`` (TargetProfile): The target profile to use for the compilation.
+            - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
+              Defaults to ``OutputSemantics.Qiskit``.
+            - ``shots`` (int): The number of shots to run the program for. Defaults to ``1024``.
+            - ``seed`` (int): The seed to use for the random number generator. Defaults to ``None``.
+            - ``search_path`` (str): The path to search for imports. Defaults to ``'.'``.
+            - ``output_fn`` (Callable): A callback function to receive the output of the circuit.
+              Defaults to ``None``.
+            - ``executor``: The executor to be used to submit the job. Defaults to ``SynchronousExecutor``.
         """
 
         super().__init__(
@@ -62,7 +68,7 @@ class QSharpBackend(BackendBase):
             transpile_options,
             qasm_export_options,
             skip_transpilation,
-            **fields,
+            **options,
         )
 
     @classmethod
@@ -87,28 +93,25 @@ class QSharpBackend(BackendBase):
         """
         Runs the given QuantumCircuit using the Q# simulator.
 
-        Args:
-            run_input (QuantumCircuit): The QuantumCircuit to be executed.
-            **options: Additional options for the execution. Defaults to backend config values.
-              - name (str): The name of the circuit. This is used as the entry point for the program.
-                  The circuit name will be used if not specified.
-              - params (Optional[str]): The entry expression to use for the program. Defaults to None.
-              - target_profile (TargetProfile): The target profile to use for the compilation.
-              - output_semantics (OutputSemantics, optional): The output semantics for the compilation.
-              - shots (int): The number of shots to run the program for. Defaults to 1024.
-              - seed (int): The seed to use for the random number generator. Defaults to None.
-              - search_path (str): The path to search for imports. Defaults to '.'.
-              - output_fn (Callable[[Output], None]): A callback function to
-                  receive the output of the circuit.
-              - executor(ThreadPoolExecutor or other Executor):
-                  The executor to be used to submit the job.
-        Returns:
-            QSharpJob: The simulation job
+        :param run_input: The QuantumCircuit to be executed.
+        :type run_input: QuantumCircuit
+        :param **options: Per-call option overrides. Common options:
 
+            - ``name`` (str): The name of the circuit used as the entry point. Defaults to the circuit name.
+            - ``target_profile`` (TargetProfile): The target profile to use for the compilation.
+            - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
+              Defaults to ``OutputSemantics.Qiskit``.
+            - ``shots`` (int): The number of shots to run the program for. Defaults to ``1024``.
+            - ``seed`` (int): The seed to use for the random number generator. Defaults to ``None``.
+            - ``search_path`` (str): The path to search for imports. Defaults to ``'.'``.
+            - ``output_fn`` (Callable): A callback function to receive the output of the circuit.
+              Defaults to ``None``.
+            - ``executor``: The executor to be used to submit the job. Defaults to ``SynchronousExecutor``.
+        :return: The simulation job.
+        :rtype: QsSimJob
         :raises QSharpError: If there is an error evaluating the source code.
         :raises QasmError: If there is an error generating, parsing, or compiling QASM.
-        :raises ValueError: If the run_input is not a QuantumCircuit
-            or List[QuantumCircuit].
+        :raises ValueError: If run_input is not a QuantumCircuit or List[QuantumCircuit].
         """
 
         run_input = self._validate_quantum_circuits(run_input)

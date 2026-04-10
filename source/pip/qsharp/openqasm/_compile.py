@@ -29,24 +29,19 @@ def compile(
     target as QIR (Quantum Intermediate Representation).
     Either a full program or a callable with arguments must be provided.
 
-    Args:
-        source (str): An OpenQASM program. Alternatively, a callable can be provided,
-            which must be an already imported global callable.
-        *args: The arguments to pass to the callable, if one is provided.
-        **kwargs: Additional keyword arguments to pass to the compilation when source program is provided.
-          - name (str): The name of the circuit. This is used as the entry point for the program.
-          - target_profile (TargetProfile): The target profile to use for code generation.
-          - search_path (Optional[str]): The optional search path for resolving file references.
-          - output_semantics (OutputSemantics, optional): The output semantics for the compilation.
+    :param source: An OpenQASM program. Alternatively, a callable can be provided,
+        which must be an already imported global callable.
+    :type source: str
+    :param **kwargs: Additional keyword arguments for compiling the source program. Common options:
 
-    Returns:
-        QirInputData: The compiled program.
-
-    Raises:
-        QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-        QSharpError: If there is an error compiling the program.
-
-    To get the QIR string from the compiled program, use `str()`.
+        - ``name`` (str): The name of the circuit. This is used as the entry point for the program.
+        - ``target_profile`` (TargetProfile): The target profile to use for code generation.
+        - ``search_path`` (str): The optional search path for resolving file references.
+        - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
+    :return: The compiled program. Use ``str()`` to get the QIR string.
+    :rtype: QirInputData
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If there is an error compiling the program.
 
     Example:
 
@@ -91,7 +86,9 @@ def compile(
             **kwargs,
         )
     else:
-        raise ValueError("source must be a string or a callable with __global_callable attribute")
+        raise ValueError(
+            "source must be a string or a callable with __global_callable attribute"
+        )
     res = QirInputData("main", ll_str)
 
     durationMs = (monotonic() - start) * 1000

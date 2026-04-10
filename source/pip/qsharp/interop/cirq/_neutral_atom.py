@@ -101,14 +101,15 @@ class NeutralAtomSampler(cirq.Sampler):
     ) -> List[NeutralAtomCirqResult]:
         """Run the circuit for each parameter resolver in the sweep.
 
-        Args:
-            program: The Cirq circuit to simulate.
-            params: A :class:`cirq.Sweepable` defining the parameter resolvers
-                to sweep over. Each resolver produces one result.
-            repetitions: Number of shots per parameter resolver.
-
-        Returns:
-            A list of :class:`NeutralAtomCirqResult` objects, one per resolver.
+        :param program: The Cirq circuit to simulate.
+        :type program: cirq.AbstractCircuit
+        :param params: A :class:`cirq.Sweepable` defining the parameter resolvers
+            to sweep over. Each resolver produces one result.
+        :type params: cirq.Sweepable
+        :param repetitions: Number of shots per parameter resolver.
+        :type repetitions: int
+        :return: A list of :class:`NeutralAtomCirqResult` objects, one per resolver.
+        :rtype: List[NeutralAtomCirqResult]
         """
         resolvers = list(cirq.to_sweep(params)) if params is not None else [cirq.ParamResolver()]
         return [

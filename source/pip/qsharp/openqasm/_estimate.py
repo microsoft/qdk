@@ -29,22 +29,20 @@ def estimate(
     Estimates the resource requirements for executing OpenQASM source code.
     Either a full program or a callable with arguments must be provided.
 
-    Args:
-        source (str): An OpenQASM program. Alternatively, a callable can be provided,
-            which must be an already imported global callable.
-        params: The parameters to configure estimation.
-        callable: The callable to estimate resources for, if no entry expression is provided.
-        *args: The arguments to pass to the callable, if one is provided.
-        **kwargs: Additional keyword arguments to pass to the execution.
-          - name (str): The name of the circuit. This is used as the entry point for the program. Defaults to 'program'.
-          - search_path (str): The optional search path for resolving imports.
+    :param source: An OpenQASM program. Alternatively, a callable can be provided,
+        which must be an already imported global callable.
+    :type source: str
+    :param params: The parameters to configure estimation.
+    :type params: Dict, List, or EstimatorParams, optional
+    :param **kwargs: Additional keyword arguments. Common options:
 
-    Returns:
-        EstimatorResult: The estimated resources.
-
-    Raises:
-        QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-        QSharpError: If there is an error compiling the program.
+        - ``name`` (str): The name of the circuit. This is used as the entry point for the program.
+          Defaults to ``'program'``.
+        - ``search_path`` (str): The optional search path for resolving imports.
+    :return: The estimated resources.
+    :rtype: EstimatorResult
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If there is an error compiling the program.
     """
 
     ipython_helper()

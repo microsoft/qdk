@@ -79,37 +79,38 @@ class NeutralAtomBackend(BackendBase):
         transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
         skip_transpilation: bool = False,
-        **fields,
+        **options,
     ):
         """
-        Parameters:
-            device (NeutralAtomDevice, optional): The NeutralAtomDevice instance to use
-                for compilation and simulation. A default-configured device is created
-                automatically if not provided. Pass a custom device to control the
-                qubit layout (column count, zone dimensions, etc.).
-            target (Target): Qiskit transpiler target. Defaults to the
-                NeutralAtomDevice native gate set ``{rz, sx, cz, measure, reset}``.
-                Override only if you need a custom decomposition strategy.
-            qiskit_pass_options (Dict): Options forwarded to Qiskit pre-transpilation
-                passes.
-            transpile_options (Dict): Options forwarded to ``qiskit.transpile()``.
-            qasm_export_options (Dict): Options forwarded to the Qiskit QASM3 exporter.
-            skip_transpilation (bool): Skip Qiskit transpilation. Useful when the
-                circuit is already expressed in terms of the target gate set.
-            **fields: Additional backend options. Common options:
+        :param device: The NeutralAtomDevice instance to use for compilation and simulation.
+            A default-configured device is created automatically if not provided.
+            Pass a custom device to control the qubit layout (column count, zone dimensions, etc.).
+        :type device: NeutralAtomDevice, optional
+        :param target: Qiskit transpiler target. Defaults to the NeutralAtomDevice native
+            gate set ``{rz, sx, cz, measure, reset}``. Override only if you need a custom
+            decomposition strategy.
+        :type target: Target, optional
+        :param qiskit_pass_options: Options forwarded to Qiskit pre-transpilation passes.
+        :type qiskit_pass_options: Dict, optional
+        :param transpile_options: Options forwarded to ``qiskit.transpile()``.
+        :type transpile_options: Dict, optional
+        :param qasm_export_options: Options forwarded to the Qiskit QASM3 exporter.
+        :type qasm_export_options: Dict, optional
+        :param skip_transpilation: Skip Qiskit transpilation. Useful when the circuit is
+            already expressed in terms of the target gate set.
+        :type skip_transpilation: bool
+        :param **options: Default option overrides. These can also be overridden per-call via
+            :meth:`run`. Common options:
 
-                - ``name`` (str): Backend name for job metadata. Defaults to the circuit
-                  name.
-                - ``shots`` (int): Number of shots. Defaults to 1024.
-                - ``seed`` (int): Random seed for reproducibility. Defaults to None.
-                - ``noise`` (NoiseConfig): Optional per-gate noise model. Defaults to
-                  None (noiseless).
-                - ``simulator_type`` (str): Simulator to use — ``"clifford"`` (Clifford
-                  only), ``"cpu"`` (CPU full-state), ``"gpu"`` (GPU full-state), or
-                  None to auto-select (GPU if available, CPU otherwise).
-                - ``output_semantics`` (OutputSemantics): QIR output encoding. Defaults
-                  to ``Qiskit``.
-                - ``executor``: Executor for async job submission.
+            - ``name`` (str): Backend name for job metadata. Defaults to the circuit name.
+            - ``shots`` (int): Number of shots. Defaults to ``1024``.
+            - ``seed`` (int): Random seed for reproducibility. Defaults to ``None``.
+            - ``noise`` (NoiseConfig): Optional per-gate noise model. Defaults to ``None`` (noiseless).
+            - ``simulator_type`` (str): Simulator to use — ``"clifford"`` (Clifford only),
+              ``"cpu"`` (CPU full-state), ``"gpu"`` (GPU full-state), or ``None`` to
+              auto-select (GPU if available, CPU otherwise).
+            - ``output_semantics`` (OutputSemantics): QIR output encoding. Defaults to ``OutputSemantics.Qiskit``.
+            - ``executor``: Executor for async job submission.
         """
         self._device = device
         super().__init__(
@@ -118,7 +119,7 @@ class NeutralAtomBackend(BackendBase):
             transpile_options,
             qasm_export_options,
             skip_transpilation,
-            **fields,
+            **options,
         )
 
     def _get_device(self):
@@ -157,17 +158,23 @@ class NeutralAtomBackend(BackendBase):
     ) -> Union[QsSimJob, QsJobSet]:
         """Simulate the given circuit(s) using the NeutralAtomDevice pipeline.
 
-        Args:
-            run_input: A single ``QuantumCircuit`` or a list of them.
-            **options: Per-call option overrides (``shots``, ``seed``, ``noise``,
-                ``simulator_type``, etc.). See class docstring for the full list.
+        :param run_input: A single ``QuantumCircuit`` or a list of them.
+        :type run_input: QuantumCircuit or List[QuantumCircuit]
+        :param **options: Per-call option overrides. Common options:
 
-        Returns:
-            QsSimJob: A job object whose ``.result()`` returns a Qiskit ``Result``.
-
-        Raises:
-            ValueError: If ``run_input`` is not a ``QuantumCircuit`` or list thereof,
-                or if a ``target_profile`` option is provided that is not ``TargetProfile.Base``.
+            - ``name`` (str): Backend name for job metadata. Defaults to the circuit name.
+            - ``shots`` (int): Number of shots. Defaults to ``1024``.
+            - ``seed`` (int): Random seed for reproducibility. Defaults to ``None``.
+            - ``noise`` (NoiseConfig): Optional per-gate noise model. Defaults to ``None`` (noiseless).
+            - ``simulator_type`` (str): Simulator to use — ``"clifford"`` (Clifford only),
+              ``"cpu"`` (CPU full-state), ``"gpu"`` (GPU full-state), or ``None`` to
+              auto-select (GPU if available, CPU otherwise).
+            - ``output_semantics`` (OutputSemantics): QIR output encoding. Defaults to ``OutputSemantics.Qiskit``.
+            - ``executor``: Executor for async job submission.
+        :return: A job object whose ``.result()`` returns a Qiskit ``Result``.
+        :rtype: QsSimJob
+        :raises ValueError: If ``run_input`` is not a ``QuantumCircuit`` or list thereof,
+            or if a ``target_profile`` other than ``TargetProfile.Base`` is provided.
         """
         run_input = self._validate_quantum_circuits(run_input)
         return self._run(run_input, **options)

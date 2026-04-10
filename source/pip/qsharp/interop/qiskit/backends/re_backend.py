@@ -44,21 +44,26 @@ class ResourceEstimatorBackend(BackendBase):
         transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
         skip_transpilation: bool = False,
-        **fields,
+        **options,
     ):
         """
-        Parameters:
-            target (Target): The target to use for the backend.
-            qiskit_pass_options (Dict): Options for the Qiskit passes.
-            transpile_options (Dict): Options for the transpiler.
-            qasm_export_options (Dict): Options for the QASM3 exporter.
-            **options: Additional options for the execution.
-                - params (EstimatorParams): Configuration values for resource estimation.
-                - name (str): The name of the circuit. This is used as the entry point for the program.
-                        The circuit name will be used if not specified.
-                - search_path (str): Path to search in for qasm imports. Defaults to '.'.
-                - executor(ThreadPoolExecutor or other Executor):
-                        The executor to be used to submit the job. Defaults to SynchronousExecutor.
+        :param target: The target to use for the backend.
+        :type target: Target, optional
+        :param qiskit_pass_options: Options for the Qiskit passes.
+        :type qiskit_pass_options: Dict, optional
+        :param transpile_options: Options for the transpiler.
+        :type transpile_options: Dict, optional
+        :param qasm_export_options: Options for the QASM3 exporter.
+        :type qasm_export_options: Dict, optional
+        :param skip_transpilation: Skip Qiskit transpilation.
+        :type skip_transpilation: bool
+        :param **options: Default option overrides. These can also be overridden per-call via
+            :meth:`run`. Common options:
+
+            - ``params`` (EstimatorParams): Configuration values for resource estimation.
+            - ``name`` (str): The name of the circuit used as the entry point. Defaults to the circuit name.
+            - ``search_path`` (str): Path to search in for qasm imports. Defaults to ``'.'``.
+            - ``executor``: The executor to be used to submit the job. Defaults to ``SynchronousExecutor``.
         """
 
         super().__init__(
@@ -67,7 +72,7 @@ class ResourceEstimatorBackend(BackendBase):
             transpile_options,
             qasm_export_options,
             skip_transpilation,
-            **fields,
+            **options,
         )
 
     @property
@@ -98,22 +103,22 @@ class ResourceEstimatorBackend(BackendBase):
         Performs resource estimation on the supplied QuantumCircuit via conversion
         to OpenQASM 3.
 
-        Parameters:
-            run_input ('QuantumCircuit'): The input Qiskit QuantumCircuit object.
-            params (Optional EstimatorParams): Configuration values for resource estimation.
-            **options: Additional options for the execution.
-                - name (str): The name of the circuit. This is used as the entry point for the program.
-                        The circuit name will be used if not specified.
-                - search_path (str): Path to search in for qasm imports. Defaults to '.'.
-                - target_profile (TargetProfile): The target profile to use for the backend.
-                - executor(ThreadPoolExecutor or other Executor):
-                        The executor to be used to submit the job.
-        Returns:
-            ReJob: The resource estimation job
+        :param run_input: The input Qiskit QuantumCircuit object.
+        :type run_input: QuantumCircuit
+        :param params: Configuration values for resource estimation.
+        :type params: EstimatorParams, optional
+        :param **options: Per-call option overrides. Common options:
 
+            - ``params`` (EstimatorParams): Configuration values for resource estimation.
+            - ``name`` (str): The name of the circuit used as the entry point. Defaults to the circuit name.
+            - ``search_path`` (str): Path to search in for qasm imports. Defaults to ``'.'``.
+            - ``target_profile`` (TargetProfile): The target profile to use for the backend.
+            - ``executor``: The executor to be used to submit the job. Defaults to ``SynchronousExecutor``.
+        :return: The resource estimation job.
+        :rtype: ReJob
         :raises QSharpError: If there is an error evaluating the source code.
         :raises QasmError: If there is an error generating, parsing, or compiling QASM.
-        :raises ValueError: If the run_input is not a QuantumCircuit.
+        :raises ValueError: If run_input is not a QuantumCircuit.
         """
         if isinstance(run_input, QuantumCircuit):
             run_input = [run_input]

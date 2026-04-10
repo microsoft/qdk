@@ -713,20 +713,28 @@ def estimate_custom(
     """
     Estimates quantum resources for a given algorithm, qubit, and code.
 
-    Args:
-        algorithm: Python object representing the algorithm.
-        qubit: The qubit properties as a dictionary.
-        qec: Python object representing the quantum error correction code.
-        factories (List): List of python objects representing factories. Default: [].
-        error_budget (float): The total error budget, which is uniformly distributed. Default: 0.01.
-        max_factories (Optional[int]): Constrains the number of factories. Default: None.
-        logical_depth_factor (Optional[float]): Extends algorithmic logical depth by a factor >= 1. Default: None.
-        max_physical_qubits (Optional[int]): Forces estimator to not exceed provided number of physical qubits, may fail. Default: None.
-        max_duration (Optional[int]): Allows estimator to run for given runtime in nanoseconds, may fail. Default: None.
-        error_budget_pruning (bool): Will try to prune the error budget to increase magic state error budget. Default: False.
-
-    Returns:
-        Dict: A dictionary with resource estimation results.
+    :param algorithm: Python object representing the algorithm.
+    :param qubit: The qubit properties as a dictionary.
+    :param qec: Python object representing the quantum error correction code.
+    :param factories: List of python objects representing factories. Defaults to ``[]``.
+    :type factories: List
+    :param error_budget: The total error budget, which is uniformly distributed. Defaults to ``0.01``.
+    :type error_budget: float
+    :param max_factories: Constrains the number of factories. Defaults to ``None``.
+    :type max_factories: int, optional
+    :param logical_depth_factor: Extends algorithmic logical depth by a factor >= 1. Defaults to ``None``.
+    :type logical_depth_factor: float, optional
+    :param max_physical_qubits: Forces estimator to not exceed provided number of physical qubits, may fail.
+        Defaults to ``None``.
+    :type max_physical_qubits: int, optional
+    :param max_duration: Allows estimator to run for given runtime in nanoseconds, may fail.
+        Defaults to ``None``.
+    :type max_duration: int, optional
+    :param error_budget_pruning: Will try to prune the error budget to increase magic state error budget.
+        Defaults to ``False``.
+    :type error_budget_pruning: bool
+    :return: A dictionary with resource estimation results.
+    :rtype: Dict
     """
     ...
 

@@ -25,20 +25,17 @@ def circuit(
     Synthesizes a circuit for an OpenQASM program. Either a program string or
     an operation must be provided.
 
-    Args:
-        source (str): An OpenQASM program. Alternatively, a callable can be provided,
-            which must be an already imported global callable.
-        *args: The arguments to pass to the callable, if one is provided.
-        **kwargs: Additional keyword arguments to pass to the execution.
-          - name (str): The name of the program. This is used as the entry point for the program.
-          - search_path (Optional[str]): The optional search path for resolving file references.
-    Returns:
-        Circuit: The synthesized circuit.
+    :param source: An OpenQASM program. Alternatively, a callable can be provided,
+        which must be an already imported global callable.
+    :type source: str, optional
+    :param **kwargs: Additional keyword arguments. Common options:
 
-    Raises:
-        QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-        QSharpError: If there is an error evaluating the program.
-        QSharpError: If there is an error synthesizing the circuit.
+        - ``name`` (str): The name of the program. This is used as the entry point for the program.
+        - ``search_path`` (str): The optional search path for resolving file references.
+    :return: The synthesized circuit.
+    :rtype: Circuit
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If there is an error evaluating or synthesizing the circuit.
     """
 
     ipython_helper()
