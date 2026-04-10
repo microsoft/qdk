@@ -50,11 +50,11 @@ export async function activate(
     initOutputWindowLogger();
   }
 
-  log.info(`Platform: ${getPlatformEnv()}`);
-  log.info(
+  log.debug(`Platform: ${getPlatformEnv()}`);
+  log.debug(
     `UI Kind: ${vscode.env.uiKind === vscode.UIKind.Web ? "Web" : "Desktop"}`,
   );
-  log.info(`Remote: ${vscode.env.remoteName ?? "local"}`);
+  log.debug(`Remote: ${vscode.env.remoteName ?? "local"}`);
 
   log.info("Q# extension activating.");
   initTelemetry(context);
