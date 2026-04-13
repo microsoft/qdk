@@ -27,7 +27,6 @@ const compilerWorkerPath = new URL("compiler/worker.js", distDir).href;
 const languageServiceWorkerPath = new URL("language-service/worker.js", distDir)
   .href;
 const debugServiceWorkerPath = new URL("debug-service/worker.js", distDir).href;
-const useWorkerModule = true;
 
 // Load the wasm module before running any tests
 const wasmPath = new URL("../lib/web/qsc_wasm_bg.wasm", import.meta.url);
@@ -48,7 +47,7 @@ log.setTelemetryCollector((event) => telemetryEvents.push(event));
 export async function runSingleShot(code, expr, useWorker) {
   const resultsHandler = new QscEventTarget(true);
   const compiler = useWorker
-    ? getCompilerWorker(compilerWorkerPath, useWorkerModule)
+    ? getCompilerWorker(compilerWorkerPath)
     : await getCompiler();
 
   try {
@@ -380,7 +379,7 @@ test("worker 100 shots", async () => {
   let expr = `Test.Answer()`;
 
   const resultsHandler = new QscEventTarget(true);
-  const compiler = getCompilerWorker(compilerWorkerPath, useWorkerModule);
+  const compiler = getCompilerWorker(compilerWorkerPath);
   await compiler.run(
     { sources: [["test.qs", code]], languageFeatures: [] },
     expr,
@@ -400,7 +399,7 @@ test("worker 100 shots", async () => {
 });
 
 test("Run samples", async () => {
-  const compiler = getCompilerWorker(compilerWorkerPath, useWorkerModule);
+  const compiler = getCompilerWorker(compilerWorkerPath);
   const resultsHandler = new QscEventTarget(true);
   const testCases = samples.filter((x) => !x.omitFromTests);
 
@@ -421,7 +420,7 @@ test("Run samples", async () => {
 });
 
 test("state change", async () => {
-  const compiler = getCompilerWorker(compilerWorkerPath, useWorkerModule);
+  const compiler = getCompilerWorker(compilerWorkerPath);
   const resultsHandler = new QscEventTarget(false);
   const stateChanges = [];
 
@@ -464,7 +463,7 @@ test("cancel worker", () => {
     }`;
 
     const cancelledArray = [];
-    const compiler = getCompilerWorker(compilerWorkerPath, useWorkerModule);
+    const compiler = getCompilerWorker(compilerWorkerPath);
     const resultsHandler = new QscEventTarget(false);
 
     // Queue some tasks that will never complete
@@ -491,7 +490,7 @@ test("cancel worker", () => {
       compiler.terminate();
 
       // Start a new compiler and ensure that works fine
-      const compiler2 = getCompilerWorker(compilerWorkerPath, useWorkerModule);
+      const compiler2 = getCompilerWorker(compilerWorkerPath);
       const result = await compiler2.getHir(code, []);
       compiler2.terminate();
 
@@ -708,10 +707,7 @@ test("diagnostics with related spans", async () => {
 });
 
 test("language service diagnostics - web worker", async () => {
-  const languageService = getLanguageServiceWorker(
-    languageServiceWorkerPath,
-    useWorkerModule,
-  );
+  const languageService = getLanguageServiceWorker(languageServiceWorkerPath);
   let gotDiagnostics = false;
   languageService.addEventListener("diagnostics", (event) => {
     gotDiagnostics = true;
@@ -743,10 +739,7 @@ test("language service diagnostics - web worker", async () => {
 });
 
 test("language service configuration update", async () => {
-  const languageService = getLanguageServiceWorker(
-    languageServiceWorkerPath,
-    useWorkerModule,
-  );
+  const languageService = getLanguageServiceWorker(languageServiceWorkerPath);
 
   // Set the configuration to expect an entry point.
   await languageService.updateConfiguration({ packageType: "exe" });
@@ -796,10 +789,7 @@ test("language service configuration update", async () => {
 });
 
 test("language service in notebook", async () => {
-  const languageService = getLanguageServiceWorker(
-    languageServiceWorkerPath,
-    useWorkerModule,
-  );
+  const languageService = getLanguageServiceWorker(languageServiceWorkerPath);
   let actualMessages = [];
   languageService.addEventListener("diagnostics", (event) => {
     actualMessages.push({
@@ -841,7 +831,7 @@ test("language service in notebook", async () => {
 
 async function testCompilerError(useWorker) {
   const compiler = useWorker
-    ? getCompilerWorker(compilerWorkerPath, useWorkerModule)
+    ? getCompilerWorker(compilerWorkerPath)
     : await getCompiler();
   if (useWorker) {
     // @ts-expect-error onstatechange only exists on the worker
@@ -883,10 +873,7 @@ test("compiler error on run", () => testCompilerError(false));
 test("compiler error on run - worker", () => testCompilerError(true));
 
 test("debug service loading source without entry point attr fails - web worker", async () => {
-  const debugService = getDebugServiceWorker(
-    debugServiceWorkerPath,
-    useWorkerModule,
-  );
+  const debugService = getDebugServiceWorker(debugServiceWorkerPath);
   try {
     const result = await debugService.loadProgram(
       {
@@ -915,10 +902,7 @@ test("debug service loading source without entry point attr fails - web worker",
 });
 
 test("debug service loading source with syntax error fails - web worker", async () => {
-  const debugService = getDebugServiceWorker(
-    debugServiceWorkerPath,
-    useWorkerModule,
-  );
+  const debugService = getDebugServiceWorker(debugServiceWorkerPath);
   try {
     const result = await debugService.loadProgram(
       {
@@ -943,10 +927,7 @@ test("debug service loading source with syntax error fails - web worker", async 
 });
 
 test("debug service loading source with bad entry expr fails - web worker", async () => {
-  const debugService = getDebugServiceWorker(
-    debugServiceWorkerPath,
-    useWorkerModule,
-  );
+  const debugService = getDebugServiceWorker(debugServiceWorkerPath);
   try {
     const result = await debugService.loadProgram(
       {
@@ -965,10 +946,7 @@ test("debug service loading source with bad entry expr fails - web worker", asyn
 });
 
 test("debug service loading source that doesn't match profile fails - web worker", async () => {
-  const debugService = getDebugServiceWorker(
-    debugServiceWorkerPath,
-    useWorkerModule,
-  );
+  const debugService = getDebugServiceWorker(debugServiceWorkerPath);
   try {
     const result = await debugService.loadProgram(
       {
@@ -990,10 +968,7 @@ test("debug service loading source that doesn't match profile fails - web worker
 });
 
 test("debug service loading source with good entry expr succeeds - web worker", async () => {
-  const debugService = getDebugServiceWorker(
-    debugServiceWorkerPath,
-    useWorkerModule,
-  );
+  const debugService = getDebugServiceWorker(debugServiceWorkerPath);
   try {
     const result = await debugService.loadProgram(
       {
@@ -1013,10 +988,7 @@ test("debug service loading source with good entry expr succeeds - web worker", 
 });
 
 test("debug service loading source with entry point attr succeeds - web worker", async () => {
-  const debugService = getDebugServiceWorker(
-    debugServiceWorkerPath,
-    useWorkerModule,
-  );
+  const debugService = getDebugServiceWorker(debugServiceWorkerPath);
   try {
     const result = await debugService.loadProgram(
       {
@@ -1047,10 +1019,7 @@ test("debug service loading source with entry point attr succeeds - web worker",
 });
 
 test("debug service getting breakpoints after loaded source succeeds when file names match - web worker", async () => {
-  const debugService = getDebugServiceWorker(
-    debugServiceWorkerPath,
-    useWorkerModule,
-  );
+  const debugService = getDebugServiceWorker(debugServiceWorkerPath);
   try {
     const result = await debugService.loadProgram(
       {
@@ -1082,10 +1051,7 @@ test("debug service getting breakpoints after loaded source succeeds when file n
 });
 
 test("debug service compiling multiple sources - web worker", async () => {
-  const debugService = getDebugServiceWorker(
-    debugServiceWorkerPath,
-    useWorkerModule,
-  );
+  const debugService = getDebugServiceWorker(debugServiceWorkerPath);
   try {
     const result = await debugService.loadProgram(
       {

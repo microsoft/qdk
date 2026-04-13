@@ -17,7 +17,6 @@ import {
 
 const distDir = new URL("../dist/", import.meta.url);
 const compilerWorkerPath = new URL("compiler/worker.js", distDir).href;
-const useWorkerModule = true;
 
 // Load the wasm module before running any tests
 const wasmPath = new URL("../lib/web/qsc_wasm_bg.wasm", import.meta.url);
@@ -59,7 +58,7 @@ test("getQir throws QdkDiagnostics", async () => {
 });
 
 test("getQir throws QdkDiagnostics - worker", async () => {
-  const compiler = getCompilerWorker(compilerWorkerPath, useWorkerModule);
+  const compiler = getCompilerWorker(compilerWorkerPath);
   const invalidConfig = getInvalidQirProgramConfig();
   try {
     await assert.rejects(

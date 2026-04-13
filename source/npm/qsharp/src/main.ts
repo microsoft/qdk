@@ -124,10 +124,9 @@ export async function getProjectLoader(
 // messages, then the worker may be passed in and it will be initialized.
 export function getDebugServiceWorker(
   worker: string | Worker,
-  isWorkerModule = false,
 ): IDebugServiceWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
-  return createProxy(worker, wasmModule, debugServiceProtocol, isWorkerModule);
+  return createProxy(worker, wasmModule, debugServiceProtocol);
 }
 
 export async function getCompiler(): Promise<ICompiler> {
@@ -138,12 +137,9 @@ export async function getCompiler(): Promise<ICompiler> {
 // Create the compiler inside a WebWorker and proxy requests.
 // If the Worker was already created via other means and is ready to receive
 // messages, then the worker may be passed in and it will be initialized.
-export function getCompilerWorker(
-  worker: string | Worker,
-  isWorkerModule = false,
-): ICompilerWorker {
+export function getCompilerWorker(worker: string | Worker): ICompilerWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
-  return createProxy(worker, wasmModule, compilerProtocol, isWorkerModule);
+  return createProxy(worker, wasmModule, compilerProtocol);
 }
 
 export async function getLanguageService(
@@ -158,15 +154,9 @@ export async function getLanguageService(
 // messages, then the worker may be passed in and it will be initialized.
 export function getLanguageServiceWorker(
   worker: string | Worker,
-  isWorkerModule = false,
 ): ILanguageServiceWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
-  return createProxy(
-    worker,
-    wasmModule,
-    languageServiceProtocol,
-    isWorkerModule,
-  );
+  return createProxy(worker, wasmModule, languageServiceProtocol);
 }
 
 /// Extracts the target profile from a Q# source file's entry point.

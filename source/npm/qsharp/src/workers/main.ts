@@ -29,12 +29,11 @@ export function createProxy<
   workerArg: string | Worker,
   wasmModule: WebAssembly.Module,
   serviceProtocol: ServiceProtocol<TService, TServiceEventMsg>,
-  isWorkerModule = false,
 ): TService & IServiceProxy {
   // Create or use the WebWorker
   const worker =
     typeof workerArg === "string"
-      ? new Worker(workerArg, { type: isWorkerModule ? "module" : "classic" })
+      ? new Worker(workerArg, { type: "module" })
       : workerArg;
 
   // Log any errors from the worker
