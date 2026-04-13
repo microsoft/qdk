@@ -3,7 +3,7 @@
 
 //@ts-check
 
-import { copyFileSync, cpSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuildBuild, context } from "esbuild";
@@ -200,20 +200,6 @@ export function copyKatex(destDir) {
   }
 }
 
-/**
- * Copy external node dependencies into node_modules/ under the extension
- * directory so they can be resolved at runtime (e.g. when installed as a VSIX).
- */
-function copyNodeExternals() {
-  const nodeExternals = ["web-worker"];
-  for (const pkg of nodeExternals) {
-    const src = join(libsDir, pkg);
-    const dest = join(thisDir, "node_modules", pkg);
-    console.log(`Copying external dependency ${pkg} to ${dest}`);
-    cpSync(src, dest, { recursive: true });
-  }
-}
-
 // ── Build functions ─────────────────────────────────────────────────
 
 /** @param {string} platform */
@@ -287,7 +273,6 @@ export async function watchVsCode() {
     } else {
       copyKatex();
       copyWasmToVsCode();
-      copyNodeExternals();
 
       await Promise.all([
         buildPlatform("ui"),

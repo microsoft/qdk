@@ -1063,7 +1063,11 @@
     "tsc:check:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json",
     "tsc:check": "npm run tsc:check:main && npm run tsc:check:view",
     "tsc:watch": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json --watch --preserveWatchOutput",
-    "tsc:watch:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput"
+    "tsc:watch:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput",
+    "postinstall": "node -e \"require('fs').cpSync('../../node_modules/web-worker','node_modules/web-worker',{recursive:true})\""
+  },
+  "dependencies": {
+    "web-worker": "^1.5.0"
   },
   "repository": {
     "type": "git",
