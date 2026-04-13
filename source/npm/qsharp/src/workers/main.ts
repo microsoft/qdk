@@ -9,8 +9,26 @@ import {
   ServiceProtocol,
   createProxyInternal,
 } from "./common.js";
-import Worker from "web-worker";
 
+export const isBrowser = typeof Worker !== "undefined";
+
+if (!isBrowser) {
+  // In CJS (esbuild bundle), require is available directly.
+  // In ESM (e.g. node --test), we use dynamic import.
+  if (typeof require === "function") {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    globalThis.Worker = require("web-worker");
+  } else {
+    // Dynamic import for ESM - this is lazy, Worker will be available
+    // by the time it's actually needed.
+    import("web-worker").then((mod) => {
+      globalThis.Worker = mod.default;
+    });
+  }
+  log.debug(
+    "Running in Node.js environment, using web-worker package for Worker support.",
+  );
+}
 /**
  * Creates and initializes a service in a web worker, and returns a proxy for the service
  * to be used from the main thread.
@@ -31,9 +49,13 @@ export function createProxy<
   serviceProtocol: ServiceProtocol<TService, TServiceEventMsg>,
 ): TService & IServiceProxy {
   // Create or use the WebWorker
+  const useModuleWorker: WorkerOptions = isBrowser
+    ? { type: "classic" }
+    : { type: "module" };
+
   const worker =
     typeof workerArg === "string"
-      ? new Worker(workerArg, { type: "module" })
+      ? new Worker(workerArg, useModuleWorker)
       : workerArg;
 
   // Log any errors from the worker
