@@ -255,9 +255,13 @@ export async function watchVsCode() {
       join(thisDir, "src", "webview/editor.tsx"),
     ],
     platform: "browser",
-    outdir: join(thisDir, "out", "web"),
+    outdir: join(thisDir, "out", "browser"),
     plugins: [inlineStateComputeWorkerPlugin, buildPlugin],
     color: false,
+    define: {
+      "import.meta.url": "undefined",
+      __PLATFORM__: JSON.stringify("browser"),
+    },
   });
 
   ctx.watch();
