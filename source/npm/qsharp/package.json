@@ -41,7 +41,7 @@
     "lib",
     "ux"
   ],
-  "dependencies": {
+  "optionalDependencies": {
     "web-worker": "^1.5.0"
   }
 }
