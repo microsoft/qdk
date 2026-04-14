@@ -31,6 +31,7 @@ import { getGithubSourceContent, setGithubEndpoint } from "./projectSystem.js";
 import { initCodegen } from "./qirGeneration.js";
 import { initTelemetry } from "./telemetry.js";
 import { registerWebViewCommands } from "./webviewPanel.js";
+import { registerUriHandler } from "./uriHandler.js";
 import {
   maybeShowChangelogPrompt,
   registerChangelogCommand,
@@ -85,7 +86,14 @@ export async function activate(
   context.subscriptions.push(CircuitEditorProvider.register(context));
   context.subscriptions.push(...registerChangelogCommand(context));
 
-  await initAzureWorkspaces(context);
+  /// Handle incoming workspace connection URIs. The URI will be in the format:
+  /// `vscode://quantum.qsharp-lang-vscode/connectWorkspace?connectionString=SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<https://...>`
+  const azureApi = await initAzureWorkspaces(context);
+  context.subscriptions.push(
+    registerUriHandler(
+      new Map([["/connectWorkspace", azureApi.connectWorkspaceUriHandler]]),
+    ),
+  );
   initCodegen(context);
   await activateDebugger(context);
   registerCreateNotebookCommand(context);
