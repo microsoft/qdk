@@ -469,7 +469,7 @@
       {
         "command": "qsharp-vscode.workspaceOpenPortal",
         "category": "QDK",
-        "title": "Open the workspace in the Azure portal",
+        "title": "Open the workspace in the web portal",
         "icon": "$(link-external)"
       },
       {

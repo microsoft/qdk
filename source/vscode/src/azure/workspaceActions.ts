@@ -20,10 +20,36 @@ import { getRandomGuid } from "../utils";
 import { EventType, sendTelemetryEvent, UserFlowStatus } from "../telemetry";
 import { getTenantIdAndToken, getTokenForWorkspace } from "./auth";
 
-export function getAzurePortalWorkspaceLink(workspace: WorkspaceConnection) {
-  // Portal link format:
-  // - https://portal.azure.com/#resource/subscriptions/<sub guid>/resourceGroups/<group>/providers/Microsoft.Quantum/Workspaces/<name>/overview
+export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
+  const endpointMatch = workspace.endpointUri.match(QuantumUris.endpointRegExp);
+  const isV2Workspace = endpointMatch?.groups?.versionSuffix === "-v2";
 
+  if (isV2Workspace) {
+    // Quantum OS link format:
+    // https://manage.quantum.microsoft.com/workspaces/<workspace-name>
+    //   #tenantId=<tenant-id>&subscriptionId=<sub-id>&role=Researcher&offeringId=<provider-id>&workspaceId=<workspace-id>
+    //
+    // workspace.id starts with '/' (e.g. "/subscriptions/.../Workspaces/<name>"),
+    // so it is appended directly to produce a clean path with literal slashes.
+    const idRegex =
+      /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\//;
+    const subscriptionId =
+      workspace.id.match(idRegex)?.groups?.subscriptionId ?? "";
+
+    const offeringId = workspace.providers[0]?.providerId ?? "";
+
+    const fragment =
+      `tenantId=${workspace.tenantId}` +
+      `&subscriptionId=${subscriptionId}` +
+      `&role=Researcher` +
+      (offeringId ? `&offeringId=${offeringId}` : "") +
+      `&workspaceId=${workspace.id}`;
+
+    return `https://manage.quantum-test.microsoft.com/workspaces/${workspace.name}#${fragment}`;
+  }
+
+  // Azure Portal link format:
+  // https://portal.azure.com/#resource/subscriptions/<sub guid>/resourceGroups/<group>/providers/Microsoft.Quantum/Workspaces/<name>/overview
   return `https://portal.azure.com/#resource${workspace.id}/overview`;
 }
 

@@ -35,7 +35,7 @@ import {
 import {
   cancelPendingJob,
   deleteJobRequest,
-  getAzurePortalWorkspaceLink,
+  getWorkspacePortalLink,
   getJobFiles,
   getPythonCodeForWorkspace,
   queryWorkspaces,
@@ -474,7 +474,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         if (treeItem?.type !== "workspace") return;
         const workspace = treeItem.itemData as WorkspaceConnection;
 
-        const link = getAzurePortalWorkspaceLink(workspace);
+        const link = getWorkspacePortalLink(workspace);
         vscode.env.openExternal(vscode.Uri.parse(link));
       },
     ),
