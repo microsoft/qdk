@@ -35,7 +35,7 @@ import {
   maybeShowChangelogPrompt,
   registerChangelogCommand,
 } from "./changelog.js";
-import { toVsCodeRange } from "./common.js";
+import { getPlatformEnv, toVsCodeRange } from "./common.js";
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -49,6 +49,12 @@ export async function activate(
     // Direct logging to the output window
     initOutputWindowLogger();
   }
+
+  log.debug(`Platform: ${getPlatformEnv()}`);
+  log.debug(
+    `UI Kind: ${vscode.env.uiKind === vscode.UIKind.Web ? "Web" : "Desktop"}`,
+  );
+  log.debug(`Remote: ${vscode.env.remoteName ?? "local"}`);
 
   log.info("Q# extension activating.");
   initTelemetry(context);
