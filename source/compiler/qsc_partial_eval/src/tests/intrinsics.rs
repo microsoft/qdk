@@ -1001,7 +1001,7 @@ fn call_to_check_zero_panics() {
 }
 
 #[test]
-#[should_panic(expected = "`DrawRandomInt` is not a supported by partial evaluation")]
+#[should_panic(expected = "NotAvailable(\"DrawRandomInt\", \"Std.Random.DrawRandomInt\"")]
 fn call_to_draw_random_int_panics() {
     _ = get_rir_program(indoc! {
         r#"
@@ -1017,7 +1017,7 @@ fn call_to_draw_random_int_panics() {
 }
 
 #[test]
-#[should_panic(expected = "`DrawRandomDouble` is not a supported by partial evaluation")]
+#[should_panic(expected = "NotAvailable(\"DrawRandomDouble\", \"Std.Random.DrawRandomDouble\"")]
 fn call_to_draw_random_double_panics() {
     _ = get_rir_program(indoc! {
         r#"
@@ -1033,7 +1033,7 @@ fn call_to_draw_random_double_panics() {
 }
 
 #[test]
-#[should_panic(expected = "`DrawRandomBool` is not a supported by partial evaluation")]
+#[should_panic(expected = "NotAvailable(\"DrawRandomBool\", \"Std.Random.DrawRandomBool\"")]
 fn call_to_draw_random_bool_panics() {
     _ = get_rir_program(indoc! {
         r#"

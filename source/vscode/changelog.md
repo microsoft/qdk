@@ -1,5 +1,63 @@
 # QDK Changelog
 
+## v1.27.0
+
+Below are some of the highlights for the 1.27 release of the QDK.
+
+### Local neutral atom simulation for Cirq and Qiskit
+
+You can now run your Cirq and Qiskit circuits on the local neutral atom simulator. The new `NeutralAtomSampler` (for Cirq) and `NeutralAtomBackend` (for Qiskit) let you submit circuits and simulate noisy neutral atom hardware locally, including qubit loss modeling.
+
+For Cirq, the sampler implements `cirq.Sampler`, so it integrates seamlessly with existing Cirq workflows. Results include both a standard Cirq-compatible view (with loss shots filtered out) and raw data with loss markers for more detailed analysis:
+
+```python
+from qdk.cirq import NeutralAtomSampler
+from qdk.simulation import NoiseConfig
+
+noise = NoiseConfig()
+noise.rz.loss = 0.08
+result = NeutralAtomSampler(noise=noise, seed=42).run(circuit, repetitions=1000)
+```
+
+For Qiskit, the backend provides a `NeutralAtomTarget` and transpiles circuits into the native gate set (`rz`, `sx`, `cz`):
+
+```python
+from qdk.simulation import NeutralAtomBackend, NoiseConfig
+
+backend = NeutralAtomBackend()
+native_circuit = transpile(circuit, backend=backend)
+job = backend.run(native_circuit, shots=1000, noise=NoiseConfig())
+```
+
+See the [neutral atom simulator sample notebook](https://github.com/microsoft/qdk/blob/main/samples/python_interop/neutral_atom_simulator.ipynb) for a walkthrough.
+
+### Updated samples for circuit compatibility
+
+Many of the [built-in samples](https://github.com/microsoft/qdk/tree/main/samples) have been updated so they can now generate circuit diagrams and be submitted to Azure Quantum. Previously, some samples used patterns that were incompatible with circuit generation, such as `Message` calls with dynamic values. These checks have been relaxed, and the samples have been restructured so that `Main()` is circuit-compatible while validation logic lives in separate `@Test()` operations. See [#2999](https://github.com/microsoft/qdk/pull/2999) for details.
+
+### `PostSelectZ` operation
+
+A new operation, `Std.Diagnostics.PostSelectZ`, allows a program to force the collapse of a given qubit to a specified state in the computational basis. This is useful in simulation (including simulation for circuit generation) and resource estimation. It is ignored during QIR code generation, so it does not affect hardware execution. See [#3017](https://github.com/microsoft/qdk/pull/3017) for details.
+
+### Circuit visualization improvements
+
+Classically controlled gate groups can now be expanded and collapsed in circuit diagrams, matching the behavior of other expandable groups. This provides a more consistent interaction model when exploring circuits with complex classical control flow. See [#2985](https://github.com/microsoft/qdk/pull/2985) for details.
+
+## Other notable changes
+
+- Add support for Adaptive_RIFL QIR programs in GPU simulator by @orpuente-MS in [#3039](https://github.com/microsoft/qdk/pull/3039)
+- Support `NoiseConfig` for Q# and OpenQASM on sparse simulation by @swernli in [#3062](https://github.com/microsoft/qdk/pull/3062)
+- Support explicit seed in `qsharp.run` by @swernli in [#3065](https://github.com/microsoft/qdk/pull/3065)
+- Add `qdk-programming` Copilot skill for Q#, OpenQASM and Python by @minestarks in [#3058](https://github.com/microsoft/qdk/pull/3058)
+- Add Optional Data Overlay for MoleculeViewer by @wavefunction91 in [#3059](https://github.com/microsoft/qdk/pull/3059)
+- RCA: Allow updates to mutable variables within a dynamic scope if the variable is also defined within that scope by @swernli in [#3053](https://github.com/microsoft/qdk/pull/3053)
+- OpenQASM: Fix const propagation in bitarray-to-int promotion by @minestarks in [#3030](https://github.com/microsoft/qdk/pull/3030)
+- Add `IntAsDouble` and `Truncate` support in QIR by @swernli in [#3024](https://github.com/microsoft/qdk/pull/3024)
+- Fix collapse/expand issue by @ScottCarda-MS in [#3016](https://github.com/microsoft/qdk/pull/3016)
+- Refactor RCA by @swernli in [#2835](https://github.com/microsoft/qdk/pull/2835), [#3015](https://github.com/microsoft/qdk/pull/3015)
+
+**Full Changelog**: <https://github.com/microsoft/qdk/compare/v1.26.1...v1.27.0>
+
 ## v1.26.0
 
 Below are some of the highlights for the 1.26 release of the QDK.

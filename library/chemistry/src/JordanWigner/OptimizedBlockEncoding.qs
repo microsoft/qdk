@@ -114,7 +114,7 @@ function OptimizedBEGeneratorSystemCoeff(optimizedBEGeneratorSystem : OptimizedB
 /// `GeneratorIndex` representing a Z term.
 ///
 /// # Output
-/// `GeneratorIndex[]` expressing Z term as Pauli terms.
+/// `OptimizedBETermIndex` expressing Z term as Pauli terms.
 function ZTermToPauliMajIdx(term : GeneratorIndex) : OptimizedBETermIndex {
     let (_, coeff) = term.Term;
     let idxFermions = term.Subsystem;
@@ -143,7 +143,7 @@ function ZTermToPauliMajIdx(term : GeneratorIndex) : OptimizedBETermIndex {
 /// `GeneratorIndex` representing a ZZ term.
 ///
 /// # Output
-/// `GeneratorIndex[]` expressing ZZ term as Pauli terms.
+/// `OptimizedBETermIndex` expressing ZZ term as Pauli terms.
 function ZZTermToPauliMajIdx(term : GeneratorIndex) : OptimizedBETermIndex {
     let (_, coeff) = term.Term;
     let idxFermions = term.Subsystem;
@@ -172,7 +172,7 @@ function ZZTermToPauliMajIdx(term : GeneratorIndex) : OptimizedBETermIndex {
 /// `GeneratorIndex` representing a PQ term.
 ///
 /// # Output
-/// `GeneratorIndex[]` expressing PQ term as Pauli terms.
+/// `OptimizedBETermIndex` expressing PQ term as Pauli terms.
 function PQTermToPauliMajIdx(term : GeneratorIndex) : OptimizedBETermIndex {
     let (_, coeff) = term.Term;
     let idxFermions = term.Subsystem;
@@ -201,7 +201,7 @@ function PQTermToPauliMajIdx(term : GeneratorIndex) : OptimizedBETermIndex {
 /// `GeneratorIndex` representing a PQ or PQQR term.
 ///
 /// # Output
-/// `GeneratorIndex[]` expressing PQ or PQQR term as Pauli terms.
+/// `OptimizedBETermIndex` expressing PQ or PQQR term as Pauli terms.
 function PQandPQQRTermToPauliMajIdx(term : GeneratorIndex) : OptimizedBETermIndex {
     let (_, coeff) = term.Term;
     let idxFermions = term.Subsystem;
@@ -238,7 +238,7 @@ function PQandPQQRTermToPauliMajIdx(term : GeneratorIndex) : OptimizedBETermInde
 /// `GeneratorIndex` representing a PQRS term.
 ///
 /// # Output
-/// `GeneratorIndex[]` expressing PQRS term as Pauli terms.
+/// `OptimizedBETermIndex[]` expressing PQRS term as Pauli terms.
 function V0123TermToPauliMajIdx(term : GeneratorIndex) : OptimizedBETermIndex[] {
     let (_, v0123) = term.Term;
     let idxFermions = term.Subsystem;

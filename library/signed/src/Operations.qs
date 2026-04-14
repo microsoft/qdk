@@ -260,7 +260,7 @@ operation Invert2sSI(xs : Qubit[]) : Unit is Adj + Ctl {
 ///
 /// # Remarks
 /// Uses a standard shift-and-subtract approach to implement the division.
-/// The controlled version is specialized such the subtraction does not
+/// The controlled version is specialized such that the subtraction does not
 /// require additional controls.
 operation DivideI(xs : Qubit[], ys : Qubit[], result : Qubit[]) : Unit is Adj + Ctl {
     body (...) {

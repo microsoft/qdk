@@ -53,7 +53,7 @@ pub fn run_rca_pass(
     package_id: qsc_fir::fir::PackageId,
     capabilities: TargetCapabilityFlags,
 ) -> Result<PackageStoreComputeProperties, Vec<crate::Error>> {
-    let analyzer = Analyzer::init(fir_store);
+    let analyzer = Analyzer::init(fir_store, capabilities);
     let compute_properties = analyzer.analyze_all();
     let fir_package = fir_store.get(package_id);
 

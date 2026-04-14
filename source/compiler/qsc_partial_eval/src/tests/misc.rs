@@ -800,3 +800,54 @@ fn double_to_integer_conversion() {
                 Jump(1)"#]],
     );
 }
+
+#[test]
+fn dynamic_fact_call_ignored() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Bool {
+                use q = Qubit();
+                let b = M(q) == One;
+                Std.Diagnostics.Fact(not b, "measurement should always be zero");
+                b
+            }
+        }
+        "#,
+    });
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = LogicalNot Variable(2, Boolean)
+                Variable(4, Boolean) = Store Variable(2, Boolean)
+                Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
+                Return"#]],
+    );
+}
+
+#[test]
+fn static_fact_call_evaluated() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                Std.Diagnostics.Fact(false, "this should always fail");
+            }
+        }
+        "#,
+    });
+    // Note that we don't use `assert_error` with an `expect!` here because it includes
+    // a `PackageSpan` in the error message which is points to the stdlib and can be noisy when
+    // libraries are updated.
+    assert!(format!("{error:?}").contains("this should always fail"));
+}
