@@ -1066,9 +1066,6 @@
     "tsc:watch:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput",
     "postinstall": "node -e \"require('fs').cpSync('../../node_modules/web-worker','node_modules/web-worker',{recursive:true})\""
   },
-  "dependencies": {
-    "web-worker": "^1.5.0"
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/microsoft/qdk.git"
