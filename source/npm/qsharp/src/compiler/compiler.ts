@@ -16,11 +16,11 @@ import {
   ProjectType,
 } from "../../lib/web/qsc_wasm.js";
 import { log } from "../log.js";
-import {
+import type {
   IServiceProxy,
   ServiceProtocol,
   ServiceState,
-} from "../workers/common.js";
+} from "../workers/types.js";
 import { eventStringToMsg } from "./common.js";
 import {
   IQscEventTarget,

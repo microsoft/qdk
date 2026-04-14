@@ -22,7 +22,7 @@ import {
   makeEvent,
 } from "../compiler/events.js";
 import { log } from "../log.js";
-import { IServiceProxy, ServiceProtocol } from "../workers/common.js";
+import type { IServiceProxy, ServiceProtocol } from "../workers/types.js";
 import { toWasmProgramConfig } from "../compiler/compiler.js";
 
 type QscWasm = typeof import("../../lib/web/qsc_wasm.js");
