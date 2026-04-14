@@ -8,7 +8,6 @@ import {
   IOperationInfo,
   IQSharpError,
   QdkDiagnostics,
-  getCompilerWorker,
   log,
 } from "qsharp-lang";
 import { Uri, workspace } from "vscode";
@@ -26,7 +25,7 @@ import {
 import { getRandomGuid } from "./utils";
 import { sendMessageToPanel } from "./webviewPanel";
 import { ICircuitConfig, IPosition } from "../../npm/qsharp/lib/web/qsc_wasm";
-import { basename, getPlatformEnv } from "./common";
+import { basename, loadCompilerWorker } from "./common";
 
 const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
 
@@ -278,12 +277,7 @@ export async function getCircuitOrErrorWithTimeout(
 ): Promise<CircuitOrError> {
   let timeout = false;
 
-  const compilerWorkerScriptPath = Uri.joinPath(
-    extensionUri,
-    `./out/${getPlatformEnv()}/compilerWorker.js`,
-  ).toString();
-
-  const worker = getCompilerWorker(compilerWorkerScriptPath);
+  const worker = loadCompilerWorker(extensionUri);
   const compilerTimeout = setTimeout(() => {
     timeout = true;
     log.info("terminating circuit worker due to timeout");
