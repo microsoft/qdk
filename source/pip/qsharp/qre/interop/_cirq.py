@@ -455,7 +455,7 @@ def phase_gradient_decompose(self, qubits):
 
     for i, q in enumerate(qubits):
         exp = self.exponent / 2**i
-        if exp < 1e-16:
+        if abs(exp) < 1e-16:
             break
         yield cirq.Z(q) ** exp
 
