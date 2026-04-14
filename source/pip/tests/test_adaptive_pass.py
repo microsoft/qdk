@@ -1,19 +1,55 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Unit tests for AdaptiveProfilePass.
+"""Unit tests for the Rust-native adaptive profile compiler.
 
-Tests verify the Python QIR-to-bytecode translation pass by feeding
-LLVM IR strings through the pass and checking the resulting
-instruction dict encoding.
+Tests verify the QIR-to-bytecode compilation by feeding
+LLVM IR strings through compile_adaptive_program and checking
+the resulting instruction dict encoding.
 """
 
-from dataclasses import astuple, asdict
-import pyqir
+from collections import namedtuple
 import pytest
 
-from qsharp._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram
+from qsharp._native import compile_adaptive_program
 from qsharp._adaptive_bytecode import *
+
+# ---------------------------------------------------------------------------
+# Lightweight wrappers for named field access on the dict returned by
+# compile_adaptive_program (which uses tuples for sub-structures).
+# ---------------------------------------------------------------------------
+
+Block = namedtuple("Block", ["block_id", "instr_offset", "instr_count"])
+Instruction = namedtuple(
+    "Instruction", ["opcode", "dst", "src0", "src1", "aux0", "aux1", "aux2", "aux3"]
+)
+QuantumOp = namedtuple("QuantumOp", ["op_id", "q1", "q2", "q3", "angle"])
+Function = namedtuple("Function", ["func_entry_block", "num_params", "param_base"])
+PhiNodeEntry = namedtuple("PhiNodeEntry", ["block_id", "val_reg"])
+SwitchCase = namedtuple("SwitchCase", ["case_val", "target_block"])
+
+
+class AdaptiveProgram:
+    """Thin wrapper around the dict returned by compile_adaptive_program."""
+
+    def __init__(self, d: dict):
+        self._dict = d
+        self.num_qubits = d["num_qubits"]
+        self.num_results = d["num_results"]
+        self.num_registers = d["num_registers"]
+        self.entry_block = d["entry_block"]
+        self.blocks = [Block(*t) for t in d["blocks"]]
+        self.instructions = [Instruction(*t) for t in d["instructions"]]
+        self.quantum_ops = [QuantumOp(*t) for t in d["quantum_ops"]]
+        self.functions = [Function(*t) for t in d["functions"]]
+        self.phi_entries = [PhiNodeEntry(*t) for t in d["phi_entries"]]
+        self.switch_cases = [SwitchCase(*t) for t in d["switch_cases"]]
+        self.call_args = list(d["call_args"])
+        self.labels = list(d["labels"])
+        self.register_types = list(d["register_types"])
+
+    def as_dict(self):
+        return self._dict
 
 
 # ---------------------------------------------------------------------------
@@ -21,10 +57,9 @@ from qsharp._adaptive_bytecode import *
 # ---------------------------------------------------------------------------
 
 
-def _run_pass(ir: str, name: str = "test.ll") -> AdaptiveProgram:
-    """Parse an LLVM IR string and run through AdaptiveProfilePass."""
-    mod = pyqir.Module.from_ir(pyqir.Context(), ir, name)
-    return AdaptiveProfilePass().run(mod)
+def _run_pass(ir: str) -> AdaptiveProgram:
+    """Compile an LLVM IR string via the native Rust adaptive pass."""
+    return AdaptiveProgram(compile_adaptive_program(ir))
 
 
 def _primary(opcode_word: int) -> int:
@@ -734,8 +769,8 @@ def test_bell_loop_funcs_structure():
 def test_bell_loop_funcs_function_entry():
     """The make_bell function table entry has correct param count and entry block."""
     r = _run_pass(BELL_LOOP_FUNCS_QIR)
-    func = r.functions[0]  # (entry_block, num_params, param_base, reserved)
-    entry_block, num_params, param_base = astuple(func)
+    func = r.functions[0]  # (entry_block, num_params, param_base)
+    entry_block, num_params, param_base = func
     assert num_params == 2, "make_bell takes 2 params (%Qubit*, %Qubit*)"
     # entry_block should be a valid block ID
     valid_block_ids = {b.block_id for b in r.blocks}
@@ -800,7 +835,7 @@ def test_bell_loop_funcs_param_registers():
     """make_bell params get allocated registers with PTR type tag."""
     r = _run_pass(BELL_LOOP_FUNCS_QIR)
     func = r.functions[0]
-    _, num_params, param_base = astuple(func)
+    _, num_params, param_base = func
     for i in range(num_params):
         reg = param_base + i
         assert (
@@ -918,18 +953,14 @@ def test_instruction_tuple_length():
     """All instructions are 8-tuples."""
     r = _run_pass(LINEAR_QIR)
     for i, inst in enumerate(r.instructions):
-        assert (
-            len(astuple(inst)) == 8
-        ), f"Instruction {i} has {len(astuple(inst))} fields, expected 8"
+        assert len(inst) == 8, f"Instruction {i} has {len(inst)} fields, expected 8"
 
 
 def test_quantum_op_tuple_length():
     """All quantum ops are 5-tuples."""
     r = _run_pass(LINEAR_QIR)
     for i, qop in enumerate(r.quantum_ops):
-        assert (
-            len(astuple(qop)) == 5
-        ), f"Quantum op {i} has {len(astuple(qop))} fields, expected 5"
+        assert len(qop) == 5, f"Quantum op {i} has {len(qop)} fields, expected 5"
 
 
 ADAPTIVE_RIFLA_QIR = r"""

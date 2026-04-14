@@ -1,0 +1,28 @@
+[package]
+name = "qsc_llvm"
+
+version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+arbitrary = { workspace = true }
+half = "2"
+miette = { workspace = true }
+rustc-hash = { workspace = true }
+thiserror = { workspace = true }
+winnow = { workspace = true }
+
+[dev-dependencies]
+expect-test = { workspace = true }
+indoc = { workspace = true }
+
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false

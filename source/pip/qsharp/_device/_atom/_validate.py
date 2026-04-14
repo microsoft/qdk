@@ -1,7 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from pyqir import QirModuleVisitor, is_entry_point, Opcode
+try:
+    from pyqir import QirModuleVisitor, is_entry_point, Opcode
+except ImportError:
+    pass  # PyQIR required only for neutral atom features
 
 
 class ValidateAllowedIntrinsics(QirModuleVisitor):

@@ -15,6 +15,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = { workspace = true, optional = true }
 qsc = { path = "../compiler/qsc" }
+qsc_llvm = { path = "../compiler/qsc_llvm" }
 
 [target.'cfg(not(any(target_family = "wasm")))'.dependencies]
 allocator = { path = "../allocator" }
@@ -34,5 +35,11 @@ doc = false
 [[bin]]
 name = "qasm"
 path = "fuzz_targets/qasm.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "qir"
+path = "fuzz_targets/qir.rs"
 test = false
 doc = false

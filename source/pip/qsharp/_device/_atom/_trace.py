@@ -1,7 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from pyqir import QirModuleVisitor, qubit_id, required_num_qubits
+try:
+    from pyqir import QirModuleVisitor, qubit_id, required_num_qubits
+except ImportError:
+    pass  # PyQIR required only for neutral atom features
 from .._device import Device
 
 

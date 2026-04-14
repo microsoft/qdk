@@ -3,12 +3,16 @@
 
 from ._utils import as_qis_gate, get_used_values, uses_any_value
 from .._device import Device
-from pyqir import (
-    Call,
-    Instruction,
-    Function,
-    QirModuleVisitor,
-)
+
+try:
+    from pyqir import (
+        Call,
+        Instruction,
+        Function,
+        QirModuleVisitor,
+    )
+except ImportError:
+    pass  # PyQIR required only for neutral atom features
 
 
 def is_output_recording(instr: Instruction):

@@ -1,9 +1,18 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+pub(crate) mod adaptive_pass;
+pub(crate) mod atom_decomp;
+pub(crate) mod atom_optimize;
+pub(crate) mod atom_reorder;
+pub(crate) mod atom_scheduler;
+pub(crate) mod atom_trace;
+pub(crate) mod atom_utils;
+pub(crate) mod atom_validate;
 mod correlated_noise;
 pub(crate) mod cpu_simulators;
 pub(crate) mod gpu_full_state;
+pub(crate) mod native_qir_parser;
 
 use crate::qir_simulation::correlated_noise::parse_noise_table;
 

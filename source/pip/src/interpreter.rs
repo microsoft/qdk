@@ -24,10 +24,22 @@ use crate::{
     noisy_simulator::register_noisy_simulator_submodule,
     qir_simulation::{
         IdleNoiseParams, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
+        adaptive_pass::compile_adaptive_program,
+        atom_decomp::{
+            atom_decompose_multi_qubit_to_cz, atom_decompose_rz_to_clifford,
+            atom_decompose_single_qubit_to_rz_sx, atom_decompose_single_rotation_to_rz,
+            atom_replace_reset_with_mresetz,
+        },
+        atom_optimize::{atom_optimize_single_qubit_gates, atom_prune_unused_functions},
+        atom_reorder::atom_reorder,
+        atom_scheduler::atom_schedule,
+        atom_trace::trace_atom_program,
+        atom_validate::{validate_allowed_intrinsics, validate_no_conditional_branches},
         cpu_simulators::{run_clifford, run_cpu_full_state},
         gpu_full_state::{
             GpuContext, run_adaptive_parallel_shots, run_parallel_shots, try_create_gpu_adapter,
         },
+        native_qir_parser::{get_qir_profile, parse_base_profile_qir},
         unbind_noise_config,
     },
 };
@@ -146,6 +158,23 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(circuit_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_program_to_qir, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_to_qsharp, m)?)?;
+    m.add_function(wrap_pyfunction!(get_qir_profile, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_base_profile_qir, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_adaptive_program, m)?)?;
+    // Neutral atom passes
+    m.add_function(wrap_pyfunction!(validate_allowed_intrinsics, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_no_conditional_branches, m)?)?;
+    m.add_function(wrap_pyfunction!(trace_atom_program, m)?)?;
+    // Neutral atom mutation passes
+    m.add_function(wrap_pyfunction!(atom_decompose_multi_qubit_to_cz, m)?)?;
+    m.add_function(wrap_pyfunction!(atom_decompose_single_rotation_to_rz, m)?)?;
+    m.add_function(wrap_pyfunction!(atom_decompose_single_qubit_to_rz_sx, m)?)?;
+    m.add_function(wrap_pyfunction!(atom_decompose_rz_to_clifford, m)?)?;
+    m.add_function(wrap_pyfunction!(atom_replace_reset_with_mresetz, m)?)?;
+    m.add_function(wrap_pyfunction!(atom_optimize_single_qubit_gates, m)?)?;
+    m.add_function(wrap_pyfunction!(atom_prune_unused_functions, m)?)?;
+    m.add_function(wrap_pyfunction!(atom_reorder, m)?)?;
+    m.add_function(wrap_pyfunction!(atom_schedule, m)?)?;
     Ok(())
 }
 

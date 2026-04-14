@@ -1,19 +1,22 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from pyqir import (
-    Type,
-    Function,
-    FunctionType,
-    FloatConstant,
-    Linkage,
-    const,
-    qubit_type,
-    qubit_id,
-    result_type,
-    is_entry_point,
-    QirModuleVisitor,
-)
+try:
+    from pyqir import (
+        Type,
+        Function,
+        FunctionType,
+        FloatConstant,
+        Linkage,
+        const,
+        qubit_type,
+        qubit_id,
+        result_type,
+        is_entry_point,
+        QirModuleVisitor,
+    )
+except ImportError:
+    pass  # PyQIR required only for neutral atom features
 from math import pi
 
 from ._utils import TOLERANCE

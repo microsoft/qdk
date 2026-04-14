@@ -1,16 +1,19 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from pyqir import (
-    Instruction,
-    Call,
-    Constant,
-    Value,
-    qubit_id,
-    is_qubit_type,
-    result_id,
-    is_result_type,
-)
+try:
+    from pyqir import (
+        Instruction,
+        Call,
+        Constant,
+        Value,
+        qubit_id,
+        is_qubit_type,
+        result_id,
+        is_result_type,
+    )
+except ImportError:
+    pass  # PyQIR required only for neutral atom features
 from typing import Dict
 
 TOLERANCE: float = 1.1920929e-7  # Machine epsilon for 32-bit IEEE FP numbers.

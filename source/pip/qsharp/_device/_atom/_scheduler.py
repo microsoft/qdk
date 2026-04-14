@@ -2,19 +2,23 @@
 # Licensed under the MIT License.
 
 from ._utils import as_qis_gate, get_used_values, uses_any_value
-from pyqir import (
-    Call,
-    Instruction,
-    Function,
-    QirModuleVisitor,
-    FunctionType,
-    Type,
-    Linkage,
-    qubit_type,
-    qubit_id,
-    IntType,
-    Value,
-)
+
+try:
+    from pyqir import (
+        Call,
+        Instruction,
+        Function,
+        QirModuleVisitor,
+        FunctionType,
+        Type,
+        Linkage,
+        qubit_type,
+        qubit_id,
+        IntType,
+        Value,
+    )
+except ImportError:
+    pass  # PyQIR required only for neutral atom features
 from .._device import Device, Zone, ZoneType
 from collections import defaultdict
 from dataclasses import dataclass

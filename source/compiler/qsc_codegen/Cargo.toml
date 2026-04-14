@@ -19,6 +19,7 @@ qsc_fir = { path = "../qsc_fir" }
 qsc_formatter = { path = "../qsc_formatter" }
 qsc_frontend = { path = "../qsc_frontend" }
 qsc_hir = { path = "../qsc_hir" }
+qsc_llvm = { path = "../qsc_llvm" }
 qsc_lowerer = { path = "../qsc_lowerer" }
 qsc_partial_eval = { path = "../qsc_partial_eval" }
 qsc_rca = { path = "../qsc_rca" }

@@ -1,7 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from pyqir import QirModuleVisitor, is_entry_point, qubit_id, required_num_qubits
+try:
+    from pyqir import QirModuleVisitor, is_entry_point, qubit_id, required_num_qubits
+except ImportError:
+    pass  # PyQIR required only for neutral atom validation tests
 
 
 class ValidateBeginEndParallel(QirModuleVisitor):

@@ -345,8 +345,6 @@ def install_python_test_requirements(cwd, interpreter, check: bool = True):
             requirement,
             "--only-binary",
             "qirrunner",
-            "--only-binary",
-            "pyqir",
         ]
         subprocess.run(command_args, check=check, text=True, cwd=cwd)
 
