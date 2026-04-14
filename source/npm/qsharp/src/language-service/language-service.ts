@@ -18,13 +18,13 @@ import type {
   VSDiagnostic,
   ITestDescriptor,
 } from "../../lib/web/qsc_wasm.js";
-import { IProjectHost } from "../browser.js";
+import { IProjectHost } from "../main.js";
 import { log } from "../log.js";
-import {
+import type {
   IServiceEventTarget,
   IServiceProxy,
   ServiceProtocol,
-} from "../workers/common.js";
+} from "../workers/types.js";
 type QscWasm = typeof import("../../lib/web/qsc_wasm.js");
 
 export type LanguageServiceDiagnosticEvent = {

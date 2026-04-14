@@ -2,13 +2,7 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-import {
-  IOperationInfo,
-  QscEventTarget,
-  VSDiagnostic,
-  getCompilerWorker,
-  log,
-} from "qsharp-lang";
+import { IOperationInfo, QscEventTarget, VSDiagnostic, log } from "qsharp-lang";
 import {
   ExtensionContext,
   Uri,
@@ -31,7 +25,7 @@ import {
 } from "./telemetry";
 import { getRandomGuid } from "./utils";
 import { getPauliNoiseModel, getQubitLossSetting } from "./config";
-import { qsharpExtensionId } from "./common";
+import { loadCompilerWorker, qsharpExtensionId } from "./common";
 import { resourceEstimateCommand } from "./estimate";
 
 const QSharpWebViewType = "qsharp-webview";
@@ -44,11 +38,6 @@ export function registerWebViewCommands(context: ExtensionContext) {
     QSharpWebViewType,
     new QSharpViewViewPanelSerializer(),
   );
-
-  const compilerWorkerScriptPath = Uri.joinPath(
-    context.extensionUri,
-    "./out/compilerWorker.js",
-  ).toString();
 
   context.subscriptions.push(
     commands.registerCommand(
@@ -91,7 +80,7 @@ export function registerWebViewCommands(context: ExtensionContext) {
     const panelId = program.programConfig.projectName;
 
     // Start the worker, run the code, and send the results to the webview
-    const worker = getCompilerWorker(compilerWorkerScriptPath);
+    const worker = loadCompilerWorker(context.extensionUri);
     const compilerTimeout = setTimeout(() => {
       worker.terminate();
     }, compilerRunTimeoutMs);

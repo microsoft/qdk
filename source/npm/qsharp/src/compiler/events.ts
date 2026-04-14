@@ -3,7 +3,7 @@
 
 import { ShotResult, Dump, Result } from "./common.js";
 import { log } from "../log.js";
-import { IServiceEventTarget } from "../workers/common.js";
+import type { IServiceEventTarget } from "../workers/types.js";
 
 // Create strongly typed compiler events
 export type QscEventData =

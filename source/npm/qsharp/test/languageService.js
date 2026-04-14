@@ -4,9 +4,14 @@
 // @ts-check
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { log } from "../dist/log.js";
-import { getLanguageService } from "../dist/main.js";
+import { getLanguageService, loadWasmModule } from "../dist/main.js";
+
+// Load the wasm module before running any tests
+const wasmPath = new URL("../lib/web/qsc_wasm_bg.wasm", import.meta.url);
+await loadWasmModule(readFileSync(wasmPath).buffer);
 
 log.setLogLevel("warn");
 
@@ -20,7 +25,7 @@ const dummyHost = {
 };
 
 test("devDiagnostics configuration works", async () => {
-  const languageService = getLanguageService(dummyHost);
+  const languageService = await getLanguageService(dummyHost);
 
   try {
     // Collect diagnostics events as they are raised
