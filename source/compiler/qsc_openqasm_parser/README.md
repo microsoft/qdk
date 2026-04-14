@@ -2,7 +2,7 @@
 
 This crate implements a semantic transformation from OpenQASM to Q#. At a high level it parses the OpenQASM program (and all includes) into an AST. Once this AST is parsed, it is compiled into Q#'s AST.
 
-Once the compiler gets to the AST phase, it no longer cares that it is processing Q#. At this point all input is indistinguishable from having been given Q# as input. This allows us to leverage capability analysis, runtime targeting, residual computation, partial evaluation, and code generation to the input.
+Once the compiler gets to the AST phase, it no longer cares that it is processing OpenQASM. At this point all input is indistinguishable from having been given Q# as input. This allows us to leverage capability analysis, runtime targeting, residual computation, partial evaluation, and code generation to the input.
 
 ## Process Overview
 
