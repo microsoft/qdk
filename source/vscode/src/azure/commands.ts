@@ -38,7 +38,6 @@ import {
   getAzurePortalWorkspaceLink,
   getJobFiles,
   getPythonCodeForWorkspace,
-  parseConnectionString,
   queryWorkspaces,
   submitJob,
   uploadBlob,
@@ -491,7 +490,6 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       await saveWorkspaceList();
       startRefreshCycle(workspaceTreeProvider, workspace);
     },
-    parseConnectionString,
   };
 }
 

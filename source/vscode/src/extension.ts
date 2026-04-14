@@ -10,6 +10,7 @@ import {
 } from "qsharp-lang";
 import * as vscode from "vscode";
 import { initAzureWorkspaces } from "./azure/commands.js";
+import { parseConnectionString } from "./azure/workspaceActions.js";
 import { CircuitEditorProvider } from "./circuitEditor.js";
 import { initProjectCreator } from "./createProject.js";
 import { activateDebugger } from "./debugger/activate.js";
@@ -95,7 +96,7 @@ export async function activate(
             return;
           }
 
-          const workspace = azureApi.parseConnectionString(connStr);
+          const workspace = parseConnectionString(connStr);
           if (!workspace) {
             vscode.window.showErrorMessage(
               "The workspace URI contained an invalid connection string.",
