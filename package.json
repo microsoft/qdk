@@ -47,7 +47,6 @@
     "mocha": "^11.7.5",
     "modern-normalize": "^3.0.1",
     "monaco-editor": "^0.53.0",
-    "openai": "^6.34.0",
     "preact": "^10.29.1",
     "prettier": "^3.8.1",
     "punycode": "^2.3.1",
