@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 import cirq
 
+from ... import telemetry_events
 from .._application import Application
 from .._qre import Trace
 from ..interop import trace_from_cirq
@@ -31,6 +32,7 @@ class CirqApplication(Application[None]):
     classical_control_probability: float = 0.5
 
     def __post_init__(self):
+        telemetry_events.on_qre_application_created("CirqApplication")
         if isinstance(self.circuit_or_qasm, str):
             try:
                 from cirq.contrib.qasm_import import circuit_from_qasm

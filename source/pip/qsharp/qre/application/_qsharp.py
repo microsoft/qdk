@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from ...estimator import LogicalCounts
+from ... import telemetry_events
 from .._qre import Trace
 from .._application import Application
 from ..interop import trace_from_entry_expr_cached
@@ -37,6 +38,10 @@ class QSharpApplication(Application[None]):
         default=Path.home() / ".cache" / "re3" / "qsharp", repr=False
     )
     use_cache: bool = field(default=False, repr=False)
+
+    def __post_init__(self):
+        """Log telemetry for QSharpApplication creation."""
+        telemetry_events.on_qre_application_created("QSharpApplication")
 
     def get_trace(self, parameters: None = None) -> Trace:
         """Return the resource estimation trace for the Q# program.
