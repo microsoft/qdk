@@ -12,7 +12,11 @@
     "directory": "npm"
   },
   "exports": {
-    ".": "./dist/main.js",
+    ".": {
+      "browser": "./dist/browser.js",
+      "node": "./dist/node.js",
+      "default": "./dist/browser.js"
+    },
     "./compiler-worker": "./dist/compiler/worker.js",
     "./language-service-worker": "./dist/language-service/worker.js",
     "./debug-service-worker": "./dist/debug-service/worker.js",

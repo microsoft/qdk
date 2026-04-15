@@ -19,25 +19,6 @@ import type {
   ServiceState,
 } from "./types.js";
 
-export const isBrowser = typeof Worker !== "undefined";
-
-if (!isBrowser) {
-  // In CJS (esbuild bundle), require is available directly.
-  // In ESM (e.g. node --test), we use dynamic import.
-  if (typeof require === "function") {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    globalThis.Worker = require("web-worker");
-  } else {
-    // Dynamic import for ESM - this is lazy, Worker will be available
-    // by the time it's actually needed.
-    import("web-worker").then((mod) => {
-      globalThis.Worker = mod.default;
-    });
-  }
-  log.debug(
-    "Running in Node.js environment, using web-worker package for Worker support.",
-  );
-}
 /**
  * Creates and initializes a service in a web worker, and returns a proxy for the service
  * to be used from the main thread.
@@ -45,6 +26,7 @@ if (!isBrowser) {
  * @param workerArg The service web worker or the URL of the web worker script.
  * @param wasmModule The wasm module to initialize the service with
  * @param serviceProtocol An object that describes the service: its constructor, methods and events
+ * @param workerType The type of worker to create: "classic" for browsers, "module" for Node.js
  * @returns A proxy object that implements the service interface.
  *   This interface can now be used as if calling into the real service,
  *   and the calls will be proxied to the web worker.
@@ -56,11 +38,10 @@ export function createProxy<
   workerArg: string | Worker,
   wasmModule: WebAssembly.Module,
   serviceProtocol: ServiceProtocol<TService, TServiceEventMsg>,
+  workerType: "classic" | "module",
 ): TService & IServiceProxy {
   // Create or use the WebWorker
-  const useModuleWorker: WorkerOptions = isBrowser
-    ? { type: "classic" }
-    : { type: "module" };
+  const useModuleWorker: WorkerOptions = { type: workerType };
 
   const worker =
     typeof workerArg === "string"

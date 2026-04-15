@@ -14,7 +14,7 @@ import {
   getDebugServiceWorker,
   loadWasmModule,
   utils,
-} from "../dist/main.js";
+} from "../dist/node.js";
 
 import { QscEventTarget } from "../dist/compiler/events.js";
 import { getAllKatas, getExerciseSources, getKata } from "../dist/katas.js";

@@ -15,7 +15,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import prettier from "prettier";
 import { log } from "../dist/log.js";
-import { getCompiler, loadWasmModule } from "../dist/main.js";
+import { getCompiler, loadWasmModule } from "../dist/node.js";
 import { draw } from "../dist/ux/circuit-vis/index.js";
 
 // Load the wasm module before running any tests
