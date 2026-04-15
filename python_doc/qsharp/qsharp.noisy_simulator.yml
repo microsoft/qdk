@@ -1,0 +1,11 @@
+### YamlMime:PythonPackage
+uid: qsharp.noisy_simulator
+name: noisy_simulator
+fullName: qsharp.noisy_simulator
+type: import
+classes:
+- qsharp.noisy_simulator.DensityMatrixSimulator
+- qsharp.noisy_simulator.Instrument
+- qsharp.noisy_simulator.NoisySimulatorError
+- qsharp.noisy_simulator.Operation
+- qsharp.noisy_simulator.StateVectorSimulator

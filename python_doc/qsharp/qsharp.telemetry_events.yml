@@ -1,0 +1,232 @@
+### YamlMime:PythonModule
+uid: qsharp.telemetry_events
+name: telemetry_events
+fullName: qsharp.telemetry_events
+functions:
+- uid: qsharp.telemetry_events.get_next_power_of_ten_bucket
+  name: get_next_power_of_ten_bucket
+  signature: 'get_next_power_of_ten_bucket(value: int) -> int'
+  parameters:
+  - name: value
+    isRequired: true
+- uid: qsharp.telemetry_events.get_qubits_bucket
+  name: get_qubits_bucket
+  signature: 'get_qubits_bucket(qubits: str | int) -> str'
+  parameters:
+  - name: qubits
+    isRequired: true
+- uid: qsharp.telemetry_events.on_circuit
+  name: on_circuit
+  signature: on_circuit() -> None
+- uid: qsharp.telemetry_events.on_circuit_end
+  name: on_circuit_end
+  signature: 'on_circuit_end(durationMs: float) -> None'
+  parameters:
+  - name: durationMs
+    isRequired: true
+- uid: qsharp.telemetry_events.on_circuit_qasm
+  name: on_circuit_qasm
+  signature: on_circuit_qasm() -> None
+- uid: qsharp.telemetry_events.on_circuit_qasm_end
+  name: on_circuit_qasm_end
+  signature: 'on_circuit_qasm_end(durationMs: float) -> None'
+  parameters:
+  - name: durationMs
+    isRequired: true
+- uid: qsharp.telemetry_events.on_compile
+  name: on_compile
+  signature: 'on_compile(profile: str) -> None'
+  parameters:
+  - name: profile
+    isRequired: true
+- uid: qsharp.telemetry_events.on_compile_end
+  name: on_compile_end
+  signature: 'on_compile_end(durationMs: float, profile: str) -> None'
+  parameters:
+  - name: durationMs
+    isRequired: true
+  - name: profile
+    isRequired: true
+- uid: qsharp.telemetry_events.on_compile_qasm
+  name: on_compile_qasm
+  signature: 'on_compile_qasm(profile: str) -> None'
+  parameters:
+  - name: profile
+    isRequired: true
+- uid: qsharp.telemetry_events.on_compile_qasm_end
+  name: on_compile_qasm_end
+  signature: 'on_compile_qasm_end(durationMs: float, profile: str) -> None'
+  parameters:
+  - name: durationMs
+    isRequired: true
+  - name: profile
+    isRequired: true
+- uid: qsharp.telemetry_events.on_estimate
+  name: on_estimate
+  signature: on_estimate() -> None
+- uid: qsharp.telemetry_events.on_estimate_end
+  name: on_estimate_end
+  signature: 'on_estimate_end(durationMs: float, qubits: str | int) -> None'
+  parameters:
+  - name: durationMs
+    isRequired: true
+  - name: qubits
+    isRequired: true
+- uid: qsharp.telemetry_events.on_estimate_qasm
+  name: on_estimate_qasm
+  signature: on_estimate_qasm() -> None
+- uid: qsharp.telemetry_events.on_estimate_qasm_end
+  name: on_estimate_qasm_end
+  signature: 'on_estimate_qasm_end(durationMs: float, qubits: str | int) -> None'
+  parameters:
+  - name: durationMs
+    isRequired: true
+  - name: qubits
+    isRequired: true
+- uid: qsharp.telemetry_events.on_eval
+  name: on_eval
+  signature: on_eval() -> None
+- uid: qsharp.telemetry_events.on_eval_end
+  name: on_eval_end
+  signature: 'on_eval_end(durationMs: float) -> None'
+  parameters:
+  - name: durationMs
+    isRequired: true
+- uid: qsharp.telemetry_events.on_import
+  name: on_import
+  signature: on_import() -> None
+- uid: qsharp.telemetry_events.on_import_qasm
+  name: on_import_qasm
+  signature: on_import_qasm() -> None
+- uid: qsharp.telemetry_events.on_import_qasm_end
+  name: on_import_qasm_end
+  signature: 'on_import_qasm_end(durationMs: float) -> None'
+  parameters:
+  - name: durationMs
+    isRequired: true
+- uid: qsharp.telemetry_events.on_neutral_atom_compile
+  name: on_neutral_atom_compile
+  signature: on_neutral_atom_compile() -> None
+- uid: qsharp.telemetry_events.on_neutral_atom_compile_end
+  name: on_neutral_atom_compile_end
+  signature: 'on_neutral_atom_compile_end(duration_ms: float) -> None'
+  parameters:
+  - name: duration_ms
+    isRequired: true
+- uid: qsharp.telemetry_events.on_neutral_atom_cpu_fallback
+  name: on_neutral_atom_cpu_fallback
+  signature: on_neutral_atom_cpu_fallback() -> None
+- uid: qsharp.telemetry_events.on_neutral_atom_init
+  name: on_neutral_atom_init
+  signature: 'on_neutral_atom_init(default_layout: bool) -> None'
+  parameters:
+  - name: default_layout
+    isRequired: true
+- uid: qsharp.telemetry_events.on_neutral_atom_simulate
+  name: on_neutral_atom_simulate
+  signature: 'on_neutral_atom_simulate(shots: int, noise: bool, type: str) -> None'
+  parameters:
+  - name: shots
+    isRequired: true
+  - name: noise
+    isRequired: true
+  - name: type
+    isRequired: true
+- uid: qsharp.telemetry_events.on_neutral_atom_simulate_end
+  name: on_neutral_atom_simulate_end
+  signature: 'on_neutral_atom_simulate_end(duration_ms: float, shots: int, noise:
+    bool, type: str) -> None'
+  parameters:
+  - name: duration_ms
+    isRequired: true
+  - name: shots
+    isRequired: true
+  - name: noise
+    isRequired: true
+  - name: type
+    isRequired: true
+- uid: qsharp.telemetry_events.on_neutral_atom_trace
+  name: on_neutral_atom_trace
+  signature: on_neutral_atom_trace() -> None
+- uid: qsharp.telemetry_events.on_neutral_atom_trace_end
+  name: on_neutral_atom_trace_end
+  signature: 'on_neutral_atom_trace_end(duration_ms: float) -> None'
+  parameters:
+  - name: duration_ms
+    isRequired: true
+- uid: qsharp.telemetry_events.on_qdk_import
+  name: on_qdk_import
+  signature: on_qdk_import() -> None
+- uid: qsharp.telemetry_events.on_qiskit_run
+  name: on_qiskit_run
+  signature: 'on_qiskit_run(shots: int, num_circuits: int) -> None'
+  parameters:
+  - name: shots
+    isRequired: true
+  - name: num_circuits
+    isRequired: true
+- uid: qsharp.telemetry_events.on_qiskit_run_end
+  name: on_qiskit_run_end
+  signature: 'on_qiskit_run_end(shots: int, num_circuits: int, duration_ms: float)
+    -> None'
+  parameters:
+  - name: shots
+    isRequired: true
+  - name: num_circuits
+    isRequired: true
+  - name: duration_ms
+    isRequired: true
+- uid: qsharp.telemetry_events.on_qiskit_run_re
+  name: on_qiskit_run_re
+  signature: on_qiskit_run_re() -> None
+- uid: qsharp.telemetry_events.on_qiskit_run_re_end
+  name: on_qiskit_run_re_end
+  signature: 'on_qiskit_run_re_end(duration_ms: float) -> None'
+  parameters:
+  - name: duration_ms
+    isRequired: true
+- uid: qsharp.telemetry_events.on_run
+  name: on_run
+  signature: 'on_run(shots: int, noise: bool, qubit_loss: bool) -> None'
+  parameters:
+  - name: shots
+    isRequired: true
+  - name: noise
+    isRequired: true
+  - name: qubit_loss
+    isRequired: true
+- uid: qsharp.telemetry_events.on_run_cell
+  name: on_run_cell
+  signature: on_run_cell() -> None
+- uid: qsharp.telemetry_events.on_run_cell_end
+  name: on_run_cell_end
+  signature: 'on_run_cell_end(durationMs: float) -> None'
+  parameters:
+  - name: durationMs
+    isRequired: true
+- uid: qsharp.telemetry_events.on_run_end
+  name: on_run_end
+  signature: 'on_run_end(durationMs: float, shots: int) -> None'
+  parameters:
+  - name: durationMs
+    isRequired: true
+  - name: shots
+    isRequired: true
+- uid: qsharp.telemetry_events.on_run_qasm
+  name: on_run_qasm
+  signature: 'on_run_qasm(shots: int, noise: bool, qubit_loss: bool) -> None'
+  parameters:
+  - name: shots
+    isRequired: true
+  - name: noise
+    isRequired: true
+  - name: qubit_loss
+    isRequired: true
+- uid: qsharp.telemetry_events.on_run_qasm_end
+  name: on_run_qasm_end
+  signature: 'on_run_qasm_end(durationMs: float, shots: int) -> None'
+  parameters:
+  - name: durationMs
+    isRequired: true
+  - name: shots
+    isRequired: true

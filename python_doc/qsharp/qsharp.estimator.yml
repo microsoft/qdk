@@ -1,0 +1,20 @@
+### YamlMime:PythonPackage
+uid: qsharp.estimator
+name: estimator
+fullName: qsharp.estimator
+type: import
+classes:
+- qsharp.estimator.DistillationUnitSpecification
+- qsharp.estimator.ErrorBudgetPartition
+- qsharp.estimator.EstimatorConstraints
+- qsharp.estimator.EstimatorError
+- qsharp.estimator.EstimatorInputParamsItem
+- qsharp.estimator.EstimatorParams
+- qsharp.estimator.EstimatorQecScheme
+- qsharp.estimator.EstimatorQubitParams
+- qsharp.estimator.EstimatorResult
+- qsharp.estimator.LogicalCounts
+- qsharp.estimator.MeasurementErrorRate
+- qsharp.estimator.ProtocolSpecificDistillationUnitSpecification
+- qsharp.estimator.QECScheme
+- qsharp.estimator.QubitParams

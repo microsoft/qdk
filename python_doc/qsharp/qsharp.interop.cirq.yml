@@ -1,0 +1,16 @@
+### YamlMime:PythonPackage
+uid: qsharp.interop.cirq
+name: cirq
+fullName: qsharp.interop.cirq
+summary: "Cirq interoperability for the Q# ecosystem.\n\n\nThis module provides a\
+  \ <xref:NeutralAtomSampler> \u2014 a standard\n``cirq.Sampler`` that runs Cirq circuits\
+  \ on the local NeutralAtomDevice\nsimulator.\n\n\nUsage::\n\n\n    import cirq\n\
+  \    from qsharp.interop.cirq import NeutralAtomSampler\n\n\n    q0, q1 = cirq.LineQubit.range(2)\n\
+  \    circuit = cirq.Circuit([\n        cirq.H(q0),\n        cirq.CNOT(q0, q1),\n\
+  \        cirq.measure(q0, q1, key=\"m\"),\n    ])\n\n\n    sampler = NeutralAtomSampler(seed=42)\n\
+  \    result = sampler.run(circuit, repetitions=1000)\n    print(result.histogram(key=\"\
+  m\"))"
+type: import
+classes:
+- qsharp.interop.cirq.NeutralAtomCirqResult
+- qsharp.interop.cirq.NeutralAtomSampler

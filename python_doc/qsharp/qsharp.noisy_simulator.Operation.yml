@@ -1,0 +1,23 @@
+### YamlMime:PythonClass
+uid: qsharp.noisy_simulator.Operation
+name: Operation
+fullName: qsharp.noisy_simulator.Operation
+module: qsharp.noisy_simulator
+constructor:
+  syntax: Operation(kraus_operators)
+  parameters:
+  - name: kraus_operators
+    isRequired: true
+methods:
+- uid: qsharp.noisy_simulator.Operation.get_effect_matrix
+  name: get_effect_matrix
+  signature: get_effect_matrix()
+- uid: qsharp.noisy_simulator.Operation.get_kraus_operators
+  name: get_kraus_operators
+  signature: get_kraus_operators()
+- uid: qsharp.noisy_simulator.Operation.get_number_of_qubits
+  name: get_number_of_qubits
+  signature: get_number_of_qubits()
+- uid: qsharp.noisy_simulator.Operation.get_operation_matrix
+  name: get_operation_matrix
+  signature: get_operation_matrix()

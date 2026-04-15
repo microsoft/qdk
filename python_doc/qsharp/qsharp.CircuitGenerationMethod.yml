@@ -1,0 +1,17 @@
+### YamlMime:PythonClass
+uid: qsharp.CircuitGenerationMethod
+name: CircuitGenerationMethod
+fullName: qsharp.CircuitGenerationMethod
+module: qsharp
+constructor:
+  syntax: CircuitGenerationMethod()
+attributes:
+- uid: qsharp.CircuitGenerationMethod.ClassicalEval
+  name: ClassicalEval
+  signature: ClassicalEval = CircuitGenerationMethod.ClassicalEval
+- uid: qsharp.CircuitGenerationMethod.Simulate
+  name: Simulate
+  signature: Simulate = CircuitGenerationMethod.Simulate
+- uid: qsharp.CircuitGenerationMethod.Static
+  name: Static
+  signature: Static = CircuitGenerationMethod.Static

@@ -1,0 +1,24 @@
+### YamlMime:PythonClass
+uid: qsharp.telemetry.Metric
+name: Metric
+fullName: qsharp.telemetry.Metric
+module: qsharp.telemetry
+summary: Used internally for objects in the telemetry queue
+constructor:
+  syntax: Metric()
+attributes:
+- uid: qsharp.telemetry.Metric.count
+  name: count
+  signature: 'count: int'
+- uid: qsharp.telemetry.Metric.name
+  name: name
+  signature: 'name: str'
+- uid: qsharp.telemetry.Metric.properties
+  name: properties
+  signature: 'properties: Dict[str, Any]'
+- uid: qsharp.telemetry.Metric.type
+  name: type
+  signature: 'type: str'
+- uid: qsharp.telemetry.Metric.value
+  name: value
+  signature: 'value: float'

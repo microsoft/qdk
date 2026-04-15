@@ -1,0 +1,13 @@
+### YamlMime:PythonClass
+uid: qsharp.estimator.EstimatorError
+name: EstimatorError
+fullName: qsharp.estimator.EstimatorError
+module: qsharp.estimator
+summary: An error returned from the resource estimation.
+constructor:
+  syntax: 'EstimatorError(code: str, message: str)'
+  parameters:
+  - name: code
+    isRequired: true
+  - name: message
+    isRequired: true

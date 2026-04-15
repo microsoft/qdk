@@ -1,0 +1,55 @@
+### YamlMime:PythonClass
+uid: qsharp.estimator.EstimatorQecScheme
+name: EstimatorQecScheme
+fullName: qsharp.estimator.EstimatorQecScheme
+module: qsharp.estimator
+summary: 'Quantum error correction scheme parameters for resource estimation.
+
+
+  Specify a built-in scheme by setting `name` to one of the
+
+  <xref:qsharp.estimator.QECScheme> constants, or define a custom scheme by setting
+
+  the threshold and code-distance parameters directly.'
+constructor:
+  syntax: 'EstimatorQecScheme(name: str | None = None, error_correction_threshold:
+    float | None = None, crossing_prefactor: float | None = None, distance_coefficient_power:
+    int | None = None, logical_cycle_time: str | None = None, physical_qubits_per_logical_qubit:
+    str | None = None, max_code_distance: int | None = None)'
+  parameters:
+  - name: name
+    defaultValue: None
+  - name: error_correction_threshold
+    defaultValue: None
+  - name: crossing_prefactor
+    defaultValue: None
+  - name: distance_coefficient_power
+    defaultValue: None
+  - name: logical_cycle_time
+    defaultValue: None
+  - name: physical_qubits_per_logical_qubit
+    defaultValue: None
+  - name: max_code_distance
+    defaultValue: None
+attributes:
+- uid: qsharp.estimator.EstimatorQecScheme.crossing_prefactor
+  name: crossing_prefactor
+  signature: 'crossing_prefactor: float | None = None'
+- uid: qsharp.estimator.EstimatorQecScheme.distance_coefficient_power
+  name: distance_coefficient_power
+  signature: 'distance_coefficient_power: int | None = None'
+- uid: qsharp.estimator.EstimatorQecScheme.error_correction_threshold
+  name: error_correction_threshold
+  signature: 'error_correction_threshold: float | None = None'
+- uid: qsharp.estimator.EstimatorQecScheme.logical_cycle_time
+  name: logical_cycle_time
+  signature: 'logical_cycle_time: str | None = None'
+- uid: qsharp.estimator.EstimatorQecScheme.max_code_distance
+  name: max_code_distance
+  signature: 'max_code_distance: int | None = None'
+- uid: qsharp.estimator.EstimatorQecScheme.name
+  name: name
+  signature: 'name: str | None = None'
+- uid: qsharp.estimator.EstimatorQecScheme.physical_qubits_per_logical_qubit
+  name: physical_qubits_per_logical_qubit
+  signature: 'physical_qubits_per_logical_qubit: str | None = None'

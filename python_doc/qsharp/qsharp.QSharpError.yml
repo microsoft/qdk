@@ -1,0 +1,8 @@
+### YamlMime:PythonClass
+uid: qsharp.QSharpError
+name: QSharpError
+fullName: qsharp.QSharpError
+module: qsharp
+summary: An error returned from the Q# interpreter.
+constructor:
+  syntax: QSharpError()

@@ -1,0 +1,18 @@
+### YamlMime:PythonClass
+uid: qsharp.openqasm.ProgramType
+name: ProgramType
+fullName: qsharp.openqasm.ProgramType
+module: qsharp.openqasm
+summary: Represents the type of compilation output to create
+constructor:
+  syntax: ProgramType()
+attributes:
+- uid: qsharp.openqasm.ProgramType.File
+  name: File
+  signature: File = ProgramType.File
+- uid: qsharp.openqasm.ProgramType.Fragments
+  name: Fragments
+  signature: Fragments = ProgramType.Fragments
+- uid: qsharp.openqasm.ProgramType.Operation
+  name: Operation
+  signature: Operation = ProgramType.Operation

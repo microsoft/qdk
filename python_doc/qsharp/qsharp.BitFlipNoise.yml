@@ -1,0 +1,21 @@
+### YamlMime:PythonClass
+uid: qsharp.BitFlipNoise
+name: BitFlipNoise
+fullName: qsharp.BitFlipNoise
+module: qsharp
+summary: 'The bit flip noise to use in simulation.
+
+
+  Creates a new <xref:qsharp.BitFlipNoise> instance.
+
+
+  The bit flip channel applies a Pauli-X error with probability `p`.'
+constructor:
+  syntax: 'BitFlipNoise(p: float)'
+  parameters:
+  - name: p
+    description: "Probability of a bit flip (Pauli-X) error. Must satisfy `0 \u2264\
+      \ p \u2264 1`."
+    isRequired: true
+    types:
+    - <xref:float>

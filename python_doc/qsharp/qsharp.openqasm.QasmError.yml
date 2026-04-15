@@ -1,0 +1,8 @@
+### YamlMime:PythonClass
+uid: qsharp.openqasm.QasmError
+name: QasmError
+fullName: qsharp.openqasm.QasmError
+module: qsharp.openqasm
+summary: An error returned from the OpenQASM parser.
+constructor:
+  syntax: QasmError()

@@ -1,0 +1,10 @@
+### YamlMime:PythonClass
+uid: qsharp.noisy_simulator.Instrument
+name: Instrument
+fullName: qsharp.noisy_simulator.Instrument
+module: qsharp.noisy_simulator
+constructor:
+  syntax: Instrument(operations)
+  parameters:
+  - name: operations
+    isRequired: true

@@ -1,0 +1,115 @@
+### YamlMime:PythonClass
+uid: qsharp.interop.cirq.NeutralAtomSampler
+name: NeutralAtomSampler
+fullName: qsharp.interop.cirq.NeutralAtomSampler
+module: qsharp.interop.cirq
+summary: "A `cirq.Sampler` that runs Cirq circuits on the local NeutralAtomDevice\
+  \ simulator.\n\nThis sampler integrates with the standard Cirq sampler protocol,\
+  \ so it can\nbe used anywhere a `cirq.Sampler` is expected.\n\nPipeline for each\
+  \ `run()` call:\n\n1. `cirq.Circuit.to_qasm(version=\"3.0\")` \u2192 OpenQASM 3.0\
+  \ \n\n2. OpenQASM 3.0 \u2192 QIR (base profile, via the Q# compiler) \n\n3. QIR\
+  \ \u2192 `NeutralAtomDevice.simulate()` (decompose, schedule, simulate) \n\n4. Raw\
+  \ shots \u2192 <xref:qsharp.interop.cirq.NeutralAtomCirqResult> \n\nExample:\n\n\
+  <!-- literal_block {\"ids\": [], \"classes\": [], \"names\": [], \"dupnames\": [],\
+  \ \"backrefs\": [], \"xml:space\": \"preserve\", \"language\": \"default\", \"force\"\
+  : false, \"linenos\": false} -->\n\n````default\n\n   import cirq\n   from qsharp.interop.cirq\
+  \ import NeutralAtomSampler\n   from qsharp._simulation import NoiseConfig\n\n \
+  \  q0, q1 = cirq.LineQubit.range(2)\n   circuit = cirq.Circuit([\n       cirq.H(q0),\n\
+  \       cirq.CNOT(q0, q1),\n       cirq.measure(q0, q1, key=\"m\"),\n   ])\n\n \
+  \  # Noiseless simulation\n   sampler = NeutralAtomSampler(seed=42)\n   result =\
+  \ sampler.run(circuit, repetitions=1000)\n   print(result.histogram(key=\"m\"))\n\
+  \n   # Noisy simulation \u2014 1% loss on Rz (native gate)\n   noise = NoiseConfig()\n\
+  \   noise.rz.loss = 0.01\n   sampler = NeutralAtomSampler(noise=noise, seed=42)\n\
+  \   result = sampler.run(circuit, repetitions=1000)\n   print(f\"Accepted: {len(result.measurements['m'])}\
+  \ / {len(result.raw_shots)}\")\n   ````"
+constructor:
+  syntax: 'NeutralAtomSampler(*, noise: ''NoiseConfig'' | None = None, simulator_type:
+    str | None = None, seed: int | None = None, device: ''NeutralAtomDevice'' | None
+    = None)'
+  parameters:
+  - name: noise
+    description: "Optional <xref:qsharp._simulation.NoiseConfig> describing\nper-gate\
+      \ noise. The device decomposes gates to the native set\n`{Rz, SX, CZ, MResetZ}`;\
+      \ configure noise on those native gates.\nFor example, a Cirq `X` gate arriving\
+      \ via QASM 2.0 is decomposed\nto `SX\xB7SX`, so `noise.sx` is the relevant field.\
+      \ Defaults to\n`None` (noiseless)."
+    isRequired: true
+  - name: simulator_type
+    description: "Force a particular simulator backend.\n`\"clifford\"` \u2014 Clifford-only,\
+      \ fast. Requires a Clifford circuit.\n`\"cpu\"` \u2014 Full state-vector on\
+      \ CPU.\n`\"gpu\"` \u2014 Full state-vector on GPU.\n`None` (default) \u2014\
+      \ GPU if available, CPU otherwise."
+    isRequired: true
+  - name: seed
+    description: Optional integer seed for reproducibility. Defaults to `None`.
+    isRequired: true
+  - name: device
+    description: 'An existing <xref:qsharp._device._atom.NeutralAtomDevice>
+
+      instance to reuse across calls. A default-configured device is
+
+      created lazily on the first call when not provided.'
+    isRequired: true
+  keywordOnlyParameters:
+  - name: noise
+    defaultValue: None
+  - name: simulator_type
+    defaultValue: None
+  - name: seed
+    defaultValue: None
+  - name: device
+    defaultValue: None
+methods:
+- uid: qsharp.interop.cirq.NeutralAtomSampler.run_sweep
+  name: run_sweep
+  summary: Run the circuit for each parameter resolver in the sweep.
+  signature: 'run_sweep(program: AbstractCircuit, params: ParamResolver | Mapping[str
+    | Expr, complex | number | Expr] | None | Sweep | _Sweepable, repetitions: int
+    = 1) -> List[NeutralAtomCirqResult]'
+  parameters:
+  - name: program
+    description: The Cirq circuit to simulate.
+    isRequired: true
+    types:
+    - <xref:cirq.AbstractCircuit>
+  - name: params
+    description: 'A <xref:cirq.Sweepable> defining the parameter resolvers
+
+      to sweep over. Each resolver produces one result.'
+    isRequired: true
+    types:
+    - <xref:cirq.Sweepable>
+  - name: repetitions
+    description: Number of shots per parameter resolver.
+    defaultValue: '1'
+    types:
+    - <xref:int>
+  return:
+    description: A list of <xref:qsharp.interop.cirq.NeutralAtomCirqResult> objects,
+      one per resolver.
+    types:
+    - <xref:typing.List>[<xref:qsharp.interop.cirq.NeutralAtomCirqResult>]
+- uid: qsharp.interop.cirq.NeutralAtomSampler.run_sweep_async
+  name: run_sweep_async
+  summary: 'Asynchronously samples from the given Circuit.
+
+
+    By default, this method invokes *run_sweep* synchronously and simply
+
+    exposes its result is an awaitable. Child classes that are capable of
+
+    true asynchronous sampling should override it to use other strategies.'
+  signature: 'run_sweep_async(program: cirq.AbstractCircuit, params: cirq.Sweepable,
+    repetitions: int = 1) -> Sequence[cirq.Result]'
+  parameters:
+  - name: program
+    description: The circuit to sample from.
+    isRequired: true
+  - name: params
+    description: Parameters to run with the program.
+    isRequired: true
+  - name: repetitions
+    description: The number of times to sample.
+    defaultValue: '1'
+  return:
+    description: Result list for this run; one for each possible parameter resolver.

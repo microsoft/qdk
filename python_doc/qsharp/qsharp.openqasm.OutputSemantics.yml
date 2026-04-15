@@ -1,0 +1,22 @@
+### YamlMime:PythonClass
+uid: qsharp.openqasm.OutputSemantics
+name: OutputSemantics
+fullName: qsharp.openqasm.OutputSemantics
+module: qsharp.openqasm
+summary: 'Represents the output semantics for OpenQASM 3 compilation.
+
+  Each has implications on the output of the compilation
+
+  and the semantic checks that are performed.'
+constructor:
+  syntax: OutputSemantics()
+attributes:
+- uid: qsharp.openqasm.OutputSemantics.OpenQasm
+  name: OpenQasm
+  signature: OpenQasm = OutputSemantics.OpenQasm
+- uid: qsharp.openqasm.OutputSemantics.Qiskit
+  name: Qiskit
+  signature: Qiskit = OutputSemantics.Qiskit
+- uid: qsharp.openqasm.OutputSemantics.ResourceEstimation
+  name: ResourceEstimation
+  signature: ResourceEstimation = OutputSemantics.ResourceEstimation

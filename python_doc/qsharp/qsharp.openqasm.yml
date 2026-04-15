@@ -1,0 +1,306 @@
+### YamlMime:PythonPackage
+uid: qsharp.openqasm
+name: openqasm
+fullName: qsharp.openqasm
+type: import
+functions:
+- uid: qsharp.openqasm.circuit
+  name: circuit
+  summary: 'Synthesizes a circuit for an OpenQASM program. Either a program string
+    or
+
+    an operation must be provided.'
+  signature: 'circuit(source: str | Callable | None = None, *args, **kwargs: Any)
+    -> Circuit'
+  parameters:
+  - name: source
+    description: 'An OpenQASM program. Alternatively, a callable can be provided,
+
+      which must be an already imported global callable.'
+    defaultValue: None
+    types:
+    - <xref:str>, <xref:optional>
+  - name: '*args'
+    description: The arguments to pass to the callable, if one is provided.
+    isRequired: true
+  - name: generation_method
+    description: 'The method to use for circuit generation.
+
+      `CircuitGenerationMethod.ClassicalEval` evaluates classical control flow at
+      circuit
+
+      generation time. `CircuitGenerationMethod.Simulate` runs a full simulation to
+      trace
+
+      the circuit. `CircuitGenerationMethod.Static` uses partial evaluation and requires
+
+      a non-`Unrestricted` target profile. Defaults to `None` (auto-selected).'
+    isRequired: true
+  - name: max_operations
+    description: 'The maximum number of operations to include in the circuit.
+
+      Defaults to `None` (no limit).'
+    isRequired: true
+  - name: source_locations
+    description: 'If `True`, annotates each gate with its source location.
+
+      Defaults to `False`.'
+    isRequired: true
+  - name: group_by_scope
+    description: 'If `True`, groups operations by their Q# scope.
+
+      Defaults to `True`.'
+    isRequired: true
+  - name: prune_classical_qubits
+    description: 'If `True`, removes qubits that are never used in a quantum
+
+      gate. Defaults to `False`.'
+    isRequired: true
+  - name: '**kwargs'
+    description: "Additional keyword arguments. Common options:\n\n* `name` (str):\
+      \ The name of the program. This is used as the entry point for the program.\
+      \ \n\n* `search_path` (str): The optional search path for resolving file references."
+    isRequired: true
+  return:
+    description: The synthesized circuit.
+    types:
+    - <xref:Circuit>
+  exceptions:
+  - type: qsharp.openqasm.QasmError
+    description: If there is an error generating, parsing, or analyzing the OpenQASM
+      source.
+  - type: qsharp.QSharpError
+    description: If there is an error evaluating or synthesizing the circuit.
+- uid: qsharp.openqasm.compile
+  name: compile
+  summary: 'Compiles the OpenQASM source code into a program that can be submitted
+    to a
+
+    target as QIR (Quantum Intermediate Representation).
+
+    Either a full program or a callable with arguments must be provided.
+
+
+    Example:'
+  signature: 'compile(source: str | Callable, *args: Any, **kwargs: Any) -> QirInputData'
+  parameters:
+  - name: source
+    description: 'An OpenQASM program. Alternatively, a callable can be provided,
+
+      which must be an already imported global callable.'
+    isRequired: true
+    types:
+    - <xref:str>
+  - name: '*args'
+    description: The arguments to pass to the callable, if one is provided.
+    isRequired: true
+  - name: '**kwargs'
+    description: "Additional keyword arguments for compiling the source program. Common\
+      \ options:\n\n* `name` (str): The name of the circuit. This is used as the entry\
+      \ point for the program. \n\n* `target_profile` (TargetProfile): The target\
+      \ profile to use for code generation. \n\n* `search_path` (str): The optional\
+      \ search path for resolving file references. \n\n* `output_semantics` (OutputSemantics):\
+      \ The output semantics for the compilation."
+    isRequired: true
+  return:
+    description: The compiled program. Use `str()` to get the QIR string.
+    types:
+    - <xref:QirInputData>
+  exceptions:
+  - type: qsharp.openqasm.QasmError
+    description: If there is an error generating, parsing, or analyzing the OpenQASM
+      source.
+  - type: qsharp.QSharpError
+    description: If there is an error compiling the program.
+- uid: qsharp.openqasm.estimate
+  name: estimate
+  summary: 'Estimates the resource requirements for executing OpenQASM source code.
+
+    Either a full program or a callable with arguments must be provided.'
+  signature: 'estimate(source: str | Callable, params: Dict[str, Any] | List | EstimatorParams
+    | None = None, *args: Any, **kwargs: Any) -> EstimatorResult'
+  parameters:
+  - name: source
+    description: 'An OpenQASM program. Alternatively, a callable can be provided,
+
+      which must be an already imported global callable.'
+    isRequired: true
+    types:
+    - <xref:str>
+  - name: params
+    description: The parameters to configure estimation.
+    defaultValue: None
+    types:
+    - <xref:typing.Dict>, <xref:typing.List>
+    - <xref:qsharp.estimator.EstimatorParams>, <xref:optional>
+  - name: '*args'
+    description: The arguments to pass to the callable, if one is provided.
+    isRequired: true
+  - name: '**kwargs'
+    description: "Additional keyword arguments. Common options:\n\n* `name` (str):\
+      \ The name of the circuit. This is used as the entry point for the program.\
+      \ Defaults to `'program'`. \n\n* `search_path` (str): The optional search path\
+      \ for resolving imports."
+    isRequired: true
+  return:
+    description: The estimated resources.
+    types:
+    - <xref:qsharp.estimator.EstimatorResult>
+  exceptions:
+  - type: qsharp.openqasm.QasmError
+    description: If there is an error generating, parsing, or analyzing the OpenQASM
+      source.
+  - type: qsharp.QSharpError
+    description: If there is an error compiling the program.
+- uid: qsharp.openqasm.import_openqasm
+  name: import_openqasm
+  summary: 'Imports OpenQASM source code into the active QDK interpreter. By default,
+    import uses `ProgramType.Operation`
+
+    such that the source becomes a Q# operation in the global namespace with parameters
+    for any declared classical
+
+    inputs and parameters for each of the declared qubits, while any explicit or implicit
+    output declarations become
+
+    the return type of the operation.
+
+    Alternatively, specifying `ProgramType.File` will treat the input source as a
+    stand-alone program and create
+
+    an operation in the `qasm_import` namespace that only takes classical parameters,
+    allocates the required qubits
+
+    internally and releases them at the end of the operation.
+
+    Finally, using `ProgramType.Fragments` executes the provided source in the current
+    interactive interpreter,
+
+    defining any declared variables or operations in the current scope and returning
+    the value of the last statement
+
+    in the source.'
+  signature: 'import_openqasm(source: str, **kwargs: Any) -> Any'
+  parameters:
+  - name: source
+    description: An OpenQASM program or fragment.
+    isRequired: true
+    types:
+    - <xref:str>
+  - name: '**kwargs'
+    description: "Additional keyword arguments. Common options:\n\n* `name` (str):\
+      \ The name of the program. This is used as the entry point for the program.\
+      \ \n\n* `search_path` (str): The optional search path for resolving file references.\
+      \ \n\n* `output_semantics` (OutputSemantics): The output semantics for the compilation.\
+      \ \n\n* `program_type` (ProgramType): The type of program compilation to perform.\
+      \ Defaults to `ProgramType.Operation`."
+    isRequired: true
+  return:
+    description: The value returned by the last statement in the source code.
+    types:
+    - <xref:typing.Any>
+  exceptions:
+  - type: qsharp.openqasm.QasmError
+    description: If there is an error generating, parsing, or analyzing the OpenQASM
+      source.
+  - type: qsharp.QSharpError
+    description: If there is an error compiling the program.
+- uid: qsharp.openqasm.run
+  name: run
+  summary: 'Runs the given OpenQASM program for the given number of shots.
+
+    Either a full program or a callable with arguments must be provided.
+
+    Each shot uses an independent instance of the simulator.'
+  signature: 'run(source: str | Callable, shots: int = 1024, *args: Any, on_result:
+    Callable[[ShotResult], None] | None = None, save_events: bool = False, noise:
+    Tuple[float, float, float] | PauliNoise | BitFlipNoise | PhaseFlipNoise | DepolarizingNoise
+    | NoiseConfig | None = None, qubit_loss: float | None = None, as_bitstring: bool
+    = False, **kwargs: Any) -> List[Any]'
+  parameters:
+  - name: source
+    description: 'An OpenQASM program. Alternatively, a callable can be provided,
+
+      which must be an already imported global callable.'
+    isRequired: true
+    types:
+    - <xref:str>
+  - name: shots
+    description: The number of shots to run. Defaults to `1024`.
+    defaultValue: '1024'
+    types:
+    - <xref:int>
+  - name: '*args'
+    description: The arguments to pass to the callable, if one is provided.
+    isRequired: true
+  - name: on_result
+    description: 'A callback function that will be called with each result.
+
+      Only used when a callable is provided.'
+    isRequired: true
+    types:
+    - <xref:typing.Callable>, <xref:optional>
+  - name: save_events
+    description: 'If true, the output of each shot will be saved. If false, they will
+      be printed.
+
+      Only used when a callable is provided.'
+    isRequired: true
+    types:
+    - <xref:bool>
+  - name: noise
+    description: The noise to use in simulation.
+    isRequired: true
+    types:
+    - <xref:typing.Union>[<xref:typing.Tuple>[<xref:float>, <xref:float>, <xref:float>],
+      <xref:qsharp.PauliNoise>, <xref:qsharp.BitFlipNoise>, <xref:qsharp.PhaseFlipNoise>,
+      <xref:qsharp.DepolarizingNoise>, <xref:NoiseConfig>], <xref:optional>
+  - name: qubit_loss
+    description: The probability of qubit loss in simulation.
+    isRequired: true
+    types:
+    - <xref:float>, <xref:optional>
+  - name: as_bitstring
+    description: If true, the result registers will be converted to bitstrings.
+    isRequired: true
+    types:
+    - <xref:bool>
+  - name: '**kwargs'
+    description: "Additional keyword arguments for compiling the source program. Common\
+      \ options:\n\n* `name` (str): The name of the circuit. This is used as the entry\
+      \ point for the program. \n\n* `target_profile` (TargetProfile): The target\
+      \ profile to use for code generation. \n\n* `search_path` (str): The optional\
+      \ search path for resolving file references. \n\n* `output_semantics` (OutputSemantics):\
+      \ The output semantics for the compilation. \n\n* `seed` (int): The seed to\
+      \ use for the random number generator."
+    isRequired: true
+  keywordOnlyParameters:
+  - name: on_result
+    defaultValue: None
+  - name: save_events
+    defaultValue: 'False'
+  - name: noise
+    defaultValue: None
+  - name: qubit_loss
+    defaultValue: None
+  - name: as_bitstring
+    defaultValue: 'False'
+  return:
+    description: A list of results or runtime errors. If `save_events` is true, a
+      list of ShotResults is returned.
+    types:
+    - <xref:typing.List>[<xref:typing.Any>]
+  exceptions:
+  - type: qsharp.openqasm.QasmError
+    description: If there is an error generating, parsing, or analyzing the OpenQASM
+      source.
+  - type: qsharp.QSharpError
+    description: If there is an error interpreting the input.
+  - type: ValueError
+    description: If the number of shots is less than 1.
+  - type: ValueError
+    description: If `on_result` or `save_events` are used when running OpenQASM programs.
+classes:
+- qsharp.openqasm.OutputSemantics
+- qsharp.openqasm.ProgramType
+- qsharp.openqasm.QasmError

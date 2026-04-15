@@ -1,0 +1,21 @@
+### YamlMime:PythonClass
+uid: qsharp.Pauli
+name: Pauli
+fullName: qsharp.Pauli
+module: qsharp
+summary: A Q# Pauli operator.
+constructor:
+  syntax: Pauli()
+attributes:
+- uid: qsharp.Pauli.I
+  name: I
+  signature: I = Pauli.I
+- uid: qsharp.Pauli.X
+  name: X
+  signature: X = Pauli.X
+- uid: qsharp.Pauli.Y
+  name: Y
+  signature: Y = Pauli.Y
+- uid: qsharp.Pauli.Z
+  name: Z
+  signature: Z = Pauli.Z

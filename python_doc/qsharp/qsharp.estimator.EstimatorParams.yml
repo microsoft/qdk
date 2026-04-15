@@ -1,0 +1,43 @@
+### YamlMime:PythonClass
+uid: qsharp.estimator.EstimatorParams
+name: EstimatorParams
+fullName: qsharp.estimator.EstimatorParams
+module: qsharp.estimator
+summary: 'Top-level input parameters for the Microsoft Resource Estimator.
+
+
+  Extends <xref:qsharp.estimator.EstimatorInputParamsItem> with support for batching:
+  pass
+
+  `num_items` to create a batching job where each item can override the
+
+  top-level parameters.'
+constructor:
+  syntax: 'EstimatorParams(num_items: int | None = None)'
+  parameters:
+  - name: num_items
+    description: 'Number of batching items. If `None`, creates a
+
+      single-point estimation job.'
+    defaultValue: None
+    types:
+    - <xref:int>, <xref:optional>
+methods:
+- uid: qsharp.estimator.EstimatorParams.as_dict
+  name: as_dict
+  summary: 'Constructs a dictionary from the input params.
+
+
+    For batching jobs, top-level entries are merged into item entries.
+
+    Item entries have priority in case they are specified.'
+  signature: as_dict(validate=True) -> Dict[str, Any]
+  parameters:
+  - name: validate
+    defaultValue: 'True'
+attributes:
+- uid: qsharp.estimator.EstimatorParams.items
+  name: items
+- uid: qsharp.estimator.EstimatorParams.MAX_NUM_ITEMS
+  name: MAX_NUM_ITEMS
+  signature: 'MAX_NUM_ITEMS: int = 1000'
