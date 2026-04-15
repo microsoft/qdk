@@ -309,7 +309,9 @@ async function executeResourceEstimation(
       );
     } else {
       log.error("getEstimates error: ", e.toString());
-      throw new Error("Estimating failed with error: " + e.toString());
+      throw new Error("Estimating failed with error: " + e.toString(), {
+        cause: e,
+      });
     }
   } finally {
     if (!timedOut) {

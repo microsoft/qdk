@@ -192,7 +192,7 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
 export async function generateQubitCircuitExpression(
   resource: vscode.Uri,
 ): Promise<string> {
-  let numQubits: number | undefined = undefined;
+  let numQubits: number | undefined;
 
   try {
     const document = await vscode.workspace.openTextDocument(resource);
@@ -237,6 +237,7 @@ export async function generateQubitCircuitExpression(
   } catch (err: any) {
     throw new Error(
       `Failed to generate Q# circuit expression: ${err?.message ?? err}`,
+      { cause: err },
     );
   }
 }

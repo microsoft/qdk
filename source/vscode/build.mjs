@@ -18,7 +18,7 @@ const commonBuildOptions = {
   bundle: true,
   external: ["vscode"],
   format: "cjs",
-  target: ["es2020"],
+  target: ["es2022"],
   sourcemap: "linked",
 };
 
