@@ -226,6 +226,18 @@ export class QuantumUris {
   public static readonly endpointRegExp =
     /https:\/\/(?<location>[^.]+?)(?<versionSuffix>-v2)?\./;
 
+  /** Parses the relevant parts out of an endpoint URI string. */
+  public static parseEndpointUri(endpointUri: string): {
+    location: string | undefined;
+    isV2Workspace: boolean;
+  } {
+    const match = endpointUri.match(QuantumUris.endpointRegExp);
+    return {
+      location: match?.groups?.location,
+      isV2Workspace: match?.groups?.versionSuffix === "-v2",
+    };
+  }
+
   constructor(
     public endpoint: string, // e.g. "https://westus.quantum.azure.com"
     public id: string, // e.g. "/subscriptions/00000000-1111-2222-3333-444444444444/resourceGroups/quantumResourcegroup/providers/Microsoft.Quantum/Workspaces/quantumworkspace1"

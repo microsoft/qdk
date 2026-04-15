@@ -30,8 +30,7 @@ export function getQuantumOsJobLink(
 }
 
 export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
-  const endpointMatch = workspace.endpointUri.match(QuantumUris.endpointRegExp);
-  const isV2Workspace = endpointMatch?.groups?.versionSuffix === "-v2";
+  const { isV2Workspace } = QuantumUris.parseEndpointUri(workspace.endpointUri);
 
   if (isV2Workspace) {
     // Quantum OS link format:
@@ -127,11 +126,10 @@ export function getPythonCodeForWorkspace(
     /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\/(?<resourceGroup>[^/]+)/;
 
   const idMatch = id.match(idRegex);
-  const endpointMatch = endpointUri.match(QuantumUris.endpointRegExp);
 
   const subscriptionId = idMatch?.groups?.subscriptionId;
   const resourceGroup = idMatch?.groups?.resourceGroup;
-  const location = endpointMatch?.groups?.location;
+  const { location } = QuantumUris.parseEndpointUri(endpointUri);
 
   // TODO: Mention how to fetch/use connection strings
 

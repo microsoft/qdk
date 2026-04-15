@@ -24,7 +24,9 @@ function localDate(date: string) {
   return new Date(date).toLocaleString();
 }
 
-export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceTreeItem> {
+export class WorkspaceTreeProvider
+  implements vscode.TreeDataProvider<WorkspaceTreeItem>
+{
   static instance: WorkspaceTreeProvider;
   private treeState: Map<string, WorkspaceConnection> = new Map();
 
@@ -251,10 +253,9 @@ export class WorkspaceTreeItem extends vscode.TreeItem {
       case "job": {
         const job = itemData as Job;
         this.collapsibleState = vscode.TreeItemCollapsibleState.None;
-        const endpointMatch = workspace.endpointUri.match(
-          QuantumUris.endpointRegExp,
+        const { isV2Workspace } = QuantumUris.parseEndpointUri(
+          workspace.endpointUri,
         );
-        const isV2Workspace = endpointMatch?.groups?.versionSuffix === "-v2";
         const v2Suffix = isV2Workspace ? "-v2" : "";
         switch (job.status) {
           case "Executing":

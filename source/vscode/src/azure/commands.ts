@@ -727,8 +727,7 @@ async function uploadSupplementalData(
   token: string,
   associationId: string,
 ) {
-  const endpointMatch = quantumUris.endpoint.match(QuantumUris.endpointRegExp);
-  const isV2Workspace = endpointMatch?.groups?.versionSuffix === "-v2";
+  const { isV2Workspace } = QuantumUris.parseEndpointUri(quantumUris.endpoint);
 
   if (isV2Workspace) {
     const circuitDiagram = await getCircuitJson(program);
