@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import logging
 from dataclasses import dataclass, field
@@ -11,7 +12,14 @@ from math import ceil
 from pathlib import Path
 from typing import Callable, Generator, Iterable, Optional, Sequence
 
-from ..._qre import ISA, InstructionFrontier, ISARequirements, Instruction, _binom_ppf
+from ..._qre import (
+    ISA,
+    InstructionFrontier,
+    ISARequirements,
+    Instruction,
+    _binom_ppf,
+    _ProvenanceGraph,
+)
 from ..._instruction import (
     LOGICAL,
     PHYSICAL,
@@ -145,7 +153,10 @@ class RoundBasedFactory(ISATransform):
                 )
             )
 
-        for code_isa in self.code_query.enumerate(ctx):
+        # create a fresh inner context of the given one
+        inner_ctx = copy.copy(ctx)
+        inner_ctx._provenance = _ProvenanceGraph()
+        for code_isa in self.code_query.enumerate(inner_ctx):
             units.extend(self._logical_units(code_isa[LATTICE_SURGERY]))
 
         optimal_states = InstructionFrontier()

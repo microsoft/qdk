@@ -8,7 +8,8 @@ from typing import cast
 import pytest
 
 from qsharp.qre import LOGICAL
-from qsharp.qre.models import SurfaceCode, GateBased
+from qsharp.qre.models import SurfaceCode, GateBased, RoundBasedFactory
+from qsharp.qre.instruction_ids import LATTICE_SURGERY, T
 from qsharp.qre._isa_enumeration import (
     ISARefNode,
     _ComponentQuery,
@@ -540,3 +541,38 @@ def test_sum_isa_enumeration_nodes():
     assert len(query.sources) == 8
     for source in query.sources:
         assert isinstance(source, _ComponentQuery)
+
+
+def test_round_based_model_does_not_expose_code_query_instructions():
+    """
+    Tests that the round-based model does not expose instructions from the inner
+    code query.
+    """
+
+    arch = GateBased(gate_time=100, measurement_time=500)
+    ctx = arch.context()
+    RoundBasedFactory.q(use_cache=False).populate(ctx)
+
+    graph = ctx._provenance
+
+    # Accumulate total space and time for all generated factories to make sure
+    # they are unchanged
+    total_space, total_time = 0, 0
+
+    for node in range(1, graph.num_nodes() + 1):
+        instruction = graph.instruction(node)
+        if instruction.id == LATTICE_SURGERY:
+            assert (
+                False
+            ), "Lattice surgery instruction found in round-based model provenance graph: {instruction}"
+
+        if instruction.id == T:
+            total_space += instruction.expect_space()
+            total_time += instruction.expect_time()
+
+    assert total_time == 34_375_000
+    assert total_space == 12_946_489
+
+    assert (
+        True
+    ), "Lattice surgery instruction not found in round-based model provenance graph"
