@@ -71,7 +71,7 @@ def trace_from_cirq(
     *,
     classical_control_probability: float = 0.5,
     rotation_threshold: float = 1e-6,
-    memory_compute: bool = True,
+    track_memory_qubits: bool = True,
 ) -> Trace:
     """Convert a Cirq circuit into a resource estimation Trace.
 
@@ -89,9 +89,12 @@ def trace_from_cirq(
             trace. This applies to single-qubit rotations (RX, RY, RZ) as
             well as to the rotation components of controlled-Z
             decompositions. Defaults to 1e-6.
-        memory_compute (bool): When True, memory qubits are tracked
-            separately from compute qubits. When False, all qubits are
-            treated as compute qubits. Defaults to True.
+        track_memory_qubits (bool): When True, memory qubits are tracked
+            separately from compute qubits. When False, all qubits are treated
+            as compute qubits. Also, if True, read-from-memory and
+            write-to-memory instructions are preserved in the trace, otherwise,
+            they are decompsed into SWAP and RESET instructions.  Defaults to
+            True.
 
     Returns:
         Trace: A Trace representing an execution profile of the circuit.
@@ -107,7 +110,7 @@ def trace_from_cirq(
         circuit = cirq.Circuit(circuit)
 
     context = _CirqTraceBuilder(
-        circuit, classical_control_probability, rotation_threshold, memory_compute
+        circuit, classical_control_probability, rotation_threshold, track_memory_qubits
     )
 
     for moment in circuit:
@@ -145,13 +148,13 @@ class _CirqTraceBuilder:
         circuit: cirq.Circuit,
         classical_control_probability: float,
         rotation_threshold: float,
-        memory_compute: bool = True,
+        track_memory_qubits: bool = True,
     ):
         self._circuit = circuit
         self._trace = Trace(0)
         self._classical_control_probability = classical_control_probability
         self._rotation_threshold = rotation_threshold
-        self._memory_compute = memory_compute
+        self._track_memory_qubits = track_memory_qubits
         self._blocks = [self._trace.root_block()]
         self._q_to_id = _QidToTraceId(circuit.all_qubits())
         self._decomp_context = cirq.DecompositionContext(
@@ -179,7 +182,7 @@ class _CirqTraceBuilder:
 
         for q in self._circuit.all_qubits():
             if (
-                self._memory_compute
+                self._track_memory_qubits
                 and isinstance(q, TypedQubit)
                 and q.qubit_type == QubitType.MEMORY
             ):
@@ -188,14 +191,14 @@ class _CirqTraceBuilder:
                 # Untyped qubits are considered COMPUTE by default.
                 num_compute_qubits += 1
 
-        if self._memory_compute:
+        if self._track_memory_qubits:
             num_memory_qubits += qm.memory_qubit_count()
         else:
             num_compute_qubits += qm.memory_qubit_count()
         num_compute_qubits += qm.compute_qubit_count()
 
         self._trace.compute_qubits = num_compute_qubits
-        if self._memory_compute and num_memory_qubits > 0:
+        if self._track_memory_qubits and num_memory_qubits > 0:
             self._trace.memory_qubits = num_memory_qubits
 
         return self._trace
@@ -735,7 +738,7 @@ class ReadFromMemoryGate(cirq.Gate):
 
     def _to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation, **_kwargs):
         """Convert this gate into trace instructions."""
-        if context._memory_compute:
+        if context._track_memory_qubits:
             comp_qs, mem_qs = self._get_qubits(op.qubits)
             for i in range(self.n):
                 yield TraceGate(READ_FROM_MEMORY, [mem_qs[i], comp_qs[i]])
@@ -778,7 +781,7 @@ class WriteToMemoryGate(cirq.Gate):
 
     def _to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation, **_kwargs):
         """Convert this gate into trace instructions."""
-        if context._memory_compute:
+        if context._track_memory_qubits:
             comp_qs, mem_qs = self._get_qubits(op.qubits)
             for i in range(self.n):
                 yield TraceGate(WRITE_TO_MEMORY, [comp_qs[i], mem_qs[i]])
