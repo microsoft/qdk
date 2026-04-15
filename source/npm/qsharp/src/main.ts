@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// This module is the single entry point for both browser and Node.js environments.
+// Main entrypoint. Browsers use this directly; Node.js uses it through the node.ts wrapper.
 
 import * as wasm from "../lib/web/qsc_wasm.js";
 import initWasm, {
@@ -31,6 +31,12 @@ import {
 import { log } from "./log.js";
 import { ProjectLoader } from "./project.js";
 import { createProxy } from "./workers/main.js";
+
+let workerType: "classic" | "module" = "classic";
+
+export function setWorkerType(type: "classic" | "module") {
+  workerType = type;
+}
 
 // Create once. A module is stateless and can be efficiently passed to WebWorkers.
 let wasmModule: WebAssembly.Module | null = null;
@@ -126,7 +132,7 @@ export function getDebugServiceWorker(
   worker: string | Worker,
 ): IDebugServiceWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
-  return createProxy(worker, wasmModule, debugServiceProtocol);
+  return createProxy(worker, wasmModule, debugServiceProtocol, workerType);
 }
 
 export async function getCompiler(): Promise<ICompiler> {
@@ -139,7 +145,7 @@ export async function getCompiler(): Promise<ICompiler> {
 // messages, then the worker may be passed in and it will be initialized.
 export function getCompilerWorker(worker: string | Worker): ICompilerWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
-  return createProxy(worker, wasmModule, compilerProtocol);
+  return createProxy(worker, wasmModule, compilerProtocol, workerType);
 }
 
 export async function getLanguageService(
@@ -156,7 +162,7 @@ export function getLanguageServiceWorker(
   worker: string | Worker,
 ): ILanguageServiceWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
-  return createProxy(worker, wasmModule, languageServiceProtocol);
+  return createProxy(worker, wasmModule, languageServiceProtocol, workerType);
 }
 
 /// Extracts the target profile from a Q# source file's entry point.
