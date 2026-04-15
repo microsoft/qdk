@@ -35,7 +35,8 @@ import {
 import {
   cancelPendingJob,
   deleteJobRequest,
-  getAzurePortalWorkspaceLink,
+  getWorkspacePortalLink,
+  getQuantumOsJobLink,
   getJobFiles,
   getPythonCodeForWorkspace,
   parseConnectionString,
@@ -469,6 +470,19 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
+      `${qsharpExtensionId}.jobOpenPortal`,
+      async (arg: WorkspaceTreeItem) => {
+        const treeItem = arg || currentTreeItem;
+        if (treeItem?.type !== "job") return;
+        const job = treeItem.itemData as Job;
+        const link = getQuantumOsJobLink(treeItem.workspace, job.id);
+        vscode.env.openExternal(vscode.Uri.parse(link));
+      },
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
       `${qsharpExtensionId}.workspaceOpenPortal`,
       async (arg: WorkspaceTreeItem) => {
         // Could be run via the treeItem icon or the menu command.
@@ -476,7 +490,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         if (treeItem?.type !== "workspace") return;
         const workspace = treeItem.itemData as WorkspaceConnection;
 
-        const link = getAzurePortalWorkspaceLink(workspace);
+        const link = getWorkspacePortalLink(workspace);
         vscode.env.openExternal(vscode.Uri.parse(link));
       },
     ),
@@ -713,8 +727,7 @@ async function uploadSupplementalData(
   token: string,
   associationId: string,
 ) {
-  const endpointMatch = quantumUris.endpoint.match(QuantumUris.endpointRegExp);
-  const isV2Workspace = endpointMatch?.groups?.versionSuffix === "-v2";
+  const { isV2Workspace } = QuantumUris.parseEndpointUri(quantumUris.endpoint);
 
   if (isV2Workspace) {
     const circuitDiagram = await getCircuitJson(program);

@@ -223,8 +223,20 @@ export class QuantumUris {
   // - Otherwise, keeps any other suffix as part of the location
   // e.g. "https://westus.quantum.azure.com" -> location="westus", versionSuffix=undefined
   // e.g. "https://eastus2-v2.quantum.azure.com" -> location="eastus2", versionSuffix="-v2"
-  public static readonly endpointRegExp =
+  private static readonly _endpointRegExp =
     /https:\/\/(?<location>[^.]+?)(?<versionSuffix>-v2)?\./;
+
+  /** Parses the relevant parts out of an endpoint URI string. */
+  public static parseEndpointUri(endpointUri: string): {
+    location: string | undefined;
+    isV2Workspace: boolean;
+  } {
+    const match = endpointUri.match(QuantumUris._endpointRegExp);
+    return {
+      location: match?.groups?.location,
+      isV2Workspace: match?.groups?.versionSuffix === "-v2",
+    };
+  }
 
   constructor(
     public endpoint: string, // e.g. "https://westus.quantum.azure.com"

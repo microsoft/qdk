@@ -314,6 +314,11 @@
           "when": "view == quantum-workspaces && viewItem == workspace"
         },
         {
+          "command": "qsharp-vscode.jobOpenPortal",
+          "group": "inline",
+          "when": "view == quantum-workspaces && (viewItem == job-v2 || viewItem == job-cancelable-v2 || viewItem == result-v2 || viewItem == result-download-v2)"
+        },
+        {
           "command": "qsharp-vscode.workspacesRemove",
           "when": "view == quantum-workspaces && viewItem == workspace"
         },
@@ -325,22 +330,22 @@
         {
           "command": "qsharp-vscode.deleteJob",
           "group": "inline",
-          "when": "view == quantum-workspaces && (viewItem == job || viewItem == job-cancelable || viewItem == result || viewItem == result-download) && qsharp-vscode.deleteJobsEnabled"
+          "when": "view == quantum-workspaces && (viewItem == job || viewItem == job-cancelable || viewItem == result || viewItem == result-download || viewItem == job-v2 || viewItem == job-cancelable-v2 || viewItem == result-v2 || viewItem == result-download-v2) && qsharp-vscode.deleteJobsEnabled"
         },
         {
           "command": "qsharp-vscode.cancelJob",
           "group": "inline",
-          "when": "view == quantum-workspaces && viewItem == job-cancelable"
+          "when": "view == quantum-workspaces && (viewItem == job-cancelable || viewItem == job-cancelable-v2)"
         },
         {
           "command": "qsharp-vscode.downloadResults",
           "group": "inline",
-          "when": "view == quantum-workspaces && viewItem == result-download"
+          "when": "view == quantum-workspaces && (viewItem == result-download || viewItem == result-download-v2)"
         },
         {
           "command": "qsharp-vscode.downloadRawResults",
           "group": "inline",
-          "when": "view == quantum-workspaces && viewItem == result-download"
+          "when": "view == quantum-workspaces && (viewItem == result-download || viewItem == result-download-v2)"
         },
         {
           "command": "qsharp-vscode.workspacePythonCode",
@@ -475,7 +480,13 @@
       {
         "command": "qsharp-vscode.workspaceOpenPortal",
         "category": "QDK",
-        "title": "Open the workspace in the Azure portal",
+        "title": "Open the workspace in the web portal",
+        "icon": "$(link-external)"
+      },
+      {
+        "command": "qsharp-vscode.jobOpenPortal",
+        "category": "QDK",
+        "title": "Open the job in the web portal",
         "icon": "$(link-external)"
       },
       {
