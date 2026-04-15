@@ -3,8 +3,12 @@
 
 """Unit tests for 1D lattice data structures."""
 
-from qsharp.magnets.geometry.lattice1d import Chain1D, Ring1D
-from qsharp.magnets.utilities import Hyperedge, HypergraphEdgeColoring
+from qsharp.qre.application.magnets import (
+    Chain1D,
+    Hypergraph,
+    HypergraphEdgeColoring,
+    Ring1D,
+)
 
 
 def _vertex_color_map(graph) -> dict[tuple[int, ...], int | None]:
@@ -242,8 +246,6 @@ def test_ring1d_vs_chain1d_edge_count():
 
 def test_chain1d_inherits_hypergraph():
     """Test that Chain1D is a Hypergraph subclass with all methods."""
-    from qsharp.magnets.utilities import Hypergraph
-
     chain = Chain1D(4)
     assert isinstance(chain, Hypergraph)
     # Test inherited methods work
@@ -256,8 +258,6 @@ def test_chain1d_inherits_hypergraph():
 
 def test_ring1d_inherits_hypergraph():
     """Test that Ring1D is a Hypergraph subclass with all methods."""
-    from qsharp.magnets.utilities import Hypergraph
-
     ring = Ring1D(4)
     assert isinstance(ring, Hypergraph)
     # Test inherited methods work

@@ -4,10 +4,9 @@
 """Unit tests for Pauli and PauliString utilities."""
 
 import pytest
+from qsharp.qre.application.magnets import Pauli, PauliString, PauliX, PauliY, PauliZ
 
 cirq = pytest.importorskip("cirq")
-
-from qsharp.magnets.utilities import Pauli, PauliString, PauliX, PauliY, PauliZ
 
 
 def test_pauli_init_from_int_and_string():
@@ -39,7 +38,7 @@ def test_pauli_invalid_string_raises():
 def test_pauli_invalid_type_raises():
     """Test non-int/non-str Pauli identifiers raise ValueError."""
     with pytest.raises(ValueError, match="Expected int or str"):
-        Pauli(1.5)
+        Pauli(1.5)  # type: ignore
 
 
 def test_pauli_helpers_create_expected_operator():
@@ -61,7 +60,7 @@ def test_pauli_cirq_property_returns_operation_on_line_qubit():
 def test_pauli_string_init_requires_pauli_instances():
     """Test PauliString initializer validates element types."""
     with pytest.raises(TypeError, match="Expected Pauli instance"):
-        PauliString([PauliX(0), "Z"])
+        PauliString([PauliX(0), "Z"])  # type: ignore
 
 
 def test_pauli_string_from_qubits_accepts_string_and_int_values():

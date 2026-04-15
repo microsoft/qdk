@@ -8,12 +8,12 @@
 from __future__ import annotations
 
 import pytest
-
-from qsharp.magnets.models import IsingModel, Model
-from qsharp.magnets.models.model import HeisenbergModel
-from qsharp.magnets.utilities import (
+from qsharp.qre.application.magnets import (
+    HeisenbergModel,
     Hyperedge,
     Hypergraph,
+    IsingModel,
+    Model,
     PauliString,
 )
 

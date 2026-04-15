@@ -3,8 +3,12 @@
 
 """Unit tests for 2D lattice data structures."""
 
-from qsharp.magnets.geometry.lattice2d import Patch2D, Torus2D
-from qsharp.magnets.utilities import HypergraphEdgeColoring
+from qsharp.qre.application.magnets import (
+    Hypergraph,
+    HypergraphEdgeColoring,
+    Patch2D,
+    Torus2D,
+)
 
 
 def _vertex_color_map(graph) -> dict[tuple[int, ...], int | None]:
@@ -275,8 +279,6 @@ def test_torus2d_vs_patch2d_edge_count():
 
 def test_patch2d_inherits_hypergraph():
     """Test that Patch2D is a Hypergraph subclass with all methods."""
-    from qsharp.magnets.utilities import Hypergraph
-
     patch = Patch2D(3, 3)
     assert isinstance(patch, Hypergraph)
     # Test inherited methods work
@@ -289,8 +291,6 @@ def test_patch2d_inherits_hypergraph():
 
 def test_torus2d_inherits_hypergraph():
     """Test that Torus2D is a Hypergraph subclass with all methods."""
-    from qsharp.magnets.utilities import Hypergraph
-
     torus = Torus2D(3, 3)
     assert isinstance(torus, Hypergraph)
     # Test inherited methods work

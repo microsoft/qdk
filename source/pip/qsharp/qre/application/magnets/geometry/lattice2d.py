@@ -8,7 +8,7 @@ hypergraphs. These lattices are commonly used in quantum spin system
 simulations and other two-dimensional quantum systems.
 """
 
-from qsharp.magnets.utilities import (
+from ..utilities import (
     Hyperedge,
     Hypergraph,
     HypergraphEdgeColoring,

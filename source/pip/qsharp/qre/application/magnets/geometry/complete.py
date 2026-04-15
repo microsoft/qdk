@@ -8,7 +8,7 @@ bipartite graphs as hypergraphs. These structures are useful for quantum
 systems with all-to-all or bipartite all-to-all interactions.
 """
 
-from qsharp.magnets.utilities import (
+from ..utilities import (
     Hyperedge,
     Hypergraph,
     HypergraphEdgeColoring,

@@ -4,17 +4,17 @@
 """Unit tests for Trotter-Suzuki decomposition classes and factory functions."""
 
 import pytest
-
-from qsharp.magnets.models import Model
-from qsharp.magnets.utilities import Hyperedge, Hypergraph, PauliString
-
-from qsharp.magnets.trotter import (
-    TrotterStep,
+from qsharp.qre.application.magnets import (
+    Hyperedge,
+    Hypergraph,
+    Model,
+    PauliString,
     TrotterExpansion,
+    TrotterStep,
+    fourth_order_trotter_suzuki,
     strang_splitting,
     suzuki_recursion,
     yoshida_recursion,
-    fourth_order_trotter_suzuki,
 )
 
 
