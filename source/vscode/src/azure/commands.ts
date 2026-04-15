@@ -36,6 +36,7 @@ import {
   cancelPendingJob,
   deleteJobRequest,
   getWorkspacePortalLink,
+  getQuantumOsJobLink,
   getJobFiles,
   getPythonCodeForWorkspace,
   queryWorkspaces,
@@ -461,6 +462,19 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
             "Failed to generate Python code for workspace",
           );
         }
+      },
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      `${qsharpExtensionId}.jobOpenPortal`,
+      async (arg: WorkspaceTreeItem) => {
+        const treeItem = arg || currentTreeItem;
+        if (treeItem?.type !== "job") return;
+        const job = treeItem.itemData as Job;
+        const link = getQuantumOsJobLink(treeItem.workspace, job.id);
+        vscode.env.openExternal(vscode.Uri.parse(link));
       },
     ),
   );

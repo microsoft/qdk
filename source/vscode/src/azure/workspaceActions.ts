@@ -20,6 +20,15 @@ import { getRandomGuid } from "../utils";
 import { EventType, sendTelemetryEvent, UserFlowStatus } from "../telemetry";
 import { getTenantIdAndToken, getTokenForWorkspace } from "./auth";
 
+export function getQuantumOsJobLink(
+  workspace: WorkspaceConnection,
+  jobId: string,
+) {
+  // Quantum OS job page format:
+  // https://manage.quantum.microsoft.com/jobs/<job-id>
+  return `https://manage.quantum-test.microsoft.com/jobs/${jobId}`;
+}
+
 export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
   const endpointMatch = workspace.endpointUri.match(QuantumUris.endpointRegExp);
   const isV2Workspace = endpointMatch?.groups?.versionSuffix === "-v2";
