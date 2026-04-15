@@ -7,52 +7,55 @@ import random
 from dataclasses import dataclass
 from enum import Enum
 from math import pi
-from typing import cast, Iterable, Iterator, Sequence
+from typing import Iterable, Iterator, Sequence, cast
 
 import cirq
 from cirq import (
+    CCXPowGate,
+    CCZPowGate,
+    ClassicallyControlledOperation,
+    CXPowGate,
+    CZPowGate,
+    GateOperation,
     HPowGate,
+    MeasurementGate,
+    PhaseGradientGate,
+    ResetChannel,
+    SwapPowGate,
     XPowGate,
     YPowGate,
     ZPowGate,
-    CXPowGate,
-    CZPowGate,
-    CCXPowGate,
-    CCZPowGate,
-    MeasurementGate,
-    ResetChannel,
-    GateOperation,
-    ClassicallyControlledOperation,
-    PhaseGradientGate,
-    SwapPowGate,
 )
-from qsharp.qre import Trace, Block
+
+from qsharp.qre import Block, Trace
 from qsharp.qre.instruction_ids import (
-    H,
+    CCX,
+    CCZ,
+    CX,
+    CZ,
+    MEAS_Z,
     PAULI_X,
     PAULI_Y,
     PAULI_Z,
-    SQRT_X,
-    SQRT_X_DAG,
-    SQRT_SQRT_X,
-    SQRT_SQRT_X_DAG,
-    SQRT_Y,
-    SQRT_Y_DAG,
-    SQRT_SQRT_Y,
-    SQRT_SQRT_Y_DAG,
-    S,
-    S_DAG,
-    T,
-    T_DAG,
-    CX,
-    CZ,
+    READ_FROM_MEMORY,
     RX,
     RY,
     RZ,
-    MEAS_Z,
-    CCX,
-    CCZ,
+    S_DAG,
+    SQRT_SQRT_X,
+    SQRT_SQRT_X_DAG,
+    SQRT_SQRT_Y,
+    SQRT_SQRT_Y_DAG,
+    SQRT_X,
+    SQRT_X_DAG,
+    SQRT_Y,
+    SQRT_Y_DAG,
     SWAP,
+    T_DAG,
+    WRITE_TO_MEMORY,
+    H,
+    S,
+    T,
 )
 
 _TOLERANCE = 1e-8
@@ -64,7 +67,11 @@ def _approx_eq(a: float, b: float) -> bool:
 
 
 def trace_from_cirq(
-    circuit: cirq.CIRCUIT_LIKE, *, classical_control_probability: float = 0.5
+    circuit: cirq.CIRCUIT_LIKE,
+    *,
+    classical_control_probability: float = 0.5,
+    rotation_threshold: float = 1e-6,
+    memory_compute: bool = True,
 ) -> Trace:
     """Convert a Cirq circuit into a resource estimation Trace.
 
@@ -77,9 +84,17 @@ def trace_from_cirq(
         circuit: The Cirq circuit to convert.
         classical_control_probability: Probability that a classically
             controlled operation is included in the trace. Defaults to 0.5.
+        rotation_threshold: Rotation exponents with absolute value below
+            this threshold are treated as identity and omitted from the
+            trace. This applies to single-qubit rotations (RX, RY, RZ) as
+            well as to the rotation components of controlled-Z
+            decompositions. Defaults to 1e-6.
+        memory_compute (bool): When True, memory qubits are tracked
+            separately from compute qubits. When False, all qubits are
+            treated as compute qubits. Defaults to True.
 
     Returns:
-        A Trace representing the resource profile of the circuit.
+        Trace: A Trace representing an execution profile of the circuit.
     """
 
     if isinstance(circuit, cirq.Circuit):
@@ -91,7 +106,9 @@ def trace_from_cirq(
         # circuit is OP_TREE
         circuit = cirq.Circuit(circuit)
 
-    context = _CirqTraceBuilder(circuit, classical_control_probability)
+    context = _CirqTraceBuilder(
+        circuit, classical_control_probability, rotation_threshold, memory_compute
+    )
 
     for moment in circuit:
         for op in moment.operations:
@@ -119,11 +136,22 @@ class _CirqTraceBuilder:
         circuit: The Cirq circuit being converted.
         classical_control_probability: Probability that a classically
             controlled operation is included in the trace.
+        rotation_threshold: Rotation exponents with absolute value below
+            this threshold are treated as identity.
     """
 
-    def __init__(self, circuit: cirq.Circuit, classical_control_probability: float):
-        self._trace = Trace(len(circuit.all_qubits()))
+    def __init__(
+        self,
+        circuit: cirq.Circuit,
+        classical_control_probability: float,
+        rotation_threshold: float,
+        memory_compute: bool = True,
+    ):
+        self._circuit = circuit
+        self._trace = Trace(0)
         self._classical_control_probability = classical_control_probability
+        self._rotation_threshold = rotation_threshold
+        self._memory_compute = memory_compute
         self._blocks = [self._trace.root_block()]
         self._q_to_id = _QidToTraceId(circuit.all_qubits())
         self._decomp_context = cirq.DecompositionContext(
@@ -143,9 +171,33 @@ class _CirqTraceBuilder:
 
     @property
     def trace(self) -> Trace:
-        """The accumulated trace, with ``compute_qubits`` updated to reflect
-        all qubits seen so far (including any allocated during decomposition)."""
-        self._trace.compute_qubits = len(self._q_to_id)
+        """Determine compute and memory qubits from the circuit's qubits as well
+        as from the qubit manager before returning the trace."""
+
+        qm = cast(PeakUsageGreedyQubitManager, self._decomp_context.qubit_manager)
+        num_memory_qubits, num_compute_qubits = 0, 0
+
+        for q in self._circuit.all_qubits():
+            if (
+                self._memory_compute
+                and isinstance(q, TypedQubit)
+                and q.qubit_type == QubitType.MEMORY
+            ):
+                num_memory_qubits += 1
+            else:
+                # Untyped qubits are considered COMPUTE by default.
+                num_compute_qubits += 1
+
+        if self._memory_compute:
+            num_memory_qubits += qm.memory_qubit_count()
+        else:
+            num_compute_qubits += qm.memory_qubit_count()
+        num_compute_qubits += qm.compute_qubit_count()
+
+        self._trace.compute_qubits = num_compute_qubits
+        if self._memory_compute and num_memory_qubits > 0:
+            self._trace.memory_qubits = num_memory_qubits
+
         return self._trace
 
     @property
@@ -163,6 +215,12 @@ class _CirqTraceBuilder:
         """Probability used to stochastically include classically controlled
         operations."""
         return self._classical_control_probability
+
+    @property
+    def rotation_threshold(self) -> float:
+        """Rotation exponents with absolute value below this threshold are
+        treated as identity."""
+        return self._rotation_threshold
 
     @property
     def decomp_context(self) -> cirq.DecompositionContext:
@@ -215,7 +273,7 @@ class _CirqTraceBuilder:
                 gate = op.gate
 
                 if hasattr(gate, "_to_trace"):
-                    for sub_op in gate._to_trace(self.decomp_context, op):  # type: ignore
+                    for sub_op in gate._to_trace(self, op):  # type: ignore
                         self.handle_op(sub_op)
                 elif hasattr(gate, "_decompose_with_context_"):
                     for sub_op in gate._decompose_with_context_(op.qubits, self.decomp_context):  # type: ignore
@@ -230,6 +288,16 @@ class _CirqTraceBuilder:
             elif isinstance(op, ClassicallyControlledOperation):
                 if random.random() < self.classical_control_probability:
                     self.handle_op(op.without_classical_controls())
+            elif isinstance(op, cirq.CircuitOperation):
+                if isinstance(op.repetitions, int):
+                    self.push_block(op.repetitions)
+                    for sub_op in op.circuit:  # type: ignore
+                        self.handle_op(sub_op)
+                    self.pop_block()
+                else:
+                    raise ValueError(
+                        "Only integer repetitions are supported for CircuitOperation."
+                    )
             else:
                 for sub_op in op._decompose_with_context_(self.decomp_context):  # type: ignore
                     self.handle_op(sub_op)
@@ -292,15 +360,15 @@ class _QidToTraceId(dict):
         return super().__getitem__(key)
 
 
-def h_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+def h_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert an HPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(H, [op.qubits[0]])
     else:
-        yield from op._decompose_with_context_(context)  # type: ignore
+        yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
 
 
-def x_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+def x_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert an XPowGate into trace instructions."""
     q = [op.qubits[0]]
     exp = self.exponent
@@ -315,11 +383,11 @@ def x_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Opera
     elif _approx_eq(exp, -0.25):
         yield TraceGate(SQRT_SQRT_X_DAG, q)
     else:
-        if abs(exp) >= 1e-6:
+        if abs(exp) >= context.rotation_threshold:
             yield TraceGate(RX, q, exp * pi)
 
 
-def y_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+def y_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert a YPowGate into trace instructions."""
     q = [op.qubits[0]]
     exp = self.exponent
@@ -334,11 +402,11 @@ def y_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Opera
     elif _approx_eq(exp, -0.25):
         yield TraceGate(SQRT_SQRT_Y_DAG, q)
     else:
-        if abs(exp) >= 1e-6:
+        if abs(exp) >= context.rotation_threshold:
             yield TraceGate(RY, q, exp * pi)
 
 
-def z_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+def z_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert a ZPowGate into trace instructions."""
     q = [op.qubits[0]]
     exp = self.exponent
@@ -353,19 +421,19 @@ def z_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Opera
     elif _approx_eq(exp, -0.25):
         yield TraceGate(T_DAG, q)
     else:
-        if abs(exp) >= 1e-6:
+        if abs(exp) >= context.rotation_threshold:
             yield TraceGate(RZ, q, exp * pi)
 
 
-def cx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+def cx_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert a CXPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(CX, [op.qubits[0], op.qubits[1]])
     else:
-        yield from op._decompose_with_context_(context)  # type: ignore
+        yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
 
 
-def cz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+def cz_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert a CZPowGate into trace instructions."""
     exp = self.exponent
     c, t = op.qubits[0], op.qubits[1]
@@ -387,8 +455,8 @@ def cz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Oper
         yield TraceGate(CZ, [c, t])
     else:
         half_exp = exp / 2
-        if abs(half_exp) >= 1e-6:
-            rads = exp / 2 * pi
+        if abs(half_exp) >= context.rotation_threshold:
+            rads = half_exp * pi
             yield TraceGate(RZ, [c], [rads])
             yield TraceGate(RZ, [t], [rads])
             yield TraceGate(CZ, [c, t])
@@ -396,43 +464,37 @@ def cz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Oper
             yield TraceGate(CZ, [c, t])
 
 
-def swap_pow_gate_to_trace(
-    self, context: cirq.DecompositionContext, op: cirq.Operation
-):
+def swap_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert a SwapPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(SWAP, [op.qubits[0], op.qubits[1]])
     else:
-        yield from op._decompose_with_context_(context)  # type: ignore
+        yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
 
 
-def ccx_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+def ccx_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert a CCXPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(CCX, [op.qubits[0], op.qubits[1], op.qubits[2]])
     else:
-        yield from op._decompose_with_context_(context)  # type: ignore
+        yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
 
 
-def ccz_pow_gate_to_trace(self, context: cirq.DecompositionContext, op: cirq.Operation):
+def ccz_pow_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert a CCZPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(CCZ, [op.qubits[0], op.qubits[1], op.qubits[2]])
     else:
-        yield from op._decompose_with_context_(context)  # type: ignore
+        yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
 
 
-def measurement_gate_to_trace(
-    self, context: cirq.DecompositionContext, op: cirq.Operation
-):
+def measurement_gate_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert a MeasurementGate into trace instructions."""
     for q in op.qubits:
         yield TraceGate(MEAS_Z, [q])
 
 
-def reset_channel_to_trace(
-    self, context: cirq.DecompositionContext, op: cirq.Operation
-):
+def reset_channel_to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert a ResetChannel into trace instructions (no-op)."""
     yield from ()
 
@@ -474,16 +536,16 @@ PhaseGradientGate._decompose_ = phase_gradient_decompose
 class QubitType(Enum):
     """Qubit type.
 
-    Each logical qubit can be either a compute ("hot") or memory ("cold") qubit.
-    Compute qubits can be used normally.
+    Each logical qubit can be either a compute or memory qubit. Compute qubits
+    can be used normally.
 
-    Memory qubits have a restriction that gates cannot be applied to them. The only
-    allowed operations on memory qubits are reads/writes, where state is moved from
-    memory to compute gate or from compute to memory gate.
+    Memory qubits have a restriction that gates cannot be applied to them. The
+    only allowed operations on memory qubits are reads/writes, where state is
+    moved from memory to compute gate or from compute to memory gate.
 
-    We assume that when error correction is applied, memory qubits are encoded with
-    a more efficient error correction scheme requiring less resources, but not
-    allowing gate application (e.g. Yoked surface codes,
+    We assume that when error correction is applied, memory qubits are encoded
+    with a more efficient error correction scheme requiring less resources, but
+    not allowing gate application (e.g. Yoked surface codes,
     https://arxiv.org/abs/2312.04522).
     """
 
@@ -573,7 +635,7 @@ class PeakUsageGreedyQubitManager(cirq.QubitManager):
     """A qubit manager tracking compute and memory qubits separately.
 
     It consists of two independent qubit managers for each qubit type. Each manager
-    uses greedy allocation strategy from `cirq.GreedyQubitManager`.
+    uses greedy allocation strategy from ``cirq.GreedyQubitManager``.
 
     Qubits of one type, after freed, cannot be reused as qubits of different type.
     Therefore, peak qubit count is equal to sum of peak qubit counts for each type.
@@ -584,7 +646,7 @@ class PeakUsageGreedyQubitManager(cirq.QubitManager):
 
         Args:
             prefix:  Naming prefix for allocated qubits.
-            size:  Initial pool size passed through to :class:`cirq.GreedyQubitManager`.
+            size:  Initial pool size passed through to ``cirq.GreedyQubitManager``.
                 Example: 0.
             maximize_reuse: Flag to control qubit reuse strategy. If ``False``, this
                 mode uses a FIFO (First in First out) strategy s.t. next allocated qubit
@@ -666,14 +728,31 @@ class ReadFromMemoryGate(cirq.Gate):
 
     def _decompose_(self, qubits: Sequence[cirq.Qid]) -> Iterator[cirq.Operation]:
         """Decomposes this gate into equivalent SWAP gates."""
+        comp_qs, mem_qs = self._get_qubits(qubits)
+        for i in range(self.n):
+            yield cirq.reset(comp_qs[i])
+            yield cirq.SWAP(mem_qs[i], comp_qs[i])
+
+    def _to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation, **_kwargs):
+        """Convert this gate into trace instructions."""
+        if context._memory_compute:
+            comp_qs, mem_qs = self._get_qubits(op.qubits)
+            for i in range(self.n):
+                yield TraceGate(READ_FROM_MEMORY, [mem_qs[i], comp_qs[i]])
+        else:
+            yield from self._decompose_(op.qubits)
+
+    def _get_qubits(
+        self, qubits: Sequence[cirq.Qid]
+    ) -> tuple[Sequence[cirq.Qid], Sequence[cirq.Qid]]:
+        """Get qubits for this gate partitioned into compute and memory
+        qubits."""
         assert len(qubits) == 2 * self.n
         mem_qs = qubits[0 : self.n]
         comp_qs = qubits[self.n : 2 * self.n]
         assert_qubits_type(mem_qs, QubitType.MEMORY)
         assert_qubits_type(comp_qs, QubitType.COMPUTE)
-        for i in range(self.n):
-            yield cirq.reset(comp_qs[i])
-            yield cirq.SWAP(mem_qs[i], comp_qs[i])
+        return comp_qs, mem_qs
 
 
 class WriteToMemoryGate(cirq.Gate):
@@ -692,14 +771,30 @@ class WriteToMemoryGate(cirq.Gate):
 
     def _decompose_(self, qubits: Sequence[cirq.Qid]) -> Iterator[cirq.Operation]:
         """Decomposes this gate into equivalent SWAP gates."""
+        comp_qs, mem_qs = self._get_qubits(qubits)
+        for i in range(self.n):
+            yield cirq.reset(mem_qs[i])
+            yield cirq.SWAP(mem_qs[i], comp_qs[i])
+
+    def _to_trace(self, context: _CirqTraceBuilder, op: cirq.Operation, **_kwargs):
+        """Convert this gate into trace instructions."""
+        if context._memory_compute:
+            comp_qs, mem_qs = self._get_qubits(op.qubits)
+            for i in range(self.n):
+                yield TraceGate(WRITE_TO_MEMORY, [comp_qs[i], mem_qs[i]])
+        else:
+            yield from self._decompose_(op.qubits)
+
+    def _get_qubits(
+        self, qubits: Sequence[cirq.Qid]
+    ) -> tuple[Sequence[cirq.Qid], Sequence[cirq.Qid]]:
         assert len(qubits) == 2 * self.n
         mem_qs = qubits[0 : self.n]
         comp_qs = qubits[self.n : 2 * self.n]
         assert_qubits_type(mem_qs, QubitType.MEMORY)
         assert_qubits_type(comp_qs, QubitType.COMPUTE)
-        for i in range(self.n):
-            yield cirq.reset(mem_qs[i])
-            yield cirq.SWAP(mem_qs[i], comp_qs[i])
+
+        return comp_qs, mem_qs
 
 
 def write_to_memory(
