@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// Shared implementation. Use the browser or node entrypoint instead of importing directly.
+// Main entrypoint. Browsers use this directly; Node.js uses it through the node.ts wrapper.
 
 import * as wasm from "../lib/web/qsc_wasm.js";
 import initWasm, {
