@@ -3,11 +3,11 @@
 
 // @ts-check
 
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { generate_docs } from "./lib/nodejs/qsc_wasm.cjs";
+import initWasm, { generate_docs } from "./lib/web/qsc_wasm.js";
 
 const scriptDirPath = dirname(fileURLToPath(import.meta.url));
 const docsDirPath = join(scriptDirPath, "docs");
@@ -15,6 +15,11 @@ const docsDirPath = join(scriptDirPath, "docs");
 if (!existsSync(docsDirPath)) {
   mkdirSync(docsDirPath);
 }
+
+// Initialize wasm before calling any exported functions
+const wasmPath = join(scriptDirPath, "lib", "web", "qsc_wasm_bg.wasm");
+const wasmBytes = readFileSync(wasmPath);
+await initWasm({ module_or_path: wasmBytes });
 
 // 'filename' will be of the format 'namespace/api.md' (except for 'toc.yaml')
 // 'metadata' will be the metadata that will appear at the top of the file
@@ -36,7 +41,7 @@ var today_str = mm + "/" + dd + "/" + yyyy;
 docs.forEach((doc) => {
   // If the filename contains a /, then we need to create the directory
   const parts = doc.filename.split("/");
-  let fullPath = "";
+  let fullPath;
   switch (parts.length) {
     case 1:
       if (doc.filename !== "toc.yml" && doc.filename !== "index.md") {
@@ -57,7 +62,7 @@ docs.forEach((doc) => {
     default:
       throw new Error(`Invalid file path: ${doc.filename}`);
   }
-  var contents = "";
+  var contents;
   if (doc.filename === "toc.yml") {
     contents = doc.contents;
   } else {

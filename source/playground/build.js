@@ -40,7 +40,7 @@ const buildOptions = {
   outdir,
   bundle: true,
   platform: "browser",
-  target: ["es2020", "chrome64", "edge79", "firefox62", "safari11.1"],
+  target: ["es2022"],
   define: { "import.meta.url": "document.URL" },
   sourcemap: "linked",
   minify: isRelease ? true : false,

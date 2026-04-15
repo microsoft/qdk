@@ -102,6 +102,7 @@ function tryConvertLegacySchema(circuit: any): ToCircuitGroupResult {
       } catch (e) {
         throw new Error(
           `Failed to convert operation at index ${idx}: ${(e as Error).message}`,
+          { cause: e },
         );
       }
     });

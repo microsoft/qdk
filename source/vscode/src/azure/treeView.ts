@@ -24,9 +24,7 @@ function localDate(date: string) {
   return new Date(date).toLocaleString();
 }
 
-export class WorkspaceTreeProvider
-  implements vscode.TreeDataProvider<WorkspaceTreeItem>
-{
+export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceTreeItem> {
   static instance: WorkspaceTreeProvider;
   private treeState: Map<string, WorkspaceConnection> = new Map();
 

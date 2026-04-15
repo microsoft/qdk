@@ -68,7 +68,7 @@ export async function azureRequest(
       );
     }
     log.error(`Failed to fetch ${uri}: ${e}`);
-    throw new Error(getErrorMessage(e));
+    throw new Error(getErrorMessage(e), { cause: e });
   }
 }
 
@@ -133,7 +133,7 @@ export async function storageRequest(
         {},
       );
     }
-    throw new Error(getErrorMessage(e));
+    throw new Error(getErrorMessage(e), { cause: e });
   }
 }
 

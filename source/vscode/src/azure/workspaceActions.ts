@@ -159,6 +159,50 @@ workspace = Workspace(
   return pythonCode;
 }
 
+/**
+ * Parses a connection string into a WorkspaceConnection, or returns undefined
+ * if any required fields are missing. Does not validate the connection against
+ * the service — call getTokenForWorkspace / azureRequest to validate.
+ *
+ * Expected format:
+ *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<serviceUri>
+ */
+export function parseConnectionString(
+  connStr: string,
+): WorkspaceConnection | undefined {
+  const partsMap = new Map<string, string>();
+  connStr.split(";").forEach((part) => {
+    const eq = part.indexOf("=");
+    if (eq === -1) return;
+    partsMap.set(part.substring(0, eq).toLowerCase(), part.substring(eq + 1));
+  });
+
+  if (
+    !partsMap.has("subscriptionid") ||
+    !partsMap.has("resourcegroupname") ||
+    !partsMap.has("workspacename") ||
+    !partsMap.has("apikey") ||
+    !partsMap.has("quantumendpoint")
+  ) {
+    return undefined;
+  }
+
+  const workspaceId =
+    `/subscriptions/${partsMap.get("subscriptionid")}` +
+    `/resourceGroups/${partsMap.get("resourcegroupname")}` +
+    `/providers/Microsoft.Quantum/Workspaces/${partsMap.get("workspacename")}`;
+
+  return {
+    id: workspaceId,
+    name: partsMap.get("workspacename")!,
+    endpointUri: partsMap.get("quantumendpoint")!,
+    tenantId: "", // Blank means not authenticated via a token
+    apiKey: partsMap.get("apikey"),
+    providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
+    jobs: [],
+  };
+}
+
 async function getWorkspaceWithConnectionString(
   endEventProperties: EndEventProperties,
 ): Promise<WorkspaceConnection | undefined> {
@@ -174,20 +218,8 @@ async function getWorkspaceWithConnectionString(
       return;
     }
 
-    const partsMap = new Map<string, string>();
-    connStr.split(";").forEach((part) => {
-      const eq = part.indexOf("=");
-      if (eq === -1) return;
-      partsMap.set(part.substring(0, eq).toLowerCase(), part.substring(eq + 1));
-    });
-
-    if (
-      !partsMap.has("subscriptionid") ||
-      !partsMap.has("resourcegroupname") ||
-      !partsMap.has("workspacename") ||
-      !partsMap.has("apikey") ||
-      !partsMap.has("quantumendpoint")
-    ) {
+    const workspace = parseConnectionString(connStr);
+    if (!workspace) {
       const action = await vscode.window.showErrorMessage(
         "Invalid connection string. Please follow the placeholder format.",
         { modal: true },
@@ -201,23 +233,6 @@ async function getWorkspaceWithConnectionString(
         return;
       }
     }
-
-    const workspaceId =
-      `/subscriptions/${partsMap.get("subscriptionid")}` +
-      `/resourceGroups/${partsMap.get("resourcegroupname")}` +
-      `/providers/Microsoft.Quantum/Workspaces/${partsMap.get(
-        "workspacename",
-      )}`;
-
-    const workspace: WorkspaceConnection = {
-      id: workspaceId,
-      name: partsMap.get("workspacename")!,
-      endpointUri: partsMap.get("quantumendpoint")!,
-      tenantId: "", // Blank means not authenticated via a token
-      apiKey: partsMap.get("apikey"),
-      providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
-      jobs: [],
-    };
 
     // Validate the connection string info before returning as valid for further use.
     try {

@@ -12,14 +12,10 @@
     "directory": "npm"
   },
   "exports": {
-    ".": {
-      "browser": "./dist/browser.js",
-      "node": "./dist/main.js",
-      "default": "./dist/browser.js"
-    },
-    "./compiler-worker": "./dist/compiler/worker-browser.js",
-    "./language-service-worker": "./dist/language-service/worker-browser.js",
-    "./debug-service-worker": "./dist/debug-service/worker-browser.js",
+    ".": "./dist/main.js",
+    "./compiler-worker": "./dist/compiler/worker.js",
+    "./language-service-worker": "./dist/language-service/worker.js",
+    "./debug-service-worker": "./dist/debug-service/worker.js",
     "./katas": "./dist/katas.js",
     "./katas-md": "./dist/katas-md.js",
     "./state-viz": "./ux/circuit-vis/state-viz/worker/index.ts",
@@ -44,5 +40,8 @@
     "docs",
     "lib",
     "ux"
-  ]
+  ],
+  "optionalDependencies": {
+    "web-worker": "^1.5.0"
+  }
 }

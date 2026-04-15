@@ -15,7 +15,7 @@ const tabArray: Array<[ActiveTab, string]> = [
 
 function AstTab(props: { ast: string; activeTab: ActiveTab }) {
   return props.activeTab === "ast-tab" ? (
-    <textarea readonly class="ast-output">
+    <textarea readOnly class="ast-output">
       {props.ast}
     </textarea>
   ) : null;
@@ -23,7 +23,7 @@ function AstTab(props: { ast: string; activeTab: ActiveTab }) {
 
 function HirTab(props: { hir: string; activeTab: ActiveTab }) {
   return props.activeTab === "hir-tab" ? (
-    <textarea readonly class="hir-output">
+    <textarea readOnly class="hir-output">
       {props.hir}
     </textarea>
   ) : null;
@@ -34,10 +34,10 @@ function RirTab(props: { rir: string[]; activeTab: ActiveTab }) {
   const ssa = props.rir[1];
   return props.activeTab === "rir-tab" ? (
     <div>
-      <textarea readonly class="rir-output">
+      <textarea readOnly class="rir-output">
         {raw}
       </textarea>
-      <textarea readonly class="rir-output">
+      <textarea readOnly class="rir-output">
         {ssa}
       </textarea>
     </div>
@@ -46,7 +46,7 @@ function RirTab(props: { rir: string[]; activeTab: ActiveTab }) {
 
 function QirTab(props: { qir: string; activeTab: ActiveTab }) {
   return props.activeTab === "qir-tab" ? (
-    <textarea readonly class="qir-output">
+    <textarea readOnly class="qir-output">
       {props.qir}
     </textarea>
   ) : null;

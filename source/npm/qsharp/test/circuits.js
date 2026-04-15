@@ -9,14 +9,18 @@
 // @ts-check
 
 import { JSDOM } from "jsdom";
-import fs from "node:fs";
+import fs, { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import prettier from "prettier";
 import { log } from "../dist/log.js";
-import { getCompiler } from "../dist/main.js";
+import { getCompiler, loadWasmModule } from "../dist/main.js";
 import { draw } from "../dist/ux/circuit-vis/index.js";
+
+// Load the wasm module before running any tests
+const wasmPath = new URL("../lib/web/qsc_wasm_bg.wasm", import.meta.url);
+await loadWasmModule(readFileSync(wasmPath).buffer);
 
 /** @type {import("../dist/log.js").TelemetryEvent[]} */
 const telemetryEvents = [];
@@ -148,6 +152,7 @@ function loadCircuit(file) {
   } catch (e) {
     throw new Error(
       `Failed to parse JSON from ${file}: ${/** @type {Error} */ (e).message}`,
+      { cause: e },
     );
   }
 }
@@ -273,7 +278,7 @@ async function generateAndDrawCircuit(
   generationMethod,
   renderDepth,
 ) {
-  const compiler = getCompiler();
+  const compiler = await getCompiler();
   const title = document.createElement("div");
   title.innerHTML = `<h2>${id}</h2>`;
   document.body.appendChild(title);

@@ -39,10 +39,12 @@ import {
   getQuantumOsJobLink,
   getJobFiles,
   getPythonCodeForWorkspace,
+  parseConnectionString,
   queryWorkspaces,
   submitJob,
   uploadBlob,
 } from "./workspaceActions";
+import { UriRouteHandler } from "../uriHandler.js";
 
 const workspacesSecret = `${qsharpExtensionId}.workspaces`;
 let extensionUri: vscode.Uri;
@@ -493,6 +495,45 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       },
     ),
   );
+
+  /**
+   * URI route handler for the "/connectWorkspace" path.
+   *
+   * Expects a `connectionString` query parameter in the connection string format:
+   *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<https://...>
+   *
+   * Shows a confirmation modal before saving the workspace.
+   */
+  const connectWorkspaceUriHandler: UriRouteHandler = async (params) => {
+    const connStr = params.get("connectionString");
+    if (!connStr) {
+      vscode.window.showErrorMessage(
+        "No connection string provided in the workspace URI.",
+      );
+      return;
+    }
+
+    const workspace = parseConnectionString(connStr);
+    if (!workspace) {
+      vscode.window.showErrorMessage(
+        "The workspace URI contained an invalid connection string.",
+      );
+      return;
+    }
+
+    const confirmed = await vscode.window.showInformationMessage(
+      `Add quantum workspace "${workspace.name}" to your connections?`,
+      { modal: true },
+      "Add Workspace",
+    );
+    if (confirmed === "Add Workspace") {
+      workspaceTreeProvider.updateWorkspace(workspace);
+      await saveWorkspaceList();
+      startRefreshCycle(workspaceTreeProvider, workspace);
+    }
+  };
+
+  return { connectWorkspaceUriHandler };
 }
 
 type Buckets = {
