@@ -30,9 +30,8 @@ if (!isBrowser) {
   } else {
     // Dynamic import for ESM - this is lazy, Worker will be available
     // by the time it's actually needed.
-    import("web-worker").then((mod) => {
-      globalThis.Worker = mod.default;
-    });
+    const mod = await import("web-worker");
+    globalThis.Worker = mod.default;
   }
   log.debug(
     "Running in Node.js environment, using web-worker package for Worker support.",
