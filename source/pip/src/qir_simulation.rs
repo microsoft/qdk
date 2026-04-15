@@ -6,6 +6,7 @@ pub(crate) mod cpu_simulators;
 pub(crate) mod gpu_full_state;
 
 use crate::qir_simulation::correlated_noise::parse_noise_table;
+
 use num_traits::Float;
 use pyo3::{
     Bound, FromPyObject, Py, PyRef, PyResult, Python,

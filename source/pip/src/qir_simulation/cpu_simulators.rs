@@ -142,7 +142,7 @@ where
         .into_py_any(py)
 }
 
-pub(crate) fn run<SimulatorBuilder, Noise, S>(
+fn run<SimulatorBuilder, Noise, S>(
     instructions: &[QirInstruction],
     num_qubits: u32,
     num_results: u32,
@@ -207,7 +207,7 @@ where
     values
 }
 
-pub(crate) fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) {
+fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) {
     for qir_inst in instructions {
         match qir_inst {
             QirInstruction::OneQubitGate(id, qubit) => match id {
