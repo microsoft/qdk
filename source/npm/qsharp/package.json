@@ -13,9 +13,9 @@
   },
   "exports": {
     ".": {
-      "browser": "./dist/browser.js",
+      "browser": "./dist/main.js",
       "node": "./dist/node.js",
-      "default": "./dist/browser.js"
+      "default": "./dist/main.js"
     },
     "./compiler-worker": "./dist/compiler/worker.js",
     "./language-service-worker": "./dist/language-service/worker.js",
