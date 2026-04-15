@@ -10,7 +10,7 @@ readme = "README.md"
 authors = [ { name = "Microsoft" } ]
 license = { file = "LICENSE.txt" }
 requires-python = ">=3.10"
-dependencies = ["qsharp==1.27.0", "pyqir<0.11.0,>=0.10.0"]
+dependencies = ["qsharp==0.0.0", "pyqir<0.12"]
 
 [project.optional-dependencies]
 jupyter = ["qsharp-widgets==0.0.0", "qsharp-jupyterlab==0.0.0"]
@@ -27,8 +27,8 @@ all = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["qdk"]
+where = ["src"]
 
 [tool.setuptools]
-package-dir = {"" = "qdk"}
+package-dir = {"" = "src"}
 
