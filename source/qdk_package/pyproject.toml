@@ -24,6 +24,7 @@ all = [
   "qiskit>=1.2.2,<3.0.0",
   "cirq-core>=1.6.1,<1.7",
   "cirq-ionq>=1.6.1,<1.7",
+  "pandas>=2.1",
   "ply>=3.11",
   "qsharp-jupyterlab==0.0.0",
 ]
