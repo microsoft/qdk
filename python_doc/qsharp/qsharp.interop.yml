@@ -1,7 +1,0 @@
-### YamlMime:PythonPackage
-uid: qsharp.interop
-name: interop
-fullName: qsharp.interop
-type: import
-packages:
-- qsharp.interop.cirq

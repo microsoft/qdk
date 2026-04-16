@@ -1,7 +1,0 @@
-### YamlMime:PythonClass
-uid: qsharp.noisy_simulator.NoisySimulatorError
-name: NoisySimulatorError
-fullName: qsharp.noisy_simulator.NoisySimulatorError
-module: qsharp.noisy_simulator
-constructor:
-  syntax: NoisySimulatorError()

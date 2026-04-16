@@ -1,6 +1,0 @@
-### YamlMime:PythonPackage
-uid: qsharp.code
-name: code
-fullName: qsharp.code
-summary: Code module that receives any user-defined Q# callables as Python functions.
-type: import
