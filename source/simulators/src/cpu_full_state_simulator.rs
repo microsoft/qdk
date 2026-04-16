@@ -833,8 +833,8 @@ impl Simulator for NoisySimulator {
                 .expect("apply_operation should succeed");
         }
         // We still apply operation faults to non-lost qubits.
-        apply_loss!(self, cx, &[target]);
-        apply_noise!(self, cx, &[target]);
+        apply_loss!(self, cx, &[control, target]);
+        apply_noise!(self, cx, &[control, target]);
     }
 
     fn cy(&mut self, control: QubitID, target: QubitID) {
@@ -846,8 +846,8 @@ impl Simulator for NoisySimulator {
                 .expect("apply_operation should succeed");
         }
         // We still apply operation faults to non-lost qubits.
-        apply_loss!(self, cy, &[target]);
-        apply_noise!(self, cy, &[target]);
+        apply_loss!(self, cy, &[control, target]);
+        apply_noise!(self, cy, &[control, target]);
     }
 
     fn cz(&mut self, control: QubitID, target: QubitID) {
@@ -859,8 +859,8 @@ impl Simulator for NoisySimulator {
                 .expect("apply_operation should succeed");
         }
         // We still apply operation faults to non-lost qubits.
-        apply_loss!(self, cz, &[target]);
-        apply_noise!(self, cz, &[target]);
+        apply_loss!(self, cz, &[control, target]);
+        apply_noise!(self, cz, &[control, target]);
     }
 
     fn rxx(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
