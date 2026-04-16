@@ -37,7 +37,7 @@ operation LookupViaPP(
         data
     };
 
-    // Allocate auxilliary qubits.
+    // Allocate auxiliary qubits.
     use aux_qubits = Qubit[GetAuxCountForPP(address_size)];
 
     // Construct power products.
@@ -91,7 +91,7 @@ operation LookupViaSplitPP(
     let m2 = 1 <<< n2;
     Fact(m1 * m2 == m, "Length of halves must match total length.");
 
-    // Allocate auxilliary qubits.
+    // Allocate auxiliary qubits.
     use aux_qubits1 = Qubit[2^n1 - n1 - 1];
     use aux_qubits2 = Qubit[2^n2 - n2 - 1];
 

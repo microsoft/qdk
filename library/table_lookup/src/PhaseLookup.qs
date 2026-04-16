@@ -82,7 +82,7 @@ operation PhaseLookupViaSplitPP(address : Qubit[], data : Bool[]) : Unit {
     let m2 = 1 <<< n2;
     Fact(m1 * m2 == addressable_space, "Length of halves must match total length.");
 
-    // Allocate auxilliary qubits.
+    // Allocate auxiliary qubits.
     use aux_qubits1 = Qubit[GetAuxCountForPP(n1)];
     use aux_qubits2 = Qubit[GetAuxCountForPP(n2)];
 

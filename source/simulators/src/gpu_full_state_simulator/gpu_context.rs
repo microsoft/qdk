@@ -112,8 +112,11 @@ impl Default for GpuContext {
 impl GpuContext {
     // See if we can get a GPU adapter on this machine (useful before trying to run tests)
     // Note: This does NOT allocate GPU resources that persist across runs. Run shots for that.
-    pub fn try_create_adapter() -> Result<String, String> {
-        Ok(format!("{:?}", GpuResources::try_get_adapter()?.get_info()))
+    pub async fn try_create_adapter() -> Result<String, String> {
+        Ok(format!(
+            "{:?}",
+            GpuResources::try_get_adapter().await?.get_info()
+        ))
     }
 
     /// Set the program to be run

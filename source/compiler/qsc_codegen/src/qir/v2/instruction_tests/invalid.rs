@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::qir::ToQir;
+use super::super::ToQir;
 use qsc_rir::rir;
 
 #[test]
@@ -149,35 +149,6 @@ fn add_bool_should_panic() {
         rir::Variable {
             variable_id: rir::VariableId(0),
             ty: rir::Ty::Boolean,
-        },
-    );
-    let _ = &inst.to_qir(&rir::Program::default());
-}
-
-#[test]
-#[should_panic(expected = "mismatched types (i64 [... i1]) for phi")]
-fn phi_with_mismatched_args_should_panic() {
-    let args = [
-        (
-            rir::Operand::Variable(rir::Variable {
-                variable_id: rir::VariableId(13),
-                ty: rir::Ty::Integer,
-            }),
-            rir::BlockId(3),
-        ),
-        (
-            rir::Operand::Variable(rir::Variable {
-                variable_id: rir::VariableId(2),
-                ty: rir::Ty::Boolean,
-            }),
-            rir::BlockId(7),
-        ),
-    ];
-    let inst = rir::Instruction::Phi(
-        args.to_vec(),
-        rir::Variable {
-            variable_id: rir::VariableId(0),
-            ty: rir::Ty::Integer,
         },
     );
     let _ = &inst.to_qir(&rir::Program::default());

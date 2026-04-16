@@ -63,8 +63,35 @@ import
 /// # See Also
 /// - Std.StatePreparation.ApproximatelyPreparePureStateCP
 operation PreparePureStateD(coefficients : Double[], qubits : Qubit[]) : Unit is Adj + Ctl {
-    let coefficientsAsComplexPolar = Mapped(a -> ComplexAsComplexPolar(Complex(a, 0.0)), coefficients);
-    ApproximatelyPreparePureStateCP(0.0, coefficientsAsComplexPolar, qubits);
+    let nQubits = Length(qubits);
+    // Pad coefficients at tail length to a power of 2.
+    let coefficientsPadded = Padded(-2^nQubits, 0.0, coefficients);
+    let idxTarget = 0;
+
+    // Note we use the reversed qubits array to get the endianness ordering that we expect
+    // when corresponding qubit state to state vector index.
+    let qubits = Reversed(qubits);
+
+    // Since we know the coefficients are real, we can optimize the first round of adjoint approximate unpreparation by directly
+    // computing the disentangling angles and the new coefficients on those doubles without producing intermediate complex numbers.
+
+    // For each 2D block, compute disentangling single-qubit rotation parameters
+    let (disentanglingY, disentanglingZ, newCoefficients) = StatePreparationSBMComputeCoefficientsD(coefficientsPadded);
+
+    if nQubits == 1 {
+        let (abs, arg) = newCoefficients[0]!;
+        if (AbsD(arg) > 0.0) {
+            Adjoint Exp([PauliI], -1.0 * arg, [qubits[idxTarget]]);
+        }
+    } elif (Any(c -> AbsComplexPolar(c) > 0.0, newCoefficients)) {
+        // Some coefficients are outside tolerance
+        let newControl = 2..(nQubits - 1);
+        let newTarget = 1;
+        Adjoint ApproximatelyUnprepareArbitraryState(0.0, newCoefficients, newControl, newTarget, qubits);
+    }
+
+    Adjoint ApproximatelyMultiplexPauli(0.0, disentanglingY, PauliY, qubits[1...], qubits[0]);
+    Adjoint ApproximatelyMultiplexPauli(0.0, disentanglingZ, PauliZ, qubits[1...], qubits[0]);
 }
 
 /// # Summary
@@ -121,7 +148,7 @@ operation ApproximatelyPreparePureStateCP(
 ) : Unit is Adj + Ctl {
 
     let nQubits = Length(qubits);
-    // pad coefficients at tail length to a power of 2.
+    // Pad coefficients at tail length to a power of 2.
     let coefficientsPadded = Padded(-2^nQubits, ComplexPolar(0.0, 0.0), coefficients);
     let idxTarget = 0;
     // Determine what controls to apply
@@ -148,10 +175,9 @@ operation ApproximatelyUnprepareArbitraryState(
 ) : Unit is Adj + Ctl {
 
     // For each 2D block, compute disentangling single-qubit rotation parameters
-    let (disentanglingY, disentanglingZ, newCoefficients) = StatePreparationSBMComputeCoefficients(coefficients);
+    let (disentanglingY, disentanglingZ, newCoefficients) = StatePreparationSBMComputeCoefficientsCP(coefficients);
     if (AnyOutsideToleranceD(tolerance, disentanglingZ)) {
         ApproximatelyMultiplexPauli(tolerance, disentanglingZ, PauliZ, register[rngControl], register[idxTarget]);
-
     }
     if (AnyOutsideToleranceD(tolerance, disentanglingY)) {
         ApproximatelyMultiplexPauli(tolerance, disentanglingY, PauliY, register[rngControl], register[idxTarget]);
@@ -226,7 +252,27 @@ operation ApproximatelyMultiplexPauli(
 
 /// # Summary
 /// Implementation step of arbitrary state preparation procedure.
-function StatePreparationSBMComputeCoefficients(
+/// This version optimized for purely real coefficients represented by an array of doubles.
+function StatePreparationSBMComputeCoefficientsD(
+    coefficients : Double[]
+) : (Double[], Double[], ComplexPolar[]) {
+    mutable disentanglingZ = [];
+    mutable disentanglingY = [];
+    mutable newCoefficients = [];
+
+    for idxCoeff in 0..2..Length(coefficients) - 1 {
+        let (rt, phi, theta) = BlockSphereCoordinatesD(coefficients[idxCoeff], coefficients[idxCoeff + 1]);
+        set disentanglingZ += [0.5 * phi];
+        set disentanglingY += [0.5 * theta];
+        set newCoefficients += [rt];
+    }
+
+    return (disentanglingY, disentanglingZ, newCoefficients);
+}
+
+/// # Summary
+/// Implementation step of arbitrary state preparation procedure.
+function StatePreparationSBMComputeCoefficientsCP(
     coefficients : ComplexPolar[]
 ) : (Double[], Double[], ComplexPolar[]) {
 
@@ -235,13 +281,43 @@ function StatePreparationSBMComputeCoefficients(
     mutable newCoefficients = [];
 
     for idxCoeff in 0..2..Length(coefficients) - 1 {
-        let (rt, phi, theta) = BlochSphereCoordinates(coefficients[idxCoeff], coefficients[idxCoeff + 1]);
+        let (rt, phi, theta) = BlochSphereCoordinatesCP(coefficients[idxCoeff], coefficients[idxCoeff + 1]);
         set disentanglingZ += [0.5 * phi];
         set disentanglingY += [0.5 * theta];
         set newCoefficients += [rt];
     }
 
     return (disentanglingY, disentanglingZ, newCoefficients);
+}
+
+/// # Summary
+/// Computes the Bloch sphere coordinates for a single-qubit state.
+///
+/// Given two doubles $a0, a1$ that represent the qubit state, computes coordinates
+/// on the Bloch sphere such that
+/// $a0 \ket{0} + a1 \ket{1} = r e^{it}(e^{-i \phi /2}\cos{(\theta/2)}\ket{0}+e^{i \phi /2}\sin{(\theta/2)}\ket{1})$.
+///
+/// # Input
+/// ## a0
+/// Double coefficient of state $\ket{0}$.
+/// ## a1
+/// Double coefficient of state $\ket{1}$.
+///
+/// # Output
+/// A tuple containing `(ComplexPolar(r, t), phi, theta)`.
+function BlockSphereCoordinatesD(
+    a0 : Double,
+    a1 : Double
+) : (ComplexPolar, Double, Double) {
+    let abs0 = AbsD(a0);
+    let abs1 = AbsD(a1);
+    let arg0 = a0 < 0.0 ? PI() | 0.0;
+    let arg1 = a1 < 0.0 ? PI() | 0.0;
+    let r = Sqrt(abs0 * abs0 + abs1 * abs1);
+    let t = 0.5 * (arg0 + arg1);
+    let phi = arg1 - arg0;
+    let theta = 2.0 * ArcTan2(abs1, abs0);
+    return (ComplexPolar(r, t), phi, theta);
 }
 
 /// # Summary
@@ -259,7 +335,7 @@ function StatePreparationSBMComputeCoefficients(
 ///
 /// # Output
 /// A tuple containing `(ComplexPolar(r, t), phi, theta)`.
-function BlochSphereCoordinates(
+function BlochSphereCoordinatesCP(
     a0 : ComplexPolar,
     a1 : ComplexPolar
 ) : (ComplexPolar, Double, Double) {
@@ -321,31 +397,18 @@ operation ApproximatelyMultiplexZ(
     target : Qubit
 ) : Unit is Adj + Ctl {
 
-    body (...) {
-        // pad coefficients length at tail to a power of 2.
-        let coefficientsPadded = Padded(-2^Length(control), 0.0, coefficients);
+    body ... {
+        let multiplexZParams = GenerateMultiplexZParams(coefficients, control, target);
+        ApplyMultiplexZParams(multiplexZParams);
+    }
 
-        if Length(coefficientsPadded) == 1 {
-            // Termination case
-            if AbsD(coefficientsPadded[0]) > tolerance {
-                Exp([PauliZ], coefficientsPadded[0], [target]);
-            }
-        } else {
-            // Compute new coefficients.
-            let (coefficients0, coefficients1) = MultiplexZCoefficients(coefficientsPadded);
-            ApproximatelyMultiplexZ(tolerance, coefficients0, Most(control), target);
-            if AnyOutsideToleranceD(tolerance, coefficients1) {
-                within {
-                    CNOT(Tail(control), target);
-                } apply {
-                    ApproximatelyMultiplexZ(tolerance, coefficients1, Most(control), target);
-                }
-            }
-        }
+    adjoint ... {
+        let adjMultiplexZParams = GenerateAdjMultiplexZParams(coefficients, control, target);
+        Adjoint ApplyMultiplexZParams(adjMultiplexZParams);
     }
 
     controlled (controlRegister, ...) {
-        // pad coefficients length to a power of 2.
+        // Pad coefficients length to a power of 2.
         let coefficientsPadded = Padded(2^(Length(control) + 1), 0.0, Padded(-2^Length(control), 0.0, coefficients));
         let (coefficients0, coefficients1) = MultiplexZCoefficients(coefficientsPadded);
         ApproximatelyMultiplexZ(tolerance, coefficients0, control, target);
@@ -357,7 +420,70 @@ operation ApproximatelyMultiplexZ(
             }
         }
     }
+
+    controlled adjoint invert;
 }
+
+operation ApplyMultiplexZParams(params : (Double, Qubit[])[]) : Unit is Adj {
+    for (angle, qs) in params {
+        if Length(qs) == 2 {
+            CNOT(qs[0], qs[1]);
+        } elif AbsD(angle) > 0.0 {
+            Exp([PauliZ], angle, qs);
+        }
+    }
+}
+// Provides the sequence of angles or entangling CNOTs to apply for the multiplex Z step of the state preparation procedure,
+// given a set of coefficients and control and target qubits.
+// In these sequences, there are always one or two qubits in the qubit array. If there is one qubit, it is the target of a Z rotation by the given angle.
+// If there are two qubits, they represent a CNOT with the first qubit as control and the second as target, and the angle is ignored.
+function GenerateMultiplexZParams(
+    coefficients : Double[],
+    control : Qubit[],
+    target : Qubit
+) : (Double, Qubit[])[] {
+    // Pad coefficients length at tail to a power of 2.
+    let coefficientsPadded = Padded(-2^Length(control), 0.0, coefficients);
+
+    if Length(coefficientsPadded) == 1 {
+        // Termination case
+        [(coefficientsPadded[0], [target])]
+    } else {
+        // Compute new coefficients.
+        let (coefficients0, coefficients1) = MultiplexZCoefficients(coefficientsPadded);
+        mutable params = GenerateMultiplexZParams(coefficients0, Most(control), target);
+        params += [(0.0, [Tail(control), target])] + GenerateMultiplexZParams(coefficients1, Most(control), target);
+        params += [(0.0, [Tail(control), target])];
+        params
+    }
+}
+
+// Provides the sequence of angles or entangling CNOTs to apply for the adjoint of the multiplex Z step of the state preparation procedure,
+// given a set of coefficients and control and target qubits.
+// Note that the adjoint sequence is NOT the reverse of the forward sequence due to the structure of the multiplex Z step, which applies
+// the disentangling rotations in between the two recursive calls.
+// See `GenerateMultiplexZParams` for more details on the structure of these sequences.
+function GenerateAdjMultiplexZParams(
+    coefficients : Double[],
+    control : Qubit[],
+    target : Qubit
+) : (Double, Qubit[])[] {
+    // Pad coefficients length at tail to a power of 2.
+    let coefficientsPadded = Padded(-2^Length(control), 0.0, coefficients);
+
+    if Length(coefficientsPadded) == 1 {
+        // Termination case
+        [(coefficientsPadded[0], [target])]
+    } else {
+        // Compute new coefficients.
+        let (coefficients0, coefficients1) = MultiplexZCoefficients(coefficientsPadded);
+        mutable params = [(0.0, [Tail(control), target])] + GenerateAdjMultiplexZParams(coefficients1, Most(control), target);
+        params += [(0.0, [Tail(control), target])];
+        params += GenerateAdjMultiplexZParams(coefficients0, Most(control), target);
+        params
+    }
+}
+
 
 /// # Summary
 /// Implementation step of multiply-controlled Z rotations.

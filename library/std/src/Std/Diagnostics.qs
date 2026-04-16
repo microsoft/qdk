@@ -154,10 +154,10 @@ operation CheckAllZero(qubits : Qubit[]) : Bool {
 }
 
 /// # Summary
-/// Checks whether a given condition is true, failing with a message if it is not.
+/// Checks whether a given condition is false, failing with a message if it is.
 ///
 /// # Description
-/// This function checks whether a given condition is true. If the condition is false, the operation fails with the given message,
+/// This function checks the given condition. If the condition is false, the operation fails with the given message,
 /// terminating the program.
 ///
 /// # Input
@@ -165,6 +165,7 @@ operation CheckAllZero(qubits : Qubit[]) : Bool {
 /// The condition to check.
 /// ## message
 /// The message to use in the failure if the condition is false.
+@SimulatableIntrinsic()
 function Fact(actual : Bool, message : String) : Unit {
     if (not actual) {
         fail message;

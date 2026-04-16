@@ -42,7 +42,7 @@ operation ConstructPowerProducts(qubits : Qubit[], aux_qubits : Qubit[]) : Qubit
             power_products += [next_power_product];
         }
     }
-    Fact(next_available == Length(aux_qubits), "ConstructPowerProducts: All auxilliary qubits should be used.");
+    Fact(next_available == Length(aux_qubits), "ConstructPowerProducts: All auxiliary qubits should be used.");
     return power_products;
 }
 
@@ -102,7 +102,7 @@ function GetAuxCountForPP(nQubits : Int) : Int {
 // Tests
 
 internal operation ConstructDestructPowerProducts(qs : Qubit[]) : Unit {
-    // For monomials with more than one variable we need auxilliary qubits.
+    // For monomials with more than one variable we need auxiliary qubits.
     use aux_qubits = Qubit[GetAuxCountForPP(Length(qs))];
 
     // Construct/destruct should leave qs unchanged.

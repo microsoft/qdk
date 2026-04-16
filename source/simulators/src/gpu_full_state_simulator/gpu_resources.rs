@@ -217,20 +217,12 @@ impl Drop for GpuResources {
 }
 
 impl GpuResources {
-    // NOTE: After migrationing to wgpu v28 wasm32 and native will align on enumerate_adapters behavior
-    // and also become async. See https://github.com/gfx-rs/wgpu/releases/tag/v28.0.0
-    #[cfg(target_arch = "wasm32")]
-    pub fn try_get_adapter() -> std::result::Result<Adapter, String> {
-        Err("wasm32 is not supported currently".to_string())
-    }
+    pub async fn try_get_adapter() -> std::result::Result<Adapter, String> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn try_get_adapter() -> std::result::Result<Adapter, String> {
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        let adapters = instance.enumerate_adapters(wgpu::Backends::PRIMARY).await;
 
-        let adapters = instance.enumerate_adapters(wgpu::Backends::PRIMARY);
-
-        let score_adapter = |adapter: &Adapter| -> (u32, u32, u32, u32) {
+        let score_adapter = |adapter: &Adapter| -> (u32, u32, u32, u64) {
             let info = adapter.get_info();
             let device_score = match info.device_type {
                 wgpu::DeviceType::DiscreteGpu => 8,
@@ -264,7 +256,7 @@ impl GpuResources {
                 score.0 > 0 /* discrete or integrated */ &&
                 score.1 > 0 /* supported backend */ &&
                 score.2 >= (1u32 << 14) /* at least 16KB compute workgroup storage (which implies compute capabilities also) */ &&
-                score.3 >= (1u32 << 30) /* at least 1GB storage buffers */
+                score.3 >= (1u64 << 30) /* at least 1GB storage buffers */
             })
             .max_by_key(score_adapter)
             .ok_or_else(|| "No suitable GPU adapter found".to_string())?;
@@ -288,7 +280,7 @@ impl GpuResources {
 
         // Per the WebGPU spec, creating a device multiple times from the same adapter is disallowed,
         // so recreate the adapter as well if creating a device and queue.
-        let adapter = Self::try_get_adapter()?;
+        let adapter = Self::try_get_adapter().await?;
         let adapter_limits = adapter.limits();
 
         // The gpu simulator uses 7 storage buffers in a single
@@ -303,7 +295,7 @@ impl GpuResources {
         }
 
         let required_limits = wgpu::Limits {
-            max_storage_buffer_binding_size: 1u32 << 30, // 1GB
+            max_storage_buffer_binding_size: 1u64 << 30, // 1GB
             ..adapter_limits
         };
 
@@ -453,8 +445,8 @@ impl GpuResources {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("GPU simulator pipeline layout"),
-            bind_group_layouts: &[bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(bind_group_layout)],
+            immediate_size: 0,
         });
 
         let get_kernel = |name: &str| -> ComputePipeline {
@@ -548,8 +540,8 @@ impl GpuResources {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("GPU simulator pipeline layout"),
-            bind_group_layouts: &[bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(bind_group_layout)],
+            immediate_size: 0,
         });
 
         let get_kernel = |name: &str| -> ComputePipeline {
