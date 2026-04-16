@@ -257,13 +257,13 @@ class Interpreter:
 
         :param entry_expr: An entry expression.
 
-        :param operation: The operation to synthesize. This can be a name of
+        :keyword operation: The operation to synthesize. This can be a name of
         an operation of a lambda expression. The operation must take only
         qubits or arrays of qubits as parameters.
 
-        :param callable: The callable to synthesize the circuit for, if no entry expression is provided.
+        :keyword callable: The callable to synthesize the circuit for, if no entry expression is provided.
 
-        :param args: The arguments to pass to the callable, if any.
+        :keyword args: The arguments to pass to the callable, if any.
 
         :raises QSharpError: If there is an error synthesizing the circuit.
         """
@@ -714,21 +714,21 @@ def estimate_custom(
     :param qec: Python object representing the quantum error correction code.
     :param factories: List of python objects representing factories. Defaults to ``[]``.
     :type factories: List
-    :param error_budget: The total error budget, which is uniformly distributed. Defaults to ``0.01``.
-    :type error_budget: float
-    :param max_factories: Constrains the number of factories. Defaults to ``None``.
-    :type max_factories: int, optional
-    :param logical_depth_factor: Extends algorithmic logical depth by a factor >= 1. Defaults to ``None``.
-    :type logical_depth_factor: float, optional
-    :param max_physical_qubits: Forces estimator to not exceed provided number of physical qubits, may fail.
+    :keyword error_budget: The total error budget, which is uniformly distributed. Defaults to ``0.01``.
+    :kwtype error_budget: float
+    :keyword max_factories: Constrains the number of factories. Defaults to ``None``.
+    :kwtype max_factories: int
+    :keyword logical_depth_factor: Extends algorithmic logical depth by a factor >= 1. Defaults to ``None``.
+    :kwtype logical_depth_factor: float
+    :keyword max_physical_qubits: Forces estimator to not exceed provided number of physical qubits, may fail.
         Defaults to ``None``.
-    :type max_physical_qubits: int, optional
-    :param max_duration: Allows estimator to run for given runtime in nanoseconds, may fail.
+    :kwtype max_physical_qubits: int
+    :keyword max_duration: Allows estimator to run for given runtime in nanoseconds, may fail.
         Defaults to ``None``.
-    :type max_duration: int, optional
-    :param error_budget_pruning: Will try to prune the error budget to increase magic state error budget.
+    :kwtype max_duration: int
+    :keyword error_budget_pruning: Will try to prune the error budget to increase magic state error budget.
         Defaults to ``False``.
-    :type error_budget_pruning: bool
+    :kwtype error_budget_pruning: bool
     :return: A dictionary with resource estimation results.
     :rtype: Dict
     """

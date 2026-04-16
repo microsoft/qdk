@@ -298,20 +298,20 @@ def init(
     """
     Initializes the Q# interpreter.
 
-    :param target_profile: Setting the target profile allows the Q#
+    :keyword target_profile: Setting the target profile allows the Q#
         interpreter to generate programs that are compatible
-        with a specific target. See :py:class: `qsharp.TargetProfile`.
+        with a specific target. See :class:`TargetProfile`.
 
-    :param target_name: An optional name of the target machine to use for inferring the compatible
+    :keyword target_name: An optional name of the target machine to use for inferring the compatible
         target_profile setting.
 
-    :param project_root: An optional path to a root directory with a Q# project to include.
+    :keyword project_root: An optional path to a root directory with a Q# project to include.
         It must contain a qsharp.json project manifest.
 
-    :param language_features: An optional list of language feature flags to enable.
+    :keyword language_features: An optional list of language feature flags to enable.
         These correspond to experimental or preview Q# language features.
 
-    :param trace_circuit: Enables tracing of circuit during execution.
+    :keyword trace_circuit: Enables tracing of circuit during execution.
         Passing `True` is required for the `dump_circuit` function to return a circuit.
         The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
     :return: The Q# interpreter configuration.
@@ -523,7 +523,7 @@ def eval(
     Output is printed to console.
 
     :param source: The Q# source code to evaluate.
-    :param save_events: If true, all output will be saved and returned. If false, they will be printed.
+    :keyword save_events: If true, all output will be saved and returned. If false, they will be printed.
     :return: The value returned by the last statement in the source code, or the saved output if ``save_events`` is true.
     :rtype: Any
     :raises QSharpError: If there is an error evaluating the source code.

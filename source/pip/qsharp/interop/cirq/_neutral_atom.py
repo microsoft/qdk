@@ -53,6 +53,26 @@ class NeutralAtomSampler(cirq.Sampler):
         sampler = NeutralAtomSampler(noise=noise, seed=42)
         result = sampler.run(circuit, repetitions=1000)
         print(f"Accepted: {len(result.measurements['m'])} / {len(result.raw_shots)}")
+
+    :keyword noise: Optional :class:`~qsharp._simulation.NoiseConfig` describing
+        per-gate noise. The device decomposes gates to the native set
+        ``{Rz, SX, CZ, MResetZ}``; configure noise on those native gates.
+        For example, a Cirq ``X`` gate arriving via QASM 2.0 is decomposed
+        to ``SX·SX``, so ``noise.sx`` is the relevant field. Defaults to
+        ``None`` (noiseless).
+    :kwtype noise: NoiseConfig
+    :keyword simulator_type: Force a particular simulator backend.
+        ``"clifford"`` — Clifford-only, fast. Requires a Clifford circuit.
+        ``"cpu"`` — Full state-vector on CPU.
+        ``"gpu"`` — Full state-vector on GPU.
+        ``None`` (default) — GPU if available, CPU otherwise.
+    :kwtype simulator_type: str
+    :keyword seed: Optional integer seed for reproducibility. Defaults to ``None``.
+    :kwtype seed: int
+    :keyword device: An existing :class:`~qsharp._device._atom.NeutralAtomDevice`
+        instance to reuse across calls. A default-configured device is
+        created lazily on the first call when not provided.
+    :kwtype device: NeutralAtomDevice
     """
 
     def __init__(
@@ -63,28 +83,6 @@ class NeutralAtomSampler(cirq.Sampler):
         seed: Optional[int] = None,
         device: Optional["NeutralAtomDevice"] = None,
     ) -> None:
-        """
-        :param noise: Optional :class:`~qsharp._simulation.NoiseConfig` describing
-            per-gate noise. The device decomposes gates to the native set
-            ``{Rz, SX, CZ, MResetZ}``; configure noise on those native gates.
-            For example, a Cirq ``X`` gate arriving via QASM 2.0 is decomposed
-            to ``SX·SX``, so ``noise.sx`` is the relevant field. Defaults to
-            ``None`` (noiseless).
-        :type noise: NoiseConfig, optional
-        :param simulator_type: Force a particular simulator backend.
-            ``"clifford"`` — Clifford-only, fast. Requires a Clifford circuit.
-            ``"cpu"`` — Full state-vector on CPU.
-            ``"gpu"`` — Full state-vector on GPU.
-            ``None`` (default) — GPU if available, CPU otherwise.
-        :type simulator_type: str, optional
-        :param seed: Optional integer seed for reproducibility. Defaults to ``None``.
-        :type seed: int, optional
-        :param device: An existing :class:`~qsharp._device._atom.NeutralAtomDevice`
-            instance to reuse across calls. A default-configured device is
-            created lazily on the first call when not provided.
-        :type device: NeutralAtomDevice, optional
-        """
-
         self._noise = noise
         self._simulator_type = simulator_type
         self._seed = seed
