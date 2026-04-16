@@ -91,6 +91,7 @@ class QubitParams:
     Pass one of these string constants as the ``name`` field to select a built-in
     qubit model for resource estimation.
     """
+
     GATE_US_E3 = "qubit_gate_us_e3"
     GATE_US_E4 = "qubit_gate_us_e4"
     GATE_NS_E3 = "qubit_gate_ns_e3"
@@ -107,6 +108,7 @@ class QECScheme:
     Pass one of these string constants as the ``name`` field to select a
     built-in QEC scheme for resource estimation.
     """
+
     SURFACE_CODE = "surface_code"
     FLOQUET_CODE = "floquet_code"
 
@@ -151,6 +153,7 @@ class MeasurementErrorRate(AutoValidatingParams):
     :param process: Error rate during the measurement process. Must be in ``(0, 1)``.
     :param readout: Error rate during readout. Must be in ``(0, 1)``.
     """
+
     process: float = field(metadata={"validate": _check_error_rate})
     readout: float = field(metadata={"validate": _check_error_rate})
 
@@ -164,6 +167,7 @@ class EstimatorQubitParams(AutoValidatingParams):
     :class:`QubitParams` constants, or fully define a custom model by setting
     ``instruction_set`` and all relevant timing and error-rate fields.
     """
+
     @staticmethod
     def check_instruction_set(name, value):
         if value not in [
@@ -261,6 +265,7 @@ class EstimatorQecScheme(AutoValidatingParams):
     :class:`QECScheme` constants, or define a custom scheme by setting
     the threshold and code-distance parameters directly.
     """
+
     name: Optional[str] = None
     error_correction_threshold: Optional[float] = validating_field(_check_error_rate)
     crossing_prefactor: Optional[float] = None
@@ -278,6 +283,7 @@ class ProtocolSpecificDistillationUnitSpecification(AutoValidatingParams):
     Defines the number of physical qubits and the duration (in logical cycle
     time units) for one round of distillation under a specific QEC code.
     """
+
     num_unit_qubits: Optional[int] = None
     duration_in_qubit_cycle_time: Optional[int] = None
 
@@ -299,6 +305,7 @@ class DistillationUnitSpecification(AutoValidatingParams):
     ``output_error_rate_formula``, and optionally physical and logical qubit
     specifications.
     """
+
     name: Optional[str] = None
     display_name: Optional[str] = None
     num_input_ts: Optional[int] = None
@@ -417,6 +424,7 @@ class ErrorBudgetPartition(AutoValidatingParams):
     :param t_states: Budget allocated to T-state distillation errors.
     :param rotations: Budget allocated to rotation synthesis errors.
     """
+
     logical: float = 0.001 / 3
     t_states: float = 0.001 / 3
     rotations: float = 0.001 / 3
@@ -430,6 +438,7 @@ class EstimatorConstraints(AutoValidatingParams):
     At most one of ``max_duration`` or ``max_physical_qubits`` may be set
     simultaneously.
     """
+
     @staticmethod
     def at_least_one(name, value):
         if value < 1:
@@ -559,6 +568,7 @@ class EstimatorParams(EstimatorInputParamsItem):
         single-point estimation job.
     :type num_items: int, optional
     """
+
     MAX_NUM_ITEMS: int = 1000
 
     def __init__(self, num_items: Optional[int] = None):

@@ -29,22 +29,6 @@ class NeutralAtomSampler(cirq.Sampler):
     3. QIR → ``NeutralAtomDevice.simulate()`` (decompose, schedule, simulate)
     4. Raw shots → :class:`NeutralAtomCirqResult`
 
-    :param noise: Optional :class:`~qsharp._simulation.NoiseConfig` describing
-        per-gate noise. The device decomposes gates to the native set
-        ``{Rz, SX, CZ, MResetZ}``; configure noise on those native gates.
-        For example, a Cirq ``X`` gate arriving via QASM 2.0 is decomposed
-        to ``SX·SX``, so ``noise.sx`` is the relevant field. Defaults to
-        ``None`` (noiseless).
-    :param simulator_type: Force a particular simulator backend.
-        ``"clifford"`` — Clifford-only, fast. Requires a Clifford circuit.
-        ``"cpu"`` — Full state-vector on CPU.
-        ``"gpu"`` — Full state-vector on GPU.
-        ``None`` (default) — GPU if available, CPU otherwise.
-    :param seed: Optional integer seed for reproducibility. Defaults to ``None``.
-    :param device: An existing :class:`~qsharp._device._atom.NeutralAtomDevice`
-        instance to reuse across calls. A default-configured device is
-        created lazily on the first call when not provided.
-
     Example::
 
         import cirq
@@ -79,6 +63,28 @@ class NeutralAtomSampler(cirq.Sampler):
         seed: Optional[int] = None,
         device: Optional["NeutralAtomDevice"] = None,
     ) -> None:
+        """
+        :param noise: Optional :class:`~qsharp._simulation.NoiseConfig` describing
+            per-gate noise. The device decomposes gates to the native set
+            ``{Rz, SX, CZ, MResetZ}``; configure noise on those native gates.
+            For example, a Cirq ``X`` gate arriving via QASM 2.0 is decomposed
+            to ``SX·SX``, so ``noise.sx`` is the relevant field. Defaults to
+            ``None`` (noiseless).
+        :type noise: NoiseConfig, optional
+        :param simulator_type: Force a particular simulator backend.
+            ``"clifford"`` — Clifford-only, fast. Requires a Clifford circuit.
+            ``"cpu"`` — Full state-vector on CPU.
+            ``"gpu"`` — Full state-vector on GPU.
+            ``None`` (default) — GPU if available, CPU otherwise.
+        :type simulator_type: str, optional
+        :param seed: Optional integer seed for reproducibility. Defaults to ``None``.
+        :type seed: int, optional
+        :param device: An existing :class:`~qsharp._device._atom.NeutralAtomDevice`
+            instance to reuse across calls. A default-configured device is
+            created lazily on the first call when not provided.
+        :type device: NeutralAtomDevice, optional
+        """
+
         self._noise = noise
         self._simulator_type = simulator_type
         self._seed = seed
@@ -102,7 +108,7 @@ class NeutralAtomSampler(cirq.Sampler):
 
         :param program: The Cirq circuit to simulate.
         :type program: cirq.AbstractCircuit
-        :param params: A :class:`cirq.Sweepable` defining the parameter resolvers
+        :param params: A ``cirq.Sweepable`` defining the parameter resolvers
             to sweep over. Each resolver produces one result.
         :type params: cirq.Sweepable
         :param repetitions: Number of shots per parameter resolver.
@@ -110,7 +116,11 @@ class NeutralAtomSampler(cirq.Sampler):
         :return: A list of :class:`NeutralAtomCirqResult` objects, one per resolver.
         :rtype: List[NeutralAtomCirqResult]
         """
-        resolvers = list(cirq.to_sweep(params)) if params is not None else [cirq.ParamResolver()]
+        resolvers = (
+            list(cirq.to_sweep(params))
+            if params is not None
+            else [cirq.ParamResolver()]
+        )
         return [
             self._run_once(program, resolver, repetitions) for resolver in resolvers
         ]

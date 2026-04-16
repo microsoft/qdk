@@ -56,7 +56,7 @@ class QsJob(JobV1, ABC):
         :type input_params: Dict[str, Any]
         :param executor: Thread pool executor. Uses a default single-threaded executor if
             not provided.
-        :param **kwargs: Additional keyword arguments passed to :class:`~qiskit.providers.JobV1`.
+        :param **kwargs: Additional keyword arguments passed to ``qiskit.providers.JobV1``.
         """
 
         self._run_input = run_input
@@ -137,7 +137,7 @@ class QsSimJob(QsJob):
     """
     A Qiskit job that runs a quantum circuit on the Q# simulator.
 
-    Submits the circuit for simulation and returns a :class:`~qiskit.result.Result`
+    Submits the circuit for simulation and returns a ``qiskit.result.Result``
     containing shot-level measurement outcomes.
     """
 

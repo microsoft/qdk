@@ -25,8 +25,8 @@ Available backends
 
 :func:`estimate`
     Convenience function that runs resource estimation on a Qiskit circuit
-    and returns an `EstimatorResult` directly, without needing to
-    construct a backend or job manually.
+    and returns an :class:`EstimatorResult` directly, without
+    needing to construct a backend or job manually.
 
 Usage::
 
