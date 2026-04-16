@@ -597,7 +597,7 @@ impl NoisySimulator {
 ///   self.apply_loss(&noise_config.rxx, targets);
 ///   ```
 ///   However, this is not ideal. We don't want to be increasing and decreasing
-///   the reference count of an Arc in the hot-loop of our simulation.
+///   the reference count of an Arc in the hot-loop of the simulation.
 ///
 ///   The other alternative is creating a function that takes all the necessary
 ///   members of self as inputs independently,
