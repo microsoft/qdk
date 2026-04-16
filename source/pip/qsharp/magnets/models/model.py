@@ -159,8 +159,7 @@ class IsingModel(Model):
 
     - Single-vertex edges define X-field terms with coefficient ``-h``.
     - Two-vertex edges define ZZ-coupling terms with coefficient ``-J``.
-    - Terms are grouped into two groups: ``0`` for field terms and ``1`` for
-      coupling terms.
+    - Terms are grouped into two groups: ``0`` for field terms and ``1`` for coupling terms.
     """
 
     def __init__(self, geometry: Hypergraph, h: float, J: float):
