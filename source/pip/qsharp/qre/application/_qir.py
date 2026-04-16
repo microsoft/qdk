@@ -14,9 +14,10 @@ from ..interop import trace_from_qir
 
 @dataclass
 class QIRApplication(Application[None]):
-    """Application that produces a resource estimation trace from QIR code.
+    """Application that produces a resource estimation trace from base profile QIR code.
 
-    Accepts QIR input as LLVM IR text or bitcode.
+    Accepts QIR input as LLVM IR text or bitcode.  The QIR input must adhere to
+    the base profile.
 
     Attributes:
         input (str | bytes): QIR input as LLVM IR text (str) or
