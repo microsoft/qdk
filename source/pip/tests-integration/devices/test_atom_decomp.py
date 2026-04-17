@@ -43,63 +43,61 @@ def test_ccx_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
-  call void @__quantum__qis__t__adj(%Qubit* null)
-  call void @__quantum__qis__t__adj(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__t__body(%Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__t__body(%Qubit* inttoptr (i64 2 to %Qubit*))
-  call void @__quantum__qis__t__adj(%Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* inttoptr (i64 2 to %Qubit*))
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__t__adj(%Qubit* inttoptr (i64 2 to %Qubit*))
-  call void @__quantum__qis__t__body(%Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 2 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 2 to ptr))
+  call void @__quantum__qis__t__adj(ptr null)
+  call void @__quantum__qis__t__adj(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 2 to ptr), ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__t__body(ptr null)
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 2 to ptr))
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 2 to ptr))
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 1 to ptr), ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__t__body(ptr inttoptr (i64 2 to ptr))
+  call void @__quantum__qis__t__adj(ptr null)
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 2 to ptr))
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 2 to ptr))
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 2 to ptr), ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__t__adj(ptr inttoptr (i64 2 to ptr))
+  call void @__quantum__qis__t__body(ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 1 to ptr), ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 2 to ptr))
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__ccx__body(%Qubit*, %Qubit*, %Qubit*)
+declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__h__body(ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__t__body(%Qubit*)
+declare void @__quantum__qis__t__body(ptr)
 
-declare void @__quantum__qis__t__adj(%Qubit*)
+declare void @__quantum__qis__t__adj(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__qis__cz__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__cz__body(ptr, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="0" }
 
@@ -137,39 +135,37 @@ def test_cx_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__cz__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__cz__body(ptr null, ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__cx__body(ptr, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__h__body(ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__t__body(%Qubit*)
+declare void @__quantum__qis__t__body(ptr)
 
-declare void @__quantum__qis__t__adj(%Qubit*)
+declare void @__quantum__qis__t__adj(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__qis__cz__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__cz__body(ptr, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
 
@@ -207,41 +203,39 @@ def test_cy_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__s__adj(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__cz__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__cz__body(ptr null, ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__cy__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__cy__body(ptr, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__h__body(ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__t__body(%Qubit*)
+declare void @__quantum__qis__t__body(ptr)
 
-declare void @__quantum__qis__t__adj(%Qubit*)
+declare void @__quantum__qis__t__adj(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__qis__cz__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__cz__body(ptr, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
 
@@ -279,43 +273,41 @@ def test_rxx_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__rz__body(double 1.234500e+00, %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 1 to ptr), ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__rz__body(double 1.234500e+00, ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 1 to ptr), ptr null)
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__rxx__body(double, %Qubit*, %Qubit*)
+declare void @__quantum__qis__rxx__body(double, ptr, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__h__body(ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__t__body(%Qubit*)
+declare void @__quantum__qis__t__body(ptr)
 
-declare void @__quantum__qis__t__adj(%Qubit*)
+declare void @__quantum__qis__t__adj(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__qis__cz__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__cz__body(ptr, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
 
@@ -353,47 +345,45 @@ def test_ryy_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__s__adj(%Qubit* null)
-  call void @__quantum__qis__s__adj(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__rz__body(double 1.234500e+00, %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__s__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__s__adj(ptr null)
+  call void @__quantum__qis__s__adj(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 1 to ptr), ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__rz__body(double 1.234500e+00, ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 1 to ptr), ptr null)
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__s__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__s__body(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__ryy__body(double, %Qubit*, %Qubit*)
+declare void @__quantum__qis__ryy__body(double, ptr, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__h__body(ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__t__body(%Qubit*)
+declare void @__quantum__qis__t__body(ptr)
 
-declare void @__quantum__qis__t__adj(%Qubit*)
+declare void @__quantum__qis__t__adj(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__qis__cz__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__cz__body(ptr, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
 
@@ -431,43 +421,41 @@ def test_rzz_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__rz__body(double 1.234500e+00, %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 1 to ptr), ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__rz__body(double 1.234500e+00, ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 1 to ptr), ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__rzz__body(double, %Qubit*, %Qubit*)
+declare void @__quantum__qis__rzz__body(double, ptr, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__h__body(ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__t__body(%Qubit*)
+declare void @__quantum__qis__t__body(ptr)
 
-declare void @__quantum__qis__t__adj(%Qubit*)
+declare void @__quantum__qis__t__adj(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__qis__cz__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__cz__body(ptr, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
 
@@ -505,45 +493,43 @@ def test_swap_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__cz__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__cz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__cz__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__cz__body(ptr null, ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__cz__body(ptr inttoptr (i64 1 to ptr), ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__cz__body(ptr null, ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__swap__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__swap__body(ptr, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__h__body(ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__t__body(%Qubit*)
+declare void @__quantum__qis__t__body(ptr)
 
-declare void @__quantum__qis__t__adj(%Qubit*)
+declare void @__quantum__qis__t__adj(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__qis__cz__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__cz__body(ptr, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
 
@@ -581,33 +567,31 @@ def test_rx_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__rz__body(double 1.234500e+00, %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__rz__body(double 1.234500e+00, ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__rx__body(double, %Qubit*)
+declare void @__quantum__qis__rx__body(double, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__h__body(ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -645,35 +629,33 @@ def test_ry_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__s__adj(%Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__rz__body(double 1.234500e+00, %Qubit* null)
-  call void @__quantum__qis__h__body(%Qubit* null)
-  call void @__quantum__qis__s__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__s__adj(ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__rz__body(double 1.234500e+00, ptr null)
+  call void @__quantum__qis__h__body(ptr null)
+  call void @__quantum__qis__s__body(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__ry__body(double, %Qubit*)
+declare void @__quantum__qis__ry__body(double, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__h__body(ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -711,29 +693,27 @@ def test_h_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, %Qubit* null)
-  call void @__quantum__qis__sx__body(%Qubit* null)
-  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, ptr null)
+  call void @__quantum__qis__sx__body(ptr null)
+  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__h__body(ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__sx__body(%Qubit*)
+declare void @__quantum__qis__sx__body(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -771,27 +751,25 @@ def test_s_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__sx__body(%Qubit*)
+declare void @__quantum__qis__sx__body(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -829,27 +807,25 @@ def test_sadj_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__rz__body(double 0xBFF921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__rz__body(double 0xBFF921FB54442D18, ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__sx__body(%Qubit*)
+declare void @__quantum__qis__sx__body(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -887,27 +863,25 @@ def test_t_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__rz__body(double 0x3FE921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__rz__body(double 0x3FE921FB54442D18, ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__t__body(%Qubit*)
+declare void @__quantum__qis__t__body(ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__sx__body(%Qubit*)
+declare void @__quantum__qis__sx__body(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -945,27 +919,25 @@ def test_tadj_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__rz__body(double 0xBFE921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__rz__body(double 0xBFE921FB54442D18, ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__t__adj(%Qubit*)
+declare void @__quantum__qis__t__adj(ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__sx__body(%Qubit*)
+declare void @__quantum__qis__sx__body(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -1003,28 +975,26 @@ def test_x_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__sx__body(%Qubit* null)
-  call void @__quantum__qis__sx__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__sx__body(ptr null)
+  call void @__quantum__qis__sx__body(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__x__body(ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__sx__body(%Qubit*)
+declare void @__quantum__qis__sx__body(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -1062,29 +1032,27 @@ def test_y_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__sx__body(%Qubit* null)
-  call void @__quantum__qis__sx__body(%Qubit* null)
-  call void @__quantum__qis__rz__body(double 0x400921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__sx__body(ptr null)
+  call void @__quantum__qis__sx__body(ptr null)
+  call void @__quantum__qis__rz__body(double 0x400921FB54442D18, ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__y__body(%Qubit*)
+declare void @__quantum__qis__y__body(ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__sx__body(%Qubit*)
+declare void @__quantum__qis__sx__body(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -1122,27 +1090,25 @@ def test_z_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__rz__body(double 0x400921FB54442D18, %Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__rz__body(double 0x400921FB54442D18, ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__z__body(%Qubit*)
+declare void @__quantum__qis__z__body(ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__sx__body(%Qubit*)
+declare void @__quantum__qis__sx__body(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -1180,29 +1146,27 @@ def test_rz_3pi_over_2_clifford_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__s__adj(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__s__adj(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__z__body(%Qubit*)
+declare void @__quantum__qis__z__body(ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -1240,29 +1204,27 @@ def test_rz_neg_pi_over_2_clifford_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__s__adj(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__s__adj(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__z__body(%Qubit*)
+declare void @__quantum__qis__z__body(ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -1300,29 +1262,27 @@ def test_rz_pi_clifford_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__z__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__z__body(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__z__body(%Qubit*)
+declare void @__quantum__qis__z__body(ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -1360,29 +1320,27 @@ def test_rz_neg_pi_clifford_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__z__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__z__body(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__z__body(%Qubit*)
+declare void @__quantum__qis__z__body(ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -1420,29 +1378,27 @@ def test_rz_pi_over_2_clifford_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__s__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__s__body(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__z__body(%Qubit*)
+declare void @__quantum__qis__z__body(ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -1480,29 +1436,27 @@ def test_rz_neg_3pi_over_2_clifford_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__s__body(%Qubit* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__s__body(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__z__body(%Qubit*)
+declare void @__quantum__qis__z__body(ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -1540,28 +1494,26 @@ def test_rz_2pi_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__z__body(%Qubit*)
+declare void @__quantum__qis__z__body(ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -1599,28 +1551,26 @@ def test_rz_neg_2pi_decomposition() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__s__body(%Qubit*)
+declare void @__quantum__qis__s__body(ptr)
 
-declare void @__quantum__qis__s__adj(%Qubit*)
+declare void @__quantum__qis__s__adj(ptr)
 
-declare void @__quantum__qis__z__body(%Qubit*)
+declare void @__quantum__qis__z__body(ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 
@@ -1681,26 +1631,23 @@ def test_reset_replaced_by_mresetz() -> None:
         transformed_qir,
         """\
 
-%Qubit = type opaque
-%Result = type opaque
-
 @0 = internal constant [4 x i8] c"0_t\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__qis__mresetz__body(%Qubit* null, %Result* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__mresetz__body(ptr null, ptr null)
+  call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
   ret i64 0
 }
 
-declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__initialize(ptr)
 
-declare void @__quantum__qis__reset__body(%Qubit*) #1
+declare void @__quantum__qis__reset__body(ptr) #1
 
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
 
-declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
+declare void @__quantum__qis__mresetz__body(ptr, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
 attributes #1 = { "irreversible" }
