@@ -85,17 +85,16 @@ class NeutralAtomBackend(BackendBase):
         :param device: The NeutralAtomDevice instance to use for compilation and simulation.
             A default-configured device is created automatically if not provided.
             Pass a custom device to control the qubit layout (column count, zone dimensions, etc.).
-        :type device: NeutralAtomDevice, optional
+        :type device: NeutralAtomDevice
         :param target: Qiskit transpiler target. Defaults to the NeutralAtomDevice native
             gate set ``{rz, sx, cz, measure, reset}``. Override only if you need a custom
             decomposition strategy.
-        :type target: Target, optional
         :param qiskit_pass_options: Options forwarded to Qiskit pre-transpilation passes.
-        :type qiskit_pass_options: Dict, optional
+        :type qiskit_pass_options: Dict
         :param transpile_options: Options forwarded to ``qiskit.transpile()``.
-        :type transpile_options: Dict, optional
+        :type transpile_options: Dict
         :param qasm_export_options: Options forwarded to the Qiskit QASM3 exporter.
-        :type qasm_export_options: Dict, optional
+        :type qasm_export_options: Dict
         :param skip_transpilation: Skip Qiskit transpilation. Useful when the circuit is
             already expressed in terms of the target gate set.
         :type skip_transpilation: bool
@@ -159,7 +158,6 @@ class NeutralAtomBackend(BackendBase):
         """Simulate the given circuit(s) using the NeutralAtomDevice pipeline.
 
         :param run_input: A single ``QuantumCircuit`` or a list of them.
-        :type run_input: QuantumCircuit or List[QuantumCircuit]
         :param **options: Per-call option overrides. Common options:
 
             - ``name`` (str): Backend name for job metadata. Defaults to the circuit name.

@@ -38,13 +38,12 @@ class QSharpBackend(BackendBase):
     ):
         """
         :param target: The target to use for the backend.
-        :type target: Target, optional
         :param qiskit_pass_options: Options for the Qiskit passes.
-        :type qiskit_pass_options: Dict, optional
+        :type qiskit_pass_options: Dict
         :param transpile_options: Options for the transpiler.
-        :type transpile_options: Dict, optional
+        :type transpile_options: Dict
         :param qasm_export_options: Options for the QASM3 exporter.
-        :type qasm_export_options: Dict, optional
+        :type qasm_export_options: Dict
         :param skip_transpilation: Skip Qiskit transpilation.
         :type skip_transpilation: bool
         :param **options: Default option overrides. These can also be overridden per-call via
@@ -94,7 +93,6 @@ class QSharpBackend(BackendBase):
         Runs the given QuantumCircuit using the Q# simulator.
 
         :param run_input: The QuantumCircuit to be executed.
-        :type run_input: QuantumCircuit
         :param **options: Per-call option overrides. Common options:
 
             - ``name`` (str): The name of the circuit used as the entry point. Defaults to the circuit name.

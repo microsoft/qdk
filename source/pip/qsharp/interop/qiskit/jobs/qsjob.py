@@ -45,15 +45,12 @@ class QsJob(JobV1, ABC):
     ) -> None:
         """
         :param backend: The backend on which the job is run.
-        :type backend: Optional[BackendV2]
         :param job_id: A unique identifier for the job.
         :type job_id: str
         :param job_callable: The callable that executes the circuit and returns a result.
-        :type job_callable: RunInputCallable
         :param run_input: The quantum circuit to execute.
-        :type run_input: QuantumCircuit
         :param input_params: Parameters forwarded to ``job_callable`` at execution time.
-        :type input_params: Dict[str, Any]
+        :type input_params: Dict
         :param executor: Thread pool executor. Uses a default single-threaded executor if
             not provided.
         :param **kwargs: Additional keyword arguments passed to ``qiskit.providers.JobV1``.

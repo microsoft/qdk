@@ -48,13 +48,12 @@ class ResourceEstimatorBackend(BackendBase):
     ):
         """
         :param target: The target to use for the backend.
-        :type target: Target, optional
         :param qiskit_pass_options: Options for the Qiskit passes.
-        :type qiskit_pass_options: Dict, optional
+        :type qiskit_pass_options: Dict
         :param transpile_options: Options for the transpiler.
-        :type transpile_options: Dict, optional
+        :type transpile_options: Dict
         :param qasm_export_options: Options for the QASM3 exporter.
-        :type qasm_export_options: Dict, optional
+        :type qasm_export_options: Dict
         :param skip_transpilation: Skip Qiskit transpilation.
         :type skip_transpilation: bool
         :param **options: Default option overrides. These can also be overridden per-call via
@@ -104,9 +103,8 @@ class ResourceEstimatorBackend(BackendBase):
         to OpenQASM 3.
 
         :param run_input: The input Qiskit QuantumCircuit object.
-        :type run_input: QuantumCircuit
         :param params: Configuration values for resource estimation.
-        :type params: EstimatorParams, optional
+        :type params: EstimatorParams
         :param **options: Per-call option overrides. Common options:
 
             - ``params`` (EstimatorParams): Configuration values for resource estimation.

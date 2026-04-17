@@ -475,7 +475,6 @@ class BackendBase(BackendV2, ABC):
         """Converts a Qiskit QuantumCircuit to QASM 3 for the current backend.
 
         :param circuit: The QuantumCircuit to be executed.
-        :type circuit: QuantumCircuit
         :param **options: Additional options for the transpiler, exporter, or Qiskit passes.
             Common values include: ``optimization_level``, ``basis_gates``, ``includes``,
             ``search_path``. Defaults to backend config values.
@@ -507,7 +506,6 @@ class BackendBase(BackendV2, ABC):
         a direct translation of the Qiskit circuit.
 
         :param circuit: The QuantumCircuit to be executed.
-        :type circuit: QuantumCircuit
         :param **kwargs: Additional options for the transpiler, exporter, or Qiskit passes.
             Common values include: ``optimization_level``, ``basis_gates``, ``includes``,
             ``search_path``, ``output_semantics``. Defaults to backend config values.
@@ -543,7 +541,6 @@ class BackendBase(BackendV2, ABC):
         Converts a Qiskit QuantumCircuit to QIR (Quantum Intermediate Representation).
 
         :param circuit: The input Qiskit QuantumCircuit object.
-        :type circuit: QuantumCircuit
         :param **kwargs: Common options:
 
             - ``target_profile`` (TargetProfile): The target profile for the backend. Defaults to backend config value.

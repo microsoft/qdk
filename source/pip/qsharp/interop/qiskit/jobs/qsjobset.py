@@ -28,7 +28,7 @@ class QsJobSet(Job):
     A Qiskit job set that runs multiple quantum circuits concurrently.
 
     Each circuit in ``run_input`` is submitted as an individual
-    :class:`QsSimJob` and executed in a thread pool.
+    :class:`~qsharp.interop.qiskit.jobs.qsjob.QsSimJob` and executed in a thread pool.
     :meth:`result` blocks until all constituent
     jobs are complete and aggregates their ``qiskit.result.Result`` objects into a single
     combined result.

@@ -33,7 +33,7 @@ def estimate(
         which must be an already imported global callable.
     :type source: str
     :param params: The parameters to configure estimation.
-    :type params: Dict, List, or EstimatorParams, optional
+    :type params: Dict, List, or EstimatorParams
     :param *args: The arguments to pass to the callable, if one is provided.
     :param **kwargs: Additional keyword arguments. Common options:
 

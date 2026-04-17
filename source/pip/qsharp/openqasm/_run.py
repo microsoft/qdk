@@ -56,14 +56,14 @@ def run(
     :param *args: The arguments to pass to the callable, if one is provided.
     :param on_result: A callback function that will be called with each result.
         Only used when a callable is provided.
-    :type on_result: Callable, optional
+    :type on_result: Callable
     :param save_events: If true, the output of each shot will be saved. If false, they will be printed.
         Only used when a callable is provided.
     :type save_events: bool
     :param noise: The noise to use in simulation.
-    :type noise: Union[Tuple[float, float, float], PauliNoise, BitFlipNoise, PhaseFlipNoise, DepolarizingNoise, NoiseConfig], optional
+    :type noise: Union[Tuple[float, float, float], PauliNoise, BitFlipNoise, PhaseFlipNoise, DepolarizingNoise, NoiseConfig]
     :param qubit_loss: The probability of qubit loss in simulation.
-    :type qubit_loss: float, optional
+    :type qubit_loss: float
     :param as_bitstring: If true, the result registers will be converted to bitstrings.
     :type as_bitstring: bool
     :param **kwargs: Additional keyword arguments for compiling the source program. Common options:

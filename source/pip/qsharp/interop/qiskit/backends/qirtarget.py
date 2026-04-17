@@ -121,7 +121,6 @@ class QirTarget:
         :param supports_delay: Whether to include delay operations in the target.
             Defaults to ``False``.
         :return: A Qiskit ``Target`` object configured with quantum gates and operations.
-        :rtype: Target
         """
 
         target = Target(num_qubits=num_qubits)

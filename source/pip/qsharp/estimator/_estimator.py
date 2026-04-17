@@ -560,13 +560,13 @@ class EstimatorParams(EstimatorInputParamsItem):
     """
     Top-level input parameters for the Microsoft Resource Estimator.
 
-    Extends :class:`EstimatorInputParamsItem` with support for batching: pass
+    Extends :class:`~qsharp.estimator.EstimatorInputParamsItem` with support for batching: pass
     ``num_items`` to create a batching job where each item can override the
     top-level parameters.
 
     :param num_items: Number of batching items. If ``None``, creates a
         single-point estimation job.
-    :type num_items: int, optional
+    :type num_items: int
     """
 
     MAX_NUM_ITEMS: int = 1000

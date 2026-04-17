@@ -30,7 +30,6 @@ class NeutralAtomTarget:
 
         :param num_qubits: Number of qubits. ``None`` means no limit (simulator).
         :return: A ``Target`` containing ``{rz, sx, cz, measure, reset}``.
-        :rtype: Target
         """
         target = Target(num_qubits=num_qubits)
 
