@@ -8,10 +8,10 @@ from pyqir import (
     Function,
     QirModuleVisitor,
     FunctionType,
+    PointerType,
     Type,
     Linkage,
-    qubit_type,
-    qubit_id,
+    ptr_id,
     IntType,
     Value,
 )
@@ -48,7 +48,7 @@ class Move:
 
     @property
     def qubit_id(self) -> int:
-        q_id = qubit_id(self.qubit_id_ptr)
+        q_id = ptr_id(self.qubit_id_ptr)
         assert q_id is not None, "Qubit id should be known"
         return q_id
 
@@ -70,7 +70,7 @@ class PartialMove:
 
     @property
     def qubit_id(self) -> int:
-        q_id = qubit_id(self.qubit_id_ptr)
+        q_id = ptr_id(self.qubit_id_ptr)
         assert q_id is not None, "Qubit id should be known"
         return q_id
 
@@ -405,15 +405,15 @@ class MoveScheduler:
         partial_moves = []
         for elt in qubits_to_move:
             if isinstance(elt, tuple):
-                q_id1 = qubit_id(elt[0])
-                q_id2 = qubit_id(elt[1])
+                q_id1 = ptr_id(elt[0])
+                q_id2 = ptr_id(elt[1])
                 assert q_id1 is not None
                 assert q_id2 is not None
                 mov1 = PartialMove(elt[0], self.device.get_home_loc(q_id1))
                 mov2 = PartialMove(elt[1], self.device.get_home_loc(q_id2))
                 partial_moves.append((mov1, mov2))
             else:
-                q_id = qubit_id(elt)
+                q_id = ptr_id(elt)
                 assert q_id is not None
                 mov = PartialMove(elt, self.device.get_home_loc(q_id))
                 partial_moves.append(mov)
@@ -630,7 +630,7 @@ class Schedule(QirModuleVisitor):
         self.move_func = Function(
             FunctionType(
                 Type.void(module.context),
-                [qubit_type(module.context), i64_ty, i64_ty],
+                [PointerType(Type.void(module.context)), i64_ty, i64_ty],
             ),
             Linkage.EXTERNAL,
             "__quantum__qis__move__body",
@@ -676,11 +676,11 @@ class Schedule(QirModuleVisitor):
                 # If this qubit is involved in pending moves, that implies a CZ or measurement is pending, so flush now.
                 if any(
                     (
-                        gate["qubit_args"][0] == qubit_id(q)
+                        gate["qubit_args"][0] == ptr_id(q)
                         if isinstance(q, QubitId)
                         else (
-                            gate["qubit_args"][0] == qubit_id(q[0])
-                            or gate["qubit_args"][0] == qubit_id(q[1])
+                            gate["qubit_args"][0] == ptr_id(q[0])
+                            or gate["qubit_args"][0] == ptr_id(q[1])
                         )
                     )
                     for q in self.pending_qubits_to_move
