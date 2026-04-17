@@ -63,6 +63,7 @@ class QsJob(JobV1, ABC):
         self._job_callable = job_callable
         self._status = JobStatus.INITIALIZING
         self._submit_start_time: Optional[float] = None
+        super().__init__(backend, job_id, **kwargs)
 
     def submit(self):
         """Submit the job to the backend for execution.
