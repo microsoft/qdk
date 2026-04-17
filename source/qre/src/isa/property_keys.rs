@@ -63,4 +63,6 @@ define_properties! {
     ALGORITHM_COMPUTE_QUBITS,
     ALGORITHM_MEMORY_QUBITS,
     NAME,
+    LOSS,
+    LOGICAL_CYCLE_TIME,
 }

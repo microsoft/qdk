@@ -130,6 +130,7 @@ define_instructions! {
 
         // Some special hardware physical instructions
         (CYCLIC_SHIFT, 0x1300),
+        (HAND_OFF, 0x1301),
 
         // Generic operation (for unified RE)
         (GENERIC, 0xFFFF),

@@ -1581,6 +1581,7 @@ fn add_instruction_ids(m: &Bound<'_, PyModule>) -> PyResult<()> {
         WRITE_TO_MEMORY,
         MEMORY,
         CYCLIC_SHIFT,
+        HAND_OFF,
         GENERIC
     );
 
@@ -1628,7 +1629,9 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         LOGICAL_MEMORY_QUBITS,
         ALGORITHM_COMPUTE_QUBITS,
         ALGORITHM_MEMORY_QUBITS,
-        NAME
+        NAME,
+        LOSS,
+        LOGICAL_CYCLE_TIME,
     );
 
     m.add_submodule(&property_keys)?;
