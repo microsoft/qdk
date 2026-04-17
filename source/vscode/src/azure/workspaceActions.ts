@@ -20,10 +20,44 @@ import { getRandomGuid } from "../utils";
 import { EventType, sendTelemetryEvent, UserFlowStatus } from "../telemetry";
 import { getTenantIdAndToken, getTokenForWorkspace } from "./auth";
 
-export function getAzurePortalWorkspaceLink(workspace: WorkspaceConnection) {
-  // Portal link format:
-  // - https://portal.azure.com/#resource/subscriptions/<sub guid>/resourceGroups/<group>/providers/Microsoft.Quantum/Workspaces/<name>/overview
+export function getQuantumOsJobLink(
+  workspace: WorkspaceConnection,
+  jobId: string,
+) {
+  // Quantum OS job page format:
+  // https://manage.quantum.microsoft.com/jobs/<job-id>
+  return `https://manage.quantum-test.microsoft.com/jobs/${jobId}`;
+}
 
+export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
+  const { isV2Workspace } = QuantumUris.parseEndpointUri(workspace.endpointUri);
+
+  if (isV2Workspace) {
+    // Quantum OS link format:
+    // https://manage.quantum.microsoft.com/workspaces/<workspace-name>
+    //   #tenantId=<tenant-id>&subscriptionId=<sub-id>&role=Researcher&offeringId=<provider-id>&workspaceId=<workspace-id>
+    //
+    // workspace.id starts with '/' (e.g. "/subscriptions/.../Workspaces/<name>"),
+    // so it is appended directly to produce a clean path with literal slashes.
+    const idRegex =
+      /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\//;
+    const subscriptionId =
+      workspace.id.match(idRegex)?.groups?.subscriptionId ?? "";
+
+    const offeringId = workspace.providers[0]?.providerId ?? "";
+
+    const fragment =
+      `tenantId=${workspace.tenantId}` +
+      `&subscriptionId=${subscriptionId}` +
+      `&role=Researcher` +
+      (offeringId ? `&offeringId=${offeringId}` : "") +
+      `&workspaceId=${workspace.id}`;
+
+    return `https://manage.quantum-test.microsoft.com/workspaces/${workspace.name}#${fragment}`;
+  }
+
+  // Azure Portal link format:
+  // https://portal.azure.com/#resource/subscriptions/<sub guid>/resourceGroups/<group>/providers/Microsoft.Quantum/Workspaces/<name>/overview
   return `https://portal.azure.com/#resource${workspace.id}/overview`;
 }
 
@@ -92,11 +126,10 @@ export function getPythonCodeForWorkspace(
     /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\/(?<resourceGroup>[^/]+)/;
 
   const idMatch = id.match(idRegex);
-  const endpointMatch = endpointUri.match(QuantumUris.endpointRegExp);
 
   const subscriptionId = idMatch?.groups?.subscriptionId;
   const resourceGroup = idMatch?.groups?.resourceGroup;
-  const location = endpointMatch?.groups?.location;
+  const { location } = QuantumUris.parseEndpointUri(endpointUri);
 
   // TODO: Mention how to fetch/use connection strings
 
@@ -124,6 +157,50 @@ workspace = Workspace(
   return pythonCode;
 }
 
+/**
+ * Parses a connection string into a WorkspaceConnection, or returns undefined
+ * if any required fields are missing. Does not validate the connection against
+ * the service — call getTokenForWorkspace / azureRequest to validate.
+ *
+ * Expected format:
+ *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<serviceUri>
+ */
+export function parseConnectionString(
+  connStr: string,
+): WorkspaceConnection | undefined {
+  const partsMap = new Map<string, string>();
+  connStr.split(";").forEach((part) => {
+    const eq = part.indexOf("=");
+    if (eq === -1) return;
+    partsMap.set(part.substring(0, eq).toLowerCase(), part.substring(eq + 1));
+  });
+
+  if (
+    !partsMap.has("subscriptionid") ||
+    !partsMap.has("resourcegroupname") ||
+    !partsMap.has("workspacename") ||
+    !partsMap.has("apikey") ||
+    !partsMap.has("quantumendpoint")
+  ) {
+    return undefined;
+  }
+
+  const workspaceId =
+    `/subscriptions/${partsMap.get("subscriptionid")}` +
+    `/resourceGroups/${partsMap.get("resourcegroupname")}` +
+    `/providers/Microsoft.Quantum/Workspaces/${partsMap.get("workspacename")}`;
+
+  return {
+    id: workspaceId,
+    name: partsMap.get("workspacename")!,
+    endpointUri: partsMap.get("quantumendpoint")!,
+    tenantId: "", // Blank means not authenticated via a token
+    apiKey: partsMap.get("apikey"),
+    providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
+    jobs: [],
+  };
+}
+
 async function getWorkspaceWithConnectionString(
   endEventProperties: EndEventProperties,
 ): Promise<WorkspaceConnection | undefined> {
@@ -139,20 +216,8 @@ async function getWorkspaceWithConnectionString(
       return;
     }
 
-    const partsMap = new Map<string, string>();
-    connStr.split(";").forEach((part) => {
-      const eq = part.indexOf("=");
-      if (eq === -1) return;
-      partsMap.set(part.substring(0, eq).toLowerCase(), part.substring(eq + 1));
-    });
-
-    if (
-      !partsMap.has("subscriptionid") ||
-      !partsMap.has("resourcegroupname") ||
-      !partsMap.has("workspacename") ||
-      !partsMap.has("apikey") ||
-      !partsMap.has("quantumendpoint")
-    ) {
+    const workspace = parseConnectionString(connStr);
+    if (!workspace) {
       const action = await vscode.window.showErrorMessage(
         "Invalid connection string. Please follow the placeholder format.",
         { modal: true },
@@ -166,23 +231,6 @@ async function getWorkspaceWithConnectionString(
         return;
       }
     }
-
-    const workspaceId =
-      `/subscriptions/${partsMap.get("subscriptionid")}` +
-      `/resourceGroups/${partsMap.get("resourcegroupname")}` +
-      `/providers/Microsoft.Quantum/Workspaces/${partsMap.get(
-        "workspacename",
-      )}`;
-
-    const workspace: WorkspaceConnection = {
-      id: workspaceId,
-      name: partsMap.get("workspacename")!,
-      endpointUri: partsMap.get("quantumendpoint")!,
-      tenantId: "", // Blank means not authenticated via a token
-      apiKey: partsMap.get("apikey"),
-      providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
-      jobs: [],
-    };
 
     // Validate the connection string info before returning as valid for further use.
     try {

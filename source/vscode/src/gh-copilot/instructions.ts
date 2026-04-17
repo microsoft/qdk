@@ -65,18 +65,23 @@ async function removeOldCopilotInstructionsConfig(
 async function removeOldInstructionsFilesFromGlobalStorage(
   context: vscode.ExtensionContext,
 ): Promise<boolean> {
-  let result = false;
   const dir = vscode.Uri.joinPath(
     context.globalStorageUri,
     "chat-instructions",
   );
 
   try {
-    await vscode.workspace.fs.delete(dir, { recursive: true });
-    result = true;
+    await vscode.workspace.fs.stat(dir);
   } catch {
-    // directory doesn't exist or we couldn't delete it
-    log.warn(`Could not delete old instructions directory at ${dir.fsPath}`);
+    // directory doesn't exist, nothing to clean up
+    return false;
   }
-  return result;
+
+  try {
+    await vscode.workspace.fs.delete(dir, { recursive: true });
+    return true;
+  } catch {
+    log.warn(`Could not delete old instructions directory at ${dir.fsPath}`);
+    return false;
+  }
 }

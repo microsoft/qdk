@@ -2,7 +2,7 @@
   "compilerOptions": {
     // To ensure compatibility with jupyterlab, options impacting emit (target,module) are copied from
     // https://github.com/jupyterlab/jupyterlab/blob/c6744e548c7b2790e4c6a4d41a60aae03f22c62a/tsconfigbase.json
-    "target": "ES2018",
+    "target": "ES2022",
     "module": "esnext",
     "moduleResolution": "node",
     "outDir": "lib",

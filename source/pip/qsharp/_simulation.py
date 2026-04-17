@@ -514,6 +514,7 @@ def run_qir_cpu(
     seed: Optional[int] = None,
 ) -> List:
     (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
+    DecomposeCcxPass().run(mod)
     if noise is None:
         (gates, num_qubits, num_results) = AggregateGatesPass().run(mod)
     else:

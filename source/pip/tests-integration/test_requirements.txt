@@ -1,4 +1,4 @@
-pytest==8.2.2
+pytest==9.0.3
 qirrunner==0.9.0
 pyqir<0.12.0
 qiskit-aer==0.17.2

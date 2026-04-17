@@ -31,11 +31,12 @@ import { getGithubSourceContent, setGithubEndpoint } from "./projectSystem.js";
 import { initCodegen } from "./qirGeneration.js";
 import { initTelemetry } from "./telemetry.js";
 import { registerWebViewCommands } from "./webviewPanel.js";
+import { registerUriHandler } from "./uriHandler.js";
 import {
   maybeShowChangelogPrompt,
   registerChangelogCommand,
 } from "./changelog.js";
-import { toVsCodeRange } from "./common.js";
+import { getPlatformEnv, toVsCodeRange } from "./common.js";
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -49,6 +50,12 @@ export async function activate(
     // Direct logging to the output window
     initOutputWindowLogger();
   }
+
+  log.debug(`Platform: ${getPlatformEnv()}`);
+  log.debug(
+    `UI Kind: ${vscode.env.uiKind === vscode.UIKind.Web ? "Web" : "Desktop"}`,
+  );
+  log.debug(`Remote: ${vscode.env.remoteName ?? "local"}`);
 
   log.info("Q# extension activating.");
   initTelemetry(context);
@@ -79,7 +86,14 @@ export async function activate(
   context.subscriptions.push(CircuitEditorProvider.register(context));
   context.subscriptions.push(...registerChangelogCommand(context));
 
-  await initAzureWorkspaces(context);
+  /// Handle incoming workspace connection URIs. The URI will be in the format:
+  /// `vscode://quantum.qsharp-lang-vscode/connectWorkspace?connectionString=SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<https://...>`
+  const azureApi = await initAzureWorkspaces(context);
+  context.subscriptions.push(
+    registerUriHandler(
+      new Map([["/connectWorkspace", azureApi.connectWorkspaceUriHandler]]),
+    ),
+  );
   initCodegen(context);
   await activateDebugger(context);
   registerCreateNotebookCommand(context);
