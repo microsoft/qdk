@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::rir::{
-    BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program, Ty,
+    BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Prim, Program, Ty,
     Variable, VariableId,
 };
 
@@ -12,7 +12,7 @@ use super::check_instr_types;
 fn binop_instr_matching_types_passes_check() {
     let var = Variable {
         variable_id: VariableId(0),
-        ty: Ty::Integer,
+        ty: Ty::Prim(Prim::Integer),
     };
     let opr1 = Operand::Variable(var);
     let opr2 = Operand::Literal(Literal::Integer(0));
@@ -25,7 +25,7 @@ fn binop_instr_matching_types_passes_check() {
 fn binop_instr_mismatching_types_fails_check() {
     let var = Variable {
         variable_id: VariableId(0),
-        ty: Ty::Integer,
+        ty: Ty::Prim(Prim::Integer),
     };
     let opr1 = Operand::Variable(var);
     let opr2 = Operand::Literal(Literal::Bool(false));
@@ -37,7 +37,7 @@ fn binop_instr_mismatching_types_fails_check() {
 fn unop_instr_matching_types_passes_check() {
     let var = Variable {
         variable_id: VariableId(0),
-        ty: Ty::Boolean,
+        ty: Ty::Prim(Prim::Boolean),
     };
     let opr = Operand::Variable(var);
 
@@ -49,7 +49,7 @@ fn unop_instr_matching_types_passes_check() {
 fn unop_instr_mismatching_types_fails_check() {
     let var = Variable {
         variable_id: VariableId(0),
-        ty: Ty::Integer,
+        ty: Ty::Prim(Prim::Integer),
     };
     let opr = Operand::Variable(var);
 
@@ -59,7 +59,7 @@ fn unop_instr_mismatching_types_fails_check() {
             opr,
             Variable {
                 variable_id: VariableId(1),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
         ),
     );
@@ -69,7 +69,7 @@ fn unop_instr_mismatching_types_fails_check() {
 fn phi_instr_matching_types_passes_check() {
     let var = Variable {
         variable_id: VariableId(0),
-        ty: Ty::Integer,
+        ty: Ty::Prim(Prim::Integer),
     };
     let opr = Operand::Variable(var);
 
@@ -84,7 +84,7 @@ fn phi_instr_matching_types_passes_check() {
 fn phi_instr_mismatching_types_fails_check() {
     let var = Variable {
         variable_id: VariableId(0),
-        ty: Ty::Integer,
+        ty: Ty::Prim(Prim::Integer),
     };
     let opr = Operand::Variable(var);
 
@@ -94,7 +94,7 @@ fn phi_instr_mismatching_types_fails_check() {
             vec![(opr, BlockId(0)), (opr, BlockId(1))],
             Variable {
                 variable_id: VariableId(1),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
         ),
     );
@@ -104,7 +104,7 @@ fn phi_instr_mismatching_types_fails_check() {
 fn call_instr_matching_types_passes_check() {
     let var = Variable {
         variable_id: VariableId(0),
-        ty: Ty::Integer,
+        ty: Ty::Prim(Prim::Integer),
     };
     let opr = Operand::Variable(var);
 
@@ -113,8 +113,8 @@ fn call_instr_matching_types_passes_check() {
         CallableId(0),
         Callable {
             name: "foo".to_string(),
-            input_type: vec![Ty::Integer],
-            output_type: Some(Ty::Integer),
+            input_type: vec![Ty::Prim(Prim::Integer)],
+            output_type: Some(Ty::Prim(Prim::Integer)),
             call_type: CallableType::Regular,
             body: None,
         },
@@ -127,7 +127,7 @@ fn call_instr_matching_types_passes_check() {
             vec![opr],
             Some(Variable {
                 variable_id: VariableId(1),
-                ty: Ty::Integer,
+                ty: Ty::Prim(Prim::Integer),
             }),
             None,
         ),
@@ -139,7 +139,7 @@ fn call_instr_matching_types_passes_check() {
 fn call_instr_mismatching_output_types_fails_check() {
     let var = Variable {
         variable_id: VariableId(0),
-        ty: Ty::Integer,
+        ty: Ty::Prim(Prim::Integer),
     };
     let opr = Operand::Variable(var);
 
@@ -148,8 +148,8 @@ fn call_instr_mismatching_output_types_fails_check() {
         CallableId(0),
         Callable {
             name: "foo".to_string(),
-            input_type: vec![Ty::Integer],
-            output_type: Some(Ty::Integer),
+            input_type: vec![Ty::Prim(Prim::Integer)],
+            output_type: Some(Ty::Prim(Prim::Integer)),
             call_type: CallableType::Regular,
             body: None,
         },
@@ -162,7 +162,7 @@ fn call_instr_mismatching_output_types_fails_check() {
             vec![opr],
             Some(Variable {
                 variable_id: VariableId(1),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             }),
             None,
         ),
@@ -177,8 +177,8 @@ fn call_instr_mismatching_input_types_fails_check() {
         CallableId(0),
         Callable {
             name: "foo".to_string(),
-            input_type: vec![Ty::Integer],
-            output_type: Some(Ty::Integer),
+            input_type: vec![Ty::Prim(Prim::Integer)],
+            output_type: Some(Ty::Prim(Prim::Integer)),
             call_type: CallableType::Regular,
             body: None,
         },
@@ -191,7 +191,7 @@ fn call_instr_mismatching_input_types_fails_check() {
             vec![Operand::Literal(Literal::Bool(true))],
             Some(Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Integer,
+                ty: Ty::Prim(Prim::Integer),
             }),
             None,
         ),
@@ -203,7 +203,7 @@ fn call_instr_mismatching_input_types_fails_check() {
 fn call_instr_too_many_args_fails_check() {
     let var = Variable {
         variable_id: VariableId(0),
-        ty: Ty::Integer,
+        ty: Ty::Prim(Prim::Integer),
     };
     let opr = Operand::Variable(var);
 
@@ -212,8 +212,8 @@ fn call_instr_too_many_args_fails_check() {
         CallableId(0),
         Callable {
             name: "foo".to_string(),
-            input_type: vec![Ty::Integer],
-            output_type: Some(Ty::Integer),
+            input_type: vec![Ty::Prim(Prim::Integer)],
+            output_type: Some(Ty::Prim(Prim::Integer)),
             call_type: CallableType::Regular,
             body: None,
         },
@@ -226,7 +226,7 @@ fn call_instr_too_many_args_fails_check() {
             vec![opr, opr],
             Some(Variable {
                 variable_id: VariableId(1),
-                ty: Ty::Integer,
+                ty: Ty::Prim(Prim::Integer),
             }),
             None,
         ),
@@ -237,7 +237,7 @@ fn call_instr_too_many_args_fails_check() {
 fn call_instr_no_return_type_no_output_var_passes_check() {
     let var = Variable {
         variable_id: VariableId(0),
-        ty: Ty::Integer,
+        ty: Ty::Prim(Prim::Integer),
     };
     let opr = Operand::Variable(var);
 
@@ -246,7 +246,7 @@ fn call_instr_no_return_type_no_output_var_passes_check() {
         CallableId(0),
         Callable {
             name: "foo".to_string(),
-            input_type: vec![Ty::Integer],
+            input_type: vec![Ty::Prim(Prim::Integer)],
             output_type: None,
             call_type: CallableType::Regular,
             body: None,
@@ -266,7 +266,7 @@ fn call_instr_no_return_type_no_output_var_passes_check() {
 fn call_instr_return_type_without_output_var_fails() {
     let var = Variable {
         variable_id: VariableId(0),
-        ty: Ty::Integer,
+        ty: Ty::Prim(Prim::Integer),
     };
     let opr = Operand::Variable(var);
 
@@ -275,8 +275,8 @@ fn call_instr_return_type_without_output_var_fails() {
         CallableId(0),
         Callable {
             name: "foo".to_string(),
-            input_type: vec![Ty::Integer],
-            output_type: Some(Ty::Integer),
+            input_type: vec![Ty::Prim(Prim::Integer)],
+            output_type: Some(Ty::Prim(Prim::Integer)),
             call_type: CallableType::Regular,
             body: None,
         },
@@ -295,7 +295,7 @@ fn call_instr_return_type_without_output_var_fails() {
 fn call_instr_output_var_without_return_type_fails() {
     let var = Variable {
         variable_id: VariableId(0),
-        ty: Ty::Integer,
+        ty: Ty::Prim(Prim::Integer),
     };
     let opr = Operand::Variable(var);
 
@@ -304,7 +304,7 @@ fn call_instr_output_var_without_return_type_fails() {
         CallableId(0),
         Callable {
             name: "foo".to_string(),
-            input_type: vec![Ty::Integer],
+            input_type: vec![Ty::Prim(Prim::Integer)],
             output_type: None,
             call_type: CallableType::Regular,
             body: None,
@@ -318,7 +318,7 @@ fn call_instr_output_var_without_return_type_fails() {
             vec![opr],
             Some(Variable {
                 variable_id: VariableId(1),
-                ty: Ty::Integer,
+                ty: Ty::Prim(Prim::Integer),
             }),
             None,
         ),

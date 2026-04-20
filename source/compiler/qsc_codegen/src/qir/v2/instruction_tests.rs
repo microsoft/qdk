@@ -4,6 +4,7 @@
 mod alloca;
 mod bool;
 mod double;
+mod index;
 mod int;
 mod invalid;
 mod load;

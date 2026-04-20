@@ -34,7 +34,7 @@ impl ToQir<String> for rir::Literal {
                 }
             }
             rir::Literal::Integer(i) => format!("i64 {i}"),
-            rir::Literal::Pointer => "i8* null".to_string(),
+            rir::Literal::NullPointer => "i8* null".to_string(),
             rir::Literal::Qubit(q) => format!("%Qubit* inttoptr (i64 {q} to %Qubit*)"),
             rir::Literal::Result(r) => format!("%Result* inttoptr (i64 {r} to %Result*)"),
             rir::Literal::Tag(idx, len) => {
@@ -43,20 +43,27 @@ impl ToQir<String> for rir::Literal {
                     "i8* getelementptr inbounds ([{len} x i8], [{len} x i8]* @{idx}, i64 0, i64 0)"
                 )
             }
+            rir::Literal::Array(_) => {
+                panic!("array literals are not supported in QIR v1 generation")
+            }
         }
     }
 }
 
 impl ToQir<String> for rir::Ty {
-    fn to_qir(&self, _program: &rir::Program) -> String {
+    fn to_qir(&self, program: &rir::Program) -> String {
         match self {
-            rir::Ty::Boolean => "i1".to_string(),
-            rir::Ty::Double => "double".to_string(),
-            rir::Ty::Integer => "i64".to_string(),
-            rir::Ty::Pointer => "i8*".to_string(),
-            rir::Ty::Qubit => "%Qubit*".to_string(),
-            rir::Ty::Result => "%Result*".to_string(),
+            rir::Ty::Prim(prim) => ToQir::<String>::to_qir(prim, program),
+            rir::Ty::Array(..) => {
+                unimplemented!("array types are not supported in QIR v1 generation")
+            }
         }
+    }
+}
+
+impl ToQir<String> for rir::Prim {
+    fn to_qir(&self, _program: &rir::Program) -> String {
+        get_prim_ty(*self).to_owned()
     }
 }
 
@@ -213,7 +220,9 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Sub(lhs, rhs, variable) => {
                 binop_to_qir("sub", lhs, rhs, *variable, program)
             }
-            rir::Instruction::Alloca(..) | rir::Instruction::Load(..) => {
+            rir::Instruction::Alloca(..)
+            | rir::Instruction::Load(..)
+            | rir::Instruction::Index(..) => {
                 unimplemented!("advanced instructions are not supported in QIR v1 generation")
             }
         }
@@ -522,12 +531,15 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
                 }
             }
             rir::Literal::Integer(i) => format!("{i}"),
-            rir::Literal::Pointer => "null".to_string(),
+            rir::Literal::NullPointer => "null".to_string(),
             rir::Literal::Qubit(q) => format!("{q}"),
             rir::Literal::Result(r) => format!("{r}"),
             rir::Literal::Tag(..) => panic!(
                 "tag literals should not be used as string values outside of output recording"
             ),
+            rir::Literal::Array(..) => {
+                panic!("array literals are not supported in QIR v1 generation")
+            }
         },
         rir::Operand::Variable(var) => ToQir::<String>::to_qir(&var.variable_id, program),
     }
@@ -541,7 +553,10 @@ fn get_value_ty(lhs: &rir::Operand) -> &str {
             rir::Literal::Double(_) => get_f64_ty(),
             rir::Literal::Qubit(_) => "%Qubit*",
             rir::Literal::Result(_) => "%Result*",
-            rir::Literal::Pointer | rir::Literal::Tag(..) => "i8*",
+            rir::Literal::NullPointer | rir::Literal::Tag(..) => "i8*",
+            rir::Literal::Array(_) => {
+                panic!("array literals are not supported in QIR v1 generation")
+            }
         },
         rir::Operand::Variable(var) => get_variable_ty(*var),
     }
@@ -549,12 +564,19 @@ fn get_value_ty(lhs: &rir::Operand) -> &str {
 
 fn get_variable_ty(variable: rir::Variable) -> &'static str {
     match variable.ty {
-        rir::Ty::Integer => "i64",
-        rir::Ty::Boolean => "i1",
-        rir::Ty::Double => get_f64_ty(),
-        rir::Ty::Qubit => "%Qubit*",
-        rir::Ty::Result => "%Result*",
-        rir::Ty::Pointer => "i8*",
+        rir::Ty::Prim(prim) => get_prim_ty(prim),
+        rir::Ty::Array(..) => unimplemented!("array types are not supported in QIR v1 generation"),
+    }
+}
+
+fn get_prim_ty(prim: rir::Prim) -> &'static str {
+    match prim {
+        rir::Prim::Integer => "i64",
+        rir::Prim::Boolean => "i1",
+        rir::Prim::Double => get_f64_ty(),
+        rir::Prim::Qubit => "%Qubit*",
+        rir::Prim::Result => "%Result*",
+        rir::Prim::Pointer => "i8*",
     }
 }
 
@@ -646,6 +668,10 @@ impl ToQir<String> for rir::Program {
         } else {
             "adaptive_profile"
         };
+        assert!(
+            self.array_literals.is_empty(),
+            "array literals are not supported in QIR v1 generation"
+        );
         let mut constants = String::default();
         for (idx, tag) in self.tags.iter().enumerate() {
             // We need to add the tag as a global constant.

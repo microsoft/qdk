@@ -10,8 +10,8 @@ use crate::{
     builder::{bell_program, new_program, teleport_program},
     passes::check_and_transform,
     rir::{
-        Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program,
-        Ty, Variable, VariableId,
+        Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Prim,
+        Program, Ty, Variable, VariableId,
     },
 };
 fn transform_program(program: &mut Program) {
@@ -47,7 +47,7 @@ fn ssa_transform_removes_store_in_single_block_program() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -61,28 +61,28 @@ fn ssa_transform_removes_store_in_single_block_program() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -160,7 +160,7 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -174,68 +174,68 @@ fn ssa_transform_removes_multiple_stores_in_single_block_program() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -319,7 +319,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -333,24 +333,24 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -364,11 +364,11 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -380,11 +380,11 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -396,11 +396,11 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -495,7 +495,7 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -509,24 +509,24 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -546,11 +546,11 @@ fn ssa_transform_store_dominating_usage_propagates_to_successor_blocks_without_i
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -640,7 +640,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -654,24 +654,24 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -685,21 +685,21 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -711,21 +711,21 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -737,11 +737,11 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -837,7 +837,7 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -851,24 +851,24 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -882,21 +882,21 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -911,11 +911,11 @@ fn ssa_transform_inserts_phi_for_store_not_dominating_usage_in_one_branch() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -1008,7 +1008,7 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -1022,24 +1022,24 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -1053,27 +1053,27 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(3),
                 BlockId(4),
@@ -1087,27 +1087,27 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(5),
                 BlockId(6),
@@ -1130,21 +1130,21 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(7)),
@@ -1156,11 +1156,11 @@ fn ssa_transform_inserts_phi_for_node_with_many_predecessors() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(5),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -1275,7 +1275,7 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -1289,34 +1289,34 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -1330,21 +1330,21 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -1356,21 +1356,21 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -1382,21 +1382,21 @@ fn ssa_transform_inserts_phi_for_multiple_stored_values() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(5),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(6),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -1496,7 +1496,7 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -1510,24 +1510,24 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -1541,27 +1541,27 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(3),
                 BlockId(4),
@@ -1575,21 +1575,21 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(5)),
@@ -1601,21 +1601,21 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(6)),
@@ -1627,21 +1627,21 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(5),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(5),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(6)),
@@ -1653,21 +1653,21 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(6),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(6),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(7)),
@@ -1679,21 +1679,21 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(7),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(7),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(7)),
@@ -1705,11 +1705,11 @@ fn ssa_transform_inserts_phi_nodes_in_successive_blocks_for_chained_branches() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(8),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -1832,7 +1832,7 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -1846,24 +1846,24 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -1877,21 +1877,21 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -1903,27 +1903,27 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(4),
                 BlockId(5),
@@ -1937,11 +1937,11 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -1953,21 +1953,21 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(5),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(5),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(6)),
@@ -1979,21 +1979,21 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(6),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(6),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(6)),
@@ -2005,11 +2005,11 @@ fn ssa_transform_inerts_phi_nodes_for_early_return_graph_pattern() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(7),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -2126,7 +2126,7 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -2145,24 +2145,24 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -2181,24 +2181,24 @@ fn ssa_transform_propagates_updates_from_multiple_predecessors_to_later_single_s
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(3),
                 BlockId(4),
@@ -2300,7 +2300,7 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -2314,38 +2314,38 @@ fn ssa_transform_maps_store_instrs_that_use_values_from_other_store_instrs() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -2423,7 +2423,7 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -2437,31 +2437,31 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -2475,11 +2475,11 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(2)),
@@ -2491,11 +2491,11 @@ fn ssa_transform_maps_store_with_variable_from_store_in_conditional_to_phi_node(
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -2583,7 +2583,7 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -2597,68 +2597,68 @@ fn ssa_transform_allows_point_in_time_copy_of_dynamic_variable() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(5),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -2741,7 +2741,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -2750,7 +2750,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
         CallableId(2),
         Callable {
             name: "record_bool".to_string(),
-            input_type: vec![Ty::Boolean],
+            input_type: vec![Ty::Prim(Prim::Boolean)],
             output_type: None,
             body: None,
             call_type: CallableType::OutputRecording,
@@ -2765,7 +2765,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
@@ -2773,13 +2773,13 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -2793,17 +2793,17 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(4),
                 BlockId(5),
@@ -2819,18 +2819,18 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Store(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(1)),
@@ -2843,7 +2843,7 @@ fn ssa_transform_propagates_phi_var_to_successor_blocks_across_sequential_branch
                 CallableId(2),
                 vec![Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 })],
                 None,
                 None,
