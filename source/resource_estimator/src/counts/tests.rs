@@ -13,8 +13,9 @@ use qsc::{
 };
 
 use super::LogicalCounter;
+use crate::system::LogicalResourceCounts;
 
-fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
+fn run_logical_counts(source: &str, entry: Option<&str>) -> LogicalResourceCounts {
     let source_map = SourceMap::new([("test".into(), source.into())], entry.map(Into::into));
     let (std_id, store) = qsc::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
 
@@ -40,9 +41,7 @@ fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
     let mut out = GenericReceiver::new(&mut stdout);
 
     match interpreter.eval_entry_with_sim(&mut counter, &mut out) {
-        Ok(_) => {
-            expect.assert_debug_eq(&counter.logical_resources());
-        }
+        Ok(_) => counter.logical_resources(),
         Err(err) => {
             for e in err {
                 let report = Report::from(e);
@@ -51,6 +50,10 @@ fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
             panic!("evaluation failed");
         }
     }
+}
+
+fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
+    expect.assert_debug_eq(&run_logical_counts(source, entry));
 }
 
 #[test]
@@ -426,4 +429,25 @@ fn post_selection_can_take_impossible_branch() {
             }
         "#]],
     );
+}
+
+#[test]
+fn is_resource_estimating_is_true() {
+    let counts = run_logical_counts(
+        indoc! {r#"
+            namespace Test {
+                import Std.ResourceEstimation.*;
+
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    if IsResourceEstimating() {
+                        T(q);
+                    }
+                }
+            }
+        "#},
+        None,
+    );
+    assert_eq!(counts.t_count, 1);
 }

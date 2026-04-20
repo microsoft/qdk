@@ -1363,3 +1363,27 @@ fn call_to_intrinsic_operation_that_takes_qubit_array_should_fail() {
         }
     "});
 }
+
+#[test]
+fn call_to_is_resource_estimating_yields_false() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            import Std.ResourceEstimation.*;
+            @EntryPoint()
+            operation Main() : Bool {
+                IsResourceEstimating()
+            }
+        }
+        "#,
+    });
+    assert_block_instructions(
+        &program,
+        BlockId(0),
+        &expect![[r#"
+            Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Bool(false), Tag(0, 3), )
+                Return"#]],
+    );
+}

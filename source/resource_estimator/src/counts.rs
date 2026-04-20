@@ -706,6 +706,7 @@ impl Backend for LogicalCounter {
 
                 Some(Ok(Value::unit()))
             }
+            "IsResourceEstimating" => Some(Ok(Value::Bool(true))),
             _ => None,
         }
     }

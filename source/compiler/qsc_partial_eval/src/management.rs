@@ -147,6 +147,7 @@ impl Backend for QuantumIntrinsicsChecker {
     ) -> Option<std::result::Result<Value, String>> {
         match name {
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
+            "IsResourceEstimating" => Some(Ok(Value::Bool(false))),
             "EndEstimateCaching"
             | "EnableMemoryComputeArchitecture"
             | "GlobalPhase"
