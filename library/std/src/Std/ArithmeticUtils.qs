@@ -519,3 +519,24 @@ operation LogDepthAndChain(ctls : Qubit[], tgts : Qubit[]) : Unit is Adj {
         AND(Tail(tgtsLeft), Tail(tgtsRight), Tail(tgts));
     }
 }
+
+// Writes little-endian integer to quantum register (prepared in 0 state).
+operation ApplyBigInt(val : BigInt, reg : Qubit[]) : Unit is Adj + Ctl {
+    let bits = Std.Convert.BigIntAsBoolArray(val, Length(reg));
+    ApplyPauliFromBitString(PauliX, true, bits, reg);
+}
+
+// Measures content of register as little-endian BigInt.
+// Resets register to zero state.
+operation MResetL(reg : Qubit[]) : BigInt {
+    let result = MResetEachZ(reg);
+    mutable base : BigInt = 1L;
+    mutable ans : BigInt = 0L;
+    for i in 0..Length(result)-1 {
+        if (result[i] == One) {
+            set ans += base;
+        }
+        set base *= 2L;
+    }
+    return ans;
+}

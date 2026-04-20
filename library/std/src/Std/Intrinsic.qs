@@ -1198,6 +1198,13 @@ operation Apply(matrix : Complex[][], qubits : Qubit[]) : Unit {
     body intrinsic;
 }
 
+// Applies unitary matrix on given qubits that is a permutation matrix for
+// given permutation.
+@Config(Unrestricted)
+operation ApplyPermutationUnitary(permutation : Int[], qubits : Qubit[]) : Unit {
+    body intrinsic;
+}
+
 /// # Summary
 /// Logs a message.
 ///

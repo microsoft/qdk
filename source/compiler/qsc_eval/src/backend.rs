@@ -4,7 +4,7 @@
 use crate::debug::Frame;
 use crate::val::{self, Value};
 use crate::{noise::PauliNoise, val::unwrap_tuple};
-use ndarray::Array2;
+use ndarray::{Array1, Array2};
 use num_bigint::BigUint;
 use num_complex::Complex;
 use num_traits::Zero;
@@ -1090,6 +1090,24 @@ impl Backend for SparseSim {
 
                 Some(Ok(Value::unit()))
             }
+            "ApplyPermutationUnitary" => {
+                let [permutation, qubits] = unwrap_tuple(arg);
+                let qubits = qubits
+                    .unwrap_array()
+                    .iter()
+                    .filter_map(|q| q.clone().unwrap_qubit().try_deref().map(|q| q.0))
+                    .collect::<Vec<_>>();
+                let permutation = match unwrap_permutation_as_array1(permutation, &qubits) {
+                    Ok(permutation) => permutation,
+                    Err(message) => return Some(Err(message)),
+                };
+
+                if qubits.iter().all(|&q| !self.is_qubit_lost(q)) {
+                    self.sim.apply_permutation(&permutation, &qubits);
+                }
+
+                Some(Ok(Value::unit()))
+            }
             "PostSelectZ" => {
                 let [result, qubit] = unwrap_tuple(arg);
                 let id = qubit.unwrap_qubit().deref().0;
@@ -1142,4 +1160,38 @@ fn unwrap_matrix_as_array2(matrix: Value, qubits: &[usize]) -> Array2<Complex<f6
     Array2::from_shape_fn((1 << qubits.len(), 1 << qubits.len()), |(i, j)| {
         matrix[i][j]
     })
+}
+
+fn unwrap_permutation_as_array1(
+    permutation: Value,
+    qubits: &[usize],
+) -> Result<Array1<usize>, String> {
+    let permutation = permutation
+        .unwrap_array()
+        .iter()
+        .map(|index| index.clone().unwrap_int())
+        .collect::<Vec<_>>();
+
+    let expected_size = 1_usize << qubits.len();
+    if permutation.len() != expected_size {
+        return Err("permutation length must be 2^Length(qubits)".to_string());
+    }
+
+    let mut seen = vec![false; expected_size];
+    let mut permutation_usize = Vec::with_capacity(expected_size);
+    for index in permutation {
+        let Ok(index) = usize::try_from(index) else {
+            return Err("permutation elements must be non-negative".to_string());
+        };
+        if index >= expected_size {
+            return Err("permutation elements must be in range 0..2^Length(qubits)".to_string());
+        }
+        if seen[index] {
+            return Err("permutation must not contain duplicate elements".to_string());
+        }
+        seen[index] = true;
+        permutation_usize.push(index);
+    }
+
+    Ok(Array1::from_vec(permutation_usize))
 }
