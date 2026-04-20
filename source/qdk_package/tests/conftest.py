@@ -4,10 +4,10 @@
 import sys
 from pathlib import Path
 
-# Add local 'src' so 'qdk' can be imported without installation and add tests dir so 'mocks' is importable.
+# Add local package root so 'qdk' can be imported without installation and add tests dir so 'mocks' is importable.
 _root = Path(__file__).resolve().parent
-_src = _root.parent / "src"
-for p in (_src, _root):
+_pkg_root = _root.parent
+for p in (_pkg_root, _root):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
