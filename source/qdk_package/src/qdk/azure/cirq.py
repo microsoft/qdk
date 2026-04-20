@@ -5,7 +5,8 @@
 
 Requires installation: ``pip install \"qdk[azure,cirq]\"``.
 
-Example:
+Example::
+
     from qdk.azure.cirq import <symbol>
 
 """

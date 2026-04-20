@@ -433,12 +433,24 @@ impl ApplicationInstance {
         self.blocks.insert(id, value);
     }
 
+    pub fn reset_block_compute_kind(&mut self, id: BlockId) {
+        self.blocks.remove(&id);
+    }
+
     pub fn insert_expr_compute_kind(&mut self, id: ExprId, value: ComputeKind) {
         self.exprs.insert(id, value);
     }
 
+    pub fn reset_expr_compute_kind(&mut self, id: ExprId) {
+        self.exprs.remove(&id);
+    }
+
     pub fn insert_stmt_compute_kind(&mut self, id: StmtId, value: ComputeKind) {
         self.stmts.insert(id, value);
+    }
+
+    pub fn reset_stmt_compute_kind(&mut self, id: StmtId) {
+        self.stmts.remove(&id);
     }
 
     fn new(
@@ -556,7 +568,7 @@ impl ApplicationInstance {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct LocalsComputeKindMap(IndexMap<LocalVarId, LocalComputeKind>);
 
 impl LocalsLookup for LocalsComputeKindMap {
@@ -580,35 +592,12 @@ impl LocalsComputeKindMap {
         self.0.get(local_var_id)
     }
 
-    pub fn get_or_init_local_compute_kind(
-        &mut self,
-        local_var_id: LocalVarId,
-        local_kind: LocalKind,
-        compute_kind: ComputeKind,
-    ) -> &LocalComputeKind {
-        if self.0.contains_key(local_var_id) {
-            self.0.get(local_var_id).expect("local should exist")
-        } else {
-            self.0.insert(
-                local_var_id,
-                LocalComputeKind {
-                    local: Local {
-                        var: local_var_id,
-                        kind: local_kind,
-                    },
-                    compute_kind,
-                },
-            );
-            self.0.get(local_var_id).expect("local should exist")
-        }
-    }
-
     pub fn insert(&mut self, local_var_id: LocalVarId, value: LocalComputeKind) {
         self.0.insert(local_var_id, value);
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LocalComputeKind {
     pub local: Local,
     pub compute_kind: ComputeKind,

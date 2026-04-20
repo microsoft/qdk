@@ -318,9 +318,12 @@ export async function fetchGithubRaw(
       );
       throw new Error(
         `Request to ${uri} did not return text content: ${e.message}`,
+        { cause: e },
       );
     }
-    throw new Error(`Request to ${uri} did not return text content`);
+    throw new Error(`Request to ${uri} did not return text content`, {
+      cause: e,
+    });
   }
 
   return text;

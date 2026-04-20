@@ -5,7 +5,7 @@
 
 import { IDebugServiceWorker, getDebugServiceWorker, log } from "qsharp-lang";
 import * as vscode from "vscode";
-import { qsharpExtensionId } from "../common";
+import { getPlatformEnv, qsharpExtensionId } from "../common";
 import { clearCommandDiagnostics } from "../diagnostics";
 import {
   getActiveQdkDocumentUri,
@@ -22,7 +22,7 @@ export async function activateDebugger(
 ): Promise<void> {
   const debugWorkerScriptPath = vscode.Uri.joinPath(
     context.extensionUri,
-    "./out/debugger/debug-service-worker.js",
+    `./out/${getPlatformEnv()}/debugger/debug-service-worker.js`,
   );
 
   debugServiceWorkerFactory = () =>
@@ -71,7 +71,6 @@ function registerCommands(context: vscode.ExtensionContext) {
         }
         startQdkDebugging(resource, {
           name: "QDK: Debug Program",
-          stopOnEntry: true,
           entry: expr,
         });
       },
@@ -83,7 +82,6 @@ function registerCommands(context: vscode.ExtensionContext) {
           resource,
           {
             name: "QDK: Run and Show Circuit",
-            stopOnEntry: false,
             showCircuit: true,
           },
           { noDebug: true },
@@ -159,18 +157,11 @@ class QsDebugConfigProvider implements vscode.DebugConfigurationProvider {
           path: fileUri.path,
         })
         .toString();
-    } else {
-      // if launch.json is missing or empty, try to launch the active Q# document
+    } else if (!config.programUri) {
+      // if config.programUri is not already set, try to default to the currently active document
       const docUri = getActiveQdkDocumentUri();
       if (docUri) {
-        config.type = "qsharp";
-        config.name = "Launch";
-        config.request = "launch";
         config.programUri = docUri.toString();
-        config.shots = 1;
-        config.noDebug = "noDebug" in config ? config.noDebug : false;
-        config.stopOnEntry = !config.noDebug;
-        config.entry = config.entry ?? "";
       }
     }
 
@@ -208,9 +199,9 @@ class QsDebugConfigProvider implements vscode.DebugConfigurationProvider {
     // noDebug is set to true when the user runs the program without debugging.
     // otherwise it usually isn't set, but we default to false.
     config.noDebug = config.noDebug ?? false;
-    // stopOnEntry is set to true when the user runs the program with debugging.
+    // stopOnEntry is set to false when the user runs the program with debugging.
     // unless overridden.
-    config.stopOnEntry = config.stopOnEntry ?? !config.noDebug;
+    config.stopOnEntry = config.stopOnEntry ?? false;
 
     return config;
   }

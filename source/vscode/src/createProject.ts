@@ -93,7 +93,7 @@ export async function initProjectCreator(context: vscode.ExtensionContext) {
           return;
         }
 
-        let manifestObj: any = {};
+        let manifestObj: any;
         try {
           manifestObj = JSON.parse(qsharpJsonDoc.getText());
         } catch {
@@ -250,7 +250,7 @@ export async function initProjectCreator(context: vscode.ExtensionContext) {
         }
         const qsharpJsonDir = vscode.Uri.joinPath(qsharpJsonUri, "..");
 
-        let manifestObj: any = {};
+        let manifestObj: any;
         try {
           manifestObj = JSON.parse(qsharpJsonDoc.getText());
         } catch {

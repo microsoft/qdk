@@ -13,6 +13,7 @@ pub const MAX_BUFFER_SIZE: usize = 1 << 30; // 1 GB limit due to some wgpu restr
 pub const MAX_QUBIT_COUNT: i32 = 27; // 2^27 * 8 bytes per complex32 = 1 GB buffer limit
 pub const MAX_QUBITS_PER_WORKGROUP: i32 = 18; // Max qubits to be processed by a single workgroup
 pub const THREADS_PER_WORKGROUP: i32 = 32; // 32 gives good occupancy across various GPUs
+pub const MAX_REGISTERS: usize = 4096; // 4096 * 4 bytes = 16 KB of register file size per interpreter
 
 // Once a shot is big enough to need multiple workgroups, what's the max number of workgroups possible
 pub const MAX_PARTITIONED_WORKGROUPS: i32 = 1 << (MAX_QUBIT_COUNT - MAX_QUBITS_PER_WORKGROUP);
@@ -23,6 +24,9 @@ pub const MAX_SHOTS_PER_BATCH: i32 = 65535; // To align with max workgroups per 
 // With each iteration in each thread processing 2 or 4 entries, that means 2 or 4 iterations per thread minimum.
 pub const MIN_QUBIT_COUNT: i32 = 8;
 pub const SIZEOF_SHOTDATA: usize = std::mem::size_of::<ShotData>(); // Size of ShotData struct on the GPU in bytes
+
+// Minimum register file size; actual size is max(program.num_registers, MIN_REGISTERS)
+pub const MIN_REGISTERS: usize = 128;
 
 #[allow(clippy::cast_possible_truncation)]
 #[allow(clippy::cast_possible_wrap)]
@@ -106,9 +110,11 @@ pub struct ShotData {
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct DiagnosticsData {
     pub error_code: u32,
+    pub termination_count: u32,
     pub extra1: u32,
     pub extra2: f32,
     pub extra3: f32,
+    _padding: u32,
     pub shot: ShotData,
     pub op: Op,
     pub qubit_probabilities: [QubitProbabilityPerThread; THREADS_PER_WORKGROUP as usize],
@@ -1048,3 +1054,43 @@ pub struct Result {
     pub entry_idx: u32,
     pub probability: f32,
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct CallStackFrame {
+    /// Resume on this block on return.
+    block_id: u32,
+    /// Instruction after the call.
+    return_pc: u32,
+    /// Where to write the return value.
+    return_reg: u32,
+    /// This is for alignment.
+    reserved: u32,
+}
+
+/// Per-shot interpreter state.
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct InterpreterState {
+    /// Instruction index (absolute), PC stands for Program Counter.
+    pub pc: u32,
+    /// Current block ID.
+    pub current_block_id: u32,
+    ///Previous block ID (for phi resolution).
+    pub previous_block_id: u32,
+    /// `0=running, 1=quantum_pending, 2=terminated, 3=error, 4=yield`.
+    pub status: u32,
+    /// Quantum op table index.
+    pub pending_op_idx: u32,
+    /// `0=gate, 1=measure, 2=reset`.
+    pub pending_op_type: u32,
+    /// From ret instruction
+    pub exit_code: u32,
+    /// Call stack pointer.
+    pub call_sp: u32,
+    /// Call stack frames (4 u32 per frame × 14 frames = 56).
+    pub call_stack_frames: [CallStackFrame; 14],
+}
+// Total struct size = 64 u32 = 256 bytes (which is aligned to 128 bytes)
+// safety check to make sure Op is the correct size with padding at compile time
+const _: () = assert!(std::mem::size_of::<InterpreterState>() == 256);

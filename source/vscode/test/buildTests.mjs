@@ -12,6 +12,7 @@ const thisDir = dirname(fileURLToPath(import.meta.url));
 /** @type {import("esbuild").BuildOptions} */
 const buildOptions = {
   entryPoints: [
+    join(thisDir, "suites", "empty", "index.ts"),
     join(thisDir, "suites", "language-service", "index.ts"),
     join(thisDir, "suites", "debugger", "index.ts"),
   ],
@@ -21,7 +22,7 @@ const buildOptions = {
   external: ["vscode"],
   format: "cjs",
   platform: "browser",
-  target: ["es2020"],
+  target: ["es2022"],
   sourcemap: "linked",
   //logLevel: "debug",
   define: { "import.meta.url": "undefined" },

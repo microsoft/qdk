@@ -1,8 +1,9 @@
-pytest==8.2.2
+pytest==9.0.3
 qirrunner==0.9.0
 pyqir<0.12.0
 qiskit-aer==0.17.2
 qiskit_qasm3_import==0.6.0
 expecttest==0.3.0
 numpy>=1.26.4
+cirq-core>=1.6.1,<1.7
 # Qiskit distributions are installed per test run by build.py.

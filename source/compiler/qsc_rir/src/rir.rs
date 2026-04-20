@@ -17,6 +17,7 @@ pub struct Program {
     pub num_results: u32,
     pub attrs: Attributes,
     pub tags: Vec<String>,
+    pub array_literals: Vec<ArrayLiteral>,
     pub dbg_info: DbgInfo,
 }
 
@@ -49,6 +50,14 @@ impl Display for Program {
         for (idx, tag) in self.tags.iter().enumerate() {
             writeln!(indent, "[{idx}]: {tag}")?;
         }
+        indent = set_indentation(indent, 1);
+        if !self.array_literals.is_empty() {
+            writeln!(indent, "array_literals:")?;
+            indent = set_indentation(indent, 2);
+            for (idx, array) in self.array_literals.iter().enumerate() {
+                writeln!(indent, "[{idx}]: {array}")?;
+            }
+        }
         Ok(())
     }
 }
@@ -57,6 +66,40 @@ impl Program {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    #[must_use]
+    pub fn with_blocks(blocks: Vec<(BlockId, Block)>) -> Self {
+        let mut program = Self::new();
+        let mut entry_block_id = None;
+        for (id, block) in blocks {
+            if entry_block_id.is_none() {
+                entry_block_id = Some(id);
+            }
+            program.blocks.insert(id, block);
+        }
+
+        if let Some(entry_block_id) = entry_block_id {
+            const ENTRY: CallableId = CallableId(0);
+            program.entry = ENTRY;
+            program.callables.insert(
+                ENTRY,
+                Callable {
+                    name: "entry".into(),
+                    input_type: vec![],
+                    output_type: None,
+                    body: Some(entry_block_id),
+                    call_type: CallableType::Regular,
+                },
+            );
+        }
+
+        program
+    }
+
+    #[must_use]
+    pub fn all_callable_ids(&self) -> Vec<CallableId> {
+        self.callables.iter().map(|(id, _)| id).collect()
     }
 
     #[must_use]
@@ -346,6 +389,10 @@ pub enum Instruction {
     BitwiseOr(Operand, Operand, Variable),
     BitwiseXor(Operand, Operand, Variable),
     Phi(Vec<(Operand, BlockId)>, Variable),
+    Convert(Operand, Variable),
+    Load(Variable, Variable),
+    Alloca(Variable),
+    Index(Operand, Operand, Variable),
     Return,
 }
 
@@ -360,106 +407,7 @@ impl Instruction {
 }
 
 impl Display for Instruction {
-    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        fn write_binary_instruction(
-            f: &mut Formatter,
-            instruction: &str,
-            lhs: &Operand,
-            rhs: &Operand,
-            variable: Variable,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "{variable} = {instruction} {lhs}, {rhs}")?;
-            Ok(())
-        }
-
-        fn write_branch(
-            f: &mut Formatter,
-            condition: Variable,
-            if_true: BlockId,
-            if_false: BlockId,
-            metadata: Option<&InstructionDbgMetadata>,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "Branch {condition}, {}, {}", if_true.0, if_false.0)?;
-            if let Some(metadata) = metadata {
-                write!(f, " {metadata}")?;
-            }
-            Ok(())
-        }
-
-        fn write_call(
-            f: &mut Formatter,
-            callable_id: CallableId,
-            args: &[Operand],
-            variable: Option<Variable>,
-            metadata: Option<&InstructionDbgMetadata>,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            if let Some(variable) = variable {
-                write!(indent, "{variable} = ")?;
-            }
-            write!(indent, "Call id({}), args( ", callable_id.0)?;
-            for arg in args {
-                write!(indent, "{arg}, ")?;
-            }
-            write!(indent, ")")?;
-            if let Some(metadata) = metadata {
-                write!(f, " {metadata}")?;
-            }
-            Ok(())
-        }
-
-        fn write_unary_instruction(
-            f: &mut Formatter,
-            instruction: &str,
-            value: &Operand,
-            variable: Variable,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "{variable} = {instruction} {value}")?;
-            Ok(())
-        }
-
-        fn write_fcmp_instruction(
-            f: &mut Formatter,
-            condition: FcmpConditionCode,
-            lhs: &Operand,
-            rhs: &Operand,
-            variable: Variable,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "{variable} = Fcmp {condition}, {lhs}, {rhs}")?;
-            Ok(())
-        }
-
-        fn write_icmp_instruction(
-            f: &mut Formatter,
-            condition: ConditionCode,
-            lhs: &Operand,
-            rhs: &Operand,
-            variable: Variable,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "{variable} = Icmp {condition}, {lhs}, {rhs}")?;
-            Ok(())
-        }
-
-        fn write_phi_instruction(
-            f: &mut Formatter,
-            args: &[(Operand, BlockId)],
-            variable: Variable,
-        ) -> fmt::Result {
-            let mut indent = set_indentation(indented(f), 0);
-            write!(indent, "{variable} = Phi ( ")?;
-            for (val, block_id) in args {
-                write!(indent, "[{val}, {}], ", block_id.0)?;
-            }
-            write!(indent, ")")?;
-            Ok(())
-        }
-
         match &self {
             Self::Store(value, variable) => write_unary_instruction(f, "Store", value, *variable)?,
             Self::Jump(block_id) => write!(f, "Jump({})", block_id.0)?,
@@ -532,6 +480,21 @@ impl Display for Instruction {
             Self::Phi(args, variable) => {
                 write_phi_instruction(f, args, *variable)?;
             }
+            Self::Convert(operand, variable) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{variable} = Convert {operand}")?;
+            }
+            Self::Load(lhs, rhs) => {
+                write_unary_instruction(f, "Load", &Operand::Variable(*lhs), *rhs)?;
+            }
+            Self::Alloca(variable) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{variable} = Alloca")?;
+            }
+            Self::Index(array_var, index_opr, result_var) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{result_var} = Index {array_var}, {index_opr}")?;
+            }
             Self::Return => write!(f, "Return")?,
         }
         Ok(())
@@ -579,7 +542,7 @@ impl Variable {
     pub fn new_boolean(id: VariableId) -> Self {
         Self {
             variable_id: id,
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         }
     }
 
@@ -587,7 +550,7 @@ impl Variable {
     pub fn new_integer(id: VariableId) -> Self {
         Self {
             variable_id: id,
-            ty: Ty::Integer,
+            ty: Ty::Prim(Prim::Integer),
         }
     }
 
@@ -595,13 +558,37 @@ impl Variable {
     pub fn new_double(id: VariableId) -> Self {
         Self {
             variable_id: id,
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
+        }
+    }
+
+    #[must_use]
+    pub fn new_ptr(id: VariableId) -> Self {
+        Self {
+            variable_id: id,
+            ty: Ty::Prim(Prim::Pointer),
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ty {
+    Prim(Prim),
+    Array(usize, Prim),
+}
+
+impl Display for Ty {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match &self {
+            Ty::Prim(prim) => write!(f, "{prim}")?,
+            Ty::Array(size, prim) => write!(f, "Array({size}, {prim})")?,
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Prim {
     Qubit,
     Result,
     Boolean,
@@ -610,7 +597,7 @@ pub enum Ty {
     Pointer,
 }
 
-impl Display for Ty {
+impl Display for Prim {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
             Self::Qubit => write!(f, "Qubit")?,
@@ -644,12 +631,14 @@ impl Operand {
     pub fn get_type(&self) -> Ty {
         match self {
             Operand::Literal(lit) => match lit {
-                Literal::Qubit(_) => Ty::Qubit,
-                Literal::Result(_) => Ty::Result,
-                Literal::Bool(_) => Ty::Boolean,
-                Literal::Integer(_) => Ty::Integer,
-                Literal::Double(_) => Ty::Double,
-                Literal::Pointer | Literal::Tag(..) => Ty::Pointer,
+                Literal::Qubit(_) => Ty::Prim(Prim::Qubit),
+                Literal::Result(_) => Ty::Prim(Prim::Result),
+                Literal::Bool(_) => Ty::Prim(Prim::Boolean),
+                Literal::Integer(_) => Ty::Prim(Prim::Integer),
+                Literal::Double(_) => Ty::Prim(Prim::Double),
+                Literal::NullPointer | Literal::Tag(..) | Literal::Array(_) => {
+                    Ty::Prim(Prim::Pointer)
+                }
             },
             Operand::Variable(var) => var.ty,
         }
@@ -664,7 +653,8 @@ pub enum Literal {
     Integer(i64),
     Double(f64),
     Tag(usize, usize),
-    Pointer,
+    Array(usize),
+    NullPointer,
 }
 
 impl Display for Literal {
@@ -676,7 +666,8 @@ impl Display for Literal {
             Self::Integer(i) => write!(f, "Integer({i})")?,
             Self::Double(d) => write!(f, "Double({d})")?,
             Self::Tag(idx, len) => write!(f, "Tag({idx}, {len})")?,
-            Self::Pointer => write!(f, "Pointer")?,
+            Self::Array(idx) => write!(f, "Array({idx})")?,
+            Self::NullPointer => write!(f, "Pointer")?,
         }
         Ok(())
     }
@@ -708,7 +699,7 @@ impl PartialEq for Literal {
                     false
                 }
             }
-            Self::Pointer => matches!(other, Self::Pointer),
+            Self::NullPointer => matches!(other, Self::NullPointer),
             Self::Qubit(self_qubit) => {
                 if let Self::Qubit(other_qubit) = other {
                     self_qubit == other_qubit
@@ -730,11 +721,44 @@ impl PartialEq for Literal {
                     false
                 }
             }
+            Self::Array(self_idx) => {
+                if let Self::Array(other_idx) = other {
+                    self_idx == other_idx
+                } else {
+                    false
+                }
+            }
         }
     }
 }
 
 impl Eq for Literal {}
+
+#[derive(Clone, Debug)]
+pub struct ArrayLiteral {
+    pub contents: Vec<Literal>,
+    pub ty: Prim,
+}
+
+impl Display for ArrayLiteral {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        for (index, literal) in self.contents.iter().enumerate() {
+            write!(f, "{literal}")?;
+            if index != self.contents.len() - 1 {
+                write!(f, ", ")?;
+            }
+        }
+        write!(f, "]")?;
+        Ok(())
+    }
+}
+
+impl PartialEq for ArrayLiteral {
+    fn eq(&self, other: &Self) -> bool {
+        self.ty == other.ty && self.contents == other.contents
+    }
+}
 
 fn set_indentation<'a, 'b>(
     indent: Indented<'a, Formatter<'b>>,
@@ -746,4 +770,102 @@ fn set_indentation<'a, 'b>(
         2 => indent.with_str("        "),
         _ => unimplemented!("indentation level not supported"),
     }
+}
+
+fn write_binary_instruction(
+    f: &mut Formatter,
+    instruction: &str,
+    lhs: &Operand,
+    rhs: &Operand,
+    variable: Variable,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "{variable} = {instruction} {lhs}, {rhs}")?;
+    Ok(())
+}
+
+fn write_branch(
+    f: &mut Formatter,
+    condition: Variable,
+    if_true: BlockId,
+    if_false: BlockId,
+    metadata: Option<&InstructionDbgMetadata>,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "Branch {condition}, {}, {}", if_true.0, if_false.0)?;
+    if let Some(metadata) = metadata {
+        write!(f, " {metadata}")?;
+    }
+    Ok(())
+}
+
+fn write_call(
+    f: &mut Formatter,
+    callable_id: CallableId,
+    args: &[Operand],
+    variable: Option<Variable>,
+    metadata: Option<&InstructionDbgMetadata>,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    if let Some(variable) = variable {
+        write!(indent, "{variable} = ")?;
+    }
+    write!(indent, "Call id({}), args( ", callable_id.0)?;
+    for arg in args {
+        write!(indent, "{arg}, ")?;
+    }
+    write!(indent, ")")?;
+    if let Some(metadata) = metadata {
+        write!(f, " {metadata}")?;
+    }
+    Ok(())
+}
+
+fn write_unary_instruction(
+    f: &mut Formatter,
+    instruction: &str,
+    value: &Operand,
+    variable: Variable,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "{variable} = {instruction} {value}")?;
+    Ok(())
+}
+
+fn write_fcmp_instruction(
+    f: &mut Formatter,
+    condition: FcmpConditionCode,
+    lhs: &Operand,
+    rhs: &Operand,
+    variable: Variable,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "{variable} = Fcmp {condition}, {lhs}, {rhs}")?;
+    Ok(())
+}
+
+fn write_icmp_instruction(
+    f: &mut Formatter,
+    condition: ConditionCode,
+    lhs: &Operand,
+    rhs: &Operand,
+    variable: Variable,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "{variable} = Icmp {condition}, {lhs}, {rhs}")?;
+    Ok(())
+}
+
+fn write_phi_instruction(
+    f: &mut Formatter,
+    args: &[(Operand, BlockId)],
+    variable: Variable,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "{variable} = Phi ( ")?;
+    for (val, block_id) in args {
+        write!(indent, "[{val}, {}], ", block_id.0)?;
+    }
+    write!(indent, ")")?;
+    Ok(())
 }

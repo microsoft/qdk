@@ -28,8 +28,8 @@ pre:has(code) {
 .qs-play-body {
   position: relative;
   min-height: 100vh;
-  font-family: system-ui, "Segoe UI", "SegoeUI", Roboto, Helvetica, Arial,
-    sans-serif;
+  font-family:
+    system-ui, "Segoe UI", "SegoeUI", Roboto, Helvetica, Arial, sans-serif;
   color: var(--main-color);
   background-color: var(--main-background);
   display: grid;

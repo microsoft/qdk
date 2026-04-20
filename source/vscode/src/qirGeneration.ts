@@ -8,7 +8,7 @@ import {
   TargetProfile,
 } from "qsharp-lang";
 import * as vscode from "vscode";
-import { qsharpExtensionId } from "./common";
+import { getPlatformEnv, qsharpExtensionId } from "./common";
 import { invokeAndReportCommandDiagnostics } from "./diagnostics";
 import { FullProgramConfig, getActiveProgram } from "./programConfig";
 import {
@@ -208,7 +208,7 @@ async function getQirForActiveWindowCommand() {
 export function initCodegen(context: vscode.ExtensionContext) {
   compilerWorkerScriptPath = vscode.Uri.joinPath(
     context.extensionUri,
-    "./out/compilerWorker.js",
+    `./out/${getPlatformEnv()}/compilerWorker.js`,
   ).toString();
 
   context.subscriptions.push(

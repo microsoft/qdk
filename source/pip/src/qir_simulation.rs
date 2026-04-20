@@ -13,9 +13,12 @@ use pyo3::{
     exceptions::{PyAttributeError, PyKeyError, PyTypeError, PyValueError},
     pybacked::PyBackedStr,
     pyclass, pymethods,
-    types::{PyAnyMethods, PyTuple},
+    types::{PyAnyMethods, PyDict, PyTuple},
 };
-use qdk_simulators::noise_config::{encode_pauli, is_pauli_identity};
+use qdk_simulators::{
+    bytecode,
+    noise_config::{encode_pauli, is_pauli_identity},
+};
 use rustc_hash::FxHashMap;
 
 type Probability = f64;
@@ -130,6 +133,8 @@ pub struct NoiseConfig {
     pub rzz: Py<NoiseTable>,
     #[pyo3(get)]
     pub swap: Py<NoiseTable>,
+    #[pyo3(get)]
+    pub ccx: Py<NoiseTable>,
     #[pyo3(get)]
     pub mov: Py<NoiseTable>,
     #[pyo3(get)]
@@ -261,6 +266,7 @@ fn bind_noise_config<T: Float, Q: Float>(
         ryy: Py::new(py, NoiseTable::from(value.ryy.clone()))?,
         rzz: Py::new(py, NoiseTable::from(value.rzz.clone()))?,
         swap: Py::new(py, NoiseTable::from(value.swap.clone()))?,
+        ccx: Py::new(py, NoiseTable::from(value.ccx.clone()))?,
         mov: Py::new(py, NoiseTable::from(value.mov.clone()))?,
         mz: Py::new(py, NoiseTable::from(value.mz.clone()))?,
         mresetz: Py::new(py, NoiseTable::from(value.mresetz.clone()))?,
@@ -269,7 +275,7 @@ fn bind_noise_config<T: Float, Q: Float>(
     })
 }
 
-fn unbind_noise_config<T: Float, Q: Float>(
+pub(crate) fn unbind_noise_config<T: Float, Q: Float>(
     py: Python,
     value: &Bound<NoiseConfig>,
 ) -> qdk_simulators::noise_config::NoiseConfig<T, Q> {
@@ -296,6 +302,7 @@ fn unbind_noise_config<T: Float, Q: Float>(
         ryy: from_noise_table_ref(value.ryy.borrow(py)),
         rzz: from_noise_table_ref(value.rzz.borrow(py)),
         swap: from_noise_table_ref(value.swap.borrow(py)),
+        ccx: from_noise_table_ref(value.ccx.borrow(py)),
         mov: from_noise_table_ref(value.mov.borrow(py)),
         mz: from_noise_table_ref(value.mz.borrow(py)),
         mresetz: from_noise_table_ref(value.mresetz.borrow(py)),
@@ -743,4 +750,116 @@ fn from_intrinsics_table_ref<T: Float>(
         .values()
         .map(|(k, v)| (*k, from_noise_table_ref(v.borrow(py))))
         .collect()
+}
+
+fn pydict_to_adaptive_program(program: &Bound<'_, PyDict>) -> PyResult<bytecode::AdaptiveProgram> {
+    use bytecode::{AdaptiveProgram, Block, Function, Instruction, PhiNodeEntry, SwitchCase};
+    use pyo3::types::PyDictMethods;
+
+    // Extract scalar fields
+    let num_qubits: u32 = program
+        .get_item("num_qubits")?
+        .ok_or_else(|| PyKeyError::new_err("num_qubits"))?
+        .extract()?;
+    let num_results: u32 = program
+        .get_item("num_results")?
+        .ok_or_else(|| PyKeyError::new_err("num_results"))?
+        .extract()?;
+    let num_registers: u32 = program
+        .get_item("num_registers")?
+        .ok_or_else(|| PyKeyError::new_err("num_registers"))?
+        .extract()?;
+    let entry_block: u32 = program
+        .get_item("entry_block")?
+        .ok_or_else(|| PyKeyError::new_err("entry_block"))?
+        .extract()?;
+
+    // Extract array fields
+    let blocks: Vec<(u32, u32, u32)> = program
+        .get_item("blocks")?
+        .ok_or_else(|| PyKeyError::new_err("blocks"))?
+        .extract()?;
+    #[allow(clippy::type_complexity)]
+    let instructions: Vec<(u32, u32, u32, u32, u32, u32, u32, u32)> = program
+        .get_item("instructions")?
+        .ok_or_else(|| PyKeyError::new_err("instructions"))?
+        .extract()?;
+    let quantum_ops_raw: Vec<(u32, u32, u32, u32, f64)> = program
+        .get_item("quantum_ops")?
+        .ok_or_else(|| PyKeyError::new_err("quantum_ops"))?
+        .extract()?;
+    let functions: Vec<(u32, u32, u32)> = program
+        .get_item("functions")?
+        .ok_or_else(|| PyKeyError::new_err("functions"))?
+        .extract()?;
+    let phi_entries: Vec<(u32, u32)> = program
+        .get_item("phi_entries")?
+        .ok_or_else(|| PyKeyError::new_err("phi_entries"))?
+        .extract()?;
+    let switch_cases: Vec<(u32, u32)> = program
+        .get_item("switch_cases")?
+        .ok_or_else(|| PyKeyError::new_err("switch_cases"))?
+        .extract()?;
+    let mut call_args: Vec<u32> = program
+        .get_item("call_args")?
+        .ok_or_else(|| PyKeyError::new_err("call_args"))?
+        .extract()?;
+
+    // Build quantum Op pool using existing gate constructors
+    let quantum_ops = bytecode::build_op_pool(&quantum_ops_raw);
+
+    // Convert instructions to Instruction structs
+    let bytecode: Vec<Instruction> = instructions
+        .iter()
+        .map(|t| Instruction::from_tuple(*t))
+        .collect();
+
+    // Convert block table: strip block_id and pred_count, keep (instr_offset, instr_count)
+    let mut block_table: Vec<Block> = blocks
+        .iter()
+        .map(|&(_block_id, instr_offset, instr_count)| (instr_offset, instr_count))
+        .map(Block::from_tuple)
+        .collect();
+
+    // Convert function table
+    let mut function_table: Vec<Function> =
+        functions.iter().map(|&t| Function::from_tuple(t)).collect();
+
+    // Convert phi entries and switch cases
+    let mut phi_entries: Vec<PhiNodeEntry> = phi_entries
+        .iter()
+        .map(|&t| PhiNodeEntry::from_tuple(t))
+        .collect();
+    let mut switch_cases: Vec<SwitchCase> = switch_cases
+        .iter()
+        .map(|&t| SwitchCase::from_tuple(t))
+        .collect();
+
+    // WebGPU requires that arrays have at least one element,
+    // so, we push a dummy element on each of these arrays if they are empty.
+    push_default_if_empty(&mut block_table);
+    push_default_if_empty(&mut function_table);
+    push_default_if_empty(&mut phi_entries);
+    push_default_if_empty(&mut switch_cases);
+    push_default_if_empty(&mut call_args);
+
+    Ok(AdaptiveProgram {
+        instructions: bytecode,
+        block_table,
+        function_table,
+        quantum_ops,
+        phi_entries,
+        switch_cases,
+        call_args,
+        num_qubits,
+        num_results,
+        num_registers,
+        entry_block,
+    })
+}
+
+fn push_default_if_empty<T: Default>(v: &mut Vec<T>) {
+    if v.is_empty() {
+        v.push(T::default());
+    }
 }

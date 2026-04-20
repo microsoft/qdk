@@ -17,6 +17,7 @@ from .._qsharp import (
     get_interpreter,
     ipython_helper,
     python_args_to_interpreter_args,
+    NoiseConfig,
 )
 from .. import telemetry_events
 from ._ipython import display_or_print
@@ -35,6 +36,7 @@ def run(
             BitFlipNoise,
             PhaseFlipNoise,
             DepolarizingNoise,
+            NoiseConfig,
         ]
     ] = None,
     qubit_loss: Optional[float] = None,
@@ -46,32 +48,37 @@ def run(
     Either a full program or a callable with arguments must be provided.
     Each shot uses an independent instance of the simulator.
 
-    Args:
-        source (str): An OpenQASM program. Alternatively, a callable can be provided,
-            which must be an already imported global callable.
-        shots: The number of shots to run, Defaults to 1024.
-        *args: The arguments to pass to the callable, if one is provided.
-        on_result: A callback function that will be called with each result. Only used when a callable is provided.
-        save_events: If true, the output of each shot will be saved. If false, they will be printed. Only used when a callable is provided.
-        noise: The noise to use in simulation.
-        qubit_loss: The probability of qubit loss in simulation.
-        as_bitstring: If true, the result registers will be converted to bitstrings.
-        **kwargs: Additional keyword arguments to pass to the compilation when source program is provided.
-          - name (str): The name of the circuit. This is used as the entry point for the program.
-          - target_profile (TargetProfile): The target profile to use for code generation.
-          - search_path (Optional[str]): The optional search path for resolving file references.
-          - output_semantics (OutputSemantics, optional): The output semantics for the compilation.
-          - seed (int): The seed to use for the random number generator.
+    :param source: An OpenQASM program. Alternatively, a callable can be provided,
+        which must be an already imported global callable.
+    :type source: str or Callable
+    :param shots: The number of shots to run. Defaults to ``1024``.
+    :type shots: int
+    :param *args: The arguments to pass to the callable, if one is provided.
+    :param on_result: A callback function that will be called with each result.
+        Only used when a callable is provided.
+    :type on_result: Callable
+    :param save_events: If true, the output of each shot will be saved. If false, they will be printed.
+        Only used when a callable is provided.
+    :type save_events: bool
+    :param noise: The noise to use in simulation.
+    :type noise: Union[Tuple[float, float, float], PauliNoise, BitFlipNoise, PhaseFlipNoise, DepolarizingNoise, NoiseConfig]
+    :param qubit_loss: The probability of qubit loss in simulation.
+    :type qubit_loss: float
+    :param as_bitstring: If true, the result registers will be converted to bitstrings.
+    :type as_bitstring: bool
+    :param **kwargs: Additional keyword arguments for compiling the source program. Common options:
 
-    Returns:
-        values: A list of results or runtime errors. If `save_events` is true,
-            a List of ShotResults is returned.
-
-    Raises:
-        QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-        QSharpError: If there is an error interpreting the input.
-        ValueError: If the number of shots is less than 1.
-        ValueError: If the `on_result` and `save_events` parameters are used when running OpenQASM programs.
+        - ``name`` (str): The name of the circuit. This is used as the entry point for the program.
+        - ``target_profile`` (TargetProfile): The target profile to use for code generation.
+        - ``search_path`` (str): The optional search path for resolving file references.
+        - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
+        - ``seed`` (int): The seed to use for the random number generator.
+    :return: A list of results or runtime errors. If ``save_events`` is true, a list of ``ShotResult`` values is returned.
+    :rtype: List[Any]
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If there is an error interpreting the input.
+    :raises ValueError: If the number of shots is less than 1.
+    :raises QasmError: If ``on_result`` or ``save_events`` are used when running OpenQASM programs.
     """
 
     ipython_helper()
@@ -105,6 +112,11 @@ def run(
     elif isinstance(source, str):
         source_str = source
 
+    noise_config = None
+    if isinstance(noise, NoiseConfig):
+        noise_config = noise
+        noise = None
+
     if callable:
         for _ in range(shots):
             results.append(
@@ -119,6 +131,7 @@ def run(
             run_results = get_interpreter().run(
                 source_str,
                 on_save_events if save_events else display_or_print,
+                noise_config,
                 noise,
                 qubit_loss=qubit_loss,
                 callable=callable,
@@ -161,6 +174,7 @@ def run(
         results = run_qasm_program(
             source_str,
             display_or_print,
+            noise_config,
             noise,
             qubit_loss,
             read_file,

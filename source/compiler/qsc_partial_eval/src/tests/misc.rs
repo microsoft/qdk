@@ -718,3 +718,136 @@ fn string_concatenation_with_side_effects_captures_side_effects() {
                 Return"#]],
     );
 }
+
+#[test]
+fn integer_to_double_conversion() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Double {
+                let i = {use q = Qubit(); if MResetZ(q) == One { 42 } else { 0 }};
+                let d = Std.Convert.IntAsDouble(i);
+                return d;
+            }
+        }
+        "#,
+    });
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Variable(3, Integer) = Store Variable(2, Integer)
+                Variable(4, Integer) = Store Variable(3, Integer)
+                Variable(5, Double) = Convert Variable(4, Integer)
+                Variable(6, Double) = Store Variable(5, Double)
+                Call id(4), args( Variable(6, Double), Tag(0, 3), )
+                Return
+            Block 2:Block:
+                Variable(2, Integer) = Store Integer(42)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Integer) = Store Integer(0)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn double_to_integer_conversion() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                let d = {use q = Qubit(); if MResetZ(q) == One { 42.1 } else { 0.0 }};
+                let i = Std.Math.Truncate(d);
+                return i;
+            }
+        }
+        "#,
+    });
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Variable(3, Double) = Store Variable(2, Double)
+                Variable(4, Double) = Store Variable(3, Double)
+                Variable(5, Integer) = Convert Variable(4, Double)
+                Variable(6, Integer) = Store Variable(5, Integer)
+                Call id(4), args( Variable(6, Integer), Tag(0, 3), )
+                Return
+            Block 2:Block:
+                Variable(2, Double) = Store Double(42.1)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Double) = Store Double(0)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn dynamic_fact_call_ignored() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Bool {
+                use q = Qubit();
+                let b = M(q) == One;
+                Std.Diagnostics.Fact(not b, "measurement should always be zero");
+                b
+            }
+        }
+        "#,
+    });
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Store Variable(0, Boolean)
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Variable(3, Boolean) = LogicalNot Variable(2, Boolean)
+                Variable(4, Boolean) = Store Variable(2, Boolean)
+                Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
+                Return"#]],
+    );
+}
+
+#[test]
+fn static_fact_call_evaluated() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                Std.Diagnostics.Fact(false, "this should always fail");
+            }
+        }
+        "#,
+    });
+    // Note that we don't use `assert_error` with an `expect!` here because it includes
+    // a `PackageSpan` in the error message which is points to the stdlib and can be noisy when
+    // libraries are updated.
+    assert!(format!("{error:?}").contains("this should always fail"));
+}

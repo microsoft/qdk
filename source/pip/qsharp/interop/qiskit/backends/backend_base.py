@@ -24,7 +24,8 @@ from qiskit.transpiler.target import Target
 from .compilation import Compilation
 from .errors import Errors
 from .qirtarget import QirTarget
-from ..jobs import QsJob
+from ..execution import DetaultExecutor
+from ..jobs import QsJob, QsSimJob, QsJobSet
 from ..passes import RemoveDelays
 from .... import TargetProfile
 
@@ -112,16 +113,14 @@ class BackendBase(BackendV2, ABC):
         transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
         skip_transpilation: bool = False,
-        **fields,
+        **options,
     ):
         """
-        Parameters:
-            target (Target): The target to use for the backend.
-            qiskit_pass_options (Dict): Options for the Qiskit passes.
-            transpile_options (Dict): Options for the transpiler.
-            qasm_export_options (Dict): Options for the QASM3 exporter.
-            **options: Additional keyword arguments to pass to the
-                execution used by subclasses.
+        :param target: The target to use for the backend.
+        :param qiskit_pass_options: Options for the Qiskit passes.
+        :param transpile_options: Options for the transpiler.
+        :param qasm_export_options: Options for the QASM3 exporter.
+        :param **options: Additional keyword arguments passed to subclasses.
         """
         super().__init__(
             name="QSharpBackend",
@@ -129,18 +128,18 @@ class BackendBase(BackendV2, ABC):
             backend_version="0.0.1",
         )
 
-        if fields is not None:
+        if options is not None:
             # we need to rename the seed_simulator to seed. This
             # is a convenience for aer users.
             # if the user passes in seed_simulator, we will rename it to seed
             # but only if the seed field is defined in the backend options.
-            if "seed_simulator" in fields and "seed" in self._options.data:
+            if "seed_simulator" in options and "seed" in self._options.data:
                 warn("seed_simulator passed, but field is called seed.")
-                fields["seed"] = fields.pop("seed_simulator")
+                options["seed"] = options.pop("seed_simulator")
 
             # updates the options with the fields passed in, if the backend
             # doesn't have the field, it will raise an error.
-            self.set_options(**fields)
+            self.set_options(**options)
 
         self._qiskit_pass_options = Options(
             supports_barrier=False,
@@ -226,12 +225,11 @@ class BackendBase(BackendV2, ABC):
     def _execute(self, programs: List[Compilation], **input_params) -> Dict[str, Any]:
         """Execute circuits on the backend.
 
-        Parameters:
-            programs (List of QuantumCompilation): simulator input.
-            input_params (Dict): configuration for simulation/compilation.
-
-        Returns:
-            dict: return a dictionary of results.
+        :param programs: Simulator input circuits.
+        :type programs: List[Compilation]
+        :param **input_params: Configuration for simulation/compilation.
+        :return: A dictionary of results.
+        :rtype: dict
         """
 
     @abstractmethod
@@ -293,9 +291,38 @@ class BackendBase(BackendV2, ABC):
         output["header"] = {}
         return self._create_results(output)
 
-    @abstractmethod
-    def _submit_job(self, run_input: List[QuantumCircuit], **input_params) -> QsJob:
-        pass
+    def _validate_quantum_circuits(
+        self, run_input: Union[QuantumCircuit, List[QuantumCircuit]]
+    ) -> List[QuantumCircuit]:
+        """Normalize and validate run_input to a list of QuantumCircuits.
+
+        Wraps a bare ``QuantumCircuit`` in a list and raises ``ValueError``
+        if any element is not a ``QuantumCircuit``.
+        """
+        if not isinstance(run_input, list):
+            run_input = [run_input]
+        for circuit in run_input:
+            if not isinstance(circuit, QuantumCircuit):
+                raise ValueError(str(Errors.INPUT_MUST_BE_QC))
+        return run_input
+
+    def _submit_job(self, run_input: List[QuantumCircuit], **options) -> QsJob:
+        """Default implementation for simulation backends.
+
+        Submits a ``QsSimJob`` for a single circuit or a ``QsJobSet`` for
+        multiple circuits.  Override for backends with different job types
+        (e.g. ``ResourceEstimatorBackend`` uses ``ReJob``).
+        """
+        from uuid import uuid4
+
+        job_id = str(uuid4())
+        executor = options.pop("executor", DetaultExecutor())
+        if len(run_input) == 1:
+            job = QsSimJob(self, job_id, self.run_job, run_input, options, executor)
+        else:
+            job = QsJobSet(self, job_id, self.run_job, run_input, options, executor)
+        job.submit()
+        return job
 
     def _compile(self, run_input: List[QuantumCircuit], **options) -> List[Compilation]:
         # for each run input, convert to qasm
@@ -314,9 +341,42 @@ class BackendBase(BackendV2, ABC):
             compilations.append(compilation)
         return compilations
 
-    @abstractmethod
     def _create_results(self, output: Dict[str, Any]) -> Any:
-        pass
+        """Default implementation: build a Qiskit ``Result`` from the output dict.
+
+        Override for backends that return a different result type
+        (e.g. ``ResourceEstimatorBackend`` returns ``EstimatorResult``).
+        """
+        return Result.from_dict(output)
+
+    def _map_result_bit(self, v) -> str:
+        """Map a single QIR result value to a bit character.
+
+        Override in subclasses to customize the mapping — for example,
+        to emit a loss marker instead of the default string fallback for
+        unknown values.
+        """
+        from .... import Result as QSharpResult
+
+        if v == QSharpResult.One:
+            return "1"
+        if v == QSharpResult.Zero:
+            return "0"
+        return str(v)
+
+    def _shot_to_bitstring(self, value) -> str:
+        """Recursively convert a QIR shot result to a Qiskit-style bitstring.
+
+        - ``tuple`` → space-joined register parts (multiple classical registers)
+        - ``list``  → concatenated bits via `_map_result_bit`
+        - anything else → ``str(value)``
+        """
+        if isinstance(value, tuple):
+            return " ".join(self._shot_to_bitstring(p) for p in value)
+        elif isinstance(value, list):
+            return "".join(self._map_result_bit(v) for v in value)
+        else:
+            return str(value)
 
     def _transpile(self, circuit: QuantumCircuit, **options) -> QuantumCircuit:
         if options.get("skip_transpilation", self._skip_transpilation):
@@ -414,18 +474,13 @@ class BackendBase(BackendV2, ABC):
     def _qasm(self, circuit: QuantumCircuit, **options) -> str:
         """Converts a Qiskit QuantumCircuit to QASM 3 for the current backend.
 
-        Args:
-            circuit (QuantumCircuit): The QuantumCircuit to be executed.
-            **options: Additional options for the execution.
-              - Any options for the transpiler, exporter, or Qiskit passes
-                  configuration. Defaults to backend config values. Common
-                  values include: 'optimization_level', 'basis_gates',
-                  'includes', 'search_path'.
-
-        Returns:
-            str: The converted QASM code as a string. Any supplied includes
-            are emitted as include statements at the top of the program.
-
+        :param circuit: The QuantumCircuit to be executed.
+        :param **options: Additional options for the transpiler, exporter, or Qiskit passes.
+            Common values include: ``optimization_level``, ``basis_gates``, ``includes``,
+            ``search_path``. Defaults to backend config values.
+        :return: The converted QASM code as a string. Any supplied includes
+            are emitted as ``include`` statements at the top of the program.
+        :rtype: str
         :raises QasmError: If there is an error generating or parsing QASM.
         """
         transpiled_circuit = self.transpile(circuit, **options)
@@ -450,18 +505,12 @@ class BackendBase(BackendV2, ABC):
         The generated Q# code will not be idiomatic Q# code, but will be
         a direct translation of the Qiskit circuit.
 
-        Args:
-            circuit (QuantumCircuit): The QuantumCircuit to be executed.
-            **options: Additional options for the execution. Defaults to backend config values.
-              - Any options for the transpiler, exporter, or Qiskit passes
-                  configuration. Defaults to backend config values. Common
-                  values include: 'optimization_level', 'basis_gates',
-                  'includes', 'search_path'.
-              - output_semantics (OutputSemantics, optional): The output semantics for the compilation.
-        Returns:
-            str: The converted QASM code as a string. Any supplied includes
-            are emitted as include statements at the top of the program.
-
+        :param circuit: The QuantumCircuit to be executed.
+        :param **kwargs: Additional options for the transpiler, exporter, or Qiskit passes.
+            Common values include: ``optimization_level``, ``basis_gates``, ``includes``,
+            ``search_path``, ``output_semantics``. Defaults to backend config values.
+        :return: The converted Q# code as a string.
+        :rtype: str
         :raises QSharpError: If there is an error evaluating the source code.
         :raises QasmError: If there is an error generating, parsing, or compiling QASM.
         """
@@ -491,16 +540,14 @@ class BackendBase(BackendV2, ABC):
         """
         Converts a Qiskit QuantumCircuit to QIR (Quantum Intermediate Representation).
 
-        Args:
-            circuit ('QuantumCircuit'): The input Qiskit QuantumCircuit object.
-            **kwargs: Additional options for the execution.
-              - params (str, optional): The entry expression for the QIR conversion. Defaults to None.
-              - target_profile (TargetProfile, optional): The target profile for the backend. Defaults to backend config value.
-              - output_semantics (OutputSemantics, optional): The output semantics for the compilation. Defaults to backend config value.
-              - search_path (str, optional): The search path for the backend. Defaults to '.'.
-        Returns:
-            str: The converted QIR code as a string.
+        :param circuit: The input Qiskit QuantumCircuit object.
+        :param **kwargs: Common options:
 
+            - ``target_profile`` (TargetProfile): The target profile for the backend. Defaults to backend config value.
+            - ``output_semantics`` (OutputSemantics): The output semantics for the compilation. Defaults to backend config value.
+            - ``search_path`` (str): The search path for the backend. Defaults to ``'.'``.
+        :return: The converted QIR code as a string.
+        :rtype: str
         :raises QSharpError: If there is an error evaluating the source code.
         :raises QasmError: If there is an error generating, parsing, or compiling QASM.
         :raises ValueError: If the backend configuration does not support QIR generation.

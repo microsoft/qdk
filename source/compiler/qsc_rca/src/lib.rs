@@ -618,50 +618,54 @@ bitflags! {
         const UseOfDynamicBigInt = 1 << 6;
         /// Use of a dynamic `String`.
         const UseOfDynamicString = 1 << 7;
-        /// Use of a dynamic array.
-        const UseOfDynamicallySizedArray = 1 << 8;
+        /// Use of a dynamic array with static size.
+        const UseOfDynamicArray = 1 << 8;
+        /// Use of a dynamic array with dynamic size.
+        const UseOfDynamicallySizedArray = 1 << 9;
         /// Use of a dynamic UDT.
-        const UseOfDynamicUdt = 1 << 9;
+        const UseOfDynamicUdt = 1 << 10;
         /// Use of a dynamic arrow function.
-        const UseOfDynamicArrowFunction = 1 << 10;
+        const UseOfDynamicArrowFunction = 1 << 11;
         /// Use of a dynamic arrow operation.
-        const UseOfDynamicArrowOperation = 1 << 11;
+        const UseOfDynamicArrowOperation = 1 << 12;
         /// A function with cycles used with a dynamic argument.
-        const CallToCyclicFunctionWithDynamicArg = 1 << 12;
+        const CallToCyclicFunctionWithDynamicArg = 1 << 13;
         /// An operation specialization with cycles exists.
-        const CyclicOperationSpec = 1 << 13;
+        const CyclicOperationSpec = 1 << 14;
         /// A call to an operation with cycles.
-        const CallToCyclicOperation = 1 << 14;
+        const CallToCyclicOperation = 1 << 15;
         /// A callee expression is dynamic.
-        const CallToDynamicCallee = 1 << 15;
+        const CallToDynamicCallee = 1 << 16;
         /// A callee expression could not be resolved to a specific callable.
-        const CallToUnresolvedCallee = 1 << 16;
+        const CallToUnresolvedCallee = 1 << 17;
         /// Performing a measurement within a dynamic scope.
-        const MeasurementWithinDynamicScope = 1 << 17;
+        const MeasurementWithinDynamicScope = 1 << 18;
         /// Use of a dynamic index to access or update an array.
-        const UseOfDynamicIndex = 1 << 18;
+        const UseOfDynamicIndex = 1 << 19;
         /// A return expression within a dynamic scope.
-        const ReturnWithinDynamicScope = 1 << 19;
+        const ReturnWithinDynamicScope = 1 << 20;
         /// A loop with a dynamic condition.
-        const LoopWithDynamicCondition = 1 << 20;
+        const LoopWithDynamicCondition = 1 << 21;
         /// Use of an advanced type as output of a computation.
-        const UseOfAdvancedOutput = 1 << 21;
+        const UseOfAdvancedOutput = 1 << 22;
         /// Use of a `Bool` as output of a computation.
-        const UseOfBoolOutput = 1 << 22;
+        const UseOfBoolOutput = 1 << 23;
         /// Use of a `Double` as output of a computation.
-        const UseOfDoubleOutput = 1 << 23;
+        const UseOfDoubleOutput = 1 << 24;
         /// Use of an `Int` as output of a computation.
-        const UseOfIntOutput = 1 << 24;
+        const UseOfIntOutput = 1 << 25;
         /// Use of a dynamic exponent in a computation.
-        const UseOfDynamicExponent = 1 << 25;
+        const UseOfDynamicExponent = 1 << 26;
         /// Use of a dynamic `Result` variable in a computation.
-        const UseOfDynamicResult = 1 << 26;
+        const UseOfDynamicResult = 1 << 27;
         /// Use of a dynamic tuple variable.
-        const UseOfDynamicTuple = 1 << 27;
+        const UseOfDynamicTuple = 1 << 28;
         /// A callee expression to a measurement.
-        const CallToCustomMeasurement = 1 << 28;
+        const CallToCustomMeasurement = 1 << 29;
         /// A callee expression to a reset.
-        const CallToCustomReset = 1 << 29;
+        const CallToCustomReset = 1 << 30;
+        /// Use of a dynamic generic parameter.
+        const UseOfDynamicGeneric = 1 << 31;
     }
 }
 
@@ -707,6 +711,13 @@ impl RuntimeFeatureFlags {
         if self.contains(RuntimeFeatureFlags::UseOfDynamicString) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
+        if self.contains(RuntimeFeatureFlags::UseOfDynamicArray) {
+            // capabilities |= TargetCapabilityFlags::StaticSizedArrays;
+
+            // For now, we are treating any dynamic array as requiriing higher level constructs,
+            // so that we can reject loops over arrays with dynamic contents.
+            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+        }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
@@ -735,7 +746,7 @@ impl RuntimeFeatureFlags {
             capabilities |= TargetCapabilityFlags::Adaptive;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicIndex) {
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+            capabilities |= TargetCapabilityFlags::StaticSizedArrays;
         }
         if self.contains(RuntimeFeatureFlags::ReturnWithinDynamicScope) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
@@ -756,7 +767,11 @@ impl RuntimeFeatureFlags {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicExponent) {
-            capabilities |= TargetCapabilityFlags::BackwardsBranching;
+            // capabilities |= TargetCapabilityFlags::BackwardsBranching;
+
+            // For now, we are mapping use of a dynamic exponent to higher level constructs
+            // until we support emiting the equivalent loop.
+            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicResult) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
@@ -769,6 +784,9 @@ impl RuntimeFeatureFlags {
         }
         if self.contains(RuntimeFeatureFlags::CallToCustomReset) {
             capabilities |= TargetCapabilityFlags::Adaptive;
+        }
+        if self.contains(RuntimeFeatureFlags::UseOfDynamicGeneric) {
+            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         capabilities
     }
