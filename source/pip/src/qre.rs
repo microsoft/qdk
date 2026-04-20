@@ -1632,6 +1632,7 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         NAME,
         LOSS,
         LOGICAL_CYCLE_TIME,
+        CODE_CYCLE_TIME,
     );
 
     m.add_submodule(&property_keys)?;

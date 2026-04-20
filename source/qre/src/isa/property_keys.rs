@@ -65,4 +65,5 @@ define_properties! {
     NAME,
     LOSS,
     LOGICAL_CYCLE_TIME,
+    CODE_CYCLE_TIME,
 }
