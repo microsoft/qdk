@@ -370,3 +370,4 @@ class TrotterExpansion:
     def __repr__(self) -> str:
         """Repr representation of the Trotter expansion."""
         return f"TrotterExpansion({self._trotter_step!r}, num_steps={self._num_steps})"
+
