@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ... import telemetry_events
 from .._qre import Trace
 from .._application import Application
 from ..interop import trace_from_qir
@@ -13,9 +14,10 @@ from ..interop import trace_from_qir
 
 @dataclass
 class QIRApplication(Application[None]):
-    """Application that produces a resource estimation trace from QIR code.
+    """Application that produces a resource estimation trace from base profile QIR code.
 
-    Accepts QIR input as LLVM IR text or bitcode.
+    Accepts QIR input as LLVM IR text or bitcode.  The QIR input must adhere to
+    the base profile.
 
     Attributes:
         input (str | bytes): QIR input as LLVM IR text (str) or
@@ -23,6 +25,10 @@ class QIRApplication(Application[None]):
     """
 
     input: str | bytes
+
+    def __post_init__(self):
+        """Log telemetry for QIRApplication creation."""
+        telemetry_events.on_qre_application_created("QIRApplication")
 
     def get_trace(self, parameters: None = None) -> Trace:
         """Return the resource estimation trace for the QIR program.

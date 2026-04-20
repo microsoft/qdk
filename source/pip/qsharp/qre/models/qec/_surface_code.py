@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 from dataclasses import KW_ONLY, dataclass, field
-from typing import Generator
+from typing import Generator, Optional
 from ..._instruction import (
     ISA,
     ISARequirements,
@@ -40,6 +40,13 @@ class SurfaceCode(ISATransform):
         two_qubit_gate_depth: int
             The depth of two-qubit gates in each syndrome extraction cycle.
             (Default is 4, see Fig. 2 in [arXiv:1009.3686](https://arxiv.org/abs/1009.3686))
+        code_cycle_override: Optional[int]
+            If provided, this value will be used as the time for each syndrome
+            extraction cycle instead of the default calculation based on gate
+            times and depths. (Default is None)
+        code_cycle_offset: int
+            An additional time offset to add to the syndrome extraction cycle
+            time. (Default is 0)
 
     Hyper parameters:
         distance: int
@@ -62,6 +69,8 @@ class SurfaceCode(ISATransform):
     error_correction_threshold: float = 0.01
     one_qubit_gate_depth: int = 1
     two_qubit_gate_depth: int = 4
+    code_cycle_override: Optional[int] = None
+    code_cycle_offset: int = 0
     _: KW_ONLY
     distance: int = field(default=3, metadata={"domain": range(3, 26, 2)})
 
@@ -107,9 +116,15 @@ class SurfaceCode(ISATransform):
             SURFACE_CODE_TWO_QUBIT_TIME_FACTOR, 1
         )
 
-        code_cycle_time = (
-            one_qubit_gate_depth * h_time + two_qubit_gate_depth * cnot_time + meas_time
-        )
+        if self.code_cycle_override is not None:
+            code_cycle_time = self.code_cycle_override
+        else:
+            code_cycle_time = (
+                one_qubit_gate_depth * h_time
+                + two_qubit_gate_depth * cnot_time
+                + meas_time
+            )
+        code_cycle_time += self.code_cycle_offset
         time_value = code_cycle_time * self.distance
 
         # See Eqs. (10) and (11) in arXiv:1208.0928
@@ -134,5 +149,6 @@ class SurfaceCode(ISATransform):
                 transform=self,
                 source=[cnot, h, meas_z],
                 distance=self.distance,
+                code_cycle_time=code_cycle_time,
             ),
         )

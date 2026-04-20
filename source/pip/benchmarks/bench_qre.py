@@ -5,7 +5,12 @@ import timeit
 from dataclasses import dataclass, KW_ONLY, field
 from qsharp.qre import linear_function, generic_function
 from qsharp.qre._architecture import _make_instruction
-from qsharp.qre.models import GateBased, SurfaceCode
+from qsharp.qre.models import (
+    GateBased,
+    SurfaceCode,
+    TwoDimensionalYokedSurfaceCode,
+    Litinski19Factory,
+)
 from qsharp.qre._enumeration import _enumerate_instances
 
 
@@ -32,19 +37,13 @@ def bench_enumerate_instances():
 
 
 def bench_enumerate_isas():
-    import os
-    import sys
-
-    # Add the tests directory to sys.path to import test_qre
-    # TODO: Remove this once the models in test_qre are moved to a proper module
-    sys.path.append(os.path.join(os.path.dirname(__file__), "../tests/qre/"))
-    from conftest import ExampleLogicalFactory, ExampleFactory  # type: ignore
-
     ctx = GateBased(gate_time=50, measurement_time=100).context()
 
     # Hierarchical factory using from_components
-    query = SurfaceCode.q() * ExampleLogicalFactory.q(
-        source=SurfaceCode.q() * ExampleFactory.q()
+    query = (
+        SurfaceCode.q()
+        * TwoDimensionalYokedSurfaceCode.q(source=SurfaceCode.q())
+        * Litinski19Factory.q()
     )
 
     number = 100

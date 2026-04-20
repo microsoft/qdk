@@ -4,8 +4,14 @@
 # pyright: reportPrivateImportUsage=false
 
 from collections.abc import Sequence
-from typing import Iterator, Optional
+from typing import Optional
 
+from ..utilities import (
+    Hyperedge,
+    Hypergraph,
+    HypergraphEdgeColoring,
+    PauliString,
+)
 
 """Base Model class for quantum spin models.
 
@@ -13,13 +19,6 @@ This module provides the base class for representing quantum spin models
 as Hamiltonians. The Model class integrates with hypergraph geometries
 to define interaction topologies and stores coefficients for each edge.
 """
-
-from qsharp.magnets.utilities import (
-    Hyperedge,
-    Hypergraph,
-    HypergraphEdgeColoring,
-    PauliString,
-)
 
 
 class Model:

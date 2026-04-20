@@ -115,5 +115,6 @@ class ThreeAux(ISATransform):
                 transform=self,
                 source=[meas_x, meas_z, meas_xx, meas_zz],
                 distance=self.distance,
+                code_cycle_time=gate_time * depth * self.distance,
             )
         )

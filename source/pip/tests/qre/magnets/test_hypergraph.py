@@ -5,7 +5,7 @@
 
 import pytest
 
-from qsharp.magnets.utilities import (
+from qsharp.qre.application.magnets import (
     Hyperedge,
     Hypergraph,
     HypergraphEdgeColoring,
@@ -146,7 +146,7 @@ def test_hypergraph_edge_coloring_rejects_non_hyperedge():
     coloring = HypergraphEdgeColoring(graph)
 
     with pytest.raises(TypeError, match="edge must be Hyperedge"):
-        coloring.add_edge((0, 1), 0)
+        coloring.add_edge((0, 1), 0)  # type: ignore
 
 
 def test_hypergraph_edge_coloring_rejects_edge_not_in_hypergraph():

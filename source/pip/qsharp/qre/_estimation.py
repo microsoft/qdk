@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import cast, Optional, Any
 
-
+from .. import telemetry_events
 from ._application import Application
 from ._architecture import Architecture
 from ._qre import (
@@ -79,6 +79,8 @@ def estimate(
     Returns:
         EstimationTable: A table containing the optimal estimation results.
     """
+
+    telemetry_events.on_qre_estimate(post_process=post_process, use_graph=use_graph)
 
     app_ctx = application.context()
     arch_ctx = architecture.context()

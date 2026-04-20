@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from ... import code
+from ... import telemetry_events
 from ...estimator import LogicalCounts
 from .._qre import Trace
 from .._application import Application
@@ -30,6 +31,10 @@ class OpenQASMApplication(Application[None]):
 
     program: str | Callable | LogicalCounts
     args: tuple = ()
+
+    def __post_init__(self):
+        """Log telemetry for OpenQASMApplication creation."""
+        telemetry_events.on_qre_application_created("OpenQASMApplication")
 
     def get_trace(self, parameters: None = None) -> Trace:
         """Return the resource estimation trace for the OpenQASM program.

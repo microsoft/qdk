@@ -13,8 +13,8 @@ This module provides:
 
 from collections.abc import Callable
 from typing import Iterator, Optional
-from qsharp.magnets.models import Model
-from qsharp.magnets.utilities import PauliString
+from ..models import Model
+from ..utilities import PauliString
 
 import math
 
