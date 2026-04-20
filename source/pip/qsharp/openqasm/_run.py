@@ -73,12 +73,12 @@ def run(
         - ``search_path`` (str): The optional search path for resolving file references.
         - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
         - ``seed`` (int): The seed to use for the random number generator.
-    :return: A list of results or runtime errors. If ``save_events`` is true, a list of ShotResults is returned.
+    :return: A list of results or runtime errors. If ``save_events`` is true, a list of ``ShotResult`` values is returned.
     :rtype: List[Any]
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
     :raises QSharpError: If there is an error interpreting the input.
     :raises ValueError: If the number of shots is less than 1.
-    :raises ValueError: If ``on_result`` or ``save_events`` are used when running OpenQASM programs.
+    :raises QasmError: If ``on_result`` or ``save_events`` are used when running OpenQASM programs.
     """
 
     ipython_helper()

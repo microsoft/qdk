@@ -258,8 +258,8 @@ class Interpreter:
         :param entry_expr: An entry expression.
 
         :keyword operation: The operation to synthesize. This can be a name of
-        an operation of a lambda expression. The operation must take only
-        qubits or arrays of qubits as parameters.
+            an operation of a lambda expression. The operation must take only
+            qubits or arrays of qubits as parameters.
 
         :keyword callable: The callable to synthesize the circuit for, if no entry expression is provided.
 
