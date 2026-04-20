@@ -50,7 +50,7 @@ def run(
 
     :param source: An OpenQASM program. Alternatively, a callable can be provided,
         which must be an already imported global callable.
-    :type source: str
+    :type source: str or Callable
     :param shots: The number of shots to run. Defaults to ``1024``.
     :type shots: int
     :param *args: The arguments to pass to the callable, if one is provided.

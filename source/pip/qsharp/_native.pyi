@@ -485,8 +485,6 @@ class Circuit:
     A quantum circuit diagram generated from a Q# or OpenQASM program.
 
     Returned by :func:`qsharp.circuit` and :func:`qsharp.dump_circuit`.
-    Use :meth:`json` to obtain a JSON representation suitable for rendering
-    with the Q# circuit widget.
     """
 
     def json(self) -> str: ...

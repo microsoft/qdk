@@ -31,7 +31,7 @@ def estimate(
 
     :param source: An OpenQASM program. Alternatively, a callable can be provided,
         which must be an already imported global callable.
-    :type source: str
+    :type source: str or Callable
     :param params: The parameters to configure estimation.
     :type params: Dict, List, or EstimatorParams
     :param *args: The arguments to pass to the callable, if one is provided.

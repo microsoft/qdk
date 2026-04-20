@@ -31,7 +31,7 @@ def compile(
 
     :param source: An OpenQASM program. Alternatively, a callable can be provided,
         which must be an already imported global callable.
-    :type source: str
+    :type source: str or Callable
     :param *args: The arguments to pass to the callable, if one is provided.
     :param **kwargs: Additional keyword arguments for compiling the source program. Common options:
 

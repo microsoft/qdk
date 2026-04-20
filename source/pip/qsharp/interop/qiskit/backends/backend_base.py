@@ -113,7 +113,7 @@ class BackendBase(BackendV2, ABC):
         transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
         skip_transpilation: bool = False,
-        **fields,
+        **options,
     ):
         """
         :param target: The target to use for the backend.
@@ -128,18 +128,18 @@ class BackendBase(BackendV2, ABC):
             backend_version="0.0.1",
         )
 
-        if fields is not None:
+        if options is not None:
             # we need to rename the seed_simulator to seed. This
             # is a convenience for aer users.
             # if the user passes in seed_simulator, we will rename it to seed
             # but only if the seed field is defined in the backend options.
-            if "seed_simulator" in fields and "seed" in self._options.data:
+            if "seed_simulator" in options and "seed" in self._options.data:
                 warn("seed_simulator passed, but field is called seed.")
-                fields["seed"] = fields.pop("seed_simulator")
+                options["seed"] = options.pop("seed_simulator")
 
             # updates the options with the fields passed in, if the backend
             # doesn't have the field, it will raise an error.
-            self.set_options(**fields)
+            self.set_options(**options)
 
         self._qiskit_pass_options = Options(
             supports_barrier=False,
