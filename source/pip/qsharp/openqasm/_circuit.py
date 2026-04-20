@@ -27,27 +27,44 @@ def circuit(
 
     :param source: An OpenQASM program. Alternatively, a callable can be provided,
         which must be an already imported global callable.
-    :type source: str
-    :param *args: The arguments to pass to the callable, if one is provided.
-    :param generation_method: The method to use for circuit generation.
-        ``CircuitGenerationMethod.ClassicalEval`` evaluates classical control flow at circuit
-        generation time. ``CircuitGenerationMethod.Simulate`` runs a full simulation to trace
-        the circuit. ``CircuitGenerationMethod.Static`` uses partial evaluation and requires
-        a non-``Unrestricted`` target profile. Defaults to ``None`` (auto-selected).
-    :param max_operations: The maximum number of operations to include in the circuit.
-        Defaults to ``None`` (no limit).
-    :param source_locations: If ``True``, annotates each gate with its source location.
-        Defaults to ``False``.
-    :param group_by_scope: If ``True``, groups operations by their Q# scope.
-        Defaults to ``True``.
-    :param prune_classical_qubits: If ``True``, removes qubits that are never used in a quantum
-        gate. Defaults to ``False``.
-    :param **kwargs: Additional keyword arguments. Common options:
+    :type source: str or Callable
 
-        - ``name`` (str): The name of the program. This is used as the entry point for the program.
-        - ``search_path`` (str): The optional search path for resolving file references.
+    :param *args: The arguments to pass to the callable, if one is provided.
+
+    :keyword generation_method: The method to use for circuit generation.
+        :attr:`~qsharp.CircuitGenerationMethod.ClassicalEval` evaluates classical
+        control flow at circuit generation time.
+        :attr:`~qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
+        trace the circuit.
+        :attr:`~qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
+        requires a non-``Unrestricted`` target profile. Defaults to ``None`` which
+        auto-selects the generation method.
+    :kwtype generation_method: :class:`~qsharp.CircuitGenerationMethod`
+
+    :keyword max_operations: The maximum number of operations to include in the circuit.
+        Defaults to ``None`` which means no limit.
+    :kwtype max_operations: int
+
+    :keyword source_locations: If ``True``, annotates each gate with its source location.
+        Defaults to ``False``.
+    :kwtype source_locations: bool
+
+    :keyword group_by_scope: If ``True``, groups operations by their containing scope, such as function declarations or loop blocks.
+        Defaults to ``True``.
+    :kwtype group_by_scope: bool
+
+    :keyword prune_classical_qubits: If ``True``, removes qubits that are never used in a quantum
+        gate (e.g. qubits only used as classical controls). Defaults to ``False``.
+    :kwtype prune_classical_qubits: bool
+
+    :keyword name: The name of the program. This is used as the entry point for the program.
+    :kwtype name: str
+
+    :keyword search_path: The optional search path for resolving file references.
+    :kwtype search_path: str
+
     :return: The synthesized circuit.
-    :rtype: Circuit
+    :rtype: :class:`~qsharp._native.Circuit`
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
     :raises QSharpError: If there is an error evaluating or synthesizing the circuit.
     """

@@ -310,6 +310,12 @@ def init(
 
     :keyword language_features: An optional list of language feature flags to enable.
         These correspond to experimental or preview Q# language features.
+        Valid values are:
+
+        - ``"v2-preview-syntax"``: Enables Q# v2 preview syntax. This removes support for
+          the scoped qubit allocation block form (``use q = Qubit() { ... }``), requiring
+          the statement form instead (``use q = Qubit();``). It also removes the requirement
+          to use the ``set`` keyword for mutable variable assignments.
 
     :keyword trace_circuit: Enables tracing of circuit during execution.
         Passing `True` is required for the `dump_circuit` function to return a circuit.
@@ -965,33 +971,41 @@ def circuit(
 
     :param entry_expr: An entry expression. Alternatively, a callable can be provided,
         which must be a Q# callable.
+    :type entry_expr: str or Callable
 
     :param *args: The arguments to pass to the callable, if one is provided.
 
-    :param operation: The operation to synthesize. This can be a name of
-    an operation of a lambda expression. The operation must take only
-    qubits or arrays of qubits as parameters.
+    :keyword operation: The operation to synthesize. This can be a name of
+        an operation or a lambda expression. The operation must take only
+        qubits or arrays of qubits as parameters.
+    :kwtype operation: str
 
-    :param generation_method: The method to use for circuit generation.
-        ``CircuitGenerationMethod.ClassicalEval`` evaluates classical control flow at circuit
-        generation time. ``CircuitGenerationMethod.Simulate`` runs a full simulation to trace
-        the circuit. ``CircuitGenerationMethod.Static`` uses partial evaluation and requires
-        a non-``Unrestricted`` target profile. Defaults to ``None`` (auto-selected).
+    :keyword generation_method: The method to use for circuit generation.
+        :attr:`~qsharp.CircuitGenerationMethod.ClassicalEval` evaluates classical
+        control flow at circuit generation time.
+        :attr:`~qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
+        trace the circuit.
+        :attr:`~qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
+        requires a non-``Unrestricted`` target profile. Defaults to ``None`` which
+        auto-selects the generation method.
+    :kwtype generation_method: :class:`~qsharp.CircuitGenerationMethod`
 
-    :param max_operations: The maximum number of operations to include in the circuit.
-        Defaults to ``None`` (no limit).
+    :keyword max_operations: The maximum number of operations to include in the circuit.
+        Defaults to ``None`` which means no limit.
+    :kwtype max_operations: int
 
-    :param source_locations: If ``True``, annotates each gate with its source location.
-        Defaults to ``False``.
+    :keyword source_locations: If ``True``, annotates each gate with its source location.
+    :kwtype source_locations: bool
 
-    :param group_by_scope: If ``True``, groups operations by their Q# scope (e.g. operation body).
-        Defaults to ``True``.
+    :keyword group_by_scope: If ``True``, groups operations by their containing scope, such as function declarations or loop blocks.
+    :kwtype group_by_scope: bool
 
-    :param prune_classical_qubits: If ``True``, removes qubits that are never used in a quantum
-        gate (e.g. qubits only used as classical controls). Defaults to ``False``.
+    :keyword prune_classical_qubits: If ``True``, removes qubits that are never used in a quantum
+        gate (e.g. qubits only used as classical controls).
+    :kwtype prune_classical_qubits: bool
 
     :return: The synthesized circuit.
-    :rtype: Circuit
+    :rtype: :class:`~qsharp._native.Circuit`
     :raises QSharpError: If there is an error synthesizing the circuit.
     """
     ipython_helper()
