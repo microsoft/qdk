@@ -143,10 +143,11 @@ def ipython_helper():
 
 
 class Config:
-    _config: Dict[str, Any]
     """
     Configuration hints for the language service.
     """
+
+    _config: Dict[str, Any]
 
     def __init__(
         self,
@@ -205,6 +206,19 @@ class PauliNoise(Tuple[float, float, float]):
     """
 
     def __new__(cls, x: float, y: float, z: float):
+        """
+        Creates a new :class:`PauliNoise` instance with the given error probabilities.
+
+        :param x: Probability of a Pauli-X (bit flip) error. Must be non-negative.
+        :type x: float
+        :param y: Probability of a Pauli-Y error. Must be non-negative.
+        :type y: float
+        :param z: Probability of a Pauli-Z (phase flip) error. Must be non-negative.
+        :type z: float
+        :return: A new :class:`PauliNoise` tuple ``(x, y, z)``.
+        :rtype: PauliNoise
+        :raises ValueError: If any probability is negative or if ``x + y + z > 1``.
+        """
         if x < 0 or y < 0 or z < 0:
             raise ValueError("Pauli noise probabilities must be non-negative.")
         if x + y + z > 1:
@@ -218,6 +232,18 @@ class DepolarizingNoise(PauliNoise):
     """
 
     def __new__(cls, p: float):
+        """
+        Creates a new :class:`DepolarizingNoise` instance.
+
+        The depolarizing channel applies Pauli-X, Pauli-Y, or Pauli-Z errors each with
+        probability ``p / 3``.
+
+        :param p: Total depolarizing error probability. Must satisfy ``0 ≤ p ≤ 1``.
+        :type p: float
+        :return: A new :class:`DepolarizingNoise` with equal X, Y, and Z error probabilities.
+        :rtype: DepolarizingNoise
+        :raises ValueError: If ``p`` is negative or ``p > 1``.
+        """
         return super().__new__(cls, p / 3, p / 3, p / 3)
 
 
@@ -227,6 +253,17 @@ class BitFlipNoise(PauliNoise):
     """
 
     def __new__(cls, p: float):
+        """
+        Creates a new :class:`BitFlipNoise` instance.
+
+        The bit flip channel applies a Pauli-X error with probability ``p``.
+
+        :param p: Probability of a bit flip (Pauli-X) error. Must satisfy ``0 ≤ p ≤ 1``.
+        :type p: float
+        :return: A new :class:`BitFlipNoise` with X error probability ``p``.
+        :rtype: BitFlipNoise
+        :raises ValueError: If ``p`` is negative or ``p > 1``.
+        """
         return super().__new__(cls, p, 0, 0)
 
 
@@ -236,6 +273,17 @@ class PhaseFlipNoise(PauliNoise):
     """
 
     def __new__(cls, p: float):
+        """
+        Creates a new :class:`PhaseFlipNoise` instance.
+
+        The phase flip channel applies a Pauli-Z error with probability ``p``.
+
+        :param p: Probability of a phase flip (Pauli-Z) error. Must satisfy ``0 ≤ p ≤ 1``.
+        :type p: float
+        :return: A new :class:`PhaseFlipNoise` with Z error probability ``p``.
+        :rtype: PhaseFlipNoise
+        :raises ValueError: If ``p`` is negative or ``p > 1``.
+        """
         return super().__new__(cls, 0, 0, p)
 
 
@@ -250,19 +298,30 @@ def init(
     """
     Initializes the Q# interpreter.
 
-    :param target_profile: Setting the target profile allows the Q#
+    :keyword target_profile: Setting the target profile allows the Q#
         interpreter to generate programs that are compatible
-        with a specific target. See :py:class: `qsharp.TargetProfile`.
+        with a specific target. See :class:`TargetProfile`.
 
-    :param target_name: An optional name of the target machine to use for inferring the compatible
+    :keyword target_name: An optional name of the target machine to use for inferring the compatible
         target_profile setting.
 
-    :param project_root: An optional path to a root directory with a Q# project to include.
+    :keyword project_root: An optional path to a root directory with a Q# project to include.
         It must contain a qsharp.json project manifest.
 
-    :param trace_circuit: Enables tracing of circuit during execution.
+    :keyword language_features: An optional list of language feature flags to enable.
+        These correspond to experimental or preview Q# language features.
+        Valid values are:
+
+        - ``"v2-preview-syntax"``: Enables Q# v2 preview syntax. This removes support for
+          the scoped qubit allocation block form (``use q = Qubit() { ... }``), requiring
+          the statement form instead (``use q = Qubit();``). It also removes the requirement
+          to use the ``set`` keyword for mutable variable assignments.
+
+    :keyword trace_circuit: Enables tracing of circuit during execution.
         Passing `True` is required for the `dump_circuit` function to return a circuit.
         The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
+    :return: The Q# interpreter configuration.
+    :rtype: Config
     """
     from ._fs import read_file, list_directory, exists, join, resolve
     from ._http import fetch_github
@@ -342,7 +401,8 @@ def get_interpreter() -> Interpreter:
     """
     Returns the Q# interpreter.
 
-    :returns: The Q# interpreter.
+    :return: The Q# interpreter.
+    :rtype: Interpreter
     """
     global _interpreter
     if _interpreter is None:
@@ -355,7 +415,8 @@ def get_config() -> Config:
     """
     Returns the Q# interpreter configuration.
 
-    :returns: The Q# interpreter configuration.
+    :return: The Q# interpreter configuration.
+    :rtype: Config
     """
     global _config
     if _config is None:
@@ -410,6 +471,8 @@ class StateDump:
         :param state: The state to check against, provided either as a dictionary of state indices to complex amplitudes,
             or as a list of real amplitudes.
         :param tolerance: The tolerance for the check. Defaults to 1e-10.
+        :return: ``True`` if the state dump is equal to the given state within the given tolerance, ignoring global phase.
+        :rtype: bool
         """
         phase = None
         # Convert a dense list of real amplitudes to a dictionary of state indices to complex amplitudes
@@ -436,6 +499,9 @@ class StateDump:
     def as_dense_state(self) -> List[complex]:
         """
         Returns the state dump as a dense list of complex amplitudes. This will include zero amplitudes.
+
+        :return: A dense list of complex amplitudes, one per computational basis state.
+        :rtype: List[complex]
         """
         return [self.__inner.get(i, complex(0)) for i in range(2**self.qubit_count)]
 
@@ -463,8 +529,9 @@ def eval(
     Output is printed to console.
 
     :param source: The Q# source code to evaluate.
-    :param save_events: If true, all output will be saved and returned. If false, they will be printed.
-    :returns value: The value returned by the last statement in the source code or the saved output if `save_events` is true.
+    :keyword save_events: If true, all output will be saved and returned. If false, they will be printed.
+    :return: The value returned by the last statement in the source code, or the saved output if ``save_events`` is true.
+    :rtype: Any
     :raises QSharpError: If there is an error evaluating the source code.
     """
     ipython_helper()
@@ -726,9 +793,8 @@ def run(
     :param qubit_loss: The probability of qubit loss in simulation.
     :param seed: The seed to use for the random number generator in simulation, if any.
 
-    :returns values: A list of results or runtime errors. If `save_events` is true,
-    a List of ShotResults is returned.
-
+    :return: A list of results or runtime errors. If ``save_events`` is true, a list of ``ShotResult`` is returned.
+    :rtype: List[Any]
     :raises QSharpError: If there is an error interpreting the input.
     :raises ValueError: If the number of shots is less than 1.
     """
@@ -857,10 +923,10 @@ def compile(
     :param entry_expr: The Q# expression that will be used as the entrypoint
         for the program. Alternatively, a callable can be provided, which must
         be a Q# callable.
+    :param *args: The arguments to pass to the callable, if one is provided.
 
-    :returns QirInputData: The compiled program.
-
-    To get the QIR string from the compiled program, use `str()`.
+    :return: The compiled program. Use ``str()`` to get the QIR string.
+    :rtype: QirInputData
 
     Example:
 
@@ -905,13 +971,41 @@ def circuit(
 
     :param entry_expr: An entry expression. Alternatively, a callable can be provided,
         which must be a Q# callable.
+    :type entry_expr: str or Callable
 
     :param *args: The arguments to pass to the callable, if one is provided.
 
-    :param operation: The operation to synthesize. This can be a name of
-    an operation of a lambda expression. The operation must take only
-    qubits or arrays of qubits as parameters.
+    :keyword operation: The operation to synthesize. This can be a name of
+        an operation or a lambda expression. The operation must take only
+        qubits or arrays of qubits as parameters.
+    :kwtype operation: str
 
+    :keyword generation_method: The method to use for circuit generation.
+        :attr:`~qsharp.CircuitGenerationMethod.ClassicalEval` evaluates classical
+        control flow at circuit generation time.
+        :attr:`~qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
+        trace the circuit.
+        :attr:`~qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
+        requires a non-``Unrestricted`` target profile. Defaults to ``None`` which
+        auto-selects the generation method.
+    :kwtype generation_method: :class:`~qsharp.CircuitGenerationMethod`
+
+    :keyword max_operations: The maximum number of operations to include in the circuit.
+        Defaults to ``None`` which means no limit.
+    :kwtype max_operations: int
+
+    :keyword source_locations: If ``True``, annotates each gate with its source location.
+    :kwtype source_locations: bool
+
+    :keyword group_by_scope: If ``True``, groups operations by their containing scope, such as function declarations or loop blocks.
+    :kwtype group_by_scope: bool
+
+    :keyword prune_classical_qubits: If ``True``, removes qubits that are never used in a quantum
+        gate (e.g. qubits only used as classical controls).
+    :kwtype prune_classical_qubits: bool
+
+    :return: The synthesized circuit.
+    :rtype: :class:`~qsharp._native.Circuit`
     :raises QSharpError: If there is an error synthesizing the circuit.
     """
     ipython_helper()
@@ -956,7 +1050,8 @@ def estimate(
         which must be a Q# callable.
     :param params: The parameters to configure physical estimation.
 
-    :returns `EstimatorResult`: The estimated resources.
+    :return: The estimated resources.
+    :rtype: EstimatorResult
     """
 
     ipython_helper()
@@ -1015,7 +1110,8 @@ def logical_counts(
     :param entry_expr: The entry expression. Alternatively, a callable can be provided,
         which must be a Q# callable.
 
-    :returns `LogicalCounts`: Program resources in terms of logical gate counts.
+    :return: Program resources in terms of logical gate counts.
+    :rtype: LogicalCounts
     """
 
     ipython_helper()
@@ -1061,7 +1157,8 @@ def dump_machine() -> StateDump:
     """
     Returns the sparse state vector of the simulator as a StateDump object.
 
-    :returns: The state of the simulator.
+    :return: The state of the simulator.
+    :rtype: StateDump
     """
     ipython_helper()
     return StateDump(get_interpreter().dump_machine())
@@ -1075,6 +1172,10 @@ def dump_circuit() -> Circuit:
     in the simulator up to the current point.
 
     Requires the interpreter to be initialized with `trace_circuit=True`.
+
+    :return: The current circuit trace.
+    :rtype: Circuit
+    :raises QSharpError: If the interpreter was not initialized with ``trace_circuit=True``.
     """
     ipython_helper()
     return get_interpreter().dump_circuit()

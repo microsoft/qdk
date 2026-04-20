@@ -26,16 +26,14 @@ class NeutralAtomCirqResult(cirq.ResultDict):
     which one or more qubits were lost during the simulation are excluded from
     ``measurements`` but are preserved in ``raw_shots``.
 
-    Attributes:
-        raw_shots: The full list of simulation results, one entry per shot,
-            in the native simulator output format (tuple, list, or scalar).
-            This includes shots that contain qubit-loss markers.
+    The ``raw_shots`` attribute holds the full list of simulation results, one
+    entry per shot, in the native simulator output format (tuple, list, or
+    scalar). This includes shots that contain qubit-loss markers.
 
-    Methods:
-        raw_measurements(): Return the full per-shot data (including loss markers)
-            in the same ``{key: 2D-array (shots x bits)}`` format as
-            ``measurements``, but with Unicode string dtype so that non-binary
-            markers are preserved.
+    Use :meth:`raw_measurements` to retrieve the full per-shot data (including
+    loss markers) in the same ``{key: 2D-array (shots x bits)}`` format as
+    ``measurements``, but with Unicode string dtype so that non-binary markers
+    are preserved.
     """
 
     __slots__ = ("raw_shots", "_measurement_dict_data", "_raw_measurements_cache")
@@ -119,12 +117,10 @@ def measurement_dict(circuit: cirq.Circuit) -> Dict[str, List[int]]:
     Qubit indices are determined by ``sorted(circuit.all_qubits())``, matching
     the ordering that Cirq's ``to_qasm()`` uses when it numbers the qubits.
 
-    Args:
-        circuit: The Cirq circuit to introspect.
-
-    Returns:
-        An ordered dict mapping each measurement key to the list of global qubit
+    :param circuit: The Cirq circuit to introspect.
+    :return: An ordered dict mapping each measurement key to the list of global qubit
         indices that key covers, in the order they are measured.
+    :rtype: Dict[str, List[int]]
     """
     ordered_qubits = sorted(circuit.all_qubits())
     index_by_qubit = {q: i for i, q in enumerate(ordered_qubits)}
@@ -188,12 +184,10 @@ def _qir_display_to_bitstring(obj: Any) -> str:
 def _split_registers(bitstring: str, key_lengths: List[int]) -> List[str]:
     """Split a flat or space-delimited bitstring into per-register chunks.
 
-    Args:
-        bitstring: The raw bitstring, possibly containing spaces between registers.
-        key_lengths: The expected width of each register, in order.
-
-    Returns:
-        A list of register strings, one per key.
+    :param bitstring: The raw bitstring, possibly containing spaces between registers.
+    :param key_lengths: The expected width of each register, in order.
+    :return: A list of register strings, one per key.
+    :rtype: List[str]
     """
     raw = str(bitstring).strip()
 
@@ -229,13 +223,11 @@ def _shots_to_rows(
     Shots where any qubit returned a non-binary value (loss marker) are silently
     dropped. Only ``{0, 1}`` shots contribute to the returned arrays.
 
-    Args:
-        shots: Raw simulation output, one entry per shot.
-        measurement_dict_data: ``{key: [qubit_indices]}`` - the measurement
-            register layout. Defaults to a single key ``"m"`` with no qubits.
-
-    Returns:
-        ``{key: list_of_rows}`` where each row is a list of 0/1 integers.
+    :param shots: Raw simulation output, one entry per shot.
+    :param measurement_dict_data: ``{key: [qubit_indices]}`` — the measurement
+        register layout. Defaults to a single key ``"m"`` with no qubits.
+    :return: ``{key: list_of_rows}`` where each row is a list of 0/1 integers.
+    :rtype: Dict[str, List[List[int]]]
     """
     if measurement_dict_data is None:
         measurement_dict_data = {"m": []}
@@ -286,16 +278,14 @@ def to_cirq_result(
 ) -> NeutralAtomCirqResult:
     """Build a :class:`NeutralAtomCirqResult` from raw simulation output.
 
-    Args:
-        raw_shots: The raw per-shot results from ``NeutralAtomDevice.simulate()``.
-        meas_dict: ``{key: [qubit_indices]}`` as returned by :func:`measurement_dict`.
-        param_resolver: Cirq parameter resolver for the circuit. Defaults to the
-            empty resolver.
-
-    Returns:
-        A ``NeutralAtomCirqResult`` whose ``measurements`` field contains only
+    :param raw_shots: The raw per-shot results from ``NeutralAtomDevice.simulate()``.
+    :param meas_dict: ``{key: [qubit_indices]}`` as returned by :func:`measurement_dict`.
+    :param param_resolver: Cirq parameter resolver for the circuit. Defaults to the
+        empty resolver.
+    :return: A :class:`NeutralAtomCirqResult` whose ``measurements`` field contains only
         loss-free shots, and whose ``raw_shots`` / ``raw_measurements()`` retain
         all shots including those with loss markers.
+    :rtype: NeutralAtomCirqResult
     """
     if param_resolver is None:
         param_resolver = cirq.ParamResolver({})

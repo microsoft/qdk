@@ -147,13 +147,11 @@ class MoveGroup:
     """
     Represents a group of moves that can be done at the same time.
 
-    Attributes:
-        moves (set): A set of moves that can be performed in parallel.
-        scale_factor (Optional[tuple[Fraction, Fraction]]): A tuple of fractions
-            representing the scale factors in the row and col axes between
-            moves. `None`, if there is a single element in the move set.
-        ref_move (Move): A move used as a representative of the group, used
-            to test compatibility of other moves with the group.
+    ``moves`` is the set of moves that can be performed in parallel.
+    ``scale_factor`` is a tuple of fractions representing the scale factors in the
+    row and col axes between moves, or ``None`` if there is a single element in the set.
+    ``ref_move`` is a move used as a representative of the group to test compatibility
+    of other moves.
     """
 
     __slots__ = ("moves", "scale_factor", "ref_move")
@@ -170,8 +168,7 @@ class MoveGroup:
         """
         Adds a move to this move group.
 
-        Args:
-            move (Move): The move to add.
+        :param move: The move to add.
         """
 
         # A move group with a single move doesn't have an associated scale factor.
@@ -193,23 +190,17 @@ class MoveGroupPool:
     """A data structure that takes individual moves as input and organizes them
     into groups of moves that can be executed in parallel.
 
-    Attributes:
-        moves: A set containing all the moves in the move-group pool.
-        move_group_candidates: A dict organizing the move-group candidates
-            by scale factor.
-        parity: The parity of source and destination columns of all the moves
-            in this pool.
-        direction: The up/down and left/right direction of all the moves
-            in this pool.
+    ``moves`` contains all moves in the pool. ``move_group_candidates`` is a dict
+    organizing the move-group candidates by scale factor. ``parity`` is the parity
+    of source and destination columns of all moves in the pool. ``direction`` is the
+    up/down and left/right direction of all moves in the pool.
     """
 
     def __init__(self):
-        """Initializes a move-group pool for moves of the given `parity` and `direction`.
-        Args:
-            parity: The parity of source and destination columns of all the moves
-                in this pool.
-            direction: The up/down and left/right direction of all the moves
-                in this pool.
+        """Initializes a move-group pool for moves of the given ``parity`` and ``direction``.
+
+        :param parity: The parity of source and destination columns of all the moves in this pool.
+        :param direction: The up/down and left/right direction of all the moves in this pool.
         """
         self.moves: Optional[list[Move]] = []
         self.move_group_candidates: dict[MoveGroupScaleFactor, list[MoveGroup]] = (
@@ -235,9 +226,9 @@ class MoveGroupPool:
 
     def add(self, move: Move):
         """Adds a move to the move-group pool.
-        Args:
-            move: The move to add. It must be of the same parity and direction as
-                the rest of the moves in this pool.
+
+        :param move: The move to add. It must be of the same parity and direction as
+            the rest of the moves in this pool.
         """
         assert self.moves is not None
 
@@ -285,9 +276,9 @@ class MoveGroupPool:
         self.moves.append(move)
 
     def try_take(self, number_of_moves: int) -> list[Move]:
-        """Take up to `number_of_moves` from the largest move group candidate.
-        Args:
-            number_of_moves: The number of moves to take from this pool.
+        """Take up to ``number_of_moves`` from the largest move group candidate.
+
+        :param number_of_moves: The number of moves to take from this pool.
         """
         # Once we start taking moves from the MoveGroupPool, we don't need to add
         # new moves. So we set `self.moves` to `None` as a safety measure.
@@ -352,12 +343,10 @@ class MoveScheduler:
     target zone and builds an iterator that returns groups of moves
     that can be executed in parallel.
 
-    Attributes:
-        device: An object containing information about the device.
-        zone: The zone the moves will be scheduled to.
-        available_dst_locations: The available destinations in the `zone`.
-        partial_moves: The moves that haven't been assigned a destination location.
-        disjoint_pools: A list containing one pool of move-groups for each parity and direction.
+    ``device`` contains information about the device. ``zone`` is the target zone.
+    ``available_dst_locations`` holds the available destinations in the zone.
+    ``partial_moves`` are moves not yet assigned a destination. ``disjoint_pools``
+    is a list containing one pool of move-groups for each parity and direction.
     """
 
     def __init__(
@@ -368,10 +357,10 @@ class MoveScheduler:
     ):
         """Initializes the move scheduler from a device, a target zone,
         and a list of qubits to move to that target zone.
-        Args:
-            device: An object containing information about the device.
-            zone: The zone the moves will be scheduled to.
-            qubits_to_move: A list of qubits to move.
+
+        :param device: An object containing information about the device.
+        :param zone: The zone the moves will be scheduled to.
+        :param qubits_to_move: A list of qubits to move.
         """
         self.device = device
         self.zone = zone

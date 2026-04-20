@@ -24,10 +24,11 @@ class Operation:
         """
         Construct an operation from a list of Kraus operators.
         Matrices must be of dimension 2^k x 2^k, where k is an integer.
-        Raises a `NoisySimulatorError` if the Kraus matrices are ill formed.
 
-        Input:
-            kraus_operators: List[List[List[complex]]], can be a Python list or a numpy array.
+        :param kraus_operators: List of Kraus operators. Each operator is a 2D matrix stored as
+            a list of lists of complex numbers, or a numpy array.
+        :type kraus_operators: List[List[List[complex]]]
+        :raises NoisySimulatorError: If the Kraus matrices are ill formed.
         """
         ...
 

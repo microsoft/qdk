@@ -696,20 +696,18 @@ def run_qir(
     """
     Simulate the given QIR source.
 
-    Args:
-        input: The QIR source to simulate.
-        type: The type of simulator to use.
-            Use `"clifford"` if your QIR only contains Clifford gates and measurements.
-            Use `"gpu"` if you have a GPU available in your system.
-            Use `"cpu"` as a fallback option if you don't have a GPU in your system.
-            If `None` (default), the GPU simulator will be tried first, falling back to
-            CPU if a suitable GPU device could not be located.
-        shots: The number of shots to run.
-        noise: A noise model to use in the simulation.
-        seed: A seed for reproducibility.
-
-    Returns:
-        A list of measurement results, in the order they happened during the simulation.
+    :param input: The QIR source to simulate.
+    :param type: The type of simulator to use.
+        Use ``"clifford"`` if your QIR only contains Clifford gates and measurements.
+        Use ``"gpu"`` if you have a GPU available in your system.
+        Use ``"cpu"`` as a fallback option if you don't have a GPU in your system.
+        If ``None`` (default), the GPU simulator will be tried first, falling back to
+        CPU if a suitable GPU device could not be located.
+    :param shots: The number of shots to run.
+    :param noise: A noise model to use in the simulation.
+    :param seed: A seed for reproducibility.
+    :return: A list of measurement results, in the order they happened during the simulation.
+    :rtype: List
     """
     if type is None:
         try:
