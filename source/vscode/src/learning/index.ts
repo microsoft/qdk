@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 import { resolve } from "node:path";
+import { existsSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { KatasServer, LLMAIProvider, NoOpAIProvider } from "./server/index.js";
 import { runApp } from "./tui/index.js";
@@ -72,6 +73,18 @@ if ([useWeb, useMcpStdio, useMcpHttp].filter(Boolean).length > 1) {
 const port = parseInt(values.port ?? "3000", 10);
 // In MCP mode we defer initialization until the agent calls `set_workspace` —
 // so the raw CLI values are handed through without resolving a default.
+// Exception: if `--workspace` was explicitly provided AND that directory
+// already contains a `quantum-katas/` subfolder, the host has clearly
+// auto-discovered an existing workspace and we eagerly initialize below
+// to skip the chat-side `set_workspace` round trip.
+const explicitWorkspace =
+  useMcp && values.workspace && values.workspace !== "."
+    ? resolve(values.workspace)
+    : undefined;
+const eagerMcpWorkspace =
+  explicitWorkspace && existsSync(resolve(explicitWorkspace, "quantum-katas"))
+    ? explicitWorkspace
+    : undefined;
 const workspacePath = useMcp ? undefined : resolve(values.workspace ?? ".");
 const kataIds = (values.katas ?? []) as string[];
 
@@ -113,11 +126,23 @@ const server = new KatasServer();
 try {
   if (useMcpStdio) {
     // Stdout is the MCP wire — absolutely no console.log here.
-    // KatasServer is NOT initialized yet; the agent must call `set_workspace`
-    // first, which will elicit user confirmation before initializing.
+    // If `--workspace` pointed at a directory that already contains a
+    // `quantum-katas/` subfolder, the host has auto-discovered the
+    // workspace; initialize eagerly so the agent does not need to call
+    // `set_workspace` first. Otherwise leave the server uninitialized
+    // and the agent will be prompted to call `set_workspace`.
+    if (eagerMcpWorkspace) {
+      await server.initialize({
+        kataIds,
+        workspacePath: eagerMcpWorkspace,
+        aiProvider: aiProvider!,
+        contentFormat: "html",
+      });
+    }
     await runMCPServerStdio(server, mcpServer!, {
       aiProvider: aiProvider!,
       contentFormat: "html",
+      initialWorkspace: eagerMcpWorkspace,
     });
     process.on("SIGINT", () => {
       server.dispose();

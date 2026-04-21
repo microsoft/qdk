@@ -62,6 +62,7 @@ export enum EventType {
   ChangelogPromptStart = "Qsharp.ChangelogPromptStart",
   ChangelogPromptEnd = "Qsharp.ChangelogPromptEnd",
   QuantumKatasMcpStart = "Qsharp.QuantumKatasMcpStart",
+  KatasPanelAction = "Qsharp.KatasPanelAction",
 }
 
 type Empty = { [K in any]: never };
@@ -334,6 +335,18 @@ type EventTypes = {
   [EventType.QuantumKatasMcpStart]: {
     properties: {
       workspaceRootConfigured: string;
+    };
+    measurements: Empty;
+  };
+  [EventType.KatasPanelAction]: {
+    properties: {
+      action:
+        | "refresh"
+        | "continue"
+        | "openExercise"
+        | "openLesson"
+        | "askInChat"
+        | "setup";
     };
     measurements: Empty;
   };

@@ -3,13 +3,21 @@
 
 import * as vscode from "vscode";
 import { log } from "qsharp-lang";
+import { detectKatasWorkspace } from "./katasProgress/detector";
 import { EventType, sendTelemetryEvent } from "./telemetry";
 
 /**
  * Registers a static MCP server definition provider for the bundled
  * Quantum Katas MCP server. The server is a Node CLI bundled at
  * `out/learning/index.js`; we spawn it in `--mcp` (stdio) mode and
- * pass the configured workspace root (if any) via `--workspace`.
+ * pass the discovered workspace root via `--workspace`.
+ *
+ * The workspace root is whatever {@link detectKatasWorkspace} returns:
+ * either the explicit `Q#.learning.workspaceRoot` setting, or a
+ * workspace folder containing an existing `quantum-katas/` directory.
+ * When the discovered path already has a `quantum-katas/` subfolder,
+ * the CLI eagerly initializes the server, so the chat agent does not
+ * have to call `set_workspace`.
  *
  * Workspace-only / desktop-only: VS Code treats a static MCP server
  * provider contributed from a Node-platform extension entry point
@@ -37,11 +45,9 @@ export function registerKatasMcpServer(
 
   const provider: McpServerDefinitionProvider = {
     onDidChangeMcpServerDefinitions: onDidChangeEmitter.event,
-    provideMcpServerDefinitions: () => {
-      const cfg = vscode.workspace.getConfiguration("Q#");
-      const workspaceRoot = (
-        cfg.get<string>("learning.workspaceRoot") ?? ""
-      ).trim();
+    provideMcpServerDefinitions: async () => {
+      const info = await detectKatasWorkspace();
+      const workspaceRoot = info?.workspaceRoot.fsPath ?? "";
 
       const entry = vscode.Uri.joinPath(
         context.extensionUri,
@@ -76,15 +82,24 @@ export function registerKatasMcpServer(
     provider,
   );
 
-  // Refresh the definition when the configured workspace root changes,
-  // so the server is restarted with the new --workspace arg.
+  // Refresh the definition when either the configured workspace root or the
+  // set of open workspace folders changes, so the server restarts pointing
+  // at the right path.
   const cfgListener = vscode.workspace.onDidChangeConfiguration((e) => {
     if (e.affectsConfiguration("Q#.learning.workspaceRoot")) {
       onDidChangeEmitter.fire();
     }
   });
+  const foldersListener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+    onDidChangeEmitter.fire();
+  });
 
-  return vscode.Disposable.from(disposable, cfgListener, onDidChangeEmitter);
+  return vscode.Disposable.from(
+    disposable,
+    cfgListener,
+    foldersListener,
+    onDidChangeEmitter,
+  );
 }
 
 interface McpServerDefinitionProvider {

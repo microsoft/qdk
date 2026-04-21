@@ -122,16 +122,16 @@ function buildWidgetHtml(): string {
     "utf8",
   );
 
-  const widgetPath = existsSync(join(__dirname, "widget", "app.html"))
-    ? join(__dirname, "widget", "app.html")
-    : join(__dirname, "widget", "app.html"); // same in both layouts
-  const template = readFileSync(widgetPath, "utf8");
+  const widgetDir = join(__dirname, "widget");
+  const template = readFileSync(join(widgetDir, "app.html"), "utf8");
+  const widgetCss = readFileSync(join(widgetDir, "app.css"), "utf8");
   return template
     .replace("/*__EXT_APPS_BUNDLE__*/", () => extAppsBundle)
     .replace("/*__KATAS_RENDER__*/", () => renderJs)
     .replace("/*__KATAS_UI__*/", () => uiJs)
     .replace("/*__KATEX_JS__*/", () => katexJs)
-    .replace("/*__KATEX_AUTORENDER_JS__*/", () => katexAutoRenderJs);
+    .replace("/*__KATEX_AUTORENDER_JS__*/", () => katexAutoRenderJs)
+    .replace("/*__KATAS_WIDGET_CSS__*/", () => widgetCss);
 }
 
 /**
@@ -140,8 +140,13 @@ function buildWidgetHtml(): string {
  * or HTTP (`runMCPServerHttp`). Keeping registration in one place ensures the
  * two deployments never drift in behavior.
  *
- * The KatasServer is NOT initialized here. The agent must call `set_workspace`
- * first — that tool elicits user confirmation and then initializes the server.
+ * The KatasServer is NOT initialized here unless `initOptions.initialWorkspace`
+ * is set. When the host knows the workspace path up front (e.g. the VS Code
+ * extension auto-discovered a `quantum-katas/` directory), it can pre-call
+ * `KatasServer.initialize` and pass that path here — the per-session state
+ * will start with `initialized = true` and the agent does not need to call
+ * `set_workspace`. Otherwise the agent must call `set_workspace` first — that
+ * tool elicits user confirmation and then initializes the server.
  */
 export async function registerMCPHandlers(
   server: KatasServer,
@@ -149,14 +154,21 @@ export async function registerMCPHandlers(
   initOptions: {
     aiProvider: IAIProvider;
     contentFormat: "html" | "markdown";
+    /**
+     * If set, treat the workspace as already initialized at this absolute path.
+     * Callers must have already invoked `KatasServer.initialize` with the same
+     * path before connecting the transport.
+     */
+    initialWorkspace?: string;
   },
 ): Promise<void> {
   const widgetHtml = buildWidgetHtml();
   const uiMeta = { ui: { resourceUri: WIDGET_URI } };
 
   // Closure state: tracks whether the agent has set a workspace yet.
-  let initialized = false;
-  let currentWorkspacePath: string | null = null;
+  let initialized = initOptions.initialWorkspace != null;
+  let currentWorkspacePath: string | null =
+    initOptions.initialWorkspace ?? null;
 
   // ─── Widget identity tracking ─────────────────────────────────────────
   //
@@ -723,6 +735,8 @@ export async function runMCPServerStdio(
   initOptions: {
     aiProvider: IAIProvider;
     contentFormat: "html" | "markdown";
+    /** See {@link registerMCPHandlers}. */
+    initialWorkspace?: string;
   },
 ): Promise<void> {
   await registerMCPHandlers(server, mcp, initOptions);

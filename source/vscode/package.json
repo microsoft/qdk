@@ -298,6 +298,10 @@
         {
           "command": "qsharp-vscode.addProjectReference",
           "when": "resourceFilename == qsharp.json"
+        },
+        {
+          "command": "qsharp-vscode.katasOpenSection",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -309,6 +313,11 @@
         {
           "command": "qsharp-vscode.workspacesAdd",
           "when": "view == quantum-workspaces",
+          "group": "navigation"
+        },
+        {
+          "command": "qsharp-vscode.katasRefresh",
+          "when": "view == qsharp-vscode.katasTree || view == qsharp-vscode.katasOverview",
           "group": "navigation"
         }
       ],
@@ -355,6 +364,11 @@
         {
           "command": "qsharp-vscode.workspacePythonCode",
           "when": "view == quantum-workspaces && viewItem == workspace"
+        },
+        {
+          "command": "qsharp-vscode.katasAskInChat",
+          "group": "inline",
+          "when": "view == qsharp-vscode.katasTree && (viewItem == kata || viewItem == lessonSection || viewItem == exerciseSection)"
         }
       ],
       "explorer/context": [
@@ -372,12 +386,31 @@
         }
       ]
     },
-    "viewsContainers": {},
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "qsharp-vscode-katas",
+          "title": "Quantum Katas",
+          "icon": "./resources/mobius.svg"
+        }
+      ]
+    },
     "views": {
       "explorer": [
         {
           "id": "quantum-workspaces",
           "name": "Quantum Workspaces"
+        }
+      ],
+      "qsharp-vscode-katas": [
+        {
+          "type": "webview",
+          "id": "qsharp-vscode.katasOverview",
+          "name": "Overview"
+        },
+        {
+          "id": "qsharp-vscode.katasTree",
+          "name": "Katas"
         }
       ]
     },
@@ -385,6 +418,11 @@
       {
         "view": "quantum-workspaces",
         "contents": "Connect to Azure Quantum\n[Connect to an existing workspace](command:qsharp-vscode.workspacesAdd)\nNote: For the first workspace added there may be several consent prompts to grant VS Code access.\nFor more information about the QDK and Azure Quantum, visit [https://aka.ms/AQ/Documentation](https://aka.ms/AQ/Documentation)."
+      },
+      {
+        "view": "qsharp-vscode.katasTree",
+        "contents": "No Quantum Katas workspace detected in this window.\n[Set up Quantum Katas workspace](command:qsharp-vscode.katasSetup)\nThe Quantum Katas are interactive exercises that teach quantum computing with Q#. Once set up, your progress will appear here.",
+        "when": "!qsharp-vscode.katasDetected"
       }
     ],
     "chatInstructions": [
@@ -563,6 +601,33 @@
         "command": "qsharp-vscode.showChangelog",
         "title": "Show Changelog",
         "category": "QDK"
+      },
+      {
+        "command": "qsharp-vscode.katasRefresh",
+        "title": "Refresh Quantum Katas progress",
+        "category": "QDK",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "qsharp-vscode.katasSetup",
+        "title": "Set up Quantum Katas workspace",
+        "category": "QDK"
+      },
+      {
+        "command": "qsharp-vscode.katasContinue",
+        "title": "Continue Quantum Katas",
+        "category": "QDK"
+      },
+      {
+        "command": "qsharp-vscode.katasOpenSection",
+        "title": "Open Quantum Katas section",
+        "category": "QDK"
+      },
+      {
+        "command": "qsharp-vscode.katasAskInChat",
+        "title": "Open Quantum Katas in chat",
+        "category": "QDK",
+        "icon": "$(comment-discussion)"
       }
     ],
     "breakpoints": [

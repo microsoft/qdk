@@ -17,6 +17,7 @@ import { startOtherQSharpDiagnostics } from "./diagnostics.js";
 import { removeDeprecatedCopilotInstructions } from "./gh-copilot/instructions.js";
 import { registerLanguageModelTools } from "./gh-copilot/tools.js";
 import { registerKatasMcpServer } from "./katasMcp.js";
+import { registerKatasProgressView } from "./katasProgress/index.js";
 import { activateLanguageService } from "./language-service/activate.js";
 import {
   Logging,
@@ -103,6 +104,7 @@ export async function activate(
   await initProjectCreator(context);
   registerLanguageModelTools(context);
   context.subscriptions.push(registerKatasMcpServer(context));
+  registerKatasProgressView(context);
   // fire-and-forget
   removeDeprecatedCopilotInstructions(context);
 
