@@ -10,7 +10,7 @@ fn almost_equal(a: f64, b: f64) -> bool {
 // Test that basic allocation and release of qubits doesn't fail.
 #[test]
 fn test_alloc_release() {
-    let sim = &mut QuantumSim::default();
+    let sim = &mut SparseStateSim::default();
     for i in 0..16 {
         assert_eq!(sim.allocate(), i);
     }
@@ -32,7 +32,7 @@ fn test_alloc_release() {
 /// Verifies that application of gates to a qubit results in the correct probabilities.
 #[test]
 fn test_probability() {
-    let mut sim = QuantumSim::default();
+    let mut sim = SparseStateSim::default();
     let q = sim.allocate();
     let extra = sim.allocate();
     assert!(almost_equal(0.0, sim.joint_probability(&[q])));
@@ -60,7 +60,7 @@ fn test_probability() {
 /// can be operationally reset back into the ground state.
 #[test]
 fn test_measure() {
-    let mut sim = QuantumSim::default();
+    let mut sim = SparseStateSim::default();
     let q = sim.allocate();
     let extra = sim.allocate();
     assert!(!sim.measure(q));
@@ -88,7 +88,7 @@ fn test_measure() {
 // and start in a zero state.
 #[test]
 fn test_out_of_order_release() {
-    let sim = &mut QuantumSim::default();
+    let sim = &mut SparseStateSim::default();
     for i in 0..5 {
         assert_eq!(sim.allocate(), i);
         sim.x(i);
@@ -121,7 +121,7 @@ fn test_out_of_order_release() {
 /// qubits.
 #[test]
 fn test_joint_probability() {
-    let mut sim = QuantumSim::default();
+    let mut sim = SparseStateSim::default();
     let q0 = sim.allocate();
     let q1 = sim.allocate();
     assert!(almost_equal(0.0, sim.joint_probability(&[q0, q1])));
@@ -141,7 +141,7 @@ fn test_joint_probability() {
 /// qubits.
 #[test]
 fn test_joint_measurement() {
-    let mut sim = QuantumSim::default();
+    let mut sim = SparseStateSim::default();
     let q0 = sim.allocate();
     let q1 = sim.allocate();
     assert!(!sim.joint_measure(&[q0, q1]));
@@ -163,7 +163,7 @@ fn test_joint_measurement() {
 
 #[test]
 fn test_force_collapse() {
-    let mut sim = QuantumSim::default();
+    let mut sim = SparseStateSim::default();
     let q0 = sim.allocate();
     let q1 = sim.allocate();
     sim.h(q0);
@@ -179,7 +179,7 @@ fn test_force_collapse() {
 
 #[test]
 fn test_force_collapse_to_non_existent_state() {
-    let mut sim = QuantumSim::default();
+    let mut sim = SparseStateSim::default();
     let q0 = sim.allocate();
     sim.x(q0);
     assert!(almost_equal(1.0, sim.joint_probability(&[q0])));
@@ -192,7 +192,7 @@ fn test_force_collapse_to_non_existent_state() {
 /// Test multiple controls.
 #[test]
 fn test_multiple_controls() {
-    let mut sim = QuantumSim::default();
+    let mut sim = SparseStateSim::default();
     let q0 = sim.allocate();
     let q1 = sim.allocate();
     let q2 = sim.allocate();
@@ -222,7 +222,7 @@ fn test_multiple_controls() {
 #[test]
 #[should_panic(expected = "Duplicate qubit id '0' found in application.")]
 fn test_duplicate_target() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     let q = sim.allocate();
     sim.mcx(&[q], q);
     let _ = sim.dump();
@@ -232,7 +232,7 @@ fn test_duplicate_target() {
 #[test]
 #[should_panic(expected = "Duplicate qubit id '1' found in application.")]
 fn test_duplicate_control() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     let q = sim.allocate();
     let c = sim.allocate();
     sim.mcx(&[c, c], q);
@@ -243,7 +243,7 @@ fn test_duplicate_control() {
 #[test]
 #[should_panic(expected = "Duplicate qubit id '0' found in application.")]
 fn test_target_in_control() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     let q = sim.allocate();
     let c = sim.allocate();
     sim.mcx(&[c, q], q);
@@ -253,7 +253,7 @@ fn test_target_in_control() {
 /// Large, entangled state handling.
 #[test]
 fn test_large_state() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     let ctl = sim.allocate();
     sim.h(ctl);
     for _ in 0..4999 {
@@ -269,7 +269,7 @@ fn test_large_state() {
 /// Verify seeded RNG is predictable.
 #[test]
 fn test_seeded_rng() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     sim.set_rng_seed(42);
     let q = sim.allocate();
     let mut val1 = 0_u64;
@@ -279,7 +279,7 @@ fn test_seeded_rng() {
             val1 += 1 << i;
         }
     }
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     sim.set_rng_seed(42);
     let q = sim.allocate();
     let mut val2 = 0_u64;
@@ -295,7 +295,7 @@ fn test_seeded_rng() {
 /// Verify that dump after swap on released qubits doesn't crash.
 #[test]
 fn test_swap_dump() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     let q = sim.allocate();
     let inner_q = sim.allocate();
     sim.swap_qubit_ids(q, inner_q);
@@ -306,7 +306,7 @@ fn test_swap_dump() {
 /// Verify that swap preserves queued rotations.
 #[test]
 fn test_swap_rotations() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     let (q1, q2) = (sim.allocate(), sim.allocate());
     sim.rx(PI / 7.0, q1);
     sim.ry(PI / 7.0, q2);
@@ -321,7 +321,7 @@ fn test_swap_rotations() {
 /// a no-op.
 #[test]
 fn test_rx_queue_nearly_zero() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     let q = sim.allocate();
     sim.rx(PI / 4.0, q);
     assert_eq!(sim.state.len(), 1);
@@ -334,7 +334,7 @@ fn test_rx_queue_nearly_zero() {
 /// a no-op.
 #[test]
 fn test_ry_queue_nearly_zero() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     let q = sim.allocate();
     sim.ry(PI / 4.0, q);
     assert_eq!(sim.state.len(), 1);
@@ -346,7 +346,7 @@ fn test_ry_queue_nearly_zero() {
 /// Verifies that an Rx rotation by PI, which becomes an X gate, is correctly flushed.
 #[test]
 fn test_rx_pi_flushed() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     let q = sim.allocate();
     sim.rx(PI, q);
     assert!(almost_equal(
@@ -359,7 +359,7 @@ fn test_rx_pi_flushed() {
 /// Verifies that an Ry rotation by PI, which becomes an Y gate, is correctly flushed.
 #[test]
 fn test_ry_pi_flushed() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     let q = sim.allocate();
     sim.ry(PI, q);
     assert!(almost_equal(
@@ -373,7 +373,7 @@ fn test_ry_pi_flushed() {
 /// controlled -iY (and handed as such), the state vector is not corrupted
 #[test]
 fn test_mcry_pi() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     let q1 = sim.allocate();
     let q2 = sim.allocate();
     sim.h(q1);
@@ -388,7 +388,7 @@ fn test_mcry_pi() {
 /// controlled -I (and handed as such), the state vector is not corrupted
 #[test]
 fn test_mcry_2pi() {
-    let mut sim = QuantumSim::new(None);
+    let mut sim = SparseStateSim::new(None);
     let q1 = sim.allocate();
     let q2 = sim.allocate();
     sim.h(q1);
@@ -402,8 +402,8 @@ fn test_mcry_2pi() {
 /// Utility for testing operation equivalence.
 fn assert_operation_equal_referenced<F1, F2>(mut op: F1, mut reference: F2, count: usize)
 where
-    F1: FnMut(&mut QuantumSim, &[usize]),
-    F2: FnMut(&mut QuantumSim, &[usize]),
+    F1: FnMut(&mut SparseStateSim, &[usize]),
+    F2: FnMut(&mut SparseStateSim, &[usize]),
 {
     enum QueuedOp {
         NoOp,
@@ -413,7 +413,7 @@ where
     }
 
     for inner_op in [QueuedOp::NoOp, QueuedOp::H, QueuedOp::Rx, QueuedOp::Ry] {
-        let mut sim = QuantumSim::default();
+        let mut sim = SparseStateSim::default();
 
         // Allocte the control we use to verify behavior.
         let ctl = sim.allocate();
@@ -678,7 +678,7 @@ fn test_mcri() {
 
 #[test]
 fn test_op_queue_flushes_at_limit() {
-    let mut sim = QuantumSim::default();
+    let mut sim = SparseStateSim::default();
     let q = sim.allocate();
     for _ in 0..10_002 {
         sim.x(q);
@@ -708,7 +708,7 @@ fn test_cx_after_h_ry_executes_queued_operations_in_order() {
 
 #[test]
 fn test_global_phase_dropped_when_all_qubits_released() {
-    let mut sim = QuantumSim::default();
+    let mut sim = SparseStateSim::default();
     let q = sim.allocate();
     sim.x(q);
     sim.z(q);

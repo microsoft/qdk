@@ -5,12 +5,12 @@ pub mod bytecode;
 pub mod cpu_full_state_simulator;
 mod gpu_full_state_simulator;
 pub mod noise_config;
-pub mod quantum_sparse_sim;
+pub mod sparse_state_simulator;
 pub mod stabilizer_simulator;
 
 pub use gpu_full_state_simulator::*;
-pub use quantum_sparse_sim::QuantumSim;
-pub use quantum_sparse_sim::nearly_zero::NearlyZero;
+pub use sparse_state_simulator::SparseStateSim;
+pub use sparse_state_simulator::nearly_zero::NearlyZero;
 
 /// A qubit ID.
 pub type QubitID = usize;

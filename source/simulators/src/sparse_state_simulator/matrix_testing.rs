@@ -7,7 +7,7 @@ use num_complex::Complex64;
 use num_traits::One;
 use num_traits::Zero;
 
-use super::{QuantumSim, controlled, nearly_zero::NearlyZero};
+use super::{SparseStateSim, controlled, nearly_zero::NearlyZero};
 use core::f64::consts::PI;
 
 /// Returns a unitary matrix representing the `X` operation.
@@ -266,10 +266,10 @@ fn controlled_extension() {
 /// Utility for testing operation equivalence.
 fn assert_operation_equal_referenced<F1, F2>(mut op: F1, mut reference: F2, count: usize)
 where
-    F1: FnMut(&mut QuantumSim, &[usize]),
-    F2: FnMut(&mut QuantumSim, &[usize]),
+    F1: FnMut(&mut SparseStateSim, &[usize]),
+    F2: FnMut(&mut SparseStateSim, &[usize]),
 {
-    let mut sim = QuantumSim::default();
+    let mut sim = SparseStateSim::default();
 
     // Allocate the controls we use to verify behavior.
     // Allocate the requested number of targets, entangling the control with them.
@@ -632,7 +632,7 @@ fn test_mcri() {
 
 #[test]
 fn test_apply_four_qubit_unitary() {
-    let mut sim = QuantumSim::default();
+    let mut sim = SparseStateSim::default();
     let qs: Vec<usize> = (0..4).map(|_| sim.allocate()).collect();
 
     let mut unitary = Array2::eye(16);

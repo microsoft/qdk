@@ -28,9 +28,9 @@ type SparseStateMap = FxHashMap<BigUint, Complex64>;
 const QUEUE_LIMIT: usize = 10_000;
 const DEFAULT_INITIAL_SIZE: usize = 50;
 
-/// The `QuantumSim` struct contains the necessary state for tracking the simulation. Each instance of a
-/// `QuantumSim` represents an independant simulation.
-pub struct QuantumSim {
+/// The `SparseStateSim` struct contains the necessary state for tracking the simulation. Each instance of a
+/// `SparseStateSim` represents an independant simulation.
+pub struct SparseStateSim {
     /// The structure that describes the current quantum state.
     pub(crate) state: SparseState,
 
@@ -74,20 +74,20 @@ pub(crate) enum FlushLevel {
     HRxRy,
 }
 
-impl Default for QuantumSim {
+impl Default for SparseStateSim {
     fn default() -> Self {
         Self::new(None)
     }
 }
 
 /// Provides the common set of functionality across all quantum simulation types.
-impl QuantumSim {
+impl SparseStateSim {
     /// Creates a new sparse state quantum simulator object with empty initial state (no qubits allocated, no operations buffered).
     #[must_use]
     pub fn new(rng: Option<StdRng>) -> Self {
         let initial_state = vec![(BigUint::zero(), Complex64::one())];
 
-        QuantumSim {
+        SparseStateSim {
             state: initial_state,
             id_map: IndexMap::with_capacity(DEFAULT_INITIAL_SIZE),
             rng: RefCell::new(rng.unwrap_or_else(StdRng::from_entropy)),
@@ -1299,15 +1299,15 @@ fn apply_ops(
     for (ctls, target, op) in ops {
         if ctls.iter().all(|c| index.bit(*c)) {
             match op {
-                OpCode::X => QuantumSim::x_transform((index, amplitude), *target),
-                OpCode::Y => QuantumSim::y_transform((index, amplitude), *target),
-                OpCode::Z => QuantumSim::z_transform((index, amplitude), *target),
-                OpCode::S => QuantumSim::s_transform((index, amplitude), *target),
-                OpCode::Sadj => QuantumSim::sadj_transform((index, amplitude), *target),
-                OpCode::T => QuantumSim::t_transform((index, amplitude), *target),
-                OpCode::Tadj => QuantumSim::tadj_transform((index, amplitude), *target),
+                OpCode::X => SparseStateSim::x_transform((index, amplitude), *target),
+                OpCode::Y => SparseStateSim::y_transform((index, amplitude), *target),
+                OpCode::Z => SparseStateSim::z_transform((index, amplitude), *target),
+                OpCode::S => SparseStateSim::s_transform((index, amplitude), *target),
+                OpCode::Sadj => SparseStateSim::sadj_transform((index, amplitude), *target),
+                OpCode::T => SparseStateSim::t_transform((index, amplitude), *target),
+                OpCode::Tadj => SparseStateSim::tadj_transform((index, amplitude), *target),
                 OpCode::Rz(theta) => {
-                    QuantumSim::rz_transform((index, amplitude), *theta, *target);
+                    SparseStateSim::rz_transform((index, amplitude), *theta, *target);
                 }
             }
         }
