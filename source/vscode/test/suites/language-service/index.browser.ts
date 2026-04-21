@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { runMochaTests } from "../run";
+import { runMochaTests } from "../runBrowser";
 
 export function run(): Promise<void> {
   return runMochaTests(() => {

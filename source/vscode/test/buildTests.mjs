@@ -10,26 +10,50 @@ import { build } from "esbuild";
 const thisDir = dirname(fileURLToPath(import.meta.url));
 
 /** @type {import("esbuild").BuildOptions} */
-const buildOptions = {
-  entryPoints: [
-    join(thisDir, "suites", "empty", "index.ts"),
-    join(thisDir, "suites", "language-service", "index.ts"),
-    join(thisDir, "suites", "debugger", "index.ts"),
-  ],
-  outdir: join(thisDir, "out"),
+const commonBuildOptions = {
   bundle: true,
-  mainFields: ["browser", "module", "main"],
   external: ["vscode"],
   format: "cjs",
-  platform: "browser",
   target: ["es2022"],
   sourcemap: "linked",
   //logLevel: "debug",
-  define: { "import.meta.url": "undefined" },
+};
+
+/** @type {Record<string, import("esbuild").BuildOptions>} */
+const platformBuildOptions = {
+  browser: {
+    ...commonBuildOptions,
+    entryPoints: [
+      join(thisDir, "suites", "empty", "index.browser.ts"),
+      join(thisDir, "suites", "language-service", "index.browser.ts"),
+      join(thisDir, "suites", "debugger", "index.browser.ts"),
+    ],
+    platform: "browser",
+    outdir: join(thisDir, "out", "browser"),
+    define: { "import.meta.url": "undefined" },
+  },
+  node: {
+    ...commonBuildOptions,
+    entryPoints: [
+      join(thisDir, "suites", "language-service", "index.node.ts"),
+      join(thisDir, "suites", "debugger", "index.node.ts"),
+    ],
+    platform: "node",
+    outdir: join(thisDir, "out", "node"),
+    banner: {
+      js: 'const _importMetaUrl = require("url").pathToFileURL(__filename).href;',
+    },
+    define: {
+      "import.meta.url": "_importMetaUrl",
+    },
+    external: ["vscode", "web-worker"],
+  },
 };
 
 console.log("Running esbuild");
 
-build(buildOptions).then(() =>
-  console.log(`Built tests to ${join(thisDir, "out")}`),
-);
+for (const [platform, buildOptions] of Object.entries(platformBuildOptions)) {
+  build(buildOptions).then(() =>
+    console.log(`Built tests for ${platform} to ${buildOptions.outdir}`),
+  );
+}
