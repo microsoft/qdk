@@ -11,8 +11,8 @@ Key exports:
 - :class:`azure.quantum.target.Target` — base class for all Azure Quantum targets.
 - :class:`azure.quantum.target.IonQ` — IonQ trapped-ion targets.
 - :class:`azure.quantum.target.Quantinuum` — Quantinuum trapped-ion targets.
-- :class:`azure.quantum.target.Rigetti` — Rigetti superconducting targets.
-- :class:`azure.quantum.target.Pasqal` — Pasqal neutral-atom targets.
+- :class:`azure.quantum.target.rigetti.Rigetti` — Rigetti superconducting targets.
+- :class:`azure.quantum.target.pasqal.Pasqal` — Pasqal neutral-atom targets.
 
 Requires the ``azure`` extra: ``pip install qdk[azure]``.
 """
