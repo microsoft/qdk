@@ -56,6 +56,9 @@ export function createWorker<
           );
         }
         break;
+      case "set-log-level":
+        log.setLogLevel(data.level);
+        break;
       default:
         if (!invokeService) {
           log.error(
@@ -247,7 +250,7 @@ function initService<
   }
 
   // Set up logging and telemetry as soon as possible after instantiating
-  log.onLevelChanged = (level) => wasm.setLogLevel(level);
+  log.addLevelChangedListener((level) => wasm.setLogLevel(level));
   log.setTelemetryCollector(postTelemetryMessage);
   wasm.initLogging(postLogMessage, log.getLogLevel());
 

@@ -29,6 +29,7 @@ export type TelemetryCollector = (event: TelemetryEvent) => void;
 let telemetryCollector: TelemetryCollector | null = null;
 const levels = ["off", "error", "warn", "info", "debug", "trace"];
 let logLevel = 0;
+const levelChangedListeners: Set<(level: number) => void> = new Set();
 
 export const log = {
   setLogLevel(level: LogLevel | number) {
@@ -44,8 +45,17 @@ export const log = {
       logLevel = level;
     }
     this.onLevelChanged?.(logLevel);
+    levelChangedListeners.forEach((fn) => fn(logLevel));
   },
   onLevelChanged: null as ((level: number) => void) | null,
+  /**
+   * Registers a listener that is called whenever the log level changes.
+   * @returns An unsubscribe function that removes the listener when called.
+   */
+  addLevelChangedListener(listener: (level: number) => void): () => void {
+    levelChangedListeners.add(listener);
+    return () => levelChangedListeners.delete(listener);
+  },
   getLogLevel(): number {
     return logLevel;
   },

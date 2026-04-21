@@ -14,12 +14,13 @@ type LogFunction = (level: LogLevel, ...args: any[]) => void;
 export function initOutputWindowLogger() {
   const output = vscode.window.createOutputChannel("Q#", { log: true });
 
-  // Override the global logger with functions that write to the output channel
-  log.error = output.error;
-  log.warn = output.warn;
-  log.info = output.info;
-  log.debug = output.debug;
-  log.trace = output.trace;
+  // Override the global logger with functions that write to the output channel.
+  // Use arrow functions to ensure the output channel's 'this' context is preserved.
+  log.error = (msg: any, ...args: any[]) => output.error(msg, ...args);
+  log.warn = (msg: any, ...args: any[]) => output.warn(msg, ...args);
+  log.info = (msg: any, ...args: any[]) => output.info(msg, ...args);
+  log.debug = (msg: any, ...args: any[]) => output.debug(msg, ...args);
+  log.trace = (msg: any, ...args: any[]) => output.trace(msg, ...args);
 
   // The numerical log levels for VS Code and qsharp don't match.
   function mapLogLevel(logLevel: vscode.LogLevel) {
