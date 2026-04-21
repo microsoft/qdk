@@ -191,7 +191,7 @@ jobs:
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Run integration tests
-        run: python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests
+        run: xvfb-run -a python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests
 
   status-check:
     name: Status Check

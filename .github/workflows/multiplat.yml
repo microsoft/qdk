@@ -51,7 +51,11 @@ jobs:
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Build and Test
+        run: xvfb-run -a python ./build.py --integration-tests
+        if: runner.os == 'Linux'
+      - name: Build and Test
         run: python ./build.py --integration-tests
+        if: runner.os != 'Linux'
       - name: File issue on failure
         if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
         id: create-issue
