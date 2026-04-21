@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::diagnostic::interpret_errors_to_run_result;
+use crate::diagnostic::{interpret_errors_into_qsharp_errors, interpret_errors_to_run_result};
 use crate::line_column::{Location, Range};
 use crate::project_system::{ProgramConfig, into_qsc_args};
 use crate::{
@@ -144,7 +144,11 @@ impl DebugService {
         };
         match self.run_internal(event_cb, &bps, step) {
             Ok(value) => Ok(StructStepResult::from(value).into()),
-            Err(e) => Err(JsError::from(&e[0]).into()),
+            Err(e) => {
+                let json = serde_json::to_string(&interpret_errors_into_qsharp_errors(&e))
+                    .expect("serializing errors to json should succeed");
+                Err(JsValue::from_str(&json))
+            }
         }
     }
 

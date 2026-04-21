@@ -29,9 +29,10 @@ import {
   IVariableChild,
   QscEventTarget,
   StepResultId,
+  QdkDiagnostics,
   log,
 } from "qsharp-lang";
-import { updateCircuitPanel } from "../circuit";
+import { updateCircuitPanel, errorsToHtml } from "../circuit";
 import { basename, isQdkDocument, toVsCodeRange } from "../common";
 import {
   DebugEvent,
@@ -1109,14 +1110,16 @@ export class QscDebugSession extends LoggingDebugSession {
       this.config.showCircuit ||
       isPanelOpen("circuit", this.program.projectName)
     ) {
-      // Error returned from the debugger has a message and a stack (which also includes the message).
-      // We would ideally retrieve the original runtime error, and format it to be consistent
-      // with the other runtime errors that can be shown in the circuit panel, but that will require
-      // a bit of refactoring.
-      const stack =
-        error && typeof error === "object" && typeof error.stack === "string"
-          ? escapeHtml(error.stack)
-          : undefined;
+      let errorHtml: string | undefined;
+      if (error instanceof QdkDiagnostics) {
+        errorHtml = errorsToHtml(error.diagnostics);
+      } else if (
+        error &&
+        typeof error === "object" &&
+        typeof error.message === "string"
+      ) {
+        errorHtml = `<pre>${escapeHtml(error.message)}</pre>`;
+      }
 
       const circuit = await this.debugService.getCircuit();
 
@@ -1126,7 +1129,7 @@ export class QscDebugSession extends LoggingDebugSession {
         !this.revealedCircuit,
         {
           circuit,
-          errorHtml: stack ? `<pre>${stack}</pre>` : undefined,
+          errorHtml,
           simulated: true,
         },
       );
