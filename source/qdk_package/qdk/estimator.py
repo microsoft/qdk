@@ -3,20 +3,20 @@
 
 """Resource estimation utilities for the Q# ecosystem.
 
-This module re-exports all public symbols from ``qsharp.estimator``,
+This module re-exports all public symbols from [qsharp.estimator](:mod:`qsharp.estimator`),
 making them available under the ``qdk.estimator`` namespace. It provides
-classes for configuring and interpreting Microsoft Resource Estimator jobs,
-including qubit parameter models, QEC schemes, distillation unit
-specifications, error budgets, and the result container.
+classes for configuring and interpreting Microsoft Resource Estimator jobs.
 
 Key exports:
 
-- ``EstimatorParams`` — top-level input parameters for a resource estimation job.
-- ``EstimatorResult`` — result container with formatted tables and diagrams.
-- ``LogicalCounts`` — pre-calculated logical resource counts for physical estimation.
-- ``QubitParams``, ``QECScheme`` — predefined model name constants.
-- ``EstimatorQubitParams``, ``EstimatorQecScheme`` — custom model configuration.
-- ``ErrorBudgetPartition``, ``EstimatorConstraints`` — budget and constraint settings.
+- :class:`~qsharp.estimator.EstimatorParams` — top-level input parameters for a resource estimation job.
+- :class:`~qsharp.estimator.EstimatorResult` — result container with formatted tables and diagrams.
+- :class:`~qsharp.estimator.LogicalCounts` — pre-calculated logical resource counts for physical estimation.
+- :class:`~qsharp.estimator.QubitParams`, :class:`~qsharp.estimator.QECScheme` — predefined model name constants.
+- :class:`~qsharp.estimator.EstimatorQubitParams`, :class:`~qsharp.estimator.EstimatorQecScheme` — custom model configuration.
+- :class:`~qsharp.estimator.ErrorBudgetPartition` — budget and constraint settings.
+
+For full API documentation see [qsharp.estimator](:mod:`qsharp.estimator`).
 """
 
 from qsharp.estimator import *  # pyright: ignore[reportWildcardImportFromLibrary]

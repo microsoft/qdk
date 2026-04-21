@@ -1,14 +1,18 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""qdk.azure.cirq: re-export of azure.quantum.cirq symbols.
+"""Cirq integration for Azure Quantum.
 
-Requires installation: ``pip install \"qdk[azure,cirq]\"``.
+This module re-exports all public symbols from [azure.quantum.cirq](:mod:`azure.quantum.cirq`),
+making them available under the ``qdk.azure.cirq`` namespace.
 
-Example::
+Key exports:
 
-    from qdk.azure.cirq import <symbol>
+- :class:`azure.quantum.cirq.AzureQuantumService` — a ``cirq.Sampler``-compatible
+  service that submits Cirq circuits to Azure Quantum targets.
+- :class:`azure.quantum.cirq.Job` — represents an Azure Quantum job submitted via Cirq.
 
+Requires the ``azure`` and ``cirq`` extras: ``pip install "qdk[azure,cirq]"``.
 """
 
 try:

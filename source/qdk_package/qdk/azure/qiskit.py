@@ -1,14 +1,19 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""qdk.azure.qiskit: re-export of azure.quantum.qiskit symbols.
+"""Qiskit integration for Azure Quantum.
 
-Requires installation: ``pip install \"qdk[azure,qiskit]\"``.
+This module re-exports all public symbols from [azure.quantum.qiskit](:mod:`azure.quantum.qiskit`),
+making them available under the ``qdk.azure.qiskit`` namespace.
 
-Example::
+Key exports:
 
-    from qdk.azure.qiskit import <symbol>
+- :class:`azure.quantum.qiskit.AzureQuantumProvider` — a Qiskit ``Provider`` that
+  exposes Azure Quantum targets as ``Backend`` instances.
+- :class:`azure.quantum.qiskit.AzureQuantumJob` — a Qiskit ``Job`` representing a
+  circuit submitted to Azure Quantum.
 
+Requires the ``azure`` and ``qiskit`` extras: ``pip install "qdk[azure,qiskit]"``.
 """
 
 try:

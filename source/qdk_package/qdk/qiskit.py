@@ -3,50 +3,36 @@
 
 """Qiskit interoperability for the Q# ecosystem.
 
-This module provides Qiskit backends backed by the local Q# simulator and
-NeutralAtomDevice, allowing Qiskit circuits to be run locally without any
-cloud connection.
+This module re-exports all public symbols from [qsharp.interop.qiskit](:mod:`qsharp.interop.qiskit`),
+making them available under the ``qdk.qiskit`` namespace. It provides Qiskit
+backends backed by the local Q# simulator and NeutralAtomDevice, allowing
+Qiskit circuits to be run locally without any cloud connection.
 
-Available backends
-------------------
-:class:`~qsharp.interop.qiskit.QSharpBackend`
-    Runs any Qiskit ``QuantumCircuit`` using the Q# simulator. Supports
-    noise-free simulation via QASM export and QIR compilation.
+Key exports:
 
-:class:`~qsharp.interop.qiskit.NeutralAtomBackend`
-    Runs Qiskit circuits on the local NeutralAtomDevice simulator. Decomposes
-    gates to the native ``{Rz, SX, CZ}`` gate set and optionally models
-    per-gate noise (including qubit loss). Loss shots are exposed separately
-    from accepted shots in the job result.
+- :class:`~qsharp.interop.qiskit.backends.qsharp_backend.QSharpBackend`
+- :class:`~qsharp.interop.qiskit.backends.neutral_atom_backend.NeutralAtomBackend`
+- :class:`~qsharp.interop.qiskit.backends.re_backend.ResourceEstimatorBackend`
+- :func:`~qsharp.interop.qiskit.estimate`
 
-:class:`~qsharp.interop.qiskit.ResourceEstimatorBackend`
-    Estimates quantum resources (qubits, T-gates, etc.) for a Qiskit circuit
-    without running a full simulation.
+For full API documentation see [qsharp.interop.qiskit](:mod:`qsharp.interop.qiskit`).
 
-:func:`~qsharp.interop.qiskit.estimate`
-    Convenience function that runs resource estimation on a Qiskit circuit
-    and returns an :class:`~qsharp.estimator.EstimatorResult` directly, without
-    needing to construct a backend or job manually.
+Requires the ``qiskit`` extra: ``pip install qdk[qiskit]``.
 
-Usage::
+Usage:
 
     from qiskit import QuantumCircuit
     from qdk.qiskit import NeutralAtomBackend
-    from qdk.simulation import NoiseConfig
 
     circuit = QuantumCircuit(2, 2)
     circuit.h(0)
     circuit.cx(0, 1)
     circuit.measure([0, 1], [0, 1])
 
-    noise = NoiseConfig()
-    noise.rz.loss = 0.05  # 5% qubit loss per Rz gate
-
     backend = NeutralAtomBackend()
-    job = backend.run(circuit, shots=1000, noise=noise, seed=42)
+    job = backend.run(circuit, shots=1000)
     result = job.result()
-    print(result.results[0].data.counts)      # accepted shots only
-    print(result.results[0].data.raw_counts)  # includes loss shots
+    print(result.results[0].data.counts)
 """
 
 try:
