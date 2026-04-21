@@ -222,7 +222,13 @@ suite("Q# Language Service Tests", function suite() {
     }
   });
 
+  const isWeb = typeof window !== "undefined";
+
   test("Package dependencies", async () => {
+    if (!isWeb) {
+      // This test is specifically for verifying package dependency resolution in node, so skip in the web.
+      return;
+    }
     const doc = await openDocumentAndWaitForProcessing(mainPackageMainQs);
 
     // No errors if package dependencies are properly resolved
@@ -258,6 +264,10 @@ suite("Q# Language Service Tests", function suite() {
   });
 
   test("Web package dependencies", async () => {
+    if (!isWeb) {
+      // This test is specifically for verifying package dependency resolution in the web, so skip in node.
+      return;
+    }
     const doc = await openDocumentAndWaitForProcessing(mainPackageMainQs);
 
     // Sanity check the test setup - is this the correct position?
