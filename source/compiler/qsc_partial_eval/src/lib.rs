@@ -1781,8 +1781,9 @@ impl<'a> PartialEvaluator<'a> {
                         callee_expr_span.span,
                     )));
                 }
-                qubit_relabel(args_value, args_span, |q0, q1| {
+                qubit_relabel(args_value, callee_expr_span, args_span, |q0, q1| {
                     self.resource_manager.swap_qubit_ids(q0, q1);
+                    Ok(())
                 })
             }
             .map_err(std::convert::Into::into),
