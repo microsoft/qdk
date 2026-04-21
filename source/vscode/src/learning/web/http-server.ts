@@ -30,6 +30,9 @@ const STATIC_DIR = existsSync(join(__dirname, "web", "public"))
 const WIDGET_TEMPLATE_PATH = existsSync(join(__dirname, "widget", "app.html"))
   ? join(__dirname, "widget", "app.html")
   : join(__dirname, "..", "mcp", "widget", "app.html");
+const WIDGET_CSS_PATH = existsSync(join(__dirname, "widget", "app.css"))
+  ? join(__dirname, "widget", "app.css")
+  : join(__dirname, "..", "mcp", "widget", "app.css");
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -326,12 +329,14 @@ function buildWidgetTestHtml(): string {
 
   // Read the actual MCP widget template — the real thing the user sees in chat.
   const template = readFileSync(WIDGET_TEMPLATE_PATH, "utf8");
+  const widgetCss = readFileSync(WIDGET_CSS_PATH, "utf8");
 
   return template
     .replace("/*__EXT_APPS_BUNDLE__*/", () => EXT_APPS_HTTP_SHIM)
     .replace("/*__KATAS_RENDER__*/", () => renderJs)
     .replace("/*__KATEX_JS__*/", () => katexJs)
-    .replace("/*__KATEX_AUTORENDER_JS__*/", () => katexAutoRenderJs);
+    .replace("/*__KATEX_AUTORENDER_JS__*/", () => katexAutoRenderJs)
+    .replace("/*__KATAS_WIDGET_CSS__*/", () => widgetCss);
 }
 
 /**

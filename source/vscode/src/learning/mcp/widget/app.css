@@ -1,0 +1,492 @@
+/* Copyright (c) Microsoft Corporation.
+   Licensed under the MIT License. */
+
+/* Styles for the MCP widget (`app.html`). At serve time the widget HTML is
+   inlined into a single resource — `buildWidgetHtml()` substitutes the
+   contents of this file into the `__KATAS_WIDGET_CSS__` placeholder so the
+   iframe never needs a second network round-trip. Editing this file is
+   sufficient; no separate `<link rel="stylesheet">` exists. */
+
+/* Palette
+   -------
+   The widget runs in several hosts: VS Code chat (MCP widget iframe),
+   the standalone web preview (`/widget` and `/`), and potentially
+   other MCP hosts. When hosted inside VS Code, `--vscode-*` CSS
+   variables are injected onto the widget root and pick up the user's
+   current theme (light/dark/high-contrast). We prefer those so the
+   widget blends with its host, and fall back to our own palette for
+   non-VS-Code hosts. */
+:root {
+  color-scheme: light dark;
+  --bg: var(--vscode-editor-background, transparent);
+  --fg: var(--vscode-editor-foreground, #1a1a1a);
+  --muted: var(--vscode-descriptionForeground, #6a6a6a);
+  --accent: var(--vscode-textLink-foreground, #0066cc);
+  --accent-hover: var(--vscode-textLink-activeForeground, var(--accent));
+  --border: var(--vscode-widget-border, var(--vscode-panel-border, #e0e0e0));
+  --success: var(
+    --vscode-charts-green,
+    var(--vscode-testing-iconPassed, #1a7f37)
+  );
+  --fail: var(--vscode-errorForeground, var(--vscode-charts-red, #cf222e));
+  --hint: var(
+    --vscode-charts-yellow,
+    var(--vscode-editorWarning-foreground, #825d00)
+  );
+  --code-bg: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.08));
+  --btn-bg: var(--vscode-button-background, var(--accent));
+  --btn-fg: var(--vscode-button-foreground, #fff);
+  --btn-hover-bg: var(--vscode-button-hoverBackground, var(--accent));
+  --btn-secondary-bg: var(--vscode-button-secondaryBackground, transparent);
+  --btn-secondary-fg: var(--vscode-button-secondaryForeground, var(--fg));
+  --btn-secondary-hover-bg: var(
+    --vscode-button-secondaryHoverBackground,
+    transparent
+  );
+  --focus-border: var(--vscode-focusBorder, var(--accent));
+  --ui-font: var(
+    --vscode-font-family,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif
+  );
+  --ui-font-size: var(--vscode-font-size, 13px);
+  --mono-font: var(
+    --vscode-editor-font-family,
+    ui-monospace,
+    "Cascadia Mono",
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace
+  );
+}
+@media (prefers-color-scheme: dark) {
+  /* Fallbacks only — when running in VS Code, --vscode-* variables
+     always win because they're set directly on the root element. */
+  :root {
+    --fg: var(--vscode-editor-foreground, #e6e6e6);
+    --muted: var(--vscode-descriptionForeground, #999);
+    --accent: var(--vscode-textLink-foreground, #5599ff);
+    --border: var(--vscode-widget-border, var(--vscode-panel-border, #333));
+    --success: var(--vscode-charts-green, #3fb950);
+    --fail: var(--vscode-errorForeground, #ff6b6b);
+    --hint: var(--vscode-charts-yellow, #e3b341);
+  }
+}
+body {
+  font: var(--ui-font-size) / 1.45 var(--ui-font);
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* KaTeX emits MathML in the widget (CSP blocks external KaTeX CSS/fonts).
+   Browsers render MathML at the inherited font-size, which looks tiny
+   next to 13px body text. Bump it so math is legible — roughly matching
+   what KaTeX's HTML output does via its `font-size: 1.21em` rule. */
+math {
+  font-size: 1.25em;
+}
+math[display="block"] {
+  font-size: 1.35em;
+}
+
+/* Header: tiny breadcrumb + item-type badge */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+}
+.header .crumb {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header .badge {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--code-bg);
+  color: var(--fg);
+}
+.header .badge.exercise {
+  background: var(--vscode-badge-background, var(--accent));
+  color: var(--vscode-badge-foreground, #fff);
+}
+.header .badge.complete {
+  background: var(--success);
+  color: var(--btn-fg, #fff);
+}
+
+/* Content slot: the live current item. Caps height to keep the widget
+   small in chat; scrolls if the lesson is long. */
+.content {
+  padding: 0.5rem 0.75rem;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.content h1,
+.content h2,
+.content h3 {
+  margin: 0.4rem 0 0.3rem;
+}
+.content h1 {
+  font-size: 1.05rem;
+}
+.content h2 {
+  font-size: 1rem;
+}
+.content h3 {
+  font-size: 0.95rem;
+}
+.content p {
+  margin: 0.35rem 0;
+}
+.content ul,
+.content ol {
+  margin: 0.35rem 0;
+  padding-left: 1.3rem;
+}
+.content pre {
+  background: var(--code-bg);
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 12px;
+  margin: 0.3rem 0;
+}
+.content code {
+  font-family: var(--mono-font);
+}
+.content table {
+  border-collapse: collapse;
+  margin: 0.25rem 0;
+  font-size: 12px;
+}
+.content th,
+.content td {
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  text-align: left;
+}
+.content .file-path {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.content .file-path-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.content .file-path-link:hover {
+  text-decoration: underline;
+}
+.content .copy-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 0 0.25rem;
+}
+
+/* Output slot: shown after run/check/hint/etc. Replaces previous output. */
+.output {
+  margin: 0 0.75rem 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  background: var(--code-bg);
+  font-size: 12px;
+  border-left: 3px solid var(--accent);
+  position: relative;
+}
+.output[hidden] {
+  display: none;
+}
+.output.pass {
+  border-left-color: var(--success);
+}
+.output.fail {
+  border-left-color: var(--fail);
+}
+.output .out-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+.output .out-dismiss {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 5px;
+}
+.output .out-dismiss:hover {
+  color: var(--fg);
+}
+.output pre {
+  background: rgba(127, 127, 127, 0.12);
+  padding: 0.4rem 0.5rem;
+  border-radius: 3px;
+  font-size: 11px;
+  margin: 0.25rem 0;
+  overflow-x: auto;
+}
+.output table {
+  border-collapse: collapse;
+  margin: 0.25rem 0;
+  font-size: 11px;
+}
+.output th,
+.output td {
+  border: 1px solid var(--border);
+  padding: 1px 5px;
+  text-align: left;
+}
+.output .success {
+  color: var(--success);
+}
+.output .fail {
+  color: var(--fail);
+}
+.output .message {
+  color: var(--muted);
+  font-style: italic;
+}
+.output .hint-badge {
+  display: inline-block;
+  background: var(--hint);
+  color: var(--btn-fg, #fff);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+
+/* Action bar */
+.action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.4rem 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.action-group {
+  display: flex;
+  gap: 0.25rem;
+  padding-right: 0.4rem;
+  border-right: 1px solid var(--border);
+}
+.action-group:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+.action-bar button {
+  font: inherit;
+  font-size: 12px;
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-fg);
+  border: 1px solid var(--border);
+  padding: 3px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.action-bar button:hover {
+  background: var(--btn-secondary-hover-bg);
+  border-color: var(--accent);
+}
+.action-bar button:focus-visible {
+  outline: 1px solid var(--focus-border);
+  outline-offset: 1px;
+}
+.action-bar button.primary {
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border-color: var(--btn-bg);
+}
+.action-bar button.primary:hover {
+  background: var(--btn-hover-bg);
+  border-color: var(--btn-hover-bg);
+}
+.action-bar button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+/* Progress bar footer */
+.progress-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 11px;
+  padding: 0.3rem 0.75rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+}
+.pb-segments {
+  display: inline-flex;
+  gap: 2px;
+}
+.pb-seg {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.pb-seg.done {
+  background: var(--success);
+}
+.pb-seg.current {
+  background: var(--accent);
+}
+
+.loading {
+  color: var(--muted);
+  font-style: italic;
+}
+.error-overlay {
+  color: var(--fail);
+  padding: 0.75rem;
+  font-size: 12px;
+}
+
+/* Stale state: host asked us to tear down (a newer widget has taken over),
+   OR a pre-action stale check detected the server has moved on without us. */
+body.stale > .header,
+body.stale > .content,
+body.stale > .output,
+body.stale > .action-bar,
+body.stale > .progress-bar {
+  opacity: 0.45;
+  pointer-events: none;
+  filter: grayscale(40%);
+}
+.stale-banner {
+  display: none;
+  padding: 0.4rem 0.75rem;
+  background: var(--hint);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+body.stale .stale-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+.stale-banner button {
+  font: inherit;
+  font-weight: 600;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.18);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  padding: 2px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.stale-banner button:hover {
+  background: rgba(0, 0, 0, 0.32);
+}
+
+/* ─── Debug log panel (dev). Hidden by default; toggled via the
+   little "debug" button bottom-right or Alt+D. When visible, body
+   reserves bottom space so the action bar isn't covered. ─── */
+body.dbg-open {
+  margin-bottom: 30vh;
+}
+.debug-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+  height: 30vh;
+  overflow-y: auto;
+  background: #111;
+  color: #ddd;
+  font:
+    10.5px/1.35 ui-monospace,
+    "Cascadia Mono",
+    Consolas,
+    monospace;
+  border-top: 1px solid #333;
+  padding: 4px 6px;
+}
+.debug-panel[hidden] {
+  display: none;
+}
+.debug-panel .row {
+  display: grid;
+  grid-template-columns: 64px 70px 1fr;
+  gap: 6px;
+}
+.debug-panel .t {
+  color: #888;
+}
+.debug-panel .src-host {
+  color: #6cf;
+}
+.debug-panel .src-srv {
+  color: #fc6;
+}
+.debug-panel .src-me {
+  color: #6f8;
+}
+.debug-panel .src-warn {
+  color: #f88;
+}
+.debug-panel .msg b {
+  color: #fff;
+}
+
+.debug-toggle {
+  position: fixed;
+  right: 6px;
+  bottom: 6px;
+  z-index: 1000;
+  font:
+    10px ui-monospace,
+    Consolas,
+    monospace;
+  background: rgba(40, 40, 40, 0.55);
+  color: #ccc;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  padding: 1px 6px;
+  cursor: pointer;
+  opacity: 0.5;
+}
+.debug-toggle:hover {
+  opacity: 1;
+}
+body.dbg-open .debug-toggle {
+  bottom: calc(30vh + 6px);
+  opacity: 1;
+}
