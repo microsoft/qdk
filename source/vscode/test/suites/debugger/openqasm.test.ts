@@ -21,10 +21,17 @@ suite("OpenQASM Debugger Tests", function suite() {
     workspaceFolder.uri,
     selfContainedName,
   );
+
+  const multifileUri = vscode.Uri.joinPath(workspaceFolder.uri, multifileName);
+
   const multifileIncludeUri = vscode.Uri.joinPath(
     workspaceFolder.uri,
     multifileIncludeName,
   );
+
+  // Makes testing compatible with node and web environments
+  const separator = workspaceFolder.uri.path.endsWith("/") ? "" : "/";
+
   let tracker: Tracker | undefined;
   let disposable;
 
@@ -89,7 +96,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       name: `Launch ${selfContainedName}`,
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}" + `${selfContainedName}`,
+      program: `\${workspaceFolder}${separator}${selfContainedName}`,
       stopOnEntry: true,
     });
 
@@ -98,7 +105,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: selfContainedName,
-          path: `vscode-test-web://mount/${selfContainedName}`,
+          path: selfContainedUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -129,7 +136,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: selfContainedName,
-          path: `vscode-test-web://mount/${selfContainedName}`,
+          path: selfContainedUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -149,7 +156,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       name: `Launch ${selfContainedName}`,
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}" + `${selfContainedName}`,
+      program: `\${workspaceFolder}${separator}${selfContainedName}`,
       stopOnEntry: true,
     });
 
@@ -159,7 +166,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: selfContainedName,
-          path: `vscode-test-web://mount/${selfContainedName}`,
+          path: selfContainedUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -196,7 +203,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       name: `Launch ${selfContainedName}`,
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}" + `${selfContainedName}`,
+      program: `\${workspaceFolder}${separator}${selfContainedName}`,
       stopOnEntry: false,
     });
 
@@ -206,7 +213,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: selfContainedName,
-          path: `vscode-test-web://mount/${selfContainedName}`,
+          path: selfContainedUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -233,7 +240,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       name: `Launch ${multifileName}`,
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}" + `${multifileName}`,
+      program: `\${workspaceFolder}${separator}${multifileName}`,
       stopOnEntry: false,
     });
 
@@ -243,7 +250,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 1,
         source: {
           name: multifileIncludeName,
-          path: `vscode-test-web://mount/${multifileIncludeName}`,
+          path: multifileIncludeUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -257,7 +264,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: multifileName,
-          path: `vscode-test-web://mount/${multifileName}`,
+          path: multifileUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -285,7 +292,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       name: `Launch ${selfContainedName}`,
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}" + `${selfContainedName}`,
+      program: `\${workspaceFolder}${separator}${selfContainedName}`,
       stopOnEntry: false,
     });
 
@@ -295,7 +302,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: selfContainedName,
-          path: `vscode-test-web://mount/${selfContainedName}`,
+          path: selfContainedUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -330,7 +337,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: selfContainedName,
-          path: `vscode-test-web://mount/${selfContainedName}`,
+          path: selfContainedUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -363,7 +370,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       name: `Launch ${selfContainedName}`,
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}" + `${selfContainedName}`,
+      program: `\${workspaceFolder}${separator}${selfContainedName}`,
       stopOnEntry: false,
     });
 
