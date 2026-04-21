@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+index_map = { path = "../../index_map" }
 miette = { workspace = true }
 serde = { workspace = true }
 bitflags = { workspace = true }
