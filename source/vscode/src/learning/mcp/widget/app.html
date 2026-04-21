@@ -1,0 +1,723 @@
+<!--
+  Copyright (c) Microsoft Corporation.
+  Licensed under the MIT License.
+-->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Q# Katas</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: transparent;
+    --fg: #1a1a1a;
+    --muted: #6a6a6a;
+    --accent: #0066cc;
+    --border: #e0e0e0;
+    --success: #1a7f37;
+    --fail: #cf222e;
+    --hint: #825d00;
+    --code-bg: rgba(127,127,127,0.08);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e6e6e6;
+      --muted: #999;
+      --accent: #5599ff;
+      --border: #333;
+      --success: #3fb950;
+      --fail: #ff6b6b;
+      --hint: #e3b341;
+    }
+  }
+  body { font: 13px/1.45 system-ui, -apple-system, sans-serif; margin: 0; background: var(--bg); color: var(--fg); }
+
+  /* KaTeX emits MathML in the widget (CSP blocks external KaTeX CSS/fonts).
+     Browsers render MathML at the inherited font-size, which looks tiny
+     next to 13px body text. Bump it so math is legible \u2014 roughly matching
+     what KaTeX's HTML output does via its `font-size: 1.21em` rule. */
+  math { font-size: 1.25em; }
+  math[display="block"] { font-size: 1.35em; }
+
+  /* Header: tiny breadcrumb + item-type badge */
+  .header {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px; color: var(--muted);
+  }
+  .header .crumb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .header .badge {
+    text-transform: uppercase; letter-spacing: 0.05em; font-size: 10px;
+    padding: 1px 6px; border-radius: 3px;
+    background: var(--code-bg); color: var(--fg);
+  }
+  .header .badge.exercise { background: var(--accent); color: white; }
+  .header .badge.complete { background: var(--success); color: white; }
+
+  /* Content slot: the live current item. Caps height to keep the widget
+     small in chat; scrolls if the lesson is long. */
+  .content {
+    padding: 0.5rem 0.75rem;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+  .content h1, .content h2, .content h3 { margin: 0.4rem 0 0.3rem; }
+  .content h1 { font-size: 1.05rem; }
+  .content h2 { font-size: 1rem; }
+  .content h3 { font-size: 0.95rem; }
+  .content p { margin: 0.35rem 0; }
+  .content ul, .content ol { margin: 0.35rem 0; padding-left: 1.3rem; }
+  .content pre {
+    background: var(--code-bg); padding: 0.4rem 0.5rem; border-radius: 4px;
+    overflow-x: auto; font-size: 12px; margin: 0.3rem 0;
+  }
+  .content code { font-family: ui-monospace, Menlo, Monaco, monospace; }
+  .content table { border-collapse: collapse; margin: 0.25rem 0; font-size: 12px; }
+  .content th, .content td { border: 1px solid var(--border); padding: 2px 6px; text-align: left; }
+  .content .file-path { font-size: 11px; color: var(--muted); margin-top: 0.5rem; display: flex; align-items: center; gap: 0.25rem; }
+  .content .file-path-link { color: var(--accent); text-decoration: none; }
+  .content .file-path-link:hover { text-decoration: underline; }
+  .content .copy-btn { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 12px; padding: 0 0.25rem; }
+
+  /* Output slot: shown after run/check/hint/etc. Replaces previous output. */
+  .output {
+    margin: 0 0.75rem 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    background: var(--code-bg);
+    font-size: 12px;
+    border-left: 3px solid var(--accent);
+    position: relative;
+  }
+  .output[hidden] { display: none; }
+  .output.pass { border-left-color: var(--success); }
+  .output.fail { border-left-color: var(--fail); }
+  .output .out-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--muted); margin-bottom: 0.25rem;
+  }
+  .output .out-dismiss {
+    position: absolute; top: 4px; right: 4px;
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 14px; line-height: 1; padding: 2px 5px;
+  }
+  .output .out-dismiss:hover { color: var(--fg); }
+  .output pre { background: rgba(127,127,127,0.12); padding: 0.4rem 0.5rem; border-radius: 3px; font-size: 11px; margin: 0.25rem 0; overflow-x: auto; }
+  .output table { border-collapse: collapse; margin: 0.25rem 0; font-size: 11px; }
+  .output th, .output td { border: 1px solid var(--border); padding: 1px 5px; text-align: left; }
+  .output .success { color: var(--success); }
+  .output .fail { color: var(--fail); }
+  .output .message { color: var(--muted); font-style: italic; }
+  .output .hint-badge { display: inline-block; background: var(--hint); color: white; padding: 1px 5px; border-radius: 3px; font-size: 10px; margin-bottom: 4px; }
+
+  /* Action bar */
+  .action-bar { display: flex; flex-wrap: wrap; gap: 0.3rem; padding: 0.4rem 0.75rem; border-top: 1px solid var(--border); }
+  .action-group { display: flex; gap: 0.25rem; padding-right: 0.4rem; border-right: 1px solid var(--border); }
+  .action-group:last-child { border-right: none; padding-right: 0; }
+  .action-bar button {
+    font: inherit; background: transparent; color: var(--fg);
+    border: 1px solid var(--border); padding: 3px 9px; border-radius: 4px;
+    cursor: pointer; font-size: 12px;
+  }
+  .action-bar button:hover { border-color: var(--accent); }
+  .action-bar button.primary { background: var(--accent); color: white; border-color: var(--accent); }
+  .action-bar button:disabled { opacity: 0.5; cursor: wait; }
+
+  /* Progress bar footer */
+  .progress-bar {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+    font-size: 11px; padding: 0.3rem 0.75rem;
+    color: var(--muted); border-top: 1px solid var(--border);
+  }
+  .pb-segments { display: inline-flex; gap: 2px; }
+  .pb-seg { display: inline-block; width: 7px; height: 7px; border-radius: 2px; background: var(--border); }
+  .pb-seg.done { background: var(--success); }
+  .pb-seg.current { background: var(--accent); }
+
+  .loading { color: var(--muted); font-style: italic; }
+  .error-overlay { color: var(--fail); padding: 0.75rem; font-size: 12px; }
+
+  /* Stale state: host asked us to tear down (a newer widget has taken over),
+     OR a pre-action stale check detected the server has moved on without us. */
+  body.stale > .header,
+  body.stale > .content,
+  body.stale > .output,
+  body.stale > .action-bar,
+  body.stale > .progress-bar { opacity: 0.45; pointer-events: none; filter: grayscale(40%); }
+  .stale-banner {
+    display: none;
+    padding: 0.4rem 0.75rem;
+    background: var(--hint); color: #fff;
+    font-size: 11px; font-weight: 600;
+    text-align: center; letter-spacing: 0.02em;
+  }
+  body.stale .stale-banner { display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
+  .stale-banner button {
+    font: inherit; font-weight: 600; font-size: 11px;
+    background: rgba(0,0,0,0.18); color: #fff;
+    border: 1px solid rgba(255,255,255,0.4);
+    padding: 2px 10px; border-radius: 3px; cursor: pointer;
+    pointer-events: auto;
+  }
+  .stale-banner button:hover { background: rgba(0,0,0,0.32); }
+
+  /* ─── Debug log panel (dev). Hidden by default; toggled via the
+     little "debug" button bottom-right or Alt+D. When visible, body
+     reserves bottom space so the action bar isn't covered. ─── */
+  body.dbg-open { margin-bottom: 30vh; }
+  .debug-panel {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 999;
+    height: 30vh; overflow-y: auto;
+    background: #111; color: #ddd;
+    font: 10.5px/1.35 ui-monospace, "Cascadia Mono", Consolas, monospace;
+    border-top: 1px solid #333;
+    padding: 4px 6px;
+  }
+  .debug-panel[hidden] { display: none; }
+  .debug-panel .row { display: grid; grid-template-columns: 64px 70px 1fr; gap: 6px; }
+  .debug-panel .t { color: #888; }
+  .debug-panel .src-host { color: #6cf; }
+  .debug-panel .src-srv  { color: #fc6; }
+  .debug-panel .src-me   { color: #6f8; }
+  .debug-panel .src-warn { color: #f88; }
+  .debug-panel .msg b { color: #fff; }
+
+  .debug-toggle {
+    position: fixed; right: 6px; bottom: 6px; z-index: 1000;
+    font: 10px ui-monospace, Consolas, monospace;
+    background: rgba(40,40,40,0.55); color: #ccc;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 3px; padding: 1px 6px; cursor: pointer;
+    opacity: 0.5;
+  }
+  .debug-toggle:hover { opacity: 1; }
+  body.dbg-open .debug-toggle { bottom: calc(30vh + 6px); opacity: 1; }
+</style>
+</head>
+<body>
+<div id="stale-banner" class="stale-banner">
+  <span id="stale-msg">This view has been replaced — open the newer widget below.</span>
+  <button id="stale-refresh" type="button" hidden>Refresh</button>
+</div>
+<header id="header" class="header">
+  <span class="crumb"></span>
+  <span class="badge"></span>
+</header>
+<section id="content" class="content"></section>
+<div id="output" class="output" hidden></div>
+<nav id="actions" class="action-bar"></nav>
+<footer id="progress-bar" class="progress-bar"></footer>
+
+<button id="debug-toggle" class="debug-toggle" type="button" title="Toggle debug log (Alt+D)">debug</button>
+<div id="debug-panel" class="debug-panel" hidden></div>
+
+<script>
+// Use KaTeX MathML output so glyphs render natively in the iframe without
+// loading the KaTeX CSS or fonts.
+globalThis.__KATAS_KATEX_CONFIG = { output: "mathml" };
+</script>
+<script>
+/*__KATEX_JS__*/
+</script>
+<script>
+/*__KATEX_AUTORENDER_JS__*/
+</script>
+<script>
+/*__KATAS_RENDER__*/
+</script>
+<script type="module">
+/*__EXT_APPS_BUNDLE__*/
+(() => {
+"use strict";
+const { App } = globalThis.ExtApps;
+const R = globalThis.KatasRender;
+
+// ─── DOM slots ───
+const headerEl = document.getElementById("header");
+const crumbEl = headerEl.querySelector(".crumb");
+const badgeEl = headerEl.querySelector(".badge");
+const contentEl = document.getElementById("content");
+const outputEl = document.getElementById("output");
+const actionsEl = document.getElementById("actions");
+const progressEl = document.getElementById("progress-bar");
+const staleBannerEl = document.getElementById("stale-banner");
+const staleMsgEl = document.getElementById("stale-msg");
+const staleRefreshBtn = document.getElementById("stale-refresh");
+
+// ─── Action → MCP tool mapping ───
+const ACTION_TO_TOOL = {
+  next:            { name: "next" },
+  back:            { name: "previous" },
+  run:             { name: "run" },
+  "run-noise":     { name: "run_with_noise", args: { shots: 100 } },
+  circuit:         { name: "circuit" },
+  estimate:        { name: "estimate" },
+  check:           { name: "check" },
+  hint:            { name: "hint" },
+  "reveal-answer": { name: "reveal_answer" },
+  solution:        { name: "solution" },
+  "ai-hint":       { name: "ai_hint" },
+  progress:        { name: "get_progress" },
+};
+
+const app = new App({ name: "QSharpKatasWidget", version: "1.0.0" }, {});
+let busy = false;
+let lastPositionKey = null;
+
+// Server-issued identity for this widget instance. Captured from the first
+// envelope that carries it (the mount toolresult, or any subsequent
+// response). Sent on every widget-initiated tool call so the server can
+// reject calls from superseded widgets with `{ stale: true }`.
+let myWidgetId = null;
+
+function captureWidgetId(envelope) {
+  if (!myWidgetId && envelope && typeof envelope.widgetId === "string") {
+    myWidgetId = envelope.widgetId;
+    dbgShortId = myWidgetId;
+    dbg("me", "captured widgetId", myWidgetId);
+  }
+}
+
+// ─── Debug log ────────────────────────────────────────────────────────
+//
+// Lifecycle of multiple coexisting widget instances (per the MCP Apps
+// spec each `_meta.ui` tool call mounts a fresh View) is tricky to
+// reason about empirically. This panel captures every host event and
+// every notable internal action with a per-widget short id, so we can
+// diff what the host actually delivers against what the spec promises.
+//
+// Sources: host (event from app/host) | srv (server response) | me (own action) | warn
+
+const dbgPanel = document.getElementById("debug-panel");
+const dbgToggleBtn = document.getElementById("debug-toggle");
+
+function setDebugOpen(open) {
+  dbgPanel.hidden = !open;
+  document.body.classList.toggle("dbg-open", open);
+  if (open) dbgPanel.scrollTop = dbgPanel.scrollHeight;
+}
+dbgToggleBtn.addEventListener("click", () => setDebugOpen(dbgPanel.hidden));
+window.addEventListener("keydown", (e) => {
+  if (e.altKey && (e.key === "d" || e.key === "D")) {
+    e.preventDefault();
+    setDebugOpen(dbgPanel.hidden);
+  }
+});
+const startedAt = performance.now();
+// Short identifier shown in every log line so multiple widget panels
+// can be told apart in screenshots/copy-paste. Replaced with a short
+// random tag at boot.
+let dbgShortId = Math.random().toString(36).slice(2, 6);
+
+function dbg(source, msg, detail) {
+  const t = ((performance.now() - startedAt) / 1000).toFixed(2) + "s";
+  const row = document.createElement("div");
+  row.className = "row";
+  const detailStr = detail === undefined ? "" : (
+    typeof detail === "string" ? detail : safeStringify(detail)
+  );
+  row.innerHTML =
+    `<span class="t">${t}</span>` +
+    `<span class="src-${source}">[${dbgShortId}] ${R.escapeHtml(source)}</span>` +
+    `<span class="msg"><b>${R.escapeHtml(msg)}</b>${detailStr ? " " + R.escapeHtml(detailStr) : ""}</span>`;
+  dbgPanel.appendChild(row);
+  // Keep the panel from growing unbounded.
+  while (dbgPanel.children.length > 200) dbgPanel.removeChild(dbgPanel.firstChild);
+  dbgPanel.scrollTop = dbgPanel.scrollHeight;
+  // Mirror to console for browser devtools.
+  // eslint-disable-next-line no-console
+  console.log(`[katas-widget ${dbgShortId} ${t}] ${source}: ${msg}`, detail ?? "");
+}
+
+function safeStringify(v) {
+  try {
+    const s = JSON.stringify(v);
+    return s.length > 160 ? s.slice(0, 157) + "..." : s;
+  } catch {
+    return String(v);
+  }
+}
+
+dbg("me", "boot", { url: location.href });
+
+// Hook all framework-level events so we can see what the host actually
+// delivers to each widget instance. We use addEventListener (multi-listener)
+// so we don't conflict with our own ontoolresult/onteardown setters below.
+app.addEventListener("toolinput", (p) => dbg("host", "toolinput", p));
+app.addEventListener("toolinputpartial", (p) => dbg("host", "toolinputpartial", p));
+app.addEventListener("toolcancelled", (p) => dbg("host", "toolcancelled", p));
+app.addEventListener("hostcontextchanged", (p) => dbg("host", "hostcontextchanged", { keys: Object.keys(p ?? {}) }));
+app.addEventListener("toolresult", (p) => {
+  // Try to summarise: parse the embedded JSON envelope if any.
+  let summary;
+  try {
+    const txt = p?.content?.[0]?.text;
+    if (typeof txt === "string") {
+      const env = JSON.parse(txt);
+      summary = {
+        isError: p.isError === true,
+        stale: env?.stale === true,
+        widgetId: env?.widgetId,
+        pos: env?.state?.position
+          ? `${env.state.position.kataId}§${env.state.position.sectionIndex}#${env.state.position.itemIndex}`
+          : undefined,
+      };
+    } else {
+      summary = { isError: p?.isError === true, raw: typeof txt };
+    }
+  } catch {
+    summary = { isError: p?.isError === true, parseFail: true };
+  }
+  dbg("host", "toolresult", summary);
+  });
+// ─── Header / content / output rendering ───
+
+function renderHeader(position) {
+  const item = position.item;
+  const sectionTitle =
+    item.type === "exercise" ? item.title : (item.sectionTitle || "");
+  crumbEl.textContent = `${position.kataId} · §${position.sectionIndex + 1} · #${position.itemIndex + 1}${sectionTitle ? ` — ${sectionTitle}` : ""}`;
+
+  badgeEl.className = "badge";
+  if (item.type === "exercise") {
+    badgeEl.textContent = item.isComplete ? "✔ done" : "exercise";
+    badgeEl.classList.add(item.isComplete ? "complete" : "exercise");
+  } else if (item.type === "lesson-text") {
+    badgeEl.textContent = "lesson";
+  } else if (item.type === "lesson-example") {
+    badgeEl.textContent = "example";
+  } else if (item.type === "lesson-question") {
+    badgeEl.textContent = "question";
+  } else {
+    badgeEl.textContent = item.type;
+  }
+}
+
+function renderContent(position) {
+  contentEl.innerHTML = R.renderContentBody(position.item);
+  R.renderMath(contentEl);
+  contentEl.scrollTop = 0;
+}
+
+function showOutput(html, variant) {
+  // variant: undefined | "pass" | "fail"
+  outputEl.className = "output" + (variant ? " " + variant : "");
+  outputEl.innerHTML =
+    `<button class="out-dismiss" aria-label="Dismiss" title="Dismiss">×</button>` +
+    `<div class="out-label">${labelFor(variant)}</div>` +
+    `<div class="out-body">${html}</div>`;
+  outputEl.hidden = false;
+  outputEl.querySelector(".out-dismiss").addEventListener("click", clearOutput);
+  R.renderMath(outputEl);
+}
+
+function labelFor(variant) {
+  if (variant === "pass") return "Result";
+  if (variant === "fail") return "Result";
+  return "Output";
+}
+
+function clearOutput() {
+  outputEl.hidden = true;
+  outputEl.innerHTML = "";
+}
+
+// ─── Action bar / progress bar ───
+
+function renderActions(groups) {
+  actionsEl.innerHTML = "";
+  for (const group of groups) {
+    const div = document.createElement("div");
+    div.className = "action-group";
+    for (const binding of group) {
+      // Skip `quit` (no place for it in chat) and `menu` (the catalog is
+      // shown in chat by the agent via `list_katas`, not inside the widget).
+      if (binding.action === "quit" || binding.action === "menu") continue;
+      const btn = document.createElement("button");
+      btn.textContent = binding.label;
+      if (binding.primary) btn.classList.add("primary");
+      btn.dataset.action = binding.action;
+      btn.disabled = busy;
+      btn.addEventListener("click", () => executeAction(binding.action));
+      div.appendChild(btn);
+    }
+    if (div.children.length > 0) actionsEl.appendChild(div);
+  }
+}
+
+function setBusy(b) {
+  busy = b;
+  for (const btn of actionsEl.querySelectorAll("button")) btn.disabled = b;
+}
+
+function renderProgressBar(progress) {
+  try { progressEl.innerHTML = R.renderProgressBar(progress); }
+  catch { progressEl.innerHTML = ""; }
+}
+
+// ─── State application: replace, never append ───
+
+function applyState(state) {
+  if (!state) return;
+  const pos = state.position;
+  const key = `${pos.kataId}:${pos.sectionIndex}:${pos.itemIndex}`;
+  if (key !== lastPositionKey) {
+    renderHeader(pos);
+    renderContent(pos);
+    // Position changed → previous output (e.g. last run result) is no longer
+    // relevant. Clear it so the widget stays focused on the current item.
+    clearOutput();
+    lastPositionKey = key;
+  } else {
+    // Same position: still refresh header (e.g. exercise just completed).
+    renderHeader(pos);
+  }
+  renderActions(state.actions);
+  renderProgressBar(state.progress);
+}
+
+/** Force the next applyState to re-render content (used after a passing check
+ * so the ✔ marker appears). */
+function invalidateContent() { lastPositionKey = null; }
+
+// ─── Tool invocation ───
+
+async function callTool(name, args) {
+  const merged = { ...(args ?? {}) };
+  if (myWidgetId) merged.widgetId = myWidgetId;
+  dbg("me", "callTool \u2192", { name, args: merged });
+  const res = await app.callServerTool({ name, arguments: merged });
+  if (res.isError) {
+    const txt = res.content?.[0]?.text ?? "Tool error";
+    dbg("warn", "callTool err", { name, txt: typeof txt === "string" ? txt.slice(0, 120) : txt });
+    throw new Error(typeof txt === "string" ? txt : JSON.stringify(txt));
+  }
+  const env = JSON.parse(res.content[0].text);
+  captureWidgetId(env);
+  dbg("srv", "callTool \u2190", { name, stale: env?.stale === true, pos: env?.state?.position && `${env.state.position.kataId}\u00a7${env.state.position.sectionIndex}#${env.state.position.itemIndex}` });
+  return env;
+}
+
+/** True if the server's response indicates this widget has been superseded. */
+function isStaleResponse(envelope) {
+  return envelope && envelope.stale === true;
+}
+
+async function executeAction(action) {
+  if (busy) return;
+  setBusy(true);
+
+  try {
+    // Actions that need user input or chat context: delegate to chat.
+    if (action === "ask-ai") {
+      showOutput(`<div class="loading">Sending request to chat…</div>`);
+      try {
+        await app.sendMessage({
+          role: "user",
+          content: [{ type: "text", text: "Please use the ask_ai tool to answer my question about the current lesson." }],
+        });
+        showOutput(`<div class="message">Request sent — reply will appear in chat.</div>`);
+      } catch (e) {
+        showOutput(`<div class="fail">sendMessage failed: ${R.escapeHtml(e && e.message || String(e))}</div>`, "fail");
+      }
+      return;
+    }
+
+    const spec = ACTION_TO_TOOL[action];
+    if (!spec) return;
+
+    const slow = ["run", "run-noise", "circuit", "estimate", "check", "ai-hint"].includes(action);
+    if (slow) showOutput(`<div class="loading">Working…</div>`);
+
+    const envelope = await callTool(spec.name, spec.args);
+    // Server says this widget has been superseded by a newer one. Refresh
+    // displayed state so the user sees the truth, mark stale so further
+    // clicks are blocked, and SKIP the action's normal output rendering
+    // \u2014 the action did NOT execute.
+    if (envelope.stale === true) {
+      dbg("warn", "stale response from server", { liveWidgetId: envelope.liveWidgetId });
+      invalidateContent();
+      applyState(envelope.state);
+      markStale("This view is out of date \u2014 a newer widget below has taken over. Click on it to act.", { allowRefresh: false });
+      clearOutput();
+      return;
+    }
+    // Render action-specific output (replaces any previous output).
+    switch (action) {
+      case "next":
+      case "back": {
+        if (!envelope.moved) {
+          showOutput(
+            action === "next"
+              ? `<div class="success">🎉 You've completed all content!</div>`
+              : `<div class="message">Already at the beginning.</div>`
+          );
+        } else {
+          // Position changed — applyState will clear output.
+        }
+        break;
+      }
+      case "run":
+      case "run-noise":
+        showOutput(R.renderRunResult(envelope.result));
+        break;
+      case "circuit":
+        showOutput(R.renderCircuit(envelope.result));
+        break;
+      case "estimate":
+        showOutput(R.renderEstimate(envelope.result));
+        break;
+      case "check":
+        showOutput(R.renderSolutionCheck(envelope.result), envelope.result.passed ? "pass" : "fail");
+        if (envelope.result.passed) invalidateContent();
+        break;
+      case "hint":
+        showOutput(envelope.result
+          ? R.renderHint(envelope.result)
+          : `<div class="message">No more hints available.</div>`);
+        break;
+      case "reveal-answer":
+        showOutput(`<div>${envelope.result}</div>`);
+        break;
+      case "solution":
+        showOutput(`<div style="margin-bottom:0.3rem"><strong>Reference Solution</strong></div><pre>${R.escapeHtml(envelope.result)}</pre>`);
+        break;
+      case "ai-hint":
+        showOutput(envelope.result
+          ? `<div>🤖 ${R.escapeHtml(envelope.result)}</div>`
+          : `<div class="message">AI hints not available.</div>`);
+        break;
+      case "progress":
+        showOutput(R.renderProgress(envelope.progress));
+        break;
+    }
+
+    applyState(envelope.state);
+  } catch (err) {
+    showOutput(`<div class="fail">Error: ${R.escapeHtml(err && err.message || String(err))}</div>`, "fail");
+  } finally {
+    setBusy(false);
+  }
+}
+
+// ─── Host-driven tool results: keep widget in sync with agent calls ───
+//
+// VS Code (empirically) broadcasts toolresult to all widget instances of
+// the same app. We just apply state from any envelope that carries it;
+// the server is the single source of truth.
+
+app.ontoolresult = ({ content }) => {
+  try {
+    const text = content?.[0]?.text;
+    if (typeof text !== "string") return;
+    const envelope = JSON.parse(text);
+    captureWidgetId(envelope);
+    if (envelope && envelope.state) {
+      dbg("me", "applyState (broadcast)", { pos: `${envelope.state.position.kataId}\u00a7${envelope.state.position.sectionIndex}#${envelope.state.position.itemIndex}` });
+      applyState(envelope.state);
+    }
+  } catch (err) {
+    dbg("warn", "ontoolresult parse fail", String(err && err.message || err));
+  }
+};
+
+// ─── Teardown: host is about to retire this widget instance ───
+//
+// Fires when the host (e.g. VS Code chat) decides this iframe should be
+// unmounted, typically because a newer widget for the same app is taking
+// over. We grey out the UI, disable interaction, and show a stale-banner
+// so the user knows to scroll down to the active widget. We resolve the
+// teardown immediately — there's no async cleanup we need to defer.
+//
+// In practice VS Code rarely fires this — the per-widget stale-on-click
+// detection in executeAction is the load-bearing safety net.
+app.onteardown = () => {  dbg("host", "onteardown");  markStale("This view has been replaced — open the newer widget below.", { allowRefresh: false });
+  return {};
+};
+
+// ─── Stale-state helpers ──────────────────────────────────────────────
+//
+// "Stale" means a newer widget instance has taken over (detected via the
+// server's `{ stale: true }` response). We grey out the UI and show a
+// banner pointing the user to the active widget below in chat.
+
+function markStale(message, opts = { allowRefresh: false }) {
+  staleMsgEl.textContent = message;
+  staleRefreshBtn.hidden = !opts.allowRefresh;
+  document.body.classList.add("stale");
+}
+
+// Copy-to-clipboard for file paths inside the content slot.
+contentEl.addEventListener("click", (e) => {
+  const btn = e.target.closest(".copy-btn");
+  if (btn && navigator.clipboard) {
+    navigator.clipboard.writeText(btn.dataset.copy);
+  }
+});
+
+// Route file-path link clicks through the host so VS Code opens the file.
+contentEl.addEventListener("click", (e) => {
+  const a = e.target.closest("a.file-path-link");
+  if (!a) return;
+  e.preventDefault();
+  const url = a.getAttribute("href");
+  if (!url) return;
+  app.openLink({ url }).catch((err) => {
+    console.error("[katas-widget] openLink failed", err);
+  });
+});
+
+(async () => {
+  await app.connect();
+  dbg("host", "connected", { host: app.getHostVersion(), ctx: app.getHostContext() ? Object.keys(app.getHostContext()) : null });
+  try {
+    dbg("me", "get_state \u2192");
+    const envelope = await callTool("get_state", {});
+    dbg("srv", "get_state \u2190", { pos: envelope.state?.position && `${envelope.state.position.kataId}\u00a7${envelope.state.position.sectionIndex}#${envelope.state.position.itemIndex}` });
+    applyState(envelope.state);
+
+    // Rehydrate-staleness probe: if the host replayed a cached mount
+    // envelope (e.g. because we scrolled off-screen and back), we now
+    // hold our original widgetId. Send a no-op call WITH that id so the
+    // server can tell us if a newer widget has since taken over. If so,
+    // surface the amber banner immediately rather than waiting for the
+    // user's first click.
+    if (myWidgetId) {
+      try {
+        const probe = await callTool("get_state", {});
+        if (probe.stale === true) {
+          dbg("warn", "rehydrate detected stale", { liveWidgetId: probe.liveWidgetId });
+          invalidateContent();
+          applyState(probe.state);
+          markStale("This view is out of date \u2014 a newer widget below has taken over. Click on it to act.", { allowRefresh: false });
+        }
+      } catch (e) {
+        dbg("warn", "stale probe failed", String(e && e.message || e));
+      }
+    }
+  } catch (err) {
+    const msg = String(err && err.message || err);
+    dbg("warn", "boot failed", msg);
+    // Special case: the MCP server has restarted (or was never initialised
+    // by the agent in this session) and has lost its workspace. The cached
+    // mount envelope already painted last-known state via ontoolresult, so
+    // we keep that visible and overlay the stale banner explaining what
+    // happened. We deliberately do NOT call set_workspace ourselves \u2014
+    // widgets must not sneakily mutate server state on rehydrate.
+    if (msg.includes("workspace has not been set") && lastPositionKey) {
+      markStale(
+        "The katas server was restarted and has lost its workspace. Ask the agent in chat to resume your session.",
+        { allowRefresh: false },
+      );
+      return;
+    }
+    document.body.innerHTML =
+      `<div class="error-overlay">Failed to load: ${R.escapeHtml(msg)}</div>`;
+  }
+})();
+})();
+</script>
+</body>
+</html>

@@ -197,6 +197,11 @@
             "hidden"
           ],
           "description": "Upload supplemental input data (circuit diagram) to the storage container when submitting jobs to Azure Quantum."
+        },
+        "Q#.learning.workspaceRoot": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path where the Quantum Katas MCP server stores scaffolded exercise files and progress (a `quantum-katas` subfolder is created here). When empty, the server prompts the user to confirm a path on first use."
         }
       }
     },
@@ -393,6 +398,15 @@
     "chatSkills": [
       {
         "path": "./skills/qdk-programming/SKILL.md"
+      },
+      {
+        "path": "./skills/quantum-katas/SKILL.md"
+      }
+    ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "qdk.quantum-katas",
+        "label": "Quantum Katas"
       }
     ],
     "commands": [
@@ -1075,13 +1089,23 @@
     "build:watch": "node build.mjs --watch",
     "start": "npm exec --no -- @vscode/test-web --extensionDevelopmentPath . ../../samples",
     "test": "node ./test/runTests.mjs -- ",
+    "test:learning": "node ../../node_modules/typescript/bin/tsc -p ./src/learning/tsconfig.test.json && node -e \"require('fs').writeFileSync('out/learning-test/package.json',JSON.stringify({type:'module',private:true}))\" && node --test out/learning-test/tests/server.test.js",
     "pretest": "npm exec --no playwright install chromium && node ./test/buildTests.mjs",
     "tsc:check:main": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json",
     "tsc:check:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json",
-    "tsc:check": "npm run tsc:check:main && npm run tsc:check:view",
+    "tsc:check:learning": "node ../../node_modules/typescript/bin/tsc -p ./src/learning/tsconfig.json",
+    "tsc:check": "npm run tsc:check:main && npm run tsc:check:view && npm run tsc:check:learning",
     "tsc:watch": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json --watch --preserveWatchOutput",
     "tsc:watch:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput",
     "postinstall": "node -e \"require('fs').cpSync('../../node_modules/web-worker','node_modules/web-worker',{recursive:true})\""
+  },
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.6.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "katex": "^0.16.45",
+    "marked": "^15.0.0",
+    "marked-terminal": "^7.0.0",
+    "zod": "^4.3.6"
   },
   "repository": {
     "type": "git",

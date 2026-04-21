@@ -24,7 +24,9 @@
     "./katas-md": "./dist/katas-md.js",
     "./state-viz": "./ux/circuit-vis/state-viz/worker/index.ts",
     "./ux": "./ux/index.ts",
-    "./qdk-theme.css": "./ux/qdk-theme.css"
+    "./qdk-theme.css": "./ux/qdk-theme.css",
+    "./dist/*": "./dist/*",
+    "./lib/*": "./lib/*"
   },
   "scripts": {
     "build": "npm run docs && npm run generate && npm run build:tsc && npm run build:ux",

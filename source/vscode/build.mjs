@@ -3,7 +3,13 @@
 
 //@ts-check
 
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import {
+  copyFileSync,
+  cpSync,
+  mkdirSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuildBuild, context } from "esbuild";
@@ -78,6 +84,22 @@ const platformBuildOptions = {
     ],
     define: {
       "import.meta.url": "undefined",
+      __PLATFORM__: JSON.stringify("node"),
+    },
+  },
+  "learning-cli": {
+    ...commonBuildOptions,
+    platform: "node",
+    format: "esm",
+    outdir: join(thisDir, "out", "learning"),
+    entryPoints: [join(thisDir, "src", "learning", "index.ts")],
+    external: ["vscode", "web-worker"],
+    // Some of qsharp-lang's Node-targeted code uses dynamic require() of
+    // bundled WASM; add a shim so those calls work from the ESM bundle.
+    banner: {
+      js: 'import { createRequire as _esmCreateRequire } from "module"; const require = _esmCreateRequire(import.meta.url);',
+    },
+    define: {
       __PLATFORM__: JSON.stringify("node"),
     },
   },
@@ -200,6 +222,27 @@ export function copyKatex(destDir) {
   }
 }
 
+export function copyLearningAssets() {
+  const srcRoot = join(thisDir, "src", "learning");
+  const outRoot = join(thisDir, "out", "learning");
+  console.log("Copying learning assets to: " + outRoot);
+  mkdirSync(outRoot, { recursive: true });
+  // Make node treat the bundled `index.js` as an ES module. The parent
+  // package.json at source/vscode declares `"type": "commonjs"`.
+  writeFileSync(
+    join(outRoot, "package.json"),
+    JSON.stringify({ type: "module", private: true }, null, 2) + "\n",
+  );
+  // The bundled `index.js` lives directly in out/learning/, so lay out
+  // sibling assets so runtime code can reach them via __dirname/<path>.
+  cpSync(join(srcRoot, "web", "public"), join(outRoot, "web", "public"), {
+    recursive: true,
+  });
+  cpSync(join(srcRoot, "mcp", "widget"), join(outRoot, "widget"), {
+    recursive: true,
+  });
+}
+
 // ── Build functions ─────────────────────────────────────────────────
 
 /** @param {string} platform */
@@ -277,12 +320,14 @@ export async function watchVsCode() {
     } else {
       copyKatex();
       copyWasmToVsCode();
+      copyLearningAssets();
 
       await Promise.all([
         buildPlatform("ui"),
         buildPlatform("browser"),
         buildPlatform("node"),
         buildPlatform("node-worker"),
+        buildPlatform("learning-cli"),
       ]);
     }
   }
