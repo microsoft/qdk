@@ -17,7 +17,8 @@ export function setTestGithubEndpoint(url: string) {
   // as a fake GitHub raw content endpoint.
   //
   // In the node environment, the language-service test suite starts its own
-  // HTTP server and stores the endpoint URL in process.env.TEST_GITHUB_ENDPOINT.
+  // HTTP server and passes the endpoint URL here, where it is stored in the
+  // module-level testGithubEndpoint variable for use during activation.
   testGithubEndpoint = url;
 }
 
