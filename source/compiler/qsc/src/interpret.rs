@@ -44,7 +44,7 @@ use qsc_data_structures::{
 };
 use qsc_eval::{
     Env, ErrorBehavior, State, VariableInfo,
-    backend::{Backend, SparseSim, TracingBackend},
+    backend::{Backend, CliffordSim, SparseSim, TracingBackend},
     output::Receiver,
 };
 pub use qsc_eval::{
@@ -120,6 +120,13 @@ pub enum Error {
     #[error("partial evaluation error")]
     #[diagnostic(transparent)]
     PartialEvaluation(#[from] WithSource<qsc_partial_eval::Error>),
+}
+
+#[derive(Default, Debug, PartialEq, Eq, Copy, Clone)]
+pub enum SimType {
+    #[default]
+    Sparse,
+    Clifford(usize),
 }
 
 /// A Q# interpreter.
@@ -844,30 +851,47 @@ impl Interpreter {
         qubit_loss: Option<f64>,
         noise_config: Option<NoiseConfig<f64, f64>>,
         seed: Option<u64>,
+        sim_type: SimType,
     ) -> InterpretResult {
         let qubit_loss = if noise_config.is_none() {
             qubit_loss
         } else {
             None
         };
-        let mut sim = match noise {
-            Some(noise) => SparseSim::new_with_noise(&noise),
-            None => match noise_config {
-                Some(config) => SparseSim::new_with_noise_config(config.into()),
-                None => SparseSim::new(),
-            },
-        };
-        if let Some(loss) = qubit_loss {
-            sim.set_loss(loss);
+
+        match sim_type {
+            SimType::Sparse => {
+                let mut sim = match noise {
+                    Some(noise) => SparseSim::new_with_noise(&noise),
+                    None => match noise_config {
+                        Some(config) => SparseSim::new_with_noise_config(config.into()),
+                        None => SparseSim::new(),
+                    },
+                };
+                if let Some(loss) = qubit_loss {
+                    sim.set_loss(loss);
+                }
+                if seed.is_some() {
+                    sim.set_seed(seed);
+                }
+                self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
+            }
+            SimType::Clifford(num_qubits) => {
+                let mut sim = match noise_config {
+                    Some(config) => CliffordSim::new_with_noise_config(num_qubits, config.into()),
+                    None => CliffordSim::new(num_qubits),
+                };
+                if seed.is_some() {
+                    sim.set_seed(seed);
+                }
+                self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
+            }
         }
-        if seed.is_some() {
-            sim.set_seed(seed);
-        }
-        self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
     }
 
     /// Runs the given entry expression on a new instance of the environment and simulator,
     /// but using the current compilation.
+    #[allow(clippy::too_many_arguments)]
     pub fn run(
         &mut self,
         receiver: &mut impl Receiver,
@@ -876,28 +900,42 @@ impl Interpreter {
         qubit_loss: Option<f64>,
         noise_config: Option<NoiseConfig<f64, f64>>,
         seed: Option<u64>,
+        sim_type: SimType,
     ) -> InterpretResult {
         let qubit_loss = if noise_config.is_none() {
             qubit_loss
         } else {
             None
         };
-        let mut sim = match noise {
-            Some(noise) => SparseSim::new_with_noise(&noise),
-            None => match noise_config {
-                Some(config) => SparseSim::new_with_noise_config(config.into()),
-                None => SparseSim::new(),
-            },
-        };
-        if let Some(loss) = qubit_loss {
-            sim.set_loss(loss);
+        match sim_type {
+            SimType::Sparse => {
+                let mut sim = match noise {
+                    Some(noise) => SparseSim::new_with_noise(&noise),
+                    None => match noise_config {
+                        Some(config) => SparseSim::new_with_noise_config(config.into()),
+                        None => SparseSim::new(),
+                    },
+                };
+                if let Some(loss) = qubit_loss {
+                    sim.set_loss(loss);
+                }
+                self.run_with_sim(&mut sim, receiver, expr, seed)
+            }
+            SimType::Clifford(num_qubits) => {
+                let mut sim = match noise_config {
+                    Some(config) => CliffordSim::new_with_noise_config(num_qubits, config.into()),
+                    None => CliffordSim::new(num_qubits),
+                };
+                self.run_with_sim(&mut sim, receiver, expr, seed)
+            }
         }
-        self.run_with_sim(&mut sim, receiver, expr, seed)
     }
 
     /// Gets the current quantum state of the simulator.
     pub fn get_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
-        self.sim.capture_quantum_state()
+        self.sim
+            .capture_quantum_state()
+            .expect("interpreter should use infallible sparse sim by default")
     }
 
     /// Get the current circuit representation of the program.
@@ -1641,7 +1679,7 @@ impl Debugger {
     }
 
     pub fn capture_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
-        self.interpreter.sim.capture_quantum_state()
+        self.interpreter.get_quantum_state()
     }
 
     pub fn circuit(&self) -> Circuit {

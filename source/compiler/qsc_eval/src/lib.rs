@@ -178,6 +178,10 @@ pub enum Error {
     ))]
     ResultLossComparisonUnsupported(#[label("cannot compare result from qubit loss")] PackageSpan),
 
+    #[error("simulation error: {0}")]
+    #[diagnostic(code("Qsc.Eval.SimulationError"))]
+    SimulationError(String, #[label("simulation error")] PackageSpan),
+
     #[error("name is not bound")]
     #[diagnostic(code("Qsc.Eval.UnboundName"))]
     UnboundName(#[label] PackageSpan),
@@ -226,6 +230,7 @@ impl Error {
             | Error::ReleasedQubitNotZero(_, span)
             | Error::ResultComparisonUnsupported(span)
             | Error::ResultLossComparisonUnsupported(span)
+            | Error::SimulationError(_, span)
             | Error::UnboundName(span)
             | Error::UnknownIntrinsic(_, span)
             | Error::UnsupportedIntrinsicType(_, span)
@@ -1326,7 +1331,9 @@ impl State {
         let name = &callee.name.name;
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
-                let q = sim.qubit_allocate(&call_stack);
+                let q = sim
+                    .qubit_allocate(&call_stack)
+                    .map_err(|e| Error::SimulationError(e, callee_span))?;
                 let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
@@ -1343,7 +1350,9 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                let is_zero = sim.qubit_release(qubit.0, &call_stack);
+                let is_zero = sim
+                    .qubit_release(qubit.0, &call_stack)
+                    .map_err(|e| Error::SimulationError(e, callee_span))?;
                 let is_borrowed = self.dirty_qubits.remove(&qubit.0);
                 if is_zero || is_borrowed {
                     Value::unit()
