@@ -7,7 +7,6 @@ import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { KatasServer, NoOpAIProvider } from "../server/index.js";
-import type { ExerciseItem } from "../server/index.js";
 
 let server: KatasServer;
 let workspacePath: string;
@@ -71,7 +70,10 @@ describe("KatasServer", () => {
     });
 
     it("getKataDetail throws for invalid kata", () => {
-      assert.throws(() => server.getKataDetail("nonexistent_kata"), /not found/i);
+      assert.throws(
+        () => server.getKataDetail("nonexistent_kata"),
+        /not found/i,
+      );
     });
   });
 
@@ -95,7 +97,9 @@ describe("KatasServer", () => {
       const content = await readFile(filePath, "utf-8");
       assert.ok(content.length > 0, "Exercise file should have content");
       assert.ok(
-        content.includes("namespace Kata") || content.includes("operation") || content.includes("function"),
+        content.includes("namespace Kata") ||
+          content.includes("operation") ||
+          content.includes("function"),
         "Exercise file should contain Q# code",
       );
     });
@@ -120,7 +124,11 @@ describe("KatasServer", () => {
       // Re-initialize
       const server2 = await createServer();
       const content = await readFile(filePath, "utf-8");
-      assert.equal(content, "// my custom solution\n", "File should not be overwritten");
+      assert.equal(
+        content,
+        "// my custom solution\n",
+        "File should not be overwritten",
+      );
       server2.dispose();
     });
   });
@@ -192,11 +200,7 @@ describe("KatasServer", () => {
       const detail = server.getKataDetail("getting_started");
       const lastSection = detail.sections[detail.sections.length - 1];
 
-      const state = server.goTo(
-        "getting_started",
-        lastSection.index,
-        0,
-      );
+      const state = server.goTo("getting_started", lastSection.index, 0);
       assert.ok(state.position, "Should return state with position");
 
       const pos = server.getPosition();
@@ -205,10 +209,7 @@ describe("KatasServer", () => {
     });
 
     it("goTo() throws for invalid position", () => {
-      assert.throws(
-        () => server.goTo("getting_started", 999),
-        /not found/i,
-      );
+      assert.throws(() => server.goTo("getting_started", 999), /not found/i);
     });
 
     it("getAvailableActions returns exactly one primary binding", () => {
@@ -266,7 +267,11 @@ describe("KatasServer", () => {
         pos = server.getPosition();
       }
 
-      assert.equal(pos.item.type, "lesson-example", "Should find a lesson example");
+      assert.equal(
+        pos.item.type,
+        "lesson-example",
+        "Should find a lesson example",
+      );
       const { result } = await server.run();
       assert.equal(result.success, true, "Example should run successfully");
       assert.ok(Array.isArray(result.events));
@@ -392,7 +397,9 @@ describe("KatasServer", () => {
       const solution = server.getFullSolution();
       assert.ok(solution.length > 0);
       assert.ok(
-        solution.includes("X(q)") || solution.includes("operation") || solution.includes("namespace"),
+        solution.includes("X(q)") ||
+          solution.includes("operation") ||
+          solution.includes("namespace"),
         "Solution should contain Q# code",
       );
     });
@@ -425,10 +432,7 @@ describe("KatasServer", () => {
       const kp = progress.katas.get("getting_started");
       assert.ok(kp, "Should have progress for getting_started");
       assert.ok(kp!.completed > 0, "Should have completed sections");
-      assert.ok(
-        kp!.sections[0].isComplete,
-        "First section should be complete",
-      );
+      assert.ok(kp!.sections[0].isComplete, "First section should be complete");
       server.dispose();
     });
 

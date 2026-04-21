@@ -6,9 +6,7 @@
 
 declare module "qsharp-lang/katas" {
   export function getAllKatas(): Promise<Kata[]>;
-  export function getExerciseSources(
-    exercise: Exercise,
-  ): string[];
+  export function getExerciseSources(exercise: Exercise): string[];
 
   export interface Kata {
     id: string;
@@ -133,7 +131,10 @@ declare module "qsharp-lang/dist/compiler/common.js" {
 
   export type Result =
     | { success: true; value: string }
-    | { success: false; value: { message?: string; errors?: Array<{ message?: string }> } };
+    | {
+        success: false;
+        value: { message?: string; errors?: Array<{ message?: string }> };
+      };
 
   export interface ShotResult {
     success: boolean;
@@ -258,5 +259,7 @@ declare module "qsharp-lang/dist/data-structures/circuit.js" {
 
 declare module "marked-terminal" {
   import type { MarkedExtension } from "marked";
-  export function markedTerminal(options?: Record<string, unknown>): MarkedExtension;
+  export function markedTerminal(
+    options?: Record<string, unknown>,
+  ): MarkedExtension;
 }

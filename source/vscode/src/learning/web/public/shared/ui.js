@@ -19,9 +19,9 @@
    *   button or keyboard shortcut fires. Transport-specific.
    */
   function createUiController({ streamEl, actionsEl, progressEl, onAction }) {
-    const keyMap = new Map();        // key → action
-    const actionLabels = new Map();  // action → label
-    let lastPositionKey = null;      // dedup content entries
+    const keyMap = new Map(); // key → action
+    const actionLabels = new Map(); // action → label
+    let lastPositionKey = null; // dedup content entries
 
     function scrollToBottom() {
       streamEl.scrollTop = streamEl.scrollHeight;
@@ -135,7 +135,8 @@
     /** Wire keyboard shortcuts to onAction. */
     function bindKeyboard() {
       document.addEventListener("keydown", (e) => {
-        if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+        if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")
+          return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         const key = e.key === " " ? " " : e.key.toLowerCase();
         const action = keyMap.get(key);

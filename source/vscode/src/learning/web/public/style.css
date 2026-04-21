@@ -1,5 +1,11 @@
 /* ─── Reset & base ─── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 :root {
   --bg: #ffffff;
@@ -109,7 +115,9 @@ body {
 }
 
 /* ─── Content styling (inside stream entries) ─── */
-.entry-body h1, .entry-body h2, .entry-body h3 {
+.entry-body h1,
+.entry-body h2,
+.entry-body h3 {
   margin-top: 0.75rem;
   margin-bottom: 0.5rem;
 }
@@ -141,7 +149,8 @@ body {
   padding: 0;
 }
 
-.entry-body ul, .entry-body ol {
+.entry-body ul,
+.entry-body ol {
   margin-left: 1.5rem;
   margin-bottom: 0.75rem;
 }
@@ -151,7 +160,8 @@ body {
   margin-bottom: 0.75rem;
 }
 
-.entry-body th, .entry-body td {
+.entry-body th,
+.entry-body td {
   border: 1px solid var(--border);
   padding: 0.3rem 0.6rem;
   text-align: left;
@@ -201,7 +211,9 @@ body {
   white-space: nowrap;
 }
 
-.action-bar button:hover { background: var(--btn-hover); }
+.action-bar button:hover {
+  background: var(--btn-hover);
+}
 
 .action-bar button.primary {
   background: var(--primary-bg);
@@ -272,10 +284,21 @@ body {
 }
 
 /* ─── Inline styling ─── */
-.success { color: var(--success); font-weight: 600; }
-.fail { color: var(--fail); font-weight: 600; }
-.message { color: var(--fg-dim); }
-.loading { color: var(--fg-dim); font-style: italic; }
+.success {
+  color: var(--success);
+  font-weight: 600;
+}
+.fail {
+  color: var(--fail);
+  font-weight: 600;
+}
+.message {
+  color: var(--fg-dim);
+}
+.loading {
+  color: var(--fg-dim);
+  font-style: italic;
+}
 
 .hint-badge {
   font-size: 0.8rem;
@@ -313,11 +336,15 @@ body {
 
 /* ─── Responsive ─── */
 @media (max-width: 600px) {
-  .stream { padding: 1rem 1rem calc(var(--bar-height) + var(--footer-height) + 1rem); }
+  .stream {
+    padding: 1rem 1rem calc(var(--bar-height) + var(--footer-height) + 1rem);
+  }
   .action-group + .action-group {
     margin-left: 0;
     padding-left: 0;
     border-left: none;
   }
-  .action-bar { gap: 0.35rem; }
+  .action-bar {
+    gap: 0.35rem;
+  }
 }

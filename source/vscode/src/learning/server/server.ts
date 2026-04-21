@@ -10,9 +10,6 @@ import type {
   Exercise,
   Lesson,
   LessonItem,
-  Example,
-  TextContent,
-  Question,
   Solution,
 } from "qsharp-lang/katas-md";
 import { CompilerService } from "./compiler.js";
@@ -25,7 +22,6 @@ import type {
   IAIProvider,
   KataSummary,
   KataDetail,
-  SectionSummary,
   Position,
   NavigationItem,
   LessonTextItem,
@@ -124,7 +120,8 @@ export class KatasServer implements IKatasServer {
     if (config.aiProvider) this.aiProvider = config.aiProvider;
 
     // Load katas
-    const getAllKatas = config.contentFormat === "html" ? getAllKatasHtml : getAllKatasMd;
+    const getAllKatas =
+      config.contentFormat === "html" ? getAllKatasHtml : getAllKatasMd;
     const allKatas = await getAllKatas();
     if (config.kataIds.length === 0) {
       this.katas = allKatas;
@@ -311,7 +308,12 @@ export class KatasServer implements IKatasServer {
     };
 
     const primaryGroup: ActionGroup = [
-      { key: "space", label: primaryLabel[primary], action: primary, primary: true },
+      {
+        key: "space",
+        label: primaryLabel[primary],
+        action: primary,
+        primary: true,
+      },
     ];
 
     const navGroup: ActionGroup = [
@@ -334,7 +336,8 @@ export class KatasServer implements IKatasServer {
           { key: "m", label: "Menu", action: "menu" },
         ];
         const groups = [primaryGroup, nav];
-        if (hasAI) groups.push([{ key: "a", label: "Ask AI", action: "ask-ai" }]);
+        if (hasAI)
+          groups.push([{ key: "a", label: "Ask AI", action: "ask-ai" }]);
         groups.push(quitGroup);
         return groups;
       }
@@ -347,14 +350,16 @@ export class KatasServer implements IKatasServer {
           { key: "e", label: "Estimate", action: "estimate" },
         ];
         const groups = [primaryGroup, codeTools, navGroup];
-        if (hasAI) groups.push([{ key: "a", label: "Ask AI", action: "ask-ai" }]);
+        if (hasAI)
+          groups.push([{ key: "a", label: "Ask AI", action: "ask-ai" }]);
         groups.push(quitGroup);
         return groups;
       }
 
       case "lesson-question": {
         const groups = [primaryGroup, navGroup];
-        if (hasAI) groups.push([{ key: "a", label: "Ask AI", action: "ask-ai" }]);
+        if (hasAI)
+          groups.push([{ key: "a", label: "Ask AI", action: "ask-ai" }]);
         groups.push(quitGroup);
         return groups;
       }
@@ -369,9 +374,11 @@ export class KatasServer implements IKatasServer {
         const helpGroup: ActionGroup = [
           { key: "h", label: "Hint", action: "hint" },
         ];
-        if (hasAI) helpGroup.push({ key: "i", label: "AI Hint", action: "ai-hint" });
+        if (hasAI)
+          helpGroup.push({ key: "i", label: "AI Hint", action: "ai-hint" });
         helpGroup.push({ key: "s", label: "Solution", action: "solution" });
-        if (hasAI) helpGroup.push({ key: "a", label: "Ask AI", action: "ask-ai" });
+        if (hasAI)
+          helpGroup.push({ key: "a", label: "Ask AI", action: "ask-ai" });
         return [primaryGroup, codeTools, helpGroup, navGroup, quitGroup];
       }
     }
@@ -626,7 +633,7 @@ export class KatasServer implements IKatasServer {
     // Gather context from current position
     const pos = this.getPosition();
     const kata = this.findKata(pos.kataId);
-    let lessonContent = "";
+    let lessonContent: string;
 
     // Get content from current section
     const section = kata.sections[pos.sectionIndex];
@@ -634,7 +641,8 @@ export class KatasServer implements IKatasServer {
       lessonContent = section.items
         .map((item) => {
           if (item.type === "text-content") return item.content;
-          if (item.type === "example") return `\`\`\`qsharp\n${item.code}\n\`\`\``;
+          if (item.type === "example")
+            return `\`\`\`qsharp\n${item.code}\n\`\`\``;
           if (item.type === "question") return item.description.content;
           return "";
         })
@@ -719,8 +727,7 @@ export class KatasServer implements IKatasServer {
       const answerContent = item.answer.items
         .map((ai) => {
           if (ai.type === "text-content") return ai.content;
-          if (ai.type === "example")
-            return `\`\`\`qsharp\n${ai.code}\n\`\`\``;
+          if (ai.type === "example") return `\`\`\`qsharp\n${ai.code}\n\`\`\``;
           return "";
         })
         .join("\n\n");
@@ -755,7 +762,9 @@ export class KatasServer implements IKatasServer {
       const exercise = kata.sections[pos.sectionIndex] as Exercise;
       return this.buildExerciseSources(pos.kataId, exercise);
     }
-    throw new Error("Current item is not runnable (not an example or exercise)");
+    throw new Error(
+      "Current item is not runnable (not an example or exercise)",
+    );
   }
 
   /**
@@ -768,16 +777,16 @@ export class KatasServer implements IKatasServer {
   ): Promise<[string, string][]> {
     const userCode = await this.workspace.readUserCode(kataId, exercise.id);
     const exerciseSources = await getExerciseSources(exercise);
-    const sources: [string, string][] = [
-      ["user.qs", userCode],
-    ];
+    const sources: [string, string][] = [["user.qs", userCode]];
     for (let i = 0; i < exerciseSources.length; i++) {
       sources.push([`source_${i}.qs`, exerciseSources[i]]);
     }
     // Some verification sources already declare `@EntryPoint() operation CheckSolution`;
     // others don't. Only add a synthetic entry point if none of the sources already
     // contain one — otherwise the compiler errors with "duplicate entry point".
-    const hasEntryPoint = exerciseSources.some((s) => /@EntryPoint\s*\(/.test(s));
+    const hasEntryPoint = exerciseSources.some((s) =>
+      /@EntryPoint\s*\(/.test(s),
+    );
     if (!hasEntryPoint) {
       sources.push([
         "entry.qs",

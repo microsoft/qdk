@@ -12,15 +12,19 @@ import type {
 /** No-op provider — returns null for all methods. Used when no AI is configured. */
 export class NoOpAIProvider implements IAIProvider {
   async getHint(_ctx: AIHintContext): Promise<string | null> {
+    void _ctx;
     return null;
   }
   async explainError(_ctx: AIErrorContext): Promise<string | null> {
+    void _ctx;
     return null;
   }
   async reviewSolution(_ctx: AIReviewContext): Promise<string | null> {
+    void _ctx;
     return null;
   }
   async askQuestion(_ctx: AIQuestionContext): Promise<string | null> {
+    void _ctx;
     return null;
   }
 }
@@ -118,9 +122,7 @@ Answer their question using the provided lesson content as context.
 If the question goes beyond the current lesson, give a brief answer and mention which topics might cover it in more depth.
 Keep answers focused, educational, and concise.`;
 
-    const messages: ChatMessage[] = [
-      { role: "system", content: system },
-    ];
+    const messages: ChatMessage[] = [{ role: "system", content: system }];
 
     // Include recent conversation history (max 4 exchanges)
     if (ctx.history) {

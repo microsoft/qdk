@@ -104,12 +104,14 @@
 
   function renderProgress(progress) {
     const { stats, katas } = progress;
-    const pct = stats.totalSections > 0
-      ? Math.round((stats.completedSections / stats.totalSections) * 100)
-      : 0;
+    const pct =
+      stats.totalSections > 0
+        ? Math.round((stats.completedSections / stats.totalSections) * 100)
+        : 0;
     let html = `<div style="margin-bottom:0.5rem"><strong>Overall: ${stats.completedSections}/${stats.totalSections} sections (${pct}%)</strong></div>`;
     for (const [id, kata] of Object.entries(katas)) {
-      const kPct = kata.total > 0 ? Math.round((kata.completed / kata.total) * 100) : 0;
+      const kPct =
+        kata.total > 0 ? Math.round((kata.completed / kata.total) * 100) : 0;
       html += `<div>${escapeHtml(id)}: ${kata.completed}/${kata.total} (${kPct}%)</div>`;
     }
     return html;
@@ -153,11 +155,13 @@
 
   function renderProgressBar(progress) {
     const { stats, katas, currentPosition } = progress;
-    const pct = stats.totalSections > 0
-      ? Math.round((stats.completedSections / stats.totalSections) * 100)
-      : 0;
+    const pct =
+      stats.totalSections > 0
+        ? Math.round((stats.completedSections / stats.totalSections) * 100)
+        : 0;
     let html = `<span class="pb-overall">${stats.completedSections}/${stats.totalSections} (${pct}%)</span>`;
-    const currentKata = katas && currentPosition ? katas[currentPosition.kataId] : null;
+    const currentKata =
+      katas && currentPosition ? katas[currentPosition.kataId] : null;
     if (currentKata) {
       html += `<span class="pb-kata-label pb-active">${escapeHtml(currentPosition.kataId)}</span>`;
       html += `<span class="pb-segments">`;

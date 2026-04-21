@@ -17,8 +17,6 @@ import type {
   CircuitResult,
   EstimateResult,
   NoiseConfig,
-  DumpInfo,
-  MatrixInfo,
 } from "./types.js";
 
 export class CompilerService {

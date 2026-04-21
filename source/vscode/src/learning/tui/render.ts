@@ -182,7 +182,9 @@ export function renderQuantumState(dump: DumpInfo): string {
       imag === 0
         ? real.toFixed(4)
         : `${real.toFixed(4)} ${imag >= 0 ? "+" : "-"} ${Math.abs(imag).toFixed(4)}i`;
-    lines.push(`|${label}⟩\t\t\t${ampStr}\t\t${(probability * 100).toFixed(2)}%`);
+    lines.push(
+      `|${label}⟩\t\t\t${ampStr}\t\t${(probability * 100).toFixed(2)}%`,
+    );
   }
 
   return lines.join("\n");
@@ -197,7 +199,9 @@ export function renderMatrix(info: MatrixInfo): string {
   const format = (real: number, imag: number): string => {
     if (imag === 0) return real.toFixed(4).padStart(10);
     const sign = imag >= 0 ? "+" : "-";
-    return `${real.toFixed(4)} ${sign} ${Math.abs(imag).toFixed(4)}i`.padStart(16);
+    return `${real.toFixed(4)} ${sign} ${Math.abs(imag).toFixed(4)}i`.padStart(
+      16,
+    );
   };
 
   lines.push(bold("Matrix"));
@@ -219,7 +223,11 @@ export function renderProgress(progress: OverallProgress): string {
       ? Math.round((completedSections / totalSections) * 100)
       : 0;
 
-  lines.push(bold(`Overall Progress: ${completedSections}/${totalSections} sections (${pct}%)`));
+  lines.push(
+    bold(
+      `Overall Progress: ${completedSections}/${totalSections} sections (${pct}%)`,
+    ),
+  );
   lines.push(renderProgressBar(completedSections, totalSections, 40));
   lines.push("");
 
@@ -227,11 +235,7 @@ export function renderProgress(progress: OverallProgress): string {
     const kataPct =
       kp.total > 0 ? Math.round((kp.completed / kp.total) * 100) : 0;
     const status =
-      kp.completed === kp.total
-        ? "✅"
-        : kp.completed > 0
-          ? "🔶"
-          : "⬜";
+      kp.completed === kp.total ? "✅" : kp.completed > 0 ? "🔶" : "⬜";
     lines.push(
       `  ${status} ${kataId}: ${kp.completed}/${kp.total} (${kataPct}%)  ${renderProgressBar(kp.completed, kp.total, 20)}`,
     );

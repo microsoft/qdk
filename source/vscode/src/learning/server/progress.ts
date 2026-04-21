@@ -3,7 +3,13 @@
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
-import type { ProgressFileData, OverallProgress, KataProgress, SectionProgress, Kata } from "./types.js";
+import type {
+  ProgressFileData,
+  OverallProgress,
+  KataProgress,
+  SectionProgress,
+  Kata,
+} from "./types.js";
 
 const PROGRESS_FILE = ".katas-progress.json";
 
@@ -35,8 +41,15 @@ export class ProgressManager {
       if (parsed.version === 1) {
         this.data = parsed;
         // Ensure position references a valid kata
-        if (katas.length > 0 && !katas.find((k) => k.id === this.data.position.kataId)) {
-          this.data.position = { kataId: katas[0].id, sectionIndex: 0, itemIndex: 0 };
+        if (
+          katas.length > 0 &&
+          !katas.find((k) => k.id === this.data.position.kataId)
+        ) {
+          this.data.position = {
+            kataId: katas[0].id,
+            sectionIndex: 0,
+            itemIndex: 0,
+          };
         }
       }
     } catch {

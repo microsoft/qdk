@@ -21,10 +21,12 @@ import {
   promptQuestion,
   promptShots,
 } from "./prompts.js";
-import type { Action } from "./prompts.js";
 
 /** Show a status message while awaiting an async operation, then clear the line. */
-async function withSpinner<T>(message: string, fn: () => Promise<T>): Promise<T> {
+async function withSpinner<T>(
+  message: string,
+  fn: () => Promise<T>,
+): Promise<T> {
   process.stdout.write(message);
   try {
     const result = await fn();
@@ -36,7 +38,10 @@ async function withSpinner<T>(message: string, fn: () => Promise<T>): Promise<T>
   }
 }
 
-export async function runApp(server: KatasServer, hasAI: boolean): Promise<void> {
+export async function runApp(
+  server: KatasServer,
+  hasAI: boolean,
+): Promise<void> {
   console.log(renderWelcome());
 
   // Check if there's a saved position to resume
@@ -105,10 +110,14 @@ export async function runApp(server: KatasServer, hasAI: boolean): Promise<void>
 
       case "run": {
         try {
-          const { result } = await withSpinner("Running code...", () => server.run());
+          const { result } = await withSpinner("Running code...", () =>
+            server.run(),
+          );
           console.log(renderRunResult(result));
         } catch (err: unknown) {
-          console.log(`Execution failed: ${err instanceof Error ? err.message : String(err)}`);
+          console.log(
+            `Execution failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
         break;
       }
@@ -116,37 +125,52 @@ export async function runApp(server: KatasServer, hasAI: boolean): Promise<void>
       case "run-noise": {
         const shots = await promptShots();
         try {
-          const { result } = await withSpinner(`Running with noise (${shots} shots)...`, () => server.runWithNoise(shots));
+          const { result } = await withSpinner(
+            `Running with noise (${shots} shots)...`,
+            () => server.runWithNoise(shots),
+          );
           console.log(renderRunResult(result));
         } catch (err: unknown) {
-          console.log(`Execution failed: ${err instanceof Error ? err.message : String(err)}`);
+          console.log(
+            `Execution failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
         break;
       }
 
       case "circuit": {
         try {
-          const { result } = await withSpinner("Generating circuit...", () => server.getCircuit());
+          const { result } = await withSpinner("Generating circuit...", () =>
+            server.getCircuit(),
+          );
           console.log(renderCircuit(result));
         } catch (err: unknown) {
-          console.log(`Circuit generation failed: ${err instanceof Error ? err.message : String(err)}`);
+          console.log(
+            `Circuit generation failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
         break;
       }
 
       case "estimate": {
         try {
-          const { result } = await withSpinner("Estimating resources...", () => server.getResourceEstimate());
+          const { result } = await withSpinner("Estimating resources...", () =>
+            server.getResourceEstimate(),
+          );
           console.log(renderEstimate(result));
         } catch (err: unknown) {
-          console.log(`Resource estimation failed: ${err instanceof Error ? err.message : String(err)}`);
+          console.log(
+            `Resource estimation failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
         break;
       }
 
       case "check": {
         try {
-          const { result } = await withSpinner("Checking solution...", () => server.checkSolution());
+          const { result } = await withSpinner("Checking solution...", () =>
+            server.checkSolution(),
+          );
           console.log(renderSolutionCheck(result));
 
           if (result.passed && hasAI) {
@@ -158,7 +182,9 @@ export async function runApp(server: KatasServer, hasAI: boolean): Promise<void>
             }
           }
         } catch (err: unknown) {
-          console.log(`Check failed: ${err instanceof Error ? err.message : String(err)}`);
+          console.log(
+            `Check failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
         break;
       }
@@ -176,7 +202,10 @@ export async function runApp(server: KatasServer, hasAI: boolean): Promise<void>
 
       case "ai-hint": {
         try {
-          const { result: aiHint } = await withSpinner("Getting AI hint...", () => server.getAIHint());
+          const { result: aiHint } = await withSpinner(
+            "Getting AI hint...",
+            () => server.getAIHint(),
+          );
           if (aiHint) {
             console.log("🤖 AI Hint:");
             console.log(aiHint);
@@ -184,7 +213,9 @@ export async function runApp(server: KatasServer, hasAI: boolean): Promise<void>
             console.log("  AI hints not available.");
           }
         } catch (err: unknown) {
-          console.log(`AI hint failed: ${err instanceof Error ? err.message : String(err)}`);
+          console.log(
+            `AI hint failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
         break;
       }
@@ -209,14 +240,18 @@ export async function runApp(server: KatasServer, hasAI: boolean): Promise<void>
         const question = await promptQuestion();
         if (question.trim()) {
           try {
-            const { result: answer } = await withSpinner("Asking AI...", () => server.askConceptQuestion(question));
+            const { result: answer } = await withSpinner("Asking AI...", () =>
+              server.askConceptQuestion(question),
+            );
             if (answer) {
               console.log("🤖 " + answer);
             } else {
               console.log("  AI not available.");
             }
           } catch (err: unknown) {
-            console.log(`AI query failed: ${err instanceof Error ? err.message : String(err)}`);
+            console.log(
+              `AI query failed: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
         break;

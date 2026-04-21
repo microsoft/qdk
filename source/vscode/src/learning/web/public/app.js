@@ -52,10 +52,14 @@ async function executeAction(action) {
         const { moved, state } = await apiPost(endpoint);
         if (!moved) {
           if (action === "next") {
-            ui.appendOutput(`<div class="success">🎉 You've completed all content!</div>`);
+            ui.appendOutput(
+              `<div class="success">🎉 You've completed all content!</div>`,
+            );
             ui.appendOutput(R.renderProgress(state.progress));
           } else {
-            ui.appendOutput(`<div class="message">Already at the beginning.</div>`);
+            ui.appendOutput(
+              `<div class="message">Already at the beginning.</div>`,
+            );
           }
         }
         ui.applyState(state);
@@ -75,7 +79,9 @@ async function executeAction(action) {
         const shots = prompt("Number of shots:", "100");
         if (shots === null) break;
         const n = parseInt(shots, 10) || 100;
-        ui.appendOutput(`<div class="loading">Running with noise (${n} shots)...</div>`);
+        ui.appendOutput(
+          `<div class="loading">Running with noise (${n} shots)...</div>`,
+        );
         const { result, state } = await apiPost("/api/run-noise", { shots: n });
         ui.removeLastEntry();
         ui.appendOutput(R.renderRunResult(result));
@@ -105,7 +111,10 @@ async function executeAction(action) {
         ui.appendOutput(`<div class="loading">Checking solution...</div>`);
         const { result, state } = await apiPost("/api/check");
         ui.removeLastEntry();
-        ui.appendOutput(R.renderSolutionCheck(result), result.passed ? "result-pass" : "result-fail");
+        ui.appendOutput(
+          R.renderSolutionCheck(result),
+          result.passed ? "result-pass" : "result-fail",
+        );
         if (result.passed) ui.invalidateContent();
         ui.applyState(state);
         break;
@@ -127,7 +136,9 @@ async function executeAction(action) {
 
       case "solution": {
         const { code } = await apiGet("/api/solution");
-        ui.appendOutput(`<div style="margin-bottom:0.5rem"><strong>Reference Solution</strong></div><pre>${R.escapeHtml(code)}</pre>`);
+        ui.appendOutput(
+          `<div style="margin-bottom:0.5rem"><strong>Reference Solution</strong></div><pre>${R.escapeHtml(code)}</pre>`,
+        );
         break;
       }
 
@@ -135,11 +146,15 @@ async function executeAction(action) {
         const question = prompt("Ask a question:");
         if (!question || !question.trim()) break;
         ui.appendOutput(`<div class="loading">Asking AI...</div>`);
-        const { result: answer, state } = await apiPost("/api/ai/ask", { question });
+        const { result: answer, state } = await apiPost("/api/ai/ask", {
+          question,
+        });
         ui.removeLastEntry();
-        ui.appendOutput(answer
-          ? `<div>🤖 ${R.escapeHtml(answer)}</div>`
-          : `<div class="message">AI not available.</div>`);
+        ui.appendOutput(
+          answer
+            ? `<div>🤖 ${R.escapeHtml(answer)}</div>`
+            : `<div class="message">AI not available.</div>`,
+        );
         ui.applyState(state);
         break;
       }
@@ -148,9 +163,11 @@ async function executeAction(action) {
         ui.appendOutput(`<div class="loading">Getting AI hint...</div>`);
         const { result: hint, state } = await apiPost("/api/ai/hint");
         ui.removeLastEntry();
-        ui.appendOutput(hint
-          ? `<div>🤖 ${R.escapeHtml(hint)}</div>`
-          : `<div class="message">AI hints not available.</div>`);
+        ui.appendOutput(
+          hint
+            ? `<div>🤖 ${R.escapeHtml(hint)}</div>`
+            : `<div class="message">AI hints not available.</div>`,
+        );
         ui.applyState(state);
         break;
       }
@@ -164,19 +181,29 @@ async function executeAction(action) {
 
       case "menu": {
         const katas = await apiGet("/api/katas");
-        const names = katas.map((k, i) => `${i + 1}. ${k.title} (${k.completedCount}/${k.sectionCount})`).join("\n");
+        const names = katas
+          .map(
+            (k, i) =>
+              `${i + 1}. ${k.title} (${k.completedCount}/${k.sectionCount})`,
+          )
+          .join("\n");
         const choice = prompt(`Jump to kata:\n${names}\n\nEnter number:`);
         if (choice === null) break;
         const idx = parseInt(choice, 10) - 1;
         if (idx >= 0 && idx < katas.length) {
-          const state = await apiPost("/api/goto", { kataId: katas[idx].id, sectionIndex: 0 });
+          const state = await apiPost("/api/goto", {
+            kataId: katas[idx].id,
+            sectionIndex: 0,
+          });
           ui.applyState(state);
         }
         break;
       }
     }
   } catch (err) {
-    ui.appendOutput(`<div class="fail">Error: ${R.escapeHtml(err.message)}</div>`);
+    ui.appendOutput(
+      `<div class="fail">Error: ${R.escapeHtml(err.message)}</div>`,
+    );
   } finally {
     busy = false;
     ui.setBusy(false);
