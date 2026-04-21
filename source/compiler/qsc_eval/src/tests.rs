@@ -4227,3 +4227,28 @@ fn partial_eval_stmt_function_calls_from_library() {
         &expect!["3"],
     );
 }
+
+#[test]
+fn qmem_store_load() {
+    check_expr(
+        "
+            namespace Test {
+                operation Main() : Result {
+                    use q = Qubit();
+                    let mem = Std.Memory.Allocate();
+                    X(q);
+                    Std.Memory.Store(q, mem);
+                    Std.Memory.Load(mem, q);
+                    Std.Memory.Free(mem);
+                    return MResetZ(q);
+                }
+            }
+        ",
+        "Test.Main()",
+        &expect!["One"],
+    );
+}
+
+// TODO: Add a test for when QMem is released in non-zero state.
+// TODO: Add a test for QMem array.
+// TODO: Add resource estimation tests.
