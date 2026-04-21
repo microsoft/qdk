@@ -5,6 +5,7 @@ use std::{
     fmt::{self, Debug, Formatter},
     iter::Enumerate,
     marker::PhantomData,
+    ops::{Index, IndexMut},
     option::Option,
     slice, vec,
 };
@@ -35,6 +36,14 @@ impl<K, V> IndexMap<K, V> {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    #[must_use]
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            _keys: PhantomData,
+            values: Vec::with_capacity(capacity),
+        }
     }
 
     #[must_use]
@@ -312,5 +321,21 @@ impl<'a, V> Iterator for ValuesMut<'a, V> {
                 break Some(value);
             }
         }
+    }
+}
+
+impl Index<usize> for IndexMap<usize, usize> {
+    type Output = usize;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        self.get(index)
+            .expect("IndexMap::index: index out of bounds")
+    }
+}
+
+impl IndexMut<usize> for IndexMap<usize, usize> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.get_mut(index)
+            .expect("IndexMap::index_mut: index out of bounds")
     }
 }

@@ -6,6 +6,7 @@ use std::collections::hash_map::Entry;
 use num_bigint::BigUint;
 use num_complex::{Complex, Complex64};
 use num_traits::Zero;
+use qdk_simulators::NearlyZero;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Given a state and a set of qubits, split the state into two parts: the qubits to dump and the remaining qubits.
@@ -149,25 +150,6 @@ fn normalize_and_reorder(
         }
 
         Some((new_label, new_val))
-    }
-}
-
-trait NearlyZero {
-    fn is_nearly_zero(&self) -> bool;
-}
-
-impl NearlyZero for f64 {
-    fn is_nearly_zero(&self) -> bool {
-        self.abs() <= 1e-10
-    }
-}
-
-impl<T> NearlyZero for Complex<T>
-where
-    T: NearlyZero,
-{
-    fn is_nearly_zero(&self) -> bool {
-        self.re.is_nearly_zero() && self.im.is_nearly_zero()
     }
 }
 
