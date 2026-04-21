@@ -2078,6 +2078,7 @@ dependencies = [
 name = "qre"
 version = "0.0.0"
 dependencies = [
+ "miette",
  "num-traits",
  "probability",
  "rustc-hash",
