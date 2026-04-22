@@ -2113,7 +2113,7 @@ dependencies = [
  "probability",
  "rustc-hash",
  "serde",
- "thiserror 2.0.18",
+ "thiserror",
 ]
 
 [[package]]

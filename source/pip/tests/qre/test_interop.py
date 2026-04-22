@@ -114,8 +114,8 @@ def test_trace_from_qir_handles_all_instruction_ids():
     r = simple.results
 
     void_ty = pyqir.Type.void(ctx)
-    qubit_ty = pyqir.qubit_type(ctx)
-    result_ty = pyqir.result_type(ctx)
+    qubit_ty = pyqir.PointerType(void_ty)
+    result_ty = pyqir.PointerType(void_ty)
     double_ty = pyqir.Type.double(ctx)
     i64_ty = pyqir.IntType(ctx, 64)
 
