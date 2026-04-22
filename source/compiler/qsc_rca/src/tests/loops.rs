@@ -398,7 +398,7 @@ fn check_rca_for_static_for_loop_over_array_with_loop_and_array_support() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicIndex)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );

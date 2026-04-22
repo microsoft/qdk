@@ -6,9 +6,8 @@ from pyqir import (
     const,
     Function,
     FunctionType,
+    PointerType,
     Type,
-    qubit_type,
-    result_type,
     result,
     Context,
     Linkage,
@@ -34,7 +33,7 @@ class DecomposeMultiQubitToCZ(QirModuleVisitor):
 
     def _on_module(self, module):
         void = Type.void(module.context)
-        qubit_ty = qubit_type(module.context)
+        qubit_ty = PointerType(Type.void(module.context))
         self.double_ty = Type.double(module.context)
         # Find or create all the needed functions.
         for func in module.functions:
@@ -214,7 +213,7 @@ class DecomposeSingleRotationToRz(QirModuleVisitor):
 
     def _on_module(self, module):
         void = Type.void(module.context)
-        qubit_ty = qubit_type(module.context)
+        qubit_ty = PointerType(Type.void(module.context))
         self.double_ty = Type.double(module.context)
         # Find or create all the needed functions.
         for func in module.functions:
@@ -290,7 +289,7 @@ class DecomposeSingleQubitToRzSX(QirModuleVisitor):
 
     def _on_module(self, module):
         void = Type.void(module.context)
-        qubit_ty = qubit_type(module.context)
+        qubit_ty = PointerType(Type.void(module.context))
         self.double_ty = Type.double(module.context)
         # Find or create all the needed functions.
         for func in module.functions:
@@ -400,7 +399,7 @@ class DecomposeRzAnglesToCliffordGates(QirModuleVisitor):
 
     def _on_module(self, module):
         void = Type.void(module.context)
-        qubit_ty = qubit_type(module.context)
+        qubit_ty = PointerType(Type.void(module.context))
         self.double_ty = Type.double(module.context)
         # Find or create all the needed functions.
         for func in module.functions:
@@ -482,8 +481,8 @@ class ReplaceResetWithMResetZ(QirModuleVisitor):
     def _on_module(self, module):
         self.context = module.context
         void = Type.void(self.context)
-        qubit_ty = qubit_type(self.context)
-        result_ty = result_type(self.context)
+        qubit_ty = PointerType(Type.void(self.context))
+        result_ty = PointerType(Type.void(self.context))
         # Find or create the intrinsic mresetz function
         for func in module.functions:
             match func.name:

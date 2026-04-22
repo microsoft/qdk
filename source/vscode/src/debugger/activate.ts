@@ -5,7 +5,7 @@
 
 import { IDebugServiceWorker, getDebugServiceWorker, log } from "qsharp-lang";
 import * as vscode from "vscode";
-import { qsharpExtensionId } from "../common";
+import { getPlatformEnv, qsharpExtensionId } from "../common";
 import { clearCommandDiagnostics } from "../diagnostics";
 import {
   getActiveQdkDocumentUri,
@@ -22,7 +22,7 @@ export async function activateDebugger(
 ): Promise<void> {
   const debugWorkerScriptPath = vscode.Uri.joinPath(
     context.extensionUri,
-    "./out/debugger/debug-service-worker.js",
+    `./out/${getPlatformEnv()}/debugger/debug-service-worker.js`,
   );
 
   debugServiceWorkerFactory = () =>

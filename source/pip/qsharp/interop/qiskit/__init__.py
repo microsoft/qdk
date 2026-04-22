@@ -7,28 +7,28 @@ This module provides Qiskit backends backed by the local Q# simulator and
 NeutralAtomDevice, allowing Qiskit circuits to be run locally without any
 cloud connection.
 
-Available backends
-------------------
-:class:`QSharpBackend`
+Available backends:
+
+:class:`~qsharp.interop.qiskit.QSharpBackend`
     Runs any Qiskit ``QuantumCircuit`` using the Q# simulator. Supports
     noise-free simulation via QASM export and QIR compilation.
 
-:class:`NeutralAtomBackend`
+:class:`~qsharp.interop.qiskit.NeutralAtomBackend`
     Runs Qiskit circuits on the local NeutralAtomDevice simulator. Decomposes
     gates to the native ``{Rz, SX, CZ}`` gate set and optionally models
     per-gate noise (including qubit loss). Loss shots are exposed separately
     from accepted shots in the job result.
 
-:class:`ResourceEstimatorBackend`
+:class:`~qsharp.interop.qiskit.ResourceEstimatorBackend`
     Estimates quantum resources (qubits, T-gates, etc.) for a Qiskit circuit
     without running a full simulation.
 
-:func:`estimate`
+:func:`~qsharp.interop.qiskit.estimate`
     Convenience function that runs resource estimation on a Qiskit circuit
-    and returns an `EstimatorResult` directly, without needing to
-    construct a backend or job manually.
+    and returns an :class:`~qsharp.estimator.EstimatorResult` directly, without
+    needing to construct a backend or job manually.
 
-Usage::
+Usage:
 
     from qiskit import QuantumCircuit
     from qsharp.interop.qiskit import NeutralAtomBackend
@@ -73,14 +73,17 @@ def estimate(
 
     :param circuit: The input Qiskit QuantumCircuit object.
     :param params: The parameters to configure physical estimation.
-    :**options: Additional options for the execution.
-        - Any options for the transpiler, exporter, or Qiskit passes
-            configuration. Defaults to backend config values. Common
-            values include: 'optimization_level', 'basis_gates',
-            'includes', 'search_path'.
-    :raises QasmError: If there is an error generating or parsing QASM.
+    :type params: EstimatorParams or dict or list
+    :param **options: Additional options for the transpiler, exporter, or Qiskit passes
+        configuration. Defaults to backend config values. Common options:
 
-    :returns `EstimatorResult`: The estimated resources.
+        - ``optimization_level`` (int): Transpiler optimization level.
+        - ``basis_gates`` (list): Basis gates for transpilation.
+        - ``includes`` (list): Include paths for QASM resolution.
+        - ``search_path`` (str): Search path for resolving file references.
+    :raises QasmError: If there is an error generating or parsing QASM.
+    :return: The estimated resources.
+    :rtype: EstimatorResult
     """
     from ..._qsharp import ipython_helper
 
@@ -88,3 +91,18 @@ def estimate(
     backend = ResourceEstimatorBackend()
     job = backend.run(circuit, params=params, **options)
     return job.result()
+
+
+__all__ = [
+    "NeutralAtomBackend",
+    "QSharpBackend",
+    "ResourceEstimatorBackend",
+    "QirTarget",
+    "QsJob",
+    "QsSimJob",
+    "ReJob",
+    "QsJobSet",
+    "estimate",
+    "EstimatorParams",
+    "EstimatorResult",
+]

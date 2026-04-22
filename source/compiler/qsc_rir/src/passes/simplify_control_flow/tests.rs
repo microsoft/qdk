@@ -7,7 +7,7 @@ use expect_test::expect;
 
 use crate::{
     builder::{bell_program, teleport_program},
-    rir::{Block, BlockId, Instruction, Literal, Operand, Program, Ty, Variable, VariableId},
+    rir::{Block, BlockId, Instruction, Literal, Operand, Prim, Program, Ty, Variable, VariableId},
 };
 
 use super::simplify_control_flow;
@@ -38,7 +38,7 @@ fn simplify_control_flow_removes_single_redundant_block() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(1)),
@@ -51,7 +51,7 @@ fn simplify_control_flow_removes_single_redundant_block() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -108,7 +108,7 @@ fn simplify_control_flow_removes_multiple_redundant_blocks() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(1)),
@@ -121,7 +121,7 @@ fn simplify_control_flow_removes_multiple_redundant_blocks() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(2)),
@@ -134,7 +134,7 @@ fn simplify_control_flow_removes_multiple_redundant_blocks() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -195,13 +195,13 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(6),
@@ -216,7 +216,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(2)),
@@ -229,7 +229,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(4)),
@@ -242,7 +242,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(6)),
@@ -255,7 +255,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(7)),
@@ -268,7 +268,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_branches() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(5),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -351,13 +351,13 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(0),
                 BlockId(2),
@@ -372,7 +372,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(1)),
@@ -385,7 +385,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(4)),
@@ -398,7 +398,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(2)),
@@ -411,7 +411,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(5)),
@@ -424,7 +424,7 @@ fn simplify_control_flow_removes_redundant_blocks_across_out_of_order_branches()
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(5),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,

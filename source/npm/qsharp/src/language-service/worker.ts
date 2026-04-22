@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { createWorker } from "../workers/browser.js";
+import { createWorker } from "../workers/worker.js";
 import { languageServiceProtocol } from "./language-service.js";
 
-// This export should be assigned to 'self.onmessage' in a WebWorker
+// message handler exported for backwards compatibility
 export const messageHandler = createWorker(languageServiceProtocol);
+addEventListener("message", messageHandler);
