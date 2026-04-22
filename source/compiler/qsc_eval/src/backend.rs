@@ -8,7 +8,7 @@ use ndarray::Array2;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use num_traits::Zero;
-use qdk_simulators::QuantumSim;
+use qdk_simulators::SparseStateSim;
 use qdk_simulators::cpu_full_state_simulator::noise::{Fault, PauliFault};
 use qdk_simulators::noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable};
 use rand::{Rng, RngCore};
@@ -503,7 +503,7 @@ impl SequentialAllocator {
 /// Default backend used when targeting sparse simulation.
 pub struct SparseSim {
     /// Noiseless Sparse simulator to be used by this instance.
-    pub sim: QuantumSim,
+    pub sim: SparseStateSim,
     /// Noise configuration for this simulator instance, which defines the probabilities of different faults occurring during simulation.
     pub noise_config: Option<CumulativeNoiseConfig<Fault>>,
     /// Pauli noise that is applied after a gate or before a measurement is executed.
@@ -530,7 +530,7 @@ impl SparseSim {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            sim: QuantumSim::new(None),
+            sim: SparseStateSim::new(None),
             noise_config: None,
             noise: PauliNoise::default(),
             loss: f64::zero(),
@@ -549,7 +549,7 @@ impl SparseSim {
     #[must_use]
     pub fn new_with_noise_config(noise_config: CumulativeNoiseConfig<Fault>) -> Self {
         Self {
-            sim: QuantumSim::new(None),
+            sim: SparseStateSim::new(None),
             noise_config: Some(noise_config),
             noise: PauliNoise::default(),
             loss: f64::zero(),

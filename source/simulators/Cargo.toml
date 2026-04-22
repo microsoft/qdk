@@ -9,18 +9,19 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-quantum-sparse-sim = { workspace = true }
 bytemuck = { workspace = true }
 futures = { workspace = true }
 wgpu = { workspace = true }
 rand = { workspace = true }
 nalgebra = { workspace = true }
+ndarray = { workspace = true }
 num-bigint = { workspace = true }
 num-complex = { workspace = true }
 num-traits = { workspace = true }
 regex-lite = { workspace = true }
 rustc-hash = { workspace = true }
 paulimer = { path = "../paulimer" }
+index_map = { path = "../index_map" }
 noisy_simulator = { path = "../noisy_simulator" }
 
 [dev-dependencies]
