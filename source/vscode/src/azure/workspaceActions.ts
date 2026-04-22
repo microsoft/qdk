@@ -20,13 +20,22 @@ import { getRandomGuid } from "../utils";
 import { EventType, sendTelemetryEvent, UserFlowStatus } from "../telemetry";
 import { getTenantIdAndToken, getTokenForWorkspace } from "./auth";
 
+function getQuantumOsRoot(): string {
+  return (
+    vscode.workspace
+      .getConfiguration("Q#")
+      .get<string>("azure.quantumOsRoot") ??
+    "https://manage.quantum.microsoft.com"
+  );
+}
+
 export function getQuantumOsJobLink(
   workspace: WorkspaceConnection,
   jobId: string,
 ) {
   // Quantum OS job page format:
-  // https://manage.quantum.microsoft.com/jobs/<job-id>
-  return `https://manage.quantum-test.microsoft.com/jobs/${jobId}`;
+  // <quantumOsRoot>/jobs/<job-id>
+  return `${getQuantumOsRoot()}/jobs/${jobId}`;
 }
 
 export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
@@ -53,7 +62,7 @@ export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
       (offeringId ? `&offeringId=${offeringId}` : "") +
       `&workspaceId=${workspace.id}`;
 
-    return `https://manage.quantum-test.microsoft.com/workspaces/${workspace.name}#${fragment}`;
+    return `${getQuantumOsRoot()}/workspaces/${workspace.name}#${fragment}`;
   }
 
   // Azure Portal link format:
