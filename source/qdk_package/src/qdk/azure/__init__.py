@@ -3,9 +3,10 @@
 
 """qdk.azure package: re-export of azure.quantum namespaces.
 
-Requires optional extra installation: `pip install qdk[azure]`.
+Requires optional extra installation: ``pip install qdk[azure]``.
 
-Usage examples:
+Usage example::
+
     from qdk import azure
     ws = azure.Workspace(...)  # if upstream exposes Workspace at top-level
 

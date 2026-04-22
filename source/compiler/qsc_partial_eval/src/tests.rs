@@ -67,17 +67,7 @@ pub fn assert_error(error: &Error, expected_error: &Expect) {
 
 #[must_use]
 pub fn get_partial_evaluation_error(source: &str) -> Error {
-    let maybe_program = compile_and_partially_evaluate(
-        source,
-        TargetCapabilityFlags::all(),
-        PartialEvalConfig {
-            generate_debug_metadata: false,
-        },
-    );
-    match maybe_program {
-        Ok(_) => panic!("partial evaluation succeeded"),
-        Err(error) => error,
-    }
+    get_partial_evaluation_error_with_capabilities(source, Profile::AdaptiveRIF.into())
 }
 
 #[must_use]
@@ -100,21 +90,7 @@ pub fn get_partial_evaluation_error_with_capabilities(
 
 #[must_use]
 pub fn get_rir_program(source: &str) -> Program {
-    let maybe_program = compile_and_partially_evaluate(
-        source,
-        Profile::AdaptiveRIF.into(),
-        PartialEvalConfig {
-            generate_debug_metadata: false,
-        },
-    );
-    match maybe_program {
-        Ok(program) => {
-            // Verify the program can go through transformations.
-            check_and_transform(&mut program.clone());
-            program
-        }
-        Err(error) => panic!("partial evaluation failed: {error:?}"),
-    }
+    get_rir_program_with_capabilities(source, Profile::AdaptiveRIF.into())
 }
 
 #[must_use]
@@ -242,7 +218,7 @@ impl CompilationContext {
         .expect("should be able to create a new compiler");
         let package_id = map_hir_package_to_fir(compiler.source_package_id());
         let fir_store = lower_hir_package_store(compiler.package_store());
-        let analyzer = Analyzer::init(&fir_store);
+        let analyzer = Analyzer::init(&fir_store, capabilities);
         let compute_properties = analyzer.analyze_all();
         let package = fir_store.get(package_id);
         let entry = ProgramEntry {

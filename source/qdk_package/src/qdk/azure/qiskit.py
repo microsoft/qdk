@@ -5,7 +5,8 @@
 
 Requires installation: ``pip install \"qdk[azure,qiskit]\"``.
 
-Example:
+Example::
+
     from qdk.azure.qiskit import <symbol>
 
 """

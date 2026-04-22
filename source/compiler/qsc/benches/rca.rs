@@ -92,7 +92,7 @@ impl CompilationContext {
     }
 
     fn analyze_all(&mut self) {
-        let analyzer = Analyzer::init(&self.fir_store);
+        let analyzer = Analyzer::init(&self.fir_store, TargetCapabilityFlags::all());
         let compute_properties = analyzer.analyze_all();
         self.compute_properties = Some(compute_properties);
     }
@@ -108,8 +108,11 @@ impl CompilationContext {
         package_compute_properties.clear();
 
         // Analyze the open package without re-analyzing the other packages.
-        let analyzer =
-            Analyzer::init_with_compute_properties(&self.fir_store, compute_properties.clone());
+        let analyzer = Analyzer::init_with_compute_properties(
+            &self.fir_store,
+            TargetCapabilityFlags::all(),
+            compute_properties.clone(),
+        );
         self.compute_properties = Some(analyzer.analyze_package(open_package_id));
     }
 

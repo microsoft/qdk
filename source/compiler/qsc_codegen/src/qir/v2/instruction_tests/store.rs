@@ -44,7 +44,7 @@ fn store_double_literal_to_pointer() {
 #[test]
 fn store_pointer_literal_to_pointer() {
     let inst = rir::Instruction::Store(
-        rir::Operand::Literal(rir::Literal::Pointer),
+        rir::Operand::Literal(rir::Literal::NullPointer),
         rir::Variable::new_ptr(rir::VariableId(0)),
     );
     expect!["  store ptr null, ptr %var_0"].assert_eq(&inst.to_qir(&rir::Program::default()));

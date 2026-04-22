@@ -113,7 +113,7 @@ fn qubit_rotation_variable_angle_call() {
         vec![
             rir::Operand::Variable(rir::Variable {
                 variable_id: rir::VariableId(0),
-                ty: rir::Ty::Double,
+                ty: rir::Ty::Prim(rir::Prim::Double),
             }),
             rir::Operand::Literal(rir::Literal::Qubit(0)),
         ],

@@ -114,7 +114,7 @@ export function CreateTimeTicks(min: number, max: number): Tick[] {
         );
       do {
         let i = 1;
-        let val = 0;
+        let val;
         do {
           val = predefinedTimeTicks[l].tick.value * i * coeff;
           if (val >= min && val <= max) {
@@ -140,7 +140,7 @@ export function CreateTimeTicks(min: number, max: number): Tick[] {
           10 ** Math.floor(Math.log10(max / predefinedTimeTicks[l].tick.value));
         do {
           let i = 1;
-          let val = 0;
+          let val;
           do {
             val = predefinedTimeTicks[l].tick.value * i * coeff;
             if (val >= min && val <= max) {

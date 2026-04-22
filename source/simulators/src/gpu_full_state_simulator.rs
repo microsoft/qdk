@@ -18,7 +18,7 @@ use crate::{
 };
 
 pub fn try_create_gpu_adapter() -> Result<String, String> {
-    GpuContext::try_create_adapter()
+    futures::executor::block_on(async { GpuContext::try_create_adapter().await })
 }
 
 pub fn run_shots_sync(

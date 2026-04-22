@@ -65,7 +65,7 @@ pub fn fir_to_qir_from_callable(
     args: Value,
 ) -> Result<String, qsc_partial_eval::Error> {
     let compute_properties = compute_properties.unwrap_or_else(|| {
-        let analyzer = qsc_rca::Analyzer::init(fir_store);
+        let analyzer = qsc_rca::Analyzer::init(fir_store, capabilities);
         analyzer.analyze_all()
     });
 
@@ -97,7 +97,7 @@ pub fn fir_to_rir_from_callable(
     partial_eval_config: PartialEvalConfig,
 ) -> Result<(Program, Program), qsc_partial_eval::Error> {
     let compute_properties = compute_properties.unwrap_or_else(|| {
-        let analyzer = qsc_rca::Analyzer::init(fir_store);
+        let analyzer = qsc_rca::Analyzer::init(fir_store, capabilities);
         analyzer.analyze_all()
     });
 
@@ -122,7 +122,7 @@ fn get_rir_from_compilation(
     partial_eval_config: PartialEvalConfig,
 ) -> Result<rir::Program, qsc_partial_eval::Error> {
     let compute_properties = compute_properties.unwrap_or_else(|| {
-        let analyzer = qsc_rca::Analyzer::init(fir_store);
+        let analyzer = qsc_rca::Analyzer::init(fir_store, capabilities);
         analyzer.analyze_all()
     });
 

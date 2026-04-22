@@ -474,3 +474,22 @@ operation tiny_coeffs() : Result[] {{
         assert (
             abs(actual_count - expected_count) <= tolerance
         ), f"Count for {pattern} off by more than {tolerance_percent:.1f}% of shots. Actual={actual_count}, Expected={expected_count:.0f}, noise#{noise_number}, Program={program}."
+
+
+def test_ccx_gate_gets_decomposed():
+    qsharp.init(target_profile=TargetProfile.Base)
+    program = """
+    operation Main() : Result[] {
+        use qs = Qubit[3];
+        X(qs[0]);
+        X(qs[1]);
+        CCNOT(qs[0], qs[1], qs[2]);
+        MeasureEachZ(qs)
+    }
+    """
+    qsharp.eval(program)
+    input = qsharp.compile("Main()")
+    output = run_qir_cpu(str(input), shots=1000)
+    result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
+    histogram = Counter(result)
+    assert histogram.get("111", 0) == 1000

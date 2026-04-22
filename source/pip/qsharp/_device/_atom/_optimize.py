@@ -7,10 +7,9 @@ from pyqir import (
     FunctionType,
     FloatConstant,
     Linkage,
+    PointerType,
     const,
-    qubit_type,
-    qubit_id,
-    result_type,
+    ptr_id,
     is_entry_point,
     QirModuleVisitor,
 )
@@ -30,8 +29,8 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
 
     def _on_module(self, module):
         void = Type.void(module.context)
-        qubit_ty = qubit_type(module.context)
-        result_ty = result_type(module.context)
+        qubit_ty = PointerType(Type.void(module.context))
+        result_ty = qubit_ty
         self.double_ty = Type.double(module.context)
         self.used_qubits = set()
         # Find or create the intrinsic gate functions
@@ -61,7 +60,7 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
         # Since instructions are only removed when they are canceled out by their adjoint or folded with another
         # instruction, we can just pop the entries for these qubits so they start fresh with the next gates.
         for qubit in qubits:
-            q = qubit_id(qubit)
+            q = ptr_id(qubit)
             self.qubit_ops.pop(q, None)
             self.last_meas.pop(q, None)
             self.used_qubits.add(q)
@@ -201,43 +200,43 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
             super()._on_call_instr(call)
 
     def _on_qis_h(self, call, target):
-        self._schedule_gate(call, qubit_id(target), "h", "h")
+        self._schedule_gate(call, ptr_id(target), "h", "h")
 
     def _on_qis_s(self, call, target):
-        self._schedule_gate(call, qubit_id(target), "s", "s_adj")
+        self._schedule_gate(call, ptr_id(target), "s", "s_adj")
 
     def _on_qis_s_adj(self, call, target):
-        self._schedule_gate(call, qubit_id(target), "s_adj", "s")
+        self._schedule_gate(call, ptr_id(target), "s_adj", "s")
 
     def _on_qis_t(self, call, target):
-        self._schedule_gate(call, qubit_id(target), "t", "t_adj")
+        self._schedule_gate(call, ptr_id(target), "t", "t_adj")
 
     def _on_qis_t_adj(self, call, target):
-        self._schedule_gate(call, qubit_id(target), "t_adj", "t")
+        self._schedule_gate(call, ptr_id(target), "t_adj", "t")
 
     def _on_qis_x(self, call, target):
-        self._schedule_gate(call, qubit_id(target), "x", "x")
+        self._schedule_gate(call, ptr_id(target), "x", "x")
 
     def _on_qis_y(self, call, target):
-        self._schedule_gate(call, qubit_id(target), "y", "y")
+        self._schedule_gate(call, ptr_id(target), "y", "y")
 
     def _on_qis_z(self, call, target):
-        self._schedule_gate(call, qubit_id(target), "z", "z")
+        self._schedule_gate(call, ptr_id(target), "z", "z")
 
     def _on_qis_rx(self, call, angle, target):
-        self._schedule_rotation(call, qubit_id(target), "rx")
+        self._schedule_rotation(call, ptr_id(target), "rx")
 
     def _on_qis_rxx(self, call, angle, target1, target2):
         self._drop_ops([target1, target2])
 
     def _on_qis_ry(self, call, angle, target):
-        self._schedule_rotation(call, qubit_id(target), "ry")
+        self._schedule_rotation(call, ptr_id(target), "ry")
 
     def _on_qis_ryy(self, call, angle, target1, target2):
         self._drop_ops([target1, target2])
 
     def _on_qis_rz(self, call, angle, target):
-        self._schedule_rotation(call, qubit_id(target), "rz")
+        self._schedule_rotation(call, ptr_id(target), "rz")
 
     def _on_qis_rzz(self, call, angle, target1, target2):
         self._drop_ops([target1, target2])
@@ -259,7 +258,7 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
 
     def _on_qis_m(self, call, target, result):
         self._drop_ops([target])
-        self.last_meas[qubit_id(target)] = (call, target, result)
+        self.last_meas[ptr_id(target)] = (call, target, result)
 
     def _on_qis_mz(self, call, target, result):
         self._on_qis_m(call, target, result)
@@ -268,7 +267,7 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
         self._on_qis_m(call, target, result)
 
     def _on_qis_reset(self, call, target):
-        id = qubit_id(target)
+        id = ptr_id(target)
         if id in self.last_meas:
             # Since the last operation on this qubit was a measurement,
             # we can combine that measurement with the reset.
@@ -280,7 +279,7 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
                 [target, result],
             )
             call.erase()
-            self.last_meas[qubit_id(target)] = (new_call, target, result)
+            self.last_meas[ptr_id(target)] = (new_call, target, result)
         elif not id in self.used_qubits:
             # This qubit was never used, so we can just erase the reset instruction.
             call.erase()
