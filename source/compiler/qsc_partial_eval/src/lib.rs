@@ -1550,7 +1550,7 @@ impl<'a> PartialEvaluator<'a> {
         if store_item_id.package == PackageId::CORE
             && callable_decl.name.name.as_ref() == "ReleaseQubitArray"
         {
-            // This is a special case, where we must statically releaes the given qubits rather than call into the stdlib, which may try
+            // This is a special case, where we must statically release the given qubits rather than call into the stdlib, which may try
             // to unroll the loop over the qubits to be released. Instead, iterate over the qubits here and release them directly.
             let Value::Array(qubit_vals) = args_value else {
                 return Err(Error::Unexpected(
