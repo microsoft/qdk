@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.15)
+project(qdk_examples VERSION 1.0.0 LANGUAGES CXX)
+find_package(qdk REQUIRED COMPONENTS chemistry)
+add_executable(simple_e2e simple_e2e.cpp)
+target_link_libraries(simple_e2e PUBLIC qdk::chemistry)
