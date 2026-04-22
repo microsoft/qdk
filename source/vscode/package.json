@@ -197,6 +197,14 @@
             "hidden"
           ],
           "description": "Upload supplemental input data (circuit diagram) to the storage container when submitting jobs to Azure Quantum."
+        },
+        "Q#.azure.quantumOsRoot": {
+          "type": "string",
+          "default": "https://manage.quantum.microsoft.com",
+          "tags": [
+            "hidden"
+          ],
+          "description": "The root URL of the Quantum OS web portal, used when generating deep links to V2 workspaces and jobs."
         }
       }
     },
