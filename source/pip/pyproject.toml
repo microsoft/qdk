@@ -23,6 +23,7 @@ jupyterlab = ["qsharp-jupyterlab"]
 widgets = ["qsharp-widgets"]
 qiskit = ["qiskit>=1.2.2,<3.0.0"]
 cirq = ["cirq-core>=1.6.1,<1.7"]
+qre = ["cirq-core==1.6.1,<1.7", "pandas>=2.1", "ply>=3.11", "pyqir<0.12"]
 
 [build-system]
 requires = ["maturin ~= 1.10.2"]
