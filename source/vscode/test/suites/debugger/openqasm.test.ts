@@ -30,6 +30,19 @@ suite("OpenQASM Debugger Tests", function suite() {
 
   this.beforeAll(async () => {
     await activateExtension();
+
+    // Ensure the Debug view opens when a debug session starts.
+    // VS Code 1.117 changed the default behavior of `debug.openDebug: openOnDebugBreak`
+    // to no longer auto-open the Debug view on the first session start (see
+    // https://github.com/microsoft/vscode/pull/309133). Without the Debug view open,
+    // VS Code won't send `variables` requests to the debug adapter, which causes
+    // the test tracker to time out waiting for the debugger to enter the paused state.
+    const config = vscode.workspace.getConfiguration("debug");
+    await config.update(
+      "openDebug",
+      "openOnSessionStart",
+      vscode.ConfigurationTarget.Global,
+    );
   });
 
   this.beforeEach(async () => {
