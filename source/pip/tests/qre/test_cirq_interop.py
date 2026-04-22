@@ -1,7 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import cirq
+import pytest
+
+cirq = pytest.importorskip("cirq")
+
 from qsharp.qre import PSSPC
 from qsharp.qre.application import CirqApplication
 from qsharp.qre.interop import trace_from_cirq
@@ -94,7 +97,7 @@ def test_circuit_with_block():
 
 
 def _test_one_circuit(
-    circuit: cirq.CIRCUIT_LIKE,
+    circuit,
     expected_qubits: int,
     expected_depth: int,
     expected_gates: int,
