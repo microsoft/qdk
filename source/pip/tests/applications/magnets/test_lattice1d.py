@@ -3,7 +3,7 @@
 
 """Unit tests for 1D lattice data structures."""
 
-from qsharp.qre.application.magnets import (
+from qsharp.applications.magnets import (
     Chain1D,
     Hypergraph,
     HypergraphEdgeColoring,

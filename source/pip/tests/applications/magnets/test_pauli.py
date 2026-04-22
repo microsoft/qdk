@@ -4,7 +4,7 @@
 """Unit tests for Pauli and PauliString utilities."""
 
 import pytest
-from qsharp.qre.application.magnets import Pauli, PauliString, PauliX, PauliY, PauliZ
+from qsharp.applications.magnets import Pauli, PauliString, PauliX, PauliY, PauliZ
 
 cirq = pytest.importorskip("cirq")
 

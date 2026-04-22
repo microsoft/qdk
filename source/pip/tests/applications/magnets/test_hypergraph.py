@@ -5,7 +5,7 @@
 
 import pytest
 
-from qsharp.qre.application.magnets import (
+from qsharp.applications.magnets import (
     Hyperedge,
     Hypergraph,
     HypergraphEdgeColoring,

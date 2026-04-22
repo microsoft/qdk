@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import pytest
-from qsharp.qre.application.magnets import (
+from qsharp.applications.magnets import (
     HeisenbergModel,
     Hyperedge,
     Hypergraph,

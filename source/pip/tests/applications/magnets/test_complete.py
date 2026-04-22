@@ -3,7 +3,7 @@
 
 """Unit tests for complete graph data structures."""
 
-from qsharp.qre.application.magnets import (
+from qsharp.applications.magnets import (
     CompleteBipartiteGraph,
     CompleteGraph,
     Hypergraph,

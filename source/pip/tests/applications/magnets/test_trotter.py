@@ -4,7 +4,7 @@
 """Unit tests for Trotter-Suzuki decomposition classes and factory functions."""
 
 import pytest
-from qsharp.qre.application.magnets import (
+from qsharp.applications.magnets import (
     Hyperedge,
     Hypergraph,
     Model,

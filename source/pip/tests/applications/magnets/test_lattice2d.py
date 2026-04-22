@@ -3,7 +3,7 @@
 
 """Unit tests for 2D lattice data structures."""
 
-from qsharp.qre.application.magnets import (
+from qsharp.applications.magnets import (
     Hypergraph,
     HypergraphEdgeColoring,
     Patch2D,
