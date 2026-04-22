@@ -59,7 +59,7 @@ const platformBuildOptions = {
     platform: "node",
     outdir: join(thisDir, "out", "node"),
     entryPoints: [join(thisDir, "src", "extension.ts")],
-    external: ["vscode", "web-worker"],
+    external: ["vscode"],
     banner: {
       js: 'const _importMetaUrl = require("url").pathToFileURL(__filename).href;',
     },
