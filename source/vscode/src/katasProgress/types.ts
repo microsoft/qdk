@@ -24,6 +24,8 @@ export interface CatalogSection {
   id: string;
   title: string;
   kind: SectionKind;
+  /** True for lessons that contain at least one code example. Always false for exercises. */
+  hasExample?: boolean;
 }
 
 export interface CatalogKata {

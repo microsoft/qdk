@@ -130,8 +130,19 @@
     switch (item.type) {
       case "lesson-text":
         return item.content;
-      case "lesson-example":
-        return `<pre><code>${escapeHtml(item.code)}</code></pre>`;
+      case "lesson-example": {
+        // Render surrounding lesson text (if present) together with the
+        // example file link so the user sees the full context on one page.
+        let body = "";
+        if (item.contentBefore) body += item.contentBefore;
+        if (item.filePath) {
+          const fwd = item.filePath.replace(/\\/g, "/");
+          const fileUrl = "file:///" + (fwd.startsWith("/") ? fwd.slice(1) : fwd);
+          body += `<p class="file-path"><a class="file-path-link" href="${escapeHtml(fileUrl)}" title="Open this example in the editor"><code>${escapeHtml(item.filePath)}</code></a><button class="copy-btn" data-copy="${escapeHtml(item.filePath)}" title="Copy path">📋</button></p>`;
+        }
+        if (item.contentAfter) body += item.contentAfter;
+        return body;
+      }
       case "lesson-question":
         return item.description;
       case "exercise": {

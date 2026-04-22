@@ -107,7 +107,13 @@ export interface LessonExampleItem {
   id: string;
   /** Q# source code */
   code: string;
+  /** Absolute path to the standalone .qs file scaffolded into the learning workspace */
+  filePath: string;
   sectionTitle: string;
+  /** HTML from lesson-text items preceding this example in the section */
+  contentBefore?: string;
+  /** HTML from lesson-text items following this example in the section */
+  contentAfter?: string;
 }
 
 export interface LessonQuestionItem {

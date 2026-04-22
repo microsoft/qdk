@@ -150,14 +150,16 @@ export class KatasServer implements IKatasServer {
       for (let si = 0; si < kata.sections.length; si++) {
         const section = kata.sections[si];
         if (section.type === "lesson") {
+          // Collapse all items in a lesson section into a single flat
+          // position so the widget shows them as one page.
+          this.flatPositions.push({
+            kataId: kata.id,
+            sectionIndex: si,
+            itemIndex: 0,
+          });
+          // Still register examples by ID for quick lookup.
           for (let ii = 0; ii < section.items.length; ii++) {
             const item = section.items[ii];
-            this.flatPositions.push({
-              kataId: kata.id,
-              sectionIndex: si,
-              itemIndex: ii,
-            });
-            // Register examples by ID
             if (item.type === "example") {
               this.itemRegistry.set(item.id, {
                 kataId: kata.id,
@@ -189,18 +191,30 @@ export class KatasServer implements IKatasServer {
     // Scaffold exercise files
     await this.workspace.scaffoldExercises(this.katas);
 
+    // Scaffold example files (read-only reference, overwritten on each init)
+    await this.workspace.scaffoldExamples(this.katas);
+
     // Load progress
     await this.progress.load(this.katas);
 
     // Restore position
     const savedPos = this.progress.getPosition();
     if (savedPos.kataId) {
-      const idx = this.flatPositions.findIndex(
+      let idx = this.flatPositions.findIndex(
         (fp) =>
           fp.kataId === savedPos.kataId &&
           fp.sectionIndex === savedPos.sectionIndex &&
           fp.itemIndex === savedPos.itemIndex,
       );
+      // Saved position may have itemIndex > 0 from before lesson-section
+      // collapsing; fall back to itemIndex 0 for the same section.
+      if (idx < 0) {
+        idx = this.flatPositions.findIndex(
+          (fp) =>
+            fp.kataId === savedPos.kataId &&
+            fp.sectionIndex === savedPos.sectionIndex,
+        );
+      }
       if (idx >= 0) this.currentFlatIndex = idx;
     }
   }
@@ -436,12 +450,19 @@ export class KatasServer implements IKatasServer {
     sectionIndex: number,
     itemIndex: number = 0,
   ): ServerState {
-    const idx = this.flatPositions.findIndex(
+    let idx = this.flatPositions.findIndex(
       (fp) =>
         fp.kataId === kataId &&
         fp.sectionIndex === sectionIndex &&
         fp.itemIndex === itemIndex,
     );
+    // Lesson sections are collapsed to itemIndex 0; fall back when the
+    // caller supplies a stale sub-item index.
+    if (idx < 0 && itemIndex !== 0) {
+      idx = this.flatPositions.findIndex(
+        (fp) => fp.kataId === kataId && fp.sectionIndex === sectionIndex,
+      );
+    }
     if (idx < 0) {
       throw new Error(
         `Position not found: ${kataId} section ${sectionIndex} item ${itemIndex}`,
@@ -702,49 +723,81 @@ export class KatasServer implements IKatasServer {
       } satisfies ExerciseItem;
     }
 
-    // Lesson item
+    // Lesson section — all items are collapsed into a single page.
     const lesson = section as Lesson;
-    const item = lesson.items[fp.itemIndex];
+    const items = lesson.items;
 
-    if (item.type === "text-content") {
-      return {
-        type: "lesson-text",
-        content: item.content,
-        sectionTitle: lesson.title,
-      } satisfies LessonTextItem;
-    }
+    // Find the example item (if any) to determine the primary item type.
+    const exampleItem = items.find((i) => i.type === "example");
 
-    if (item.type === "example") {
+    if (exampleItem && exampleItem.type === "example") {
+      // Collect surrounding text content.
+      const exIdx = items.indexOf(exampleItem);
+      const before = items
+        .slice(0, exIdx)
+        .filter((i) => i.type === "text-content")
+        .map((i) => (i as { content: string }).content)
+        .join("\n");
+      const after = items
+        .slice(exIdx + 1)
+        .filter((i) => i.type === "text-content")
+        .map((i) => (i as { content: string }).content)
+        .join("\n");
+
       return {
         type: "lesson-example",
-        id: item.id,
-        code: item.code,
+        id: exampleItem.id,
+        code: exampleItem.code,
+        filePath: this.workspace.getExampleFilePath(kata.id, exampleItem.id),
         sectionTitle: lesson.title,
+        contentBefore: before || undefined,
+        contentAfter: after || undefined,
       } satisfies LessonExampleItem;
     }
 
-    if (item.type === "question") {
-      const answerContent = item.answer.items
-        .map((ai) => {
-          if (ai.type === "text-content") return ai.content;
-          if (ai.type === "example") return `\`\`\`qsharp\n${ai.code}\n\`\`\``;
-          return "";
-        })
-        .join("\n\n");
-      return {
-        type: "lesson-question",
-        description: item.description.content,
-        answer: answerContent,
-        sectionTitle: lesson.title,
-      } satisfies LessonQuestionItem;
+    // No example — merge all text/question items into a single page.
+    // If there's exactly one item, resolve it directly.
+    if (items.length === 1) {
+      const item = items[0];
+      if (item.type === "text-content") {
+        return {
+          type: "lesson-text",
+          content: item.content,
+          sectionTitle: lesson.title,
+        } satisfies LessonTextItem;
+      }
+      if (item.type === "question") {
+        const answerContent = item.answer.items
+          .map((ai) => {
+            if (ai.type === "text-content") return ai.content;
+            if (ai.type === "example")
+              return `\`\`\`qsharp\n${ai.code}\n\`\`\``;
+            return "";
+          })
+          .join("\n\n");
+        return {
+          type: "lesson-question",
+          description: item.description.content,
+          answer: answerContent,
+          sectionTitle: lesson.title,
+        } satisfies LessonQuestionItem;
+      }
     }
 
-    // Fallback — shouldn't happen
+    // Multiple text-only items (or unexpected mix) — concatenate all content.
+    const merged = items
+      .map((i) => {
+        if (i.type === "text-content") return i.content;
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+
     return {
       type: "lesson-text",
-      content: "(unknown item type)",
+      content: merged,
       sectionTitle: lesson.title,
-    };
+    } satisfies LessonTextItem;
   }
 
   /**

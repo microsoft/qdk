@@ -131,6 +131,44 @@ describe("KatasServer", () => {
       );
       server2.dispose();
     });
+
+    it("scaffolds example .qs files and exposes filePath on lesson-example items", async () => {
+      // 'qubit' kata contains examples; use a fresh workspace so the test is hermetic.
+      const wsBackup = workspacePath;
+      workspacePath = await mkdtemp(join(tmpdir(), "katas-examples-"));
+      const exampleServer = await createServer(["qubit"]);
+      try {
+        // Navigate to a lesson-example item.
+        let pos = exampleServer.getPosition();
+        let maxSteps = 100;
+        while (pos.item.type !== "lesson-example" && maxSteps-- > 0) {
+          const { moved } = exampleServer.next();
+          if (!moved) break;
+          pos = exampleServer.getPosition();
+        }
+        assert.equal(
+          pos.item.type,
+          "lesson-example",
+          "Should find a lesson example in the qubit kata",
+        );
+        const example = pos.item as { filePath: string; code: string };
+        assert.ok(example.filePath, "lesson-example should carry a filePath");
+        assert.ok(
+          example.filePath.includes(join("examples", "qubit")),
+          `filePath should live under examples/qubit, got ${example.filePath}`,
+        );
+        const onDisk = await readFile(example.filePath, "utf-8");
+        assert.equal(
+          onDisk,
+          example.code,
+          "Scaffolded example file content should match the example's code",
+        );
+      } finally {
+        exampleServer.dispose();
+        await rm(workspacePath, { recursive: true, force: true });
+        workspacePath = wsBackup;
+      }
+    });
   });
 
   // ─── Navigation tests ───

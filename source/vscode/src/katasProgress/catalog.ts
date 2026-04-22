@@ -47,6 +47,8 @@ export async function loadCatalog(): Promise<CatalogKata[]> {
       id: s.id,
       title: s.title,
       kind: s.type,
+      hasExample:
+        s.type === "lesson" && s.items.some((i) => i.type === "example"),
     })),
   }));
 

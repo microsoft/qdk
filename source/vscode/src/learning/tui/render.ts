@@ -64,7 +64,19 @@ export function renderNavigationItem(item: NavigationItem): string {
     case "lesson-example": {
       lines.push(bold(`💡 Example — ${item.sectionTitle}`));
       lines.push("");
+      if (item.contentBefore) {
+        lines.push(renderMarkdown(item.contentBefore));
+        lines.push("");
+      }
       lines.push(renderCode(item.code));
+      if (item.filePath) {
+        lines.push("");
+        lines.push(dim(`📄 Example file: ${underline(item.filePath)}`));
+      }
+      if (item.contentAfter) {
+        lines.push("");
+        lines.push(renderMarkdown(item.contentAfter));
+      }
       break;
     }
     case "lesson-question": {

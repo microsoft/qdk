@@ -88,15 +88,23 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
       section.title,
       vscode.TreeItemCollapsibleState.None,
     );
-    item.description = section.kind === "exercise" ? "exercise" : "lesson";
+    item.description =
+      section.kind === "exercise"
+        ? "exercise"
+        : section.hasExample
+          ? "lesson · example"
+          : "lesson";
     item.iconPath = sectionIcon(section, isCurrent);
     item.contextValue =
       section.kind === "exercise" ? "exerciseSection" : "lessonSection";
-    item.tooltip = section.isComplete
+    const baseTooltip = section.isComplete
       ? `Completed${section.completedAt ? ` · ${new Date(section.completedAt).toLocaleString()}` : ""}`
       : section.kind === "exercise"
         ? "Exercise — use the chat action to open in chat"
         : "Lesson — use the chat action to open in chat";
+    item.tooltip = section.hasExample
+      ? `${baseTooltip} · contains a code example`
+      : baseTooltip;
     item.id = `section:${kataId}:${section.index}`;
     return item;
   }
