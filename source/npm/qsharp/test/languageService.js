@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { log } from "../dist/log.js";
-import { getLanguageService, loadWasmModule } from "../dist/main.js";
+import { getLanguageService, loadWasmModule } from "../dist/node.js";
 
 // Load the wasm module before running any tests
 const wasmPath = new URL("../lib/web/qsc_wasm_bg.wasm", import.meta.url);

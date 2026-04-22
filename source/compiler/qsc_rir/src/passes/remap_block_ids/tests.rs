@@ -6,7 +6,7 @@
 use expect_test::expect;
 
 use crate::rir::{
-    Block, BlockId, Callable, CallableId, CallableType, Instruction, Program, Ty, Variable,
+    Block, BlockId, Callable, CallableId, CallableType, Instruction, Prim, Program, Ty, Variable,
     VariableId,
 };
 
@@ -182,7 +182,7 @@ fn remap_block_ids_out_of_order_with_one_branch() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(3),
             BlockId(1),
@@ -275,7 +275,7 @@ fn remap_block_ids_simple_loop() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(6),
             BlockId(2),
@@ -431,7 +431,7 @@ fn remap_block_ids_nested_branching_loops() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(6),
             BlockId(2),
@@ -443,7 +443,7 @@ fn remap_block_ids_nested_branching_loops() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(1),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(4),
             BlockId(2),
@@ -527,7 +527,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(6),
             BlockId(2),
@@ -542,7 +542,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(1),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(1),
             BlockId(3),
@@ -557,7 +557,7 @@ fn remap_block_ids_ensures_acyclic_program_gets_topological_ordering() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(2),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(5),
             BlockId(0),

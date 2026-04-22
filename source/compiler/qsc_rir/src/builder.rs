@@ -4,15 +4,15 @@
 use qsc_data_structures::target::TargetCapabilityFlags;
 
 use crate::rir::{
-    Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program, Ty,
-    Variable, VariableId,
+    Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Prim,
+    Program, Ty, Variable, VariableId,
 };
 
 #[must_use]
 pub fn x_decl() -> Callable {
     Callable {
         name: "__quantum__qis__x__body".to_string(),
-        input_type: vec![Ty::Qubit],
+        input_type: vec![Ty::Prim(Prim::Qubit)],
         output_type: None,
         body: None,
         call_type: CallableType::Regular,
@@ -23,7 +23,7 @@ pub fn x_decl() -> Callable {
 pub fn z_decl() -> Callable {
     Callable {
         name: "__quantum__qis__z__body".to_string(),
-        input_type: vec![Ty::Qubit],
+        input_type: vec![Ty::Prim(Prim::Qubit)],
         output_type: None,
         body: None,
         call_type: CallableType::Regular,
@@ -34,7 +34,7 @@ pub fn z_decl() -> Callable {
 pub fn h_decl() -> Callable {
     Callable {
         name: "__quantum__qis__h__body".to_string(),
-        input_type: vec![Ty::Qubit],
+        input_type: vec![Ty::Prim(Prim::Qubit)],
         output_type: None,
         body: None,
         call_type: CallableType::Regular,
@@ -45,7 +45,7 @@ pub fn h_decl() -> Callable {
 pub fn cx_decl() -> Callable {
     Callable {
         name: "__quantum__qis__cx__body".to_string(),
-        input_type: vec![Ty::Qubit, Ty::Qubit],
+        input_type: vec![Ty::Prim(Prim::Qubit), Ty::Prim(Prim::Qubit)],
         output_type: None,
         body: None,
         call_type: CallableType::Regular,
@@ -56,7 +56,7 @@ pub fn cx_decl() -> Callable {
 pub fn rx_decl() -> Callable {
     Callable {
         name: "__quantum__qis__rx__body".to_string(),
-        input_type: vec![Ty::Double, Ty::Qubit],
+        input_type: vec![Ty::Prim(Prim::Double), Ty::Prim(Prim::Qubit)],
         output_type: None,
         body: None,
         call_type: CallableType::Regular,
@@ -67,7 +67,7 @@ pub fn rx_decl() -> Callable {
 pub fn m_decl() -> Callable {
     Callable {
         name: "__quantum__qis__m__body".to_string(),
-        input_type: vec![Ty::Qubit, Ty::Result],
+        input_type: vec![Ty::Prim(Prim::Qubit), Ty::Prim(Prim::Result)],
         output_type: None,
         body: None,
         call_type: CallableType::Measurement,
@@ -78,7 +78,7 @@ pub fn m_decl() -> Callable {
 pub fn mresetz_decl() -> Callable {
     Callable {
         name: "__quantum__qis__mresetz__body".to_string(),
-        input_type: vec![Ty::Qubit, Ty::Result],
+        input_type: vec![Ty::Prim(Prim::Qubit), Ty::Prim(Prim::Result)],
         output_type: None,
         body: None,
         call_type: CallableType::Measurement,
@@ -89,7 +89,7 @@ pub fn mresetz_decl() -> Callable {
 pub fn reset_decl() -> Callable {
     Callable {
         name: "__quantum__qis__reset__body".to_string(),
-        input_type: vec![Ty::Qubit],
+        input_type: vec![Ty::Prim(Prim::Qubit)],
         output_type: None,
         body: None,
         call_type: CallableType::Reset,
@@ -100,8 +100,8 @@ pub fn reset_decl() -> Callable {
 pub fn read_result_decl() -> Callable {
     Callable {
         name: "__quantum__rt__read_result".to_string(),
-        input_type: vec![Ty::Result],
-        output_type: Some(Ty::Boolean),
+        input_type: vec![Ty::Prim(Prim::Result)],
+        output_type: Some(Ty::Prim(Prim::Boolean)),
         body: None,
         call_type: CallableType::Readout,
     }
@@ -111,7 +111,7 @@ pub fn read_result_decl() -> Callable {
 pub fn initialize_decl() -> Callable {
     Callable {
         name: "__quantum__rt__initialize".to_string(),
-        input_type: vec![Ty::Pointer],
+        input_type: vec![Ty::Prim(Prim::Pointer)],
         output_type: None,
         body: None,
         call_type: CallableType::Regular,
@@ -122,7 +122,7 @@ pub fn initialize_decl() -> Callable {
 pub fn result_record_decl() -> Callable {
     Callable {
         name: "__quantum__rt__result_record_output".to_string(),
-        input_type: vec![Ty::Result, Ty::Pointer],
+        input_type: vec![Ty::Prim(Prim::Result), Ty::Prim(Prim::Pointer)],
         output_type: None,
         body: None,
         call_type: CallableType::OutputRecording,
@@ -133,7 +133,7 @@ pub fn result_record_decl() -> Callable {
 pub fn double_record_decl() -> Callable {
     Callable {
         name: "__quantum__rt__double_record_output".to_string(),
-        input_type: vec![Ty::Double, Ty::Pointer],
+        input_type: vec![Ty::Prim(Prim::Double), Ty::Prim(Prim::Pointer)],
         output_type: None,
         body: None,
         call_type: CallableType::OutputRecording,
@@ -144,7 +144,7 @@ pub fn double_record_decl() -> Callable {
 pub fn int_record_decl() -> Callable {
     Callable {
         name: "__quantum__rt__int_record_output".to_string(),
-        input_type: vec![Ty::Integer, Ty::Pointer],
+        input_type: vec![Ty::Prim(Prim::Integer), Ty::Prim(Prim::Pointer)],
         output_type: None,
         body: None,
         call_type: CallableType::OutputRecording,
@@ -155,7 +155,7 @@ pub fn int_record_decl() -> Callable {
 pub fn bool_record_decl() -> Callable {
     Callable {
         name: "__quantum__rt__bool_record_output".to_string(),
-        input_type: vec![Ty::Boolean, Ty::Pointer],
+        input_type: vec![Ty::Prim(Prim::Boolean), Ty::Prim(Prim::Pointer)],
         output_type: None,
         body: None,
         call_type: CallableType::OutputRecording,
@@ -166,7 +166,7 @@ pub fn bool_record_decl() -> Callable {
 pub fn array_record_decl() -> Callable {
     Callable {
         name: "__quantum__rt__array_record_output".to_string(),
-        input_type: vec![Ty::Integer, Ty::Pointer],
+        input_type: vec![Ty::Prim(Prim::Integer), Ty::Prim(Prim::Pointer)],
         output_type: None,
         body: None,
         call_type: CallableType::OutputRecording,
@@ -177,7 +177,7 @@ pub fn array_record_decl() -> Callable {
 pub fn tuple_record_decl() -> Callable {
     Callable {
         name: "__quantum__rt__tuple_record_output".to_string(),
-        input_type: vec![Ty::Integer, Ty::Pointer],
+        input_type: vec![Ty::Prim(Prim::Integer), Ty::Prim(Prim::Pointer)],
         output_type: None,
         body: None,
         call_type: CallableType::OutputRecording,
@@ -194,7 +194,7 @@ pub fn new_program() -> Program {
         Callable {
             name: "main".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Integer),
+            output_type: Some(Ty::Prim(Prim::Integer)),
             body: Some(BlockId(0)),
             call_type: CallableType::Regular,
         },
@@ -217,7 +217,7 @@ pub fn bell_program() -> Program {
         Callable {
             name: "main".to_string(),
             input_type: vec![],
-            output_type: Some(Ty::Integer),
+            output_type: Some(Ty::Prim(Prim::Integer)),
             body: Some(BlockId(0)),
             call_type: CallableType::Regular,
         },
@@ -314,7 +314,7 @@ pub fn teleport_program() -> Program {
         Callable {
             name: "main".to_string(),
             input_type: vec![],
-            output_type: Some(Ty::Integer),
+            output_type: Some(Ty::Prim(Prim::Integer)),
             body: Some(BlockId(0)),
             call_type: CallableType::Regular,
         },
@@ -374,14 +374,14 @@ pub fn teleport_program() -> Program {
                 vec![Operand::Literal(Literal::Result(0))],
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -418,14 +418,14 @@ pub fn teleport_program() -> Program {
                 vec![Operand::Literal(Literal::Result(1))],
                 Some(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(3),
                 BlockId(4),

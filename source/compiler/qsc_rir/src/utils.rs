@@ -110,7 +110,8 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                 }
                 Instruction::Store(_, var)
                 | Instruction::Alloca(var)
-                | Instruction::Load(_, var) => {
+                | Instruction::Load(_, var)
+                | Instruction::Index(_, _, var) => {
                     has_store = true;
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
@@ -198,7 +199,8 @@ pub(crate) fn map_variable_use_in_block(
             | Instruction::LogicalOr(lhs, rhs, _)
             | Instruction::BitwiseAnd(lhs, rhs, _)
             | Instruction::BitwiseOr(lhs, rhs, _)
-            | Instruction::BitwiseXor(lhs, rhs, _) => {
+            | Instruction::BitwiseXor(lhs, rhs, _)
+            | Instruction::Index(lhs, rhs, _) => {
                 *lhs = lhs.mapped(var_map);
                 *rhs = rhs.mapped(var_map);
             }

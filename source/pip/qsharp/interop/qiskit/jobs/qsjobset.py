@@ -24,6 +24,15 @@ logger = logging.getLogger(__name__)
 
 
 class QsJobSet(Job):
+    """
+    A Qiskit job set that runs multiple quantum circuits concurrently.
+
+    Each circuit in ``run_input`` is submitted as an individual
+    :class:`~qsharp.interop.qiskit.jobs.qsjob.QsSimJob` and executed in a thread pool.
+    :meth:`result` blocks until all constituent
+    jobs are complete and aggregates their ``qiskit.result.Result`` objects into a single
+    combined result.
+    """
 
     def __init__(
         self,
@@ -49,8 +58,7 @@ class QsJobSet(Job):
     def submit(self):
         """Submit the job to the backend for execution.
 
-        Raises:
-            JobError: if trying to re-submit the job.
+        :raises JobError: If trying to re-submit the job.
         """
         if len(self._jobs) > 0:
             raise JobError("Jobs have already been submitted.")

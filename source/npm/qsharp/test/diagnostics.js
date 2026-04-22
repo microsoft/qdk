@@ -13,7 +13,7 @@ import {
   getCompilerWorker,
   getProjectLoader,
   loadWasmModule,
-} from "../dist/main.js";
+} from "../dist/node.js";
 
 const distDir = new URL("../dist/", import.meta.url);
 const compilerWorkerPath = new URL("compiler/worker.js", distDir).href;
