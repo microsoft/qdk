@@ -88,12 +88,13 @@ qsharp.init(project_root="./my_project")
 
 ### Target Profiles
 
-| Profile                      | Use Case                                                              |
-| ---------------------------- | --------------------------------------------------------------------- |
-| `TargetProfile.Unrestricted` | Full simulation (default)                                             |
-| `TargetProfile.Adaptive_RIF` | Adaptive profile with integer & floating-point computation extensions |
-| `TargetProfile.Adaptive_RI`  | Adaptive profile with integer computation extension                   |
-| `TargetProfile.Base`         | Minimal capabilities required to run a quantum program (Base Profile) |
+| Profile                        | Use Case                                                              |
+| ------------------------------ | --------------------------------------------------------------------- |
+| `TargetProfile.Unrestricted`   | Full simulation (default)                                             |
+| `TargetProfile.Adaptive_RIFLA` | Adaptive profile with integer, floating-point, loops, and arrays      |
+| `TargetProfile.Adaptive_RIF`   | Adaptive profile with integer & floating-point computation extensions |
+| `TargetProfile.Adaptive_RI`    | Adaptive profile with integer computation extension                   |
+| `TargetProfile.Base`           | Minimal capabilities required to run a quantum program (Base Profile) |
 
 ## Q#
 
@@ -140,6 +141,9 @@ except QSharpError as e:
 qsharp.eval("operation CNOT_Measure() : (Result, Result) { use (q1, q2) = (Qubit(), Qubit()); H(q1); CNOT(q1, q2); (MResetZ(q1), MResetZ(q2)) }")
 results = qsharp.run("CNOT_Measure()", 100)
 # Returns a list of 100 results
+
+# Reproducible results with explicit seed
+results = qsharp.run("CNOT_Measure()", 100, seed=42)
 ```
 
 ### Loading Q# Files
@@ -344,6 +348,17 @@ The default simulator used by `qsharp.run()` and `qsharp.eval()` is a sparse sta
 It efficiently represents quantum states by only tracking non-zero amplitudes, making it
 suitable for programs where the state vector remains relatively sparse throughout execution.
 No special configuration is required — it is used automatically when no noise model is specified.
+
+`NoiseConfig` also works with the sparse simulator for per-gate noise control:
+
+```python
+from qdk.simulation import NoiseConfig
+
+noise = NoiseConfig()
+noise.rx.set_bitflip(0.005)
+noise.rzz.set_pauli_noise("XX", 0.005)
+results = qsharp.run("Main()", 100, noise=noise)
+```
 
 ## Qiskit Integration
 
