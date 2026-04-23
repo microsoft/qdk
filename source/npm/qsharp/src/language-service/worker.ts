@@ -6,4 +6,3 @@ import { languageServiceProtocol } from "./language-service.js";
 
 // message handler exported for backwards compatibility
 export const messageHandler = createWorker(languageServiceProtocol);
-addEventListener("message", messageHandler);
