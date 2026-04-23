@@ -8,6 +8,9 @@
 from __future__ import annotations
 
 import pytest
+
+cirq = pytest.importorskip("cirq")
+
 from qsharp.applications.magnets import (
     HeisenbergModel,
     Hyperedge,

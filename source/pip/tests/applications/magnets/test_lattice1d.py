@@ -3,6 +3,10 @@
 
 """Unit tests for 1D lattice data structures."""
 
+import pytest
+
+cirq = pytest.importorskip("cirq")
+
 from qsharp.applications.magnets import (
     Chain1D,
     Hypergraph,

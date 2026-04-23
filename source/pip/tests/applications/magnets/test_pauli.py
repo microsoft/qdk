@@ -4,9 +4,10 @@
 """Unit tests for Pauli and PauliString utilities."""
 
 import pytest
-from qsharp.applications.magnets import Pauli, PauliString, PauliX, PauliY, PauliZ
 
 cirq = pytest.importorskip("cirq")
+
+from qsharp.applications.magnets import Pauli, PauliString, PauliX, PauliY, PauliZ
 
 
 def test_pauli_init_from_int_and_string():

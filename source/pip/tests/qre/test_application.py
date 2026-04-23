@@ -1,6 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import pytest
+
+cirq = pytest.importorskip("cirq")
+
 from dataclasses import dataclass, field
 
 import qsharp
@@ -167,6 +171,7 @@ def test_qsharp_application():
 
 def test_application_enumeration():
     """Test that Application.q() enumerates the correct number of traces."""
+
     @dataclass(kw_only=True)
     class _Params:
         size: int = field(default=1, metadata={"domain": range(1, 4)})

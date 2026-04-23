@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+cirq = pytest.importorskip("cirq")
+
 import qsharp
 from qsharp.qre.application import QSharpApplication, QIRApplication
 from qsharp.qre.interop import trace_from_qir

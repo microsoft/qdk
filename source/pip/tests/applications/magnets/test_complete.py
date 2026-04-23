@@ -3,6 +3,10 @@
 
 """Unit tests for complete graph data structures."""
 
+import pytest
+
+cirq = pytest.importorskip("cirq")
+
 from qsharp.applications.magnets import (
     CompleteBipartiteGraph,
     CompleteGraph,

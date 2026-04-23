@@ -3,6 +3,10 @@
 
 """Unit tests for 2D lattice data structures."""
 
+import pytest
+
+cirq = pytest.importorskip("cirq")
+
 from qsharp.applications.magnets import (
     Hypergraph,
     HypergraphEdgeColoring,
