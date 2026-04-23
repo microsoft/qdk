@@ -76,6 +76,41 @@ export type EndEventProperties = {
   flowStatus: UserFlowStatus;
 };
 
+/**
+ * Discovers the tenant ID for an Azure subscription using an ARM
+ * unauthenticated challenge. An unauthenticated request to the ARM
+ * subscription endpoint always returns a 401 with a WWW-Authenticate header
+ * containing the tenant ID, e.g.:
+ *   Bearer authorization_uri="https://login.microsoftonline.com/<tenantId>", ...
+ */
+export async function getTenantIdForSubscription(
+  subscriptionId: string,
+): Promise<string | undefined> {
+  const url = `${AzureUris.mgmtEndpoint}/subscriptions/${subscriptionId}?api-version=${AzureUris.mgmtApiVersion}`;
+  try {
+    const response = await fetch(url);
+    const wwwAuth = response.headers.get("WWW-Authenticate") ?? "";
+    const match = wwwAuth.match(
+      /authorization_uri="https:\/\/(?:login\.microsoftonline\.com|login\.windows\.net)\/([^"]+)"/,
+    );
+    const tenantId = match?.[1];
+    if (!tenantId) {
+      log.warn(
+        "Could not parse tenant ID from WWW-Authenticate header",
+        wwwAuth,
+      );
+    }
+    return tenantId;
+  } catch (e) {
+    log.warn(
+      "Failed to discover tenant ID for subscription",
+      subscriptionId,
+      e,
+    );
+    return undefined;
+  }
+}
+
 export async function queryWorkspaces(): Promise<
   WorkspaceConnection | undefined
 > {
@@ -279,6 +314,14 @@ async function getWorkspaceWithConnectionString(
         endEventProperties.flowStatus = UserFlowStatus.Aborted;
         return;
       }
+    }
+
+    // Discover and populate the tenant ID from the subscription.
+    const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)/;
+    const subscriptionId = workspace.id.match(idRegex)?.groups?.subscriptionId;
+    if (subscriptionId) {
+      workspace.tenantId =
+        (await getTenantIdForSubscription(subscriptionId)) ?? "";
     }
 
     return workspace;
