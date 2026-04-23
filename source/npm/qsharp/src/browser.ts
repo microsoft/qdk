@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { BrowserMainThreadAdapter } from "./workers/adapters/browser.js";
+import { BrowserWorkerHost } from "./workers/adapters/browser.js";
 
-globalThis.WorkerMain = BrowserMainThreadAdapter;
+globalThis.WorkerHost = BrowserWorkerHost;
 export * from "./main.js";

@@ -19,11 +19,12 @@ import type {
 type Wasm = typeof wasm;
 
 /**
- * Creates an initializes a service, setting it up to receive requests.
- * This function to be is used in the worker.
+ * Creates and initializes a service, setting it up to receive requests.
+ * This function is used in the worker thread. It uses the `WorkerSelf` global,
+ * which is bootstrapped by the platform-specific adapter before this code runs.
  *
  * @param serviceProtocol An object that describes the service: its constructor, methods and events
- * @returns A message handler to be assigned to the `self.onmessage` handler in a web worker
+ * @returns The message handler registered on the worker thread.
  */
 export function createWorker<
   TService extends ServiceMethods<TService>,

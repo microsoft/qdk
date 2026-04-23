@@ -30,7 +30,7 @@ import {
 } from "./language-service/language-service.js";
 import { log } from "./log.js";
 import { ProjectLoader } from "./project.js";
-import { MainThreadWorkerAdapter } from "./workers/adapters/types.js";
+import { IWorkerHost } from "./workers/adapters/types.js";
 import { createProxy } from "./workers/main.js";
 
 // Create once. A module is stateless and can be efficiently passed to WebWorkers.
@@ -124,7 +124,7 @@ export async function getProjectLoader(
 // If the Worker was already created via other means and is ready to receive
 // messages, then the worker may be passed in and it will be initialized.
 export function getDebugServiceWorker(
-  worker: string | MainThreadWorkerAdapter,
+  worker: string | IWorkerHost,
 ): IDebugServiceWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
   return createProxy(worker, wasmModule, debugServiceProtocol);
@@ -139,7 +139,7 @@ export async function getCompiler(): Promise<ICompiler> {
 // If the Worker was already created via other means and is ready to receive
 // messages, then the worker may be passed in and it will be initialized.
 export function getCompilerWorker(
-  worker: string | MainThreadWorkerAdapter,
+  worker: string | IWorkerHost,
 ): ICompilerWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
   return createProxy(worker, wasmModule, compilerProtocol);
@@ -152,11 +152,11 @@ export async function getLanguageService(
   return new QSharpLanguageService(wasm, host);
 }
 
-// Create the compiler inside a WebWorker and proxy requests.
+// Create the language service inside a WebWorker and proxy requests.
 // If the Worker was already created via other means and is ready to receive
 // messages, then the worker may be passed in and it will be initialized.
 export function getLanguageServiceWorker(
-  worker: string | MainThreadWorkerAdapter,
+  worker: string | IWorkerHost,
 ): ILanguageServiceWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
   return createProxy(worker, wasmModule, languageServiceProtocol);

@@ -1,7 +1,10 @@
-import { Worker } from "node:worker_threads";
-import type { MainThreadWorkerAdapter } from "./types.js";
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
-export class NodeMainThreadAdapter implements MainThreadWorkerAdapter {
+import { Worker } from "node:worker_threads";
+import type { IWorkerHost } from "./types.js";
+
+export class NodeWorkerHost implements IWorkerHost {
   private worker: Worker;
 
   constructor(url: string | URL) {
@@ -31,7 +34,7 @@ export class NodeMainThreadAdapter implements MainThreadWorkerAdapter {
     });
   }
 
-  onError(handler: (e: ErrorEvent) => void): void {
+  onError(handler: (e: Event) => void): void {
     this.worker.on("error", handler);
   }
 

@@ -1,6 +1,9 @@
-import type { MainThreadWorkerAdapter } from "./types.js";
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
 
-export class BrowserMainThreadAdapter implements MainThreadWorkerAdapter {
+import type { IWorkerHost } from "./types.js";
+
+export class BrowserWorkerHost implements IWorkerHost {
   private worker: Worker;
 
   constructor(url: string | URL) {
@@ -24,7 +27,7 @@ export class BrowserMainThreadAdapter implements MainThreadWorkerAdapter {
     this.worker.onmessage = handler;
   }
 
-  onError(handler: (e: ErrorEvent) => void): void {
+  onError(handler: (e: Event) => void): void {
     this.worker.onerror = handler;
   }
 

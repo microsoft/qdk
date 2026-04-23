@@ -5,7 +5,7 @@ import type { IQSharpError } from "../../lib/web/qsc_wasm.js";
 import type { CancellationToken } from "../cancellation.js";
 import { QdkDiagnostics } from "../diagnostics.js";
 import { log } from "../log.js";
-import type { MainThreadWorkerAdapter } from "./adapters/types.js";
+import type { IWorkerHost } from "./adapters/types.js";
 import type {
   CommonEventMessage,
   EventMessage,
@@ -24,7 +24,7 @@ import type {
  * Creates and initializes a service in a web worker, and returns a proxy for the service
  * to be used from the main thread.
  *
- * @param workerArg The service web worker or the URL of the web worker script.
+ * @param workerArg An `IWorkerHost` instance, or a URL string to create one via the `WorkerHost` global.
  * @param wasmModule The wasm module to initialize the service with
  * @param serviceProtocol An object that describes the service: its constructor, methods and events
  * @returns A proxy object that implements the service interface.
@@ -35,12 +35,12 @@ export function createProxy<
   TService extends ServiceMethods<TService>,
   TServiceEventMsg extends IServiceEventMessage,
 >(
-  workerArg: string | MainThreadWorkerAdapter,
+  workerArg: string | IWorkerHost,
   wasmModule: WebAssembly.Module,
   serviceProtocol: ServiceProtocol<TService, TServiceEventMsg>,
 ): TService & IServiceProxy {
   const worker =
-    typeof workerArg === "string" ? new WorkerMain(workerArg) : workerArg;
+    typeof workerArg === "string" ? new WorkerHost(workerArg) : workerArg;
 
   // Log any errors from the worker
   worker.onError((ev: Event) => {

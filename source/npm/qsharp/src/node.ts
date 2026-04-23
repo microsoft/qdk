@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { NodeMainThreadAdapter } from "./workers/adapters/node.js";
+import { NodeWorkerHost } from "./workers/adapters/node.js";
 
-globalThis.WorkerMain = NodeMainThreadAdapter;
+globalThis.WorkerHost = NodeWorkerHost;
 
 export * from "./main.js";
