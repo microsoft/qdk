@@ -4,13 +4,18 @@
 # flake8: noqa F403
 # pyright: ignore[reportWildcardImportFromLibrary]
 
-"""qdk.qre.property_keys package: re-export of qsharp.qre.property_keys symbols.
+"""QRE property key constants.
 
-Requires installation: ``pip install "qdk[qre]"``.
+This module re-exports all public symbols from [qsharp.qre.property_keys](:mod:`qsharp.qre.property_keys`),
+making them available under the ``qdk.qre.property_keys`` namespace. It also
+provides helpers for defining custom property keys that don't conflict with
+built-in ones.
+
+Requires the ``qre`` extra: ``pip install qdk[qre]``.
 
 Example:
-    from qdk.qre.property_keys import *
 
+    from qdk.qre.property_keys import *
 """
 
 try:
