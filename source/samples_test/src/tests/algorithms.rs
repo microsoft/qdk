@@ -9,7 +9,7 @@ use expect_test::{Expect, expect};
 pub const BERNSTEINVAZIRANI_EXPECT: Expect = expect!["[127, 238, 512]"];
 pub const BERNSTEINVAZIRANI_EXPECT_DEBUG: Expect = expect!["[127, 238, 512]"];
 pub const BERNSTEINVAZIRANI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 29822"];
-pub const BERNSTEINVAZIRANI_EXPECT_QIR: Expect = expect!["generated QIR of length 20277"];
+pub const BERNSTEINVAZIRANI_EXPECT_QIR: Expect = expect!["generated QIR of length 20273"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_DEBUG: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_CIRCUIT: Expect =
@@ -259,4 +259,4 @@ pub const THREEQUBITREPETITIONCODE_EXPECT: Expect = expect!["(true, 0)"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_DEBUG: Expect = expect!["(true, 0)"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_CIRCUIT: Expect =
     expect!["generated circuit of length 51203"];
-pub const THREEQUBITREPETITIONCODE_EXPECT_QIR: Expect = expect!["generated QIR of length 18117"];
+pub const THREEQUBITREPETITIONCODE_EXPECT_QIR: Expect = expect!["generated QIR of length 18113"];

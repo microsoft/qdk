@@ -700,7 +700,6 @@ fn for_loop_over_arrays_of_tuples_unrolled() {
     "#]].assert_eq(&program.to_string());
 }
 
-// For now, loops over qubits are unrolled since we don't support qubit variables.
 #[test]
 fn for_loop_over_qubits() {
     let program = get_rir_program_with_capabilities(
@@ -761,24 +760,28 @@ fn for_loop_over_qubits() {
                     Variable(0, Integer) = Store Integer(2)
                     Variable(0, Integer) = Store Integer(3)
                     Variable(1, Integer) = Store Integer(0)
-                    Call id(2), args( Qubit(0), )
-                    Variable(1, Integer) = Store Integer(1)
-                    Call id(2), args( Qubit(1), )
-                    Variable(1, Integer) = Store Integer(2)
-                    Call id(2), args( Qubit(2), )
-                    Variable(1, Integer) = Store Integer(3)
-                    Variable(2, Integer) = Store Integer(0)
-                    Variable(2, Integer) = Store Integer(1)
-                    Variable(2, Integer) = Store Integer(2)
-                    Variable(2, Integer) = Store Integer(3)
+                    Jump(1)
+                Block 1: Block:
+                    Variable(2, Boolean) = Icmp Slt, Variable(1, Integer), Integer(3)
+                    Branch Variable(2, Boolean), 3, 2
+                Block 2: Block:
                     Call id(3), args( Integer(0), Tag(0, 3), )
                     Return
+                Block 3: Block:
+                    Variable(3, Qubit) = Index Array(0), Variable(1, Integer)
+                    Variable(4, Qubit) = Store Variable(3, Qubit)
+                    Call id(2), args( Variable(4, Qubit), )
+                    Variable(5, Integer) = Add Variable(1, Integer), Integer(1)
+                    Variable(1, Integer) = Store Variable(5, Integer)
+                    Jump(1)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays)
             num_qubits: 3
             num_results: 0
             tags:
                 [0]: 0_t
+            array_literals:
+                [0]: [Qubit(0), Qubit(1), Qubit(2)]
     "#]].assert_eq(&program.to_string());
 }
 
@@ -829,10 +832,6 @@ fn for_loop_over_qubits_unrolled() {
                 Variable(1, Integer) = Store Integer(2)
                 Call id(2), args( Qubit(2), )
                 Variable(1, Integer) = Store Integer(3)
-                Variable(2, Integer) = Store Integer(0)
-                Variable(2, Integer) = Store Integer(1)
-                Variable(2, Integer) = Store Integer(2)
-                Variable(2, Integer) = Store Integer(3)
                 Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
@@ -1596,9 +1595,6 @@ fn result_array_index_range_in_for_loop_unrolled() {
                 Block 3: Block:
                     Variable(3, Integer) = Store Integer(2)
                     Variable(9, Integer) = Store Variable(2, Integer)
-                    Variable(10, Integer) = Store Integer(0)
-                    Variable(10, Integer) = Store Integer(1)
-                    Variable(10, Integer) = Store Integer(2)
                     Call id(4), args( Variable(9, Integer), Tag(0, 3), )
                     Return
                 Block 4: Block:
