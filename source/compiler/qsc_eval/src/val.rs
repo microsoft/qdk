@@ -236,6 +236,7 @@ pub enum VarTy {
     Boolean,
     Integer,
     Double,
+    Qubit,
 }
 
 impl Display for VarTy {
@@ -244,6 +245,7 @@ impl Display for VarTy {
             Self::Boolean => write!(f, "Boolean"),
             Self::Integer => write!(f, "Integer"),
             Self::Double => write!(f, "Double"),
+            Self::Qubit => write!(f, "Qubit"),
         }
     }
 }

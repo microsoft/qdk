@@ -17,18 +17,19 @@ jupyter = ["qsharp-widgets==0.0.0", "qsharp-jupyterlab==0.0.0"]
 azure = ["azure-quantum>=3.8.0"]
 qiskit = ["qiskit>=1.2.2,<3.0.0"]
 cirq = ["cirq-core>=1.6.1,<1.7", "cirq-ionq>=1.6.1,<1.7"]
+qre = ["cirq-core==1.6.1,<1.7", "pandas>=2.1", "ply>=3.11"]
+applications = ["cirq-core==1.6.1,<1.7"]
 all = [
   "qsharp-widgets==0.0.0",
   "azure-quantum>=3.8.0",
   "qiskit>=1.2.2,<3.0.0",
   "cirq-core>=1.6.1,<1.7",
   "cirq-ionq>=1.6.1,<1.7",
+  "pandas>=2.1",
+  "ply>=3.11",
   "qsharp-jupyterlab==0.0.0",
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools]
-package-dir = {"" = "src"}
+where = ["."]
 

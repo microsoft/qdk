@@ -10,7 +10,7 @@
 /source/compiler/qsc_partial_eval @idavis @swernli
 /source/compiler/qsc_rca @idavis @swernli
 /source/compiler/qsc_rir @idavis @swernli
-/source/fuzz  @billti @idavis @swernli
+/source/fuzz @billti @idavis @swernli
 /katas @billti @swernli
 /source/jupyterlab @billti @idavis @minestarks
 /source/language_service @billti @idavis @minestarks @ScottCarda-MS
@@ -19,7 +19,9 @@
 /library @swernli @orpuente-MS
 /source/npm @billti @minestarks @ScottCarda-MS
 /source/pip @billti @idavis @minestarks
+/source/pip/qsharp/qre @msoeken @brad-lackey @jwhogabo
 /source/playground @billti @minestarks
+/source/qre @msoeken @brad-lackey @jwhogabo
 /source/resource_estimator @billti @swernli
 /samples @minestarks @swernli
 /source/vscode @billti @idavis @minestarks
