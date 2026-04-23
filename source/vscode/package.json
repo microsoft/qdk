@@ -375,9 +375,17 @@
         }
       ]
     },
-    "viewsContainers": {},
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "qdk-activitybar",
+          "icon": "resources/mobius-activitybar.svg",
+          "title": "QDK"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "qdk-activitybar": [
         {
           "id": "quantum-workspaces",
           "name": "Quantum Workspaces"
