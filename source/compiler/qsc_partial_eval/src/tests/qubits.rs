@@ -303,10 +303,6 @@ fn qubit_array_allocation_and_access() {
                 Call id(2), args( Qubit(0), )
                 Call id(2), args( Qubit(1), )
                 Call id(2), args( Qubit(2), )
-                Variable(1, Integer) = Store Integer(0)
-                Variable(1, Integer) = Store Integer(1)
-                Variable(1, Integer) = Store Integer(2)
-                Variable(1, Integer) = Store Integer(3)
                 Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
