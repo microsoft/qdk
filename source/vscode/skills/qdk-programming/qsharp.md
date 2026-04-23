@@ -298,7 +298,7 @@ Available libraries: `chemistry`, `fixed_point`, `rotations`, `signed`, `table_l
 Set in `qsharp.json` to constrain operations for specific hardware:
 
 ```json
-{ "profile": "adaptive_ri" }
+{ "targetProfile": "adaptive_ri" }
 ```
 
 For standalone `.qs` files (no `qsharp.json`), declare the profile on the entry point:
