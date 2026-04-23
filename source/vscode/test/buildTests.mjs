@@ -46,7 +46,6 @@ const platformBuildOptions = {
     define: {
       "import.meta.url": "_importMetaUrl",
     },
-    external: ["vscode", "web-worker"],
   },
 };
 
