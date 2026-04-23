@@ -34,8 +34,7 @@ export function createWorker<
   let invokeService: ((req: RequestMessage<TService>) => Promise<void>) | null =
     null;
 
-  // This export should be assigned to 'self.onmessage' in a WebWorker
-  return function messageHandler(e: MessageEvent) {
+  const messageHandler = (e: MessageEvent) => {
     const data = e.data;
 
     if (!data.type || typeof data.type !== "string") {
@@ -49,7 +48,7 @@ export function createWorker<
           wasm.initSync({ module: data.wasmModule });
 
           invokeService = initService<TService, TServiceEventMsg>(
-            self.postMessage.bind(self),
+            WorkerSelf.postMessage.bind(WorkerSelf),
             serviceProtocol,
             wasm,
             data.qscLogLevel,
@@ -67,6 +66,9 @@ export function createWorker<
         }
     }
   };
+
+  WorkerSelf.onMessage(messageHandler);
+  return messageHandler;
 }
 
 /**
