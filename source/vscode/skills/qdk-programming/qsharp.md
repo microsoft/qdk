@@ -308,13 +308,12 @@ For standalone `.qs` files (no `qsharp.json`), declare the profile on the entry 
 operation Main() : Result { ... }
 ```
 
-| Profile / Attribute                 | Description                                                                                                          |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `unrestricted`                      | Full simulation (default)                                                                                            |
-| `adaptive_rifla` / `Adaptive_RIFLA` | Adaptive profile with integer, floating-point, loops, and arrays                                                     |
-| `adaptive_rif` / `Adaptive_RIF`     | Adaptive profile with integer & floating-point computation extensions; required for `CircuitGenerationMethod.Static` |
-| `adaptive_ri` / `Adaptive_RI`       | Adaptive profile with integer computation extension                                                                  |
-| `base` / `Base`                     | Minimal capabilities required to run a quantum program (Base Profile per QIR spec)                                   |
+| Profile / Attribute             | Description                                                                                                          |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `unrestricted`                  | Full simulation (default)                                                                                            |
+| `adaptive_rif` / `Adaptive_RIF` | Adaptive profile with integer & floating-point computation extensions; required for `CircuitGenerationMethod.Static` |
+| `adaptive_ri` / `Adaptive_RI`   | Adaptive profile with integer computation extension                                                                  |
+| `base` / `Base`                 | Minimal capabilities required to run a quantum program (Base Profile per QIR spec)                                   |
 
 ## Running, Estimation, Circuits, and Azure Quantum
 

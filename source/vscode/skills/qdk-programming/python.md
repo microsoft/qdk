@@ -88,13 +88,12 @@ qsharp.init(project_root="./my_project")
 
 ### Target Profiles
 
-| Profile                        | Use Case                                                              |
-| ------------------------------ | --------------------------------------------------------------------- |
-| `TargetProfile.Unrestricted`   | Full simulation (default)                                             |
-| `TargetProfile.Adaptive_RIFLA` | Adaptive profile with integer, floating-point, loops, and arrays      |
-| `TargetProfile.Adaptive_RIF`   | Adaptive profile with integer & floating-point computation extensions |
-| `TargetProfile.Adaptive_RI`    | Adaptive profile with integer computation extension                   |
-| `TargetProfile.Base`           | Minimal capabilities required to run a quantum program (Base Profile) |
+| Profile                      | Use Case                                                              |
+| ---------------------------- | --------------------------------------------------------------------- |
+| `TargetProfile.Unrestricted` | Full simulation (default)                                             |
+| `TargetProfile.Adaptive_RIF` | Adaptive profile with integer & floating-point computation extensions |
+| `TargetProfile.Adaptive_RI`  | Adaptive profile with integer computation extension                   |
+| `TargetProfile.Base`         | Minimal capabilities required to run a quantum program (Base Profile) |
 
 ## Q#
 

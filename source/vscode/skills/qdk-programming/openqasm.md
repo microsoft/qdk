@@ -122,13 +122,12 @@ include "stdgates.inc";
 #pragma qdk.qir.profile Adaptive_RI
 ```
 
-| Profile          | Description                                                           |
-| ---------------- | --------------------------------------------------------------------- |
-| `Unrestricted`   | Full simulation (default when pragma is omitted)                      |
-| `Adaptive_RIFLA` | Adaptive profile with integer, floating-point, loops, and arrays      |
-| `Adaptive_RIF`   | Adaptive profile with integer & floating-point computation extensions |
-| `Adaptive_RI`    | Adaptive profile with integer computation extension                   |
-| `Base`           | Minimal capabilities required to run a quantum program                |
+| Profile        | Description                                                           |
+| -------------- | --------------------------------------------------------------------- |
+| `Unrestricted` | Full simulation (default when pragma is omitted)                      |
+| `Adaptive_RIF` | Adaptive profile with integer & floating-point computation extensions |
+| `Adaptive_RI`  | Adaptive profile with integer computation extension                   |
+| `Base`         | Minimal capabilities required to run a quantum program                |
 
 ## Running, Estimation, Circuits, and Azure Quantum
 
