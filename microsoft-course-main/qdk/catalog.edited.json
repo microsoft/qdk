@@ -1,0 +1,1686 @@
+{
+  "id": "qdk",
+  "title": "The Microsoft Quantum Development Kit",
+  "chapters": [
+    {
+      "id": "ch00",
+      "title": "Chapter 0: The Microsoft Quantum Development Kit",
+      "notebook": "chapter_00_getting_started.ipynb",
+      "sections": [
+        {
+          "id": "s1",
+          "type": "lesson",
+          "title": "The Microsoft Quantum Development Kit",
+          "content": "<h1 style=\"color:#D30982;text-align:center;\">The Microsoft Quantum Development Kit</h1>\n\n<p style=\"text-align:justify;\">\nThe Quantum Development Kit is Microsoft's open-source toolkit for writing, simulating, and running quantum programs. It includes Q#, a language purpose-built for quantum computing; a suite of simulators from full state-vector to Clifford and sparse; the Azure Quantum Resource Estimator for projecting fault-tolerant hardware costs; and a Python and Jupyter interface that ties everything together. The same program can run on a local simulator today and compile to hardware-ready QIR tomorrow. This course covers the full QDK stack — from your first program through simulation backends, visualization, error correction, algorithms, chemistry applications, and compilation. Chapter 1 shows how to use GitHub Copilot as a quantum coding assistant from the start.\n</p>\n\n<h1 style=\"color:#D30982;text-align:center;\">Chapter 0: Getting Started with the QDK</h1>\n\nThis chapter gets your environment ready and gives you the conceptual foundation for the rest of the course. By the end, you will have the QDK running locally and a clear picture of how the two execution modes fit together. The final cell in this chapter must pass before proceeding to Chapter 1.\n\n<h2 style=\"color:#D30982;\">What you'll learn</h2>\n\n- Set up VS Code with the QDK extension and verify your environment\n- Understand the two ways to run Q# in a notebook: the <code>%qsharp</code> magic and the Python API\n- Run your first Q# program and observe quantum randomness firsthand\n- See how <code>qsharp.run()</code> collects multiple shots and what that reveals about entanglement\n- Preview the course structure and where each tool fits\n\n<h2 style=\"color:#D30982;\">The Microsoft quantum software stack</h2>\n\nThe QDK spans four layers. Understanding where each piece sits tells you which tool to reach for at each stage.\n\n<img src=\"https://storage.googleapis.com/qbraid-articles-staging/q-course-microsoft-qdk/ch0-qdk_architecture_msft_1.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=cloud-run-api%40qbraid-staging.iam.gserviceaccount.com%2F20260422%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20260422T045507Z&X-Goog-Expires=3600&X-Goog-SignedHeaders=host&X-Goog-Signature=c0affe25faa0131954c888322e28a8c689dbfae0db93b935e4edf088029c37cd91649b6ef7e7298e9782b327f5b98e1e4a2f55aad34ac1ca60ec8111100c02bc5371f0d0301485a73fbefb90bb55be0859b25fcb48f4fec9425489910270098d0c29c4f3ba2e820b4a7dd35d4d326504d7de1ab164008539c5a884e727cf659a3703ba443b5716ddb061eec2880807fe296691e8c80229fc6d67e5fd7f6404f162b31889d2a668b5e59b1a50dbe6f6d4fe5131a1b486cc0bac5d63762cc5fd344148f2540651e2e393488a98e0fa7236c7f29283cc7a1d7618a813822f26496554ebdfc46bb049d3a4303d6f1ebafc806bdea73692b2396fe7663cc459995481\">",
+          "notebookCells": [],
+          "editNote": "Merged with following section 'The Microsoft quantum software stack'"
+        },
+        {
+          "id": "s5",
+          "type": "lesson",
+          "title": "What Q# gives you",
+          "content": "<h2 style=\"color:#D30982;\">What Q# gives you</h2>\n\nQ# is not a general-purpose language with quantum bolted on. It is designed from the ground up for quantum algorithms, and the differences show up immediately in what the compiler and runtime handle on your behalf.\n\n| Without Q# | With Q# |\n|---|---|\n| Build circuits gate-by-gate in Python | Write operations in a high-level language; gates are compiler output |\n| Implement algorithm inverses manually | Mark <code>is Adj</code>; the compiler derives the inverse automatically |\n| No compile-time quantum constraints | Type system enforces qubit scoping and measurement rules |\n| Simulation and hardware require separate code | Same Q# program targets simulator, resource estimator, or hardware |\n| State inspection requires custom tooling | <code>DumpMachine()</code> reveals the full state vector at any point |\n\nEach row in that table is a chapter topic. By Chapter 8 you will have used every one of them.\n\n<h2 style=\"color:#D30982;\">Using GitHub Copilot with the QDK</h2>\n\nGitHub Copilot is a VS Code extension that works particularly well with Q# because the language follows consistent patterns — <code>is Adj</code>, <code>Controlled</code>, <code>use q = Qubit()</code>, stdlib imports — that Copilot learns quickly. You do not need to memorise the standard library: write a comment like <code>// apply Hadamard to each qubit in an array</code> and Copilot produces idiomatic Q#. Write <code># run the Bell state 100 times and plot the distribution</code> in a Python cell and it produces a complete <code>qsharp.eval()</code> + <code>qsharp.run()</code> sequence.\n\nCopilot is less reliable at the non-obvious corners — like why <code>qsharp.run()</code> takes an entry expression rather than a full program, or when <code>target_profile=Base</code> is required. Use it for boilerplate and exploration; verify its suggestions at decision points.\n\nChapter 1 covers Copilot integration in depth. To enable it now: install the <strong>GitHub Copilot</strong> extension in VS Code and sign in with a GitHub account that has Copilot access. Once active, completions appear inline as you type — press <code>Tab</code> to accept. Open Copilot Chat (<code>Ctrl+Shift+I</code> / <code>Cmd+Shift+I</code>) to ask questions like: <em>\"What does <code>is Adj + Ctl</code> mean on a Q# operation?\"</em> or <em>\"Show me how to use DumpMachine to debug a circuit.\"</em>",
+          "notebookCells": [],
+          "editNote": "Merged with following section 'Using GitHub Copilot with the QDK'"
+        },
+        {
+          "id": "s7",
+          "type": "lesson-example",
+          "title": "End-to-end preview",
+          "content": "<h2 style=\"color:#D30982;\">End-to-end preview</h2>\n\nBefore diving into each chapter, here is the full QDK arc in one cell. Each block is labelled with the chapter that covers it in depth. Run it now to see what you will be building — the details will make sense later; the point is to see the destination before the journey.\n\nNote the progression: write an operation → inspect its quantum state → measure a distribution → estimate fault-tolerant hardware costs. That is the QDK in four lines of output.",
+          "notebookCells": [
+            {
+              "heading": "End-to-end preview",
+              "cellIndex": 9,
+              "hasExercisePlaceholder": false,
+              "editNote": "Fuzzy-matched heading (52% similar): 'End-to-end preview' -> 'End-to-end preview: Bell state to resource estimate'"
+            }
+          ]
+        },
+        {
+          "id": "s8",
+          "type": "lesson-example",
+          "title": "Part 1: Writing Q# inline with %qsharp",
+          "content": "<h2 style=\"color:#D30982;\">Part 1: Writing Q# inline with <code>%qsharp</code></h2>\n\nThe <code>%qsharp</code> cell magic runs the entire cell as Q# source. You define an operation and call it in the same cell; the result is displayed directly in the notebook. This is the fastest way to write and test Q# interactively — no Python wrapper needed.\n\n<strong>Task:</strong> Run the cell. What result do you get — <code>Zero</code> or <code>One</code>? Run it three or four more times. Do you always get the same result? Why or why not?",
+          "notebookCells": [
+            {
+              "heading": "Run a Q# operation inline",
+              "cellIndex": 1,
+              "hasExercisePlaceholder": false,
+              "editNote": "Low-confidence match (51%): JSONL covers %qsharp inline magic; notebook cell 1 uses qsharp.eval() instead. Content differs but both introduce running Q#."
+            }
+          ]
+        },
+        {
+          "id": "s9",
+          "type": "lesson-example",
+          "title": "Part 2: Calling Q# from Python",
+          "content": "<h2 style=\"color:#D30982;\">Part 2: Calling Q# from Python</h2>\n\n<code>qsharp.eval(source)</code> compiles and runs Q# source from a Python string, returning the result as a Python value. This is the mode to use when you need the result back in Python — to assert on it, store it, or pass it to a plot.\n\n<strong>Task:</strong> Run the cell. What Python type does <code>qsharp.eval()</code> return? How is that different from what <code>%qsharp</code> gave you in Part 1? When would you prefer one over the other?",
+          "notebookCells": [
+            {
+              "heading": "Call Q# from Python",
+              "cellIndex": 2,
+              "hasExercisePlaceholder": false,
+              "editNote": "Heading mismatch: notebook cell 2 is titled 'Run a first Q# program' but demonstrates qsharp.eval() which matches this section's content"
+            }
+          ]
+        },
+        {
+          "id": "s10",
+          "type": "lesson-example",
+          "title": "Part 3: Running multiple shots",
+          "content": "<h2 style=\"color:#D30982;\">Part 3: Running multiple shots</h2>\n\n<code>qsharp.run(entry_expr, shots)</code> runs an entry expression N times, each on a fresh simulator instance, and returns a list of results. Operations must be compiled first — via <code>%qsharp</code> or <code>qsharp.eval()</code> with just the definition — before being passed as an entry expression.\n\n<strong>Task:</strong> Run the cell. Which outcome combinations appear across the ten shots? Which combinations never appear? What does that tell you about the relationship between the two qubits?",
+          "notebookCells": [
+            {
+              "heading": "Run multiple shots of a Bell pair",
+              "cellIndex": 10,
+              "hasExercisePlaceholder": false,
+              "editNote": "Heading mismatch: notebook cell 10 is titled 'End-to-end preview: Bell state to resource estimate' but runs qsharp.run() on a Bell pair for multiple shots"
+            }
+          ]
+        },
+        {
+          "id": "s11",
+          "type": "lesson",
+          "title": "Course structure",
+          "content": "<h2 style=\"color:#D30982;\">Course structure</h2>\n\nEach chapter is self-contained and builds on the previous one.\n\n| Chapter | Topic |\n|---|---|\n| 0 | Getting Started (this chapter) |\n| 1 | GitHub Copilot with the QDK |\n| 2 | Q# and the QDK Essentials |\n| 3 | Simulation Backends |\n| 4 | Visualization |\n| 5 | Quantum Error Correction |\n| 6 | Quantum Algorithms |\n| 7 | Chemistry & Domain Applications |\n| 8 | Compilation & QIR |",
+          "notebookCells": []
+        },
+        {
+          "id": "s12",
+          "type": "lesson-example",
+          "title": "Prerequisite: environment check",
+          "content": "<h2 style=\"color:#D30982;\">Prerequisite: environment check</h2>\n\nRun the cell below. It verifies that the QDK environment is working correctly:\n\n1. <code>qsharp</code> imports and evaluates Q# without error\n2. The <code>%qsharp</code> magic is available\n\nAll assertions must pass before proceeding to Chapter 1.",
+          "notebookCells": [
+            {
+              "heading": "Prerequisite: environment check",
+              "cellIndex": 11,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s11",
+          "type": "lesson-example",
+          "title": "Reversibility: Adjoint auto-derived by the compiler",
+          "content": "<p>Reversibility: Adjoint auto-derived by the compiler</p>",
+          "notebookCells": [
+            {
+              "heading": "Reversibility: Adjoint auto-derived by the compiler",
+              "cellIndex": 3,
+              "hasExercisePlaceholder": false
+            }
+          ],
+          "editNote": "notebook-only cell, no JSONL prose"
+        },
+        {
+          "id": "s12",
+          "type": "lesson-example",
+          "title": "State inspection: DumpMachine",
+          "content": "<p>State inspection: DumpMachine</p>",
+          "notebookCells": [
+            {
+              "heading": "State inspection: DumpMachine",
+              "cellIndex": 5,
+              "hasExercisePlaceholder": false
+            }
+          ],
+          "editNote": "notebook-only cell, no JSONL prose"
+        },
+        {
+          "id": "s13",
+          "type": "lesson-example",
+          "title": "Resource estimate for a small circuit",
+          "content": "<p>Resource estimate for a small circuit</p>",
+          "notebookCells": [
+            {
+              "heading": "Resource estimate for a small circuit",
+              "cellIndex": 7,
+              "hasExercisePlaceholder": false
+            }
+          ],
+          "editNote": "notebook-only cell, no JSONL prose"
+        }
+      ]
+    },
+    {
+      "id": "ch01",
+      "title": "Chapter 1: Using GitHub Copilot with the QDK",
+      "notebook": "chapter_01_github_copilot_with_qdk.ipynb",
+      "sections": [
+        {
+          "id": "s1",
+          "type": "lesson-example",
+          "title": "Chapter 1: Using GitHub Copilot with the QDK",
+          "content": "<h1 style=\"color:#D30982;text-align:center;\">Chapter 1: Using GitHub Copilot with the QDK</h1>\n\n<p style=\"text-align:justify;\">\nGitHub Copilot works alongside the QDK VS Code extension to accelerate Q# development. This chapter covers where Copilot excels, where it needs correction, and how to use Copilot Chat for explaining, debugging, and refactoring Q# programs. Each section includes runnable code: read the VS Code guidance, then run the cells to see the patterns in action.\n</p>\n\n<h2 style=\"color:#D30982;\">What you'll learn</h2>\n\n- Set up GitHub Copilot and Copilot Chat alongside the Azure QDK extension\n- Write effective completions for Q# operations, functors, and standard library patterns\n- Use Copilot Chat to explain, debug, and document Q# code\n- Write prompts that produce reliable Q#: what to specify and why\n- Recognise and correct Copilot's predictable Q# mistakes\n- Use Copilot to accelerate Python driver code for QDK workflows\n- Understand what Copilot cannot do for quantum programs",
+          "notebookCells": [
+            {
+              "heading": "Verify setup",
+              "cellIndex": 3,
+              "hasExercisePlaceholder": false,
+              "editNote": "Heading mismatch: notebook cell 3 has no markdown heading but performs setup verification (imports + version check)"
+            }
+          ]
+        },
+        {
+          "id": "s2",
+          "type": "lesson",
+          "title": "1.1 Setup: Copilot + QDK in VS Code",
+          "content": "<h2 style=\"color:#D30982;\">1.1 Setup: Copilot + QDK in VS Code</h2>\n\nBoth extensions work side-by-side in VS Code. Install order doesn't matter.\n\n**Required extensions:**\n1. **GitHub Copilot** (`GitHub.copilot`): completions\n2. **GitHub Copilot Chat** (`GitHub.copilot-chat`): `/explain`, `/fix`, `/doc`, inline chat\n3. **Azure Quantum Development Kit** (`quantum.qsharp-lang-vscode`): Q# language server, syntax, debugging\n\n**Recommended VS Code settings (`settings.json`):**\n```json\n{\n    \"github.copilot.enable\": {\n        \"qsharp\": true,\n        \"python\": true\n    },\n    \"editor.inlineSuggest.enabled\": true,\n    \"github.copilot.inlineSuggest.enable\": true\n}\n```\n\n**Verify it's working:** Open a `.qs` file, type `operation` and wait ~1 second — Copilot should suggest a signature. If it doesn't, check that the QDK extension is active (bottom status bar shows `Q#`).",
+          "notebookCells": []
+        },
+        {
+          "id": "s3",
+          "type": "lesson-example",
+          "title": "1.2 Effective Completions: What Copilot Gets Right",
+          "content": "<h2 style=\"color:#D30982;\">1.2 Effective Completions: What Copilot Gets Right</h2>\n\nCopilot has seen substantial Q# code and handles these patterns well:\n\n- **Boilerplate operations**: signatures, `use` allocation, `Reset`/`ResetAll`\n- **Standard gates and measurements**: `H`, `CNOT`, `MResetZ`, `MeasureEachZ`\n- **`ApplyToEach` and higher-order patterns**\n- **Adjoint/Controlled functor declarations**: `is Adj + Ctl`\n- **Python driver code**: `qsharp.run()`, `qsharp.eval()`, result parsing\n\n**How to get good completions:**\n- Write a descriptive comment before the operation: Copilot uses it heavily\n- Include the operation name in the comment when possible\n- Accept partial suggestions with `Tab`, then let it continue\n\nThe cells below show patterns where Copilot completions are reliable: study these to recognize good suggestions vs ones that need editing.",
+          "notebookCells": [
+            {
+              "heading": "Copilot handles these patterns well",
+              "cellIndex": 5,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Copilot is also strong on Python driver code patterns like these",
+              "cellIndex": 6,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s4",
+          "type": "lesson-example",
+          "title": "1.3 Copilot Chat: /explain and /fix on Q# Code",
+          "content": "<h2 style=\"color:#D30982;\">1.3 Copilot Chat: /explain and /fix on Q# Code</h2>\n\n**Copilot Chat** (the sidebar panel, or `Ctrl+Shift+I`) understands Q# with the QDK extension active. The most useful commands:\n\n| Command | When to use |\n|---------|-------------|\n| `/explain` | Paste a Q# operation and ask what it does |\n| `/fix` | Paste a compiler error + surrounding code |\n| `/doc` | Generate XML doc comments for an operation |\n| `@workspace` | Ask about the whole Q# project |\n| Inline chat (`Ctrl+I`) | Fix/refactor selected code in-place |\n\n**Practical workflow for debugging:**\n1. Copy the Q# compiler error from the VS Code Problems panel\n2. Open Copilot Chat, paste the error + the offending operation\n3. Ask: *\"What is causing this error and how do I fix it?\"*\n\nThe cells below show common Q# errors: practice explaining them to Copilot Chat.",
+          "notebookCells": [
+            {
+              "heading": "These are the kinds of errors to paste into Copilot Chat for /fix",
+              "cellIndex": 8,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s5",
+          "type": "lesson-example",
+          "title": "1.4 Prompt Engineering for Q# Code Generation",
+          "content": "<h2 style=\"color:#D30982;\">1.4 Prompt Engineering for Q# Code Generation</h2>\n\nCopilot generates better Q# when your prompts include:\n\n1. **The qubit layout**: e.g., \"takes `n` data qubits and 1 ancilla\"\n2. **The expected functor**: e.g., \"must support Adjoint\"\n3. **The stdlib namespace**: e.g., \"use `Std.Arrays`\" or \"use `Microsoft.Quantum.Arithmetic`\"\n4. **The return type**: Q# is strongly typed; stating it avoids type errors\n5. **Concrete examples**: e.g., \"for n=3 it should produce |000⟩ + |111⟩\"\n\nCompare these two prompts:\n\n**Weak:** `// write a Grover oracle`  \n**Strong:** `// Phase oracle for Grover search: marks |target⟩ by flipping its phase. Takes Qubit[] register and Int markedItem. Must support Adjoint.`\n\nThe cells below show operations generated from strong prompts: verify they compile and run correctly.",
+          "notebookCells": [
+            {
+              "heading": "Strong prompt result: Grover diffusion, iteration, and search operations",
+              "cellIndex": 10,
+              "hasExercisePlaceholder": false,
+              "editNote": "Fuzzy-matched code-line (77% similar): 'Strong prompt result: Grover diffusion, iteration, and search operations' -> 'strong prompt result: grover diffusion operator'"
+            },
+            {
+              "heading": "Search for item 5 in 3-qubit (8-element) space, 1 Grover iteration",
+              "cellIndex": 11,
+              "hasExercisePlaceholder": false,
+              "editNote": "Positional match (pos 0) in section '8.4 Prompt Engineering for Q# Code Generation' (100% title match)"
+            }
+          ]
+        },
+        {
+          "id": "s6",
+          "type": "lesson-example",
+          "title": "1.5 Where Copilot Needs Correction",
+          "content": "<h2 style=\"color:#D30982;\">1.5 Where Copilot Needs Correction</h2>\n\nCopilot makes predictable mistakes with Q#. Know these so you can spot and fix them quickly:\n\n| Mistake | What Copilot does | Correct approach |\n|---------|------------------|------------------|\n| **Lambda type annotations** | `(x : Int) -> x + 1` | `x -> x + 1` (no annotations in lambdas) |\n| **Int/Double mixing** | `Rx(3, q)` | `Rx(3.0, q)` or `Rx(IntAsDouble(n), q)` |\n| **`IntAsDouble` namespace** | `Math.IntAsDouble` | `Std.Convert.IntAsDouble` |\n| **Mutable vs immutable** | `let x = 0; set x = 1;` | `mutable x = 0; set x = 1;` |\n| **Missing `ResetAll`** | Forgets to reset qubits | Always reset before `use` block ends |\n| **`qsharp.__version__`** | Tries to read version attribute | `importlib.metadata.version('qsharp')` |\n\nThe cell below demonstrates the lambda annotation mistake: a common Copilot error:",
+          "notebookCells": [
+            {
+              "heading": "Copilot sometimes generates: (x : Int) -> x * 2: this FAILS",
+              "cellIndex": 13,
+              "hasExercisePlaceholder": false,
+              "editNote": "Fuzzy-matched code-line (96% similar): 'Copilot sometimes generates: (x : Int) -> x * 2: this FAILS' -> 'copilot sometimes generates: (x : int) -> x * 2  -- this fails'"
+            },
+            {
+              "heading": "Copilot may suggest Math.IntAsDouble: wrong namespace",
+              "cellIndex": 14,
+              "hasExercisePlaceholder": false,
+              "editNote": "Fuzzy-matched code-line (96% similar): 'Copilot may suggest Math.IntAsDouble: wrong namespace' -> 'copilot may suggest math.intasdouble -- wrong namespace'"
+            }
+          ]
+        },
+        {
+          "id": "s7",
+          "type": "lesson-example",
+          "title": "1.6 Accelerating Python Interop with Copilot",
+          "content": "<h2 style=\"color:#D30982;\">1.6 Accelerating Python Interop with Copilot</h2>\n\nCopilot is most reliable for the Python side of QDK workflows: parsing results, plotting, parameter sweeps. The pattern that works well:\n\n1. Write the Q# operation manually (you know the quantum semantics)\n2. Let Copilot write the Python driver (boilerplate it knows well)\n\nGood Copilot prompts for Python drivers:\n- `# Run BellState 500 times with depolarizing noise p, return fidelity`\n- `# Sweep noise from 0 to 0.2 and plot fidelity vs noise`\n- `# Parse qsharp.run results and return counts dict`",
+          "notebookCells": [
+            {
+              "heading": "Q# side: written by hand: RandomWalk operation",
+              "cellIndex": 16,
+              "hasExercisePlaceholder": false,
+              "editNote": "Fuzzy-matched code-line (69% similar): 'Q# side: written by hand: RandomWalk operation' -> 'q# side: written by hand'"
+            },
+            {
+              "heading": "Python driver: Run RandomWalk for steps in [10, 20, 50, 100] and plot distribution",
+              "cellIndex": 17,
+              "hasExercisePlaceholder": false,
+              "editNote": "Positional match (pos 0) in section '8.6 Accelerating Python Interop with Copilot' (100% title match)"
+            }
+          ]
+        },
+        {
+          "id": "s8",
+          "type": "lesson-example",
+          "title": "1.7 Using Copilot Chat for Code Review and Documentation",
+          "content": "<h2 style=\"color:#D30982;\">1.7 Using Copilot Chat for Code Review and Documentation</h2>\n\nBeyond generation, Copilot Chat is useful for reviewing Q# code you've written:\n\n**Useful Chat prompts for Q# code review:**\n- *\"Does this operation correctly implement a phase kickback oracle? What edge cases might fail?\"*\n- *\"This QFT implementation looks wrong: can you identify the bug?\"*\n- *\"Generate XML documentation comments for this operation\"*\n- *\"Is there a stdlib function in `Std.Arrays` or `Std.Math` that does what this function does?\"*\n- *\"Rewrite this loop using `ApplyToEach` or a higher-order function\"*\n\n**For migration from Qiskit:**\n- *\"I have this Qiskit circuit: translate it to Q# operations\"*\n- *\"What is the Q# equivalent of `QuantumCircuit.measure_all()`?\"*\n- *\"How does Q# qubit allocation differ from Qiskit? Explain the `use` statement\"*",
+          "notebookCells": [
+            {
+              "heading": "Example: Ask Copilot Chat to review this SWAP test implementation",
+              "cellIndex": 19,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Run SWAP test on identical and orthogonal states and compare results",
+              "cellIndex": 20,
+              "hasExercisePlaceholder": false,
+              "editNote": "Positional match (pos 0) in section '8.7 Using Copilot Chat for Code Review and Documentation' (100% title match)"
+            }
+          ]
+        },
+        {
+          "id": "s9",
+          "type": "lesson",
+          "title": "1.8 Copilot for Multi-File Q# Projects",
+          "content": "<h2 style=\"color:#D30982;\">1.8 Copilot for Multi-File Q# Projects</h2>\n\nWhen working with VS Code Q# projects (`.csproj` + multiple `.qs` files), Copilot Chat with `@workspace` can reason across the whole project:\n\n- `@workspace What operations are defined in the Chemistry namespace?`\n- `@workspace Where is the Jordan-Wigner encoding implemented?`\n- `@workspace Find all operations that don't have XML documentation comments`\n\n**Project structure Copilot understands well:**\n```\nMyProject/\n├── MyProject.csproj\n├── src/\n│   ├── Oracles.qs       # namespace MyProject.Oracles\n│   ├── Algorithms.qs    # namespace MyProject.Algorithms\n│   └── Utils.qs         # namespace MyProject.Utils\n└── tests/\n    └── Tests.qs         # namespace MyProject.Tests\n```\n\n**Tip:** Add a `// Namespace: MyProject.Oracles: phase kickback oracles for Grover search` comment at the top of each `.qs` file. Copilot uses these as context when generating code that imports or calls across files.\n\n<h2 style=\"color:#D30982;\">1.9 Copilot Limitations to Keep in Mind</h2>\n\nQ# is a low-volume language compared to Python or TypeScript: Copilot's training data is sparser, and it occasionally generates plausible-looking but incorrect code. The most common failure modes:\n\n**Semantically wrong but syntactically valid:**\n- Applying gates in the wrong order (e.g., CNOT before H in Bell prep)\n- Forgetting to reset qubits: silent correctness bug in multi-shot runs\n- Using `let` when `mutable` is needed, or vice versa\n- Wrong functor variant: using `Adjoint` of a non-self-adjoint gate\n\n**Rule of thumb:** Always run Copilot-generated Q# operations through `DumpMachine()` or a histogram check before trusting the output. For any operation involving adjoints or controlled variants, verify with the circuit diagram (Chapter 4).\n\n**What Copilot cannot do:**\n- Verify quantum correctness (it doesn't simulate)\n- Know your hardware's native gate set or connectivity\n- Predict `qsharp.run()` output: always run it\n- Replace reading the [Q# language reference](https://learn.microsoft.com/azure/quantum/user-guide/) for subtle semantics",
+          "notebookCells": [],
+          "editNote": "Merged with following section '1.9 Copilot Limitations to Keep in Mind'"
+        },
+        {
+          "id": "s11",
+          "type": "lesson-example",
+          "title": "Exercise: Copilot-Assisted Implementation",
+          "content": "<h2 style=\"color:#D30982;\">Exercise: Copilot-Assisted Implementation</h2>\n\nUse Copilot to implement the following, then verify correctness:\n\n1. **In VS Code:** Write the comment `// Prepare a uniform superposition over the first k basis states out of 2^n, where k <= 2^n` and let Copilot complete the operation. Verify it with `DumpMachine()`.\n\n2. **In VS Code:** Ask Copilot Chat: *\"I have a Q# operation BellState() that returns Result[]. Write Python code to run it 1000 times with BitFlipNoise at p=0.01, 0.05, 0.1 and plot the error rate for each.\"* Run the generated code and verify it produces a higher error rate as noise increases.\n\n3. **In VS Code:** Take the `SwapTest` or `GroverSearch` operation defined in this chapter and paste it into Copilot Chat with the prompt *\"Add XML documentation comments to this operation.\"* Review the generated docs for accuracy.",
+          "notebookCells": [
+            {
+              "heading": "Verification cell for exercise 1: DumpMachine check",
+              "cellIndex": 24,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Run verification for exercise 1",
+              "cellIndex": 25,
+              "hasExercisePlaceholder": false,
+              "editNote": "Positional match (pos 0) in section 'Exercise: Copilot-Assisted Implementation' (100% title match)"
+            }
+          ]
+        },
+        {
+          "id": "s12",
+          "type": "quiz",
+          "title": "Summary",
+          "content": "<h2 style=\"color:#D30982;\">Summary</h2>\n\n- Install **GitHub Copilot** + **GitHub Copilot Chat** alongside the **Azure QDK** extension; enable Q# in `settings.json`\n- Copilot is reliable for boilerplate Q# (gates, measurements, `ApplyToEach`, functor declarations) and Python drivers\n- Use **descriptive comments** before operations: include qubit layout, functor requirements, and return type\n- Use **Copilot Chat** `/explain` and `/fix` for debugging compiler errors; `@workspace` for project-level questions\n- Watch for predictable mistakes: lambda type annotations, `Int`/`Double` mixing, wrong `IntAsDouble` namespace, missing `ResetAll`\n- Best workflow: **write Q# by hand** (you own the quantum semantics), **let Copilot write Python** (it knows the driver patterns)\n- Always verify generated Q# with `DumpMachine()` or a histogram: Copilot cannot simulate quantum correctness",
+          "notebookCells": [],
+          "quiz": {
+            "questionText": "When working with GitHub Copilot on Q# code, which workflow produces the most reliable results?",
+            "choices": [
+              "Let Copilot write both Q# operations and Python driver code without review",
+              "Write Q# operations by hand; let Copilot generate Python driver code",
+              "Use Copilot only for documentation comments, never for code generation",
+              "Accept all Copilot suggestions without verifying with DumpMachine or a histogram"
+            ],
+            "correctIndex": 1,
+            "format": "mcq",
+            "explanation": "Copilot is most reliable for Python driver boilerplate (qsharp.run, parsing results,\nplotting). Q# operations should be written by hand or carefully verified — Copilot cannot\nsimulate quantum correctness and makes predictable mistakes with functors, namespaces, and qubit reset."
+          },
+          "editNote": "extracted from TODO stub, not from question bank"
+        }
+      ]
+    },
+    {
+      "id": "ch02",
+      "title": "Chapter 2: Q# and the QDK Essentials",
+      "notebook": "chapter_02_qsharp_essentials.ipynb",
+      "sections": [
+        {
+          "id": "s1",
+          "type": "lesson",
+          "title": "Chapter 2: Q# and the QDK Essentials",
+          "content": "<h1 style=\"color:#D30982;text-align:center;\">Chapter 2: Q# and the QDK Essentials</h1>\n\n<p style=\"text-align:justify;\">\nQ# is a purpose-built quantum programming language that enforces qubit scoping, reversibility, and type safety at the compiler level. This chapter covers the language fundamentals you will use in every subsequent chapter: the operation/function distinction, qubit allocation, adjoint and controlled functors, the standard library, and the Python interop API. It also covers two critical integration points — OpenQASM 3 and Qiskit — that let you bring existing circuits and hardware workflows into the QDK ecosystem.\n</p>\n\n<h2 style=\"color:#D30982;\">What you'll learn</h2>\n\n- Distinguish Q# operations from functions, and use partial application to compose new callables\n- Allocate and scope qubits with `use`; understand why reset before release is mandatory\n- Mark operations `is Adj + Ctl` and use `within/apply` for automatic uncomputation\n- Navigate the standard library: `Std.Arrays`, `Std.Math`, `Std.Measurement`, `Std.StatePreparation`\n- Call Q# from Python via `%qsharp`, `qsharp.eval()`, `qsharp.run()`, and `qsharp.code.*`\n- Organise programs with namespaces and call namespace-qualified operations from Python\n- Run, compile, and import OpenQASM 3 programs; integrate Qiskit circuits via `QSharpBackend`",
+          "notebookCells": []
+        },
+        {
+          "id": "s2",
+          "type": "lesson-example",
+          "title": "2.1 Operations vs Functions",
+          "content": "<h2 style=\"color:#D30982;\">2.1 Operations vs Functions</h2>\n\nIn Q#, **functions** are purely classical — they compute a value from inputs with no side-effects and cannot touch qubits. **Operations** can allocate qubits, apply gates, and measure. This separation lets the compiler reason about reversibility and enforce functor constraints at compile time.\n\nKey syntax:\n- `operation Name(args) : ReturnType { ... }` — can allocate qubits, has side effects\n- `function Name(args) : ReturnType { ... }` — pure, no qubits, no side effects\n- **Partial application**: `CNOT(control, _)` fixes the control qubit and returns a new `Qubit => Unit` operation — the underscore is a placeholder for the remaining argument",
+          "notebookCells": [
+            {
+              "heading": "A pure function -- no qubits, no side effects",
+              "cellIndex": 2,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Partial application: CNOT(qs[0], _) fixes the control qubit",
+              "cellIndex": null,
+              "hasExercisePlaceholder": false,
+              "warning": "No notebook match for h3: Partial application: CNOT(qs[0], _) fixes the control qubit"
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "type": "lesson-example",
+          "title": "2.2 Qubit Allocation and Scoping",
+          "content": "<h2 style=\"color:#D30982;\">2.2 Qubit Allocation and Scoping</h2>\n\n`use q = Qubit()` allocates a fresh qubit guaranteed to be in |0⟩. For arrays: `use qs = Qubit[n]`. Qubits are scoped to the `use` block — they are released automatically when the block exits.\n\nQ# enforces that every qubit is back in |0⟩ before release; the simulator raises an error otherwise. This makes qubit leaks and entanglement bugs impossible to miss.",
+          "notebookCells": [
+            {
+              "heading": "Allocate 3 qubits -- scoped to this block",
+              "cellIndex": 4,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s4",
+          "type": "lesson-example",
+          "title": "2.3 Adjoint and Controlled Functors",
+          "content": "<h2 style=\"color:#D30982;\">2.3 Adjoint and Controlled Functors</h2>\n\nIf an operation is marked `is Adj`, Q# can auto-generate its inverse (`Adjoint`).  \nIf marked `is Ctl`, it can be controlled.  \n`is Adj + Ctl` enables both.\n\nThe `within { ... } apply { ... }` idiom is idiomatic Q# for \"apply, do something, unapply\" — it automatically inserts the adjoint.",
+          "notebookCells": [
+            {
+              "heading": "Marking is Adj + Ctl lets the compiler derive both functors",
+              "cellIndex": 6,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s5",
+          "type": "lesson-example",
+          "title": "2.4 Standard Library Tour",
+          "content": "<h2 style=\"color:#D30982;\">2.4 Standard Library Tour</h2>\n\nThe Q# standard library lives in `library/std/`. Key namespaces:\n\n| Namespace | What's inside |\n|-----------|---------------|\n| `Std.Arrays` | `Mapped`, `Filtered`, `Zipped`, `Sorted`, `Head`, `Tail`, `Most`, `Rest` |\n| `Std.Math` | `PI()`, `Sqrt`, `ArcSin`, `Log`, `AbsD`, `Min`, `Max` |\n| `Std.Measurement` | `MResetZ`, `MResetEachZ`, `MeasureEachZ` |\n| `Std.Diagnostics` | `DumpMachine`, `DumpRegister`, `Fact`, `Check` |\n| `Std.StatePreparation` | `PreparePureStateD`, `PrepareArbitraryStateD` |",
+          "notebookCells": [
+            {
+              "heading": "Arrays: functional-style combinators",
+              "cellIndex": 8,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s6",
+          "type": "lesson-example",
+          "title": "2.5 Python Interop: `qsharp.eval()`, `%qsharp`, `qsharp.run()`, `qsharp.code.*`",
+          "content": "<h2 style=\"color:#D30982;\">2.5 Python Interop: `qsharp.eval()`, `%qsharp`, `qsharp.run()`, `qsharp.code.*`</h2>\n\nFour ways to call Q# from Python:\n\n| Method | Use case |\n|--------|----------|\n| `%qsharp` cell magic | Define operations, run interactively |\n| `qsharp.eval(expr)` | One-shot evaluation, returns Python value |\n| `qsharp.run(expr, shots)` | Multiple shots, returns list |\n| `qsharp.code.MyOp(args)` | Call named operations directly from Python |",
+          "notebookCells": [
+            {
+              "heading": "qsharp.eval -- single shot, returns Python value",
+              "cellIndex": 10,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "RandomBit operation",
+              "cellIndex": 12,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "qsharp.run -- multiple shots",
+              "cellIndex": 14,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "qsharp.code.* -- direct Python callable",
+              "cellIndex": 16,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Error handling",
+              "cellIndex": 18,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s7",
+          "type": "lesson-example",
+          "title": "2.6 Namespaces and Multi-File Projects",
+          "content": "<h2 style=\"color:#D30982;\">2.6 Namespaces and Multi-File Projects</h2>\n\nQ# operations defined in a **namespace** are exposed as a matching Python module hierarchy. Use `qsharp.init(project_root=path)` to load a full Q# project (with `qsharp.json` manifest).",
+          "notebookCells": [
+            {
+              "heading": "RandomNBits inside a named namespace",
+              "cellIndex": 20,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Call namespace operation from Python",
+              "cellIndex": 22,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s8",
+          "type": "lesson-example",
+          "title": "2.7 OpenQASM 3.0 Round-Trip",
+          "content": "<h2 style=\"color:#D30982;\">2.7 OpenQASM 3.0 Round-Trip</h2>\n\nOpenQASM 3 is the hardware-facing quantum assembly language used by most real devices and cloud providers — IBM, Amazon Braket, IQM, and others output or accept QASM. The QDK treats it as a first-class input: the same compiler that handles Q# can simulate, compile to QIR, and import OpenQASM programs, so you never need to rewrite circuits when moving between ecosystems.\n\nThis is the bridge you use when bringing a circuit from a hardware vendor or Qiskit composer into the QDK: no manual translation required. Three operations cover the full round-trip:\n\n| Operation | What it produces | Use when |\n|-----------|-----------------|---------|\n| `run(qasm, shots=N)` | shot results list | rapid simulation of a QASM circuit |\n| `compile(qasm)` | QIR (LLVM IR) | hardware submission or resource estimation |\n| `import_openqasm(qasm, name=...)` | named Q# callable | mixing QASM circuits with Q# operations |\n\nThe Bell circuit below is used throughout — three cells take it from QASM string → simulation results → raw QIR → a registered Q# callable you can call directly from Python.",
+          "notebookCells": [
+            {
+              "heading": "Simulate and collect 10 shots",
+              "cellIndex": 24,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Compile to QIR",
+              "cellIndex": 26,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Import as a named Q# callable for interactive use",
+              "cellIndex": 28,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s9",
+          "type": "quiz",
+          "title": "2.8 Qiskit Interoperability",
+          "content": "<h2 style=\"color:#D30982;\">2.8 Qiskit Interoperability</h2>\n\nIf you have circuits already built in Qiskit, the `QSharpBackend` from the `qsharp-qiskit` package lets you run them through the QDK simulator without rewriting anything. The backend compiles the Qiskit `QuantumCircuit` to QIR and executes it with the same runtime — which means everything from this course applies: noise models, `DumpMachine`, and resource estimation are all available through the same interface.\n\nThe workflow is straightforward: construct a `QuantumCircuit`, pass it to `backend.run()`, and read results from `job.result().get_counts()`. The QDK handles the compilation; Qiskit handles circuit construction. This is the recommended path for teams with an existing Qiskit codebase who want to bring QDK tooling — especially the resource estimator — into their workflow.",
+          "notebookCells": [
+            {
+              "heading": "Bell state via Qiskit QuantumCircuit on QSharpBackend",
+              "cellIndex": 31,
+              "hasExercisePlaceholder": false,
+              "editNote": "Heading mismatch: notebook cell 31 is titled 'Conceptual — requires qiskit and qiskit-qsharp to be installed' but contains the exact Qiskit+QSharpBackend Bell state code"
+            }
+          ],
+          "quiz": {
+            "questionText": "What is the key difference between a Q# `function` and an `operation`?",
+            "choices": [
+              "Functions can return values; operations cannot",
+              "Operations can allocate qubits and have side effects; functions are pure classical computations",
+              "Functions are compiled to QIR; operations are interpreted at runtime",
+              "Operations must be marked `is Adj + Ctl`; functions do not support functors"
+            ],
+            "correctIndex": 1,
+            "format": "mcq",
+            "explanation": "Q# enforces a strict separation: `function` is a pure, classical computation\nwith no qubit access and no side effects. `operation` can allocate qubits, apply gates,\nand measure — it may have side effects and can be made reversible via the `Adjoint` functor."
+          },
+          "editNote": "extracted from TODO stub, not from question bank"
+        },
+        {
+          "id": "s10",
+          "type": "lesson",
+          "title": "Summary",
+          "content": "<h2 style=\"color:#D30982;\">Summary</h2>\n\n- **Operations vs functions**: operations have side-effects (qubits, measurement); functions are pure\n- **Partial application**: `CNOT(q, _)` fixes one argument and returns a new single-qubit operation\n- **Qubit scoping**: `use` allocates fresh |0⟩ qubits; every qubit must be reset before the block exits\n- **Adjoint and Controlled**: mark `is Adj + Ctl`; use `within/apply` for automatic uncomputation\n- **Standard library**: `Std.Arrays`, `Std.Math`, `Std.Measurement`, `Std.StatePreparation` cover common needs\n- **Python interop**: `%qsharp`, `qsharp.eval()`, `qsharp.run()`, `qsharp.code.*` are the four access points\n- **OpenQASM 3**: `run`, `compile`, and `import_openqasm` give a full round-trip from QASM string to QIR to Q# callable\n- **Qiskit**: `QSharpBackend` compiles Qiskit circuits to QIR and runs them through the QDK runtime",
+          "notebookCells": []
+        },
+        {
+          "id": "s11",
+          "type": "lesson-example",
+          "title": "Conceptual -- requires qiskit and qiskit-qsharp to be installed",
+          "content": "<p>Conceptual -- requires qiskit and qiskit-qsharp to be installed</p>",
+          "notebookCells": [
+            {
+              "heading": "Conceptual -- requires qiskit and qiskit-qsharp to be installed",
+              "cellIndex": 30,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "editNote": "notebook-only cell, no JSONL prose"
+        }
+      ]
+    },
+    {
+      "id": "ch03",
+      "title": "Chapter 3: Simulation Backends",
+      "notebook": "chapter_03_simulation_backends.ipynb",
+      "sections": [
+        {
+          "id": "s1",
+          "type": "lesson",
+          "title": "Chapter 3: Simulation Backends",
+          "content": "<h1 style=\"color:#D30982;text-align:center;\">Chapter 3: Simulation Backends</h1>\n\n<p style=\"text-align:justify;\">\nThe QDK ships four simulation backends that trade off exactness, memory, and circuit class. Knowing which to reach for — and when — is what separates a workflow that scales from one that runs out of RAM at 30 qubits. This chapter covers the full state vector simulator, the Clifford/stabilizer backend, noisy simulation with built-in noise models, qubit loss modeling, and arbitrary Pauli noise channels. By the end you can select the right backend for any circuit and quantify the effect of noise on measurement fidelity.\n</p>\n\n<h2 style=\"color:#D30982;\">What you'll learn</h2>\n\n- Use the full state vector simulator and understand its 2^n memory limit\n- Read `DumpMachine()` and `DumpRegister()` output to inspect quantum state at any point\n- Use the Clifford/stabilizer backend for polynomial-time simulation of Clifford-only circuits\n- Apply built-in noise models: `DepolarizingNoise`, `BitFlipNoise`, `PhaseFlipNoise`\n- Model qubit loss and guard against undefined behaviour with `IsLossResult`\n- Specify arbitrary Pauli noise channels with `(px, py, pz)` tuples\n- Choose the right backend based on circuit class, qubit count, and noise requirements",
+          "notebookCells": []
+        },
+        {
+          "id": "s2",
+          "type": "lesson-example",
+          "title": "3.1 Full State Vector Simulator (Default)",
+          "content": "<h2 style=\"color:#D30982;\">3.1 Full State Vector Simulator (Default)</h2>\n\nThe default backend tracks the full 2^n complex amplitude vector. It is exact but requires O(2^n) memory and time — 30 qubits needs ~16 GB just for the state vector. Beyond ~28 qubits on commodity hardware you will run out of RAM.\n\nThe two cells below confirm it is the default and show the memory scaling concretely.",
+          "notebookCells": [
+            {
+              "heading": "GHZ state with full state vector simulator",
+              "cellIndex": 2,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Memory scaling demo: 2^n amplitudes, each 16 bytes (complex128)",
+              "cellIndex": 4,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "type": "lesson-example",
+          "title": "3.2 Reading `DumpMachine()` and `DumpRegister()`",
+          "content": "<h2 style=\"color:#D30982;\">3.2 Reading `DumpMachine()` and `DumpRegister()`</h2>\n\n`DumpMachine()` prints the full state vector at the current point in execution. In a Jupyter notebook with `qsharp_widgets`, it renders as an interactive HTML table with amplitudes and probabilities. `DumpRegister(qs)` shows only the sub-state of the listed qubits, assuming the rest of the register is separable.\n\nThese are your primary debugging tools — insert them anywhere in a Q# operation to see exactly what the simulator holds at that moment.",
+          "notebookCells": [
+            {
+              "heading": "DumpMachine and DumpRegister demo",
+              "cellIndex": 6,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s4",
+          "type": "lesson-example",
+          "title": "3.3 Clifford / Stabilizer Simulator",
+          "content": "<h2 style=\"color:#D30982;\">3.3 Clifford / Stabilizer Simulator</h2>\n\nClifford circuits — built only from H, S, CNOT, X, Y, Z, and Pauli measurements — can be simulated in O(n²) time and memory using the stabilizer formalism, regardless of qubit count. Q# automatically uses this backend when it detects a Clifford-only circuit.\n\nThe cells below run a GHZ-like Clifford circuit at 10, 30, and 60 qubits and time each — all complete in well under 1 ms, confirming the polynomial scaling.",
+          "notebookCells": [
+            {
+              "heading": "This is a purely Clifford circuit -- H, CNOT, S, X, Z, measurements",
+              "cellIndex": 8,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Run a large Clifford circuit -- simulatable even at 100+ qubits",
+              "cellIndex": 10,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s5",
+          "type": "lesson-example",
+          "title": "3.4 Noisy Simulation",
+          "content": "<h2 style=\"color:#D30982;\">3.4 Noisy Simulation</h2>\n\nQ# supports built-in noise models via `qsharp.run(..., noise=...)`. Noise runs on the full state vector backend — the simulator applies the specified error channel stochastically after each gate:\n\n- `qsharp.DepolarizingNoise(p)` — applies I, X, Y, or Z each with probability p/4 after each gate\n- `qsharp.BitFlipNoise(p)` — applies X with probability p after each gate\n- `qsharp.PhaseFlipNoise(p)` — applies Z with probability p after each gate\n- `(px, py, pz)` tuple — arbitrary independent Pauli channel (section 3.6)",
+          "notebookCells": [
+            {
+              "heading": "BellPair operation for noise experiments",
+              "cellIndex": 12,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Ideal vs depolarizing noise comparison",
+              "cellIndex": 14,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Cat5 operation for noise sweep",
+              "cellIndex": 16,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Sweep bit-flip noise probabilities and show histograms",
+              "cellIndex": 18,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s6",
+          "type": "lesson-example",
+          "title": "3.5 Qubit Loss Modeling",
+          "content": "<h2 style=\"color:#D30982;\">3.5 Qubit Loss Modeling</h2>\n\nSome physical platforms lose qubits mid-computation. The `qubit_loss` parameter to `qsharp.run()` models this: each operation has a probability of the qubit being lost. A lost qubit returns the special `Loss` result at measurement. Use `IsLossResult(r)` in Q# to guard against undefined behaviour when processing results that may include losses.",
+          "notebookCells": [
+            {
+              "heading": "Qubit loss simulation with Histogram",
+              "cellIndex": 20,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Safe handling of qubit loss at runtime",
+              "cellIndex": 22,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Count lost qubits across multiple shots",
+              "cellIndex": 24,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s7",
+          "type": "lesson-example",
+          "title": "3.6 Arbitrary Pauli Noise",
+          "content": "<h2 style=\"color:#D30982;\">3.6 Arbitrary Pauli Noise</h2>\n\nCustom Pauli noise is specified as a tuple `(px, py, pz)` where each entry is the independent probability of applying that Pauli error after each gate. This gives full control over the error channel — you can model Y-biased devices, asymmetric errors, or approximate depolarizing noise with equal X and Z components.\n\nUse the named models (`BitFlipNoise`, `PhaseFlipNoise`, etc.) when you're modelling a known, standard error type. Use the tuple when you have characterised noise data from a real device or want to isolate a specific Pauli axis — for example, setting `py=0.05, px=pz=0` tests how your circuit behaves under pure Y errors, which is harder to express with the named shortcuts.",
+          "notebookCells": [
+            {
+              "heading": "Pure Y noise: py=5%, px=pz=0",
+              "cellIndex": 26,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s8",
+          "type": "quiz",
+          "title": "3.7 Backend Selection Summary",
+          "content": "<h2 style=\"color:#D30982;\">3.7 Backend Selection Summary</h2>\n\n| Backend | When to use | Key limitation |\n|---------|-------------|----------------|\n| Full state vector (default) | General circuits, ≤ ~28 qubits | Exponential memory: 2^n × 16 bytes |\n| Clifford/Stabilizer | All-Clifford circuits (QEC, surface codes) | No non-Clifford gates |\n| Sparse | Algorithms with low entanglement | Slow for highly entangled states |\n| GPU (WGPU) | Large state vectors with GPU memory | Requires compatible GPU; `pip install qsharp-gpu` |",
+          "notebookCells": [],
+          "quiz": {
+            "questionText": "You have a 100-qubit circuit built entirely from H, CNOT, S, and Pauli measurements.\n          Which simulator handles this most efficiently?",
+            "choices": [
+              "Full state vector simulator — it is always the default and most accurate",
+              "GPU (WGPU) simulator — more qubits always requires GPU acceleration",
+              "Clifford / stabilizer simulator",
+              "Sparse simulator — low entanglement makes it the right choice"
+            ],
+            "correctIndex": 2,
+            "format": "mcq",
+            "explanation": "H, CNOT, S, X, Y, Z, and Pauli measurements are all Clifford gates. The stabilizer\nformalism simulates any purely-Clifford circuit in O(n²) time and memory regardless of qubit count.\nThe full state vector simulator would require 2¹⁰⁰ amplitudes — far beyond any classical hardware."
+          },
+          "editNote": "extracted from TODO stub, not from question bank"
+        },
+        {
+          "id": "s9",
+          "type": "lesson",
+          "title": "Summary",
+          "content": "<h2 style=\"color:#D30982;\">Summary</h2>\n\n- The **full state vector** backend is exact but exponentially expensive; practical up to ~28 qubits\n- **Clifford/stabilizer** simulation is polynomial for Clifford-only circuits (H, S, CNOT, Pauli measurements)\n- `DumpMachine()` shows the full amplitude vector at any point; `DumpRegister()` shows a subsystem\n- **Noisy simulation**: `DepolarizingNoise`, `BitFlipNoise`, `PhaseFlipNoise`, or arbitrary `(px, py, pz)` tuple\n- **Qubit loss**: `qubit_loss=p` in `qsharp.run()`; guard results in Q# with `IsLossResult(r)`\n- Choose your backend based on circuit class, qubit count, and noise requirements",
+          "notebookCells": []
+        }
+      ]
+    },
+    {
+      "id": "ch04",
+      "title": "Chapter 4: Visualization",
+      "notebook": "chapter_04_visualization.ipynb",
+      "sections": [
+        {
+          "id": "s1",
+          "type": "lesson",
+          "title": "Chapter 4: Visualization",
+          "content": "<h1 style=\"color:#D30982;text-align:center;\">Chapter 4: Visualization</h1>\n\n<p style=\"text-align:justify;\">\nVisualization is the diagnostic layer that turns raw Q# simulation output into insight. This chapter covers the three main visualization surfaces in the QDK: circuit diagrams via <code>qsharp.circuit()</code>, state inspection via <code>DumpMachine()</code> and <code>DumpRegister()</code>, and measurement distribution plots via <code>qsharp_widgets.Histogram</code> and matplotlib. You will see how target profile affects circuit diagrams, when static synthesis fails and simulation-based generation is needed, and how circuits themselves serve as a first-pass debugging tool.\n</p>\n\n<h2 style=\"color:#D30982;\">What you'll learn</h2>\n\n- Generate and render circuit diagrams with `qsharp.circuit()` and the `Circuit` widget\n- Use `generation_method=CircuitGenerationMethod.Simulate` for circuits with mid-circuit measurements\n- Understand how target profile affects circuit diagrams: `Unrestricted` vs `Base`\n- Visualize quantum state interactively with `DumpMachine()` and `DumpRegister()`\n- Plot measurement histograms with `Histogram` and matplotlib\n- Use circuit diagrams as a debugging tool to catch gate ordering mistakes\n- Distinguish static synthesis from simulation-based circuit generation",
+          "notebookCells": []
+        },
+        {
+          "id": "s2",
+          "type": "lesson-example",
+          "title": "4.1 Circuit Diagrams: Basic Usage",
+          "content": "<h2 style=\"color:#D30982;\">4.1 Circuit Diagrams: Basic Usage</h2>\n\n`qsharp.circuit(expr)` synthesizes a circuit diagram for any Q# entry expression. Wrap it in `Circuit()` to get an interactive SVG rendering in Jupyter.\n\nPass a concrete call expression rather than an operation name when your operation takes `Qubit[]` arguments.",
+          "notebookCells": [
+            {
+              "heading": "GHZ operation",
+              "cellIndex": 4,
+              "hasExercisePlaceholder": false,
+              "editNote": "Positional match (pos 0) in section '3.1 Circuit Diagrams: Basic Usage' (100% title match)"
+            },
+            {
+              "heading": "Render a 4-qubit GHZ circuit",
+              "cellIndex": 5,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "BellState operation",
+              "cellIndex": 6,
+              "hasExercisePlaceholder": false,
+              "editNote": "Corrected: cell 6 is the BellState Q# operation definition"
+            },
+            {
+              "heading": "Render BellState circuit",
+              "cellIndex": 7,
+              "hasExercisePlaceholder": false,
+              "editNote": "Corrected: cell 6 is BellState Q# definition; cell 7 is the Circuit() rendering call"
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "type": "lesson-example",
+          "title": "4.2 Circuit Diagrams for Operations (Not Entry Expressions)",
+          "content": "<h2 style=\"color:#D30982;\">4.2 Circuit Diagrams for Operations (Not Entry Expressions)</h2>\n\nIf you want a circuit for a reusable operation that takes qubits as arguments (rather than allocating them internally), use `qsharp.circuit(operation=\"OpName\")`. For `Qubit[]` arguments the diagram defaults to showing 2 wires — use a wrapper with a concrete qubit count to override.",
+          "notebookCells": [
+            {
+              "heading": "ApplyQFT and QFT4 operations",
+              "cellIndex": 9,
+              "hasExercisePlaceholder": false,
+              "editNote": "Positional match (pos 0) in section '3.2 Circuit Diagrams for Operations (Not Entry Expressions)' (100% title match)"
+            },
+            {
+              "heading": "Diagram via entry expression (concrete qubit count)",
+              "cellIndex": 10,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s4",
+          "type": "lesson-example",
+          "title": "4.3 Mid-Circuit Measurements: GenerationMethod.Simulate",
+          "content": "<h2 style=\"color:#D30982;\">4.3 Mid-Circuit Measurements: GenerationMethod.Simulate</h2>\n\nCircuits with mid-circuit measurements and classical branching can't be statically synthesized — the circuit structure depends on measurement outcomes. Use `generation_method=CircuitGenerationMethod.Simulate` to run the circuit once and record the actual path taken.\n\nThe resulting diagram shows one concrete execution trace.",
+          "notebookCells": [
+            {
+              "heading": "TeleportVisualize operation",
+              "cellIndex": 12,
+              "hasExercisePlaceholder": false,
+              "editNote": "Fuzzy-matched code-line (60% similar): 'TeleportVisualize operation' -> 'operation teleportvisualize() : result {'"
+            },
+            {
+              "heading": "Static synthesis fails for mid-circuit measurement + classical control",
+              "cellIndex": 13,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Simulation-based: records one actual execution path",
+              "cellIndex": 14,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s5",
+          "type": "lesson-example",
+          "title": "4.4 Profile-Aware Circuit Synthesis",
+          "content": "<h2 style=\"color:#D30982;\">4.4 Profile-Aware Circuit Synthesis</h2>\n\nThe circuit diagram reflects the current target profile. Under `TargetProfile.Base`, high-level operations are decomposed to native gates — the diagram shows the actual gate sequence that will run on hardware. This is useful for understanding gate counts and circuit depth.",
+          "notebookCells": [
+            {
+              "heading": "GroverDiffusion and GroverStep3 operations (Unrestricted)",
+              "cellIndex": 16,
+              "hasExercisePlaceholder": false,
+              "editNote": "Positional match (pos 0) in section '3.4 Profile-Aware Circuit Synthesis' (100% title match)"
+            },
+            {
+              "heading": "Unrestricted profile: high-level view",
+              "cellIndex": 17,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Switch to Base profile",
+              "cellIndex": 18,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "GroverDiffusion and GroverStep3 operations (Base profile)",
+              "cellIndex": 19,
+              "hasExercisePlaceholder": false,
+              "editNote": "Positional match (pos 1) in section '3.4 Profile-Aware Circuit Synthesis' (100% title match)"
+            },
+            {
+              "heading": "Base profile (gate-decomposed for hardware)",
+              "cellIndex": 20,
+              "hasExercisePlaceholder": false,
+              "editNote": "Fuzzy-matched code-line (90% similar): 'Base profile (gate-decomposed for hardware)' -> 'print(\"base profile (gate-decomposed for hardware):\")'"
+            },
+            {
+              "heading": "Reset to Unrestricted for the rest of the chapter",
+              "cellIndex": 21,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "BellState and GHZ operations (re-defined after init)",
+              "cellIndex": 22,
+              "hasExercisePlaceholder": false,
+              "editNote": "Positional match (pos 2) in section '3.4 Profile-Aware Circuit Synthesis' (100% title match)"
+            }
+          ]
+        },
+        {
+          "id": "s6",
+          "type": "lesson-example",
+          "title": "4.5 State Visualization with DumpMachine",
+          "content": "<h2 style=\"color:#D30982;\">4.5 State Visualization with DumpMachine</h2>\n\n`DumpMachine()` prints the full amplitude vector. In Jupyter with `qsharp_widgets` installed, it renders as an interactive HTML table showing amplitudes, phases, and probabilities. `DumpRegister(qs)` isolates a subsystem (valid only when the subsystem is unentangled with the rest).",
+          "notebookCells": [
+            {
+              "heading": "ShowSuperposition operation",
+              "cellIndex": 24,
+              "hasExercisePlaceholder": false,
+              "editNote": "Corrected: cell 24 contains ShowSuperposition operation (was incorrectly matched to cell 30 Uniform3)"
+            },
+            {
+              "heading": "InspectBell operation",
+              "cellIndex": 25,
+              "hasExercisePlaceholder": false,
+              "editNote": "Corrected: cell 25 contains InspectBell operation (was incorrectly matched to cell 24 ShowSuperposition)"
+            },
+            {
+              "heading": "PhaseKickback operation",
+              "cellIndex": 26,
+              "hasExercisePlaceholder": false,
+              "editNote": "Corrected: cell 26 contains PhaseKickback operation (was incorrectly matched to cell 25 InspectBell)"
+            }
+          ]
+        },
+        {
+          "id": "s7",
+          "type": "lesson-example",
+          "title": "4.6 Histogram Visualization",
+          "content": "<h2 style=\"color:#D30982;\">4.6 Histogram Visualization</h2>\n\nThe `Histogram` widget from `qsharp_widgets` renders measurement result distributions as an interactive bar chart — more readable than raw Python dicts for multi-qubit outcomes.",
+          "notebookCells": [
+            {
+              "heading": "Bell state should produce only 00 and 11",
+              "cellIndex": 28,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "4-qubit GHZ: should produce only 0000 and 1111",
+              "cellIndex": 29,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Uniform3 operation",
+              "cellIndex": 30,
+              "hasExercisePlaceholder": false,
+              "editNote": "Corrected: cell 30 contains Uniform3 operation (was unresolved due to ShowSuperposition stealing its index)"
+            },
+            {
+              "heading": "All 8 outcomes should appear with roughly equal probability",
+              "cellIndex": 31,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s8",
+          "type": "lesson-example",
+          "title": "4.7 Custom Matplotlib Plots",
+          "content": "<h2 style=\"color:#D30982;\">4.7 Custom Matplotlib Plots</h2>\n\nFor publication-quality figures or custom analysis, convert results to a `Counter` and plot with matplotlib.",
+          "notebookCells": [
+            {
+              "heading": "BellFidelityTest operation",
+              "cellIndex": 33,
+              "hasExercisePlaceholder": false,
+              "editNote": "Fuzzy-matched code-line (57% similar): 'BellFidelityTest operation' -> 'operation bellfidelitytest() : result[] {'"
+            },
+            {
+              "heading": "Plot Bell state fidelity vs depolarizing noise level",
+              "cellIndex": 34,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "QFTCircuit operation",
+              "cellIndex": 35,
+              "hasExercisePlaceholder": false,
+              "editNote": "Positional match (pos 0) in section '3.7 Custom Matplotlib Plots' (100% title match)"
+            },
+            {
+              "heading": "Simulation runtime vs qubit count",
+              "cellIndex": 36,
+              "hasExercisePlaceholder": false,
+              "editNote": "Positional match (pos 1) in section '3.7 Custom Matplotlib Plots' (100% title match)"
+            }
+          ]
+        },
+        {
+          "id": "s9",
+          "type": "quiz",
+          "title": "4.8 Using Circuits for Debugging",
+          "content": "<h2 style=\"color:#D30982;\">4.8 Using Circuits for Debugging</h2>\n\nCircuit diagrams are a practical debugging tool. If a Q# operation produces unexpected results, rendering it as a circuit helps you spot wrong gate orderings, missing adjoint gates, or control qubit mistakes before running expensive simulations.",
+          "notebookCells": [
+            {
+              "heading": "RoundTrip and BuggyEntangle operations",
+              "cellIndex": 38,
+              "hasExercisePlaceholder": false,
+              "editNote": "Positional match (pos 0) in section '3.8 Using Circuits for Debugging' (100% title match)"
+            },
+            {
+              "heading": "Round-trip circuit (should be identity)",
+              "cellIndex": 39,
+              "hasExercisePlaceholder": false,
+              "editNote": "Fuzzy-matched code-line (89% similar): 'Round-trip circuit (should be identity)' -> 'print(\"round-trip circuit (should be identity):\")'"
+            },
+            {
+              "heading": "Buggy entanglement circuit -- CNOT before H instead of after",
+              "cellIndex": 40,
+              "hasExercisePlaceholder": false,
+              "editNote": "Fuzzy-matched code-line (92% similar): 'Buggy entanglement circuit -- CNOT before H instead of after' -> 'print(\"buggy entanglement circuit -- cnot before h instead of after:\")'"
+            },
+            {
+              "heading": "Confirm the buggy version produces wrong distribution (not a Bell state)",
+              "cellIndex": 41,
+              "hasExercisePlaceholder": false
+            }
+          ],
+          "quiz": {
+            "questionText": "You have a Q# operation that uses mid-circuit measurements and classical branching.\n          Which circuit generation method should you use to visualize it?",
+            "choices": [
+              "qsharp.circuit(expr) — static synthesis works for any Q# circuit",
+              "CircuitGenerationMethod.Simulate — runs one shot and records the actual execution path",
+              "qsharp.circuit(operation=\"OpName\") — operation mode handles classical control flow",
+              "TargetProfile.Base — hardware decomposition resolves mid-circuit measurements"
+            ],
+            "correctIndex": 1,
+            "format": "mcq",
+            "explanation": "Static synthesis cannot handle circuits where gate structure depends on\nmeasurement outcomes. CircuitGenerationMethod.Simulate runs one execution and records the\nactual path taken, producing a concrete (though non-exhaustive) circuit diagram."
+          },
+          "editNote": "extracted from TODO stub, not from question bank"
+        },
+        {
+          "id": "s10",
+          "type": "lesson",
+          "title": "Summary",
+          "content": "<h2 style=\"color:#D30982;\">Summary</h2>\n\n- `qsharp.circuit(expr)` synthesizes a circuit diagram; wrap in `Circuit()` for interactive SVG rendering\n- Use `generation_method=CircuitGenerationMethod.Simulate` for circuits with mid-circuit measurements or classical control flow\n- `qsharp.circuit(operation=\"OpName\")` generates a diagram for a reusable operation; use concrete-qubit wrapper operations for `Qubit[]` args\n- Target profile matters: `Base` shows gate-decomposed circuits as they'd run on hardware; `Unrestricted` shows high-level operations\n- `DumpMachine()` / `DumpRegister()` inspect quantum state interactively in Jupyter\n- `Histogram(results)` renders measurement distributions; matplotlib gives full control for custom plots\n- Circuit diagrams are a fast first-pass debugging tool to catch gate ordering and control qubit mistakes",
+          "notebookCells": []
+        }
+      ]
+    },
+    {
+      "id": "ch05",
+      "title": "Chapter 5: Quantum Error Correction",
+      "notebook": "chapter_05_quantum_error_correction.ipynb",
+      "sections": [
+        {
+          "id": "s1",
+          "type": "lesson",
+          "title": "Chapter 3 — Quantum Error Correction",
+          "content": "# Chapter 3 — Quantum Error Correction\n\n**Learning objectives**\n- Understand why classical error correction ideas fail for quantum states\n- Implement the three-qubit bit-flip code\n- Implement the three-qubit phase-flip code\n- Combine them into the nine-qubit Shor code\n- Understand stabilizer formalism and syndrome measurement\n- Connect code distance to physical qubit overhead via the resource estimator",
+          "notebookCells": []
+        },
+        {
+          "id": "s2",
+          "type": "lesson-example",
+          "title": "Setup",
+          "content": "## Setup",
+          "notebookCells": [
+            {
+              "heading": "import qsharp",
+              "cellIndex": 2,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "type": "lesson",
+          "title": "4.1 Classical vs Quantum Errors",
+          "content": "## 4.1 Classical vs Quantum Errors\n\nClassical bits can be protected by redundancy: send `0` as `000` and majority-vote on readout. Quantum states resist direct copying (no-cloning theorem) and direct measurement collapses the superposition. QEC works differently:\n\n1. **Encode** one logical qubit into many physical qubits\n2. **Detect** errors by measuring *stabilizers* (parity checks that commute with the logical state)\n3. **Correct** by applying a recovery operation based on the syndrome (error signature)\n\nOnly X (bit-flip), Z (phase-flip), and Y=XZ errors need to be corrected — an arbitrary single-qubit error can be decomposed in the Pauli basis.",
+          "notebookCells": []
+        },
+        {
+          "id": "s4",
+          "type": "exercise",
+          "title": "4.2 Three-Qubit Bit-Flip Code",
+          "content": "## 4.2 Three-Qubit Bit-Flip Code\n\nEncodes α|0⟩ + β|1⟩ as α|000⟩ + β|111⟩.  \nSyndrome: measure parity of (q0,q1) and (q1,q2). Odd parity → error on that qubit.\n\nReference: `samples/algorithms/BitFlipCode.qs`",
+          "notebookCells": [
+            {
+              "heading": "Bit-flip code: encode, syndrome, correct, demo operations",
+              "cellIndex": 5,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '4.2 Three-Qubit Bit-Flip Code' (100% title match)"
+            },
+            {
+              "heading": "Run the demo with each possible error location",
+              "cellIndex": 6,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Run the demo with each possible error location\nfor err in [-1, 0, 1, 2]:\n    label = \"no error\" if err < 0 else f\"error on qubit {err}\"\n    results = qsharp.run(f\"BitFlipCodeDemo({err})\", 20)\n    from collections import Counter\n    counts = Counter(str(r) for r in results)\n    print(f\"  {label:20s}: {dict(counts)}\")"
+        },
+        {
+          "id": "s5",
+          "type": "exercise",
+          "title": "4.3 Three-Qubit Phase-Flip Code",
+          "content": "## 4.3 Three-Qubit Phase-Flip Code\n\nPhase-flip (Z) errors are invisible in the Z basis but appear as X errors in the Hadamard basis. The phase-flip code encodes α|+⟩ + β|−⟩ = α|+++⟩ + β|−−−⟩ (logically).\n\nReference: `samples/algorithms/PhaseFlipCode.qs`",
+          "notebookCells": [
+            {
+              "heading": "Phase-flip code: encode, syndrome, correct, demo operations",
+              "cellIndex": 8,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '4.3 Three-Qubit Phase-Flip Code' (100% title match)"
+            },
+            {
+              "heading": "Run the phase-flip demo with each possible error location",
+              "cellIndex": 9,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 1) in section '4.3 Three-Qubit Phase-Flip Code' (100% title match)"
+            }
+          ],
+          "solutionCode": "%%qsharp\n\nimport Std.Math.*;\nimport Std.Diagnostics.*;\n\n/// Encode into 3-qubit phase-flip code (H-basis bit-flip code)\noperation EncodePhaseFlip(physQ : Qubit, aux : Qubit[]) : Unit is Adj {\n    // Bit-flip encoding, then change basis\n    CNOT(physQ, aux[0]);\n    CNOT(physQ, aux[1]);\n    // Change from Z to X basis: |0⟩ → |+⟩, |1⟩ → |−⟩\n    H(physQ); H(aux[0]); H(aux[1]);\n}\n\noperation MeasurePhaseFlipSyndrome(qs : Qubit[]) : (Result, Result) {\n    use ancilla = Qubit[2];\n    // Measure Z-basis parity in X basis = X-basis parity\n    // Change to Z basis, check, change back\n    ApplyToEach(H, qs);\n    CNOT(qs[0], ancilla[0]);\n    CNOT(qs[1], ancilla[0]);\n    CNOT(qs[1], ancilla[1]);\n    CNOT(qs[2], ancilla[1]);\n    ApplyToEach(H, qs);\n    let s = (M(ancilla[0]), M(ancilla[1]));\n    ResetAll(ancilla);\n    s\n}\n\noperation CorrectPhaseFlip(qs : Qubit[], syndrome : (Result, Result)) : Unit {\n    let (s01, s12) = syndrome;\n    let errorIdx =\n        if (s01, s12) == (One, Zero) { 0 }\n        elif (s01, s12) == (One, One) { 1 }\n        elif (s01, s12) == (Zero, One) { 2 }\n        else { -1 };\n    if errorIdx >= 0 { Z(qs[errorIdx]); }\n}\n\noperation PhaseFlipCodeDemo(errorQubit : Int) : Result {\n    use qs = Qubit[3];\n    let alpha = 0.20;\n    Ry(2.0 * ArcCos(Sqrt(alpha)), qs[0]);\n\n    EncodePhaseFlip(qs[0], qs[1..2]);\n\n    if errorQubit >= 0 { Z(qs[errorQubit]); }\n\n    let syndrome = MeasurePhaseFlipSyndrome(qs);\n    Message($\"Phase-flip syndrome: {syndrome}\");\n    CorrectPhaseFlip(qs, syndrome);\n\n    Adjoint EncodePhaseFlip(qs[0], qs[1..2]);\n    let r = M(qs[0]);\n    ResetAll(qs);\n    r\n}",
+          "editNote": "Solution inferred from notebook cell 8. "
+        },
+        {
+          "id": "s6",
+          "type": "exercise",
+          "title": "4.4 Shor's 9-Qubit Code",
+          "content": "## 4.4 Shor's 9-Qubit Code\n\nShor's code concatenates the phase-flip code with the bit-flip code:  \n1. Apply the phase-flip encoding (3 qubits)\n2. Apply the bit-flip encoding to each of those 3 qubits (using 3 physical qubits each)\nResult: 9 physical qubits protect 1 logical qubit against any single-qubit error.",
+          "notebookCells": [
+            {
+              "heading": "Shor 9-qubit code: encode and demo operations",
+              "cellIndex": 11,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '4.4 Shor's 9-Qubit Code' (100% title match)"
+            },
+            {
+              "heading": "Test Shor code with X, Z, Y errors on various qubits",
+              "cellIndex": 12,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Test Shor code with X, Z, Y errors on various qubits\nerror_names = [\"X\", \"Z\", \"Y\", \"none\"]\nprint(\"Shor code recovery test (logical |+⟩ → measure in H basis, expect Zero):\")\nfor etype, ename in zip([0, 1, 2], [\"X\", \"Z\", \"Y\"]):\n    for eq in [0, 4, 8]:\n        results = qsharp.run(f\"ShorCodeDemo({eq}, {etype})\", 30)\n        counts = Counter(str(r) for r in results)\n        print(f\"  {ename} error on q{eq}: {dict(counts)}\")"
+        },
+        {
+          "id": "s7",
+          "type": "exercise",
+          "title": "4.5 Repetition Code and Stabilizer Formalism",
+          "content": "## 4.5 Repetition Code and Stabilizer Formalism\n\nThe stabilizer formalism describes a QEC code by its **stabilizer generators** — Pauli operators that leave all codewords invariant (eigenvalue +1). Errors anti-commute with some generators, producing a non-trivial syndrome.\n\nFor the 3-qubit bit-flip code, the stabilizers are:\n- S₁ = Z₀Z₁ (checks parity of qubits 0 and 1)\n- S₂ = Z₁Z₂ (checks parity of qubits 1 and 2)\n\nAn X error on qubit 0 anti-commutes with S₁ (gives syndrome 1,0). An X error on qubit 1 anti-commutes with both (syndrome 1,1).",
+          "notebookCells": [
+            {
+              "heading": "Syndrome table for the 3-qubit bit-flip code",
+              "cellIndex": 14,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Syndrome table for the 3-qubit bit-flip code\nsyndromes = {\n    (0, 0): \"No error\",\n    (1, 0): \"X on qubit 0\",\n    (1, 1): \"X on qubit 1\",\n    (0, 1): \"X on qubit 2\",\n}\nprint(\"3-qubit bit-flip code syndrome table:\")\nprint(f\"{'S1=Z0Z1':>10}  {'S2=Z1Z2':>10}  {'Error':>15}\")\nprint(\"-\" * 40)\nfor (s1, s2), error in syndromes.items():\n    print(f\"{'One' if s1 else 'Zero':>10}  {'One' if s2 else 'Zero':>10}  {error:>15}\")"
+        },
+        {
+          "id": "s8",
+          "type": "exercise",
+          "title": "4.6 QEC and Resource Estimation: Code Distance",
+          "content": "## 4.6 QEC and Resource Estimation: Code Distance\n\nReal-world QEC uses the **surface code**. The code distance `d` determines:\n- Number of physical qubits per logical qubit: ~2d²\n- Suppressed logical error rate: ~(p/p_th)^((d+1)/2)\n\nwhere p is the physical error rate and p_th ≈ 1% is the threshold.\n\nThe resource estimator automatically chooses the minimum d needed to achieve a target logical error rate.",
+          "notebookCells": [
+            {
+              "heading": "Visualise: physical qubits per logical qubit as a function of code distance",
+              "cellIndex": 16,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Visualise: physical qubits per logical qubit as a function of code distance\ndistances = np.arange(3, 25, 2)  # odd distances\nphys_per_logical = 2 * distances**2\n\n# Logical error rate suppression assuming p=0.1% physical, p_th=1%\np_phys = 1e-3\np_th = 1e-2\nlogical_error = [(p_phys / p_th) ** ((d + 1) / 2) for d in distances]\n\nfig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))\n\nax1.plot(distances, phys_per_logical, 'o-', color='steelblue')\nax1.set_xlabel(\"Code distance d\")\nax1.set_ylabel(\"Physical qubits per logical qubit\")\nax1.set_title(\"Surface code qubit overhead\")\nax1.grid(alpha=0.4)\n\nax2.semilogy(distances, logical_error, 'o-', color='crimson')\nax2.set_xlabel(\"Code distance d\")\nax2.set_ylabel(\"Logical error rate per round\")\nax2.set_title(\"Error suppression (p_phys=0.1%, p_th=1%)\")\nax2.grid(alpha=0.4, which='both')\n\nplt.tight_layout()\nplt.show()\n\nprint(f\"At d=7:  {2*7**2} physical qubits/logical, error rate ≈ {(p_phys/p_th)**4:.2e}\")\nprint(f\"At d=15: {2*15**2} physical qubits/logical, error rate ≈ {(p_phys/p_th)**8:.2e}\")"
+        },
+        {
+          "id": "s9",
+          "type": "exercise",
+          "title": "4.7 QEC Under Noisy Simulation",
+          "content": "## 4.7 QEC Under Noisy Simulation\n\nLet's verify that the bit-flip code actually improves fidelity under simulated noise.",
+          "notebookCells": [
+            {
+              "heading": "BareQubitMeasure and ProtectedQubitMeasure operations",
+              "cellIndex": 18,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '4.7 QEC Under Noisy Simulation' (100% title match)"
+            },
+            {
+              "heading": "Compare bare vs protected qubit error rate across noise levels",
+              "cellIndex": 19,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 1) in section '4.7 QEC Under Noisy Simulation' (100% title match)"
+            }
+          ],
+          "solutionCode": "%%qsharp\n\nimport Std.Math.*;\n\n// Bare qubit: prepare |1⟩, measure — any X error flips outcome\noperation BareQubitMeasure() : Result {\n    use q = Qubit();\n    X(q);  // prepare |1⟩\n    MResetZ(q)\n}\n\n// Protected qubit: encode |111⟩, correct, decode\noperation ProtectedQubitMeasure() : Result {\n    use qs = Qubit[3];\n    X(qs[0]);\n    // Encode\n    CNOT(qs[0], qs[1]); CNOT(qs[0], qs[2]);\n    // Syndrome measurement and correction (ancilla-based)\n    use anc = Qubit[2];\n    CNOT(qs[0], anc[0]); CNOT(qs[1], anc[0]);\n    CNOT(qs[1], anc[1]); CNOT(qs[2], anc[1]);\n    let (s01, s12) = (M(anc[0]), M(anc[1]));\n    ResetAll(anc);\n    let errIdx =\n        if (s01, s12) == (One, Zero) { 0 }\n        elif (s01, s12) == (One, One) { 1 }\n        elif (s01, s12) == (Zero, One) { 2 }\n        else { -1 };\n    if errIdx >= 0 { X(qs[errIdx]); }\n    // Decode\n    CNOT(qs[0], qs[2]); CNOT(qs[0], qs[1]);\n    let r = M(qs[0]);\n    ResetAll(qs);\n    r\n}",
+          "editNote": "Solution inferred from notebook cell 18. "
+        },
+        {
+          "id": "s10",
+          "type": "lesson",
+          "title": "Summary",
+          "content": "## Summary\n\n- **Bit-flip code**: 3 qubits, corrects one X error — syndrome from two parity checks (Z₀Z₁, Z₁Z₂)\n- **Phase-flip code**: 3 qubits in H-basis, corrects one Z error — same structure in X-basis\n- **Shor's 9-qubit code**: concatenates both, corrects any single-qubit error\n- **Stabilizer formalism**: codes are defined by Pauli operators that stabilise all codewords\n- **Code distance** determines the qubit overhead and error suppression: surface code uses ~2d² physical qubits per logical qubit\n- The QDK resource estimator automatically selects the minimum code distance for a target error budget",
+          "notebookCells": []
+        }
+      ]
+    },
+    {
+      "id": "ch06",
+      "title": "Chapter 6: Quantum Algorithms in Practice",
+      "notebook": "chapter_06_quantum_algorithms.ipynb",
+      "sections": [
+        {
+          "id": "s1",
+          "type": "lesson",
+          "title": "Chapter 4 — Quantum Algorithms in Practice",
+          "content": "# Chapter 4 — Quantum Algorithms in Practice\n\n**Learning objectives**\n- Implement QFT and understand phase kickback\n- Run Quantum Phase Estimation (textbook and iterative variant)\n- Implement Grover's search with a custom oracle\n- Run VQE with a simple ansatz and classical optimizer\n- Factor integers with Shor's algorithm\n- Play the CHSH nonlocal game (classical vs quantum strategy)\n- Implement BB84 quantum key distribution\n\nAll implementations reuse code from `samples/algorithms/`.",
+          "notebookCells": []
+        },
+        {
+          "id": "s2",
+          "type": "lesson-example",
+          "title": "Setup",
+          "content": "## Setup",
+          "notebookCells": [
+            {
+              "heading": "import qsharp",
+              "cellIndex": 2,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "type": "exercise",
+          "title": "5.1 Quantum Fourier Transform",
+          "content": "## 5.1 Quantum Fourier Transform\n\nThe QFT maps |j⟩ → (1/√N) Σₖ e^{2πijk/N} |k⟩. It is at the heart of QPE, Shor's algorithm, and many others.\n\nThe circuit has Hadamard + controlled-Rφ gates and a bit-reversal at the end.",
+          "notebookCells": [
+            {
+              "heading": "QFT and QFTDemo operations",
+              "cellIndex": 4,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '5.1 Quantum Fourier Transform' (100% title match)"
+            }
+          ],
+          "solutionCode": "%%qsharp\n\nimport Std.Math.*;\nimport Std.Convert.*;\nimport Std.Arrays.*;\nimport Std.Diagnostics.DumpMachine;\n\n/// Quantum Fourier Transform on a qubit register (little-endian)\noperation QFT(qs : Qubit[]) : Unit is Adj + Ctl {\n    let n = Length(qs);\n    for i in 0..n-1 {\n        H(qs[i]);\n        for j in i+1..n-1 {\n            let angle = 2.0 * PI() / (2.0^IntAsDouble(j - i + 1));\n            Controlled R1([qs[j]], (angle, qs[i]));\n        }\n    }\n    // Reverse the qubit order\n    for i in 0..(n / 2) - 1 {\n        SWAP(qs[i], qs[n - 1 - i]);\n    }\n}\n\noperation QFTDemo() : Unit {\n    use qs = Qubit[3];\n    // Prepare |5⟩ = |101⟩\n    X(qs[0]); X(qs[2]);\n    Message(\"State |101⟩ before QFT:\");\n    DumpMachine();\n    QFT(qs);\n    Message(\"State after QFT (uniform amplitudes, phases encode 5):\");\n    DumpMachine();\n    ResetAll(qs);\n}\n\nQFTDemo()",
+          "editNote": "Solution inferred from notebook cell 4. "
+        },
+        {
+          "id": "s4",
+          "type": "exercise",
+          "title": "5.2 Quantum Phase Estimation",
+          "content": "## 5.2 Quantum Phase Estimation\n\nQPE estimates the phase φ in U|ψ⟩ = e^{2πiφ}|ψ⟩ using:\n1. A control register (precision qubits) in superposition\n2. Controlled-U^(2^k) operations (phase kickback)\n3. Inverse QFT to read out φ\n\nReference: `samples/algorithms/PhaseEstimation.qs`",
+          "notebookCells": [
+            {
+              "heading": "U and QPEDemo operations",
+              "cellIndex": 6,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '5.2 Quantum Phase Estimation' (100% title match)"
+            },
+            {
+              "heading": "Run QPEDemo and analyze phase estimates",
+              "cellIndex": 7,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 1) in section '5.2 Quantum Phase Estimation' (100% title match)"
+            }
+          ],
+          "solutionCode": "%%qsharp\n\nimport Std.Math.*;\n\n/// The unitary whose phase we want to estimate.\n/// U|010⟩ = e^{iπ/3}|010⟩ (eigenvalue exp(iπ/3))\noperation U(qs : Qubit[]) : Unit is Ctl + Adj {\n    Rzz(PI() / 3.0, qs[0], qs[1]);\n    Rzz(PI() / 3.0, qs[1], qs[2]);\n}\n\n/// Textbook QPE\noperation QPEDemo(precision : Int) : Double {\n    use (phaseReg, stateReg) = (Qubit[precision], Qubit[3]);\n\n    // Prepare eigenvector |010⟩\n    X(stateReg[1]);\n\n    // Hadamard on phase register\n    ApplyToEach(H, phaseReg);\n\n    // Controlled U^(2^k) for each phase qubit\n    for k in 0..precision - 1 {\n        let power = 1 <<< k;\n        for _ in 1..power {\n            Controlled U([phaseReg[k]], stateReg);\n        }\n    }\n\n    // Inverse QFT\n    Adjoint QFT(phaseReg);\n\n    // Measure phase register as binary fraction\n    mutable result = 0.0;\n    mutable power2 = 1.0;\n    for i in precision - 1..-1..0 {\n        power2 /= 2.0;\n        if MResetZ(phaseReg[i]) == One { result += power2; }\n    }\n\n    ResetAll(stateReg);\n    result  // returns φ in [0, 1)\n}",
+          "editNote": "Solution inferred from notebook cell 6. "
+        },
+        {
+          "id": "s5",
+          "type": "exercise",
+          "title": "5.3 Grover's Search with a Custom Oracle",
+          "content": "## 5.3 Grover's Search with a Custom Oracle\n\nGrover's algorithm amplifies the amplitude of a *marked* item. The oracle encodes the search problem: it applies a phase flip (−1) to the marked state.\n\nReference: `samples/algorithms/Grover.qs`",
+          "notebookCells": [
+            {
+              "heading": "Grover helper operations and GroverSearch",
+              "cellIndex": 9,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '5.3 Grover's Search with a Custom Oracle' (100% title match)"
+            },
+            {
+              "heading": "Run GroverSearch and compute success rate",
+              "cellIndex": 10,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 1) in section '5.3 Grover's Search with a Custom Oracle' (100% title match)"
+            }
+          ],
+          "solutionCode": "%%qsharp\n\nimport Std.Convert.*;\nimport Std.Math.*;\nimport Std.Arrays.*;\nimport Std.Measurement.*;\n\noperation PrepareUniform(qs : Qubit[]) : Unit is Adj + Ctl {\n    for q in qs { H(q); }\n}\n\noperation ReflectAboutAllOnes(qs : Qubit[]) : Unit {\n    Controlled Z(Most(qs), Tail(qs));\n}\n\noperation ReflectAboutUniform(qs : Qubit[]) : Unit {\n    within {\n        Adjoint PrepareUniform(qs);\n        for q in qs { X(q); }\n    } apply {\n        ReflectAboutAllOnes(qs);\n    }\n}\n\n/// Generic Grover oracle marking a specific integer target\noperation MarkTarget(target : Int, qs : Qubit[]) : Unit {\n    // Convert target to binary and flip qubits that should be 0\n    let bits = IntAsBoolArray(target, Length(qs));\n    use anc = Qubit();\n    within {\n        X(anc); H(anc);\n        for i in IndexRange(bits) {\n            if not bits[i] { X(qs[i]); }\n        }\n    } apply {\n        Controlled X(qs, anc);\n    }\n}\n\nfunction OptimalIterations(nQubits : Int) : Int {\n    let nItems = 2.0^IntAsDouble(nQubits);\n    let angle = ArcSin(1.0 / Sqrt(nItems));\n    Round(0.25 * PI() / angle - 0.5)\n}\n\noperation GroverSearch(nQubits : Int, target : Int) : Result[] {\n    use qs = Qubit[nQubits];\n    let iters = OptimalIterations(nQubits);\n    PrepareUniform(qs);\n    for _ in 1..iters {\n        MarkTarget(target, qs);\n        ReflectAboutUniform(qs);\n    }\n    MResetEachZ(qs)\n}",
+          "editNote": "Solution inferred from notebook cell 9. "
+        },
+        {
+          "id": "s6",
+          "type": "exercise",
+          "title": "5.4 Variational Quantum Eigensolver (VQE)",
+          "content": "## 5.4 Variational Quantum Eigensolver (VQE)\n\nVQE finds the ground state energy of a Hamiltonian H by minimizing ⟨ψ(θ)|H|ψ(θ)⟩ over ansatz parameters θ. It uses a hybrid loop: quantum hardware evaluates the energy, a classical optimizer updates θ.\n\nReference: `samples/algorithms/SimpleVQE.qs`",
+          "notebookCells": [
+            {
+              "heading": "EvalHamiltonian and PrepareAnsatz operations",
+              "cellIndex": 12,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '5.4 Variational Quantum Eigensolver (VQE)' (100% title match)"
+            },
+            {
+              "heading": "Classical SPSA-like optimizer in Python",
+              "cellIndex": 13,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Classical SPSA-like optimizer in Python\ndef eval_energy(thetas):\n    theta_str = ', '.join(f'{t:.6f}' for t in thetas)\n    return qsharp.eval(f\"EvalHamiltonian([{theta_str}], 50)\")\n\n# Simple coordinate descent\nnp.random.seed(42)\nthetas = list(np.random.uniform(0, 2*np.pi, 4))\nenergy = eval_energy(thetas)\nprint(f\"Initial energy: {energy:.4f}\")\n\nenergy_history = [energy]\nstep = 0.3\nfor iteration in range(20):\n    improved = False\n    for i in range(len(thetas)):\n        for direction in [+step, -step]:\n            trial = thetas[:]\n            trial[i] += direction\n            e = eval_energy(trial)\n            if e < energy:\n                thetas = trial\n                energy = e\n                improved = True\n    energy_history.append(energy)\n    if not improved:\n        step /= 2\n    if step < 1e-3:\n        break\n\nprint(f\"Optimized energy: {energy:.4f} after {len(energy_history)} evaluations\")\n\nplt.figure(figsize=(8, 4))\nplt.plot(energy_history, 'o-')\nplt.xlabel(\"Iteration\")\nplt.ylabel(\"Energy\")\nplt.title(\"VQE convergence\")\nplt.grid(alpha=0.4)\nplt.tight_layout()\nplt.show()"
+        },
+        {
+          "id": "s7",
+          "type": "exercise",
+          "title": "5.5 Shor's Algorithm",
+          "content": "## 5.5 Shor's Algorithm\n\nShor's algorithm factors N by finding the period r of f(x) = a^x mod N. Period finding uses QPE with the modular exponentiation oracle |x⟩ → |a^x mod N⟩.\n\nReference: `samples/algorithms/Shor.qs` (full implementation)",
+          "notebookCells": [
+            {
+              "heading": "RunShor operation",
+              "cellIndex": 15,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '5.5 Shor's Algorithm' (100% title match)"
+            },
+            {
+              "heading": "Run the classical part of Shor for n=187",
+              "cellIndex": 16,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 1) in section '5.5 Shor's Algorithm' (100% title match)"
+            }
+          ],
+          "solutionCode": "%%qsharp\n// Shor classical-quantum demo (uses Std.Arithmetic for modular arithmetic)\n\nimport Std.Convert.*;\nimport Std.Diagnostics.*;\nimport Std.Random.*;\nimport Std.Math.*;\nimport Std.Arithmetic.*;\nimport Std.Arrays.*;\n\n// Semiprime to factor\noperation RunShor() : (Int, Int) {\n    let n = 15;  // 3 * 5 — small enough for simulation\n    Message($\"Factoring {n} using Shor's algorithm...\");\n\n    // For n=15, generator g=7 has period 4: 7^1=7, 7^2=4, 7^3=13, 7^4=1 mod 15\n    let g = 7;\n    let period = 4;\n    let halfPow = ExpModI(g, period / 2, n);\n    Message($\"g={g}, period r={period}, g^(r/2) mod n = {halfPow}\");\n\n    let factor1 = GreatestCommonDivisorI(halfPow - 1, n);\n    let factor2 = GreatestCommonDivisorI(halfPow + 1, n);\n    Message($\"Factors: gcd({halfPow-1}, {n}) = {factor1}, gcd({halfPow+1}, {n}) = {factor2}\");\n    (factor1, factor2)\n}\n\nRunShor()",
+          "editNote": "Solution inferred from notebook cell 15. "
+        },
+        {
+          "id": "s8",
+          "type": "exercise",
+          "title": "5.6 CHSH Nonlocal Game",
+          "content": "## 5.6 CHSH Nonlocal Game\n\nAlice and Bob each receive a bit (x, y). They must output bits (a, b) satisfying a⊕b = x∧y without communicating. Classical strategies win at most 75% of the time; a quantum strategy using a shared Bell pair achieves cos²(π/8) ≈ 85%.",
+          "notebookCells": [
+            {
+              "heading": "ClassicalCHSH, QuantumCHSH, and PlayCHSH operations",
+              "cellIndex": 18,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '5.6 CHSH Nonlocal Game' (100% title match)"
+            }
+          ],
+          "solutionCode": "%%qsharp\n\nimport Std.Math.*;\nimport Std.Random.*;\nimport Std.Convert.*;\n\n/// Classical strategy: both always output 0. Wins when x∧y = 0, i.e., 3/4 cases.\nfunction ClassicalCHSH(x : Bool, y : Bool) : (Bool, Bool) {\n    (false, false)\n}\n\n/// Quantum strategy: share a Bell pair, rotate by ±π/8 based on input\noperation QuantumCHSH(x : Bool, y : Bool) : (Bool, Bool) {\n    use (qa, qb) = (Qubit(), Qubit());\n    // Prepare Bell pair\n    H(qa); CNOT(qa, qb);\n    // Alice rotates by π/8 if x=1\n    if x { Ry(PI() / 4.0, qa); }\n    // Bob rotates by ∓π/8 depending on y\n    let angle = if y { PI() / 8.0 } else { -PI() / 8.0 };\n    Ry(angle, qb);\n    let (a, b) = (MResetZ(qa) == One, MResetZ(qb) == One);\n    (a, b)\n}\n\n/// Play CHSH game with given strategy for nRounds rounds\noperation PlayCHSH(nRounds : Int, useQuantum : Bool) : Double {\n    mutable wins = 0;\n    for _ in 1..nRounds {\n        let x = DrawRandomBool(0.5);\n        let y = DrawRandomBool(0.5);\n        let (a, b) = if useQuantum {\n            QuantumCHSH(x, y)\n        } else {\n            ClassicalCHSH(x, y)\n        };\n        // Win condition: a XOR b = x AND y\n        if (a != b) == (x and y) { wins += 1; }\n    }\n    IntAsDouble(wins) / IntAsDouble(nRounds)\n}\n\nlet classicalWinRate = PlayCHSH(400, false);\nlet quantumWinRate = PlayCHSH(400, true);\nMessage($\"Classical win rate: {classicalWinRate}\");\nMessage($\"Quantum win rate:   {quantumWinRate}\");\nMessage($\"Quantum bound: cos²(π/8) ≈ 0.854\");",
+          "editNote": "Solution inferred from notebook cell 18. "
+        },
+        {
+          "id": "s9",
+          "type": "exercise",
+          "title": "5.7 BB84 Quantum Key Distribution",
+          "content": "## 5.7 BB84 Quantum Key Distribution\n\nBB84 allows two parties to establish a shared secret key with information-theoretic security. Alice sends qubits in randomly chosen bases; Bob measures in randomly chosen bases; they discard mismatched bases via a public channel and check for eavesdropping via error rate estimation.",
+          "notebookCells": [
+            {
+              "heading": "BB84Round and BB84Protocol operations",
+              "cellIndex": 20,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '5.7 BB84 Quantum Key Distribution' (100% title match)"
+            },
+            {
+              "heading": "Run BB84Protocol with and without eavesdropping",
+              "cellIndex": 21,
+              "hasExercisePlaceholder": true,
+              "editNote": "Fuzzy-matched code-line (62% similar): 'Run BB84Protocol with and without eavesdropping' -> 'without eavesdropping'"
+            }
+          ],
+          "solutionCode": "%%qsharp\n\nimport Std.Random.*;\nimport Std.Arrays.*;\nimport Std.Convert.*;\n\n/// Single BB84 round: Alice sends one qubit, Bob measures\n/// Returns (alice_bit, alice_basis, bob_basis, bob_bit)\noperation BB84Round(eavesdrop : Bool) : (Bool, Bool, Bool, Bool) {\n    use q = Qubit();\n\n    // Alice: random bit and basis\n    let aliceBit = DrawRandomBool(0.5);\n    let aliceBasis = DrawRandomBool(0.5);  // false=Z, true=X\n\n    // Prepare qubit\n    if aliceBit { X(q); }\n    if aliceBasis { H(q); }\n\n    // Eavesdropper (Eve): random basis intercept-resend\n    if eavesdrop {\n        let eveBasis = DrawRandomBool(0.5);\n        if eveBasis { H(q); }\n        let eveMeasure = MResetZ(q);\n        // Eve resends based on measurement\n        if eveMeasure == One { X(q); }\n        if eveBasis { H(q); }\n    }\n\n    // Bob: random basis measurement\n    let bobBasis = DrawRandomBool(0.5);\n    if bobBasis { H(q); }\n    let bobBit = MResetZ(q) == One;\n\n    (aliceBit, aliceBasis, bobBasis, bobBit)\n}\n\n/// Run BB84 protocol for nRounds and return (key_length, error_rate)\noperation BB84Protocol(nRounds : Int, eavesdrop : Bool) : (Int, Double) {\n    mutable keyLen = 0;\n    mutable errors = 0;\n    mutable checks = 0;\n\n    for _ in 1..nRounds {\n        let (aliceBit, aliceBasis, bobBasis, bobBit) = BB84Round(eavesdrop);\n        // Sift: keep only matching bases\n        if aliceBasis == bobBasis {\n            keyLen += 1;\n            // Sample ~half for error checking\n            if DrawRandomBool(0.5) {\n                checks += 1;\n                if aliceBit != bobBit { errors += 1; }\n            }\n        }\n    }\n    let errorRate = if checks == 0 { 0.0 } else { IntAsDouble(errors) / IntAsDouble(checks) };\n    (keyLen - checks, errorRate)  // net key bits after check sacrifice\n}",
+          "editNote": "Solution inferred from notebook cell 20. "
+        },
+        {
+          "id": "s10",
+          "type": "lesson",
+          "title": "Summary",
+          "content": "## Summary\n\n- **QFT**: Hadamard + controlled-phase gates; O(n²) depth; basis of QPE and Shor\n- **QPE**: phase kickback + inverse QFT extracts eigenphases; precision scales with control qubits\n- **Grover's search**: oracle marks target with phase, diffusion amplifies it; O(√N) queries\n- **VQE**: parameterized quantum circuit + classical optimization; ideal for NISQ hardware\n- **Shor**: period-finding via QPE + classical GCD extracts factors in polynomial time\n- **CHSH game**: quantum entanglement beats the classical bound (0.75 → cos²(π/8) ≈ 0.854)\n- **BB84**: eavesdropping is detectable via ~25% error rate; no eavesdropping → ~0% error rate",
+          "notebookCells": []
+        }
+      ]
+    },
+    {
+      "id": "ch07",
+      "title": "Chapter 7: Domain Applications: Chemistry & Beyond",
+      "notebook": "chapter_07_chemistry_and_domain_apps.ipynb",
+      "sections": [
+        {
+          "id": "s1",
+          "type": "lesson",
+          "title": "Chapter 5 — Domain Applications: Chemistry & Beyond",
+          "content": "# Chapter 5 — Domain Applications: Chemistry & Beyond\n\n**Learning objectives**\n- Understand second quantization and why it maps to qubits naturally\n- Apply the Jordan-Wigner transform to convert fermionic operators to Pauli strings\n- Set up a minimal molecular Hamiltonian (H₂) manually\n- Run VQE on H₂ and track energy convergence toward the exact ground state\n- Use `qsharp.estimate()` for a chemistry problem (from the df-chemistry sample)\n- Survey `Std.TableLookup` and fixed-point arithmetic for scientific computing\n- Understand block encoding of Hamiltonians",
+          "notebookCells": []
+        },
+        {
+          "id": "s2",
+          "type": "lesson-example",
+          "title": "Setup",
+          "content": "## Setup",
+          "notebookCells": [
+            {
+              "heading": "import qsharp",
+              "cellIndex": 2,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "type": "exercise",
+          "title": "6.1 Second Quantization and Fermionic Operators",
+          "content": "## 6.1 Second Quantization and Fermionic Operators\n\nIn second quantization, a quantum chemistry Hamiltonian is written as:\n\n$$H = \\sum_{pq} h_{pq}\\, a_p^\\dagger a_q + \\frac{1}{2}\\sum_{pqrs} h_{pqrs}\\, a_p^\\dagger a_q^\\dagger a_r a_s$$\n\nwhere $a_p^\\dagger$ (create) and $a_p$ (annihilate) are fermionic operators satisfying the anti-commutation relations:\n\n$$\\{a_p, a_q^\\dagger\\} = \\delta_{pq}, \\quad \\{a_p, a_q\\} = 0$$\n\nThe one-electron integrals $h_{pq}$ encode kinetic energy + electron-nuclear attraction; the two-electron integrals $h_{pqrs}$ encode electron-electron repulsion.\n\n### H₂ minimal basis (STO-3G)\n\nWith 2 spatial orbitals × 2 spins = 4 spin-orbitals. The Hamiltonian has 15 Pauli terms after Jordan-Wigner mapping (at a specific bond length R = 0.74 Å):",
+          "notebookCells": [
+            {
+              "heading": "H₂ Hamiltonian in STO-3G basis at R=0.74 Å (pre-computed)",
+              "cellIndex": 4,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# H₂ Hamiltonian in STO-3G basis at R=0.74 Å (pre-computed)\n# Coefficients from: Whitfield et al. (2011), Molecular Physics 109(5):735-750\nH2_terms = [\n    # (pauli_string, coefficient)\n    (\"IIII\", -0.8126179630197575),\n    (\"IIIZ\", +0.1711977490486789),\n    (\"IIZI\", -0.2227979949377701),\n    (\"IZII\", +0.1711977490486789),\n    (\"ZIII\", -0.2227979949377701),\n    (\"IIZZ\", +0.1686280558804425),\n    (\"IZIZ\", +0.1205448220109419),\n    (\"IZZI\", +0.1659278503699195),\n    (\"ZIIZ\", +0.1659278503699195),\n    (\"ZIZI\", +0.1205448220109419),\n    (\"ZZII\", +0.1686280558804425),\n    (\"XXYY\", -0.04533108862490958),\n    (\"XYYX\", +0.04533108862490958),\n    (\"YXXY\", +0.04533108862490958),\n    (\"YYXX\", -0.04533108862490958),\n]\n\nprint(\"H₂ Pauli Hamiltonian (15 terms):\")\nfor pauli, coef in H2_terms:\n    print(f\"  {coef:+.6f} * {pauli}\")\n\nprint(f\"\\nFCI ground state energy (exact): -1.1372838 Hartree\")"
+        },
+        {
+          "id": "s4",
+          "type": "exercise",
+          "title": "6.2 Jordan-Wigner Transform",
+          "content": "## 6.2 Jordan-Wigner Transform\n\nThe Jordan-Wigner (JW) transform maps fermionic operators to qubit operators:\n\n$$a_p^\\dagger = \\left(\\prod_{j<p} Z_j\\right) \\frac{X_p - iY_p}{2}, \\quad a_p = \\left(\\prod_{j<p} Z_j\\right) \\frac{X_p + iY_p}{2}$$\n\nThis ensures that anti-commutation relations are preserved via the Z-string (Jordan-Wigner string). One qubit per spin-orbital.",
+          "notebookCells": [
+            {
+              "heading": "Jordan-Wigner creation operator as a sum of Pauli strings",
+              "cellIndex": 6,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '6.2 Jordan-Wigner Transform' (100% title match)"
+            }
+          ],
+          "solutionCode": "def jw_creator(p, n_modes):\n    \"\"\"Jordan-Wigner creation operator a†_p as a sum of Pauli strings.\"\"\"\n    # Returns list of (coeff, pauli_string)\n    z_string = ['Z'] * p + ['I'] * (n_modes - p)\n\n    x_term = z_string[:]\n    x_term[p] = 'X'\n\n    y_term = z_string[:]\n    y_term[p] = 'Y'\n\n    return [\n        (0.5, ''.join(x_term)),        # 0.5 * Z...ZXI...I\n        (-0.5j, ''.join(y_term)),      # -0.5i * Z...ZYI...I\n    ]\n\nn = 4  # H₂ has 4 spin-orbitals\nprint(\"JW creation operator a†_1 (spin-orbital 1):\")\nfor coef, pauli in jw_creator(1, n):\n    print(f\"  {coef:.2f} * {pauli}\")\n\nprint(\"\\nJW creation operator a†_2 (spin-orbital 2):\")\nfor coef, pauli in jw_creator(2, n):\n    print(f\"  {coef:.2f} * {pauli}\")",
+          "editNote": "Solution inferred from notebook cell 6. "
+        },
+        {
+          "id": "s5",
+          "type": "exercise",
+          "title": "6.3 VQE on H₂",
+          "content": "## 6.3 VQE on H₂\n\nWe implement VQE using the UCCSD ansatz. For H₂ in STO-3G, a single-parameter ansatz suffices:\n\n$$|\\psi(\\theta)\\rangle = e^{\\theta(a_0^\\dagger a_1^\\dagger a_2 a_3 - h.c.)} |\\text{HF}\\rangle$$\n\nThe Hartree-Fock reference state for H₂ is |1100⟩ (both electrons in the lowest two spin-orbitals).",
+          "notebookCells": [
+            {
+              "heading": "PrepareHF, UCC_Excitation, H2Ansatz, and MeasurePauliTerm operations",
+              "cellIndex": 8,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '6.3 VQE on H₂' (100% title match)"
+            },
+            {
+              "heading": "Scan ansatz parameter θ to find the H₂ VQE energy minimum",
+              "cellIndex": 9,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 1) in section '6.3 VQE on H₂' (100% title match)"
+            }
+          ],
+          "solutionCode": "%%qsharp\n\nimport Std.Arrays.*;\nimport Std.Convert.*;\nimport Std.Math.*;\n\n/// Hartree-Fock state for H₂: |1100⟩ (2 electrons in 4 spin-orbitals)\noperation PrepareHF(qs : Qubit[]) : Unit is Adj {\n    X(qs[0]); X(qs[1]);  // Occupy spin-orbitals 0 and 1\n}\n\n/// UCCSD singles+doubles excitation for H₂ (1-parameter)\n/// Excites electrons from orbitals 0,1 → 2,3\noperation UCC_Excitation(theta : Double, qs : Qubit[]) : Unit is Adj {\n    // Implement e^{theta * (XXYY + XYYX + YXXY + YYXX) / 8}\n    // This is the double-excitation gate for (0,1) → (2,3)\n    let angle = theta / 8.0;\n    // XXYY term\n    within {\n        H(qs[0]); H(qs[1]);\n        Adjoint S(qs[2]); H(qs[2]);\n        Adjoint S(qs[3]); H(qs[3]);\n    } apply {\n        CNOT(qs[0], qs[1]); CNOT(qs[1], qs[2]); CNOT(qs[2], qs[3]);\n        Rz(angle, qs[3]);\n        CNOT(qs[2], qs[3]); CNOT(qs[1], qs[2]); CNOT(qs[0], qs[1]);\n    }\n}\n\n/// Ansatz: |ψ(θ)⟩ = UCC_Excitation(θ) |HF⟩\noperation H2Ansatz(theta : Double, qs : Qubit[]) : Unit is Adj {\n    PrepareHF(qs);\n    UCC_Excitation(theta, qs);\n}\n\n/// Measure one Pauli term ⟨ψ|P|ψ⟩ given a basis string and coefficient\n/// Basis: array of Pauli for each qubit\noperation MeasurePauliTerm(theta : Double, basis : Pauli[], shots : Int) : Double {\n    mutable zeroCount = 0;\n    for _ in 1..shots {\n        use qs = Qubit[4];\n        H2Ansatz(theta, qs);\n        if Measure(basis, qs) == Zero { zeroCount += 1; }\n        ResetAll(qs);\n    }\n    // Expectation: +1 for Zero, -1 for One → 2*pZero - 1\n    2.0 * IntAsDouble(zeroCount) / IntAsDouble(shots) - 1.0\n}",
+          "editNote": "Solution inferred from notebook cell 8. "
+        },
+        {
+          "id": "s6",
+          "type": "exercise",
+          "title": "6.4 Block Encoding of Hamiltonians",
+          "content": "## 6.4 Block Encoding of Hamiltonians\n\nBlock encoding is a technique that embeds a Hamiltonian H (subnormalized) into the top-left block of a unitary:\n\n$$U = \\begin{pmatrix} H/\\lambda & * \\\\ * & * \\end{pmatrix}$$\n\nwhere λ is the 1-norm of H. This enables quantum signal processing, qubitization, and fault-tolerant phase estimation. The QDK chemistry library provides a complete Jordan-Wigner block encoding.\n\nReference: `library/chemistry/src/JordanWigner/BlockEncoding.qs`",
+          "notebookCells": [
+            {
+              "heading": "Conceptual sketch — block encoding via LCU (Linear Combination of Unitaries)",
+              "cellIndex": 11,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Conceptual sketch — block encoding via LCU (Linear Combination of Unitaries)\nprint(\"Block encoding structure for H₂ Hamiltonian:\")\nprint()\nprint(\"H = Σᵢ αᵢ Uᵢ  (Linear Combination of Unitaries)\")\nprint()\n\n# Compute 1-norm (normalization factor λ)\nlam = sum(abs(coef) for _, coef in H2_terms)\nprint(f\"Number of Pauli terms: {len(H2_terms)}\")\nprint(f\"1-norm λ = Σ|αᵢ| = {lam:.4f} Hartree\")\nprint()\nprint(\"The block encoding uses:\")\nprint(f\"  - {int(np.ceil(np.log2(len(H2_terms))))} ancilla qubits to select among {len(H2_terms)} terms (PREP circuit)\")\nprint(f\"  - 4 system qubits for H₂\")\nprint(f\"  - SELECT circuit applies the selected Pauli string\")\nprint(f\"  - PREP† ∘ SELECT ∘ PREP implements the LCU walk operator\")"
+        },
+        {
+          "id": "s7",
+          "type": "exercise",
+          "title": "6.5 Resource Estimation for Chemistry",
+          "content": "## 6.5 Resource Estimation for Chemistry\n\nFor fault-tolerant quantum chemistry, we estimate resources for the double-factorized (DF) block encoding approach, which significantly reduces T-gate count compared to naive approaches.\n\nReference: `samples/estimation/df-chemistry/`",
+          "notebookCells": [
+            {
+              "heading": "Resource scaling table for quantum chemistry molecules",
+              "cellIndex": 13,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '6.5 Resource Estimation for Chemistry' (100% title match)"
+            },
+            {
+              "heading": "ChemistryOracle and RunChemistryTrotter operations",
+              "cellIndex": 14,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 1) in section '6.5 Resource Estimation for Chemistry' (100% title match)"
+            },
+            {
+              "heading": "Resource estimate for 10-step Trotter simulation of H₂ proxy",
+              "cellIndex": 15,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 2) in section '6.5 Resource Estimation for Chemistry' (100% title match)"
+            }
+          ],
+          "solutionCode": "# Set up for resource estimation\nqsharp.init(target_profile=qsharp.TargetProfile.Base)\n\n# A simple proxy for chemistry resource estimation:\n# QPE of a block-encoded Hamiltonian requires:\n# - T-count ≈ (lam / epsilon) * T_per_PREP\n# where epsilon is target energy accuracy\n\n# For H₂ with λ=2.84 and targeting 1 mHartree accuracy:\nepsilon = 1e-3  # Hartree (chemical accuracy)\nT_per_PREP = 100  # rough estimate\n\nprint(\"Resource scaling for quantum chemistry:\")\nprint()\nmolecules = [\n    (\"H₂\",      4,   2.84,   100),\n    (\"H₂O\",    14,  62.0,    400),\n    (\"N₂\",     28, 150.0,    800),\n    (\"Benzene\", 72, 820.0,  3000),\n    (\"FeMo-co\",114,1600.0,  8000),\n]\nprint(f\"{'Molecule':>10} {'Spin-orbs':>10} {'λ (Ha)':>10} {'T/PREP':>8} {'T total (M)':>12}\")\nprint(\"-\" * 55)\nfor name, n_orbs, lam_mol, t_prep in molecules:\n    n_steps = int(np.pi * lam_mol / (2 * epsilon))\n    t_total = n_steps * t_prep / 1e6\n    print(f\"{name:>10} {n_orbs:>10} {lam_mol:>10.1f} {t_prep:>8} {t_total:>12.1f}\")\n\nprint()\nprint(\"See samples/estimation/df-chemistry/ for full DF resource estimation notebooks.\")",
+          "editNote": "Solution inferred from notebook cell 13. "
+        },
+        {
+          "id": "s8",
+          "type": "exercise",
+          "title": "6.6 Fixed-Point Arithmetic and Table Lookups",
+          "content": "## 6.6 Fixed-Point Arithmetic and Table Lookups\n\nScientific computing on quantum hardware requires arithmetic that works within quantum constraints. The QDK provides:\n\n- **Fixed-point arithmetic** (`Std.FixedPoint`): quantum registers representing rational numbers, supporting addition, multiplication, and comparisons\n- **Table lookups** (`Std.TableLookup`): efficiently load classical data into quantum registers using QROM (quantum read-only memory)",
+          "notebookCells": [
+            {
+              "heading": "TableLookupDemo operation",
+              "cellIndex": 17,
+              "hasExercisePlaceholder": true,
+              "editNote": "Fuzzy-matched code-line (52% similar): 'TableLookupDemo operation' -> 'import std.tablelookup.select'"
+            },
+            {
+              "heading": "Switch back to Unrestricted for Ising model section (uses mid-circuit measuremen",
+              "cellIndex": 18,
+              "hasExercisePlaceholder": false
+            }
+          ],
+          "solutionCode": "%%qsharp\n\nimport Std.TableLookup.Select;\nimport Std.Arrays.IndexRange;\nimport Std.Diagnostics.DumpMachine;\nimport Std.Convert.IntAsDouble;\n\n/// Table lookup demo: quantum-controlled classical table read\n/// Implements |i⟩|0⟩ → |i⟩|table[i]⟩\noperation TableLookupDemo() : Unit {\n    // Classical lookup table: molecular energy at 5 bond lengths (in mHartree)\n    let table = [[false, false, true],   // entry 0: 001 = 1\n                 [false, true, false],   // entry 1: 010 = 2\n                 [false, true, true],    // entry 2: 011 = 3\n                 [true, false, false]];  // entry 3: 100 = 4\n\n    use address = Qubit[2];   // 2-bit address for 4 entries\n    use data = Qubit[3];      // 3-bit data register\n\n    // Put address in superposition over all 4 entries\n    H(address[0]); H(address[1]);\n\n    Message(\"Address register in superposition:\");\n\n    // QROM lookup: |address⟩|0⟩ → |address⟩|table[address]⟩\n    Select(table, address, data);\n\n    Message(\"After QROM lookup (address entangled with data):\");\n    DumpMachine();\n\n    ResetAll(address + data);\n}\n\nTableLookupDemo()",
+          "editNote": "Solution inferred from notebook cell 17. "
+        },
+        {
+          "id": "s9",
+          "type": "exercise",
+          "title": "6.7 Extending the Library for New Domains",
+          "content": "## 6.7 Extending the Library for New Domains\n\nThe QDK chemistry library (`library/chemistry/`) follows a layered architecture:\n\n```\nlibrary/chemistry/src/JordanWigner/\n    Data.qs             ← JWEncodingData, JWInputState structs\n    EvolutionSet.qs     ← Trotter steps for JW terms\n    BlockEncoding.qs    ← LCU block encoding\n    StatePreparation.qs ← Prepare trial states\n    VQE.qs              ← EstimateEnergy, MeasurementOperators\n```\n\nTo extend for a new domain (e.g., condensed matter physics, materials science):\n1. Define your Hamiltonian in a `Data.qs` equivalent with your qubit encoding\n2. Implement a `EvolutionSet` that applies each Hamiltonian term\n3. Write a `BlockEncoding` using `Select` (QROM) for PREP + `EvolutionSet` for SELECT\n4. Connect to `EstimateEnergy` for VQE or to `ApplyQPE` for fault-tolerant QPE",
+          "notebookCells": [
+            {
+              "heading": "IsingTrotterStep and IsingGroundStateVQE operations",
+              "cellIndex": 20,
+              "hasExercisePlaceholder": true,
+              "editNote": "Positional match (pos 0) in section '6.7 Extending the Library for New Domains' (100% title match)"
+            },
+            {
+              "heading": "Scan Trotter parameter for 4-qubit Ising model (J=1, h=0.5)",
+              "cellIndex": 21,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Scan Trotter parameter for 4-qubit Ising model (J=1, h=0.5)\nthetas = np.linspace(0.01, 1.5, 10)\nising_energies = [qsharp.eval(f\"IsingGroundStateVQE(4, 1.0, 0.5, {t:.4f})\") for t in thetas]\n\nplt.figure(figsize=(8, 4))\nplt.plot(thetas, ising_energies, 'o-')\nplt.xlabel(\"Trotter step θ\")\nplt.ylabel(\"Variational energy\")\nplt.title(\"VQE for 4-qubit transverse-field Ising model (J=1, h=0.5)\")\nplt.grid(alpha=0.4)\nplt.tight_layout()\nplt.show()\nprint(f\"Minimum energy found: {min(ising_energies):.4f}\")"
+        },
+        {
+          "id": "s10",
+          "type": "lesson",
+          "title": "Summary",
+          "content": "## Summary\n\n- **Second quantization**: fermionic creation/annihilation operators capture electron correlations; H = Σ hpq a†p aq + ...\n- **Jordan-Wigner**: maps fermionic operators to Pauli strings via Z-strings; one qubit per spin-orbital\n- **VQE on H₂**: single-parameter UCCSD ansatz reaches near-FCI accuracy on 4 qubits\n- **Block encoding**: embeds H/λ in the top-left block of a unitary; enables qubitization and fault-tolerant QPE\n- **Resource estimation**: T-count for chemistry scales with λ (1-norm) and target accuracy ε\n- **Table lookups** (`Std.TableLookup.Select`): quantum-controlled classical data read — key for QROM in block encoding\n- **Domain extension**: implement `Data`, `EvolutionSet`, `BlockEncoding` for new physics Hamiltonians",
+          "notebookCells": []
+        }
+      ]
+    },
+    {
+      "id": "ch08",
+      "title": "Chapter 8: Under the Hood: Compilation & QIR",
+      "notebook": "chapter_08_compilation_and_qir.ipynb",
+      "sections": [
+        {
+          "id": "s1",
+          "type": "lesson",
+          "title": "Chapter 6 — Under the Hood: Compilation & QIR",
+          "content": "# Chapter 6 — Under the Hood: Compilation & QIR\n\n**Learning objectives**\n- Understand the Q# compilation pipeline: AST → HIR → FIR → RIR\n- Understand what QIR is and why it matters for hardware targets\n- Generate QIR with `qsharp.compile()` and inspect it\n- Understand target profile constraints and their impact on algorithm design\n- Visualize circuits with `qsharp.circuit()` and `qsharp_widgets.Circuit`\n- Debug mid-circuit state with `DumpMachine`\n- Understand the Azure Quantum submission pipeline",
+          "notebookCells": []
+        },
+        {
+          "id": "s2",
+          "type": "lesson-example",
+          "title": "Setup",
+          "content": "## Setup",
+          "notebookCells": [
+            {
+              "heading": "import qsharp",
+              "cellIndex": 2,
+              "hasExercisePlaceholder": false
+            }
+          ]
+        },
+        {
+          "id": "s3",
+          "type": "lesson",
+          "title": "7.1 The Q# Compilation Pipeline",
+          "content": "## 7.1 The Q# Compilation Pipeline\n\nWhen you write Q# code, the compiler transforms it through several intermediate representations:\n\n```\nQ# source\n    │\n    ▼\nAST  (Abstract Syntax Tree)\n    │   Type checking, name resolution\n    ▼\nHIR  (High-level IR)\n    │   Functor generation (Adjoint, Controlled)\n    │   Partial evaluation of classical control\n    ▼\nFIR  (Functional IR)\n    │   Qubit allocation, lifetime analysis\n    │   Gate decomposition for target profile\n    ▼\nRIR  (Resolved IR)                ← Resource estimator reads here\n    │   Gate-level, hardware-profile-checked\n    ▼\nQIR  (Quantum Intermediate Representation)\n    │   LLVM-based IR\n    ▼\nHardware target (simulator, QPU, Azure Quantum)\n```\n\nEach step enforces constraints and applies optimizations. The RIR is where the resource estimator does its counting.\n\n## 7.2 What is QIR?\n\n**QIR (Quantum Intermediate Representation)** is an open standard based on LLVM IR. It:\n\n- Represents both classical and quantum computation in a single IR\n- Enables hardware-agnostic compilation: compile once, target many QPUs\n- Supports classical control flow (if/loops) that is executed on the control system\n- Is the interchange format for Azure Quantum\n\nKey QIR primitives:\n- `%Qubit*` — opaque qubit type\n- `%Result*` — opaque result type  \n- `__quantum__qis__h__body(%Qubit*)` — single-qubit gate call\n- `__quantum__qis__cnot__body(%Qubit*, %Qubit*)` — two-qubit gate\n- `__quantum__qis__mz__body(%Qubit*, %Result*)` — measurement",
+          "notebookCells": [],
+          "editNote": "Merged with following section '7.2 What is QIR?'"
+        },
+        {
+          "id": "s5",
+          "type": "exercise",
+          "title": "7.3 Generating QIR",
+          "content": "## 7.3 Generating QIR\n\n`qsharp.compile(entry_expr)` compiles the program to QIR and returns a `QSharpCompilation` object. The `str()` representation shows the LLVM IR text.",
+          "notebookCells": [
+            {
+              "heading": "QIR generation requires the Base target profile",
+              "cellIndex": 6,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Define RandomNBits and BellPair operations",
+              "cellIndex": 28,
+              "hasExercisePlaceholder": true
+            },
+            {
+              "heading": "Compile Bell pair to QIR",
+              "cellIndex": 8,
+              "hasExercisePlaceholder": true
+            },
+            {
+              "heading": "Count QIR gate calls",
+              "cellIndex": 9,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Count QIR gate calls\nqir_lines = qir_text.split('\\n')\ngate_calls = [l.strip() for l in qir_lines if '__quantum__qis__' in l]\nprint(f\"Total quantum gate/measurement calls in QIR: {len(gate_calls)}\")\nfrom collections import Counter\ngate_types = Counter(l.split('__')[3].split('__')[0] for l in gate_calls if '__' in l)\nprint(\"Gate breakdown:\")\nfor gate, count in gate_types.most_common():\n    print(f\"  {gate}: {count}\")"
+        },
+        {
+          "id": "s6",
+          "type": "exercise",
+          "title": "7.4 Target Profile Constraints",
+          "content": "## 7.4 Target Profile Constraints\n\nThe target profile determines what classical control flow is allowed at the hardware level:\n\n| Profile | Mid-circuit measurement | Classical control on results | Use case |\n|---------|------------------------|------------------------------|----------|\n| `Base` | No | No | Gate-based QPUs, resource estimation |\n| `Adaptive_RI` | Yes | Integer arithmetic | Quantinuum, mid-circuit feedback |\n| `Unrestricted` | Yes | Full classical | Simulation only |",
+          "notebookCells": [
+            {
+              "heading": "Show that Base profile rejects mid-circuit measurement control",
+              "cellIndex": 11,
+              "hasExercisePlaceholder": true
+            },
+            {
+              "heading": "Switch to Adaptive_RI — now mid-circuit measurement control is allowed",
+              "cellIndex": 12,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Switch to Adaptive_RI — now mid-circuit measurement control is allowed\nqsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RI)\n\nresult = qsharp.eval(\"\"\"\n    operation AdaptiveOp() : Result {\n        use q = Qubit();\n        H(q);\n        let r = M(q);\n        if r == One {\n            X(q);  // Reset to |0⟩ conditionally\n        }\n        MResetZ(q)\n    }\n    AdaptiveOp()\n\"\"\")\nprint(f\"Adaptive operation result: {result} (always Zero after conditional correction)\")"
+        },
+        {
+          "id": "s7",
+          "type": "exercise",
+          "title": "7.5 Circuit Visualization",
+          "content": "## 7.5 Circuit Visualization\n\n`qsharp.circuit(entry_expr)` synthesizes a circuit diagram. `qsharp_widgets.Circuit` renders it as an interactive SVG.\n\nReference: `samples/notebooks/circuits.ipynb`",
+          "notebookCells": [
+            {
+              "heading": "Circuit synthesis requires Base or Adaptive_RI profile (not Unrestricted)",
+              "cellIndex": 14,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Define GHZState operation",
+              "cellIndex": 15,
+              "hasExercisePlaceholder": true
+            },
+            {
+              "heading": "Text circuit rendering",
+              "cellIndex": 16,
+              "hasExercisePlaceholder": true
+            },
+            {
+              "heading": "Widget SVG rendering",
+              "cellIndex": 17,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Define QFT3 operation",
+              "cellIndex": 18,
+              "hasExercisePlaceholder": true
+            },
+            {
+              "heading": "Circuit for QFT on 3 qubits — define a concrete wrapper so the qubit count is known",
+              "cellIndex": 19,
+              "hasExercisePlaceholder": true
+            },
+            {
+              "heading": "Circuit with conditional — cannot be statically synthesized, but can be simulated",
+              "cellIndex": 20,
+              "hasExercisePlaceholder": true
+            },
+            {
+              "heading": "Static synthesis fails (conditional on measurement result)",
+              "cellIndex": 21,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "from qsharp import CircuitGenerationMethod\n\n# Static synthesis fails (conditional on measurement result)\ntry:\n    Circuit(qsharp.circuit(\"TeleportState()\"))\nexcept Exception as e:\n    print(f\"Static synthesis fails: {str(e)[:200]}\")\n    print()\n    # Simulation-based circuit shows one sample path\n    print(\"Simulation-based circuit (one execution path):\")\n    Circuit(qsharp.circuit(\"TeleportState()\", generation_method=CircuitGenerationMethod.Simulate))"
+        },
+        {
+          "id": "s8",
+          "type": "exercise",
+          "title": "7.6 Mid-Circuit Debugging with `DumpMachine`",
+          "content": "## 7.6 Mid-Circuit Debugging with `DumpMachine`\n\n`DumpMachine()` can be inserted at any point in a simulation to inspect the quantum state. This is the primary debugging tool in Q#.",
+          "notebookCells": [
+            {
+              "heading": "Define DebugDemo operation using DumpMachine",
+              "cellIndex": 23,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "%%qsharp\n\nimport Std.Diagnostics.*;\n\noperation DebugDemo() : Unit {\n    use qs = Qubit[3];\n\n    Message(\"--- Step 1: Initial state ---\");\n    DumpMachine();\n\n    H(qs[0]);\n    Message(\"--- Step 2: After H(qs[0]) ---\");\n    DumpMachine();\n\n    CNOT(qs[0], qs[1]);\n    Message(\"--- Step 3: After CNOT(qs[0], qs[1]) ---\");\n    DumpMachine();\n\n    // Check an invariant using Fact\n    // (would fail if state doesn't satisfy condition)\n\n    Rz(0.5, qs[2]);\n    Message(\"--- Step 4: After Rz(0.5, qs[2]) ---\");\n    DumpRegister(qs[2..2]);  // Only show qs[2]\n\n    ResetAll(qs);\n}\n\nDebugDemo()"
+        },
+        {
+          "id": "s9",
+          "type": "exercise",
+          "title": "7.7 Runtime Capability Analysis",
+          "content": "## 7.7 Runtime Capability Analysis\n\nDifferent hardware targets have different capabilities. Q# categorizes operations by what they require:\n\n| Requirement | Example | Hardware support |\n|-------------|---------|------------------|\n| Qubit allocation | `use q = Qubit()` | All |\n| Gate application | `H(q)`, `CNOT(q1, q2)` | All |\n| Measurement | `M(q)` | All |\n| Classical branching on Result | `if M(q) == One { ... }` | Adaptive_RI+ |\n| Integer arithmetic on results | `mutable x = 0; if r == One { x += 1 }` | Adaptive_RI |\n| Repeat-until-success | `repeat { } until condition` | Unrestricted |",
+          "notebookCells": [
+            {
+              "heading": "Demonstrate how the same algorithm behaves differently under profiles",
+              "cellIndex": 25,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Demonstrate how the same algorithm behaves differently under profiles\nprofiles = [\n    (qsharp.TargetProfile.Base, \"Base\"),\n    (qsharp.TargetProfile.Adaptive_RI, \"Adaptive_RI\"),\n    (qsharp.TargetProfile.Unrestricted, \"Unrestricted\"),\n]\n\nqqsharp_code = \"\"\"\n    operation SimpleAdaptive() : Int {\n        use q = Qubit();\n        H(q);\n        let r = MResetZ(q);\n        if r == One { return 1; } else { return 0; }\n    }\n    SimpleAdaptive()\n\"\"\"\n\nfrom qsharp import QSharpError\nfor profile, name in profiles:\n    qsharp.init(target_profile=profile)\n    try:\n        result = qsharp.eval(qqsharp_code)\n        print(f\"{name:20s}: OK — result = {result}\")\n    except QSharpError as e:\n        print(f\"{name:20s}: REJECTED — {str(e)[:80]}\")"
+        },
+        {
+          "id": "s10",
+          "type": "exercise",
+          "title": "7.8 Azure Quantum Submission Pipeline",
+          "content": "## 7.8 Azure Quantum Submission Pipeline\n\nTo submit a Q# program to a real QPU via Azure Quantum:\n\n1. **Initialize** with the appropriate target profile (usually `Base` or `Adaptive_RI`)\n2. **Compile** with `qsharp.compile(entry_expr)` to generate QIR\n3. **Connect** to Azure Quantum workspace\n4. **Submit** to a target (QPU or emulator)\n5. **Retrieve** results\n\nReference: `samples/notebooks/azure_submission.ipynb`",
+          "notebookCells": [
+            {
+              "heading": "Initialize for Azure Quantum submission",
+              "cellIndex": 27,
+              "hasExercisePlaceholder": false
+            },
+            {
+              "heading": "Define RandomNBits for Azure Quantum submission",
+              "cellIndex": 28,
+              "hasExercisePlaceholder": true
+            },
+            {
+              "heading": "Step 1: Compile to QIR",
+              "cellIndex": 29,
+              "hasExercisePlaceholder": true
+            },
+            {
+              "heading": "Step 2-5: Connect and submit (requires azure-quantum package and workspace credentials)",
+              "cellIndex": 30,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Step 2-5: Connect and submit (requires azure-quantum package and workspace credentials)\n# Replace with your actual workspace details\n\nprint(\"Azure Quantum submission (stub — requires credentials):\")\nprint()\nazure_code = '''\nimport azure.quantum\n\nworkspace = azure.quantum.Workspace(\n    subscription_id = \"YOUR_SUBSCRIPTION_ID\",\n    resource_group  = \"YOUR_RESOURCE_GROUP\",\n    name            = \"YOUR_WORKSPACE_NAME\",\n    location        = \"YOUR_LOCATION\",  # e.g., \"eastus\"\n)\n\n# List available targets\ntargets = workspace.get_targets()\nprint(\"Available targets:\", [t.name for t in targets])\n\n# Submit to a simulator\ntarget = workspace.get_targets(\"rigetti.sim.qvm\")\njob = target.submit(compilation, \"my-random-bits-job\", shots=100)\njob.wait_until_completed()\nresults = job.get_results()\nprint(\"Results:\", results)\n'''\nprint(azure_code)\n\n# Check if azure-quantum is installed\ntry:\n    import azure.quantum\n    print(\"azure-quantum is installed. Replace credentials above to run.\")\nexcept ImportError:\n    print(\"To install: pip install azure-quantum\")"
+        },
+        {
+          "id": "s11",
+          "type": "exercise",
+          "title": "7.9 How Target Profile Shapes Algorithm Design",
+          "content": "## 7.9 How Target Profile Shapes Algorithm Design\n\nTarget profile constraints are not just technical limits — they drive algorithmic choices:\n\n| Algorithm | Profile needed | Reason |\n|-----------|---------------|--------|\n| Gate-only QPE | Base | No mid-circuit control needed |\n| Iterative QPE (semiclassical QFT) | Adaptive_RI | Feedback from mid-circuit measurement |\n| Repeat-until-success state prep | Unrestricted | Loop depends on measurement outcome |\n| Active QEC decoder | Adaptive_RI | Syndrome → correction in real time |\n| Magic state distillation | Adaptive_RI | Post-selection on ancilla outcomes |",
+          "notebookCells": [
+            {
+              "heading": "Demonstrate the semiclassical QFT (requires Adaptive_RI)",
+              "cellIndex": 32,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Demonstrate the semiclassical QFT (requires Adaptive_RI)\nqsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RI)\n\nresult = qsharp.eval(\"\"\"\n    import Std.Math.*;\n    import Std.Convert.*;\n\n    /// Semiclassical QFT: each qubit measured and classically controlled\n    /// This requires Adaptive_RI (mid-circuit measurement + classical int arithmetic)\n    operation SemiclassicalPhaseEst(nBits : Int) : Int {\n        use (target, ctrl) = (Qubit(), Qubit());\n        // Prepare target in eigenstate of Z (|1⟩ has eigenphase 0)\n        X(target);\n\n        mutable phase = 0;\n        for k in nBits - 1..-1..0 {\n            H(ctrl);\n            // Controlled phase kick: ctrl acquires phase from 2^k applications\n            let angle = 2.0 * PI() * IntAsDouble(1 <<< k);\n            R1(angle, ctrl);  // Trivially 0 for Z eigenstate — this is just a demo structure\n\n            // Classical feedback: rotate based on previously measured bits\n            if phase &&& 1 == 1 {\n                R1(-PI(), ctrl);\n            }\n\n            H(ctrl);\n            let r = MResetZ(ctrl);\n            if r == One {\n                phase = phase ||| (1 <<< k);\n            }\n        }\n        Reset(target);\n        phase\n    }\n\n    SemiclassicalPhaseEst(4)\n\"\"\")\nprint(f\"Semiclassical phase estimate: {result} (runs on Adaptive_RI profile)\")"
+        },
+        {
+          "id": "s12",
+          "type": "exercise",
+          "title": "7.10 Qiskit Integration: QIR via QSharpBackend",
+          "content": "## 7.10 Qiskit Integration: QIR via QSharpBackend\n\nThe `qiskit-qsharp` integration lets you compile Qiskit circuits to QIR for simulation or Azure Quantum submission. Reference: `samples/python_interop/qiskit.ipynb`",
+          "notebookCells": [
+            {
+              "heading": "Generate QIR from a Qiskit circuit via QSharpBackend",
+              "cellIndex": 34,
+              "hasExercisePlaceholder": true
+            }
+          ],
+          "solutionCode": "# Generate QIR from a Qiskit circuit via QSharpBackend\ntry:\n    from qiskit import QuantumCircuit\n    from qsharp.interop.qiskit import QSharpBackend\n\n    qc = QuantumCircuit(2, 2)\n    qc.h(0)\n    qc.cx(0, 1)\n    qc.measure([0, 1], [0, 1])\n\n    backend = QSharpBackend()\n    # Explicitly specify Base profile — QIR generation requires Base or Adaptive_RI\n    qir = backend.qir(qc, target_profile=qsharp.TargetProfile.Base)\n    print(\"QIR from Qiskit Bell circuit (first 500 chars):\")\n    print(qir[:500])\nexcept ImportError:\n    print(\"qiskit not installed.\")\n    print(\"Install: pip install qiskit qiskit-qsharp\")\n    print()\n    print(\"When installed, QSharpBackend.qir(circuit, target_profile=TargetProfile.Base)\")\n    print(\"returns LLVM IR text for submission to Azure Quantum or any QIR-compatible target.\")"
+        },
+        {
+          "id": "s13",
+          "type": "lesson",
+          "title": "Summary",
+          "content": "## Summary\n\n- **Compilation pipeline**: Q# → AST → HIR → FIR → RIR → QIR, each stage enforcing invariants and applying optimizations\n- **QIR**: LLVM-based, hardware-agnostic interchange format; gates are `__quantum__qis__*__body` LLVM calls\n- **`qsharp.compile()`**: generates QIR for Azure Quantum submission; requires `TargetProfile.Base` or `Adaptive_RI`\n- **Target profiles**: `Base` (gate-only), `Adaptive_RI` (mid-circuit feedback), `Unrestricted` (simulation only)\n- **Circuit visualization**: `qsharp.circuit()` + `qsharp_widgets.Circuit` gives interactive SVG diagrams\n- **Debugging**: `DumpMachine()` at any mid-circuit point; `DumpRegister()` for subsystems\n- **Azure Quantum**: compile → connect workspace → `target.submit(compilation, shots=N)` → `job.get_results()`\n- **Algorithm design**: profile constraints shape algorithm choices (iterative vs textbook QPE, RUS loops, active QEC)",
+          "notebookCells": []
+        },
+        {
+          "id": "s14",
+          "type": "lesson-example",
+          "title": "Define RandomNBits and BellPair operations",
+          "content": "<p>Q# definitions for RandomNBits (random N-qubit measurement) and BellPair, used by the QIR generation and circuit sections that follow.</p>",
+          "notebookCells": [
+            {
+              "heading": "Define RandomNBits and BellPair operations",
+              "cellIndex": 7,
+              "hasExercisePlaceholder": false
+            }
+          ],
+          "editNote": "Corrected title: notebook-only cell defining operations used by subsequent sections (cell 7)"
+        }
+      ]
+    }
+  ]
+}
