@@ -34,8 +34,24 @@ export function getQuantumOsJobLink(
   jobId: string,
 ) {
   // Quantum OS job page format:
-  // <quantumOsRoot>/jobs/<job-id>
-  return `${getQuantumOsRoot()}/jobs/${jobId}`;
+  // <quantumOsRoot>/jobs/<job-id>#<workspace-fragment>
+  const fragment = buildQuantumOsFragment(workspace);
+  return `${getQuantumOsRoot()}/jobs/${jobId}#${fragment}`;
+}
+
+function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
+  const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\//;
+  const subscriptionId =
+    workspace.id.match(idRegex)?.groups?.subscriptionId ?? "";
+  const offeringId = workspace.providers[0]?.providerId ?? "";
+
+  return (
+    `tenantId=${workspace.tenantId}` +
+    `&subscriptionId=${subscriptionId}` +
+    `&role=Researcher` +
+    (offeringId ? `&offeringId=${offeringId}` : "") +
+    `&workspaceId=${workspace.id}`
+  );
 }
 
 export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
@@ -48,20 +64,7 @@ export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
     //
     // workspace.id starts with '/' (e.g. "/subscriptions/.../Workspaces/<name>"),
     // so it is appended directly to produce a clean path with literal slashes.
-    const idRegex =
-      /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\//;
-    const subscriptionId =
-      workspace.id.match(idRegex)?.groups?.subscriptionId ?? "";
-
-    const offeringId = workspace.providers[0]?.providerId ?? "";
-
-    const fragment =
-      `tenantId=${workspace.tenantId}` +
-      `&subscriptionId=${subscriptionId}` +
-      `&role=Researcher` +
-      (offeringId ? `&offeringId=${offeringId}` : "") +
-      `&workspaceId=${workspace.id}`;
-
+    const fragment = buildQuantumOsFragment(workspace);
     return `${getQuantumOsRoot()}/workspaces/${workspace.name}#${fragment}`;
   }
 
