@@ -4,13 +4,18 @@
 # flake8: noqa F403
 # pyright: ignore[reportWildcardImportFromLibrary]
 
-"""qdk.qre.instruction_ids package: re-export of qsharp.qre.instruction_ids symbols.
+"""QRE instruction identifiers.
 
-Requires installation: ``pip install "qdk[qre]"``.
+This module re-exports all public symbols from [qsharp.qre.instruction_ids](:mod:`qsharp.qre.instruction_ids`),
+making them available under the ``qdk.qre.instruction_ids`` namespace. It provides
+constants identifying the quantum instruction set operations used in resource
+estimation traces.
+
+Requires the ``qre`` extra: ``pip install qdk[qre]``.
 
 Example:
-    from qdk.qre.instruction_ids import *
 
+    from qdk.qre.instruction_ids import *
 """
 
 try:

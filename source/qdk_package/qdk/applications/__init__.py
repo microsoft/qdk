@@ -4,13 +4,16 @@
 # flake8: noqa F403
 # pyright: ignore[reportWildcardImportFromLibrary]
 
-"""qdk.applications package: re-export of qsharp.applications symbols.
+"""Quantum applications for the Q# ecosystem.
 
-Requires installation: ``pip install \"qdk[applications]\"``.
+This module re-exports all public symbols from [qsharp.applications](:mod:`qsharp.applications`),
+making them available under the ``qdk.applications`` namespace.
+
+Requires the ``applications`` extra: ``pip install "qdk[applications]"``.
 
 Example:
-    from qdk.applications import QSharpApplication
 
+    from qdk.applications import QSharpApplication
 """
 
 try:

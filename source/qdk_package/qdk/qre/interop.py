@@ -4,13 +4,18 @@
 # flake8: noqa F403
 # pyright: ignore[reportWildcardImportFromLibrary]
 
-"""qdk.qre.interop package: re-export of qsharp.qre.interop symbols.
+"""QRE interoperability utilities.
 
-Requires installation: ``pip install "qdk[qre]"``.
+This module re-exports all public symbols from [qsharp.qre.interop](:mod:`qsharp.qre.interop`),
+making them available under the ``qdk.qre.interop`` namespace. It provides
+functions for generating resource estimation traces from Q#, Cirq, QIR, and
+OpenQASM programs.
+
+Requires the ``qre`` extra: ``pip install qdk[qre]``.
 
 Example:
-    from qdk.qre.interop import trace_from_qir
 
+    from qdk.qre.interop import trace_from_qir
 """
 
 try:

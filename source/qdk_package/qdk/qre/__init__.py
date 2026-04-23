@@ -4,14 +4,19 @@
 # flake8: noqa F403
 # pyright: ignore[reportWildcardImportFromLibrary]
 
-"""qdk.qre package: re-export of qsharp.qre namespaces.
+"""Quantum Resource Estimator (QRE) for the Q# ecosystem.
 
-Requires optional extra installation: `pip install qdk[qre]`.
+This module re-exports all public symbols from [qsharp.qre](:mod:`qsharp.qre`),
+making them available under the ``qdk.qre`` namespace. It provides tools for
+estimating the resources required to run quantum applications on specific
+hardware architectures.
 
-Usage examples:
+Example:
+
     from qdk import qre
     results = qre.estimate(app, arch, isa_query)
 
+Requires the ``qre`` extra: ``pip install qdk[qre]``.
 """
 
 try:

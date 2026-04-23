@@ -9,8 +9,8 @@ submodules (``qdk.qsharp``, ``qdk.widgets``, etc.).
 Optional extras install additional dependencies and submodules:
 
 - ``azure`` — installs ``azure-quantum``, available as ``qdk.azure``.
-- ``qiskit`` — installs ``qiskit``, available as ``qdk.qiskit``.
-- ``cirq`` — installs ``cirq-core`` + ``cirq-ionq``, available as ``qdk.cirq``.
+- ``qiskit`` — installs ``qiskit`` and makes Qiskit interop functionality available as ``qdk.qiskit``.
+- ``cirq`` — installs ``cirq-core`` + ``cirq-ionq`` and makes Cirq interop functionality available as ``qdk.cirq``.
 - ``jupyter`` — installs ``qsharp-widgets`` + ``qsharp-jupyterlab``; exposes ``qdk.widgets``.
 
 """

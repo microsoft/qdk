@@ -3,14 +3,17 @@
 
 """Cirq interoperability for the Q# ecosystem.
 
-This module re-exports all public symbols from ``qsharp.interop.cirq``,
+This module re-exports all public symbols from [qsharp.interop.cirq](:mod:`qsharp.interop.cirq`),
 making them available under the ``qdk.cirq`` namespace. The primary export
-is ``NeutralAtomSampler`` — a standard ``cirq.Sampler`` that runs Cirq
-circuits on the local NeutralAtomDevice simulator.
+is :class:`~qsharp.interop.cirq.NeutralAtomSampler` — a
+standard ``cirq.Sampler`` that runs Cirq circuits on the local
+NeutralAtomDevice simulator.
+
+For full API documentation see [qsharp.interop.cirq](:mod:`qsharp.interop.cirq`).
 
 Requires the ``cirq`` extra: ``pip install qdk[cirq]``.
 
-Usage::
+Usage:
 
     import cirq
     from qdk.cirq import NeutralAtomSampler

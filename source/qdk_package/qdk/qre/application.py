@@ -4,13 +4,17 @@
 # flake8: noqa F403
 # pyright: ignore[reportWildcardImportFromLibrary]
 
-"""qdk.qre.application package: re-export of qsharp.qre.application symbols.
+"""QRE application definitions.
 
-Requires installation: ``pip install \"qdk[qre]\"``.
+This module re-exports all public symbols from [qsharp.qre.application](:mod:`qsharp.qre.application`),
+making them available under the ``qdk.qre.application`` namespace. It provides
+classes for defining quantum applications to be passed to the resource estimator.
+
+Requires the ``qre`` extra: ``pip install qdk[qre]``.
 
 Example:
-    from qdk.qre.application import QSharpApplication
 
+    from qdk.qre.application import QSharpApplication
 """
 
 try:
