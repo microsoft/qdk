@@ -1096,9 +1096,6 @@ fn result_array_index_range_returns_length_as_end() {
                     Variable(1, Integer) = Store Integer(1)
                     Call id(2), args( Qubit(1), Result(1), )
                     Variable(1, Integer) = Store Integer(2)
-                    Variable(2, Integer) = Store Integer(0)
-                    Variable(2, Integer) = Store Integer(1)
-                    Variable(2, Integer) = Store Integer(2)
                     Call id(3), args( Integer(1), Tag(0, 3), )
                     Return
             config: Config:
