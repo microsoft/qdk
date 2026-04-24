@@ -1791,7 +1791,7 @@ impl QasmCompiler {
 
         let fn_name: &str = match op {
             // Bit shift
-            qsast::BinOp::Shl => "__AngleShl__",
+            qsast::BinOp::Shl => "AngleShl",
             qsast::BinOp::Shr => "AngleShr",
 
             // Bitwise

@@ -187,7 +187,7 @@ fn angle_shl_assign() {
                 Value = 0,
                 Size = 53
             };
-            set a = Std.OpenQASM.Angle.__AngleShl__(a, 1);
+            set a = Std.OpenQASM.Angle.AngleShl(a, 1);
         "#]],
     );
 }
