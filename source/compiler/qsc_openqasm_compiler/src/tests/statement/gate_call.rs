@@ -545,7 +545,7 @@ fn custom_gate_can_be_called_with_negctrl_modifier() -> miette::Result<(), Vec<R
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Ctl {
+        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Adj + Ctl {
             h(q1);
             h(q2);
         }
