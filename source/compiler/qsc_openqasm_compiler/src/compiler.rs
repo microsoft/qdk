@@ -1770,6 +1770,23 @@ impl QasmCompiler {
             return Self::compile_complex_binary_op(op, lhs, rhs);
         }
 
+        // Q# Result type only supports == and !=. For ordered comparisons
+        // (>, >=, <, <=) on bit values, convert to Int first.
+        if matches!(&binary.lhs.ty, Type::Bit(..))
+            && matches!(&binary.rhs.ty, Type::Bit(..))
+            && matches!(
+                op,
+                qsast::BinOp::Gt | qsast::BinOp::Gte | qsast::BinOp::Lt | qsast::BinOp::Lte
+            )
+        {
+            let span = binary.span();
+            let lhs =
+                build_qasm_convert_call_with_one_param("ResultAsInt", lhs, span, span);
+            let rhs =
+                build_qasm_convert_call_with_one_param("ResultAsInt", rhs, span, span);
+            return build_binary_expr(false, op, lhs, rhs, span);
+        }
+
         let is_assignment = false;
         build_binary_expr(is_assignment, op, lhs, rhs, binary.span())
     }
