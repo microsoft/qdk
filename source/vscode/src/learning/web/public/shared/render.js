@@ -137,7 +137,8 @@
         if (item.contentBefore) body += item.contentBefore;
         if (item.filePath) {
           const fwd = item.filePath.replace(/\\/g, "/");
-          const fileUrl = "file:///" + (fwd.startsWith("/") ? fwd.slice(1) : fwd);
+          const fileUrl =
+            "file:///" + (fwd.startsWith("/") ? fwd.slice(1) : fwd);
           body += `<p class="file-path"><a class="file-path-link" href="${escapeHtml(fileUrl)}" title="Open this example in the editor"><code>${escapeHtml(item.filePath)}</code></a><button class="copy-btn" data-copy="${escapeHtml(item.filePath)}" title="Copy path">📋</button></p>`;
         }
         if (item.contentAfter) body += item.contentAfter;

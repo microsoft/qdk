@@ -60,6 +60,7 @@ The activity-bar **Quantum Katas** panel: a `WebviewView` overview on top of a n
 - **`index.ts`** — `registerKatasProgressView(context)` wires the watcher → tree + webview + commands. Called from `extension.ts` after `registerKatasMcpServer(context)`.
 
 When changing the panel:
+
 - The detector contract is shared with `katasMcp.ts`. Adding fields is fine; renaming or removing requires updating both call sites and the eager-init path in `learning/index.ts`.
 - The webview HTML lives inline in `overviewProvider.getHtml()` — keep it small, themeable via `--vscode-*` CSS variables, and CSP-clean (no inline event handlers).
 - Telemetry uses `EventType.KatasPanelAction` with the `action` property (see `telemetry.ts`).

@@ -21,15 +21,15 @@ This directory contains example scripts demonstrating how to use QDK/Chemistry f
 The base `pip install qdk-chemistry` is sufficient for importing the library, but running the examples requires additional dependencies.
 The table below summarizes which [optional extras](https://github.com/microsoft/qdk-chemistry/blob/main/INSTALL.md#optional-extras) or packages are needed for each example:
 
-| Example | Install command |
-|---------|----------------|
-| `qpe_stretched_n2.ipynb` | `pip install 'qdk-chemistry[jupyter]'` |
-| `state_prep_energy.ipynb` | `pip install 'qdk-chemistry[jupyter]'` |
-| `factory_list.ipynb` | `pip install 'qdk-chemistry[plugins]'` |
-| `interoperability/pennylane/` | `pip install pennylane` |
-| `interoperability/qiskit/` | `pip install 'qdk-chemistry[qiskit-extras]'` |
+| Example                         | Install command                                   |
+| ------------------------------- | ------------------------------------------------- |
+| `qpe_stretched_n2.ipynb`        | `pip install 'qdk-chemistry[jupyter]'`            |
+| `state_prep_energy.ipynb`       | `pip install 'qdk-chemistry[jupyter]'`            |
+| `factory_list.ipynb`            | `pip install 'qdk-chemistry[plugins]'`            |
+| `interoperability/pennylane/`   | `pip install pennylane`                           |
+| `interoperability/qiskit/`      | `pip install 'qdk-chemistry[qiskit-extras]'`      |
 | `interoperability/openFermion/` | `pip install 'qdk-chemistry[openfermion-extras]'` |
-| `interoperability/rdkit/` | `pip install rdkit` |
+| `interoperability/rdkit/`       | `pip install rdkit`                               |
 
 To install everything needed for all examples at once:
 

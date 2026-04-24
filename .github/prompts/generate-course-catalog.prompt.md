@@ -23,6 +23,7 @@ The JSONL and notebooks are **complementary, not copies**. The JSONL has ~2x the
 Each code cell in a notebook is preceded by a markdown cell with an `<h3>` heading (or `###` in later chapters). The same heading text appears in the JSONL. Match on this heading text to link JSONL sections to notebook cell indices.
 
 **Known issues:**
+
 - QDK Chapter 0 has poor heading overlap between JSONL and notebook — the content diverged. Requires manual mapping or best-effort matching on first-line code comments.
 - QDK Chapters 5–8 use `##` markdown headings instead of `<h3>` HTML tags.
 - Chemistry Chapters 3–5 exist only in the JSONL (no notebook). These become lesson-only chapters.
@@ -45,6 +46,7 @@ Each code cell in a notebook is preceded by a markdown cell with an `<h3>` headi
 ## Filter out these JSONL sections
 
 Skip sections whose `<h2>` title matches any of:
+
 - "How to access this course"
 - "Setup: local environment" (keep "Setup" sections that have code)
 - Any section containing only qBook/web-browser delivery instructions
@@ -100,9 +102,11 @@ Generate `catalog.json` with this structure:
 5. Write **two** output files to `microsoft-course-main/<course>/`:
 
 ### `catalog.json` — strict mechanical output
+
 Contains only what the data unambiguously supports. Sections where heading matching failed get `"notebookCells": []` with a `"warning"` field explaining the mismatch. No guesses, no fabricated content.
 
 ### `catalog.edited.json` — agent-curated output
+
 A copy of `catalog.json` with the agent's best-effort corrections applied. Use your judgment to:
 
 - **Resolve ambiguous heading matches**: If a notebook heading is similar but not identical to a JSONL heading (e.g., "End-to-end preview: Bell state to resource estimate" vs "End-to-end preview"), match them and add `"editNote"` explaining the fuzzy match.
