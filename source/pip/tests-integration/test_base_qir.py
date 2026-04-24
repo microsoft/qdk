@@ -11,8 +11,7 @@ try:
         Context,
         Module,
         Opcode,
-        qubit_id,
-        result_id,
+        ptr_id,
         required_num_qubits,
         required_num_results,
     )
@@ -41,13 +40,13 @@ def test_compile_qir_input_data() -> None:
     assert isinstance(call_m, Call)
     assert call_m.callee.name == "__quantum__qis__m__body"
     assert len(call_m.args) == 2
-    assert qubit_id(call_m.args[0]) == 0
-    assert result_id(call_m.args[1]) == 0
+    assert ptr_id(call_m.args[0]) == 0
+    assert ptr_id(call_m.args[1]) == 0
     record_res = func.basic_blocks[0].instructions[2]
     assert isinstance(record_res, Call)
     assert len(record_res.args) == 2
     assert record_res.callee.name == "__quantum__rt__result_record_output"
-    assert result_id(record_res.args[0]) == 0
+    assert ptr_id(record_res.args[0]) == 0
     assert func.basic_blocks[0].instructions[3].opcode == Opcode.RET
 
 

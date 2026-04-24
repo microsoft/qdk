@@ -13,7 +13,7 @@
   },
   "exports": {
     ".": {
-      "browser": "./dist/main.js",
+      "browser": "./dist/browser.js",
       "node": "./dist/node.js",
       "default": "./dist/main.js"
     },
@@ -46,8 +46,5 @@
     "docs",
     "lib",
     "ux"
-  ],
-  "optionalDependencies": {
-    "web-worker": "^1.5.0"
-  }
+  ]
 }

@@ -202,6 +202,14 @@
           "type": "string",
           "default": "",
           "markdownDescription": "Absolute path where the Quantum Katas MCP server stores scaffolded exercise files and progress (a `quantum-katas` subfolder is created here). When empty, the server prompts the user to confirm a path on first use."
+        },
+        "Q#.azure.quantumOsRoot": {
+          "type": "string",
+          "default": "https://manage.quantum.microsoft.com",
+          "tags": [
+            "hidden"
+          ],
+          "description": "The root URL of the Quantum OS web portal, used when generating deep links to V2 workspaces and jobs."
         }
       }
     },
@@ -1161,8 +1169,7 @@
     "tsc:check:learning": "node ../../node_modules/typescript/bin/tsc -p ./src/learning/tsconfig.json",
     "tsc:check": "npm run tsc:check:main && npm run tsc:check:view && npm run tsc:check:learning",
     "tsc:watch": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json --watch --preserveWatchOutput",
-    "tsc:watch:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput",
-    "postinstall": "node -e \"require('fs').cpSync('../../node_modules/web-worker','node_modules/web-worker',{recursive:true})\""
+    "tsc:watch:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.6.0",

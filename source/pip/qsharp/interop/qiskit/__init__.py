@@ -9,21 +9,21 @@ cloud connection.
 
 Available backends:
 
-:class:`~qsharp.interop.qiskit.QSharpBackend`
+- :class:`~qsharp.interop.qiskit.QSharpBackend`
     Runs any Qiskit ``QuantumCircuit`` using the Q# simulator. Supports
     noise-free simulation via QASM export and QIR compilation.
 
-:class:`~qsharp.interop.qiskit.NeutralAtomBackend`
+- :class:`~qsharp.interop.qiskit.NeutralAtomBackend`
     Runs Qiskit circuits on the local NeutralAtomDevice simulator. Decomposes
     gates to the native ``{Rz, SX, CZ}`` gate set and optionally models
     per-gate noise (including qubit loss). Loss shots are exposed separately
     from accepted shots in the job result.
 
-:class:`~qsharp.interop.qiskit.ResourceEstimatorBackend`
+- :class:`~qsharp.interop.qiskit.ResourceEstimatorBackend`
     Estimates quantum resources (qubits, T-gates, etc.) for a Qiskit circuit
     without running a full simulation.
 
-:func:`~qsharp.interop.qiskit.estimate`
+- :func:`~qsharp.interop.qiskit.estimate`
     Convenience function that runs resource estimation on a Qiskit circuit
     and returns an :class:`~qsharp.estimator.EstimatorResult` directly, without
     needing to construct a backend or job manually.
