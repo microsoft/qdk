@@ -2,4 +2,3 @@ out/
 test/out/
 wasm/
 *.vsix
-

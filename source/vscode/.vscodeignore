@@ -1,8 +1,5 @@
 src/**
 test/**
-out/learning-test/**
-# Runtime scaffold from the learning CLI / katas MCP server; never ship.
-quantum-katas/**
 .gitignore
 .artifactignore
 tsconfig.json
