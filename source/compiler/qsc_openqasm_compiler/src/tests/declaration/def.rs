@@ -406,6 +406,8 @@ fn return_from_switch() {
                     return Std.OpenQASM.Convert.IntAsResult(1);
                 } elif a == 1 {
                     return Std.OpenQASM.Convert.IntAsResult(0);
+                } else {
+                    fail "No matching case in switch statement"
                 };
             }
         "#]],
