@@ -13,8 +13,6 @@ The WASM-compiled Rust compiler is consumed as the `qsharp-lang` npm package fro
 
 ## Build
 
-From `source/vscode/`: `npm run build` (tsc check + esbuild). Use `npm run build:watch` for dev.
-
 From repo root with `build.py`:
 
 ```
@@ -26,11 +24,22 @@ python build.py --wasm --npm --vscode --no-test         # Skip unit tests
 python build.py --wasm --npm --vscode --integration-tests  # Include VS Code integration tests (off by default)
 ```
 
+## npm scripts (run from `source/vscode/`)
+
+| Task                  | Command                                    |
+| --------------------- | ------------------------------------------ |
+| Build (tsc + esbuild) | `npm run build`                            |
+| Build watch           | `npm run build:watch`                      |
+| Type-check only       | `npm run tsc:check`                        |
+| Integration tests     | `npm test` or `npm test -- --suite=<name>` |
+| Katas tests           | `npm run test:learning`                    |
+| Launch dev VS Code    | `npm start`                                |
+
+**Do not use `npx`** to invoke tools — use the npm scripts above instead.
+
 ## Testing
 
 - **Framework**: Mocha + Chai via `@vscode/test-web` with Playwright (headless Chromium). Tests run in the real VS Code extension host — no mocking library. Do not add test dependencies.
-- **Run**: `npm test` (all suites), `npm test -- --suite=language-service`, `npm test -- --suite=debugger`
-- **Katas tests**: `npm run test:learning` (node:test runner, separate from mocha)
 - Suites live in `test/suites/` with `test-workspace/` fixture folders. Use helpers from `test/extensionUtils.ts`. Follow existing patterns.
 
 ## Conventions

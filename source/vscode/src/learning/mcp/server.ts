@@ -16,9 +16,18 @@ import {
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps/server";
 import { z } from "zod";
-import { readFileSync, existsSync, statSync } from "node:fs";
+import {
+  readFileSync,
+  existsSync,
+  statSync,
+  watch,
+  readFile,
+  unlink,
+} from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, isAbsolute } from "node:path";
+
+const NAVIGATE_FILE = ".navigate.json";
 import { createRequire } from "node:module";
 import type {
   KatasServer,
@@ -220,6 +229,78 @@ export async function registerMCPHandlers(
     };
   };
 
+  // ─── External navigation (.navigate.json) ────────────────────────────
+  //
+  // The VS Code tree view can write a `.navigate.json` file into the
+  // katas workspace to signal a navigation request without going through
+  // chat. We `fs.watch` that file; when it appears the server reads it,
+  // deletes it, and calls `goTo()`. The result is stashed in
+  // `pendingNavigation` until the live widget picks it up via the
+  // app-only `check_navigate` tool (polled at ~500ms by visible widgets).
+  let pendingNavigation: object | null = null;
+  let navigateWatcher: ReturnType<typeof watch> | null = null;
+
+  function startNavigateWatcher(katasRoot: string): void {
+    stopNavigateWatcher();
+    const navPath = join(katasRoot, NAVIGATE_FILE);
+    try {
+      navigateWatcher = watch(katasRoot, (eventType, filename) => {
+        // On Windows, filename should always be provided but may differ
+        // in casing. On some platforms it can be null — fall back to
+        // trying to read the file unconditionally in that case.
+        if (
+          filename != null &&
+          filename.toLowerCase() !== NAVIGATE_FILE.toLowerCase()
+        )
+          return;
+        // Read and delete in one go — fire-and-forget.
+        readFile(navPath, "utf-8", (readErr, data) => {
+          if (readErr) return; // File may already be gone (race).
+          unlink(navPath, () => {
+            // Ignore unlink errors — file may already be deleted.
+          });
+          try {
+            const req = JSON.parse(data) as {
+              kataId?: string;
+              sectionIndex?: number;
+              itemIndex?: number;
+            };
+            if (req.kataId) {
+              const state = server.goTo(
+                req.kataId,
+                req.sectionIndex ?? 0,
+                req.itemIndex ?? 0,
+              );
+              pendingNavigation = serializeState(state);
+              process.stderr.write(
+                `[katas-mcp] navigate signal consumed: ${req.kataId}§${req.sectionIndex ?? 0}\n`,
+              );
+            }
+          } catch {
+            // Malformed JSON — ignore.
+          }
+        });
+      });
+      process.stderr.write(
+        `[katas-mcp] navigate watcher started on ${katasRoot}\n`,
+      );
+    } catch (err) {
+      process.stderr.write(`[katas-mcp] navigate watcher failed: ${err}\n`);
+    }
+  }
+
+  function stopNavigateWatcher(): void {
+    if (navigateWatcher) {
+      navigateWatcher.close();
+      navigateWatcher = null;
+    }
+  }
+
+  // If workspace was pre-discovered, start watching immediately.
+  if (currentWorkspacePath) {
+    startNavigateWatcher(join(currentWorkspacePath, "quantum-katas"));
+  }
+
   // ─── Widget resources ───
   registerAppResource(
     mcp,
@@ -363,6 +444,7 @@ export async function registerMCPHandlers(
 
       initialized = true;
       currentWorkspacePath = resolved;
+      startNavigateWatcher(join(resolved, "quantum-katas"));
       return wrapResult({
         workspacePath: resolved,
         katasRoot: join(resolved, "quantum-katas"),
@@ -548,6 +630,31 @@ export async function registerMCPHandlers(
         });
       },
     ),
+  );
+
+  // ─── External navigation polling (app-only) ───
+
+  registerAppTool(
+    mcp,
+    "check_navigate",
+    {
+      description:
+        "Poll for a pending navigation request triggered by the VS Code tree view. " +
+        "Returns { navigated: true, state } when a navigation occurred, or { navigated: false } otherwise. " +
+        "App-only — hidden from the model.",
+      inputSchema: { widgetId: z.string().optional() },
+      _meta: { ui: { resourceUri: WIDGET_URI, visibility: ["app"] } },
+    },
+    requireInit(async ({ widgetId }: { widgetId?: string }) => {
+      const stale = checkStale(widgetId);
+      if (stale) return stale;
+      if (pendingNavigation) {
+        const state = pendingNavigation;
+        pendingNavigation = null;
+        return wrapResult({ navigated: true, state });
+      }
+      return wrapResult({ navigated: false });
+    }),
   );
 
   // ─── Q# execution ───

@@ -325,7 +325,12 @@
         },
         {
           "command": "qsharp-vscode.katasRefresh",
-          "when": "view == qsharp-vscode.katasTree || view == qsharp-vscode.katasOverview",
+          "when": "view == qsharp-vscode.katasTree",
+          "group": "navigation"
+        },
+        {
+          "command": "qsharp-vscode.katasContinue",
+          "when": "view == qsharp-vscode.katasTree && qsharp-vscode.katasDetected",
           "group": "navigation"
         }
       ],
@@ -374,9 +379,14 @@
           "when": "view == quantum-workspaces && viewItem == workspace"
         },
         {
+          "command": "qsharp-vscode.katasOpenSection",
+          "group": "inline",
+          "when": "view == qsharp-vscode.katasTree && (viewItem == continue || viewItem == lessonSection || viewItem == exerciseSection)"
+        },
+        {
           "command": "qsharp-vscode.katasAskInChat",
           "group": "inline",
-          "when": "view == qsharp-vscode.katasTree && (viewItem == kata || viewItem == lessonSection || viewItem == exerciseSection)"
+          "when": "view == qsharp-vscode.katasTree && (viewItem == continue || viewItem == kata || viewItem == lessonSection || viewItem == exerciseSection)"
         }
       ],
       "explorer/context": [
@@ -398,7 +408,7 @@
       "activitybar": [
         {
           "id": "qsharp-vscode-katas",
-          "title": "Quantum Katas",
+          "title": "Microsoft Quantum",
           "icon": "./resources/mobius.svg"
         }
       ]
@@ -412,11 +422,6 @@
       ],
       "qsharp-vscode-katas": [
         {
-          "type": "webview",
-          "id": "qsharp-vscode.katasOverview",
-          "name": "Overview"
-        },
-        {
           "id": "qsharp-vscode.katasTree",
           "name": "Katas"
         }
@@ -429,8 +434,13 @@
       },
       {
         "view": "qsharp-vscode.katasTree",
-        "contents": "No Quantum Katas workspace detected in this window.\n[Set up Quantum Katas workspace](command:qsharp-vscode.katasSetup)\nThe Quantum Katas are interactive exercises that teach quantum computing with Q#. Once set up, your progress will appear here.",
+        "contents": "Welcome to the Quantum Katas — a free, hands-on introduction to quantum computing with Q#.\n\nEach kata is a self-contained tutorial that teaches a concept through short readings followed by exercises you complete in your editor. Topics include qubits, gates, measurement, entanglement, and famous algorithms like Grover's and Deutsch–Jozsa.\n\nNo prior quantum experience required.\n[Get started](command:qsharp-vscode.katasSetup)",
         "when": "!qsharp-vscode.katasDetected"
+      },
+      {
+        "view": "qsharp-vscode.katasTree",
+        "contents": "Your workspace is set up. Start your first kata to begin learning quantum computing with Q#.\n[Start your first kata](command:qsharp-vscode.katasContinue)",
+        "when": "qsharp-vscode.katasDetected"
       }
     ],
     "chatInstructions": [
@@ -624,12 +634,14 @@
       {
         "command": "qsharp-vscode.katasContinue",
         "title": "Continue Quantum Katas",
-        "category": "QDK"
+        "category": "QDK",
+        "icon": "$(chat-sparkle)"
       },
       {
         "command": "qsharp-vscode.katasOpenSection",
         "title": "Open Quantum Katas section",
-        "category": "QDK"
+        "category": "QDK",
+        "icon": "$(play)"
       },
       {
         "command": "qsharp-vscode.katasAskInChat",

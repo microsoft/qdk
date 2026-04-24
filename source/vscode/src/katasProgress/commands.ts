@@ -4,7 +4,9 @@
 import * as vscode from "vscode";
 import { log } from "qsharp-lang";
 import { EventType, sendTelemetryEvent } from "../telemetry.js";
+import { NAVIGATE_FILE } from "./detector.js";
 import type { ProgressWatcher } from "./progressReader.js";
+import type { KatasTreeProvider } from "./treeProvider.js";
 import type { SectionKind, OverallProgress } from "./types.js";
 
 export interface OpenSectionArgs {
@@ -28,11 +30,13 @@ function findSection(
 
 /**
  * Open a kata section. For exercises, opens the scaffolded `.qs` file
- * directly. For lessons (and for exercises whose file is missing), route
- * to chat with a prompt that triggers the `quantum-katas` skill.
+ * directly. For lessons (and for exercises whose file is missing), try
+ * to navigate the live MCP widget via `.navigate.json`. If no widget
+ * picks it up within 2 seconds, fall back to chat.
  */
 async function openSection(
   watcher: ProgressWatcher,
+  treeProvider: KatasTreeProvider,
   args: OpenSectionArgs,
 ): Promise<void> {
   const info = watcher.workspaceInfo;
@@ -63,7 +67,25 @@ async function openSection(
       log.warn(
         `[katasProgress] exercise file not found (${fileUri.fsPath}): ${err}. Falling back to chat.`,
       );
-      // Fall through to chat routing.
+      // Fall through to navigate / chat routing.
+    }
+  }
+
+  // Try in-place navigation via .navigate.json when the katas workspace
+  // already exists (implying the MCP server may be active with a live widget).
+  if (info?.katasDirExists) {
+    const navigated = await tryNavigateSignal(
+      info.katasRoot,
+      args,
+      treeProvider,
+    );
+    if (navigated) {
+      sendTelemetryEvent(
+        EventType.KatasPanelAction,
+        { action: "navigateWidget" },
+        {},
+      );
+      return;
     }
   }
 
@@ -107,9 +129,112 @@ async function askInChat(
   sendTelemetryEvent(EventType.KatasPanelAction, { action: "askInChat" }, {});
 }
 
+// ─── Navigate signal (.navigate.json) ─────────────────────────────────
+//
+// Write a transient `.navigate.json` file into the katas workspace to
+// request in-place navigation of the live MCP widget — avoiding a new
+// chat message / LLM round-trip. The server `fs.watch`es for this file
+// and the widget polls `check_navigate` to pick it up.
+
+/** Cancel any in-flight navigation attempt before starting a new one. */
+let cancelInflight: (() => void) | null = null;
+
+const NAVIGATE_TIMEOUT_MS = 2000;
+
+/**
+ * Try to navigate the live widget by writing `.navigate.json`.
+ * Resolves `true` if the server consumed the file within the timeout,
+ * `false` otherwise (caller should fall back to chat).
+ */
+async function tryNavigateSignal(
+  katasRoot: vscode.Uri,
+  args: OpenSectionArgs,
+  treeProvider: KatasTreeProvider,
+): Promise<boolean> {
+  // Cancel any previous in-flight attempt.
+  cancelInflight?.();
+
+  const navFileUri = vscode.Uri.joinPath(katasRoot, NAVIGATE_FILE);
+  const payload = JSON.stringify({
+    kataId: args.kataId,
+    sectionIndex: args.sectionIndex,
+    itemIndex: 0,
+  });
+
+  let settled = false;
+  let resolvePromise: (consumed: boolean) => void;
+  const promise = new Promise<boolean>((r) => {
+    resolvePromise = r;
+  });
+
+  let backupTimer: ReturnType<typeof setTimeout> | undefined;
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function settle(consumed: boolean) {
+    if (settled) return;
+    settled = true;
+    cancelInflight = null;
+    fsWatcher?.dispose();
+    clearTimeout(backupTimer);
+    clearTimeout(timeoutTimer);
+    treeProvider.clearNavigating();
+    resolvePromise(consumed);
+  }
+
+  // 1. Set up the FileSystemWatcher BEFORE writing the file to avoid the
+  //    race where the server deletes it before we start listening.
+  const pattern = new vscode.RelativePattern(katasRoot, NAVIGATE_FILE);
+  const fsWatcher = vscode.workspace.createFileSystemWatcher(pattern);
+  fsWatcher.onDidDelete(() => settle(true));
+
+  cancelInflight = () => settle(false);
+
+  // 2. Write the navigate signal file.
+  try {
+    await vscode.workspace.fs.writeFile(
+      navFileUri,
+      new TextEncoder().encode(payload),
+    );
+  } catch (err) {
+    log.warn(`[katasProgress] failed to write navigate signal: ${err}`);
+    settle(false);
+    return promise;
+  }
+
+  // 3. Show spinner on the tree view.
+  treeProvider.setNavigating(args.kataId, args.sectionIndex);
+
+  // 4. Backup stat check — FileSystemWatcher on Windows can miss delete
+  //    events. A single check partway through the timeout catches this.
+  backupTimer = setTimeout(async () => {
+    if (settled) return;
+    try {
+      await vscode.workspace.fs.stat(navFileUri);
+      // File still exists — keep waiting for watcher / timeout.
+    } catch {
+      // File is gone — the server consumed it.
+      settle(true);
+    }
+  }, 500);
+
+  // 5. Timeout fallback — delete the file and fall back to chat.
+  timeoutTimer = setTimeout(async () => {
+    if (settled) return;
+    try {
+      await vscode.workspace.fs.delete(navFileUri);
+    } catch {
+      // File may already be gone.
+    }
+    settle(false);
+  }, NAVIGATE_TIMEOUT_MS);
+
+  return promise;
+}
+
 export function registerKatasCommands(
   context: vscode.ExtensionContext,
   watcher: ProgressWatcher,
+  treeProvider: KatasTreeProvider,
 ): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("qsharp-vscode.katasRefresh", async () => {
@@ -128,7 +253,7 @@ export function registerKatasCommands(
       if (snap && pos && pos.kataId) {
         const found = findSection(snap, pos.kataId, pos.sectionIndex);
         if (found) {
-          await openSection(watcher, {
+          await openSection(watcher, treeProvider, {
             kataId: pos.kataId,
             sectionIndex: pos.sectionIndex,
             kind: found.section.kind,
@@ -149,7 +274,7 @@ export function registerKatasCommands(
       async (input: unknown) => {
         const args = normalizeSectionArgs(input);
         if (!args) return;
-        await openSection(watcher, args);
+        await openSection(watcher, treeProvider, args);
       },
     ),
 

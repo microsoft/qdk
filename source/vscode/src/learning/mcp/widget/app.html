@@ -628,6 +628,79 @@
                 );
               }
             }
+
+            // ─── Poll check_navigate for tree-view-driven navigation ──────
+            //
+            // The VS Code tree view can trigger navigation by writing a
+            // .navigate.json file. The server picks it up and stages the new
+            // state. We poll check_navigate to pick it up without an LLM
+            // round-trip. Only the live (non-stale) widget polls, and only
+            // while visible (IntersectionObserver pauses it offscreen).
+            let navPollId = null;
+            let navPollVisible = true;
+
+            async function pollNavigate() {
+              if (document.body.classList.contains("stale")) {
+                stopNavPoll();
+                return;
+              }
+              try {
+                const env = await callTool("check_navigate", {});
+                if (env.stale === true) {
+                  stopNavPoll();
+                  invalidateContent();
+                  applyState(env.state);
+                  markStale(
+                    "This view is out of date \u2014 a newer widget below has taken over.",
+                    { allowRefresh: false },
+                  );
+                  return;
+                }
+                if (env.navigated && env.state) {
+                  dbg("me", "nav poll \u2192 navigated", {
+                    pos: `${env.state.position.kataId}\u00a7${env.state.position.sectionIndex}#${env.state.position.itemIndex}`,
+                  });
+                  clearOutput();
+                  applyState(env.state);
+                }
+              } catch (e) {
+                dbg("warn", "nav poll error", String((e && e.message) || e));
+              }
+            }
+
+            function startNavPoll() {
+              if (navPollId != null) return;
+              navPollId = setInterval(pollNavigate, 500);
+            }
+
+            function stopNavPoll() {
+              if (navPollId != null) {
+                clearInterval(navPollId);
+                navPollId = null;
+              }
+            }
+
+            // Pause polling when widget is scrolled offscreen.
+            const navObserver = new IntersectionObserver((entries) => {
+              for (const entry of entries) {
+                navPollVisible = entry.isIntersecting;
+                if (navPollVisible) startNavPoll();
+                else stopNavPoll();
+              }
+            });
+            navObserver.observe(document.documentElement);
+
+            // Start polling (observer fires async, so kick off immediately too).
+            startNavPoll();
+
+            // Clean up on teardown.
+            const origTeardown = app.onteardown;
+            app.onteardown = () => {
+              stopNavPoll();
+              navObserver.disconnect();
+              if (origTeardown) return origTeardown();
+              return {};
+            };
           } catch (err) {
             const msg = String((err && err.message) || err);
             dbg("warn", "boot failed", msg);

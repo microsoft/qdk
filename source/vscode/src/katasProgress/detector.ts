@@ -7,6 +7,8 @@ import * as vscode from "vscode";
 export const KATAS_SUBFOLDER = "quantum-katas";
 /** Matches `PROGRESS_FILE` in source/vscode/src/learning/server/progress.ts. */
 export const PROGRESS_FILE = ".katas-progress.json";
+/** Matches `NAVIGATE_FILE` in source/vscode/src/learning/mcp/server.ts. */
+export const NAVIGATE_FILE = ".navigate.json";
 
 export interface KatasWorkspaceInfo {
   /**

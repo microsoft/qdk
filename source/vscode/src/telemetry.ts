@@ -346,6 +346,7 @@ type EventTypes = {
         | "openExercise"
         | "openLesson"
         | "askInChat"
+        | "navigateWidget"
         | "setup";
     };
     measurements: Empty;

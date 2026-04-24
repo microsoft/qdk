@@ -3,15 +3,34 @@
 
 import * as vscode from "vscode";
 import { registerKatasCommands } from "./commands.js";
-import { KatasOverviewProvider } from "./overviewProvider.js";
 import { ProgressWatcher } from "./progressReader.js";
 import { KatasTreeProvider } from "./treeProvider.js";
+import type { OverallProgress } from "./types.js";
+
+function buildTreeMessage(
+  snapshot: OverallProgress | undefined,
+  detected: boolean,
+): string | undefined {
+  if (!detected || !snapshot) return undefined;
+
+  const katas = snapshot.katas;
+  if (katas.length === 0) return undefined;
+
+  const completedKatas = katas.filter(
+    (k) => k.total > 0 && k.completed === k.total,
+  ).length;
+
+  if (completedKatas >= katas.length) {
+    return `All ${katas.length} katas complete — nicely done!`;
+  }
+
+  return `${completedKatas}/${katas.length} katas complete — keep it up!`;
+}
 
 /**
  * Wire up the Quantum Katas activity-bar panel:
  *   - a `ProgressWatcher` that tracks the detected katas workspace + progress file,
- *   - a native `TreeView` of Kata → Section nodes,
- *   - a `WebviewView` header with an overall progress bar and "Continue" button,
+ *   - a native `TreeView` of Kata → Section nodes with an inline progress message,
  *   - the `qsharp-vscode.katas*` commands.
  */
 export function registerKatasProgressView(
@@ -28,22 +47,17 @@ export function registerKatasProgressView(
   context.subscriptions.push(treeView);
   context.subscriptions.push({ dispose: () => treeProvider.dispose() });
 
-  const overviewProvider = new KatasOverviewProvider(context.extensionUri);
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(
-      KatasOverviewProvider.viewType,
-      overviewProvider,
-    ),
-  );
-
   context.subscriptions.push(
     watcher.onDidChange((snapshot) => {
       treeProvider.update(snapshot);
-      overviewProvider.update(snapshot, watcher.workspaceInfo !== undefined);
+      treeView.message = buildTreeMessage(
+        snapshot,
+        watcher.workspaceInfo !== undefined,
+      );
     }),
   );
 
-  registerKatasCommands(context, watcher);
+  registerKatasCommands(context, watcher, treeProvider);
 
   // Kick off initial detection + load; fire-and-forget.
   void watcher.start();
