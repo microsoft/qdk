@@ -9,7 +9,7 @@ use std::{rc::Rc, str::FromStr, sync::Arc};
 use error::CompilerErrorKind;
 use num_bigint::BigInt;
 use qsc_data_structures::{error::WithSource, source::SourceMap, span::Span, target::Profile};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     CompilerConfig, FunctorConstraintSolver, FunctorConstraints, OperationSignature,
@@ -52,6 +52,7 @@ use qsc_openqasm_parser::{
         },
         symbols::{IOKind, Symbol, SymbolId, SymbolTable},
         types::{Type, promote_types},
+        visit::{Visitor, walk_stmt},
     },
     stdlib::complex::Complex,
 };
@@ -108,6 +109,7 @@ pub fn compile_to_qsharp_ast_with_config(
         errors,
         pragma_config: PragmaConfig::default(),
         functor_constraints: FxHashMap::default(),
+        assigned_input_symbols: FxHashSet::default(),
     };
 
     compiler.compile(&program)
@@ -182,6 +184,56 @@ pub struct QasmCompiler {
     /// Functor constraints for each gate, computed by the constraint solver pass.
     /// Maps gate symbol IDs to their required functor support (Adj, Ctl).
     pub functor_constraints: FxHashMap<SymbolId, FunctorConstraints>,
+    /// Set of input symbol names that are targets of assignment statements.
+    /// Used to create mutable shadow copies for these parameters in the operation body.
+    pub assigned_input_symbols: FxHashSet<String>,
+}
+
+/// Collects the names of input symbols that are assigned to in the program.
+/// This is used to determine which input parameters need mutable shadow copies
+/// in the generated Q# operation body.
+fn collect_assigned_input_symbols(
+    program: &semast::Program,
+    symbols: &SymbolTable,
+) -> FxHashSet<String> {
+    let input_names: FxHashSet<String> = symbols
+        .get_input()
+        .unwrap_or_default()
+        .iter()
+        .map(|s| s.name.clone())
+        .collect();
+
+    if input_names.is_empty() {
+        return FxHashSet::default();
+    }
+
+    struct AssignmentCollector<'a> {
+        input_names: &'a FxHashSet<String>,
+        symbols: &'a SymbolTable,
+        assigned: FxHashSet<String>,
+    }
+
+    impl Visitor for AssignmentCollector<'_> {
+        fn visit_stmt(&mut self, stmt: &semast::Stmt) {
+            if let semast::StmtKind::Assign(assign) = &*stmt.kind {
+                if let semast::ExprKind::Ident(sym_id) = &*assign.lhs.kind {
+                    let sym = &self.symbols[*sym_id];
+                    if self.input_names.contains(&sym.name) {
+                        self.assigned.insert(sym.name.clone());
+                    }
+                }
+            }
+            walk_stmt(self, stmt);
+        }
+    }
+
+    let mut collector = AssignmentCollector {
+        input_names: &input_names,
+        symbols,
+        assigned: FxHashSet::default(),
+    };
+    collector.visit_program(program);
+    collector.assigned
 }
 
 impl QasmCompiler {
@@ -193,6 +245,10 @@ impl QasmCompiler {
         // Run the functor constraint solver pass to determine which functors
         // each gate definition needs to support based on how they're called.
         self.functor_constraints = FunctorConstraintSolver::solve(program);
+
+        // Collect input symbols that are targets of assignment statements.
+        // These need mutable shadow copies when compiled as operation parameters.
+        self.assigned_input_symbols = collect_assigned_input_symbols(program, &self.symbols);
 
         // in non-file mode we need the runtime imports in the body
         let program_ty = self.config.program_ty.clone();
@@ -385,6 +441,27 @@ impl QasmCompiler {
                 })
                 .collect::<Vec<_>>();
             let mut validation_stmts = Self::get_argument_validation_stmts(&args);
+
+            // In OpenQASM, input variables are mutable. In Q#, operation parameters
+            // are immutable. Create mutable shadow copies for input params that
+            // are reassigned in the program body so that `set` works correctly.
+            for s in input {
+                if self.assigned_input_symbols.contains(&s.name) {
+                    let qsharp_ty = self.map_semantic_type_to_qsharp_type(&s.ty, s.ty_span);
+                    let init_expr = build_path_ident_expr(&s.name, s.span, s.span);
+                    let shadow_stmt = build_classical_decl(
+                        &s.name,
+                        false, // mutable
+                        s.ty_span,
+                        s.span,
+                        s.span,
+                        &qsharp_ty,
+                        init_expr,
+                    );
+                    validation_stmts.push(shadow_stmt);
+                }
+            }
+
             validation_stmts.extend(stmts);
             stmts = validation_stmts;
         }
