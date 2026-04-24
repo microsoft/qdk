@@ -196,6 +196,26 @@ fn collect_assigned_input_symbols(
     program: &semast::Program,
     symbols: &SymbolTable,
 ) -> FxHashSet<String> {
+    struct AssignmentCollector<'a> {
+        input_names: &'a FxHashSet<String>,
+        symbols: &'a SymbolTable,
+        assigned: FxHashSet<String>,
+    }
+
+    impl Visitor for AssignmentCollector<'_> {
+        fn visit_stmt(&mut self, stmt: &semast::Stmt) {
+            if let semast::StmtKind::Assign(assign) = &*stmt.kind
+                && let semast::ExprKind::Ident(sym_id) = &*assign.lhs.kind
+            {
+                let sym = &self.symbols[*sym_id];
+                if self.input_names.contains(&sym.name) {
+                    self.assigned.insert(sym.name.clone());
+                }
+            }
+            walk_stmt(self, stmt);
+        }
+    }
+
     let input_names: FxHashSet<String> = symbols
         .get_input()
         .unwrap_or_default()
@@ -205,26 +225,6 @@ fn collect_assigned_input_symbols(
 
     if input_names.is_empty() {
         return FxHashSet::default();
-    }
-
-    struct AssignmentCollector<'a> {
-        input_names: &'a FxHashSet<String>,
-        symbols: &'a SymbolTable,
-        assigned: FxHashSet<String>,
-    }
-
-    impl Visitor for AssignmentCollector<'_> {
-        fn visit_stmt(&mut self, stmt: &semast::Stmt) {
-            if let semast::StmtKind::Assign(assign) = &*stmt.kind {
-                if let semast::ExprKind::Ident(sym_id) = &*assign.lhs.kind {
-                    let sym = &self.symbols[*sym_id];
-                    if self.input_names.contains(&sym.name) {
-                        self.assigned.insert(sym.name.clone());
-                    }
-                }
-            }
-            walk_stmt(self, stmt);
-        }
     }
 
     let mut collector = AssignmentCollector {
@@ -450,13 +450,8 @@ impl QasmCompiler {
                     let qsharp_ty = self.map_semantic_type_to_qsharp_type(&s.ty, s.ty_span);
                     let init_expr = build_path_ident_expr(&s.name, s.span, s.span);
                     let shadow_stmt = build_classical_decl(
-                        &s.name,
-                        false, // mutable
-                        s.ty_span,
-                        s.span,
-                        s.span,
-                        &qsharp_ty,
-                        init_expr,
+                        &s.name, false, // mutable
+                        s.ty_span, s.span, s.span, &qsharp_ty, init_expr,
                     );
                     validation_stmts.push(shadow_stmt);
                 }
@@ -1886,10 +1881,8 @@ impl QasmCompiler {
             )
         {
             let span = binary.span();
-            let lhs =
-                build_qasm_convert_call_with_one_param("ResultAsInt", lhs, span, span);
-            let rhs =
-                build_qasm_convert_call_with_one_param("ResultAsInt", rhs, span, span);
+            let lhs = build_qasm_convert_call_with_one_param("ResultAsInt", lhs, span, span);
+            let rhs = build_qasm_convert_call_with_one_param("ResultAsInt", rhs, span, span);
             return build_binary_expr(false, op, lhs, rhs, span);
         }
 
