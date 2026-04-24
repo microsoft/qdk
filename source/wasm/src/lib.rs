@@ -420,6 +420,35 @@ where
     }
 }
 
+fn run_interpreter<F>(
+    interpreter: &mut interpret::Interpreter,
+    out: &mut CallbackReceiver<F>,
+    shots: u32,
+    pauliNoise: &PauliNoise,
+    qubitLoss: f64,
+) where
+    F: FnMut(&str),
+{
+    for _ in 0..shots {
+        let result = {
+            let mut sim = SparseSim::new_with_noise(pauliNoise);
+            sim.set_loss(qubitLoss);
+            interpreter.eval_entry_with_sim(&mut sim, out)
+        };
+        let mut success = true;
+        let msg: serde_json::Value = match result {
+            Ok(value) => serde_json::Value::String(value.to_string()),
+            Err(errors) => {
+                success = false;
+                interpret_errors_to_run_result(&errors)
+            }
+        };
+
+        let msg_string = json!({"type": "Result", "success": success, "result": msg}).to_string();
+        (out.event_cb)(&msg_string);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_internal_with_features<F>(
     sources: SourceMap,
@@ -454,24 +483,7 @@ where
         }
     };
 
-    for _ in 0..shots {
-        let result = {
-            let mut sim = SparseSim::new_with_noise(pauliNoise);
-            sim.set_loss(qubitLoss);
-            interpreter.eval_entry_with_sim(&mut sim, &mut out)
-        };
-        let mut success = true;
-        let msg: serde_json::Value = match result {
-            Ok(value) => serde_json::Value::String(value.to_string()),
-            Err(errors) => {
-                success = false;
-                interpret_errors_to_run_result(&errors)
-            }
-        };
-
-        let msg_string = json!({"type": "Result", "success": success, "result": msg}).to_string();
-        (out.event_cb)(&msg_string);
-    }
+    run_interpreter(&mut interpreter, &mut out, shots, pauliNoise, qubitLoss);
     Ok(())
 }
 
@@ -492,8 +504,22 @@ pub fn run(
     )
 }
 
+/// Emits a failed `Result` event via the callback before returning the error,
+/// ensuring the caller always receives at least one `Result` event.
+fn emit_run_error(event_cb: &impl Fn(&str), errors: Vec<interpret::Error>) -> JsValue {
+    let diag = interpret_errors_to_run_result(&errors);
+    let msg = json!({"type": "Result", "success": false, "result": diag}).to_string();
+    event_cb(&msg);
+    JsError::from(
+        errors
+            .into_iter()
+            .next()
+            .expect("expected at least one error"),
+    )
+    .into()
+}
+
 #[wasm_bindgen]
-#[allow(clippy::too_many_lines)]
 pub fn runWithNoise(
     program: ProgramConfig,
     expr: &str,
@@ -541,67 +567,26 @@ pub fn runWithNoise(
 
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);
-        let mut out = CallbackReceiver { event_cb };
         let (entry_expr, mut interpreter) =
             match get_interpreter_from_openqasm(&sources, capabilities) {
                 Ok(result) => result,
-                Err(errors) => {
-                    // Emit a Result event with the compilation errors so that
-                    // the event target can resolve the promise, matching Q# behavior.
-                    let diag = interpret_errors_to_run_result(&errors);
-                    let msg = json!({"type": "Result", "success": false, "result": diag});
-                    (out.event_cb)(&msg.to_string());
-                    return Err(JsError::from(
-                        errors
-                            .into_iter()
-                            .next()
-                            .expect("expected at least one error"),
-                    )
-                    .into());
-                }
+                Err(errors) => return Err(emit_run_error(&event_cb, errors)),
             };
         if let Err(errors) = interpreter.set_entry_expr(&entry_expr) {
-            let diag = interpret_errors_to_run_result(&errors);
-            let msg = json!({"type": "Result", "success": false, "result": diag});
-            (out.event_cb)(&msg.to_string());
-            return Err(JsError::from(
-                errors
-                    .into_iter()
-                    .next()
-                    .expect("expected at least one error"),
-            )
-            .into());
+            return Err(emit_run_error(&event_cb, errors));
         }
-
-        for _ in 0..shots {
-            let result = {
-                let mut sim = SparseSim::new_with_noise(&noise);
-                sim.set_loss(qubitLoss);
-                interpreter.eval_entry_with_sim(&mut sim, &mut out)
-            };
-            let mut success = true;
-            let msg: serde_json::Value = match result {
-                Ok(value) => serde_json::Value::String(value.to_string()),
-                Err(errors) => {
-                    success = false;
-                    interpret_errors_to_run_result(&errors)
-                }
-            };
-
-            let msg_string =
-                json!({"type": "Result", "success": success, "result": msg}).to_string();
-            (out.event_cb)(&msg_string);
-        }
+        let mut out = CallbackReceiver { event_cb };
+        run_interpreter(&mut interpreter, &mut out, shots, &noise, qubitLoss);
         Ok(true)
     } else {
         let (source_map, capabilities, language_features, store, deps) =
-            into_qsc_args(program, Some(expr.into()), false).map_err(|mut e| {
-                // Wrap in `interpret::Error` and `JsError` to match the error type
-                // `run_internal_with_features` below
-                JsError::from(qsc::interpret::Error::from(
-                    e.pop().expect("expected at least one error"),
-                ))
-            })?;
+            match into_qsc_args(program, Some(expr.into()), false) {
+                Ok(args) => args,
+                Err(errors) => {
+                    let errors = errors.into_iter().map(Into::into).collect();
+                    return Err(emit_run_error(&event_cb, errors));
+                }
+            };
 
         match run_internal_with_features(
             source_map,
