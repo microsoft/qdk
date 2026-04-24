@@ -1671,36 +1671,7 @@ impl QasmCompiler {
 
         let default_block = stmt.default.as_ref().map(|block| self.compile_block(block));
 
-        // If there's no default case, add an else branch with a fail statement.
-        // This ensures Q# doesn't produce a type error when the function has a
-        // non-void return type and the switch doesn't cover all cases.
-        let default_expr = if let Some(block) = default_block {
-            Some(build_wrapped_block_expr(block))
-        } else {
-            let fail_message = qsast::Expr {
-                kind: Box::new(qsast::ExprKind::Lit(Box::new(qsast::Lit::String(
-                    "No matching case in switch statement".into(),
-                )))),
-                span: stmt.span,
-                ..Default::default()
-            };
-            let fail_expr = qsast::Expr {
-                kind: Box::new(qsast::ExprKind::Fail(Box::new(fail_message))),
-                span: stmt.span,
-                ..Default::default()
-            };
-            let fail_stmt = qsast::Stmt {
-                kind: Box::new(qsast::StmtKind::Expr(Box::new(fail_expr))),
-                span: stmt.span,
-                ..Default::default()
-            };
-            let fail_block = qsast::Block {
-                id: qsast::NodeId::default(),
-                span: stmt.span,
-                stmts: list_from_iter([fail_stmt]),
-            };
-            Some(build_wrapped_block_expr(fail_block))
-        };
+        let default_expr = default_block.map(build_wrapped_block_expr);
         let if_expr = cases
             .into_iter()
             .rev()

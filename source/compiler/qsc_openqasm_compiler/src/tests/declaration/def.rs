@@ -393,6 +393,7 @@ fn return_from_switch() {
             switch (a) {
                 case 0 { return 1; }
                 case 1 { return 0; }
+                default { return 0; }
             }
         }
     "#;
@@ -407,7 +408,7 @@ fn return_from_switch() {
                 } elif a == 1 {
                     return Std.OpenQASM.Convert.IntAsResult(0);
                 } else {
-                    fail "No matching case in switch statement"
+                    return Std.OpenQASM.Convert.IntAsResult(0);
                 };
             }
         "#]],

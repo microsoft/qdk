@@ -23,8 +23,6 @@ fn default_is_optional() -> miette::Result<(), Vec<Report>> {
         mutable i = 15;
         if i == 1 {
             set i = 2;
-        } else {
-            fail "No matching case in switch statement"
         };
     "#]]
     .assert_eq(&qsharp);
@@ -200,8 +198,6 @@ fn spec_case_3() -> miette::Result<(), Vec<Report>> {
                     y(q);
                 } elif Std.OpenQASM.Convert.ResultArrayAsIntBE(b) == 3 {
                     z(q);
-                } else {
-                    fail "No matching case in switch statement"
                 };
                 b
             }
@@ -311,11 +307,7 @@ fn spec_case_5() -> miette::Result<(), Vec<Report>> {
                 h(q[5]);
                 h(q[6]);
                 h(q[7]);
-            } else {
-                fail "No matching case in switch statement"
             };
-        } else {
-            fail "No matching case in switch statement"
         };
     "#]]
     .assert_eq(&qsharp);
