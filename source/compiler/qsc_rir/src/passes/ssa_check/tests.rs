@@ -7,8 +7,8 @@ use crate::{
     builder::{bell_program, new_program, teleport_program},
     passes::{build_dominator_graph, remap_block_ids},
     rir::{
-        Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program,
-        Ty, Variable, VariableId,
+        Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Prim,
+        Program, Ty, Variable, VariableId,
     },
     utils::build_predecessors_map,
 };
@@ -50,7 +50,7 @@ fn ssa_check_fails_for_instruction_on_literal_values() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -73,21 +73,21 @@ fn ssa_check_fails_for_use_before_assignment_in_single_block() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -108,21 +108,21 @@ fn ssa_check_fails_for_use_without_assignment_in_single_block() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -145,11 +145,11 @@ fn ssa_check_fails_for_use_before_assignment_across_sequential_blocks() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(1)),
@@ -162,11 +162,11 @@ fn ssa_check_fails_for_use_before_assignment_across_sequential_blocks() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -187,21 +187,21 @@ fn ssa_check_fails_for_multiple_assignment_in_single_block() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -219,7 +219,7 @@ fn ssa_check_passes_for_variable_that_dominates_usage() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -233,14 +233,14 @@ fn ssa_check_passes_for_variable_that_dominates_usage() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -255,11 +255,11 @@ fn ssa_check_passes_for_variable_that_dominates_usage() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -272,11 +272,11 @@ fn ssa_check_passes_for_variable_that_dominates_usage() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -301,7 +301,7 @@ fn ssa_check_fails_when_definition_does_not_dominates_usage() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -315,14 +315,14 @@ fn ssa_check_fails_when_definition_does_not_dominates_usage() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -337,11 +337,11 @@ fn ssa_check_fails_when_definition_does_not_dominates_usage() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -354,11 +354,11 @@ fn ssa_check_fails_when_definition_does_not_dominates_usage() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -371,11 +371,11 @@ fn ssa_check_fails_when_definition_does_not_dominates_usage() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -393,7 +393,7 @@ fn ssa_check_succeeds_when_phi_handles_multiple_values_from_branches() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -407,14 +407,14 @@ fn ssa_check_succeeds_when_phi_handles_multiple_values_from_branches() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -429,11 +429,11 @@ fn ssa_check_succeeds_when_phi_handles_multiple_values_from_branches() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -446,11 +446,11 @@ fn ssa_check_succeeds_when_phi_handles_multiple_values_from_branches() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -465,31 +465,31 @@ fn ssa_check_succeeds_when_phi_handles_multiple_values_from_branches() {
                     (
                         Operand::Variable(Variable {
                             variable_id: VariableId(1),
-                            ty: Ty::Boolean,
+                            ty: Ty::Prim(Prim::Boolean),
                         }),
                         BlockId(1),
                     ),
                     (
                         Operand::Variable(Variable {
                             variable_id: VariableId(2),
-                            ty: Ty::Boolean,
+                            ty: Ty::Prim(Prim::Boolean),
                         }),
                         BlockId(2),
                     ),
                 ],
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -507,7 +507,7 @@ fn ssa_check_succeeds_when_phi_handles_value_from_dominator_of_predecessor() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -521,14 +521,14 @@ fn ssa_check_succeeds_when_phi_handles_value_from_dominator_of_predecessor() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -543,11 +543,11 @@ fn ssa_check_succeeds_when_phi_handles_value_from_dominator_of_predecessor() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -560,11 +560,11 @@ fn ssa_check_succeeds_when_phi_handles_value_from_dominator_of_predecessor() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(4)),
@@ -583,31 +583,31 @@ fn ssa_check_succeeds_when_phi_handles_value_from_dominator_of_predecessor() {
                     (
                         Operand::Variable(Variable {
                             variable_id: VariableId(1),
-                            ty: Ty::Boolean,
+                            ty: Ty::Prim(Prim::Boolean),
                         }),
                         BlockId(1),
                     ),
                     (
                         Operand::Variable(Variable {
                             variable_id: VariableId(2),
-                            ty: Ty::Boolean,
+                            ty: Ty::Prim(Prim::Boolean),
                         }),
                         BlockId(4),
                     ),
                 ],
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -628,7 +628,7 @@ fn ssa_check_fails_when_phi_handles_value_from_non_dominator_of_predecessor() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -642,14 +642,14 @@ fn ssa_check_fails_when_phi_handles_value_from_non_dominator_of_predecessor() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -664,11 +664,11 @@ fn ssa_check_fails_when_phi_handles_value_from_non_dominator_of_predecessor() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -681,17 +681,17 @@ fn ssa_check_fails_when_phi_handles_value_from_non_dominator_of_predecessor() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(4),
                 BlockId(5),
@@ -710,11 +710,11 @@ fn ssa_check_fails_when_phi_handles_value_from_non_dominator_of_predecessor() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(6)),
@@ -733,31 +733,31 @@ fn ssa_check_fails_when_phi_handles_value_from_non_dominator_of_predecessor() {
                     (
                         Operand::Variable(Variable {
                             variable_id: VariableId(1),
-                            ty: Ty::Boolean,
+                            ty: Ty::Prim(Prim::Boolean),
                         }),
                         BlockId(1),
                     ),
                     (
                         Operand::Variable(Variable {
                             variable_id: VariableId(3),
-                            ty: Ty::Boolean,
+                            ty: Ty::Prim(Prim::Boolean),
                         }),
                         BlockId(6),
                     ),
                 ],
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(5),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -776,7 +776,7 @@ fn ssa_check_fails_when_phi_lists_non_predecessor_block() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -790,14 +790,14 @@ fn ssa_check_fails_when_phi_lists_non_predecessor_block() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -812,11 +812,11 @@ fn ssa_check_fails_when_phi_lists_non_predecessor_block() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -829,11 +829,11 @@ fn ssa_check_fails_when_phi_lists_non_predecessor_block() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -848,31 +848,31 @@ fn ssa_check_fails_when_phi_lists_non_predecessor_block() {
                     (
                         Operand::Variable(Variable {
                             variable_id: VariableId(1),
-                            ty: Ty::Boolean,
+                            ty: Ty::Prim(Prim::Boolean),
                         }),
                         BlockId(0),
                     ),
                     (
                         Operand::Variable(Variable {
                             variable_id: VariableId(2),
-                            ty: Ty::Boolean,
+                            ty: Ty::Prim(Prim::Boolean),
                         }),
                         BlockId(1),
                     ),
                 ],
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -891,7 +891,7 @@ fn ssa_check_fails_when_phi_assigns_to_itself() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -905,14 +905,14 @@ fn ssa_check_fails_when_phi_assigns_to_itself() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -927,11 +927,11 @@ fn ssa_check_fails_when_phi_assigns_to_itself() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -944,11 +944,11 @@ fn ssa_check_fails_when_phi_assigns_to_itself() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -963,31 +963,31 @@ fn ssa_check_fails_when_phi_assigns_to_itself() {
                     (
                         Operand::Variable(Variable {
                             variable_id: VariableId(1),
-                            ty: Ty::Boolean,
+                            ty: Ty::Prim(Prim::Boolean),
                         }),
                         BlockId(1),
                     ),
                     (
                         Operand::Variable(Variable {
                             variable_id: VariableId(3),
-                            ty: Ty::Boolean,
+                            ty: Ty::Prim(Prim::Boolean),
                         }),
                         BlockId(2),
                     ),
                 ],
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
         ]),
@@ -1005,7 +1005,7 @@ fn ssa_check_fails_when_phi_blocks_have_different_predecessors() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -1019,14 +1019,14 @@ fn ssa_check_fails_when_phi_blocks_have_different_predecessors() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -1041,11 +1041,11 @@ fn ssa_check_fails_when_phi_blocks_have_different_predecessors() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(1),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -1058,11 +1058,11 @@ fn ssa_check_fails_when_phi_blocks_have_different_predecessors() {
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(2),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Jump(BlockId(3)),
@@ -1076,23 +1076,23 @@ fn ssa_check_fails_when_phi_blocks_have_different_predecessors() {
                 vec![(
                     Operand::Variable(Variable {
                         variable_id: VariableId(1),
-                        ty: Ty::Boolean,
+                        ty: Ty::Prim(Prim::Boolean),
                     }),
                     BlockId(1),
                 )],
                 Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::LogicalNot(
                 Operand::Variable(Variable {
                     variable_id: VariableId(3),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 Variable {
                     variable_id: VariableId(4),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,

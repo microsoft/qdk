@@ -11,7 +11,7 @@ use qsc_fir::fir::PackageId;
 use qsc_partial_eval::{
     Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
     VariableId,
-    rir::{Block, BlockId, Program, Ty, Variable},
+    rir::{Block, BlockId, Prim, Program, Ty, Variable},
 };
 use qsc_rir::debug::{DbgInfo, DbgLocationId, DbgScope, DbgScopeId};
 use std::{fmt::Display, vec};
@@ -372,7 +372,8 @@ fn process_variables(
         instruction @ (Instruction::Store(..)
         | Instruction::BitwiseNot(..)
         | Instruction::Alloca(..)
-        | Instruction::Load(..)) => {
+        | Instruction::Load(..)
+        | Instruction::Index(..)) => {
             return Err(Error::UnsupportedFeature(format!(
                 "unsupported instruction in block: {instruction:?}"
             )));
@@ -911,7 +912,7 @@ fn store_expr_in_variable(
         panic!("variable {variable_id:?} already stored {old_value:?}, cannot store {expr:?}");
     }
     if let Expr::Bool(condition_expr) = &expr {
-        if let Ty::Boolean = var.ty {
+        if let Ty::Prim(Prim::Boolean) = var.ty {
         } else {
             return Err(Error::UnsupportedFeature(format!(
                 "variable {variable_id:?} has type {var_ty:?} but is being assigned a condition expression: {condition_expr:?}",
@@ -1278,17 +1279,23 @@ fn callable_spec<'a>(
             match o {
                 Operand::Literal(Literal::Integer(_) | Literal::Double(_))
                 | Operand::Variable(Variable {
-                    ty: Ty::Boolean | Ty::Integer | Ty::Double,
+                    ty: Ty::Prim(Prim::Boolean | Prim::Integer | Prim::Double),
                     ..
                 }) => {
                     operand_types.push(OperandType::Arg);
                 }
                 Operand::Literal(Literal::Qubit(_))
-                | Operand::Variable(Variable { ty: Ty::Qubit, .. }) => {
+                | Operand::Variable(Variable {
+                    ty: Ty::Prim(Prim::Qubit),
+                    ..
+                }) => {
                     operand_types.push(OperandType::TargetQubit);
                 }
                 Operand::Literal(Literal::Result(_))
-                | Operand::Variable(Variable { ty: Ty::Result, .. }) => {
+                | Operand::Variable(Variable {
+                    ty: Ty::Prim(Prim::Result),
+                    ..
+                }) => {
                     operand_types.push(OperandType::TargetResult);
                 }
                 o => {

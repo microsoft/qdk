@@ -80,7 +80,7 @@ export type DrawOptions = {
 export class Sqore {
   circuit: Circuit;
   gateRegistry: GateRegistry = {};
-  renderDepth: number = this.options.renderDepth ?? 0;
+  renderDepth: number;
   container: HTMLElement | null = null;
   zoomOnResize: boolean = true;
   zoomLevel: number = 100;
@@ -103,6 +103,7 @@ export class Sqore {
         `No circuit found in file. Please provide a valid circuit.`,
       );
     }
+    this.renderDepth = options.renderDepth ?? 0;
     // For now we only visualize the first circuit in the group
     this.circuit = this.circuitGroup.circuits[0];
   }

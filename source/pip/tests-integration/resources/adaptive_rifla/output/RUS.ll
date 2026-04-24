@@ -1,16 +1,18 @@
 @0 = internal constant [4 x i8] c"0_a\00"
 @1 = internal constant [6 x i8] c"1_a0r\00"
 @2 = internal constant [6 x i8] c"2_a1r\00"
+@array0 = internal constant [2 x ptr] [ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr)]
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_1 = alloca i1
+  %var_6 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   store i1 true, ptr %var_1
   br label %block_1
 block_1:
-  %var_7 = load i1, ptr %var_1
-  br i1 %var_7, label %block_2, label %block_3
+  %var_12 = load i1, ptr %var_1
+  br i1 %var_12, label %block_2, label %block_3
 block_2:
   call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
@@ -20,8 +22,8 @@ block_2:
   %var_4 = icmp eq i1 %var_3, false
   %var_5 = xor i1 %var_4, true
   store i1 %var_5, ptr %var_1
-  %var_9 = load i1, ptr %var_1
-  br i1 %var_9, label %block_4, label %block_5
+  %var_14 = load i1, ptr %var_1
+  br i1 %var_14, label %block_4, label %block_5
 block_3:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr))
@@ -30,11 +32,24 @@ block_3:
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr @2)
   ret i64 0
 block_4:
-  call void @__quantum__qis__reset__body(ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__reset__body(ptr inttoptr (i64 1 to ptr))
-  br label %block_5
+  store i64 0, ptr %var_6
+  br label %block_6
 block_5:
   br label %block_1
+block_6:
+  %var_16 = load i64, ptr %var_6
+  %var_7 = icmp slt i64 %var_16, 2
+  br i1 %var_7, label %block_7, label %block_8
+block_7:
+  %var_17 = load i64, ptr %var_6
+  %var_8 = getelementptr ptr, ptr @array0, i64 %var_17
+  %var_18 = load ptr, ptr %var_8
+  call void @__quantum__qis__reset__body(ptr %var_18)
+  %var_10 = add i64 %var_17, 1
+  store i64 %var_10, ptr %var_6
+  br label %block_6
+block_8:
+  br label %block_5
 }
 
 declare void @__quantum__rt__initialize(ptr)

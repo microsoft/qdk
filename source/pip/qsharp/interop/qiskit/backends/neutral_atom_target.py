@@ -28,11 +28,8 @@ class NeutralAtomTarget:
     ) -> Target:
         """Return a Qiskit ``Target`` with only the NeutralAtomDevice native gates.
 
-        Args:
-            num_qubits: Number of qubits. ``None`` means no limit (simulator).
-
-        Returns:
-            A ``Target`` containing ``{rz, sx, cz, measure, reset}``.
+        :param num_qubits: Number of qubits. ``None`` means no limit (simulator).
+        :return: A ``Target`` containing ``{rz, sx, cz, measure, reset}``.
         """
         target = Target(num_qubits=num_qubits)
 

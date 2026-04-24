@@ -3,43 +3,88 @@
 @2 = internal constant [6 x i8] c"2_a1r\00"
 @3 = internal constant [6 x i8] c"3_a2r\00"
 @4 = internal constant [6 x i8] c"4_a3r\00"
+@array0 = internal constant [2 x ptr] [ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr)]
+@array1 = internal constant [3 x ptr] [ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 2 to ptr)]
+@array2 = internal constant [1 x ptr] [ptr inttoptr (i64 3 to ptr)]
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_1 = alloca i64
   %var_3 = alloca i1
+  %var_4 = alloca i64
+  %var_13 = alloca i64
+  %var_18 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
   store i64 1, ptr %var_1
   br label %block_1
 block_1:
-  %var_7 = load i64, ptr %var_1
-  %var_2 = icmp sle i64 %var_7, 9
+  %var_24 = load i64, ptr %var_1
+  %var_2 = icmp sle i64 %var_24, 9
   store i1 true, ptr %var_3
   br i1 %var_2, label %block_2, label %block_3
 block_2:
-  %var_10 = load i1, ptr %var_3
-  br i1 %var_10, label %block_4, label %block_5
+  %var_27 = load i1, ptr %var_3
+  br i1 %var_27, label %block_4, label %block_5
 block_3:
   store i1 false, ptr %var_3
   br label %block_2
 block_4:
-  call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
-  %var_11 = load i64, ptr %var_1
-  %var_5 = add i64 %var_11, 1
-  store i64 %var_5, ptr %var_1
-  br label %block_1
+  store i64 0, ptr %var_4
+  br label %block_6
 block_5:
   call void @__quantum__qis__rx__body(double 3.141592653589793, ptr inttoptr (i64 3 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 3 to ptr))
-  call void @__quantum__qis__reset__body(ptr inttoptr (i64 0 to ptr))
-  call void @__quantum__qis__reset__body(ptr inttoptr (i64 1 to ptr))
-  call void @__quantum__qis__reset__body(ptr inttoptr (i64 2 to ptr))
-  call void @__quantum__qis__reset__body(ptr inttoptr (i64 3 to ptr))
+  store i64 0, ptr %var_13
+  br label %block_7
+block_6:
+  %var_39 = load i64, ptr %var_4
+  %var_5 = icmp slt i64 %var_39, 2
+  br i1 %var_5, label %block_8, label %block_9
+block_7:
+  %var_29 = load i64, ptr %var_13
+  %var_14 = icmp slt i64 %var_29, 3
+  br i1 %var_14, label %block_10, label %block_11
+block_8:
+  %var_42 = load i64, ptr %var_4
+  %var_6 = getelementptr ptr, ptr @array0, i64 %var_42
+  %var_43 = load ptr, ptr %var_6
+  call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr %var_43)
+  %var_8 = add i64 %var_42, 1
+  store i64 %var_8, ptr %var_4
+  br label %block_6
+block_9:
+  %var_40 = load i64, ptr %var_1
+  %var_9 = add i64 %var_40, 1
+  store i64 %var_9, ptr %var_1
+  br label %block_1
+block_10:
+  %var_35 = load i64, ptr %var_13
+  %var_15 = getelementptr ptr, ptr @array1, i64 %var_35
+  %var_36 = load ptr, ptr %var_15
+  call void @__quantum__qis__reset__body(ptr %var_36)
+  %var_17 = add i64 %var_35, 1
+  store i64 %var_17, ptr %var_13
+  br label %block_7
+block_11:
+  store i64 0, ptr %var_18
+  br label %block_12
+block_12:
+  %var_31 = load i64, ptr %var_18
+  %var_19 = icmp slt i64 %var_31, 1
+  br i1 %var_19, label %block_13, label %block_14
+block_13:
+  %var_32 = load i64, ptr %var_18
+  %var_20 = getelementptr ptr, ptr @array2, i64 %var_32
+  %var_33 = load ptr, ptr %var_20
+  call void @__quantum__qis__reset__body(ptr %var_33)
+  %var_22 = add i64 %var_32, 1
+  store i64 %var_22, ptr %var_18
+  br label %block_12
+block_14:
   call void @__quantum__rt__array_record_output(i64 4, ptr @0)
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @1)
   call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @2)

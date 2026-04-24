@@ -496,7 +496,7 @@ const makeDropzoneBox = (
   }
 
   const paddingY = 20;
-  let dropzone = null;
+  let dropzone;
   if (interColumn) {
     dropzone = box(
       xOffset - gatePadding * 2,

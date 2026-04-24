@@ -15,6 +15,7 @@ __pycache__/
 /source/fuzz/artifacts
 /source/fuzz/coverage
 /source/fuzz/Cargo.lock
+/source/pip/doc
 /source/samples_test/src/tests/*_generated.rs
 .mypy_cache/
 .pytest_cache/
@@ -22,3 +23,4 @@ __pycache__/
 *.so
 samples/scratch/
 *.pyd
+/python_doc/

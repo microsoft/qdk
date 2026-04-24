@@ -7,8 +7,8 @@ use crate::{
     builder::new_program,
     passes::remap_block_ids,
     rir::{
-        Block, BlockId, Callable, CallableId, CallableType, Instruction, Program, Ty, Variable,
-        VariableId,
+        Block, BlockId, Callable, CallableId, CallableType, Instruction, Prim, Program, Ty,
+        Variable, VariableId,
     },
     utils::build_predecessors_map,
 };
@@ -79,7 +79,7 @@ fn dominator_graph_branching_blocks_dominated_by_common_predecessor() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -93,7 +93,7 @@ fn dominator_graph_branching_blocks_dominated_by_common_predecessor() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
@@ -105,7 +105,7 @@ fn dominator_graph_branching_blocks_dominated_by_common_predecessor() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(2),
             BlockId(3),
@@ -157,7 +157,7 @@ fn dominator_graph_branch_and_loop() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -170,7 +170,7 @@ fn dominator_graph_branch_and_loop() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
@@ -182,7 +182,7 @@ fn dominator_graph_branch_and_loop() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(2),
             BlockId(3),
@@ -222,7 +222,7 @@ fn dominator_graph_complex_structure_only_dominated_by_entry() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -241,14 +241,14 @@ fn dominator_graph_complex_structure_only_dominated_by_entry() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(5),
                 BlockId(4),
@@ -264,7 +264,7 @@ fn dominator_graph_complex_structure_only_dominated_by_entry() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(2),
             BlockId(3),
@@ -279,7 +279,7 @@ fn dominator_graph_complex_structure_only_dominated_by_entry() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(3),
             BlockId(1),
@@ -311,7 +311,7 @@ fn dominator_graph_with_node_having_many_predicates() {
         Callable {
             name: "dynamic_bool".to_string(),
             input_type: Vec::new(),
-            output_type: Some(Ty::Boolean),
+            output_type: Some(Ty::Prim(Prim::Boolean)),
             body: None,
             call_type: CallableType::Regular,
         },
@@ -325,14 +325,14 @@ fn dominator_graph_with_node_having_many_predicates() {
                 Vec::new(),
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -345,7 +345,7 @@ fn dominator_graph_with_node_having_many_predicates() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(3),
             BlockId(4),
@@ -357,7 +357,7 @@ fn dominator_graph_with_node_having_many_predicates() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(5),
             BlockId(6),

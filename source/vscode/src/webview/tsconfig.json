@@ -1,10 +1,10 @@
 {
   "compilerOptions": {
     "module": "CommonJS",
-    "target": "ES2020",
+    "target": "ES2022",
     "noEmit": true,
     "allowImportingTsExtensions": true,
-    "lib": ["DOM", "ES2021"],
+    "lib": ["DOM", "ES2022"],
     "rootDir": ".",
     "strict": true /* enable all strict type-checking options */,
     "jsx": "react-jsx",

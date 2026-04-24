@@ -1160,6 +1160,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "964de6e86d545b246d84badc0fef527924ace5134f30641c203ef52ba83f58d5"
 
 [[package]]
+name = "index_map"
+version = "0.0.0"
+
+[[package]]
 name = "indexmap"
 version = "2.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2086,17 +2090,30 @@ dependencies = [
  "expect-test",
  "futures",
  "iai-callgrind",
+ "index_map",
  "nalgebra",
+ "ndarray",
  "noisy_simulator",
  "num-bigint",
  "num-complex",
  "num-traits",
  "paulimer",
- "quantum-sparse-sim",
  "rand 0.8.5",
  "regex-lite",
  "rustc-hash",
  "wgpu",
+]
+
+[[package]]
+name = "qre"
+version = "0.0.0"
+dependencies = [
+ "miette",
+ "num-traits",
+ "probability",
+ "rustc-hash",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]
@@ -2204,6 +2221,7 @@ version = "0.0.0"
 dependencies = [
  "bitflags 2.11.0",
  "expect-test",
+ "index_map",
  "miette",
  "rustc-hash",
  "serde",
@@ -2511,6 +2529,7 @@ dependencies = [
  "num-traits",
  "pyo3",
  "qdk_simulators",
+ "qre",
  "qsc",
  "rand 0.8.5",
  "rayon",
@@ -2539,19 +2558,6 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
-]
-
-[[package]]
-name = "quantum-sparse-sim"
-version = "0.9.1"
-source = "git+https://github.com/qir-alliance/qir-runner?rev=818e686c04dfb061f9c566b1fa5c75abdc901fa3#818e686c04dfb061f9c566b1fa5c75abdc901fa3"
-dependencies = [
- "ndarray",
- "num-bigint",
- "num-complex",
- "num-traits",
- "rand 0.8.5",
- "rustc-hash",
 ]
 
 [[package]]

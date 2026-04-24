@@ -2,7 +2,9 @@
 # Licensed under the MIT License.
 
 import pytest
-import cirq
+
+cirq = pytest.importorskip("cirq")
+
 import numpy as np
 from qsharp.interop.cirq import NeutralAtomCirqResult, NeutralAtomSampler
 from qsharp._simulation import NoiseConfig
@@ -30,7 +32,7 @@ def sampler(device):
 # ---------------------------------------------------------------------------
 
 
-def create_bell_circuit() -> cirq.Circuit:
+def create_bell_circuit():
     """Two-qubit Bell state — should produce only |00⟩ or |11⟩."""
     q0, q1 = cirq.LineQubit.range(2)
     return cirq.Circuit(
@@ -42,7 +44,7 @@ def create_bell_circuit() -> cirq.Circuit:
     )
 
 
-def create_deterministic_circuit() -> cirq.Circuit:
+def create_deterministic_circuit():
     """Circuit whose output is always '11' regardless of noise (before native decomp)."""
     q0, q1 = cirq.LineQubit.range(2)
     return cirq.Circuit(
@@ -54,7 +56,7 @@ def create_deterministic_circuit() -> cirq.Circuit:
     )
 
 
-def create_multi_key_circuit() -> cirq.Circuit:
+def create_multi_key_circuit():
     """Circuit with two separate measurement keys."""
     q0, q1 = cirq.LineQubit.range(2)
     return cirq.Circuit(

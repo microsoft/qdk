@@ -39,44 +39,41 @@ def test_device_compile() -> None:
         compiled_qir,
         """\
 
-%Qubit = type opaque
-%Result = type opaque
-
 @0 = internal constant [4 x i8] c"0_a\\00"
 @1 = internal constant [6 x i8] c"1_a0r\\00"
 @2 = internal constant [6 x i8] c"2_a1r\\00"
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, %Qubit* null)
-  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, %Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__sx__body(%Qubit* null)
-  call void @__quantum__qis__sx__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, %Qubit* null)
-  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, %Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__cz__body(%Qubit* null, %Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, %Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__sx__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, %Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__mresetz__body(%Qubit* null, %Result* null)
-  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-  call void @__quantum__rt__array_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* null, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, ptr null)
+  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__sx__body(ptr null)
+  call void @__quantum__qis__sx__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, ptr null)
+  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__cz__body(ptr null, ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__sx__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__rz__body(double 0x3FF921FB54442D18, ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__mresetz__body(ptr null, ptr null)
+  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__rt__array_record_output(i64 2, ptr @0)
+  call void @__quantum__rt__result_record_output(ptr null, ptr @1)
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @2)
   ret i64 0
 }
 
-declare void @__quantum__rt__array_record_output(i64, i8*)
+declare void @__quantum__rt__array_record_output(i64, ptr)
 
-declare void @__quantum__rt__result_record_output(%Result*, i8*)
+declare void @__quantum__rt__result_record_output(ptr, ptr)
 
-declare void @__quantum__qis__sx__body(%Qubit*)
+declare void @__quantum__qis__sx__body(ptr)
 
-declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
+declare void @__quantum__qis__mresetz__body(ptr, ptr)
 
-declare void @__quantum__qis__rz__body(double, %Qubit*)
+declare void @__quantum__qis__rz__body(double, ptr)
 
-declare void @__quantum__qis__cz__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__cz__body(ptr, ptr)
 
 attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }
 
