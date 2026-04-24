@@ -702,7 +702,7 @@ if build_pip and build_widgets and args.integration_tests:
     ]
     (python_bin, pip_env) = use_python_env(samples_src)
 
-    # Install the qsharp package
+    # Install the qsharp and qdk package
     pip_install_args = [
         python_bin,
         "-m",
@@ -711,7 +711,8 @@ if build_pip and build_widgets and args.integration_tests:
         "--force-reinstall",
         "--no-index",
         "--find-links=" + wheels_dir,
-        f"qsharp",
+        "qsharp",
+        "qdk",
     ]
     subprocess.run(pip_install_args, check=True, text=True, cwd=pip_src, env=pip_env)
 
