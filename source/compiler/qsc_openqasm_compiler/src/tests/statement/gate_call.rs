@@ -756,6 +756,149 @@ fn rzz_gate_with_one_angle_can_be_called() -> miette::Result<(), Vec<Report>> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)]
+#[test]
+fn all_stdgates_inc_gates_can_be_called() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        include "stdgates.inc";
+        qubit[3] q;
+        // main gate definitions
+        p(1.0) q[0];
+        x q[0];
+        y q[0];
+        z q[0];
+        h q[0];
+        s q[0];
+        sdg q[0];
+        t q[0];
+        tdg q[0];
+        sx q[0];
+        rx(1.0) q[0];
+        ry(1.0) q[0];
+        rz(1.0) q[0];
+        cx q[0], q[1];
+        cy q[0], q[1];
+        cz q[0], q[1];
+        cp(1.0) q[0], q[1];
+        crx(1.0) q[0], q[1];
+        cry(1.0) q[0], q[1];
+        crz(1.0) q[0], q[1];
+        ch q[0], q[1];
+        swap q[0], q[1];
+        ccx q[0], q[1], q[2];
+        cswap q[0], q[1], q[2];
+        cu(1.0, 2.0, 3.0, 4.0) q[0], q[1];
+        // OpenQASM 2.0 backwards compatibility gates
+        CX q[0], q[1];
+        phase(1.0) q[0];
+        cphase(1.0) q[0], q[1];
+        id q[0];
+        u1(1.0) q[0];
+        u2(1.0, 2.0) q[0];
+        u3(1.0, 2.0, 3.0) q[0];
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        borrow q = Qubit[3];
+        p(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        x(q[0]);
+        y(q[0]);
+        z(q[0]);
+        h(q[0]);
+        s(q[0]);
+        sdg(q[0]);
+        t(q[0]);
+        tdg(q[0]);
+        sx(q[0]);
+        rx(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        ry(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        rz(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        cx(q[0], q[1]);
+        cy(q[0], q[1]);
+        cz(q[0], q[1]);
+        cp(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        crx(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        cry(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        crz(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        ch(q[0], q[1]);
+        swap(q[0], q[1]);
+        ccx(q[0], q[1], q[2]);
+        cswap(q[0], q[1], q[2]);
+        cu(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 5734161139222659,
+            Size = 53
+        }, q[0], q[1]);
+        CX(q[0], q[1]);
+        phase(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        cphase(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        id(q[0]);
+        u1(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        u2(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, q[0]);
+        u3(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, q[0]);
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
 #[test]
 fn all_qiskit_stdgates_can_be_called_included() -> miette::Result<(), Vec<Report>> {
     let source = r#"
