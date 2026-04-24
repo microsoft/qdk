@@ -246,8 +246,8 @@ results = run(source, shots=1000, noise=qsharp.DepolarizingNoise(0.01))
 
 # Import as a standalone file (manages its own qubits)
 import_openqasm(source, name="Bell", program_type=ProgramType.File)
-from qdk.code.qasm_import import Bell
-result = Bell()
+from qdk import code
+result = code.qasm_import.Bell()
 
 # Import as an operation (qubits become parameters)
 import_openqasm(source, name="MyGate", program_type=ProgramType.Operation)
