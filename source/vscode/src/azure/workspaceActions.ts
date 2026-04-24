@@ -42,8 +42,11 @@ export function getQuantumOsJobLink(
 function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
   const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\//;
   const subscriptionId =
-    workspace.id.match(idRegex)?.groups?.subscriptionId ?? "";
-  const offeringId = workspace.providers[0]?.providerId ?? "";
+    workspace.subscriptionId ??
+    workspace.id.match(idRegex)?.groups?.subscriptionId ??
+    "";
+  const offeringId =
+    workspace.offeringId ?? workspace.providers[0]?.providerId ?? "";
 
   return (
     `tenantId=${workspace.tenantId}` +
@@ -242,6 +245,7 @@ export function parseConnectionString(
     name: partsMap.get("workspacename")!,
     endpointUri: partsMap.get("quantumendpoint")!,
     tenantId: "", // Blank means not authenticated via a token
+    subscriptionId: partsMap.get("subscriptionid"),
     apiKey: partsMap.get("apikey"),
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
     jobs: [],
@@ -452,6 +456,7 @@ async function getWorkspaceWithAzureAD(
     name: workspace.name,
     endpointUri: fixedEndpoint,
     tenantId: tenantAuth.tenantId,
+    subscriptionId,
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
     jobs: [],
   };
@@ -499,6 +504,12 @@ export async function queryWorkspace(workspace: WorkspaceConnection) {
   workspace.providers = workspace.providers.filter(
     (provider) => !shouldExcludeProvider(provider.providerId),
   );
+
+  // Cache the first offering ID on the workspace so portal links work even
+  // before providers are re-fetched in a subsequent refresh cycle.
+  if (!workspace.offeringId && workspace.providers[0]?.providerId) {
+    workspace.offeringId = workspace.providers[0].providerId;
+  }
 
   log.debug("Fetching the jobs for the workspace");
   const jobs: ResponseTypes.JobList = await azureRequest(
