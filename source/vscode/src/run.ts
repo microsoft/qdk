@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { IQSharpError, log } from "qsharp-lang";
+import { IQSharpError, QdkDiagnostics, log } from "qsharp-lang";
 import vscode from "vscode";
 import { loadCompilerWorker } from "./common";
 import { createDebugConsoleEventTarget } from "./debugger/output";
@@ -133,7 +133,7 @@ export type HistogramData = {
  * @param program - The full program configuration to run.
  * @returns A promise that resolves with the final list of results.
  */
-export function runProgram(
+export async function runProgram(
   extensionUri: vscode.Uri,
   program: FullProgramConfig,
   options: {
@@ -162,134 +162,97 @@ export function runProgram(
     cancellationToken?: vscode.CancellationToken;
   },
 ): Promise<ProgramRunResult> {
-  return new Promise<ProgramRunResult>(function executeRunProgram(
-    resolve,
-  ): void {
-    let histogram: HistogramData | undefined;
-    const evtTarget = createDebugConsoleEventTarget((msg) => {
-      options.onConsoleOut?.(msg);
-    }, true /* captureEvents */);
+  const evtTarget = createDebugConsoleEventTarget((msg) => {
+    options.onConsoleOut?.(msg);
+  }, true /* captureEvents */);
 
-    evtTarget.addEventListener("uiResultsRefresh", () => {
-      const results = evtTarget.getResults();
-      const resultCount = evtTarget.resultCount(); // compiler errors come through here too
-      const buckets = new Map();
-      const failures: IQSharpError[] = [];
-      for (let i = 0; i < resultCount; ++i) {
-        const key = results[i].result;
-        const strKey = typeof key !== "string" ? "ERROR" : key;
-        const newValue = (buckets.get(strKey) || 0) + 1;
-        buckets.set(strKey, newValue);
-        if (!results[i].success) {
-          const errors = (results[i].result as { errors: IQSharpError[] })
-            .errors;
-          failures.push(...errors);
-        }
+  // Stream real-time histogram updates during execution.
+  evtTarget.addEventListener("uiResultsRefresh", () => {
+    const results = evtTarget.getResults();
+    const resultCount = evtTarget.resultCount();
+    const buckets = new Map();
+    const failures: IQSharpError[] = [];
+    for (let i = 0; i < resultCount; ++i) {
+      const key = results[i].result;
+      const strKey = typeof key !== "string" ? "ERROR" : key;
+      const newValue = (buckets.get(strKey) || 0) + 1;
+      buckets.set(strKey, newValue);
+      if (!results[i].success) {
+        const errors = (results[i].result as { errors: IQSharpError[] })
+          .errors;
+        failures.push(...errors);
       }
-      histogram = {
+    }
+    options.onResultsUpdate?.(
+      {
         buckets: Array.from(buckets.entries()) as [string, number][],
         shotCount: resultCount,
-      };
-      options.onResultsUpdate?.(histogram, failures);
-
-      // Somewhat hacky way of determining when we are done and
-      // don't expect to receive any more results.
-      // Ideally the `evtTarget` would contain a definitive "all done" flag.
-      const hasCompilerErrors = failures.filter((f) => !f.stack).length > 0;
-      if (hasCompilerErrors) {
-        // We can't expect all shots to be done,
-        // because of compilation errors.
-        resolve({
-          status: ProgramRunStatus.CompilationErrors,
-          errors: failures,
-        });
-      } else if (options.shots === resultCount) {
-        // All the shots are complete, we're done.
-        resolve({
-          status: ProgramRunStatus.AllShotsDone,
-          shotResults: results.map(
-            (r) =>
-              (r.success
-                ? {
-                    success: true,
-                    result: r.result as string,
-                  }
-                : {
-                    success: false,
-                    errors: (r.result as { errors: IQSharpError[] }).errors,
-                  }) as ShotResult,
-          ),
-        });
-      }
-    });
-
-    let cancelled = false;
-    const worker = loadCompilerWorker(extensionUri!);
-    const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
-    const compilerTimeout = setTimeout(() => {
-      worker.terminate();
-    }, compilerRunTimeoutMs);
-    options.cancellationToken?.onCancellationRequested(() => {
-      cancelled = true;
-      worker.terminate();
-    });
-
-    // Invoke the actual compiler worker.
-    worker
-      .run(program, options.entry || "", options.shots || 1, evtTarget)
-      .catch((e) => {
-        log.debug("Error during program run:", e);
-
-        const shotResults = evtTarget.getResults().map(
-          (r) =>
-            (r.success
-              ? {
-                  success: true,
-                  result: r.result as string,
-                }
-              : {
-                  success: false,
-                  errors: (r.result as { errors: IQSharpError[] }).errors,
-                }) as ShotResult,
-        );
-
-        if (e instanceof WebAssembly.RuntimeError) {
-          resolve({
-            status: ProgramRunStatus.FatalError,
-            shotResults,
-          });
-        } else if (e && e.toString() === "terminated") {
-          const doneStatus = cancelled
-            ? ProgramRunStatus.Cancellation
-            : ProgramRunStatus.Timeout;
-          resolve({
-            status: doneStatus,
-            shotResults,
-          });
-        } else if (e instanceof Error) {
-          // Compiler errors can come through here.
-          // But the error object here doesn't contain enough
-          // information to be useful, so we use the one that comes
-          // through the event target, and let that
-          // callback resolve the promise.
-        } else {
-          // Unknown fatal error
-          resolve({
-            status: ProgramRunStatus.UnknownError,
-            shotResults,
-          });
-        }
-      })
-      .finally(() => {
-        clearTimeout(compilerTimeout);
-        worker.terminate();
-      });
-
-    // We can still receive events after  `worker.run` is done,
-    // so `worker.run`s continuation is not relevant.
-    // The promise will be resolved in the event listener,
-    // when all the shots are complete.
+      },
+      failures,
+    );
   });
+
+  let cancelled = false;
+  const worker = loadCompilerWorker(extensionUri!);
+  const compilerRunTimeoutMs = 1000 * 60 * 5; // 5 minutes
+  const compilerTimeout = setTimeout(() => {
+    worker.terminate();
+  }, compilerRunTimeoutMs);
+  options.cancellationToken?.onCancellationRequested(() => {
+    cancelled = true;
+    worker.terminate();
+  });
+
+  try {
+    const results = await worker.run(
+      program,
+      options.entry || "",
+      options.shots || 1,
+      evtTarget,
+    );
+
+    return {
+      status: ProgramRunStatus.AllShotsDone,
+      shotResults: results.map(
+        (r) =>
+          (r.success
+            ? { success: true, result: r.value }
+            : {
+                success: false,
+                errors: (r.value as { errors: IQSharpError[] }).errors,
+              }) as ShotResult,
+      ),
+    };
+  } catch (e) {
+    log.debug("Error during program run:", e);
+
+    if (e instanceof QdkDiagnostics) {
+      return {
+        status: ProgramRunStatus.CompilationErrors,
+        errors: e.diagnostics,
+      };
+    } else if (e instanceof WebAssembly.RuntimeError) {
+      return {
+        status: ProgramRunStatus.FatalError,
+        shotResults: [],
+      };
+    } else if (e && e.toString() === "terminated") {
+      return {
+        status: cancelled
+          ? ProgramRunStatus.Cancellation
+          : ProgramRunStatus.Timeout,
+        shotResults: [],
+      };
+    } else {
+      return {
+        status: ProgramRunStatus.UnknownError,
+        shotResults: [],
+      };
+    }
+  } finally {
+    clearTimeout(compilerTimeout);
+    worker.terminate();
+  }
 }
 
 /**

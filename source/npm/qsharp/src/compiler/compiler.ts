@@ -21,7 +21,7 @@ import type {
   ServiceProtocol,
   ServiceState,
 } from "../workers/types.js";
-import { eventStringToMsg } from "./common.js";
+import { eventStringToMsg, type Result } from "./common.js";
 import {
   IQscEventTarget,
   QscEventData,
@@ -48,7 +48,7 @@ export interface ICompiler {
     expr: string,
     shots: number,
     eventHandler: IQscEventTarget,
-  ): Promise<void>;
+  ): Promise<Result[]>;
 
   runWithNoise(
     program: ProgramConfig,
@@ -57,7 +57,7 @@ export interface ICompiler {
     pauliNoise: number[],
     qubitLoss: number,
     eventHandler: IQscEventTarget,
-  ): Promise<void>;
+  ): Promise<Result[]>;
 
   getQir(program: ProgramConfig): Promise<string>;
 
@@ -166,11 +166,8 @@ export class Compiler implements ICompiler {
     expr: string,
     shots: number,
     eventHandler: IQscEventTarget,
-  ): Promise<void> {
-    // All results are communicated as events, but if there is a compiler error (e.g. an invalid
-    // entry expression or similar), it may throw on run. The caller should expect this promise
-    // may reject without all shots running or events firing.
-    await callAndTransformExceptions(async () =>
+  ): Promise<Result[]> {
+    const resultJson: string = await callAndTransformExceptions(async () =>
       this.wasm.run(
         toWasmProgramConfig(program, "unrestricted"),
         expr,
@@ -178,6 +175,7 @@ export class Compiler implements ICompiler {
         shots!,
       ),
     );
+    return parseRunResults(resultJson);
   }
 
   async runWithNoise(
@@ -187,8 +185,8 @@ export class Compiler implements ICompiler {
     pauliNoise: number[],
     qubitLoss: number,
     eventHandler: IQscEventTarget,
-  ): Promise<void> {
-    await callAndTransformExceptions(async () =>
+  ): Promise<Result[]> {
+    const resultJson: string = await callAndTransformExceptions(async () =>
       this.wasm.runWithNoise(
         toWasmProgramConfig(program, "unrestricted"),
         expr,
@@ -198,6 +196,7 @@ export class Compiler implements ICompiler {
         qubitLoss,
       ),
     );
+    return parseRunResults(resultJson);
   }
 
   async getQir(program: ProgramConfig): Promise<string> {
@@ -301,6 +300,15 @@ export function toWasmProgramConfig(
     profile: program.profile || defaultProfile,
     projectType: program.projectType || "qsharp",
   };
+}
+
+/**
+ * Parses the JSON result returned by the wasm `run` / `runWithNoise` functions
+ * into an array of per-shot `Result` objects.
+ */
+function parseRunResults(json: string): Result[] {
+  const raw: { success: boolean; result: unknown }[] = JSON.parse(json);
+  return raw.map((r) => ({ success: r.success, value: r.result }) as Result);
 }
 
 export function onCompilerEvent(msg: string, eventTarget: IQscEventTarget) {

@@ -214,7 +214,7 @@ export {
   qsharpGithubUriScheme,
   qsharpLibraryUriScheme,
 } from "./language-service/language-service.js";
-export type { Dump, ShotResult } from "./compiler/common.js";
+export type { Dump, Result, ShotResult } from "./compiler/common.js";
 export type { CompilerState, ProgramConfig } from "./compiler/compiler.js";
 export type { ICompiler, ICompilerWorker } from "./compiler/compiler.js";
 export type {

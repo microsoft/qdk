@@ -17,6 +17,7 @@ import {
 } from "../dist/node.js";
 
 import { QscEventTarget } from "../dist/compiler/events.js";
+import { QdkDiagnostics } from "../dist/diagnostics.js";
 import { getAllKatas, getExerciseSources, getKata } from "../dist/katas.js";
 import samples from "../dist/samples.generated.js";
 
@@ -51,12 +52,13 @@ export async function runSingleShot(code, expr, useWorker) {
     : await getCompiler();
 
   try {
-    await compiler.run(
+    const results = await compiler.run(
       { sources: [["test.qs", code]], languageFeatures: [] },
       expr,
       1,
       resultsHandler,
     );
+    // Use the return value; the event target also has the results.
     return resultsHandler.getResults()[0];
   } catch (err) {
     console.error("Error during runSingleShot:", err);
@@ -841,8 +843,8 @@ async function testCompilerError(useWorker) {
   }
 
   const events = new QscEventTarget(true);
-  let promiseResult = undefined;
   let lastState = undefined;
+  let caughtError = undefined;
   await compiler
     .run(
       { sources: [["test.qs", "invalid code"]], languageFeatures: [] },
@@ -850,17 +852,17 @@ async function testCompilerError(useWorker) {
       1,
       events,
     )
-    .then(() => {
-      promiseResult = "success";
-    })
-    .catch(() => {
-      promiseResult = "failure";
+    .catch((e) => {
+      caughtError = e;
     });
 
-  assert.equal(promiseResult, "failure");
-  const results = events.getResults();
-  assert.equal(results.length, 1);
-  assert.equal(results[0].success, false);
+  // The promise should reject with a QdkDiagnostics containing the compile errors.
+  assert(caughtError instanceof QdkDiagnostics);
+  assert(caughtError.diagnostics.length > 0);
+
+  // No Result events should be emitted for compilation errors.
+  assert.equal(events.getResults().length, 0);
+
   if (useWorker) {
     // Only the worker has state change events
     assert.equal(lastState, "idle");
@@ -875,7 +877,7 @@ test("compiler error on run - worker", () => testCompilerError(true));
 test("OpenQASM compile error on run", async () => {
   const compiler = await getCompiler();
   const events = new QscEventTarget(true);
-  let promiseResult = undefined;
+  let caughtError = undefined;
   await compiler
     .run(
       {
@@ -890,23 +892,19 @@ test("OpenQASM compile error on run", async () => {
       1,
       events,
     )
-    .then(() => {
-      promiseResult = "success";
-    })
-    .catch(() => {
-      promiseResult = "failure";
+    .catch((e) => {
+      caughtError = e;
     });
 
-  assert.equal(promiseResult, "failure");
-  const results = events.getResults();
-  assert.equal(results.length, 1);
-  assert.equal(results[0].success, false);
+  assert(caughtError instanceof QdkDiagnostics);
+  assert(caughtError.diagnostics.length > 0);
+  assert.equal(events.getResults().length, 0);
 });
 
 test("Q# dependency compile error on run", async () => {
   const compiler = await getCompiler();
   const events = new QscEventTarget(true);
-  let promiseResult = undefined;
+  let caughtError = undefined;
   await compiler
     .run(
       {
@@ -936,17 +934,42 @@ test("Q# dependency compile error on run", async () => {
       1,
       events,
     )
-    .then(() => {
-      promiseResult = "success";
-    })
-    .catch(() => {
-      promiseResult = "failure";
+    .catch((e) => {
+      caughtError = e;
     });
 
-  assert.equal(promiseResult, "failure");
-  const results = events.getResults();
-  assert.equal(results.length, 1);
-  assert.equal(results[0].success, false);
+  assert(caughtError instanceof QdkDiagnostics);
+  assert(caughtError.diagnostics.length > 0);
+  assert.equal(events.getResults().length, 0);
+});
+
+test("run returns shot results", async () => {
+  const compiler = await getCompiler();
+  const events = new QscEventTarget(true);
+  const results = await compiler.run(
+    {
+      sources: [
+        [
+          "test.qs",
+          `namespace Test { @EntryPoint() operation Main() : Result { use q = Qubit(); H(q); let r = M(q); Reset(q); r } }`,
+        ],
+      ],
+      languageFeatures: [],
+    },
+    "",
+    3,
+    events,
+  );
+
+  // The promise resolves with per-shot results.
+  assert.equal(results.length, 3);
+  for (const r of results) {
+    assert.equal(r.success, true);
+    assert(r.value === "Zero" || r.value === "One");
+  }
+
+  // The event target should also have the same results.
+  assert.equal(events.resultCount(), 3);
 });
 
 test("debug service loading source without entry point attr fails - web worker", async () => {

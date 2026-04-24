@@ -426,9 +426,11 @@ fn run_interpreter<F>(
     shots: u32,
     pauliNoise: &PauliNoise,
     qubitLoss: f64,
-) where
+) -> String
+where
     F: FnMut(&str),
 {
+    let mut shot_results = Vec::with_capacity(shots as usize);
     for _ in 0..shots {
         let result = {
             let mut sim = SparseSim::new_with_noise(pauliNoise);
@@ -446,7 +448,9 @@ fn run_interpreter<F>(
 
         let msg_string = json!({"type": "Result", "success": success, "result": msg}).to_string();
         (out.event_cb)(&msg_string);
+        shot_results.push(json!({"success": success, "result": msg}));
     }
+    serde_json::to_string(&shot_results).expect("serializing shot results should succeed")
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -460,7 +464,7 @@ fn run_internal_with_features<F>(
     dependencies: &Dependencies,
     pauliNoise: &PauliNoise,
     qubitLoss: f64,
-) -> Result<(), Box<interpret::Error>>
+) -> Result<String, String>
 where
     F: FnMut(&str),
 {
@@ -475,16 +479,11 @@ where
     ) {
         Ok(interpreter) => interpreter,
         Err(err) => {
-            let diag = interpret_errors_to_run_result(&err);
-            let msg = json!(
-                {"type": "Result", "success": false, "result": diag});
-            (out.event_cb)(&msg.to_string());
-            return Err(Box::new(err[0].clone()));
+            return Err(interpret_errors_into_qsharp_errors_json(err));
         }
     };
 
-    run_interpreter(&mut interpreter, &mut out, shots, pauliNoise, qubitLoss);
-    Ok(())
+    Ok(run_interpreter(&mut interpreter, &mut out, shots, pauliNoise, qubitLoss))
 }
 
 #[wasm_bindgen]
@@ -493,7 +492,7 @@ pub fn run(
     expr: &str,
     event_cb: &js_sys::Function,
     shots: u32,
-) -> Result<bool, JsValue> {
+) -> Result<String, String> {
     runWithNoise(
         program,
         expr,
@@ -504,21 +503,6 @@ pub fn run(
     )
 }
 
-/// Emits a failed `Result` event via the callback before returning the error,
-/// ensuring the caller always receives at least one `Result` event.
-fn emit_run_error(event_cb: &impl Fn(&str), errors: Vec<interpret::Error>) -> JsValue {
-    let diag = interpret_errors_to_run_result(&errors);
-    let msg = json!({"type": "Result", "success": false, "result": diag}).to_string();
-    event_cb(&msg);
-    JsError::from(
-        errors
-            .into_iter()
-            .next()
-            .expect("expected at least one error"),
-    )
-    .into()
-}
-
 #[wasm_bindgen]
 pub fn runWithNoise(
     program: ProgramConfig,
@@ -527,9 +511,9 @@ pub fn runWithNoise(
     shots: u32,
     pauliNoise: &JsValue,
     qubitLoss: &JsValue,
-) -> Result<bool, JsValue> {
+) -> Result<String, String> {
     if !event_cb.is_function() {
-        return Err(JsError::new("Events callback function must be provided").into());
+        return Err("Events callback function must be provided".to_string());
     }
 
     let event_cb = |msg: &str| {
@@ -541,7 +525,7 @@ pub fn runWithNoise(
     let noise = if pauliNoise.is_array() {
         let pauliArray = js_sys::Array::from(pauliNoise);
         if pauliArray.length() != 3 {
-            return Err(JsError::new("Pauli noise must have 3 probabilities").into());
+            return Err("Pauli noise must have 3 probabilities".to_string());
         }
         PauliNoise::from_probabilities(
             pauliArray
@@ -570,25 +554,25 @@ pub fn runWithNoise(
         let (entry_expr, mut interpreter) =
             match get_interpreter_from_openqasm(&sources, capabilities) {
                 Ok(result) => result,
-                Err(errors) => return Err(emit_run_error(&event_cb, errors)),
+                Err(errors) => {
+                    return Err(interpret_errors_into_qsharp_errors_json(errors));
+                }
             };
         if let Err(errors) = interpreter.set_entry_expr(&entry_expr) {
-            return Err(emit_run_error(&event_cb, errors));
+            return Err(interpret_errors_into_qsharp_errors_json(errors));
         }
         let mut out = CallbackReceiver { event_cb };
-        run_interpreter(&mut interpreter, &mut out, shots, &noise, qubitLoss);
-        Ok(true)
+        Ok(run_interpreter(&mut interpreter, &mut out, shots, &noise, qubitLoss))
     } else {
         let (source_map, capabilities, language_features, store, deps) =
             match into_qsc_args(program, Some(expr.into()), false) {
                 Ok(args) => args,
                 Err(errors) => {
-                    let errors = errors.into_iter().map(Into::into).collect();
-                    return Err(emit_run_error(&event_cb, errors));
+                    return Err(compile_errors_into_qsharp_errors_json(errors));
                 }
             };
 
-        match run_internal_with_features(
+        run_internal_with_features(
             source_map,
             event_cb,
             shots,
@@ -598,10 +582,7 @@ pub fn runWithNoise(
             &deps[..],
             &noise,
             qubitLoss,
-        ) {
-            Ok(()) => Ok(true),
-            Err(e) => Err(JsError::from(e).into()),
-        }
+        )
     }
 }
 
