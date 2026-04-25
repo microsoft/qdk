@@ -74,9 +74,14 @@ function buildChatPrompt(
   const kataTitle = found?.kata.title ?? args.kataId;
   const sectionTitle = found?.section.title;
 
-  return sectionTitle
-    ? `Open the Quantum Katas at the "${sectionTitle}" ${args.kind} in the "${kataTitle}" kata.`
-    : `Open the Quantum Katas at the "${kataTitle}" kata.`;
+  // Use the /quantum-katas slash command so the model loads the skill
+  // directly, and include #goto with precise IDs so it can call the
+  // tool without fuzzy matching.
+  const location = sectionTitle
+    ? `the "${sectionTitle}" ${args.kind} in "${kataTitle}"`
+    : `"${kataTitle}"`;
+
+  return `/quantum-katas #goto ${args.kataId} ${args.sectionIndex} — Go to ${location}`;
 }
 
 async function askInChat(
@@ -232,7 +237,7 @@ export function registerKatasCommands(
       }
       // No position recorded yet — open chat with a generic start prompt.
       await vscode.commands.executeCommand("workbench.action.chat.open", {
-        query: "Let's start the Quantum Katas.",
+        query: "/quantum-katas Let's start the Quantum Katas.",
         isPartialQuery: false,
         mode: "agent",
       });

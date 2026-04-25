@@ -20,11 +20,24 @@ function buildTreeMessage(
     (k) => k.total > 0 && k.completed === k.total,
   ).length;
 
-  if (completedKatas >= katas.length) {
+  const ratio = completedKatas / katas.length;
+
+  let encouragement: string;
+  if (ratio >= 1) {
     return `All ${katas.length} katas complete — nicely done!`;
+  } else if (ratio === 0) {
+    encouragement = "let's get started!";
+  } else if (ratio < 0.25) {
+    encouragement = "great start!";
+  } else if (ratio < 0.5) {
+    encouragement = "making progress!";
+  } else if (ratio < 0.75) {
+    encouragement = "over halfway there!";
+  } else {
+    encouragement = "almost there!";
   }
 
-  return `${completedKatas}/${katas.length} katas complete — keep it up!`;
+  return `${completedKatas}/${katas.length} katas complete — ${encouragement}`;
 }
 
 /**
