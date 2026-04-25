@@ -7,8 +7,7 @@ import { loadCatalog } from "./catalog.js";
 import {
   detectKatasWorkspace,
   KatasWorkspaceInfo,
-  KATAS_SUBFOLDER,
-  PROGRESS_FILE,
+  LEARNING_FILE,
 } from "./detector.js";
 import type {
   CatalogKata,
@@ -27,6 +26,7 @@ function completionKey(kataId: string, sectionIndex: number): string {
 function emptyProgressFile(): ProgressFileData {
   return {
     version: 1,
+    katasRoot: "./quantum-katas",
     position: { kataId: "", sectionIndex: 0, itemIndex: 0 },
     completions: {},
     startedAt: new Date().toISOString(),
@@ -76,11 +76,12 @@ function computeOverallProgress(
 
 /**
  * Watches the detected katas workspace for progress changes and publishes
- * `OverallProgress` snapshots. Re-runs detection when workspace folders
- * or the `Q#.learning.workspaceRoot` setting change.
+ * `OverallProgress` snapshots. Re-runs detection when workspace folders change.
  */
 export class ProgressWatcher implements vscode.Disposable {
-  private readonly changeEmitter = new vscode.EventEmitter<OverallProgress>();
+  private readonly changeEmitter = new vscode.EventEmitter<
+    OverallProgress | undefined
+  >();
   readonly onDidChange = this.changeEmitter.event;
 
   private disposables: vscode.Disposable[] = [];
@@ -92,12 +93,17 @@ export class ProgressWatcher implements vscode.Disposable {
   constructor() {
     this.disposables.push(
       vscode.workspace.onDidChangeWorkspaceFolders(() => this.scheduleReload()),
-      vscode.workspace.onDidChangeConfiguration((e) => {
-        if (e.affectsConfiguration("Q#.learning.workspaceRoot")) {
-          this.scheduleReload();
-        }
-      }),
     );
+
+    // Watch for qdk-learning.json creation/deletion across all workspace
+    // folders so the tree view reacts when `init` creates the file (or when
+    // the user deletes it).
+    const globalWatcher = vscode.workspace.createFileSystemWatcher(
+      `**/${LEARNING_FILE}`,
+    );
+    globalWatcher.onDidCreate(() => this.scheduleReload());
+    globalWatcher.onDidDelete(() => this.scheduleReload());
+    this.disposables.push(globalWatcher);
   }
 
   get workspaceInfo(): KatasWorkspaceInfo | undefined {
@@ -138,8 +144,8 @@ export class ProgressWatcher implements vscode.Disposable {
     );
 
     // Rewire the file watcher if the path changed.
-    const newPath = info?.progressFile.fsPath;
-    const oldPath = this.currentInfo?.progressFile.fsPath;
+    const newPath = info?.learningFile.fsPath;
+    const oldPath = this.currentInfo?.learningFile.fsPath;
     if (newPath !== oldPath) {
       this.fileWatcher?.dispose();
       this.fileWatcher = undefined;
@@ -147,8 +153,8 @@ export class ProgressWatcher implements vscode.Disposable {
         // Pattern is relative to the containing workspace folder when possible,
         // but an absolute RelativePattern works for any path.
         const pattern = new vscode.RelativePattern(
-          info.katasRoot,
-          PROGRESS_FILE,
+          info.workspaceRoot,
+          LEARNING_FILE,
         );
         const watcher = vscode.workspace.createFileSystemWatcher(pattern);
         const onEvent = () => void this.readAndEmit();
@@ -165,6 +171,13 @@ export class ProgressWatcher implements vscode.Disposable {
 
   private async readAndEmit(): Promise<void> {
     const info = this.currentInfo;
+    if (!info) {
+      // No katas workspace — keep the tree empty so the welcome view shows.
+      this.latest = undefined;
+      this.changeEmitter.fire(undefined);
+      return;
+    }
+
     let catalog: CatalogKata[];
     try {
       catalog = await loadCatalog();
@@ -174,9 +187,9 @@ export class ProgressWatcher implements vscode.Disposable {
     }
 
     let data = emptyProgressFile();
-    if (info) {
+    {
       try {
-        const bytes = await vscode.workspace.fs.readFile(info.progressFile);
+        const bytes = await vscode.workspace.fs.readFile(info.learningFile);
         const raw = new TextDecoder("utf-8").decode(bytes);
         const parsed = JSON.parse(raw) as ProgressFileData;
         if (parsed && parsed.version === 1) data = parsed;
@@ -204,7 +217,3 @@ export class ProgressWatcher implements vscode.Disposable {
     this.disposables = [];
   }
 }
-
-// Re-export these for callers that want to locate files without importing
-// detector directly.
-export { KATAS_SUBFOLDER, PROGRESS_FILE };

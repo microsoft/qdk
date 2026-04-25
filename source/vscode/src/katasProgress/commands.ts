@@ -29,10 +29,9 @@ function findSection(
 }
 
 /**
- * Open a kata section. For exercises, opens the scaffolded `.qs` file
- * directly. For lessons (and for exercises whose file is missing), try
- * to navigate the live MCP widget via `.navigate.json`. If no widget
- * picks it up within 2 seconds, fall back to chat.
+ * Open a kata section. Try to navigate the live MCP widget via
+ * `.navigate.json`. If no widget picks it up within 2 seconds, fall
+ * back to chat.
  */
 async function openSection(
   watcher: ProgressWatcher,
@@ -40,36 +39,6 @@ async function openSection(
   args: OpenSectionArgs,
 ): Promise<void> {
   const info = watcher.workspaceInfo;
-  const found = findSection(
-    watcher.lastSnapshot,
-    args.kataId,
-    args.sectionIndex,
-  );
-
-  if (args.kind === "exercise" && info && found) {
-    // Exercise filename convention mirrors WorkspaceManager.getExerciseFilePath.
-    const fileUri = vscode.Uri.joinPath(
-      info.katasRoot,
-      "exercises",
-      args.kataId,
-      `${found.section.id}.qs`,
-    );
-    try {
-      const doc = await vscode.workspace.openTextDocument(fileUri);
-      await vscode.window.showTextDocument(doc);
-      sendTelemetryEvent(
-        EventType.KatasPanelAction,
-        { action: "openExercise" },
-        {},
-      );
-      return;
-    } catch (err) {
-      log.warn(
-        `[katasProgress] exercise file not found (${fileUri.fsPath}): ${err}. Falling back to chat.`,
-      );
-      // Fall through to navigate / chat routing.
-    }
-  }
 
   // Try in-place navigation via .navigate.json when the katas workspace
   // already exists (implying the MCP server may be active with a live widget).
@@ -286,30 +255,6 @@ export function registerKatasCommands(
         await askInChat(watcher, args);
       },
     ),
-
-    vscode.commands.registerCommand("qsharp-vscode.katasSetup", async () => {
-      sendTelemetryEvent(EventType.KatasPanelAction, { action: "setup" }, {});
-      const OPEN_SETTING = "Set path in settings";
-      const ASK_CHAT = "Ask the Quantum Katas skill to set it up";
-      const pick = await vscode.window.showQuickPick([OPEN_SETTING, ASK_CHAT], {
-        title: "Set up Quantum Katas workspace",
-        placeHolder:
-          "Pick how you'd like to configure the Quantum Katas workspace",
-      });
-      if (pick === OPEN_SETTING) {
-        await vscode.commands.executeCommand(
-          "workbench.action.openSettings",
-          "Q#.learning.workspaceRoot",
-        );
-      } else if (pick === ASK_CHAT) {
-        await vscode.commands.executeCommand("workbench.action.chat.open", {
-          query:
-            "Set up a Quantum Katas workspace for me and open the first kata.",
-          isPartialQuery: false,
-          mode: "agent",
-        });
-      }
-    }),
   );
 }
 

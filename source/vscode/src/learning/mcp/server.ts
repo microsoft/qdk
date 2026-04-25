@@ -23,11 +23,14 @@ import {
   watch,
   readFile,
   unlink,
+  writeFileSync,
+  mkdirSync,
 } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, isAbsolute } from "node:path";
 
 const NAVIGATE_FILE = ".navigate.json";
+const LEARNING_FILE = "qdk-learning.json";
 import { createRequire } from "node:module";
 import type {
   KatasServer,
@@ -84,8 +87,8 @@ function errorResponse(message: string): {
 }
 
 const NOT_INITIALIZED_MESSAGE =
-  "The katas workspace has not been set. The agent must call `set_workspace` with an absolute path before any other tool can be used. " +
-  "Look for an existing `quantum-katas` directory in the user's current VS Code workspace or its parents and pass that (or its parent) as `workspacePath`. " +
+  "The katas workspace has not been initialized. The agent must call `init` with an absolute path before any other tool can be used. " +
+  "Look for an existing `qdk-learning.json` file in the user's current VS Code workspace and pass that workspace root as `workspacePath`. " +
   "If none exists, ask the user where they'd like to store exercise files and progress.";
 
 function buildWidgetHtml(): string {
@@ -151,10 +154,10 @@ function buildWidgetHtml(): string {
  *
  * The KatasServer is NOT initialized here unless `initOptions.initialWorkspace`
  * is set. When the host knows the workspace path up front (e.g. the VS Code
- * extension auto-discovered a `quantum-katas/` directory), it can pre-call
+ * extension auto-discovered a `qdk-learning.json` file), it can pre-call
  * `KatasServer.initialize` and pass that path here — the per-session state
  * will start with `initialized = true` and the agent does not need to call
- * `set_workspace`. Otherwise the agent must call `set_workspace` first — that
+ * `init`. Otherwise the agent must call `init` first — that
  * tool elicits user confirmation and then initializes the server.
  */
 export async function registerMCPHandlers(
@@ -169,6 +172,8 @@ export async function registerMCPHandlers(
      * path before connecting the transport.
      */
     initialWorkspace?: string;
+    /** Absolute path to the katas content folder (resolved from qdk-learning.json). */
+    initialKatasRoot?: string;
   },
 ): Promise<void> {
   const widgetHtml = buildWidgetHtml();
@@ -216,7 +221,7 @@ export async function registerMCPHandlers(
   /**
    * Wrap a tool handler so it returns a structured error when the workspace
    * hasn't been set. The agent reads `isError: true` and the message to know
-   * it must call `set_workspace` first.
+   * it must call `init` first.
    */
   const requireInit = <A, R>(
     handler: (args: A) => Promise<R> | R,
@@ -296,9 +301,12 @@ export async function registerMCPHandlers(
     }
   }
 
+  // Closure state: tracks the resolved katas root for navigate watcher.
+  let currentKatasRoot: string | null = initOptions.initialKatasRoot ?? null;
+
   // If workspace was pre-discovered, start watching immediately.
-  if (currentWorkspacePath) {
-    startNavigateWatcher(join(currentWorkspacePath, "quantum-katas"));
+  if (currentKatasRoot) {
+    startNavigateWatcher(currentKatasRoot);
   }
 
   // ─── Widget resources ───
@@ -320,30 +328,35 @@ export async function registerMCPHandlers(
     "get_workspace",
     {
       description:
-        "Report the currently-configured katas workspace path, or null if `set_workspace` has not been called yet. Safe to call at any time. Does not open the widget.",
+        "Report the currently-configured katas workspace path, or null if `init` has not been called yet. Safe to call at any time. Does not open the widget.",
     },
     async () =>
       wrapResult({
         workspacePath: currentWorkspacePath,
         initialized,
-        subfolder: "quantum-katas",
       }),
   );
 
   mcp.registerTool(
-    "set_workspace",
+    "init",
     {
       description:
-        "Set (or change) the workspace directory where kata exercise files and progress are stored. The server will create/use a `quantum-katas` subfolder inside the given path. " +
-        "The agent is responsible for choosing a sensible path: first look for an existing `quantum-katas` directory in the user's current VS Code workspace root (or any ancestor) and pass that workspace's absolute path; otherwise ask the user or pick the current VS Code workspace root. " +
-        "If a `quantum-katas` folder already exists at the given path, the workspace is adopted immediately. Otherwise the user is prompted to confirm via an elicitation prompt; if they decline or cancel, the workspace is left unset and the call returns an error. " +
+        "Initialize (or reinitialize) the katas workspace. Creates a `qdk-learning.json` file in the given directory and scaffolds exercise files. " +
+        "The agent is responsible for choosing a sensible path: prefer the user's current VS Code workspace root. " +
+        "If `qdk-learning.json` already exists at the given path, the workspace is adopted immediately. Otherwise the user is prompted to confirm via an elicitation prompt; if they decline or cancel, the workspace is left unset and the call returns an error. " +
         "This tool does not open the katas widget; the agent should call `render_state` afterward to render the tutor.",
       inputSchema: {
         workspacePath: z
           .string()
           .min(1)
           .describe(
-            "Absolute path to the directory under which the `quantum-katas` folder should live. Must be absolute; relative paths are rejected.",
+            "Absolute path to the workspace directory where `qdk-learning.json` will be created. Must be absolute; relative paths are rejected.",
+          ),
+        katasRoot: z
+          .string()
+          .optional()
+          .describe(
+            'Relative path from workspacePath to the katas content folder (exercises, examples). Defaults to "./quantum-katas".',
           ),
         kataIds: z
           .array(z.string())
@@ -353,23 +366,26 @@ export async function registerMCPHandlers(
           ),
       },
     },
-    async ({ workspacePath, kataIds }) => {
+    async ({ workspacePath, katasRoot: katasRootArg, kataIds }) => {
       if (!isAbsolute(workspacePath)) {
         return errorResponse(
-          `workspacePath must be absolute; got "${workspacePath}". Resolve it on the agent side (e.g. using the VS Code workspace root) before calling set_workspace.`,
+          `workspacePath must be absolute; got "${workspacePath}". Resolve it on the agent side (e.g. using the VS Code workspace root) before calling init.`,
         );
       }
       const resolved = resolve(workspacePath);
+      const katasRootRel = katasRootArg ?? "./quantum-katas";
+      const learningFilePath = join(resolved, LEARNING_FILE);
+      const resolvedKatasRoot = resolve(resolved, katasRootRel);
 
       // Gather some pre-confirmation facts for the user so they know what will happen.
       let exists = false;
       let isDir = false;
-      let hasExistingKatas = false;
+      let hasExistingLearningFile = false;
       try {
         if (existsSync(resolved)) {
           exists = true;
           isDir = statSync(resolved).isDirectory();
-          hasExistingKatas = existsSync(join(resolved, "quantum-katas"));
+          hasExistingLearningFile = existsSync(learningFilePath);
         }
       } catch {
         // Fall through — elicitation will still ask.
@@ -378,20 +394,20 @@ export async function registerMCPHandlers(
         return errorResponse(`Path exists but is not a directory: ${resolved}`);
       }
 
-      const summary = hasExistingKatas
-        ? `Use existing quantum-katas folder at ${join(resolved, "quantum-katas")}.`
+      const summary = hasExistingLearningFile
+        ? `Use existing katas workspace at ${resolved}.`
         : exists
-          ? `Create a new quantum-katas folder at ${join(resolved, "quantum-katas")}.`
-          : `Create ${resolved} and a quantum-katas folder inside it.`;
+          ? `Initialize a katas workspace at ${resolved}.`
+          : `Create ${resolved} and initialize a katas workspace.`;
 
-      // If a valid quantum-katas workspace already exists at the target path,
+      // If a valid qdk-learning.json already exists at the target path,
       // skip the user-confirmation elicitation — the directory was clearly set
       // up for this purpose previously, so prompting again is just noise.
-      if (!hasExistingKatas) {
+      if (!hasExistingLearningFile) {
         let elicitResult: Awaited<ReturnType<typeof mcp.server.elicitInput>>;
         try {
           elicitResult = await mcp.server.elicitInput({
-            message: `The Q# Katas MCP server wants to use this workspace:\n\n  ${resolved}\n\n${summary}\n\nExercise files will be read/written here and progress will be saved here.`,
+            message: `The Q# Katas MCP server wants to use this workspace:\n\n  ${resolved}\n\n${summary}\n\nExercise files will be read/written here and progress will be saved in \`qdk-learning.json\`.`,
             requestedSchema: {
               type: "object",
               properties: {
@@ -426,12 +442,36 @@ export async function registerMCPHandlers(
             `User did not confirm the workspace path. Workspace remains unset.`,
           );
         }
+
+        // Create qdk-learning.json with default content.
+        try {
+          mkdirSync(resolved, { recursive: true });
+          const defaultData = {
+            version: 1,
+            katasRoot: katasRootRel,
+            position: { kataId: "", sectionIndex: 0, itemIndex: 0 },
+            completions: {},
+            startedAt: new Date().toISOString(),
+          };
+          writeFileSync(
+            learningFilePath,
+            JSON.stringify(defaultData, null, 2),
+            "utf-8",
+          );
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return errorResponse(
+            `Failed to create ${LEARNING_FILE} at ${resolved}: ${msg}`,
+          );
+        }
       }
 
       try {
         await server.initialize({
           kataIds: kataIds ?? [],
-          workspacePath: resolved,
+          learningFilePath,
+          katasRoot: resolvedKatasRoot,
+          katasRootRel,
           aiProvider: initOptions.aiProvider,
           contentFormat: initOptions.contentFormat,
         });
@@ -444,10 +484,11 @@ export async function registerMCPHandlers(
 
       initialized = true;
       currentWorkspacePath = resolved;
-      startNavigateWatcher(join(resolved, "quantum-katas"));
+      currentKatasRoot = resolvedKatasRoot;
+      startNavigateWatcher(resolvedKatasRoot);
       return wrapResult({
         workspacePath: resolved,
-        katasRoot: join(resolved, "quantum-katas"),
+        katasRoot: resolvedKatasRoot,
         state: serializeState(server.getState()),
       });
     },
@@ -545,7 +586,7 @@ export async function registerMCPHandlers(
     "list_katas",
     {
       description:
-        "List all available katas with their completion status. Plain (non-widget) tool \u2014 the agent renders the catalog in chat (e.g. as a numbered list) and then calls `goto` with the chosen `kataId` to jump. Does NOT mount or refresh the widget. Requires `set_workspace` to have been called first.",
+        "List all available katas with their completion status. Plain (non-widget) tool \u2014 the agent renders the catalog in chat (e.g. as a numbered list) and then calls `goto` with the chosen `kataId` to jump. Does NOT mount or refresh the widget. Requires `init` to have been called first.",
     },
     requireInit(async () =>
       wrapResult({
@@ -844,6 +885,8 @@ export async function runMCPServerStdio(
     contentFormat: "html" | "markdown";
     /** See {@link registerMCPHandlers}. */
     initialWorkspace?: string;
+    /** See {@link registerMCPHandlers}. */
+    initialKatasRoot?: string;
   },
 ): Promise<void> {
   await registerMCPHandlers(server, mcp, initOptions);

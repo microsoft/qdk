@@ -12,7 +12,7 @@ This folder builds a single Node bundle (`out/learning/index.js`) that provides 
 - **Web UI** — `node out/learning/index.js --web --port <P>` serves the standalone app at `/` and an MCP-widget preview at `/widget`.
 - **TUI** — `node out/learning/index.js` (interactive terminal; requires a real TTY).
 
-Use `--workspace <path>` to control where exercise `.qs` files and `.katas-progress.json` are scaffolded. Without it, a `quantum-katas/` folder is created in the CWD (gitignored repo-wide).
+Use `--workspace <path>` to control where exercise `.qs` files and `qdk-learning.json` are scaffolded. Without it, the CWD is used (gitignored repo-wide).
 
 ## Build and test
 
@@ -49,14 +49,14 @@ When editing anything under `web/public/` or `mcp/widget/`, drive the running we
 
 # source/vscode/src/katasProgress
 
-The activity-bar **Quantum Katas** panel: a `WebviewView` overview on top of a native `TreeView` of katas/sections, both fed by a `FileSystemWatcher` over `<workspaceRoot>/quantum-katas/.katas-progress.json`. This panel is independent of the MCP/web/TUI bundle above — it runs in the extension host and only reads the progress file written by `KatasServer`.
+The activity-bar **Quantum Katas** panel: a `WebviewView` overview on top of a native `TreeView` of katas/sections, both fed by a `FileSystemWatcher` over `<workspaceRoot>/qdk-learning.json`. This panel is independent of the MCP/web/TUI bundle above — it runs in the extension host and only reads the progress file written by `KatasServer`.
 
-- **`detector.ts`** — single source of truth for "is there a katas workspace, and where is it?". Checks (1) the `Q#.learning.workspaceRoot` setting, then (2) each open `vscode.workspace.workspaceFolders` for an existing `quantum-katas/.katas-progress.json` or `quantum-katas/exercises/`. Returns `{ workspaceRoot, katasRoot, progressFile, katasDirExists }`. **Also used by [`src/katasMcp.ts`](../../source/vscode/src/katasMcp.ts)** to launch the MCP server with `--workspace` and skip the chat-side `set_workspace` round-trip.
-- **`progressReader.ts`** — `ProgressWatcher` runs the detector, watches the progress file, parses it against the catalog, exposes `lastSnapshot` + `onDidChange`, and maintains the `qsharp-vscode.katasDetected` context key (drives view welcome content).
+- **`detector.ts`** — single source of truth for "is there a katas workspace, and where is it?". Scans each open `vscode.workspace.workspaceFolders` for an existing `qdk-learning.json`. Returns `{ workspaceRoot, katasRoot, learningFile, katasDirExists }`. **Also used by [`src/katasMcp.ts`](../../source/vscode/src/katasMcp.ts)** to launch the MCP server with `--workspace` and skip the chat-side `init` round-trip.
+- **`progressReader.ts`** — `ProgressWatcher` runs the detector, watches `qdk-learning.json`, parses it against the catalog, exposes `lastSnapshot` + `onDidChange`, and maintains the `qsharp-vscode.katasDetected` context key (drives view welcome content).
 - **`catalog.ts`** — pulls the kata list dynamically from `qsharp-lang/katas-md` (`getAllKatas()`) so the panel never hardcodes content. Cached. `RECOMMENDED_ORDER` controls display order.
 - **`treeProvider.ts`** — kata → section nodes. **No `item.command`** — clicking a node is a no-op by design. Each tree item exposes a `contextValue` (`kata` | `lessonSection` | `exerciseSection`) for the inline chat-bubble action.
 - **`overviewProvider.ts`** — a `WebviewViewProvider` with two states: a **landing page** (welcome + Get started) when no katas workspace is detected, and a **tracker** (animated progress ring, "up next" card, contextual encouragement, Continue button) once one is. CSP+nonce, no external assets, all messages go through `postMessage` (`ready` / `continue` / `setup`).
-- **`commands.ts`** — registers `qsharp-vscode.katasRefresh`, `katasSetup`, `katasContinue`, `katasOpenSection`, `katasAskInChat`. Exercise actions open the scaffolded `.qs` file directly; lesson actions and `katasAskInChat` open the chat view (`workbench.action.chat.open`) with a pre-built prompt that triggers the `quantum-katas` skill.
+- **`commands.ts`** — registers `qsharp-vscode.katasRefresh`, `katasContinue`, `katasOpenSection`, `katasAskInChat`. Exercise actions open the scaffolded `.qs` file directly; lesson actions and `katasAskInChat` open the chat view (`workbench.action.chat.open`) with a pre-built prompt that triggers the `quantum-katas` skill.
 - **`index.ts`** — `registerKatasProgressView(context)` wires the watcher → tree + webview + commands. Called from `extension.ts` after `registerKatasMcpServer(context)`.
 
 When changing the panel:

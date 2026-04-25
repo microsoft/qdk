@@ -43,8 +43,18 @@ export type { Dump, ShotResult };
 export interface InitConfig {
   /** IDs of katas to load (e.g. ["getting_started", "complex_arithmetic"]) */
   kataIds: string[];
-  /** Path where exercise files and progress are stored */
-  workspacePath: string;
+  /** Absolute path to `qdk-learning.json`. */
+  learningFilePath: string;
+  /**
+   * Absolute path to the katas content folder (exercises, examples, etc.).
+   * Resolved from `katasRoot` in `qdk-learning.json` against the workspace root.
+   */
+  katasRoot: string;
+  /**
+   * Relative katasRoot value to persist back into `qdk-learning.json`.
+   * Typically `"./quantum-katas"`.
+   */
+  katasRootRel: string;
   /** Optional AI provider for intelligent features */
   aiProvider?: IAIProvider;
   /** Content format: "markdown" for TUI (from katas-md), "html" for web (from katas). Default: "markdown". */
@@ -224,6 +234,8 @@ export interface SectionProgress {
 
 export interface ProgressFileData {
   version: 1;
+  /** Relative path from the file's parent directory to the katas content folder. */
+  katasRoot: string;
   position: { kataId: string; sectionIndex: number; itemIndex: number };
   completions: Record<string, { completedAt: string }>;
   startedAt: string;

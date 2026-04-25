@@ -53,44 +53,44 @@ All tools return `{ result?, state }`. Only `render_state` and `goto` mount the 
 
 Rule of thumb: **`render_state` once at the start of a session** (or when the user explicitly asks to "open/show the katas" again). Use **`get_state` for silent state reads** during follow-up Q&A.
 
-| Purpose                                                   | Tool                                                   | Widget? |
-| --------------------------------------------------------- | ------------------------------------------------------ | ------- |
-| Inspect the workspace                                     | `mcp_quantum-katas_get_workspace`                      | no      |
-| Set the workspace (must be called before any other tool)  | `mcp_quantum-katas_set_workspace`                      | no      |
-| Open / replace the widget at the current position         | `mcp_quantum-katas_render_state`                       | **yes** |
-| Read current state without mounting/refreshing the widget | `mcp_quantum-katas_get_state`                          | no      |
-| Show the full per-kata progress breakdown                 | `mcp_quantum-katas_get_progress`                       | no      |
-| List all katas with completion status                     | `mcp_quantum-katas_list_katas`                         | no      |
-| Navigate forward / backward                               | `mcp_quantum-katas_next`, `mcp_quantum-katas_previous` | no      |
-| Jump to a specific kata/section/item                      | `mcp_quantum-katas_goto`                               | yes     |
-| Run current Q# code                                       | `mcp_quantum-katas_run` (optional `shots`)             | no      |
-| Run with noise simulation                                 | `mcp_quantum-katas_run_with_noise` (default 100 shots) | no      |
-| Generate quantum circuit diagram                          | `mcp_quantum-katas_circuit`                            | no      |
-| Estimate physical resources                               | `mcp_quantum-katas_estimate`                           | no      |
-| Check student solution (marks complete on pass)           | `mcp_quantum-katas_check`                              | no      |
-| Reveal next built-in hint                                 | `mcp_quantum-katas_hint`                               | no      |
-| Reveal lesson question answer                             | `mcp_quantum-katas_reveal_answer`                      | no      |
-| Show full reference solution                              | `mcp_quantum-katas_solution`                           | no      |
-| Get AI hint for current code                              | `mcp_quantum-katas_ai_hint`                            | no      |
-| Ask free-form concept question                            | `mcp_quantum-katas_ask_ai` (`question` arg)            | no      |
-| Debug: report MCP server cwd / pid / argv                 | `mcp_quantum-katas_cwd`                                | no      |
+| Purpose                                                         | Tool                                                   | Widget? |
+| --------------------------------------------------------------- | ------------------------------------------------------ | ------- |
+| Inspect the workspace                                           | `mcp_quantum-katas_get_workspace`                      | no      |
+| Initialize the workspace (must be called before any other tool) | `mcp_quantum-katas_init`                               | no      |
+| Open / replace the widget at the current position               | `mcp_quantum-katas_render_state`                       | **yes** |
+| Read current state without mounting/refreshing the widget       | `mcp_quantum-katas_get_state`                          | no      |
+| Show the full per-kata progress breakdown                       | `mcp_quantum-katas_get_progress`                       | no      |
+| List all katas with completion status                           | `mcp_quantum-katas_list_katas`                         | no      |
+| Navigate forward / backward                                     | `mcp_quantum-katas_next`, `mcp_quantum-katas_previous` | no      |
+| Jump to a specific kata/section/item                            | `mcp_quantum-katas_goto`                               | yes     |
+| Run current Q# code                                             | `mcp_quantum-katas_run` (optional `shots`)             | no      |
+| Run with noise simulation                                       | `mcp_quantum-katas_run_with_noise` (default 100 shots) | no      |
+| Generate quantum circuit diagram                                | `mcp_quantum-katas_circuit`                            | no      |
+| Estimate physical resources                                     | `mcp_quantum-katas_estimate`                           | no      |
+| Check student solution (marks complete on pass)                 | `mcp_quantum-katas_check`                              | no      |
+| Reveal next built-in hint                                       | `mcp_quantum-katas_hint`                               | no      |
+| Reveal lesson question answer                                   | `mcp_quantum-katas_reveal_answer`                      | no      |
+| Show full reference solution                                    | `mcp_quantum-katas_solution`                           | no      |
+| Get AI hint for current code                                    | `mcp_quantum-katas_ai_hint`                            | no      |
+| Ask free-form concept question                                  | `mcp_quantum-katas_ask_ai` (`question` arg)            | no      |
+| Debug: report MCP server cwd / pid / argv                       | `mcp_quantum-katas_cwd`                                | no      |
 
 Note: "Widget? = no" tools do **not** mount or refresh the widget. When you call them from chat, render the result in chat normally (just like any other MCP tool). The widget will not pick up the change — the user will see the new state next time they interact with it (or you can call `render_state` if you explicitly want to mount a fresh widget showing the updated state).
 
 ## Procedure
 
-### 0. Ensure the workspace is set (once per session)
+### 0. Ensure the workspace is initialized (once per session)
 
-The katas MCP server starts with **no workspace configured**. All tools except `get_workspace`, `set_workspace`, and `cwd` will return an error until you call `set_workspace`. Do this before anything else:
+The katas MCP server starts with **no workspace configured**. All tools except `get_workspace`, `init`, and `cwd` will return an error until you call `init`. Do this before anything else:
 
 1. Call `mcp_quantum-katas_get_workspace`. If `initialized` is `true`, skip to step 1.
 2. Otherwise, decide on an **absolute** `workspacePath`:
    - Prefer the user's current VS Code workspace root (e.g. the first folder shown in the workspace).
-   - If a `quantum-katas` subfolder already exists anywhere in that workspace (or an ancestor), pass the directory that _contains_ it.
+   - If a `qdk-learning.json` file already exists anywhere in that workspace, pass the directory that _contains_ it.
    - If you have no signal at all, ask the user where they'd like kata files stored.
-3. Call `mcp_quantum-katas_set_workspace` with that absolute path. The server will display an elicitation prompt to the user for confirmation; if they decline, the tool returns an error and the workspace stays unset — ask the user for a different path and try again.
+3. Call `mcp_quantum-katas_init` with that absolute path. The server will display an elicitation prompt to the user for confirmation; if they decline, the tool returns an error and the workspace stays unset — ask the user for a different path and try again.
 
-Never guess a default (e.g. the server's own install directory, `C:\`, `/tmp`); never call `set_workspace` with a relative path.
+Never guess a default (e.g. the server's own install directory, `C:\`, `/tmp`); never call `init` with a relative path.
 
 ### 1. Open the widget
 

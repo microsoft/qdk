@@ -2,26 +2,24 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
+import type { ProgressFileData } from "./types.js";
 
-/** Matches `WORKSPACE_FOLDER` in source/vscode/src/learning/server/server.ts. */
-export const KATAS_SUBFOLDER = "quantum-katas";
-/** Matches `PROGRESS_FILE` in source/vscode/src/learning/server/progress.ts. */
-export const PROGRESS_FILE = ".katas-progress.json";
+/** Well-known file that marks a workspace folder as a katas workspace. */
+export const LEARNING_FILE = "qdk-learning.json";
 /** Matches `NAVIGATE_FILE` in source/vscode/src/learning/mcp/server.ts. */
 export const NAVIGATE_FILE = ".navigate.json";
 
 export interface KatasWorkspaceInfo {
   /**
-   * The parent directory passed to the katas server / MCP CLI as
-   * `--workspace`. The katas server creates / consumes the
-   * `quantum-katas` subfolder inside it.
+   * The parent directory (the workspace folder that contains `qdk-learning.json`).
+   * Passed to the katas server / MCP CLI as `--workspace`.
    */
   workspaceRoot: vscode.Uri;
-  /** The `quantum-katas` folder itself (`workspaceRoot/quantum-katas`). */
+  /** The katas content folder, resolved from `katasRoot` in the learning file. */
   katasRoot: vscode.Uri;
-  /** Path to the `.katas-progress.json` file inside `katasRoot`. */
-  progressFile: vscode.Uri;
-  /** True when `katasRoot` (the `quantum-katas` directory) already exists on disk. */
+  /** Path to `qdk-learning.json`. */
+  learningFile: vscode.Uri;
+  /** True when `katasRoot` already exists on disk. */
   katasDirExists: boolean;
 }
 
@@ -34,45 +32,38 @@ async function uriExists(uri: vscode.Uri): Promise<boolean> {
   }
 }
 
-function infoFor(
-  workspaceRoot: vscode.Uri,
-  katasDirExists: boolean,
-): KatasWorkspaceInfo {
-  const katasRoot = vscode.Uri.joinPath(workspaceRoot, KATAS_SUBFOLDER);
-  const progressFile = vscode.Uri.joinPath(katasRoot, PROGRESS_FILE);
-  return { workspaceRoot, katasRoot, progressFile, katasDirExists };
-}
-
 /**
- * Detect an existing Quantum Katas workspace.
- *
- * Priority:
- *  1. `Q#.learning.workspaceRoot` setting — used verbatim (the katas server
- *     creates a `quantum-katas` subfolder under this path).
- *  2. Each `vscode.workspace.workspaceFolders[i]` containing a
- *     `quantum-katas/.katas-progress.json` or `quantum-katas/exercises/` directory.
+ * Detect an existing Quantum Katas workspace by scanning all open workspace
+ * folders for a `qdk-learning.json` file.
  *
  * Returns `undefined` if no katas workspace can be found.
  */
 export async function detectKatasWorkspace(): Promise<
   KatasWorkspaceInfo | undefined
 > {
-  const cfg = vscode.workspace.getConfiguration("Q#");
-  const configured = (cfg.get<string>("learning.workspaceRoot") ?? "").trim();
-
-  if (configured.length > 0) {
-    const root = vscode.Uri.file(configured);
-    const katasDir = vscode.Uri.joinPath(root, KATAS_SUBFOLDER);
-    return infoFor(root, await uriExists(katasDir));
-  }
-
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
-    const katasRoot = vscode.Uri.joinPath(folder.uri, KATAS_SUBFOLDER);
-    const progressFile = vscode.Uri.joinPath(katasRoot, PROGRESS_FILE);
-    const exercisesDir = vscode.Uri.joinPath(katasRoot, "exercises");
-    if ((await uriExists(progressFile)) || (await uriExists(exercisesDir))) {
-      return infoFor(folder.uri, true);
+    const learningFile = vscode.Uri.joinPath(folder.uri, LEARNING_FILE);
+    if (!(await uriExists(learningFile))) continue;
+
+    let katasRootRel = "./quantum-katas";
+    try {
+      const bytes = await vscode.workspace.fs.readFile(learningFile);
+      const raw = new TextDecoder("utf-8").decode(bytes);
+      const parsed = JSON.parse(raw) as Partial<ProgressFileData>;
+      if (parsed.katasRoot && typeof parsed.katasRoot === "string") {
+        katasRootRel = parsed.katasRoot;
+      }
+    } catch {
+      // Corrupt or unreadable — use default katasRoot.
     }
+
+    const katasRoot = vscode.Uri.joinPath(folder.uri, katasRootRel);
+    return {
+      workspaceRoot: folder.uri,
+      katasRoot,
+      learningFile,
+      katasDirExists: await uriExists(katasRoot),
+    };
   }
 
   return undefined;

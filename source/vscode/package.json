@@ -198,11 +198,6 @@
           ],
           "description": "Upload supplemental input data (circuit diagram) to the storage container when submitting jobs to Azure Quantum."
         },
-        "Q#.learning.workspaceRoot": {
-          "type": "string",
-          "default": "",
-          "markdownDescription": "Absolute path where the Quantum Katas MCP server stores scaffolded exercise files and progress (a `quantum-katas` subfolder is created here). When empty, the server prompts the user to confirm a path on first use."
-        },
         "Q#.azure.quantumOsRoot": {
           "type": "string",
           "default": "https://manage.quantum.microsoft.com",
@@ -434,7 +429,7 @@
       },
       {
         "view": "qsharp-vscode.katasTree",
-        "contents": "Welcome to the Quantum Katas — a free, hands-on introduction to quantum computing with Q#.\n\nEach kata is a self-contained tutorial that teaches a concept through short readings followed by exercises you complete in your editor. Topics include qubits, gates, measurement, entanglement, and famous algorithms like Grover's and Deutsch–Jozsa.\n\nNo prior quantum experience required.\n[Get started](command:qsharp-vscode.katasSetup)",
+        "contents": "Welcome to the Quantum Katas — a free, hands-on introduction to quantum computing with Q#.\n\nEach kata is a self-contained tutorial that teaches a concept through short readings followed by exercises you complete in your editor. Topics include qubits, gates, measurement, entanglement, and famous algorithms like Grover's and Deutsch–Jozsa.\n\nNo prior quantum experience required.\n[Get started](command:qsharp-vscode.katasContinue)",
         "when": "!qsharp-vscode.katasDetected"
       },
       {
@@ -625,11 +620,6 @@
         "title": "Refresh Quantum Katas progress",
         "category": "QDK",
         "icon": "$(refresh)"
-      },
-      {
-        "command": "qsharp-vscode.katasSetup",
-        "title": "Set up Quantum Katas workspace",
-        "category": "QDK"
       },
       {
         "command": "qsharp-vscode.katasContinue",

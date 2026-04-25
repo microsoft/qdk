@@ -3,7 +3,7 @@
 
 import * as vscode from "vscode";
 import { log } from "qsharp-lang";
-import { detectKatasWorkspace } from "./katasProgress/detector";
+import { detectKatasWorkspace, LEARNING_FILE } from "./katasProgress/detector";
 import { EventType, sendTelemetryEvent } from "./telemetry";
 
 /**
@@ -12,12 +12,11 @@ import { EventType, sendTelemetryEvent } from "./telemetry";
  * `out/learning/index.js`; we spawn it in `--mcp` (stdio) mode and
  * pass the discovered workspace root via `--workspace`.
  *
- * The workspace root is whatever {@link detectKatasWorkspace} returns:
- * either the explicit `Q#.learning.workspaceRoot` setting, or a
- * workspace folder containing an existing `quantum-katas/` directory.
- * When the discovered path already has a `quantum-katas/` subfolder,
+ * The workspace root is whatever {@link detectKatasWorkspace} returns —
+ * a workspace folder containing a `qdk-learning.json` file.
+ * When the discovered path already has a katas root folder,
  * the CLI eagerly initializes the server, so the chat agent does not
- * have to call `set_workspace`.
+ * have to call `init`.
  *
  * Workspace-only / desktop-only: VS Code treats a static MCP server
  * provider contributed from a Node-platform extension entry point
@@ -82,22 +81,25 @@ export function registerKatasMcpServer(
     provider,
   );
 
-  // Refresh the definition when either the configured workspace root or the
-  // set of open workspace folders changes, so the server restarts pointing
-  // at the right path.
-  const cfgListener = vscode.workspace.onDidChangeConfiguration((e) => {
-    if (e.affectsConfiguration("Q#.learning.workspaceRoot")) {
-      onDidChangeEmitter.fire();
-    }
-  });
+  // Refresh the definition when the set of open workspace folders changes or
+  // when a `qdk-learning.json` file is created/deleted, so the server restarts
+  // pointing at the right path.
   const foldersListener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
     onDidChangeEmitter.fire();
   });
 
+  const learningFileWatcher = vscode.workspace.createFileSystemWatcher(
+    `**/${LEARNING_FILE}`,
+  );
+  const onLearningFileEvent = () => onDidChangeEmitter.fire();
+  learningFileWatcher.onDidCreate(onLearningFileEvent);
+  learningFileWatcher.onDidDelete(onLearningFileEvent);
+  learningFileWatcher.onDidChange(onLearningFileEvent);
+
   return vscode.Disposable.from(
     disposable,
-    cfgListener,
     foldersListener,
+    learningFileWatcher,
     onDidChangeEmitter,
   );
 }

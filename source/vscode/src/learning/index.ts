@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { resolve } from "node:path";
-import { existsSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { KatasServer, LLMAIProvider, NoOpAIProvider } from "./server/index.js";
 import { runApp } from "./tui/index.js";
@@ -71,20 +71,46 @@ if ([useWeb, useMcpStdio, useMcpHttp].filter(Boolean).length > 1) {
 }
 
 const port = parseInt(values.port ?? "3000", 10);
-// In MCP mode we defer initialization until the agent calls `set_workspace` —
+const LEARNING_FILE = "qdk-learning.json";
+const DEFAULT_KATAS_ROOT = "./quantum-katas";
+
+// In MCP mode we defer initialization until the agent calls `init` —
 // so the raw CLI values are handed through without resolving a default.
 // Exception: if `--workspace` was explicitly provided AND that directory
-// already contains a `quantum-katas/` subfolder, the host has clearly
+// already contains a `qdk-learning.json` file, the host has clearly
 // auto-discovered an existing workspace and we eagerly initialize below
-// to skip the chat-side `set_workspace` round trip.
+// to skip the chat-side `init` round trip.
 const explicitWorkspace =
   useMcp && values.workspace && values.workspace !== "."
     ? resolve(values.workspace)
     : undefined;
-const eagerMcpWorkspace =
-  explicitWorkspace && existsSync(resolve(explicitWorkspace, "quantum-katas"))
-    ? explicitWorkspace
-    : undefined;
+
+let eagerMcpWorkspace: string | undefined;
+let eagerKatasRoot: string | undefined;
+let eagerKatasRootRel: string | undefined;
+let eagerLearningFilePath: string | undefined;
+
+if (explicitWorkspace) {
+  const learningFile = join(explicitWorkspace, LEARNING_FILE);
+  if (existsSync(learningFile)) {
+    eagerMcpWorkspace = explicitWorkspace;
+    eagerLearningFilePath = learningFile;
+    // Read katasRoot from the file.
+    let katasRootRel = DEFAULT_KATAS_ROOT;
+    try {
+      const raw = readFileSync(learningFile, "utf-8");
+      const parsed = JSON.parse(raw) as { katasRoot?: string };
+      if (parsed.katasRoot && typeof parsed.katasRoot === "string") {
+        katasRootRel = parsed.katasRoot;
+      }
+    } catch {
+      // Corrupt or unreadable — use default.
+    }
+    eagerKatasRootRel = katasRootRel;
+    eagerKatasRoot = resolve(explicitWorkspace, katasRootRel);
+  }
+}
+
 const workspacePath = useMcp ? undefined : resolve(values.workspace ?? ".");
 const kataIds = (values.katas ?? []) as string[];
 
@@ -127,14 +153,21 @@ try {
   if (useMcpStdio) {
     // Stdout is the MCP wire — absolutely no console.log here.
     // If `--workspace` pointed at a directory that already contains a
-    // `quantum-katas/` subfolder, the host has auto-discovered the
+    // `qdk-learning.json` file, the host has auto-discovered the
     // workspace; initialize eagerly so the agent does not need to call
-    // `set_workspace` first. Otherwise leave the server uninitialized
-    // and the agent will be prompted to call `set_workspace`.
-    if (eagerMcpWorkspace) {
+    // `init` first. Otherwise leave the server uninitialized
+    // and the agent will be prompted to call `init`.
+    if (
+      eagerMcpWorkspace &&
+      eagerLearningFilePath &&
+      eagerKatasRoot &&
+      eagerKatasRootRel
+    ) {
       await server.initialize({
         kataIds,
-        workspacePath: eagerMcpWorkspace,
+        learningFilePath: eagerLearningFilePath,
+        katasRoot: eagerKatasRoot,
+        katasRootRel: eagerKatasRootRel,
         aiProvider: aiProvider!,
         contentFormat: "html",
       });
@@ -143,6 +176,7 @@ try {
       aiProvider: aiProvider!,
       contentFormat: "html",
       initialWorkspace: eagerMcpWorkspace,
+      initialKatasRoot: eagerKatasRoot,
     });
     process.on("SIGINT", () => {
       server.dispose();
@@ -196,7 +230,9 @@ try {
   } else if (useWeb) {
     await server.initialize({
       kataIds,
-      workspacePath: workspacePath!,
+      learningFilePath: join(workspacePath!, LEARNING_FILE),
+      katasRoot: resolve(workspacePath!, DEFAULT_KATAS_ROOT),
+      katasRootRel: DEFAULT_KATAS_ROOT,
       aiProvider,
       contentFormat: "html",
     });
@@ -212,7 +248,9 @@ try {
   } else {
     await server.initialize({
       kataIds,
-      workspacePath: workspacePath!,
+      learningFilePath: join(workspacePath!, LEARNING_FILE),
+      katasRoot: resolve(workspacePath!, DEFAULT_KATAS_ROOT),
+      katasRootRel: DEFAULT_KATAS_ROOT,
       aiProvider,
       contentFormat: "markdown",
     });

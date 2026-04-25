@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { dirname } from "node:path";
 import type {
   ProgressFileData,
   OverallProgress,
@@ -11,21 +11,27 @@ import type {
   Kata,
 } from "./types.js";
 
-const PROGRESS_FILE = ".katas-progress.json";
-
 export class ProgressManager {
   private filePath: string;
   private data: ProgressFileData;
   private katas: Kata[] = [];
 
-  constructor(workspacePath: string) {
-    this.filePath = join(workspacePath, PROGRESS_FILE);
+  /**
+   * @param learningFilePath Absolute path to the `qdk-learning.json` file.
+   * @param katasRoot The relative `katasRoot` value to write into the file.
+   */
+  constructor(
+    learningFilePath: string,
+    private katasRoot: string,
+  ) {
+    this.filePath = learningFilePath;
     this.data = this.freshData();
   }
 
   private freshData(): ProgressFileData {
     return {
       version: 1,
+      katasRoot: this.katasRoot,
       position: { kataId: "", sectionIndex: 0, itemIndex: 0 },
       completions: {},
       startedAt: new Date().toISOString(),
@@ -39,7 +45,9 @@ export class ProgressManager {
       const raw = await readFile(this.filePath, "utf-8");
       const parsed = JSON.parse(raw) as ProgressFileData;
       if (parsed.version === 1) {
-        this.data = parsed;
+        // Preserve the katasRoot value from the constructor (authoritative)
+        // but read everything else from disk.
+        this.data = { ...parsed, katasRoot: this.katasRoot };
         // Ensure position references a valid kata
         if (
           katas.length > 0 &&

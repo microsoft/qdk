@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { join } from "node:path";
 import { getExerciseSources } from "qsharp-lang/katas-md";
 import { getAllKatas as getAllKatasMd } from "qsharp-lang/katas-md";
 import { getAllKatas as getAllKatasHtml } from "qsharp-lang/katas";
@@ -111,12 +110,12 @@ export class KatasServer implements IKatasServer {
 
   // ─── Lifecycle ───
 
-  static readonly WORKSPACE_FOLDER = "quantum-katas";
-
   async initialize(config: InitConfig): Promise<void> {
-    const root = join(config.workspacePath, KatasServer.WORKSPACE_FOLDER);
-    this.workspace = new WorkspaceManager(root);
-    this.progress = new ProgressManager(root);
+    this.workspace = new WorkspaceManager(config.katasRoot);
+    this.progress = new ProgressManager(
+      config.learningFilePath,
+      config.katasRootRel,
+    );
     if (config.aiProvider) this.aiProvider = config.aiProvider;
 
     // Load katas
