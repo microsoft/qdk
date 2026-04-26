@@ -13,9 +13,8 @@ use qsc::{
 };
 
 use super::LogicalCounter;
-use crate::system::LogicalResourceCounts;
 
-fn run_logical_counts(source: &str, entry: Option<&str>) -> LogicalResourceCounts {
+fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
     let source_map = SourceMap::new([("test".into(), source.into())], entry.map(Into::into));
     let (std_id, store) = qsc::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
 
@@ -41,7 +40,9 @@ fn run_logical_counts(source: &str, entry: Option<&str>) -> LogicalResourceCount
     let mut out = GenericReceiver::new(&mut stdout);
 
     match interpreter.eval_entry_with_sim(&mut counter, &mut out) {
-        Ok(_) => counter.logical_resources(),
+        Ok(_) => {
+            expect.assert_debug_eq(&counter.logical_resources());
+        }
         Err(err) => {
             for e in err {
                 let report = Report::from(e);
@@ -50,10 +51,6 @@ fn run_logical_counts(source: &str, entry: Option<&str>) -> LogicalResourceCount
             panic!("evaluation failed");
         }
     }
-}
-
-fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
-    expect.assert_debug_eq(&run_logical_counts(source, entry));
 }
 
 #[test]
@@ -429,30 +426,4 @@ fn post_selection_can_take_impossible_branch() {
             }
         "#]],
     );
-}
-
-#[test]
-fn qmem_store_load_counts_manual_memory_usage() {
-     let counts = run_logical_counts(
-        indoc! {r#"
-            namespace Test {
-                import Std.ResourceEstimation.*;
-
-                @EntryPoint()
-                operation Main() : Unit {
-                    use q = Qubit();
-                    let mem = Std.Memory.Allocate();
-                    X(q);
-                    Std.Memory.Store(q, mem);
-                    Std.Memory.Load(mem, q);
-                    Std.Memory.Free(mem);
-                }
-            }
-        "#},
-        None,
-    );
-    assert_eq!(counts.num_qubits, 2);
-    assert_eq!(counts.num_compute_qubits, Some(1));
-    assert_eq!(counts.read_from_memory_count, Some(1));
-    assert_eq!(counts.write_to_memory_count, Some(1));
 }

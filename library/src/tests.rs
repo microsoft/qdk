@@ -11,6 +11,7 @@ mod intrinsic;
 mod logical;
 mod math;
 mod measurement;
+mod memory_qubits;
 mod openqasm;
 mod state_preparation;
 mod table_lookup;
@@ -20,6 +21,9 @@ use qsc::{
     Backend, LanguageFeatures, PackageType, SourceMap, SparseSim,
     interpret::{self, GenericReceiver, Interpreter, Value},
     target::Profile,
+};
+use resource_estimator::{
+    Error as ResourceEstimatorError, logical_counts_expr, system::LogicalResourceCounts,
 };
 
 /// # Panics
@@ -263,4 +267,34 @@ fn stdlib_reexport_single_case() {
     }"#,
         &Value::Tuple(vec![].into(), None),
     );
+}
+
+// Runs resource estimator for given expression, returns logical counts.
+pub fn logical_counts_with_lib(expr: &str, lib: &str) -> LogicalResourceCounts {
+    let profile = Profile::Unrestricted;
+    let sources = SourceMap::new([("test".into(), lib.into())], Some(expr.into()));
+
+    let (std_id, store) = qsc::compile::package_store_with_stdlib(profile.into());
+
+    let mut interpreter = Interpreter::new(
+        sources,
+        PackageType::Exe,
+        profile.into(),
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+    )
+    .expect("test should compile");
+
+    logical_counts_expr(&mut interpreter, expr)
+        .unwrap_or_else(|errs| panic_with_resource_estimation_errors(&errs))
+}
+
+fn panic_with_resource_estimation_errors(errs: &[ResourceEstimatorError]) -> ! {
+    let joined = errs
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n");
+    panic!("resource estimation failed:\n{joined}");
 }
