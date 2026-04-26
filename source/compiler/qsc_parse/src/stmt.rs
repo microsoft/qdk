@@ -154,24 +154,38 @@ fn parse_qubit(s: &mut ParserContext) -> Result<Box<StmtKind>> {
 }
 
 fn parse_qubit_init(s: &mut ParserContext) -> Result<Box<QubitInit>> {
-    let help_text = "to allocate qubits, use syntax like `use q = Qubit();` or `use qs = Qubit[N];` or `use (q1, q2) = (Qubit(), Qubit());`";
+    let help_text = "to allocate qubits, use syntax like `use q = Qubit();`, `use m = MemoryQubit();`, `use qs = Qubit[N];`, `use ms = MemoryQubit[N];`, or `use (q1, q2) = (Qubit(), Qubit());`";
     let lo = s.peek().span.lo;
     s.expect(WordKinds::Qubit);
     let kind = if let Ok(name) = ident(s) {
-        if name.name.as_ref() != "Qubit" {
-            return Err(Error::new(ErrorKind::Convert(
-                "qubit initializer",
-                "identifier",
-                name.span,
-            ))
-            .with_help(help_text));
-        } else if token(s, TokenKind::Open(Delim::Paren)).is_ok() {
+        let is_memory = match name.name.as_ref() {
+            "Qubit" => false,
+            "MemoryQubit" => true,
+            _ => {
+                return Err(Error::new(ErrorKind::Convert(
+                    "qubit initializer",
+                    "identifier",
+                    name.span,
+                ))
+                .with_help(help_text));
+            }
+        };
+
+        if token(s, TokenKind::Open(Delim::Paren)).is_ok() {
             token(s, TokenKind::Close(Delim::Paren)).map_err(|e| e.with_help(help_text))?;
-            QubitInitKind::Single
+            if is_memory {
+                QubitInitKind::MemorySingle
+            } else {
+                QubitInitKind::Single
+            }
         } else if token(s, TokenKind::Open(Delim::Bracket)).is_ok() {
             let size = expr(s).map_err(|e| e.with_help(help_text))?;
             token(s, TokenKind::Close(Delim::Bracket)).map_err(|e| e.with_help(help_text))?;
-            QubitInitKind::Array(size)
+            if is_memory {
+                QubitInitKind::MemoryArray(size)
+            } else {
+                QubitInitKind::Array(size)
+            }
         } else {
             let token = s.peek();
             return Err(

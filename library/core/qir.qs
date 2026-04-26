@@ -54,5 +54,22 @@ namespace QIR.Runtime {
         body intrinsic;
     }
 
-    export __quantum__rt__qubit_allocate, __quantum__rt__qubit_borrow, __quantum__rt__qubit_release, AllocateQubitArray, BorrowQubitArray, ReleaseQubitArray, __quantum__rt__read_loss, __quantum__rt__memory_qubit_allocate, __quantum__rt__memory_qubit_release;
+    operation AllocateMemoryQubitArray(size : Int) : MemoryQubit[] {
+        if size < 0 {
+            fail "Cannot allocate memory qubit array with a negative length";
+        }
+        mutable qs = [];
+        for _ in 0..size - 1 {
+            set qs += [__quantum__rt__memory_qubit_allocate()];
+        }
+        qs
+    }
+
+    operation ReleaseMemoryQubitArray(qs : MemoryQubit[]) : Unit {
+        for q in qs {
+            __quantum__rt__memory_qubit_release(q);
+        }
+    }
+
+    export __quantum__rt__qubit_allocate, __quantum__rt__qubit_borrow, __quantum__rt__qubit_release, AllocateQubitArray, BorrowQubitArray, ReleaseQubitArray, __quantum__rt__read_loss, __quantum__rt__memory_qubit_allocate, __quantum__rt__memory_qubit_release, AllocateMemoryQubitArray, ReleaseMemoryQubitArray;
 }

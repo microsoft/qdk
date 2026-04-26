@@ -977,8 +977,17 @@ impl<'a> Context<'a> {
                     .eq(length_span, Ty::Prim(Prim::Int), length.ty);
                 converge(Ty::Array(Box::new(Ty::Prim(Prim::Qubit)))).diverge_if(length.diverges)
             }
+            QubitInitKind::MemoryArray(length) => {
+                let length_span = length.span;
+                let length = self.infer_expr(length);
+                self.inferrer
+                    .eq(length_span, Ty::Prim(Prim::Int), length.ty);
+                converge(Ty::Array(Box::new(Ty::Prim(Prim::MemoryQubit))))
+                    .diverge_if(length.diverges)
+            }
             QubitInitKind::Paren(inner) => self.infer_qubit_init(inner),
             QubitInitKind::Single => converge(Ty::Prim(Prim::Qubit)),
+            QubitInitKind::MemorySingle => converge(Ty::Prim(Prim::MemoryQubit)),
             QubitInitKind::Tuple(items) => {
                 let mut diverges = false;
                 let mut tys = Vec::new();

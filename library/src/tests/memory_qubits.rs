@@ -1,11 +1,74 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{logical_counts_with_lib, test_expression_with_lib};
+use super::{logical_counts_with_lib, test_expression_fails, test_expression_with_lib};
 use indoc::indoc;
 use qsc::interpret::Value;
 
 // Tests for memory qubits and Std.MemoryQubits namespace.
+
+#[test]
+fn memory_qubit_store_load_array_syntax() {
+    test_expression_with_lib(
+        "Test.Main()",
+        indoc! {r#"
+            namespace Test {
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    use mems = MemoryQubit[2];
+                    X(qs[0]);
+                    Std.MemoryQubits.Store(qs[0], mems[0]);
+                    Std.MemoryQubits.Load(mems[0], qs[1]);
+                    return [MResetZ(qs[0]), MResetZ(qs[1])];
+                }
+            }
+        "#},
+        &Value::Array(vec![Value::RESULT_ZERO, Value::RESULT_ONE].into()),
+    );
+}
+
+#[test]
+fn memory_qubit_store_load_tuple_syntax() {
+    test_expression_with_lib(
+        "Test.Main()",
+        indoc! {r#"
+            namespace Test {
+                operation Main() : Result[] {
+                    use qs = Qubit[3];
+                    use (m1, m2, m3) = (MemoryQubit(), MemoryQubit(), MemoryQubit());
+                    X(qs[0]);
+                    X(qs[2]);
+                    Std.MemoryQubits.Store(qs[0], m1);
+                    Std.MemoryQubits.Store(qs[1], m2);
+                    Std.MemoryQubits.Store(qs[2], m3);
+                    Std.MemoryQubits.Load(m1, qs[0]);
+                    Std.MemoryQubits.Load(m2, qs[1]);
+                    Std.MemoryQubits.Load(m3, qs[2]);
+                    return [MResetZ(qs[0]), MResetZ(qs[1]), MResetZ(qs[2])];
+                }
+            }
+        "#},
+        &Value::Array(vec![Value::RESULT_ONE, Value::RESULT_ZERO, Value::RESULT_ONE].into()),
+    );
+}
+
+#[test]
+fn memory_qubit_release_non_zero_fails() {
+    let err = test_expression_fails(indoc! {r#"
+        {
+            use q = Qubit();
+            use m = MemoryQubit();
+            X(q);
+            Std.MemoryQubits.Store(q, m);
+            ()
+        }
+    "#});
+
+    assert!(
+        err.contains("released while not in |0"),
+        "expected non-zero release error, got: {err}"
+    );
+}
 
 #[test]
 fn memory_qubit_store_load() {
@@ -14,12 +77,10 @@ fn memory_qubit_store_load() {
         indoc! {r#"
             namespace Test {
                 operation Main() : Result {
-                    use q = Qubit();
-                    let mem = Std.MemoryQubits.Allocate();
+                    use (q, mem) = (Qubit(), MemoryQubit());
                     X(q);
                     Std.MemoryQubits.Store(q, mem);
                     Std.MemoryQubits.Load(mem, q);
-                    Std.MemoryQubits.Free(mem);
                     return MResetZ(q);
                 }
             }
@@ -38,11 +99,10 @@ fn re_store_load_counts_manual_memory_usage() {
             namespace Test {
                 operation Main() : Unit {
                     use q = Qubit();
-                    let mem = Std.MemoryQubits.Allocate();
+                    use mem = MemoryQubit();
                     X(q);
                     Std.MemoryQubits.Store(q, mem);
                     Std.MemoryQubits.Load(mem, q);
-                    Std.MemoryQubits.Free(mem);
                 }
             }
         "#},
@@ -54,7 +114,6 @@ fn re_store_load_counts_manual_memory_usage() {
     assert_eq!(counts.write_to_memory_count, Some(1));
 }
 
-
 // This tests checks that MemoryQubits cannot be reused as Qubits.
 // Resource estimator must draw them from separate pools.
 #[test]
@@ -65,11 +124,10 @@ fn re_separate_qubit_pools() {
             namespace Test {
                 operation Op1() : Unit {
                     use q = Qubit();
-                    let mem = Std.MemoryQubits.Allocate();
+                    use mem = MemoryQubit();
                     H(q);
                     Std.MemoryQubits.Store(q, mem);
                     Std.MemoryQubits.Load(mem, q);
-                    Std.MemoryQubits.Free(mem);
                 }
                 operation Op2() : Unit {
                     use qs = Qubit[2];
@@ -84,7 +142,7 @@ fn re_separate_qubit_pools() {
         "#},
     );
 
-    // Maximum allocated qubits at any point is 2, but we need 1 memory qubit and 
+    // Maximum allocated qubits at any point is 2, but we need 1 memory qubit and
     // 2 compute qubits, so total number of qubits needed is 3.
     assert_eq!(counts.num_qubits, 3);
     assert_eq!(counts.num_compute_qubits, Some(2));

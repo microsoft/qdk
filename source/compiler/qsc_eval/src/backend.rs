@@ -452,7 +452,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
             OptionalBackend::Some(backend) => backend.qubit_is_zero(q),
             OptionalBackend::None(_) => true,
         }
-    }    
+    }
 
     pub fn memory_qubit_allocate(&mut self, stack: &[Frame]) -> usize {
         let q = match &mut self.backend {
@@ -465,21 +465,45 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         q
     }
 
-    pub fn memory_qubit_load(&mut self, mem_qubit_id: usize, comp_qubit_id: usize, stack: &[Frame]) {
+    pub fn memory_qubit_load(
+        &mut self,
+        mem_qubit_id: usize,
+        comp_qubit_id: usize,
+        stack: &[Frame],
+    ) {
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.memory_qubit_load(mem_qubit_id, comp_qubit_id);
         }
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate(stack, "Load", false, &[mem_qubit_id, comp_qubit_id], &[], None);
+            tracer.gate(
+                stack,
+                "Load",
+                false,
+                &[mem_qubit_id, comp_qubit_id],
+                &[],
+                None,
+            );
         }
     }
 
-    pub fn memory_qubit_store(&mut self, comp_qubit_id: usize, mem_qubit_id: usize, stack: &[Frame]) {
+    pub fn memory_qubit_store(
+        &mut self,
+        comp_qubit_id: usize,
+        mem_qubit_id: usize,
+        stack: &[Frame],
+    ) {
         if let OptionalBackend::Some(backend) = &mut self.backend {
             backend.memory_qubit_store(comp_qubit_id, mem_qubit_id);
         }
         if let Some(tracer) = &mut self.tracer {
-            tracer.gate(stack, "Store", false, &[comp_qubit_id, mem_qubit_id], &[], None);
+            tracer.gate(
+                stack,
+                "Store",
+                false,
+                &[comp_qubit_id, mem_qubit_id],
+                &[],
+                None,
+            );
         }
     }
 
