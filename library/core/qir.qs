@@ -46,5 +46,13 @@ namespace QIR.Runtime {
         body intrinsic;
     }
 
-    export __quantum__rt__qubit_allocate, __quantum__rt__qubit_borrow, __quantum__rt__qubit_release, AllocateQubitArray, BorrowQubitArray, ReleaseQubitArray, __quantum__rt__read_loss;
+    operation __quantum__rt__memory_qubit_allocate() : QMem {
+        body intrinsic;
+    }
+
+    operation __quantum__rt__memory_qubit_release(q : QMem) : Unit {
+        body intrinsic;
+    }
+
+    export __quantum__rt__qubit_allocate, __quantum__rt__qubit_borrow, __quantum__rt__qubit_release, AllocateQubitArray, BorrowQubitArray, ReleaseQubitArray, __quantum__rt__read_loss, __quantum__rt__memory_qubit_allocate, __quantum__rt__memory_qubit_release;
 }

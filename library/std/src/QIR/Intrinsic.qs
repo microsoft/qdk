@@ -105,6 +105,15 @@ operation __quantum__qis__mresetz__body(target : Qubit) : Result {
     body intrinsic;
 }
 
+// MemoryQubit operations.
+operation __quantum__qis__memory_qubit_load(qmem : QMem, qubit : Qubit) : Unit {
+    body intrinsic;
+}
+
+operation __quantum__qis__memory_qubit_store(qubit : Qubit, qmem : QMem) : Unit {
+    body intrinsic;
+}
+
 export
     __quantum__qis__ccx__body,
     __quantum__qis__cx__body,
@@ -128,4 +137,6 @@ export
     __quantum__qis__swap__body,
     __quantum__qis__m__body,
     __quantum__qis__reset__body,
-    __quantum__qis__mresetz__body;
+    __quantum__qis__mresetz__body,
+    __quantum__qis__memory_qubit_load,
+    __quantum__qis__memory_qubit_store;
