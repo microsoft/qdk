@@ -1,77 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{logical_counts_with_lib, test_expression_fails, test_expression_with_lib};
+use super::{
+    logical_counts_with_lib, test_expression_compile_fails, test_expression_fails,
+    test_expression_with_lib,
+};
 use indoc::indoc;
 use qsc::interpret::Value;
 
 // Tests for memory qubits and Std.MemoryQubits namespace.
 
 #[test]
-fn memory_qubit_store_load_array_syntax() {
-    test_expression_with_lib(
-        "Test.Main()",
-        indoc! {r#"
-            namespace Test {
-                operation Main() : Result[] {
-                    use qs = Qubit[2];
-                    use mems = MemoryQubit[2];
-                    X(qs[0]);
-                    Std.MemoryQubits.Store(qs[0], mems[0]);
-                    Std.MemoryQubits.Load(mems[0], qs[1]);
-                    return [MResetZ(qs[0]), MResetZ(qs[1])];
-                }
-            }
-        "#},
-        &Value::Array(vec![Value::RESULT_ZERO, Value::RESULT_ONE].into()),
-    );
-}
-
-#[test]
-fn memory_qubit_store_load_tuple_syntax() {
-    test_expression_with_lib(
-        "Test.Main()",
-        indoc! {r#"
-            namespace Test {
-                operation Main() : Result[] {
-                    use qs = Qubit[3];
-                    use (m1, m2, m3) = (MemoryQubit(), MemoryQubit(), MemoryQubit());
-                    X(qs[0]);
-                    X(qs[2]);
-                    Std.MemoryQubits.Store(qs[0], m1);
-                    Std.MemoryQubits.Store(qs[1], m2);
-                    Std.MemoryQubits.Store(qs[2], m3);
-                    Std.MemoryQubits.Load(m1, qs[0]);
-                    Std.MemoryQubits.Load(m2, qs[1]);
-                    Std.MemoryQubits.Load(m3, qs[2]);
-                    return [MResetZ(qs[0]), MResetZ(qs[1]), MResetZ(qs[2])];
-                }
-            }
-        "#},
-        &Value::Array(vec![Value::RESULT_ONE, Value::RESULT_ZERO, Value::RESULT_ONE].into()),
-    );
-}
-
-#[test]
-fn memory_qubit_release_non_zero_fails() {
-    let err = test_expression_fails(indoc! {r#"
-        {
-            use q = Qubit();
-            use m = MemoryQubit();
-            X(q);
-            Std.MemoryQubits.Store(q, m);
-            ()
-        }
-    "#});
-
-    assert!(
-        err.contains("released while not in |0"),
-        "expected non-zero release error, got: {err}"
-    );
-}
-
-#[test]
-fn memory_qubit_store_load() {
+fn check_store_load() {
     test_expression_with_lib(
         "Test.Main()",
         indoc! {r#"
@@ -89,10 +29,89 @@ fn memory_qubit_store_load() {
     );
 }
 
+#[test]
+fn check_array_store_load() {
+    test_expression_with_lib(
+        "Test.Main()",
+        indoc! {r#"
+            namespace Test {
+                operation Main() : Result[] {
+                    use qs = Qubit[2];
+                    use mems = MemoryQubit[2];
+                    X(qs[0]);
+                    Std.MemoryQubits.StoreArray(qs, mems);
+                    Std.MemoryQubits.LoadArray(mems, qs);
+                    return [MResetZ(qs[0]), MResetZ(qs[1])];
+                }
+            }
+        "#},
+        &Value::Array(vec![Value::RESULT_ONE, Value::RESULT_ZERO].into()),
+    );
+}
+
+#[test]
+fn check_cannot_apply_gate_to_memory_qubit() {
+    let err = test_expression_compile_fails(indoc! {r#"
+        {
+            use q = MemoryQubit();
+            X(q);
+        }
+    "#});
+
+    assert!(err.contains("type error"));
+}
+
+#[test]
+fn check_cannot_measure_memory_qubit() {
+    let err = test_expression_compile_fails(indoc! {r#"
+        {
+            use q = MemoryQubit();
+            M(q);
+        }
+    "#});
+
+    assert!(err.contains("type error"));
+}
+
+// MemoryQubit cannot be released in non-zero state (same as Qubit).
+#[test]
+fn check_release_non_zero_fails() {
+    let err = test_expression_fails(indoc! {r#"
+        {
+            use (q, m) = (Qubit(), MemoryQubit());
+            X(q);
+            Std.MemoryQubits.Store(q, m);
+            Reset(q);
+        }
+    "#});
+
+    assert!(err.contains("released while not in |0"));
+}
+
+// Check that after the computation, all qubits are released in 0 state.
+#[test]
+fn check_do_computation_with_qft() {
+    test_expression_with_lib(
+        "Test.Main()",
+        indoc! {r#"
+            namespace Test {
+                operation Main() : Bool {
+                    use (qs, mems) = (Qubit[4], MemoryQubit[4]);
+                    Adjoint ApplyQFT(qs);
+                    Std.MemoryQubits.StoreArray(qs, mems);
+                    Std.MemoryQubits.DoComputation(mems, ApplyQFT);
+                    return true;
+                }
+            }
+        "#},
+        &Value::Bool(true),
+    );
+}
+
 // Resource estimation tests.
 
 #[test]
-fn re_store_load_counts_manual_memory_usage() {
+fn check_resource_estimation_single_qubit() {
     let counts = logical_counts_with_lib(
         "Test.Main()",
         indoc! {r#"
@@ -114,10 +133,74 @@ fn re_store_load_counts_manual_memory_usage() {
     assert_eq!(counts.write_to_memory_count, Some(1));
 }
 
-// This tests checks that MemoryQubits cannot be reused as Qubits.
+// Resource estimation of computation with memory qubits.
+#[test]
+fn check_resource_estimation_do_computation() {
+    let counts = logical_counts_with_lib(
+        "Test.Main()",
+        indoc! {r#"
+            namespace Test {
+                operation Main() : Unit {
+                    use qs = MemoryQubit[10];
+                    Std.MemoryQubits.DoComputation(qs[0..4], ApplyQFT);
+                    Std.MemoryQubits.DoComputation(qs[5..9], ApplyQFT);
+                }
+            }
+        "#},
+    );
+
+    // 10 memory qubits, 5 compute qubits.
+    assert_eq!(counts.num_qubits, 15);
+    assert_eq!(counts.num_compute_qubits, Some(5));
+    assert_eq!(counts.read_from_memory_count, Some(10));
+    assert_eq!(counts.write_to_memory_count, Some(10));
+}
+
+#[test]
+fn check_resource_estimation_store_only() {
+    let counts = logical_counts_with_lib(
+        "Test.Main()",
+        indoc! {r#"
+            namespace Test {
+                operation Main() : Unit {
+                    use (qs, mem) = (Qubit[10], MemoryQubit[10]);
+                    H(qs[5]);
+                    Std.MemoryQubits.StoreArray(qs, mem);
+                }
+            }
+        "#},
+    );
+
+    assert_eq!(counts.num_qubits, 20);
+    assert_eq!(counts.num_compute_qubits, Some(10));
+    assert_eq!(counts.read_from_memory_count, Some(0));
+    assert_eq!(counts.write_to_memory_count, Some(10));
+}
+
+#[test]
+fn check_resource_estimation_load_only() {
+    let counts = logical_counts_with_lib(
+        "Test.Main()",
+        indoc! {r#"
+            namespace Test {
+                operation Main() : Unit {
+                    use (qs, mem) = (Qubit[10], MemoryQubit[10]);
+                    Std.MemoryQubits.LoadArray(mem, qs);
+                }
+            }
+        "#},
+    );
+
+    assert_eq!(counts.num_qubits, 20);
+    assert_eq!(counts.num_compute_qubits, Some(10));
+    assert_eq!(counts.read_from_memory_count, Some(10));
+    assert_eq!(counts.write_to_memory_count, Some(0));
+}
+
+// This test checks that MemoryQubits cannot be reused as Qubits.
 // Resource estimator must draw them from separate pools.
 #[test]
-fn re_separate_qubit_pools() {
+fn check_resource_estimation_separate_qubit_pools() {
     let counts = logical_counts_with_lib(
         "Test.Main()",
         indoc! {r#"
@@ -147,9 +230,3 @@ fn re_separate_qubit_pools() {
     assert_eq!(counts.num_qubits, 3);
     assert_eq!(counts.num_compute_qubits, Some(2));
 }
-
-// Add a test for different syntaxes.
-// Add a test for when MemoryQubit is released in non-zero state.
-// Add a test for MemoryQubit arrays.
-// Add a test for not reusing memory as compute in RE.
-// Add RE test with uneven load/stores.

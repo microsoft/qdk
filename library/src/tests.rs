@@ -44,6 +44,40 @@ pub fn test_expression_fails(expr: &str) -> String {
     )
 }
 
+/// Asserts that given Q# expression fails to compile, returns compilation error.
+pub fn test_expression_compile_fails(expr: &str) -> String {
+    test_expression_compile_fails_with_lib_and_profile(expr, "", Profile::Unrestricted)
+}
+
+/// Asserts that given Q# expression fails to compile, returns compilation error.
+pub fn test_expression_compile_fails_with_lib_and_profile(
+    expr: &str,
+    lib: &str,
+    profile: Profile,
+) -> String {
+    let sources = SourceMap::new([("test".into(), lib.into())], Some(expr.into()));
+
+    let (std_id, store) = qsc::compile::package_store_with_stdlib(profile.into());
+
+    let compile_errors = match Interpreter::new(
+        sources,
+        PackageType::Exe,
+        profile.into(),
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+    ) {
+        Ok(_) => panic!("test should fail to compile"),
+        Err(errors) => errors,
+    };
+
+    compile_errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn test_expression_with_lib(expr: &str, lib: &str, expected: &Value) -> String {
     test_expression_with_lib_and_profile(expr, lib, Profile::Unrestricted, expected)
 }
@@ -293,7 +327,7 @@ pub fn logical_counts_with_lib(expr: &str, lib: &str) -> LogicalResourceCounts {
 fn panic_with_resource_estimation_errors(errs: &[ResourceEstimatorError]) -> ! {
     let joined = errs
         .iter()
-        .map(ToString::to_string)
+        .map(|e| format!("{e:?}"))
         .collect::<Vec<_>>()
         .join("\n");
     panic!("resource estimation failed:\n{joined}");
