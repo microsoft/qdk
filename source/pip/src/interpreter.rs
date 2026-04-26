@@ -1070,7 +1070,7 @@ where
             | Prim::String
             | Prim::Result => None,
             Prim::Qubit
-            | Prim::QMem
+            | Prim::MemoryQubit
             | Prim::Range
             | Prim::RangeTo
             | Prim::RangeFrom

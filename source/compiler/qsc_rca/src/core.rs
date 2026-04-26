@@ -2401,7 +2401,7 @@ fn ty_prim_to_runtime_output_flag(prim: Prim) -> RuntimeFeatureFlags {
         Prim::BigInt
         | Prim::Pauli
         | Prim::Qubit
-        | Prim::QMem
+        | Prim::MemoryQubit
         | Prim::Range
         | Prim::RangeFrom
         | Prim::RangeTo
@@ -2460,7 +2460,7 @@ fn derive_runtime_features_for_value_kind_associated_to_type(
             Prim::Double => RuntimeFeatureFlags::UseOfDynamicDouble,
             Prim::Int => RuntimeFeatureFlags::UseOfDynamicInt,
             Prim::Pauli => RuntimeFeatureFlags::UseOfDynamicPauli,
-            Prim::Qubit | Prim::QMem => RuntimeFeatureFlags::UseOfDynamicQubit,
+            Prim::Qubit | Prim::MemoryQubit => RuntimeFeatureFlags::UseOfDynamicQubit,
             Prim::Range | Prim::RangeFrom | Prim::RangeTo | Prim::RangeFull => {
                 RuntimeFeatureFlags::UseOfDynamicRange
             }

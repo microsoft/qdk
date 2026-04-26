@@ -1383,7 +1383,7 @@ impl State {
         }
 
         if is_memory_qubit {
-            Value::QMem(q.into())
+            Value::MemoryQubit(q.into())
         } else {
             Value::Qubit(q.into())
         }

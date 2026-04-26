@@ -46,11 +46,11 @@ namespace QIR.Runtime {
         body intrinsic;
     }
 
-    operation __quantum__rt__memory_qubit_allocate() : QMem {
+    operation __quantum__rt__memory_qubit_allocate() : MemoryQubit {
         body intrinsic;
     }
 
-    operation __quantum__rt__memory_qubit_release(q : QMem) : Unit {
+    operation __quantum__rt__memory_qubit_release(q : MemoryQubit) : Unit {
         body intrinsic;
     }
 

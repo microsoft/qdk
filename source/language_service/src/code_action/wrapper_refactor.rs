@@ -276,7 +276,7 @@ fn default_value_for_type(ty: &Ty) -> (Option<String>, String) {
             Prim::BigInt => (Some("0L".to_string()), "BigInt".to_string()),
             Prim::String => (Some("\"\"".to_string()), "String".to_string()),
             Prim::Qubit => (None, "Qubit - allocate with 'use'".to_string()),
-            Prim::QMem => (None, "Quantum memory - allocate via 'store'".to_string()),
+            Prim::MemoryQubit => (None, "Quantum memory - allocate via 'store'".to_string()),
             Prim::Range | Prim::RangeTo | Prim::RangeFrom | Prim::RangeFull => {
                 (Some("0..1".to_string()), "Range".to_string())
             }

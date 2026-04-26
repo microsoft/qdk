@@ -8,18 +8,18 @@ use qsc::interpret::Value;
 // Tests for memory qubits and Std.MemoryQubits namespace.
 
 #[test]
-fn qmem_store_load() {
+fn memory_qubit_store_load() {
     test_expression_with_lib(
         "Test.Main()",
         indoc! {r#"
             namespace Test {
                 operation Main() : Result {
                     use q = Qubit();
-                    let mem = Std.Memory.Allocate();
+                    let mem = Std.MemoryQubits.Allocate();
                     X(q);
-                    Std.Memory.Store(q, mem);
-                    Std.Memory.Load(mem, q);
-                    Std.Memory.Free(mem);
+                    Std.MemoryQubits.Store(q, mem);
+                    Std.MemoryQubits.Load(mem, q);
+                    Std.MemoryQubits.Free(mem);
                     return MResetZ(q);
                 }
             }
@@ -38,11 +38,11 @@ fn re_store_load_counts_manual_memory_usage() {
             namespace Test {
                 operation Main() : Unit {
                     use q = Qubit();
-                    let mem = Std.Memory.Allocate();
+                    let mem = Std.MemoryQubits.Allocate();
                     X(q);
-                    Std.Memory.Store(q, mem);
-                    Std.Memory.Load(mem, q);
-                    Std.Memory.Free(mem);
+                    Std.MemoryQubits.Store(q, mem);
+                    Std.MemoryQubits.Load(mem, q);
+                    Std.MemoryQubits.Free(mem);
                 }
             }
         "#},
@@ -65,11 +65,11 @@ fn re_separate_qubit_pools() {
             namespace Test {
                 operation Op1() : Unit {
                     use q = Qubit();
-                    let mem = Std.Memory.Allocate();
+                    let mem = Std.MemoryQubits.Allocate();
                     H(q);
-                    Std.Memory.Store(q, mem);
-                    Std.Memory.Load(mem, q);
-                    Std.Memory.Free(mem);
+                    Std.MemoryQubits.Store(q, mem);
+                    Std.MemoryQubits.Load(mem, q);
+                    Std.MemoryQubits.Free(mem);
                 }
                 operation Op2() : Unit {
                     use qs = Qubit[2];
@@ -91,7 +91,7 @@ fn re_separate_qubit_pools() {
 }
 
 // Add a test for different syntaxes.
-// Add a test for when QMem is released in non-zero state.
-// Add a test for QMem arrays.
+// Add a test for when MemoryQubit is released in non-zero state.
+// Add a test for MemoryQubit arrays.
 // Add a test for not reusing memory as compute in RE.
 // Add RE test with uneven load/stores.

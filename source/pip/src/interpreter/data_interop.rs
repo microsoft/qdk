@@ -233,7 +233,7 @@ pub(super) fn pyobj_to_value(
             Prim::Result => Ok(Value::Result(extract_obj::<Result>(py, obj, ty)?.into())),
             Prim::Pauli => Ok(Value::Pauli(extract_obj::<Pauli>(py, obj, ty)?.into())),
             Prim::Qubit
-            | Prim::QMem
+            | Prim::MemoryQubit
             | Prim::Range
             | Prim::RangeTo
             | Prim::RangeFrom
@@ -340,7 +340,7 @@ pub(super) fn type_ir_from_qsharp_ty(ctx: &interpret::Interpreter, ty: &Ty) -> O
                 Prim::Pauli => PrimitiveKind::Pauli,
                 Prim::Result => PrimitiveKind::Result,
                 Prim::Qubit
-                | Prim::QMem
+                | Prim::MemoryQubit
                 | Prim::Range
                 | Prim::RangeTo
                 | Prim::RangeFrom
@@ -480,7 +480,7 @@ pub(crate) fn value_to_pyobj(
             let closure: Closure = value.clone().into();
             closure.into_py_any(py)
         }
-        Value::Qubit(..) | Value::QMem(..) | Value::Range(..) | Value::Var(..) => {
+        Value::Qubit(..) | Value::MemoryQubit(..) | Value::Range(..) | Value::Var(..) => {
             format!("<{}> {}", value.type_name(), value).into_py_any(py)
         }
     }

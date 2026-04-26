@@ -1204,7 +1204,7 @@ impl GlobalTable {
             ("Int".into(), Res::PrimTy(Prim::Int)),
             ("Pauli".into(), Res::PrimTy(Prim::Pauli)),
             ("Qubit".into(), Res::PrimTy(Prim::Qubit)),
-            ("QMem".into(), Res::PrimTy(Prim::QMem)),
+            ("MemoryQubit".into(), Res::PrimTy(Prim::MemoryQubit)),
             ("Range".into(), Res::PrimTy(Prim::Range)),
             ("Result".into(), Res::PrimTy(Prim::Result)),
             ("String".into(), Res::PrimTy(Prim::String)),

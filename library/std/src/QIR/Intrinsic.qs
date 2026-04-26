@@ -106,11 +106,11 @@ operation __quantum__qis__mresetz__body(target : Qubit) : Result {
 }
 
 // MemoryQubit operations.
-operation __quantum__qis__memory_qubit_load(qmem : QMem, qubit : Qubit) : Unit {
+operation __quantum__qis__memory_qubit_load(memory_qubit : MemoryQubit, qubit : Qubit) : Unit {
     body intrinsic;
 }
 
-operation __quantum__qis__memory_qubit_store(qubit : Qubit, qmem : QMem) : Unit {
+operation __quantum__qis__memory_qubit_store(qubit : Qubit, memory_qubit : MemoryQubit) : Unit {
     body intrinsic;
 }
 

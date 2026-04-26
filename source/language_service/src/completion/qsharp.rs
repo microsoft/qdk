@@ -280,7 +280,7 @@ fn collect_paths(
             locals_and_builtins.push(locals_at_cursor.type_names());
             locals_and_builtins.push(
                 [
-                    "Qubit", "QMem", "Int", "Unit", "Result", "Bool", "BigInt", "Double", "Pauli",
+                    "Qubit", "MemoryQubit", "Int", "Unit", "Result", "Bool", "BigInt", "Double", "Pauli",
                     "Range", "String",
                 ]
                 .map(|s| Completion::new(s.to_string(), CompletionItemKind::Interface))

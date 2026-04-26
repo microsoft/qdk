@@ -1095,7 +1095,7 @@ fn lower_ty_prim(prim: qsc_hir::ty::Prim) -> qsc_fir::ty::Prim {
         qsc_hir::ty::Prim::Double => qsc_fir::ty::Prim::Double,
         qsc_hir::ty::Prim::Int => qsc_fir::ty::Prim::Int,
         qsc_hir::ty::Prim::Qubit => qsc_fir::ty::Prim::Qubit,
-        qsc_hir::ty::Prim::QMem => qsc_fir::ty::Prim::QMem,
+        qsc_hir::ty::Prim::MemoryQubit => qsc_fir::ty::Prim::MemoryQubit,
         qsc_hir::ty::Prim::Result => qsc_fir::ty::Prim::Result,
         qsc_hir::ty::Prim::String => qsc_fir::ty::Prim::String,
         qsc_hir::ty::Prim::BigInt => qsc_fir::ty::Prim::BigInt,

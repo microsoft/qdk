@@ -25,7 +25,7 @@ pub enum Value {
     Int(i64),
     Pauli(Pauli),
     Qubit(QubitRef),
-    QMem(QubitRef),
+    MemoryQubit(QubitRef),
     Range(Box<Range>),
     Result(Result),
     String(Rc<str>),
@@ -197,9 +197,9 @@ impl Display for Value {
                 (v.try_deref()
                     .map_or_else(|| "<released>".to_string(), |v| v.0.to_string()))
             ),
-            Value::QMem(v) => write!(
+            Value::MemoryQubit(v) => write!(
                 f,
-                "QMem{}",
+                "MemoryQubit{}",
                 (v.try_deref()
                     .map_or_else(|| "<released>".to_string(), |v| v.0.to_string()))
             ),
@@ -390,12 +390,12 @@ impl Value {
 
     /// Convert the [Value] into a qubit
     /// # Panics
-    /// This will panic if the [Value] is not a [`Value::Qubit`] or [`Value::QMem`].
+    /// This will panic if the [Value] is not a [`Value::Qubit`] or [`Value::MemoryQubit`].
     #[must_use]
     pub fn unwrap_qubit(self) -> QubitRef {
         if let Value::Qubit(v) = self {
             v
-        } else if let Value::QMem(v) = self {
+        } else if let Value::MemoryQubit(v) = self {
             v
         } else {
             panic!("value should be Qubit, got {}", self.type_name());
@@ -458,7 +458,7 @@ impl Value {
             Value::Int(_) => "Int",
             Value::Pauli(_) => "Pauli",
             Value::Qubit(_) => "Qubit",
-            Value::QMem(_) => "QMem",
+            Value::MemoryQubit(_) => "MemoryQubit",
             Value::Range(..) => "Range",
             Value::Result(_) => "Result",
             Value::String(_) => "String",
@@ -475,7 +475,7 @@ impl Value {
         match self {
             Value::Array(arr) => arr.iter().flat_map(Value::qubits).collect(),
             Value::Closure(closure) => closure.fixed_args.iter().flat_map(Value::qubits).collect(),
-            Value::Qubit(q) | Value::QMem(q) => vec![q.clone()],
+            Value::Qubit(q) | Value::MemoryQubit(q) => vec![q.clone()],
             Value::Tuple(tup, _) => tup.iter().flat_map(Value::qubits).collect(),
 
             Value::BigInt(_)
