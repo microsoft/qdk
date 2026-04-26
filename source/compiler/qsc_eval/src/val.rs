@@ -390,13 +390,16 @@ impl Value {
 
     /// Convert the [Value] into a qubit
     /// # Panics
-    /// This will panic if the [Value] is not a [`Value::Qubit`].
+    /// This will panic if the [Value] is not a [`Value::Qubit`] or [`Value::QMem`].
     #[must_use]
     pub fn unwrap_qubit(self) -> QubitRef {
-        let Value::Qubit(v) = self else {
+        if let Value::Qubit(v) = self {
+            v
+        } else if let Value::QMem(v) = self {
+            v
+        } else {
             panic!("value should be Qubit, got {}", self.type_name());
-        };
-        v
+        }
     }
 
     /// Convert the [Value] into a range tuple

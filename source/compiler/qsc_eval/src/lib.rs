@@ -1325,31 +1325,16 @@ impl State {
         self.increment_call_count(callee_id, functor);
         let name = &callee.name.name;
         let val = match name.as_ref() {
-            "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
+            "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" | "Allocate" => {
                 self.allocate_qubit(env, sim, &call_stack, name)
-            }
-            "Allocate" => {
-                let q_val = self.allocate_qubit(env, sim, &call_stack, name);
-                sim.custom_intrinsic("__set_memory_qubit", q_val.clone(), &call_stack);
-                let Value::Qubit(q) = q_val else {
-                    panic!("qubit allocation should return a qubit value")
-                };
-                Value::QMem(q)
-            }
-            "Free" => {
-                let Value::QMem(q) = arg else {
-                    panic!("qubit release should be called with a quantum memory reference")
-                };
-                let q_val = Value::Qubit(q);
-                self.release_qubit(env, sim, q_val, arg_span, &call_stack)?
             }
             "Store" => {
                 let [qubit, qmem] = val::unwrap_tuple(arg);
-                let Value::QMem(qmem) = qmem else {
-                    panic!("first argument of Exchange should be a quantum memory reference")
-                };
                 let Value::Qubit(qubit) = qubit else {
-                    panic!("second argument of Exchange should be a qubit reference")
+                    panic!("first argument of Store should be a MemoryQubit reference")
+                };
+                let Value::QMem(qmem) = qmem else {
+                    panic!("second argument of Store should be a Qubit reference")
                 };
                 let qmem_ref = qmem
                     .try_deref()
@@ -1357,17 +1342,16 @@ impl State {
                 let qubit_ref = qubit
                     .try_deref()
                     .ok_or(Error::QubitUsedAfterRelease(arg_span))?;
-                sim.reset(qmem_ref.0, &call_stack);
-                sim.swap(qubit_ref.0, qmem_ref.0, &call_stack);
+                sim.memory_qubit_store(qubit_ref.0, qmem_ref.0, &call_stack);
                 Value::unit()
             }
             "Load" => {
                 let [qmem, qubit] = val::unwrap_tuple(arg);
                 let Value::QMem(qmem) = qmem else {
-                    panic!("first argument of Exchange should be a quantum memory reference")
+                    panic!("first argument of Load should be a MemoryQubit reference")
                 };
                 let Value::Qubit(qubit) = qubit else {
-                    panic!("second argument of Exchange should be a qubit reference")
+                    panic!("second argument of Load should be a Qubit reference")
                 };
                 let qmem_ref = qmem
                     .try_deref()
@@ -1375,11 +1359,10 @@ impl State {
                 let qubit_ref = qubit
                     .try_deref()
                     .ok_or(Error::QubitUsedAfterRelease(arg_span))?;
-                sim.swap(qmem_ref.0, qubit_ref.0, &call_stack);
-                sim.reset(qmem_ref.0, &call_stack);
+                sim.memory_qubit_load(qmem_ref.0, qubit_ref.0, &call_stack);
                 Value::unit()
             }
-            "__quantum__rt__qubit_release" => {
+            "__quantum__rt__qubit_release" | "Free" => {
                 self.release_qubit(env, sim, arg, arg_span, &call_stack)?
             }
             _ => {
@@ -1414,7 +1397,14 @@ impl State {
         call_stack: &[Frame],
         name: &Rc<str>,
     ) -> Value {
-        let q = sim.qubit_allocate(call_stack);
+        let is_memory_qubit = name.as_ref() == "Allocate";
+
+        let q = if is_memory_qubit {
+            sim.memory_qubit_allocate(call_stack)
+        } else {
+            sim.qubit_allocate(call_stack)
+        };
+
         let q = Rc::new(Qubit(q));
         env.track_qubit(Rc::clone(&q));
         if let Some(counter) = &mut self.qubit_counter {
@@ -1423,7 +1413,12 @@ impl State {
         if name.as_ref() == "__quantum__rt__qubit_borrow" {
             self.dirty_qubits.insert(q.0);
         }
-        Value::Qubit(q.into())
+
+        if is_memory_qubit {
+            Value::QMem(q.into())
+        } else {
+            Value::Qubit(q.into())
+        }
     }
 
     fn release_qubit<B: Backend>(
