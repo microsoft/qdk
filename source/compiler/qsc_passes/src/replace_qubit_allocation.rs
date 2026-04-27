@@ -279,17 +279,7 @@ impl<'a> ReplaceQubitAllocation<'a> {
         };
         let mut call_expr = create_gen_core_ref(self.core, ns, api, Vec::new(), ident.span);
         call_expr.id = self.assigner.next_node();
-        create_general_alloc_stmt(
-            self.assigner,
-            ident,
-            call_expr,
-            None,
-            if is_memory {
-                Prim::MemoryQubit
-            } else {
-                Prim::Qubit
-            },
-        )
+        create_general_alloc_stmt(self.assigner, ident, call_expr, None, is_memory)
     }
 
     fn create_array_alloc_stmt(
@@ -310,17 +300,7 @@ impl<'a> ReplaceQubitAllocation<'a> {
         };
         let mut call_expr = create_gen_core_ref(self.core, ns, api, Vec::new(), ident.span);
         call_expr.id = self.assigner.next_node();
-        create_general_alloc_stmt(
-            self.assigner,
-            ident,
-            call_expr,
-            Some(array_size),
-            if is_memory {
-                Prim::MemoryQubit
-            } else {
-                Prim::Qubit
-            },
-        )
+        create_general_alloc_stmt(self.assigner, ident, call_expr, Some(array_size), is_memory)
     }
 
     fn create_dealloc_stmt(&mut self, ident: &IdentTemplate, is_memory: bool) -> Stmt {
@@ -592,8 +572,13 @@ fn create_general_alloc_stmt(
     ident: &IdentTemplate,
     call_expr: Expr,
     array_size: Option<Expr>,
-    prim: Prim,
+    is_memory: bool,
 ) -> Stmt {
+    let prim = if is_memory {
+        Prim::MemoryQubit
+    } else {
+        Prim::Qubit
+    };
     ident.gen_steppable_id_init(
         Mutability::Immutable,
         create_qubit_alloc_call_expr(assigner, ident.span, call_expr, array_size, prim),

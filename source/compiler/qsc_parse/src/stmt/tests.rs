@@ -172,7 +172,7 @@ fn use_invalid_init() {
                     },
                 ),
                 Some(
-                    "to allocate qubits, use syntax like `use q = Qubit();`, `use m = MemoryQubit();`, `use qs = Qubit[N];`, `use ms = MemoryQubit[N];`, or `use (q1, q2) = (Qubit(), Qubit());`",
+                    "to allocate qubits, use syntax like `use q = Qubit();` or `use qs = Qubit[N];` or `use (q1, q2) = (Qubit(), Qubit());`",
                 ),
             )
         "#]],

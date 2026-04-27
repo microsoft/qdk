@@ -50,7 +50,6 @@ pub struct LogicalCounter {
     memory_compute: Option<MemoryComputeInfo>,
     /// Random number generator
     rnd: RefCell<StdRng>,
-
     /// Map to track any post-select measurements by their associated qubit.
     /// This value is used in a measurement, if present, before generating a random result.
     post_select_measurements: FxHashMap<usize, bool>,
