@@ -13,70 +13,26 @@ Most of the core components are implemented in Rust. These components are packag
 1. Compiled as a native Python module and packaged into the `qsharp` Python package
 2. Compiled into WebAssembly and packaged into the `qsharp-lang` npm package
 
-## Repo Contents
+## Repo Layout
 
-**Rust**
+Directories under `source/` (Rust, Python, JS/TS tooling):
 
-- **allocator/**: A copy of `mimalloc`, used for memory allocation in the Rust components of the QDK
-- **compiler/**: Core compiler and language processing components
-  - **qsc/**: Core compiler logic
-  - **qsc_ast/**: Abstract syntax tree definition and utilities
-  - **qsc_circuit/**: Circuit diagram representation and generation
-  - **qsc_codegen/**: Code generation utilities (QIR, Q#)
-  - **qsc_data_structures/**: Common data structures used by the compiler
-  - **qsc_doc_gen/**: Documentation generation tools
-  - **qsc_eval/**: Runtime evaluation and simulation
-  - **qsc_fir/**: Flat IR
-  - **qsc_formatter/**: Q# code formatter
-  - **qsc_frontend/**: Compiler frontend components
-  - **qsc_hir/**: High-level Intermediate Representation
-  - **qsc_linter/**: Code quality and style checking
-  - **qsc_lowerer/**: IR lowering transformations
-  - **qsc_parse/**: Q# parser
-  - **qsc_partial_eval/**: Partial evaluation and optimization
-  - **qsc_passes/**: HIR passes
-  - **qsc_project/**: Project system and manifest handling
-  - **qsc_openqasm_compiler/**: OpenQASM compiler frontend
-  - **qsc_openqasm_parser/**: OpenQASM parser frontend
-  - **qsc_rca/**: Resource counting and analysis
-  - **qsc_rir/**: Runtime Intermediate Representation
-- **fuzz/**: Fuzz testing infrastructure for the compiler
-- **language_service/**: Q# language service for editor features
-- **noisy_simulator/**: Simulator for quantum noise modeling
-- **resource_estimator/**: Quantum Resource Estimator implementation
-- **wasm/**: WebAssembly bindings for core components
-
-**Build & Release**
-
-- **docker/**: Docker container configurations
-
-**Python**
-
-- **pip/**: The `qsharp` Python package
-- **jupyterlab/**: JupyterLab extension for Q#
-- **widgets/**: Q# Jupyter widgets
-
-**Q# Content**
-
-- **katas/**: Quantum computing tutorials and exercises
-- **library/**: Q# standard and domain-specific libraries
-  - **chemistry/**: Chemistry-specific quantum operations
-  - **core/**: Q# core library
-  - **fixed_point/**: Fixed-point arithmetic support
-  - **qtest/**: Testing utilities
-  - **rotations/**: Quantum rotation operations
-  - **signed/**: Signed arithmetic operations
-  - **std/**: Q# standard library
-- **samples/**: Example Q# programs demonstrating language features
-- **samples_test/**: Tests for sample code
-
-**JavaScript/TypeScript**
-
-- **npm/**: The `qsharp-lang` npm package
+- **compiler/**: Q# and OpenQASM compiler crates (`qsc_*`)
+- **language_service/**: Editor features (completions, diagnostics, etc.)
+- **resource_estimator/**, **qre/**: Quantum resource estimation
+- **noisy_simulator/**, **simulators/**: Quantum simulation
+- **wasm/**: WebAssembly bindings for the compiler
+- **pip/**: `qsharp` Python package
+- **jupyterlab/**, **widgets/**: Jupyter integration
+- **npm/**: `qsharp-lang` npm package
+- **vscode/**: VS Code extension
 - **playground/**: Q# Playground website
-- **vscode/**: Visual Studio Code extension for Q#
-  - **src/**: Product source
-  - **test/**: Integration tests
+
+Directories at the repo root (Q# content):
+
+- **library/**: Q# standard and domain-specific libraries
+- **katas/**: Quantum computing tutorials and exercises
+- **samples/**: Example Q# programs
 
 ## Development Workflow
 
@@ -95,12 +51,6 @@ Most of the core components are implemented in Rust. These components are packag
   - Code **must** be formatted by running `cargo fmt` and `npm run prettier:fix`.
   - `./build.py` without any command-line arguments **must** run without errors or warnings.
 
-## Specific Guidelines for Parts of the Codebase
+## Python Environment
 
-### VS Code Integration Tests (`vscode/test/`)
-
-- `npm test` from the `vscode/` directory runs the integration tests.
-  - `npm test -- --suite=language-service`: Run only the `language-service` test suite
-- Tests use the VS Code for Web testing framework (`@vscode/test-web`), which uses `playwright` under the covers to automate headless Chrome.
-- `mocha` interface is used to declare tests, `chai` for asserts. No mocking library is used. Do _not_ add dependencies to the test suite.
-- Tests run in the real VS Code environment, in the extension host, which means they can directly interact with the VS Code API.
+- The build script (`build.py`) and many development tasks require Python. Always use the `get_python_environment_details` and `configure_python_environment` tools to determine the correct Python environment before running any Python commands. Do not assume a system-level Python is available or correct.
