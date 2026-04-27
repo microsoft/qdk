@@ -781,12 +781,6 @@ export class KatasPanelManager {
           }
         });
 
-        // Inline "Next exercise →" button in the success output.
-        outputEl.addEventListener("click", function(e) {
-          var btn = e.target.closest(".next-inline");
-          if (btn) executeAction("next");
-        });
-
         // Restore cached state immediately for instant render on restart
         const cachedState = vscodeApi.getState();
         if (cachedState) applyState(cachedState);
