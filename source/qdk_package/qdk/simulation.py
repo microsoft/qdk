@@ -14,7 +14,24 @@ This module exposes the core building blocks for noise-aware quantum simulation:
   (including qubit loss) for use with the Q# simulator. Assign noise tables
   to individual gate intrinsics to model depolarizing, bit-flip, phase-flip,
   or correlated noise channels.
+
+- :func:`~qsharp._simulation.run_qir` — simulates QIR as given in one of
+  three backend simulators: clifford, gpu or cpu.
+
+- :class:`~qsharp.noisy_simulator.DensityMatrixSimulator` — an experimental simulator that uses
+  a density-matrix to track its state.
+
+- :class:`~qsharp.noisy_simulator.StateVectorSimulator` — an experimental simulator that uses
+  a state-vector to track its state.
 """
 
 from qsharp._device._atom import NeutralAtomDevice
-from qsharp._simulation import NoiseConfig
+from qsharp._simulation import NoiseConfig, run_qir
+from qsharp.noisy_simulator import (
+    DensityMatrixSimulator,
+    StateVectorSimulator,
+    DensityMatrix,
+    StateVector,
+    Operation,
+    Instrument,
+)
