@@ -94,7 +94,7 @@ export class LearningTools {
    */
   async showPanel(): Promise<{ state: unknown }> {
     this.ensureInitialized();
-    await vscode.commands.executeCommand("qsharp-vscode.showKatas");
+    await this.openPanel();
     return { state: this.serializeState() };
   }
 
@@ -132,29 +132,34 @@ export class LearningTools {
   /**
    * Move to the next item.
    */
-  next(): { moved: boolean; state: unknown } {
+  async next(): Promise<{ moved: boolean; state: unknown }> {
     this.ensureInitialized();
     const r = this.service.next();
+    await this.openPanel();
     return { moved: r.moved, state: this.serializeState() };
   }
 
   /**
    * Move to the previous item.
    */
-  previous(): { moved: boolean; state: unknown } {
+  async previous(): Promise<{ moved: boolean; state: unknown }> {
     this.ensureInitialized();
     const r = this.service.previous();
+    await this.openPanel();
     return { moved: r.moved, state: this.serializeState() };
   }
 
   /**
    * Jump to a specific kata/section.
    */
-  goTo(input: { kataId: string; sectionId?: string; itemIndex?: number }): {
-    state: unknown;
-  } {
+  async goTo(input: {
+    kataId: string;
+    sectionId?: string;
+    itemIndex?: number;
+  }): Promise<{ state: unknown }> {
     this.ensureInitialized();
     this.service.goTo(input.kataId, input.sectionId, input.itemIndex ?? 0);
+    await this.openPanel();
     return { state: this.serializeState() };
   }
 
@@ -166,6 +171,7 @@ export class LearningTools {
   }): Promise<{ result: unknown; state: unknown }> {
     this.ensureInitialized();
     const r = await this.service.run(input.shots ?? 1);
+    await this.openPanel();
     return { result: r.result, state: this.serializeState() };
   }
 
@@ -179,6 +185,7 @@ export class LearningTools {
     // For now, noise simulation uses the same run path with more shots.
     // The LearningService.run method handles the execution.
     const r = await this.service.run(input.shots ?? 100);
+    await this.openPanel();
     return { result: r.result, state: this.serializeState() };
   }
 
@@ -190,6 +197,7 @@ export class LearningTools {
     this.ensureInitialized();
     const filePath = this.getCurrentFilePath();
     const result = await this.qsharpTools.generateCircuit({ filePath });
+    await this.openPanel();
     return { result, state: this.serializeState() };
   }
 
@@ -201,6 +209,7 @@ export class LearningTools {
     this.ensureInitialized();
     const filePath = this.getCurrentFilePath();
     const result = await this.qsharpTools.runResourceEstimator({ filePath });
+    await this.openPanel();
     return { result, state: this.serializeState() };
   }
 
@@ -210,39 +219,45 @@ export class LearningTools {
   async check(): Promise<{ result: unknown; state: unknown }> {
     this.ensureInitialized();
     const r = await this.service.checkSolution();
+    await this.openPanel();
     return { result: r.result, state: this.serializeState() };
   }
 
   /**
    * Reveal the next built-in hint for the current exercise.
    */
-  hint(): { result: unknown; state: unknown } {
+  async hint(): Promise<{ result: unknown; state: unknown }> {
     this.ensureInitialized();
     const r = this.service.getNextHint();
+    await this.openPanel();
     return { result: r.result, state: this.serializeState() };
   }
 
   /**
    * Reveal the answer to the current lesson question.
    */
-  revealAnswer(): { result: unknown; state: unknown } {
+  async revealAnswer(): Promise<{ result: unknown; state: unknown }> {
     this.ensureInitialized();
     const r = this.service.revealAnswer();
+    await this.openPanel();
     return { result: r.result, state: this.serializeState() };
   }
 
   /**
    * Show the full reference solution code.
    */
-  solution(): { result: string; state: unknown } {
+  async solution(): Promise<{ result: string; state: unknown }> {
     this.ensureInitialized();
-    return {
-      result: this.service.getFullSolution(),
-      state: this.serializeState(),
-    };
+    const result = this.service.getFullSolution();
+    await this.openPanel();
+    return { result, state: this.serializeState() };
   }
 
   // ─── Helpers ───
+
+  private async openPanel(): Promise<void> {
+    await vscode.commands.executeCommand("qsharp-vscode.showKatas");
+  }
 
   private getCurrentFilePath(): string {
     const pos = this.service.getPosition();
