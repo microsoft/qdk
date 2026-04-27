@@ -211,31 +211,14 @@
     "menus": {
       "editor/title/run": [
         {
-          "command": "qsharp-vscode.learningCheckSolution",
-          "when": "qsharp-vscode.activeEditorIsExercise",
-          "group": "navigation@0"
-        },
-        {
-          "command": "qsharp-vscode.learningNext",
-          "when": "qsharp-vscode.activeEditorIsExercise && qsharp-vscode.activeExercisePassed",
-          "group": "navigation@1"
-        },
-        {
           "command": "qsharp-vscode.runProgram",
           "when": "resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit",
-          "group": "navigation@2"
+          "group": "navigation@0"
         },
         {
           "command": "qsharp-vscode.debugProgram",
           "when": "resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit",
-          "group": "navigation@3"
-        }
-      ],
-      "editor/title": [
-        {
-          "command": "qsharp-vscode.learningShowHint",
-          "when": "qsharp-vscode.activeEditorIsExercise",
-          "group": "navigation"
+          "group": "navigation@1"
         }
       ],
       "commandPalette": [
