@@ -27,8 +27,7 @@ use qsc_data_structures::{
     target::{Profile, TargetCapabilityFlags},
 };
 use qsc_fir::fir::PackageStore;
-use qsc_frontend::compile::PackageStore as HirPackageStore;
-use qsc_lowerer::{Lowerer, map_hir_package_to_fir};
+use qsc_passes::lower_hir_to_fir;
 use qsc_rca::{Analyzer, PackageStoreComputeProperties};
 use qsc_rir::{
     passes::check_and_transform,
@@ -216,8 +215,8 @@ impl CompilationContext {
             &[(std_id, None)],
         )
         .expect("should be able to create a new compiler");
-        let package_id = map_hir_package_to_fir(compiler.source_package_id());
-        let fir_store = lower_hir_package_store(compiler.package_store());
+        let (fir_store, package_id, _) =
+            lower_hir_to_fir(compiler.package_store(), compiler.source_package_id());
         let analyzer = Analyzer::init(&fir_store, capabilities);
         let compute_properties = analyzer.analyze_all();
         let package = fir_store.get(package_id);
@@ -238,14 +237,4 @@ impl CompilationContext {
             entry,
         }
     }
-}
-
-fn lower_hir_package_store(hir_package_store: &HirPackageStore) -> PackageStore {
-    let mut fir_store = PackageStore::new();
-    for (id, unit) in hir_package_store {
-        let mut lowerer = Lowerer::new();
-        let lowered_package = lowerer.lower_package(&unit.package, &fir_store);
-        fir_store.insert(map_hir_package_to_fir(id), lowered_package);
-    }
-    fir_store
 }
