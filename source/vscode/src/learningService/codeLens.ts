@@ -21,7 +21,7 @@ export const exerciseDocumentSelector: vscode.DocumentSelector = {
  */
 export function createLearningCodeLensProvider(): vscode.CodeLensProvider {
   return {
-    provideCodeLenses(document: vscode.TextDocument): vscode.CodeLens[] {
+    provideCodeLenses(): vscode.CodeLens[] {
       // Place all lenses on line 0 — they appear as a row of links above the code.
       const range = new vscode.Range(0, 0, 0, 0);
 

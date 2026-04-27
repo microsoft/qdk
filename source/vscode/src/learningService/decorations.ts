@@ -16,7 +16,8 @@ const FLASH_DURATION_MS = 2000;
  */
 export function registerLearningDecorations(
   context: vscode.ExtensionContext,
-  service: LearningService,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _service: LearningService,
 ): vscode.Disposable {
   const disposables: vscode.Disposable[] = [];
 

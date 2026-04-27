@@ -35,7 +35,6 @@ export class LearningTools {
     workspacePath?: string;
   }): Promise<{ workspacePath: string; state: unknown }> {
     let workspaceRoot: vscode.Uri;
-    let katasRoot: vscode.Uri;
 
     if (input.workspacePath) {
       workspaceRoot = vscode.Uri.file(input.workspacePath);
@@ -55,7 +54,7 @@ export class LearningTools {
       }
     }
 
-    katasRoot = vscode.Uri.joinPath(workspaceRoot, "qdk-learning-ws");
+    const katasRoot = vscode.Uri.joinPath(workspaceRoot, "qdk-learning-ws");
 
     // Create qdk-learning.json if it doesn't exist
     const learningFile = vscode.Uri.joinPath(

@@ -174,7 +174,9 @@ async function tryNavigateSignal(
     resolvePromise = r;
   });
 
+  // eslint-disable-next-line prefer-const
   let backupTimer: ReturnType<typeof setTimeout> | undefined;
+  // eslint-disable-next-line prefer-const
   let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 
   function settle(consumed: boolean) {

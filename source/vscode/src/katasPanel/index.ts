@@ -21,10 +21,7 @@ export function registerKatasPanelCommand(
   // handles the "qsharp-katas" viewType on restart.
   context.subscriptions.push(
     vscode.window.registerWebviewPanelSerializer("qsharp-katas", {
-      async deserializeWebviewPanel(
-        panel: vscode.WebviewPanel,
-        _state: unknown,
-      ) {
+      async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
         const manager = KatasPanelManager.getInstance(
           context.extensionUri,
           progressWatcher,
