@@ -50,8 +50,10 @@ export function runProgramInTerminal(
         // Workaround for https://github.com/microsoft/vscode-python-environments/issues/1482
         // The Python Environments extension sends environment activation commands
         // to all visible terminals, including Pseudoterminals. Real keypresses are
-        // 1–4 bytes; injected `sendText` commands are much longer. Ignore them.
-        if (data.length > 4) return;
+        // at most a few bytes (e.g. a UTF-16 surrogate pair or an escape sequence);
+        // injected `sendText` commands are much longer. Ignore them.
+        const maxKeypressLength = 4;
+        if (data.length > maxKeypressLength) return;
 
         // Any key press closes the terminal after program completion
         if (done) {
