@@ -6,4 +6,3 @@ import { debugServiceProtocol } from "./debug-service.js";
 
 // message handler exported for backwards compatibility
 export const messageHandler = createWorker(debugServiceProtocol);
-addEventListener("message", messageHandler);

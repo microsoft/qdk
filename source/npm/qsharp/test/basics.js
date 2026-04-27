@@ -872,6 +872,83 @@ async function testCompilerError(useWorker) {
 test("compiler error on run", () => testCompilerError(false));
 test("compiler error on run - worker", () => testCompilerError(true));
 
+test("OpenQASM compile error on run", async () => {
+  const compiler = await getCompiler();
+  const events = new QscEventTarget(true);
+  let promiseResult = undefined;
+  await compiler
+    .run(
+      {
+        sources: [
+          // Missing stdgates.inc, so CX is undefined
+          ["test.qasm", `OPENQASM 3.0;\nqubit[2] q;\nCX q[0], q[1];`],
+        ],
+        languageFeatures: [],
+        projectType: "openqasm",
+      },
+      "",
+      1,
+      events,
+    )
+    .then(() => {
+      promiseResult = "success";
+    })
+    .catch(() => {
+      promiseResult = "failure";
+    });
+
+  assert.equal(promiseResult, "failure");
+  const results = events.getResults();
+  assert.equal(results.length, 1);
+  assert.equal(results[0].success, false);
+});
+
+test("Q# dependency compile error on run", async () => {
+  const compiler = await getCompiler();
+  const events = new QscEventTarget(true);
+  let promiseResult = undefined;
+  await compiler
+    .run(
+      {
+        packageGraphSources: {
+          root: {
+            sources: [
+              [
+                "main.qs",
+                `import BrokenDep.Broken; operation Main() : Unit { Broken(); }`,
+              ],
+            ],
+            languageFeatures: [],
+            dependencies: { BrokenDep: "broken-dep-key" },
+          },
+          packages: {
+            "broken-dep-key": {
+              sources: [["lib.qs", "invalid code"]],
+              languageFeatures: [],
+              dependencies: {},
+              packageType: "lib",
+            },
+          },
+          hasManifest: true,
+        },
+      },
+      "",
+      1,
+      events,
+    )
+    .then(() => {
+      promiseResult = "success";
+    })
+    .catch(() => {
+      promiseResult = "failure";
+    });
+
+  assert.equal(promiseResult, "failure");
+  const results = events.getResults();
+  assert.equal(results.length, 1);
+  assert.equal(results[0].success, false);
+});
+
 test("debug service loading source without entry point attr fails - web worker", async () => {
   const debugService = getDebugServiceWorker(debugServiceWorkerPath);
   try {

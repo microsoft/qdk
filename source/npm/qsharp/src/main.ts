@@ -30,13 +30,8 @@ import {
 } from "./language-service/language-service.js";
 import { log } from "./log.js";
 import { ProjectLoader } from "./project.js";
+import { IWorkerHost } from "./workers/adapters/types.js";
 import { createProxy } from "./workers/main.js";
-
-let workerType: "classic" | "module" = "classic";
-
-export function setWorkerType(type: "classic" | "module") {
-  workerType = type;
-}
 
 // Create once. A module is stateless and can be efficiently passed to WebWorkers.
 let wasmModule: WebAssembly.Module | null = null;
@@ -129,10 +124,10 @@ export async function getProjectLoader(
 // If the Worker was already created via other means and is ready to receive
 // messages, then the worker may be passed in and it will be initialized.
 export function getDebugServiceWorker(
-  worker: string | Worker,
+  worker: string | IWorkerHost,
 ): IDebugServiceWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
-  return createProxy(worker, wasmModule, debugServiceProtocol, workerType);
+  return createProxy(worker, wasmModule, debugServiceProtocol);
 }
 
 export async function getCompiler(): Promise<ICompiler> {
@@ -143,9 +138,11 @@ export async function getCompiler(): Promise<ICompiler> {
 // Create the compiler inside a WebWorker and proxy requests.
 // If the Worker was already created via other means and is ready to receive
 // messages, then the worker may be passed in and it will be initialized.
-export function getCompilerWorker(worker: string | Worker): ICompilerWorker {
+export function getCompilerWorker(
+  worker: string | IWorkerHost,
+): ICompilerWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
-  return createProxy(worker, wasmModule, compilerProtocol, workerType);
+  return createProxy(worker, wasmModule, compilerProtocol);
 }
 
 export async function getLanguageService(
@@ -155,14 +152,14 @@ export async function getLanguageService(
   return new QSharpLanguageService(wasm, host);
 }
 
-// Create the compiler inside a WebWorker and proxy requests.
+// Create the language service inside a WebWorker and proxy requests.
 // If the Worker was already created via other means and is ready to receive
 // messages, then the worker may be passed in and it will be initialized.
 export function getLanguageServiceWorker(
-  worker: string | Worker,
+  worker: string | IWorkerHost,
 ): ILanguageServiceWorker {
   if (!wasmModule) throw "Wasm module must be loaded first";
-  return createProxy(worker, wasmModule, languageServiceProtocol, workerType);
+  return createProxy(worker, wasmModule, languageServiceProtocol);
 }
 
 /// Extracts the target profile from a Q# source file's entry point.

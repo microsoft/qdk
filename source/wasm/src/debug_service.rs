@@ -44,7 +44,7 @@ impl DebugService {
                     self.debugger = Some(debugger);
                     String::new()
                 }
-                Err(e) => e,
+                Err(e) => render_errors(e),
             }
         } else {
             match init_debugger(program, entry) {
