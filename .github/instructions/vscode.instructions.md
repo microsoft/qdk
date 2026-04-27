@@ -24,6 +24,8 @@ python build.py --wasm --npm --vscode --no-test         # Skip unit tests
 python build.py --wasm --npm --vscode --integration-tests  # Include VS Code integration tests (off by default)
 ```
 
+Always call `python build.py --vscode --no-test --no-check` once at the end, after all your edits are done, to ensure the bits are up to date.
+
 ## npm scripts (run from `source/vscode/`)
 
 | Task                  | Command                                    |

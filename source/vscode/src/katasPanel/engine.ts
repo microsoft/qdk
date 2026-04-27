@@ -12,7 +12,7 @@
  */
 
 import * as vscode from "vscode";
-import { getAllKatas } from "qsharp-lang/katas-md";
+import { getAllKatas } from "qsharp-lang/katas";
 import type {
   Kata,
   Exercise,
@@ -20,7 +20,7 @@ import type {
   LessonItem,
   Solution,
   ContentItem,
-} from "qsharp-lang/katas-md";
+} from "qsharp-lang/katas";
 import type {
   Position,
   NavigationItem,

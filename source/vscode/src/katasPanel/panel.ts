@@ -7,19 +7,21 @@
  * Creates a WebviewPanel, bridges postMessage ↔ KatasEngine, delegates run /
  * circuit to VS Code commands, uses loadCompilerWorker for exercise checking,
  * listens to ProgressWatcher.onDidChange for progress sync, and watches
- * .navigate.json for tree-view navigation signals.
+ * .navigate.json for tree-view navigation signals, and .panel-navigate.json
+ * for MCP server navigation signals.
  */
 
 import * as vscode from "vscode";
 import { QscEventTarget } from "qsharp-lang";
-import { getExerciseSources } from "qsharp-lang/katas-md";
-import type { Exercise } from "qsharp-lang/katas-md";
+import { getExerciseSources } from "qsharp-lang/katas";
+import type { Exercise } from "qsharp-lang/katas";
 import { loadCompilerWorker, qsharpExtensionId } from "../common.js";
 import { KatasEngine } from "./engine.js";
 import type { ProgressWatcher } from "../katasProgress/progressReader.js";
 import {
   detectKatasWorkspace,
   NAVIGATE_FILE,
+  PANEL_NAVIGATE_FILE,
 } from "../katasProgress/detector.js";
 import type { SolutionCheckResult } from "./types.js";
 
@@ -32,6 +34,7 @@ export class KatasPanelManager {
   private queuedMessages: unknown[] = [];
   private disposables: vscode.Disposable[] = [];
   private navigateWatcher: vscode.FileSystemWatcher | undefined;
+  private panelNavigateWatcher: vscode.FileSystemWatcher | undefined;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -157,6 +160,28 @@ export class KatasPanelManager {
     this.sendMessage({ command: "state", state: this.engine.getState() });
   }
 
+  /**
+   * If the current position is an exercise or example, open the
+   * corresponding .qs file in the secondary editor column.
+   */
+  private async openCurrentFile(): Promise<void> {
+    if (!this.engine) return;
+    const pos = this.engine.getPosition();
+    let fileUri: vscode.Uri | undefined;
+    if (pos.item.type === "exercise") {
+      fileUri = this.engine.getExerciseFileUri();
+    } else if (pos.item.type === "lesson-example") {
+      fileUri = this.engine.getExampleFileUri();
+    }
+    if (fileUri) {
+      await vscode.commands.executeCommand(
+        "vscode.open",
+        fileUri,
+        vscode.ViewColumn.Two,
+      );
+    }
+  }
+
   private sendResult(action: string, result: unknown): void {
     if (!this.engine) return;
     this.sendMessage({
@@ -179,12 +204,17 @@ export class KatasPanelManager {
       }
       this.queuedMessages = [];
       this.sendState();
+      await this.openCurrentFile();
       return;
     }
 
     if (msg.command === "openFile") {
       const uri = vscode.Uri.parse(msg.uri);
-      await vscode.commands.executeCommand("vscode.open", uri);
+      await vscode.commands.executeCommand(
+        "vscode.open",
+        uri,
+        vscode.ViewColumn.Two,
+      );
       return;
     }
 
@@ -268,7 +298,11 @@ export class KatasPanelManager {
     }
 
     // Open the file first, then run
-    await vscode.commands.executeCommand("vscode.open", fileUri);
+    await vscode.commands.executeCommand(
+      "vscode.open",
+      fileUri,
+      vscode.ViewColumn.Two,
+    );
     await vscode.commands.executeCommand(
       `${qsharpExtensionId}.runProgram`,
       fileUri,
@@ -288,7 +322,11 @@ export class KatasPanelManager {
       throw new Error("Current item cannot show a circuit.");
     }
 
-    await vscode.commands.executeCommand("vscode.open", fileUri);
+    await vscode.commands.executeCommand(
+      "vscode.open",
+      fileUri,
+      vscode.ViewColumn.Two,
+    );
     await vscode.commands.executeCommand(
       `${qsharpExtensionId}.showCircuit`,
       fileUri,
@@ -363,7 +401,7 @@ export class KatasPanelManager {
     }
   }
 
-  // ─── .navigate.json watcher ───
+  // ─── .navigate.json / .panel-navigate.json watchers ───
 
   private setupNavigateWatcher(info: {
     workspaceRoot: vscode.Uri;
@@ -371,18 +409,19 @@ export class KatasPanelManager {
   }): void {
     this.disposeWatchers();
 
-    const pattern = new vscode.RelativePattern(info.katasRoot, NAVIGATE_FILE);
-    this.navigateWatcher = vscode.workspace.createFileSystemWatcher(pattern);
-
-    const handleNavigate = async () => {
+    // Shared handler for both signal files: read JSON, navigate engine,
+    // update webview, open the .qs file beside the panel, and delete the
+    // signal file to indicate consumption.
+    const makeHandler = (signalFile: string) => async () => {
       if (!this.engine) return;
-      const navUri = vscode.Uri.joinPath(info.katasRoot, NAVIGATE_FILE);
+      const navUri = vscode.Uri.joinPath(info.katasRoot, signalFile);
       try {
         const bytes = await vscode.workspace.fs.readFile(navUri);
         const data = JSON.parse(new TextDecoder("utf-8").decode(bytes));
         if (data.kataId) {
           this.engine.goTo(data.kataId, data.sectionId, data.itemIndex ?? 0);
           this.sendState();
+          await this.openCurrentFile();
           this.panel?.reveal(vscode.ViewColumn.One);
         }
         // Delete the file to signal we consumed it
@@ -392,13 +431,37 @@ export class KatasPanelManager {
       }
     };
 
-    this.navigateWatcher.onDidCreate(handleNavigate);
-    this.navigateWatcher.onDidChange(handleNavigate);
+    // Tree-view → panel (written by katasProgress tree provider)
+    const treePattern = new vscode.RelativePattern(
+      info.katasRoot,
+      NAVIGATE_FILE,
+    );
+    this.navigateWatcher =
+      vscode.workspace.createFileSystemWatcher(treePattern);
+    const handleTreeNavigate = makeHandler(NAVIGATE_FILE);
+    this.navigateWatcher.onDidCreate(handleTreeNavigate);
+    this.navigateWatcher.onDidChange(handleTreeNavigate);
+
+    // MCP server → panel (written by the out-of-process MCP katas server).
+    // This is a temporary signal-file IPC workaround. When the katas tool
+    // implementations are moved in-proc, replace with a direct call to
+    // this.engine.goTo() from the tool handler.
+    const mcpPattern = new vscode.RelativePattern(
+      info.katasRoot,
+      PANEL_NAVIGATE_FILE,
+    );
+    this.panelNavigateWatcher =
+      vscode.workspace.createFileSystemWatcher(mcpPattern);
+    const handleMcpNavigate = makeHandler(PANEL_NAVIGATE_FILE);
+    this.panelNavigateWatcher.onDidCreate(handleMcpNavigate);
+    this.panelNavigateWatcher.onDidChange(handleMcpNavigate);
   }
 
   private disposeWatchers(): void {
     this.navigateWatcher?.dispose();
     this.navigateWatcher = undefined;
+    this.panelNavigateWatcher?.dispose();
+    this.panelNavigateWatcher = undefined;
   }
 
   // ─── HTML generation ───
@@ -471,6 +534,8 @@ export class KatasPanelManager {
     <script nonce="${nonce}">
       (() => {
         "use strict";
+        // Use MathML output so KaTeX works without external CSS / inline styles.
+        globalThis.__KATAS_KATEX_CONFIG = { output: "mathml" };
         const vscodeApi = acquireVsCodeApi();
         const R = globalThis.KatasRender;
 

@@ -434,12 +434,12 @@
       },
       {
         "view": "qsharp-vscode.katasTree",
-        "contents": "Welcome to the Quantum Katas — a free, hands-on introduction to quantum computing with Q#.\n\nEach kata is a self-contained tutorial that teaches a concept through short readings followed by exercises you complete in your editor. Topics include qubits, gates, measurement, entanglement, and famous algorithms like Grover's and Deutsch–Jozsa.\n\nNo prior quantum experience required.\n[Get started](command:qsharp-vscode.katasContinue)",
+        "contents": "Welcome to the Quantum Katas — a free, hands-on introduction to quantum computing with Q#.\n\nEach kata is a self-contained tutorial that teaches a concept through short readings followed by exercises you complete in your editor. Topics include qubits, gates, measurement, entanglement, and famous algorithms like Grover's and Deutsch–Jozsa.\n\nNo prior quantum experience required.\n[$(sparkle) Get started](command:qsharp-vscode.katasContinue)",
         "when": "!qsharp-vscode.katasDetected"
       },
       {
         "view": "qsharp-vscode.katasTree",
-        "contents": "Your workspace is set up. Start your first kata to begin learning quantum computing with Q#.\n[Start your first kata](command:qsharp-vscode.katasContinue)",
+        "contents": "Your workspace is set up. Start your first kata to begin learning quantum computing with Q#.\n[$(sparkle) Start your first kata](command:qsharp-vscode.katasContinue)",
         "when": "qsharp-vscode.katasDetected"
       }
     ],
@@ -649,7 +649,7 @@
         "command": "qsharp-vscode.katasAskInChat",
         "title": "Open Quantum Katas in chat",
         "category": "QDK",
-        "icon": "$(comment-discussion)"
+        "icon": "$(comment-discussion-sparkle)"
       },
       {
         "command": "qsharp-vscode.showKatas",

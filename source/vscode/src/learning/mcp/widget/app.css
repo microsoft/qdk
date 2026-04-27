@@ -1,5 +1,9 @@
 /* Copyright (c) Microsoft Corporation.
-   Licensed under the MIT License. */
+   Licensed under the MIT License.
+
+   DEAD: This MCP widget has been replaced by the full-size Quantum Katas
+   panel (katasPanel/). Kept for reference; will be cleaned up when the
+   widget code path is fully removed from server.ts. */
 
 /* Styles for the MCP widget (`app.html`). At serve time the widget HTML is
    inlined into a single resource — `buildWidgetHtml()` substitutes the

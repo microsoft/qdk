@@ -5,7 +5,7 @@
 // The main declarations live in src/learning/qsharp-lang.d.ts but that
 // directory is excluded from the main tsconfig.
 
-declare module "qsharp-lang/katas-md" {
+declare module "qsharp-lang/katas" {
   export function getAllKatas(options?: {
     includeUnpublished?: boolean;
   }): Promise<Kata[]>;

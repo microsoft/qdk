@@ -8,6 +8,16 @@ import type { ProgressFileData } from "./types.js";
 export const LEARNING_FILE = "qdk-learning.json";
 /** Matches `NAVIGATE_FILE` in source/vscode/src/learning/mcp/server.ts. */
 export const NAVIGATE_FILE = ".navigate.json";
+/**
+ * Signal file written by the MCP server to navigate the full-size panel.
+ * Separate from `NAVIGATE_FILE` (which is tree-view → MCP server direction)
+ * to avoid races between the two watchers.
+ *
+ * This is a temporary signal-file IPC workaround while the katas MCP tools
+ * run out-of-process. Replace with a direct in-proc call when tools are
+ * moved into the extension host.
+ */
+export const PANEL_NAVIGATE_FILE = ".panel-navigate.json";
 
 export interface KatasWorkspaceInfo {
   /**

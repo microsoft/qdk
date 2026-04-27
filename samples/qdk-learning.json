@@ -2,14 +2,41 @@
   "version": 1,
   "katasRoot": "./quantum-katas",
   "position": {
-    "kataId": "linear_algebra",
-    "sectionId": "linear_algebra__overview",
+    "kataId": "complex_arithmetic",
+    "sectionId": "complex_arithmetic__powers_of_i",
     "itemIndex": 0
   },
   "completions": {
+    "multi_qubit_systems__multi_qubit_systems__overview": {
+      "completedAt": "2026-04-27T17:07:29.724Z"
+    },
+    "multi_qubit_systems__multi_qubit_systems__introduction": {
+      "completedAt": "2026-04-27T17:07:30.604Z"
+    },
+    "multi_qubit_systems__multi_qubit_systems__separable_states": {
+      "completedAt": "2026-04-27T17:07:32.108Z"
+    },
+    "multi_qubit_systems__multi_qubit_systems__entanglement": {
+      "completedAt": "2026-04-27T17:07:33.092Z"
+    },
+    "multi_qubit_systems__multi_qubit_systems__dirac_notation": {
+      "completedAt": "2026-04-27T17:07:34.141Z"
+    },
+    "multi_qubit_systems__multi_qubit_systems__in_qsharp": {
+      "completedAt": "2026-04-27T17:11:05.312Z"
+    },
     "getting_started__getting_started__welcome": {
-      "completedAt": "2026-04-27T12:55:51.708Z"
+      "completedAt": "2026-04-27T17:22:19.803Z"
+    },
+    "getting_started__getting_started__flip_qubit": {
+      "completedAt": "2026-04-27T17:45:00.759Z"
+    },
+    "complex_arithmetic__complex_arithmetic__overview": {
+      "completedAt": "2026-04-27T17:45:19.361Z"
+    },
+    "complex_arithmetic__complex_arithmetic__algebraic_perspective": {
+      "completedAt": "2026-04-27T17:52:39.586Z"
     }
   },
-  "startedAt": "2026-04-27T12:55:25.841Z"
+  "startedAt": "2026-04-27T17:05:22.489Z"
 }

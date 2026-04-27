@@ -10,14 +10,16 @@ import {
   type ServerResponse,
 } from "node:http";
 import { randomUUID } from "node:crypto";
-import {
-  registerAppTool,
-  registerAppResource,
-  RESOURCE_MIME_TYPE,
-} from "@modelcontextprotocol/ext-apps/server";
+// DEAD: widget removed in favor of the full-size Quantum Katas panel.
+// Kept for reference; will be cleaned up when widget code is deleted.
+// import {
+//   registerAppTool,
+//   registerAppResource,
+//   RESOURCE_MIME_TYPE,
+// } from "@modelcontextprotocol/ext-apps/server";
 import { z } from "zod";
 import {
-  readFileSync,
+  // readFileSync — only needed by dead buildWidgetHtml
   existsSync,
   statSync,
   watch,
@@ -32,7 +34,17 @@ import { dirname, join, resolve, isAbsolute } from "node:path";
 const NAVIGATE_FILE = ".navigate.json";
 const OPEN_PANEL_FILE = ".open-panel";
 const LEARNING_FILE = "qdk-learning.json";
-import { createRequire } from "node:module";
+/**
+ * Signal file written to `currentKatasRoot` so the full-size panel navigates
+ * to the same position the MCP server just moved to.
+ *
+ * This is a temporary signal-file IPC workaround while the katas MCP tools
+ * run out-of-process. Replace with a direct in-proc call when tools are
+ * moved into the extension host.
+ */
+const PANEL_NAVIGATE_FILE = ".panel-navigate.json";
+// DEAD: createRequire was only needed by buildWidgetHtml (widget removed).
+// import { createRequire } from "node:module";
 import type {
   KatasServer,
   IAIProvider,
@@ -40,13 +52,14 @@ import type {
   ServerState,
 } from "../server/index.js";
 
-const WIDGET_URI = "ui://katas/app.html";
+// DEAD: widget removed in favor of the full-size Quantum Katas panel.
+// const WIDGET_URI = "ui://katas/app.html";
 
 /**
  * Serialize OverallProgress for MCP responses. The full per-kata/per-section
  * breakdown can be huge (every section title etc.); the agent rarely needs it,
  * so by default we ship just the headline stats + current position, plus the
- * breakdown for the *current* kata only (so the widget can render its
+ * breakdown for the *current* kata only (so the panel can render its
  * progress segments). Use `serializeProgressFull` (or call `get_progress`)
  * when the full breakdown is needed.
  */
@@ -92,63 +105,58 @@ const NOT_INITIALIZED_MESSAGE =
   "Look for an existing `qdk-learning.json` file in the user's current VS Code workspace and pass that workspace root as `workspacePath`. " +
   "If none exists, ask the user where they'd like to store exercise files and progress.";
 
-function buildWidgetHtml(): string {
-  const require = createRequire(import.meta.url);
-  const __dirname = dirname(fileURLToPath(import.meta.url));
-
-  // Inline the ext-apps browser bundle. The iframe CSP blocks CDN fetches.
-  const bundlePath =
-    require.resolve("@modelcontextprotocol/ext-apps/app-with-deps");
-  const rawBundle = readFileSync(bundlePath, "utf8");
-  const extAppsBundle = rawBundle.replace(
-    /export\s*\{([^}]+)\};?\s*$/,
-    (_, body: string) =>
-      "globalThis.ExtApps={" +
-      body
-        .split(",")
-        .map((p) => {
-          const [local, exported] = p.split(" as ").map((s) => s.trim());
-          return `${exported ?? local}:${local}`;
-        })
-        .join(",") +
-      "};",
-  );
-
-  // Inline the shared rendering modules (same files the web UI uses).
-  // In the bundle, __dirname is `out/learning/`, with assets laid out at
-  // `web/public/shared/*` and `widget/app.html` beside `index.js`.
-  // In dev (tsx), __dirname is `src/learning/mcp/`; try bundle layout first
-  // then fall back to the dev layout.
-  const sharedDir = existsSync(join(__dirname, "web", "public", "shared"))
-    ? join(__dirname, "web", "public", "shared")
-    : join(__dirname, "..", "web", "public", "shared");
-  const renderJs = readFileSync(join(sharedDir, "render.js"), "utf8");
-  const uiJs = readFileSync(join(sharedDir, "ui.js"), "utf8");
-
-  // Inline KaTeX (core + auto-render) so math renders inside the iframe
-  // without external network or font loads. We configure MathML-only output
-  // so the browser handles glyph layout natively (no KaTeX CSS/fonts needed).
-  const katexDir = dirname(require.resolve("katex/package.json"));
-  const katexJs = readFileSync(join(katexDir, "dist", "katex.min.js"), "utf8");
-  const katexAutoRenderJs = readFileSync(
-    join(katexDir, "dist", "contrib", "auto-render.min.js"),
-    "utf8",
-  );
-
-  const widgetDir = join(__dirname, "widget");
-  const template = readFileSync(join(widgetDir, "app.html"), "utf8");
-  const widgetCss = readFileSync(join(widgetDir, "app.css"), "utf8");
-  return template
-    .replace("/*__EXT_APPS_BUNDLE__*/", () => extAppsBundle)
-    .replace("/*__KATAS_RENDER__*/", () => renderJs)
-    .replace("/*__KATAS_UI__*/", () => uiJs)
-    .replace("/*__KATEX_JS__*/", () => katexJs)
-    .replace("/*__KATEX_AUTORENDER_JS__*/", () => katexAutoRenderJs)
-    .replace("/*__KATAS_WIDGET_CSS__*/", () => widgetCss);
-}
+// DEAD: widget removed in favor of the full-size Quantum Katas panel.
+// The widget HTML was inlined into an MCP app resource; now the panel
+// (katasPanel/) owns all rendering.
+//
+// function buildWidgetHtml(): string {
+//   const require = createRequire(import.meta.url);
+//   const __dirname = dirname(fileURLToPath(import.meta.url));
+//
+//   const bundlePath =
+//     require.resolve("@modelcontextprotocol/ext-apps/app-with-deps");
+//   const rawBundle = readFileSync(bundlePath, "utf8");
+//   const extAppsBundle = rawBundle.replace(
+//     /export\s*\{([^}]+)\};?\s*$/,
+//     (_, body: string) =>
+//       "globalThis.ExtApps={" +
+//       body
+//         .split(",")
+//         .map((p) => {
+//           const [local, exported] = p.split(" as ").map((s) => s.trim());
+//           return `${exported ?? local}:${local}`;
+//         })
+//         .join(",") +
+//       "};",
+//   );
+//
+//   const sharedDir = existsSync(join(__dirname, "web", "public", "shared"))
+//     ? join(__dirname, "web", "public", "shared")
+//     : join(__dirname, "..", "web", "public", "shared");
+//   const renderJs = readFileSync(join(sharedDir, "render.js"), "utf8");
+//   const uiJs = readFileSync(join(sharedDir, "ui.js"), "utf8");
+//
+//   const katexDir = dirname(require.resolve("katex/package.json"));
+//   const katexJs = readFileSync(join(katexDir, "dist", "katex.min.js"), "utf8");
+//   const katexAutoRenderJs = readFileSync(
+//     join(katexDir, "dist", "contrib", "auto-render.min.js"),
+//     "utf8",
+//   );
+//
+//   const widgetDir = join(__dirname, "widget");
+//   const template = readFileSync(join(widgetDir, "app.html"), "utf8");
+//   const widgetCss = readFileSync(join(widgetDir, "app.css"), "utf8");
+//   return template
+//     .replace("/*__EXT_APPS_BUNDLE__*/", () => extAppsBundle)
+//     .replace("/*__KATAS_RENDER__*/", () => renderJs)
+//     .replace("/*__KATAS_UI__*/", () => uiJs)
+//     .replace("/*__KATEX_JS__*/", () => katexJs)
+//     .replace("/*__KATEX_AUTORENDER_JS__*/", () => katexAutoRenderJs)
+//     .replace("/*__KATAS_WIDGET_CSS__*/", () => widgetCss);
+// }
 
 /**
- * Register all katas tools + the widget resource on the given MCP server.
+ * Register all katas tools on the given MCP server.
  * Does NOT connect any transport — callers pick stdio (`runMCPServerStdio`)
  * or HTTP (`runMCPServerHttp`). Keeping registration in one place ensures the
  * two deployments never drift in behavior.
@@ -177,25 +185,18 @@ export async function registerMCPHandlers(
     initialKatasRoot?: string;
   },
 ): Promise<void> {
-  const widgetHtml = buildWidgetHtml();
-  const uiMeta = { ui: { resourceUri: WIDGET_URI } };
+  // DEAD: widget removed in favor of the full-size Quantum Katas panel.
+  // const widgetHtml = buildWidgetHtml();
+  // const uiMeta = { ui: { resourceUri: WIDGET_URI } };
 
   // Closure state: tracks whether the agent has set a workspace yet.
   let initialized = initOptions.initialWorkspace != null;
   let currentWorkspacePath: string | null =
     initOptions.initialWorkspace ?? null;
 
-  // ─── Widget identity tracking ─────────────────────────────────────────
-  //
-  // Per the MCP Apps spec, every `_meta.ui` tool call mounts a fresh
-  // widget instance. Older widgets remain visible in chat scrollback and
-  // stay interactive. We mint a fresh widgetId on each widget-mounting
-  // call (`render_state`, `goto`) and remember it as
-  // `liveWidgetId`. Widget-initiated tool calls pass `widgetId`; if it
-  // doesn't match `liveWidgetId`, the call returns `{ stale: true }`
-  // with current server state and WITHOUT executing — the user sees an
-  // amber "view replaced" banner and current data, and must click on
-  // the live widget to actually act.
+  // DEAD: widget identity tracking removed — the full-size panel doesn't
+  // need staleness detection because there's only ever one panel.
+  /*
   let widgetSeq = 0;
   let liveWidgetId: string | null = null;
 
@@ -206,8 +207,6 @@ export async function registerMCPHandlers(
     return id;
   }
 
-  /** Returns a stale envelope (with current state) if widgetId is set and
-   *  doesn't match live, else null (caller proceeds normally). */
   function checkStale(widgetId: string | undefined) {
     if (widgetId && widgetId !== liveWidgetId) {
       return wrapResult({
@@ -218,6 +217,7 @@ export async function registerMCPHandlers(
     }
     return null;
   }
+  */
 
   /**
    * Wrap a tool handler so it returns a structured error when the workspace
@@ -240,10 +240,13 @@ export async function registerMCPHandlers(
   // The VS Code tree view can write a `.navigate.json` file into the
   // katas workspace to signal a navigation request without going through
   // chat. We `fs.watch` that file; when it appears the server reads it,
-  // deletes it, and calls `goTo()`. The result is stashed in
-  // `pendingNavigation` until the live widget picks it up via the
-  // app-only `check_navigate` tool (polled at ~500ms by visible widgets).
-  let pendingNavigation: object | null = null;
+  // deletes it, and calls `goTo()`.
+  //
+  // DEAD: pendingNavigation was consumed by the widget's check_navigate
+  // polling. With the widget removed, navigation signals from the tree
+  // view still update server state (which is correct), but nothing polls
+  // pendingNavigation.
+  // let pendingNavigation: object | null = null;
   let navigateWatcher: ReturnType<typeof watch> | null = null;
 
   function startNavigateWatcher(katasRoot: string): void {
@@ -272,12 +275,7 @@ export async function registerMCPHandlers(
               itemIndex?: number;
             };
             if (req.kataId) {
-              const state = server.goTo(
-                req.kataId,
-                req.sectionId,
-                req.itemIndex ?? 0,
-              );
-              pendingNavigation = serializeState(state);
+              server.goTo(req.kataId, req.sectionId, req.itemIndex ?? 0);
               process.stderr.write(
                 `[katas-mcp] navigate signal consumed: ${req.kataId}§${req.sectionId ?? ""}\n`,
               );
@@ -310,7 +308,58 @@ export async function registerMCPHandlers(
     startNavigateWatcher(currentKatasRoot);
   }
 
-  // ─── Widget resources ───
+  // ─── Panel signal-file helpers ──────────────────────────────────────
+  //
+  // The katas MCP server runs in a separate Node process (spawned over
+  // stdio by the VS Code extension host). To open / navigate the full-
+  // size Quantum Katas panel we write small signal files that the
+  // extension host watches for.
+  //
+  // This is a temporary IPC workaround. When the katas tool
+  // implementations are moved in-proc (into the extension host), these
+  // should be replaced with direct calls to the panel manager.
+
+  /** Write the `.open-panel` signal so the extension host opens/reveals the panel. */
+  function openPanel(): void {
+    if (!currentWorkspacePath) return;
+    try {
+      writeFileSync(join(currentWorkspacePath, OPEN_PANEL_FILE), "", "utf-8");
+    } catch {
+      // Best-effort — the extension may not be watching yet.
+    }
+  }
+
+  /**
+   * Write `.panel-navigate.json` so the full-size panel navigates to the
+   * given position. Uses a separate file from `.navigate.json` (which is
+   * the tree-view → MCP server direction) to avoid races between the two
+   * watchers.
+   */
+  function navigatePanel(
+    kataId: string,
+    sectionId?: string,
+    itemIndex?: number,
+  ): void {
+    if (!currentKatasRoot) return;
+    try {
+      writeFileSync(
+        join(currentKatasRoot, PANEL_NAVIGATE_FILE),
+        JSON.stringify({ kataId, sectionId, itemIndex: itemIndex ?? 0 }),
+        "utf-8",
+      );
+    } catch {
+      // Best-effort.
+    }
+  }
+
+  /** Extract position fields from a serialized state object for navigatePanel. */
+  function navigatePanelFromState(state: ServerState): void {
+    const pos = state.position;
+    navigatePanel(pos.kataId, pos.sectionId, pos.itemIndex);
+  }
+
+  // DEAD: widget resource removed in favor of the full-size panel.
+  /*
   registerAppResource(
     mcp,
     "Q# Katas Widget",
@@ -322,6 +371,7 @@ export async function registerMCPHandlers(
       ],
     }),
   );
+  */
 
   // ─── Workspace lifecycle ───
 
@@ -329,7 +379,7 @@ export async function registerMCPHandlers(
     "get_workspace",
     {
       description:
-        "Report the currently-configured katas workspace path, or null if `init` has not been called yet. Safe to call at any time. Does not open the widget.",
+        "Report the currently-configured katas workspace path, or null if `init` has not been called yet. Safe to call at any time.",
     },
     async () =>
       wrapResult({
@@ -345,7 +395,7 @@ export async function registerMCPHandlers(
         "Initialize (or reinitialize) the katas workspace. Creates a `qdk-learning.json` file in the given directory and scaffolds exercise files. " +
         "The agent is responsible for choosing a sensible path: prefer the user's current VS Code workspace root. " +
         "If `qdk-learning.json` already exists at the given path, the workspace is adopted immediately. Otherwise the user is prompted to confirm via an elicitation prompt; if they decline or cancel, the workspace is left unset and the call returns an error. " +
-        "This tool does not open the katas widget; the agent should call `render_state` afterward to render the tutor.",
+        "This tool does not open the katas panel; the agent should call `render_state` afterward to open the panel.",
       inputSchema: {
         workspacePath: z
           .string()
@@ -522,40 +572,42 @@ export async function registerMCPHandlers(
 
   // ─── Read tools (no state change) ───
   //
-  // `render_state` mounts the widget and returns a fresh `widgetId` for it
-  // to use on follow-up calls. Use this when the user wants to start or
-  // resume an interactive katas session.
+  // `render_state` opens the full-size Quantum Katas panel and syncs it
+  // to the server's current position. Use this when the user wants to
+  // start or resume a session.
   //
-  // `get_state` is a plain (non-widget) read used by the agent to check
-  // current server state without re-rendering — e.g. after the user has
-  // been clicking around in the widget and the agent wants to catch up.
+  // `get_state` is a lightweight read used by the agent to check
+  // current server state — e.g. after the user has been interacting
+  // with the panel and the agent wants to catch up.
 
-  registerAppTool(
-    mcp,
+  mcp.registerTool(
     "render_state",
     {
       description:
-        "Open the interactive Q# Katas widget at the current position. The widget renders the current lesson/example/question/exercise itself, plus a clickable action bar that invokes katas tools directly without sending messages back to the chat. The agent should NOT re-render `state.position.item` in chat \u2014 the widget owns that. Call this once to start or resume a session, then rely on the widget for further interaction.",
-      _meta: uiMeta,
+        "Open the full-size Quantum Katas panel at the current position. " +
+        "The panel renders the current lesson/example/question/exercise and " +
+        "provides a clickable action bar for direct interaction. The agent " +
+        "should NOT re-render `state.position.item` in chat \u2014 the panel owns " +
+        "that. Call this once to start or resume a session, then rely on the " +
+        "panel for further interaction.",
     },
-    requireInit(async () =>
-      wrapResult({
-        widgetId: mintWidgetId(),
-        state: serializeState(server.getState()),
-      }),
-    ),
+    requireInit(async () => {
+      const state = server.getState();
+      navigatePanelFromState(state);
+      openPanel();
+      return wrapResult({ state: serializeState(state) });
+    }),
   );
 
   mcp.registerTool(
     "get_state",
     {
       description:
-        "Read the current katas position and progress without mounting or refreshing any widget. Use this when an active widget exists and the user has likely interacted with it (so server state may have moved on without the agent's knowledge), and the agent needs to catch up before answering a question. Does NOT consume an LLM turn for the user. Plain (non-widget) tool.",
-      inputSchema: { widgetId: z.string().optional() },
+        "Read the current katas position and progress without opening " +
+        "or navigating the panel. Use when the agent needs to catch up " +
+        "with the user's current position.",
     },
-    requireInit(async ({ widgetId }: { widgetId?: string }) => {
-      const stale = checkStale(widgetId);
-      if (stale) return stale;
+    requireInit(async () => {
       return wrapResult({ state: serializeState(server.getState()) });
     }),
   );
@@ -566,12 +618,9 @@ export async function registerMCPHandlers(
     "get_progress",
     {
       description:
-        "Return the full per-kata progress breakdown. Plain (non-widget) tool \u2014 the agent renders the breakdown in chat.",
-      inputSchema: { widgetId: z.string().optional() },
+        "Return the full per-kata progress breakdown. The agent renders the breakdown in chat.",
     },
-    requireInit(async ({ widgetId }: { widgetId?: string }) => {
-      const stale = checkStale(widgetId);
-      if (stale) return stale;
+    requireInit(async () => {
       return wrapResult({
         progress: serializeProgressFull(server.getProgress()),
         state: serializeState(server.getState()),
@@ -579,15 +628,13 @@ export async function registerMCPHandlers(
     }),
   );
 
-  // `list_katas` is a plain (non-widget) tool. The agent calls it from
-  // chat and renders the catalog there (e.g. as a numbered list); it
-  // then follows up with `goto` to jump to a chosen kata. The widget
-  // never invokes this tool, so it has no `widgetId` / stale-check.
+  // `list_katas` — the agent calls it from chat and renders the catalog
+  // there; it then follows up with `goto` to jump to a chosen kata.
   mcp.registerTool(
     "list_katas",
     {
       description:
-        "List all available katas with their completion status. Plain (non-widget) tool \u2014 the agent renders the catalog in chat (e.g. as a numbered list) and then calls `goto` with the chosen `kataId` to jump. Does NOT mount or refresh the widget. Requires `init` to have been called first.",
+        "List all available katas with their completion status. The agent renders the catalog in chat and then calls `goto` with the chosen `kataId` to jump. Requires `init` to have been called first.",
     },
     requireInit(async () =>
       wrapResult({
@@ -598,22 +645,20 @@ export async function registerMCPHandlers(
   );
 
   // ─── Navigation ───
-  // All navigation tools open the widget. The widget owns rendering — the
-  // agent should NOT re-render `state.position.item` in chat after a nav
-  // tool call. Subsequent navigation typically happens via widget buttons,
-  // which call these tools directly and don't consume LLM turns.
+  // Navigation tools update the server state and signal the full-size panel
+  // to follow. The panel owns rendering — the agent should NOT re-render
+  // `state.position.item` in chat after a nav tool call.
 
   mcp.registerTool(
     "next",
     {
       description:
-        "Move to the next item (lesson text, example, question, or exercise). Plain tool \u2014 does not mount a widget. The widget calls this via `tools/call`; if the agent calls it directly, it should follow up with `get_state` if a widget refresh is desired.",
-      inputSchema: { widgetId: z.string().optional() },
+        "Move to the next item (lesson text, example, question, or exercise). " +
+        "The full-size panel automatically follows.",
     },
-    requireInit(async ({ widgetId }: { widgetId?: string }) => {
-      const stale = checkStale(widgetId);
-      if (stale) return stale;
+    requireInit(async () => {
       const r = server.next();
+      if (r.moved) navigatePanelFromState(r.state);
       return wrapResult({ moved: r.moved, state: serializeState(r.state) });
     }),
   );
@@ -622,23 +667,21 @@ export async function registerMCPHandlers(
     "previous",
     {
       description:
-        "Move to the previous item. Plain tool \u2014 does not mount a widget.",
-      inputSchema: { widgetId: z.string().optional() },
+        "Move to the previous item. The full-size panel automatically follows.",
     },
-    requireInit(async ({ widgetId }: { widgetId?: string }) => {
-      const stale = checkStale(widgetId);
-      if (stale) return stale;
+    requireInit(async () => {
       const r = server.previous();
+      if (r.moved) navigatePanelFromState(r.state);
       return wrapResult({ moved: r.moved, state: serializeState(r.state) });
     }),
   );
 
-  registerAppTool(
-    mcp,
+  mcp.registerTool(
     "goto",
     {
       description:
-        "Jump to a specific kata and section. Use the section's `id` from `list_katas` or `get_state` to identify the section. " +
+        "Jump to a specific kata and section, and open the full-size panel. " +
+        "Use the section's `id` from `list_katas` or `get_state` to identify the section. " +
         "If `sectionId` is omitted, jumps to the first section of the kata.",
       inputSchema: {
         kataId: z.string().describe("ID of the kata (e.g. 'getting_started')"),
@@ -655,7 +698,6 @@ export async function registerMCPHandlers(
           .default(0)
           .describe("0-based item index within the section"),
       },
-      _meta: uiMeta,
     },
     requireInit(
       async ({
@@ -668,16 +710,20 @@ export async function registerMCPHandlers(
         itemIndex?: number;
       }) => {
         const state = server.goTo(kataId, sectionId, itemIndex ?? 0);
-        return wrapResult({
-          widgetId: mintWidgetId(),
-          state: serializeState(state),
-        });
+        navigatePanel(kataId, sectionId, itemIndex ?? 0);
+        openPanel();
+        return wrapResult({ state: serializeState(state) });
       },
     ),
   );
 
   // ─── External navigation polling (app-only) ───
 
+  // DEAD: check_navigate and open_katas_panel were app-only widget tools.
+  // With the widget removed, the panel handles navigation via
+  // .panel-navigate.json and .open-panel signal files written directly
+  // by the tool handlers above.
+  /*
   registerAppTool(
     mcp,
     "check_navigate",
@@ -700,8 +746,6 @@ export async function registerMCPHandlers(
       return wrapResult({ navigated: false });
     }),
   );
-
-  // ─── Open in full panel (app-only) ───
 
   registerAppTool(
     mcp,
@@ -726,6 +770,7 @@ export async function registerMCPHandlers(
       return wrapResult({ ok: true });
     }),
   );
+  */
 
   // ─── Q# execution ───
 
@@ -733,52 +778,38 @@ export async function registerMCPHandlers(
     "run",
     {
       description:
-        "Run the Q# code at the current position. Returns execution events and result. Plain tool \u2014 does not mount a widget.",
+        "Run the Q# code at the current position. Returns execution events and result.",
       inputSchema: {
         shots: z.number().int().min(1).default(1).optional(),
-        widgetId: z.string().optional(),
       },
     },
-    requireInit(
-      async ({ shots, widgetId }: { shots?: number; widgetId?: string }) => {
-        const stale = checkStale(widgetId);
-        if (stale) return stale;
-        const r = await server.run(shots ?? 1);
-        return wrapResult({ result: r.result, state: serializeState(r.state) });
-      },
-    ),
+    requireInit(async ({ shots }: { shots?: number }) => {
+      const r = await server.run(shots ?? 1);
+      return wrapResult({ result: r.result, state: serializeState(r.state) });
+    }),
   );
 
   mcp.registerTool(
     "run_with_noise",
     {
-      description:
-        "Run the Q# code with noise simulation (many shots). Plain tool \u2014 does not mount a widget.",
+      description: "Run the Q# code with noise simulation (many shots).",
       inputSchema: {
         shots: z.number().int().min(1).default(100).optional(),
-        widgetId: z.string().optional(),
       },
     },
-    requireInit(
-      async ({ shots, widgetId }: { shots?: number; widgetId?: string }) => {
-        const stale = checkStale(widgetId);
-        if (stale) return stale;
-        const r = await server.runWithNoise(shots ?? 100);
-        return wrapResult({ result: r.result, state: serializeState(r.state) });
-      },
-    ),
+    requireInit(async ({ shots }: { shots?: number }) => {
+      const r = await server.runWithNoise(shots ?? 100);
+      return wrapResult({ result: r.result, state: serializeState(r.state) });
+    }),
   );
 
   mcp.registerTool(
     "circuit",
     {
       description:
-        "Generate the quantum circuit diagram for the current Q# code. Plain tool \u2014 does not mount a widget.",
-      inputSchema: { widgetId: z.string().optional() },
+        "Generate the quantum circuit diagram for the current Q# code.",
     },
-    requireInit(async ({ widgetId }: { widgetId?: string }) => {
-      const stale = checkStale(widgetId);
-      if (stale) return stale;
+    requireInit(async () => {
       const r = await server.getCircuit();
       return wrapResult({ result: r.result, state: serializeState(r.state) });
     }),
@@ -788,12 +819,9 @@ export async function registerMCPHandlers(
     "estimate",
     {
       description:
-        "Estimate physical resources (qubits, runtime) for the current Q# program. Plain tool \u2014 does not mount a widget.",
-      inputSchema: { widgetId: z.string().optional() },
+        "Estimate physical resources (qubits, runtime) for the current Q# program.",
     },
-    requireInit(async ({ widgetId }: { widgetId?: string }) => {
-      const stale = checkStale(widgetId);
-      if (stale) return stale;
+    requireInit(async () => {
       const r = await server.getResourceEstimate();
       return wrapResult({ result: r.result, state: serializeState(r.state) });
     }),
@@ -803,12 +831,9 @@ export async function registerMCPHandlers(
     "check",
     {
       description:
-        "Check the student's solution to the current exercise. Marks it complete on pass. Plain tool \u2014 does not mount a widget.",
-      inputSchema: { widgetId: z.string().optional() },
+        "Check the student's solution to the current exercise. Marks it complete on pass.",
     },
-    requireInit(async ({ widgetId }: { widgetId?: string }) => {
-      const stale = checkStale(widgetId);
-      if (stale) return stale;
+    requireInit(async () => {
       const r = await server.checkSolution();
       return wrapResult({ result: r.result, state: serializeState(r.state) });
     }),
@@ -819,13 +844,9 @@ export async function registerMCPHandlers(
   mcp.registerTool(
     "hint",
     {
-      description:
-        "Reveal the next built-in hint for the current exercise. Plain tool \u2014 does not mount a widget.",
-      inputSchema: { widgetId: z.string().optional() },
+      description: "Reveal the next built-in hint for the current exercise.",
     },
-    requireInit(async ({ widgetId }: { widgetId?: string }) => {
-      const stale = checkStale(widgetId);
-      if (stale) return stale;
+    requireInit(async () => {
       const r = server.getNextHint();
       return wrapResult({ result: r.result, state: serializeState(r.state) });
     }),
@@ -834,13 +855,9 @@ export async function registerMCPHandlers(
   mcp.registerTool(
     "reveal_answer",
     {
-      description:
-        "Reveal the answer to the current lesson question. Plain tool \u2014 does not mount a widget.",
-      inputSchema: { widgetId: z.string().optional() },
+      description: "Reveal the answer to the current lesson question.",
     },
-    requireInit(async ({ widgetId }: { widgetId?: string }) => {
-      const stale = checkStale(widgetId);
-      if (stale) return stale;
+    requireInit(async () => {
       const r = server.revealAnswer();
       return wrapResult({ result: r.result, state: serializeState(r.state) });
     }),
@@ -850,12 +867,9 @@ export async function registerMCPHandlers(
     "solution",
     {
       description:
-        "Show the full reference solution code for the current exercise. Plain tool \u2014 does not mount a widget.",
-      inputSchema: { widgetId: z.string().optional() },
+        "Show the full reference solution code for the current exercise.",
     },
-    requireInit(async ({ widgetId }: { widgetId?: string }) => {
-      const stale = checkStale(widgetId);
-      if (stale) return stale;
+    requireInit(async () => {
       return wrapResult({
         result: server.getFullSolution(),
         state: serializeState(server.getState()),
@@ -869,12 +883,9 @@ export async function registerMCPHandlers(
     "ai_hint",
     {
       description:
-        "Get an AI-generated hint tailored to the student's current code. Uses MCP sampling to ask the host's model. Plain tool \u2014 does not mount a widget.",
-      inputSchema: { widgetId: z.string().optional() },
+        "Get an AI-generated hint tailored to the student's current code. Uses MCP sampling to ask the host's model.",
     },
-    requireInit(async ({ widgetId }: { widgetId?: string }) => {
-      const stale = checkStale(widgetId);
-      if (stale) return stale;
+    requireInit(async () => {
       const r = await server.getAIHint();
       return wrapResult({ result: r.result, state: serializeState(r.state) });
     }),
@@ -884,7 +895,7 @@ export async function registerMCPHandlers(
     "ask_ai",
     {
       description:
-        "Ask a free-form quantum computing question about the current lesson. Uses MCP sampling. Plain tool \u2014 does not mount a widget.",
+        "Ask a free-form quantum computing question about the current lesson. Uses MCP sampling.",
       inputSchema: {
         question: z.string().min(1).describe("The student's question"),
       },
@@ -933,7 +944,7 @@ export async function runMCPServerStdio(
  * Multiple concurrent sessions are supported. For each new `initialize`
  * request (POST without an `mcp-session-id` header) a fresh `McpServer` and
  * transport are created and `registerMCPHandlers` is called, giving each
- * client its own closure state (live widget id, initialization gate,
+ * client its own closure state (initialization gate,
  * current workspace). All sessions share the same underlying `KatasServer`
  * (the kata engine / workspace / progress).
  *
