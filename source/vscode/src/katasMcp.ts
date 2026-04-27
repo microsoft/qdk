@@ -96,10 +96,29 @@ export function registerKatasMcpServer(
   learningFileWatcher.onDidDelete(onLearningFileEvent);
   learningFileWatcher.onDidChange(onLearningFileEvent);
 
+  // Watch for the `.open-panel` signal file written by the MCP server's
+  // `open_katas_panel` tool. When it appears, open the full katas panel
+  // and delete the signal file.
+  const OPEN_PANEL_FILE = ".open-panel";
+  const openPanelWatcher = vscode.workspace.createFileSystemWatcher(
+    `**/${OPEN_PANEL_FILE}`,
+  );
+  const onOpenPanelSignal = async (uri: vscode.Uri) => {
+    try {
+      await vscode.workspace.fs.delete(uri);
+    } catch {
+      // File may already be gone.
+    }
+    await vscode.commands.executeCommand("qsharp-vscode.showKatas");
+  };
+  openPanelWatcher.onDidCreate(onOpenPanelSignal);
+  openPanelWatcher.onDidChange(onOpenPanelSignal);
+
   return vscode.Disposable.from(
     disposable,
     foldersListener,
     learningFileWatcher,
+    openPanelWatcher,
     onDidChangeEmitter,
   );
 }

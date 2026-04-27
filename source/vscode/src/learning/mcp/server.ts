@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, isAbsolute } from "node:path";
 
 const NAVIGATE_FILE = ".navigate.json";
+const OPEN_PANEL_FILE = ".open-panel";
 const LEARNING_FILE = "qdk-learning.json";
 import { createRequire } from "node:module";
 import type {
@@ -697,6 +698,32 @@ export async function registerMCPHandlers(
         return wrapResult({ navigated: true, state });
       }
       return wrapResult({ navigated: false });
+    }),
+  );
+
+  // ─── Open in full panel (app-only) ───
+
+  registerAppTool(
+    mcp,
+    "open_katas_panel",
+    {
+      description:
+        "Signal the VS Code extension host to open the full Quantum Katas panel. " +
+        "Writes a signal file that the extension watches for. App-only — hidden from the model.",
+      _meta: { ui: { resourceUri: WIDGET_URI, visibility: ["app"] } },
+    },
+    requireInit(async () => {
+      if (!currentWorkspacePath) {
+        return errorResponse("No workspace path configured.");
+      }
+      const signalPath = join(currentWorkspacePath, OPEN_PANEL_FILE);
+      try {
+        writeFileSync(signalPath, "", "utf-8");
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return errorResponse(`Failed to write signal file: ${msg}`);
+      }
+      return wrapResult({ ok: true });
     }),
   );
 

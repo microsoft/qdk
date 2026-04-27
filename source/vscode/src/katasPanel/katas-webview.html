@@ -1,0 +1,281 @@
+<!--
+  Copyright (c) Microsoft Corporation.
+  Licensed under the MIT License.
+-->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'nonce-__NONCE__'; script-src 'nonce-__NONCE__'; font-src __WEBVIEW_CSPHOST__;"
+    />
+    <title>Quantum Katas</title>
+    <style nonce="__NONCE__">
+      /*__KATAS_WIDGET_CSS__*/
+    </style>
+  </head>
+  <body>
+    <header id="header" class="header">
+      <span class="crumb"></span>
+      <span class="badge"></span>
+    </header>
+    <section id="content" class="content"></section>
+    <div id="output" class="output" hidden></div>
+    <nav id="actions" class="action-bar"></nav>
+    <footer id="progress-bar" class="progress-bar"></footer>
+
+    <script nonce="__NONCE__">
+      // KaTeX MathML output — no external fonts needed.
+      globalThis.__KATAS_KATEX_CONFIG = { output: "mathml" };
+    </script>
+    <script nonce="__NONCE__">
+      /*__KATEX_JS__*/
+    </script>
+    <script nonce="__NONCE__">
+      /*__KATEX_AUTORENDER_JS__*/
+    </script>
+    <script nonce="__NONCE__">
+      /*__KATAS_RENDER__*/
+    </script>
+    <script nonce="__NONCE__">
+      (() => {
+        "use strict";
+        const vscodeApi = acquireVsCodeApi();
+        const R = globalThis.KatasRender;
+
+        // ─── DOM slots ───
+        const headerEl = document.getElementById("header");
+        const crumbEl = headerEl.querySelector(".crumb");
+        const badgeEl = headerEl.querySelector(".badge");
+        const contentEl = document.getElementById("content");
+        const outputEl = document.getElementById("output");
+        const actionsEl = document.getElementById("actions");
+        const progressEl = document.getElementById("progress-bar");
+
+        let busy = false;
+        let lastPositionKey = null;
+
+        // ─── Rendering ───
+
+        function renderHeader(position) {
+          const item = position.item;
+          const sectionTitle =
+            item.type === "exercise" ? item.title : item.sectionTitle || "";
+          crumbEl.textContent = `${position.kataId} · ${position.sectionId} · #${position.itemIndex + 1}${sectionTitle ? " — " + sectionTitle : ""}`;
+
+          badgeEl.className = "badge";
+          if (item.type === "exercise") {
+            badgeEl.textContent = item.isComplete ? "✔ done" : "exercise";
+            badgeEl.classList.add(item.isComplete ? "complete" : "exercise");
+          } else if (item.type === "lesson-text") {
+            badgeEl.textContent = "lesson";
+          } else if (item.type === "lesson-example") {
+            badgeEl.textContent = "example";
+          } else if (item.type === "lesson-question") {
+            badgeEl.textContent = "question";
+          } else {
+            badgeEl.textContent = item.type;
+          }
+        }
+
+        function renderContent(position) {
+          contentEl.innerHTML = R.renderContentBody(position.item);
+          R.renderMath(contentEl);
+          contentEl.scrollTop = 0;
+        }
+
+        function showOutput(html, variant) {
+          outputEl.className = "output" + (variant ? " " + variant : "");
+          outputEl.innerHTML =
+            '<button class="out-dismiss" aria-label="Dismiss" title="Dismiss">×</button>' +
+            '<div class="out-label">' +
+            labelFor(variant) +
+            "</div>" +
+            '<div class="out-body">' +
+            html +
+            "</div>";
+          outputEl.hidden = false;
+          outputEl
+            .querySelector(".out-dismiss")
+            .addEventListener("click", clearOutput);
+          R.renderMath(outputEl);
+        }
+
+        function labelFor(variant) {
+          if (variant === "pass") return "Result";
+          if (variant === "fail") return "Result";
+          return "Output";
+        }
+
+        function clearOutput() {
+          outputEl.hidden = true;
+          outputEl.innerHTML = "";
+        }
+
+        function renderActions(groups) {
+          actionsEl.innerHTML = "";
+          for (const group of groups) {
+            const div = document.createElement("div");
+            div.className = "action-group";
+            for (const binding of group) {
+              if (binding.action === "quit" || binding.action === "menu")
+                continue;
+              const btn = document.createElement("button");
+              btn.textContent = binding.label;
+              if (binding.primary) btn.classList.add("primary");
+              btn.dataset.action = binding.action;
+              btn.disabled = busy;
+              btn.addEventListener("click", () =>
+                executeAction(binding.action),
+              );
+              div.appendChild(btn);
+            }
+            if (div.children.length > 0) actionsEl.appendChild(div);
+          }
+        }
+
+        function setBusy(b) {
+          busy = b;
+          for (const btn of actionsEl.querySelectorAll("button"))
+            btn.disabled = b;
+        }
+
+        function renderProgressBar(progress) {
+          try {
+            progressEl.innerHTML = R.renderProgressBar(progress);
+          } catch {
+            progressEl.innerHTML = "";
+          }
+        }
+
+        function applyState(state) {
+          if (!state) return;
+          const pos = state.position;
+          const key = pos.kataId + ":" + pos.sectionId + ":" + pos.itemIndex;
+          if (key !== lastPositionKey) {
+            renderHeader(pos);
+            renderContent(pos);
+            clearOutput();
+            lastPositionKey = key;
+          } else {
+            renderHeader(pos);
+          }
+          renderActions(state.actions);
+          renderProgressBar(state.progress);
+        }
+
+        function invalidateContent() {
+          lastPositionKey = null;
+        }
+
+        // ─── Action dispatch ───
+
+        function executeAction(action) {
+          if (busy) return;
+          setBusy(true);
+
+          const slow = ["run", "circuit", "check"].includes(action);
+          if (slow) showOutput('<div class="loading">Working…</div>');
+
+          // Send to extension host
+          vscodeApi.postMessage({ command: "action", action: action });
+        }
+
+        // ─── Messages from extension host ───
+
+        window.addEventListener("message", (event) => {
+          const msg = event.data;
+          switch (msg.command) {
+            case "state":
+              applyState(msg.state);
+              setBusy(false);
+              break;
+            case "result": {
+              const action = msg.action;
+              const result = msg.result;
+              switch (action) {
+                case "next":
+                case "back":
+                  if (result && !result.moved) {
+                    showOutput(
+                      action === "next"
+                        ? '<div class="success">🎉 You\'ve completed all content!</div>'
+                        : '<div class="message">Already at the beginning.</div>',
+                    );
+                  }
+                  break;
+                case "check":
+                  showOutput(
+                    R.renderSolutionCheck(result),
+                    result.passed ? "pass" : "fail",
+                  );
+                  if (result.passed) invalidateContent();
+                  break;
+                case "hint":
+                  showOutput(
+                    result
+                      ? R.renderHint(result)
+                      : '<div class="message">No more hints available.</div>',
+                  );
+                  break;
+                case "reveal-answer":
+                  showOutput("<div>" + result + "</div>");
+                  break;
+                case "solution":
+                  showOutput(
+                    '<div style="margin-bottom:0.3rem"><strong>Reference Solution</strong></div><pre>' +
+                      R.escapeHtml(result) +
+                      "</pre>",
+                  );
+                  break;
+                case "progress":
+                  showOutput(R.renderProgress(result));
+                  break;
+                case "run":
+                case "circuit":
+                  // These open external views — just clear loading state.
+                  clearOutput();
+                  break;
+              }
+              if (msg.state) applyState(msg.state);
+              setBusy(false);
+              break;
+            }
+            case "error":
+              showOutput(
+                '<div class="fail">Error: ' +
+                  R.escapeHtml(msg.message) +
+                  "</div>",
+                "fail",
+              );
+              setBusy(false);
+              break;
+          }
+        });
+
+        // Copy-to-clipboard for file paths.
+        contentEl.addEventListener("click", (e) => {
+          const btn = e.target.closest(".copy-btn");
+          if (btn && navigator.clipboard) {
+            navigator.clipboard.writeText(btn.dataset.copy);
+          }
+        });
+
+        // File-path link clicks → open via extension host.
+        contentEl.addEventListener("click", (e) => {
+          const a = e.target.closest("a.file-path-link");
+          if (!a) return;
+          e.preventDefault();
+          const url = a.getAttribute("href");
+          if (url) {
+            vscodeApi.postMessage({ command: "openFile", uri: url });
+          }
+        });
+
+        // Signal ready
+        vscodeApi.postMessage({ command: "ready" });
+      })();
+    </script>
+  </body>
+</html>

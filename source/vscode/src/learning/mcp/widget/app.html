@@ -21,6 +21,15 @@
     <header id="header" class="header">
       <span class="crumb"></span>
       <span class="badge"></span>
+      <button
+        id="expand-btn"
+        class="expand-btn"
+        type="button"
+        title="Open in full panel"
+        aria-label="Open in full panel"
+      >
+        ⤢
+      </button>
     </header>
     <section id="content" class="content"></section>
     <div id="output" class="output" hidden></div>
@@ -571,6 +580,13 @@
         });
 
         // Route file-path link clicks through the host so VS Code opens the file.
+        // Expand button — opens the full katas panel via MCP server signal.
+        document.getElementById("expand-btn").addEventListener("click", () => {
+          app.callServerTool({ name: "open_katas_panel" }).catch((err) => {
+            console.error("[katas-widget] expand failed", err);
+          });
+        });
+
         contentEl.addEventListener("click", (e) => {
           const a = e.target.closest("a.file-path-link");
           if (!a) return;

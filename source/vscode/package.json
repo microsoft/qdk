@@ -327,6 +327,11 @@
           "command": "qsharp-vscode.katasContinue",
           "when": "view == qsharp-vscode.katasTree && qsharp-vscode.katasDetected",
           "group": "navigation"
+        },
+        {
+          "command": "qsharp-vscode.showKatas",
+          "when": "view == qsharp-vscode.katasTree && qsharp-vscode.katasDetected",
+          "group": "navigation"
         }
       ],
       "view/item/context": [
@@ -645,6 +650,12 @@
         "title": "Open Quantum Katas in chat",
         "category": "QDK",
         "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "qsharp-vscode.showKatas",
+        "title": "Open Quantum Katas",
+        "category": "Q#",
+        "icon": "$(mortar-board)"
       }
     ],
     "breakpoints": [

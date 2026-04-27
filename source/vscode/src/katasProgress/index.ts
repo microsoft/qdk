@@ -45,10 +45,13 @@ function buildTreeMessage(
  *   - a `ProgressWatcher` that tracks the detected katas workspace + progress file,
  *   - a native `TreeView` of Kata → Section nodes with an inline progress message,
  *   - the `qsharp-vscode.katas*` commands.
+ *
+ * Returns the `ProgressWatcher` instance so other features (e.g. the katas
+ * webview panel) can subscribe to progress changes.
  */
 export function registerKatasProgressView(
   context: vscode.ExtensionContext,
-): void {
+): ProgressWatcher {
   const watcher = new ProgressWatcher();
   context.subscriptions.push(watcher);
 
@@ -74,4 +77,6 @@ export function registerKatasProgressView(
 
   // Kick off initial detection + load; fire-and-forget.
   void watcher.start();
+
+  return watcher;
 }
