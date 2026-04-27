@@ -19,15 +19,15 @@ import type {
 
 const KATAS_DETECTED_CONTEXT = "qsharp-vscode.katasDetected";
 
-function completionKey(kataId: string, sectionIndex: number): string {
-  return `${kataId}__${sectionIndex}`;
+function completionKey(kataId: string, sectionId: string): string {
+  return `${kataId}__${sectionId}`;
 }
 
 function emptyProgressFile(): ProgressFileData {
   return {
     version: 1,
     katasRoot: "./quantum-katas",
-    position: { kataId: "", sectionIndex: 0, itemIndex: 0 },
+    position: { kataId: "", sectionId: "", itemIndex: 0 },
     completions: {},
     startedAt: new Date().toISOString(),
   };
@@ -45,12 +45,11 @@ function computeOverallProgress(
   let completedSections = 0;
 
   const katas: KataProgress[] = catalog.map((kata) => {
-    const sections: SectionProgress[] = kata.sections.map((s, i) => {
-      const key = completionKey(kata.id, i);
+    const sections: SectionProgress[] = kata.sections.map((s) => {
+      const key = completionKey(kata.id, s.id);
       const completion = data.completions[key];
       return {
         ...s,
-        index: i,
         isComplete: completion != null,
         completedAt: completion?.completedAt,
       };

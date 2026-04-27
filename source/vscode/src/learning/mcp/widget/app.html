@@ -207,7 +207,7 @@
                 stale: env?.stale === true,
                 widgetId: env?.widgetId,
                 pos: env?.state?.position
-                  ? `${env.state.position.kataId}§${env.state.position.sectionIndex}#${env.state.position.itemIndex}`
+                  ? `${env.state.position.kataId}§${env.state.position.sectionId}#${env.state.position.itemIndex}`
                   : undefined,
               };
             } else {
@@ -224,7 +224,7 @@
           const item = position.item;
           const sectionTitle =
             item.type === "exercise" ? item.title : item.sectionTitle || "";
-          crumbEl.textContent = `${position.kataId} · §${position.sectionIndex + 1} · #${position.itemIndex + 1}${sectionTitle ? ` — ${sectionTitle}` : ""}`;
+          crumbEl.textContent = `${position.kataId} · ${position.sectionId} · #${position.itemIndex + 1}${sectionTitle ? ` — ${sectionTitle}` : ""}`;
 
           badgeEl.className = "badge";
           if (item.type === "exercise") {
@@ -317,7 +317,7 @@
         function applyState(state) {
           if (!state) return;
           const pos = state.position;
-          const key = `${pos.kataId}:${pos.sectionIndex}:${pos.itemIndex}`;
+          const key = `${pos.kataId}:${pos.sectionId}:${pos.itemIndex}`;
           if (key !== lastPositionKey) {
             renderHeader(pos);
             renderContent(pos);
@@ -363,7 +363,7 @@
             stale: env?.stale === true,
             pos:
               env?.state?.position &&
-              `${env.state.position.kataId}\u00a7${env.state.position.sectionIndex}#${env.state.position.itemIndex}`,
+              `${env.state.position.kataId}\u00a7${env.state.position.sectionId}#${env.state.position.itemIndex}`,
           });
           return env;
         }
@@ -518,7 +518,7 @@
             captureWidgetId(envelope);
             if (envelope && envelope.state) {
               dbg("me", "applyState (broadcast)", {
-                pos: `${envelope.state.position.kataId}\u00a7${envelope.state.position.sectionIndex}#${envelope.state.position.itemIndex}`,
+                pos: `${envelope.state.position.kataId}\u00a7${envelope.state.position.sectionId}#${envelope.state.position.itemIndex}`,
               });
               applyState(envelope.state);
             }
@@ -596,7 +596,7 @@
             dbg("srv", "get_state \u2190", {
               pos:
                 envelope.state?.position &&
-                `${envelope.state.position.kataId}\u00a7${envelope.state.position.sectionIndex}#${envelope.state.position.itemIndex}`,
+                `${envelope.state.position.kataId}\u00a7${envelope.state.position.sectionId}#${envelope.state.position.itemIndex}`,
             });
             applyState(envelope.state);
 
@@ -658,7 +658,7 @@
                 }
                 if (env.navigated && env.state) {
                   dbg("me", "nav poll \u2192 navigated", {
-                    pos: `${env.state.position.kataId}\u00a7${env.state.position.sectionIndex}#${env.state.position.itemIndex}`,
+                    pos: `${env.state.position.kataId}\u00a7${env.state.position.sectionId}#${env.state.position.itemIndex}`,
                   });
                   clearOutput();
                   applyState(env.state);

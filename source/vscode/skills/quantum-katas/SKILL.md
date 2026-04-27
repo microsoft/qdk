@@ -62,7 +62,7 @@ Rule of thumb: **`render_state` once at the start of a session** (or when the us
 | Show the full per-kata progress breakdown                       | `mcp_quantum-katas_get_progress`                       | no      |
 | List all katas with completion status                           | `mcp_quantum-katas_list_katas`                         | no      |
 | Navigate forward / backward                                     | `mcp_quantum-katas_next`, `mcp_quantum-katas_previous` | no      |
-| Jump to a specific kata/section/item                            | `mcp_quantum-katas_goto`                               | yes     |
+| Jump to a specific kata/section by ID                           | `mcp_quantum-katas_goto`                               | yes     |
 | Run current Q# code                                             | `mcp_quantum-katas_run` (optional `shots`)             | no      |
 | Run with noise simulation                                       | `mcp_quantum-katas_run_with_noise` (default 100 shots) | no      |
 | Generate quantum circuit diagram                                | `mcp_quantum-katas_circuit`                            | no      |
@@ -113,7 +113,7 @@ The widget's buttons call tools directly — those clicks don't reach you. You o
 - "solution" / "show solution" → `solution` (warn it's a spoiler before calling)
 - "answer" / "reveal" on a question → `reveal_answer`
 - "menu" / "list" / "show katas" → `list_katas`, then render the catalog in chat as a short numbered list (title + progress, marking the recommended one); prompt the user to pick one and follow up with `goto`
-- "go to <kata>" / "jump to <kata>" / "jump to section N" → resolve the kataId via `list_katas` if needed, then `goto`
+- "go to <kata>" / "jump to <kata>" / "jump to section <name>" → resolve the kataId (and sectionId if needed) via `list_katas` or `get_state`, then `goto` with the `sectionId` string
 - "progress" / "show my progress" → `get_progress`
 - Any free-form question about the current lesson → `ask_ai` with the question verbatim
 - "quit" / "stop" / "done for now" → acknowledge and stop calling tools (progress auto-saves; the widget remains)

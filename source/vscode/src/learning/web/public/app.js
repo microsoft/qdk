@@ -193,7 +193,6 @@ async function executeAction(action) {
         if (idx >= 0 && idx < katas.length) {
           const state = await apiPost("/api/goto", {
             kataId: katas[idx].id,
-            sectionIndex: 0,
           });
           ui.applyState(state);
         }

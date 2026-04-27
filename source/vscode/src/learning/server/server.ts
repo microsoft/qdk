@@ -63,7 +63,7 @@ const RECOMMENDED_ORDER = [
 /** Internal registry entry for a resolvable item */
 interface RegistryEntry {
   kataId: string;
-  sectionIndex: number;
+  sectionId: string;
   itemIndex: number;
   section: Lesson | Exercise;
   /** The lesson sub-item, or null for exercise sections */
@@ -73,7 +73,7 @@ interface RegistryEntry {
 /** A flattened position in the global navigation list */
 interface FlatPosition {
   kataId: string;
-  sectionIndex: number;
+  sectionId: string;
   itemIndex: number;
 }
 
@@ -153,7 +153,7 @@ export class KatasServer implements IKatasServer {
           // position so the widget shows them as one page.
           this.flatPositions.push({
             kataId: kata.id,
-            sectionIndex: si,
+            sectionId: section.id,
             itemIndex: 0,
           });
           // Still register examples by ID for quick lookup.
@@ -162,7 +162,7 @@ export class KatasServer implements IKatasServer {
             if (item.type === "example") {
               this.itemRegistry.set(item.id, {
                 kataId: kata.id,
-                sectionIndex: si,
+                sectionId: section.id,
                 itemIndex: ii,
                 section,
                 lessonItem: item,
@@ -173,12 +173,12 @@ export class KatasServer implements IKatasServer {
           // Exercise has a single item at index 0
           this.flatPositions.push({
             kataId: kata.id,
-            sectionIndex: si,
+            sectionId: section.id,
             itemIndex: 0,
           });
           this.itemRegistry.set(section.id, {
             kataId: kata.id,
-            sectionIndex: si,
+            sectionId: section.id,
             itemIndex: 0,
             section,
             lessonItem: null,
@@ -202,7 +202,7 @@ export class KatasServer implements IKatasServer {
       let idx = this.flatPositions.findIndex(
         (fp) =>
           fp.kataId === savedPos.kataId &&
-          fp.sectionIndex === savedPos.sectionIndex &&
+          fp.sectionId === savedPos.sectionId &&
           fp.itemIndex === savedPos.itemIndex,
       );
       // Saved position may have itemIndex > 0 from before lesson-section
@@ -211,7 +211,7 @@ export class KatasServer implements IKatasServer {
         idx = this.flatPositions.findIndex(
           (fp) =>
             fp.kataId === savedPos.kataId &&
-            fp.sectionIndex === savedPos.sectionIndex,
+            fp.sectionId === savedPos.sectionId,
         );
       }
       if (idx >= 0) this.currentFlatIndex = idx;
@@ -232,8 +232,8 @@ export class KatasServer implements IKatasServer {
     // Check which katas are fully complete
     for (const kata of this.katas) {
       let allDone = true;
-      for (let i = 0; i < kata.sections.length; i++) {
-        if (!this.progress.isComplete(kata.id, i)) {
+      for (const s of kata.sections) {
+        if (!this.progress.isComplete(kata.id, s.id)) {
           allDone = false;
           break;
         }
@@ -243,8 +243,8 @@ export class KatasServer implements IKatasServer {
 
     return this.katas.map((kata, idx) => {
       let completedCount = 0;
-      for (let i = 0; i < kata.sections.length; i++) {
-        if (this.progress.isComplete(kata.id, i)) completedCount++;
+      for (const s of kata.sections) {
+        if (this.progress.isComplete(kata.id, s.id)) completedCount++;
       }
 
       // Recommended if it's the first incomplete kata in order
@@ -268,12 +268,11 @@ export class KatasServer implements IKatasServer {
     return {
       id: kata.id,
       title: kata.title,
-      sections: kata.sections.map((s, i) => ({
-        index: i,
+      sections: kata.sections.map((s) => ({
         type: s.type,
         id: s.id,
         title: s.title,
-        isComplete: this.progress.isComplete(kata.id, i),
+        isComplete: this.progress.isComplete(kata.id, s.id),
         itemCount: s.type === "lesson" ? s.items.length : 1,
       })),
     };
@@ -288,7 +287,7 @@ export class KatasServer implements IKatasServer {
     }
     return {
       kataId: fp.kataId,
-      sectionIndex: fp.sectionIndex,
+      sectionId: fp.sectionId,
       itemIndex: fp.itemIndex,
       item: this.resolveNavigationItem(fp),
     };
@@ -407,14 +406,12 @@ export class KatasServer implements IKatasServer {
     this.currentFlatIndex++;
     const newFp = this.flatPositions[this.currentFlatIndex];
 
-    if (
-      oldFp.kataId !== newFp.kataId ||
-      oldFp.sectionIndex !== newFp.sectionIndex
-    ) {
+    if (oldFp.kataId !== newFp.kataId || oldFp.sectionId !== newFp.sectionId) {
       // Mark the old section complete (for lessons; exercises are marked on check)
       const oldKata = this.findKata(oldFp.kataId);
-      if (oldKata.sections[oldFp.sectionIndex].type === "lesson") {
-        this.progress.markComplete(oldFp.kataId, oldFp.sectionIndex);
+      const oldSection = oldKata.sections.find((s) => s.id === oldFp.sectionId);
+      if (oldSection?.type === "lesson") {
+        this.progress.markComplete(oldFp.kataId, oldFp.sectionId);
       }
       // Clear AI conversation when moving to a new section
       this.aiConversationHistory = [];
@@ -433,10 +430,7 @@ export class KatasServer implements IKatasServer {
     this.currentFlatIndex--;
     const newFp = this.flatPositions[this.currentFlatIndex];
 
-    if (
-      oldFp.kataId !== newFp.kataId ||
-      oldFp.sectionIndex !== newFp.sectionIndex
-    ) {
+    if (oldFp.kataId !== newFp.kataId || oldFp.sectionId !== newFp.sectionId) {
       this.aiConversationHistory = [];
     }
 
@@ -444,27 +438,37 @@ export class KatasServer implements IKatasServer {
     return { moved: true, state: this.getState() };
   }
 
-  goTo(
-    kataId: string,
-    sectionIndex: number,
-    itemIndex: number = 0,
-  ): ServerState {
+  goTo(kataId: string, sectionId?: string, itemIndex: number = 0): ServerState {
+    // If no sectionId, go to the first section of the kata.
+    if (!sectionId) {
+      const firstIdx = this.flatPositions.findIndex(
+        (fp) => fp.kataId === kataId,
+      );
+      if (firstIdx < 0) {
+        throw new Error(`Kata not found: ${kataId}`);
+      }
+      this.currentFlatIndex = firstIdx;
+      this.aiConversationHistory = [];
+      this.syncPosition();
+      return this.getState();
+    }
+
     let idx = this.flatPositions.findIndex(
       (fp) =>
         fp.kataId === kataId &&
-        fp.sectionIndex === sectionIndex &&
+        fp.sectionId === sectionId &&
         fp.itemIndex === itemIndex,
     );
     // Lesson sections are collapsed to itemIndex 0; fall back when the
     // caller supplies a stale sub-item index.
     if (idx < 0 && itemIndex !== 0) {
       idx = this.flatPositions.findIndex(
-        (fp) => fp.kataId === kataId && fp.sectionIndex === sectionIndex,
+        (fp) => fp.kataId === kataId && fp.sectionId === sectionId,
       );
     }
     if (idx < 0) {
       throw new Error(
-        `Position not found: ${kataId} section ${sectionIndex} item ${itemIndex}`,
+        `Position not found: ${kataId} section ${sectionId} item ${itemIndex}`,
       );
     }
     this.currentFlatIndex = idx;
@@ -513,13 +517,13 @@ export class KatasServer implements IKatasServer {
   }
 
   async checkSolution(): Promise<StatefulResult<SolutionCheckResult>> {
-    const { kataId, sectionIndex, exercise } = this.resolveExercise();
+    const { kataId, sectionId, exercise } = this.resolveExercise();
     const userCode = await this.workspace.readUserCode(kataId, exercise.id);
     const sources = await getExerciseSources(exercise);
     const result = await this.compiler.checkSolution(userCode, sources);
 
     if (result.passed) {
-      this.progress.markComplete(kataId, sectionIndex);
+      this.progress.markComplete(kataId, sectionId);
       await this.progress.save();
     }
 
@@ -656,7 +660,7 @@ export class KatasServer implements IKatasServer {
     let lessonContent: string;
 
     // Get content from current section
-    const section = kata.sections[pos.sectionIndex];
+    const section = kata.sections.find((s) => s.id === pos.sectionId)!;
     if (section.type === "lesson") {
       lessonContent = section.items
         .map((item) => {
@@ -698,14 +702,14 @@ export class KatasServer implements IKatasServer {
   private syncPosition(): void {
     const fp = this.flatPositions[this.currentFlatIndex];
     if (fp) {
-      this.progress.setPosition(fp.kataId, fp.sectionIndex, fp.itemIndex);
+      this.progress.setPosition(fp.kataId, fp.sectionId, fp.itemIndex);
       this.progress.save().catch(() => {});
     }
   }
 
   private resolveNavigationItem(fp: FlatPosition): NavigationItem {
     const kata = this.findKata(fp.kataId);
-    const section = kata.sections[fp.sectionIndex];
+    const section = kata.sections.find((s) => s.id === fp.sectionId)!;
 
     if (section.type === "exercise") {
       const exercise = section as Exercise;
@@ -715,7 +719,7 @@ export class KatasServer implements IKatasServer {
         title: exercise.title,
         description: exercise.description.content,
         filePath: this.workspace.getExerciseFilePath(kata.id, exercise.id),
-        isComplete: this.progress.isComplete(kata.id, fp.sectionIndex),
+        isComplete: this.progress.isComplete(kata.id, fp.sectionId),
         hintCount: exercise.explainedSolution.items.filter(
           (i) => i.type === "text-content",
         ).length,
@@ -811,7 +815,9 @@ export class KatasServer implements IKatasServer {
     }
     if (pos.item.type === "exercise") {
       const kata = this.findKata(pos.kataId);
-      const exercise = kata.sections[pos.sectionIndex] as Exercise;
+      const exercise = kata.sections.find(
+        (s) => s.id === pos.sectionId,
+      ) as Exercise;
       return this.buildExerciseSources(pos.kataId, exercise);
     }
     throw new Error(
@@ -853,7 +859,7 @@ export class KatasServer implements IKatasServer {
    */
   private resolveExercise(): {
     kataId: string;
-    sectionIndex: number;
+    sectionId: string;
     exercise: Exercise;
   } {
     const pos = this.getPosition();
@@ -861,13 +867,13 @@ export class KatasServer implements IKatasServer {
       throw new Error("Current position is not an exercise");
     }
     const kata = this.findKata(pos.kataId);
-    const section = kata.sections[pos.sectionIndex];
-    if (section.type !== "exercise") {
+    const section = kata.sections.find((s) => s.id === pos.sectionId);
+    if (!section || section.type !== "exercise") {
       throw new Error("Current section is not an exercise");
     }
     return {
       kataId: pos.kataId,
-      sectionIndex: pos.sectionIndex,
+      sectionId: pos.sectionId,
       exercise: section as Exercise,
     };
   }

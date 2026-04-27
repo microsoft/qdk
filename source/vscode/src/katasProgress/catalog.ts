@@ -43,13 +43,20 @@ export async function loadCatalog(): Promise<CatalogKata[]> {
   const trimmed: CatalogKata[] = allKatas.map((k) => ({
     id: k.id,
     title: k.title,
-    sections: k.sections.map<CatalogSection>((s) => ({
-      id: s.id,
-      title: s.title,
-      kind: s.type,
-      hasExample:
-        s.type === "lesson" && s.items.some((i) => i.type === "example"),
-    })),
+    sections: k.sections.map<CatalogSection>((s) => {
+      const firstExample =
+        s.type === "lesson"
+          ? s.items.find((i) => i.type === "example")
+          : undefined;
+      return {
+        id: s.id,
+        title: s.title,
+        kind: s.type,
+        hasExample: firstExample != null,
+        exampleId:
+          firstExample?.type === "example" ? firstExample.id : undefined,
+      };
+    }),
   }));
 
   trimmed.sort((a, b) => {

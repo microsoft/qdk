@@ -47,8 +47,20 @@ export function runProgramInTerminal(
         cancellationTokenSource.cancel();
       },
       handleInput: (data) => {
+        // Workaround: Other extensions (e.g., Python Environments) may call
+        // terminal.sendText() on all open terminals to inject shell activation
+        // commands. Since this is a pseudoterminal (not a shell), those commands
+        // arrive here as multi-character strings. Real user keypresses are at
+        // most a short escape sequence (e.g., 1-4 bytes). Ignore anything that
+        // looks like an injected command to avoid unintended side-effects.
+        if (data.length > 4) {
+          log.debug("Ignoring injected terminal input:", data);
+          return;
+        }
+
         // Any key press closes the terminal after program completion
         if (done) {
+          log.debug("Closing terminal after program completion.", data);
           closeEmitter.fire();
         } else if (data === "\x03") {
           // ETX / Ctrl+C

@@ -17,7 +17,7 @@ export type KatasNode =
       kind: "continue";
       kataId: string;
       kataTitle: string;
-      sectionIndex: number;
+      sectionId: string;
       sectionTitle: string;
       sectionKind: string;
     }
@@ -71,7 +71,7 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
 
   /** Tracks the section currently being navigated to (shows a spinner). */
   private navigatingKataId: string | undefined;
-  private navigatingSectionIndex: number | undefined;
+  private navigatingSectionId: string | undefined;
 
   update(snapshot: OverallProgress | undefined): void {
     this.snapshot = snapshot;
@@ -79,9 +79,9 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
   }
 
   /** Show a spinner on the given section while awaiting widget navigation. */
-  setNavigating(kataId: string, sectionIndex: number): void {
+  setNavigating(kataId: string, sectionId: string): void {
     this.navigatingKataId = kataId;
-    this.navigatingSectionIndex = sectionIndex;
+    this.navigatingSectionId = sectionId;
     this.emitter.fire(undefined);
   }
 
@@ -89,15 +89,14 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
   clearNavigating(): void {
     if (this.navigatingKataId !== undefined) {
       this.navigatingKataId = undefined;
-      this.navigatingSectionIndex = undefined;
+      this.navigatingSectionId = undefined;
       this.emitter.fire(undefined);
     }
   }
 
-  private isNavigating(kataId: string, sectionIndex: number): boolean {
+  private isNavigating(kataId: string, sectionId: string): boolean {
     return (
-      this.navigatingKataId === kataId &&
-      this.navigatingSectionIndex === sectionIndex
+      this.navigatingKataId === kataId && this.navigatingSectionId === sectionId
     );
   }
 
@@ -108,7 +107,7 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
         vscode.TreeItemCollapsibleState.None,
       );
       item.description = node.kataTitle;
-      item.iconPath = this.isNavigating(node.kataId, node.sectionIndex)
+      item.iconPath = this.isNavigating(node.kataId, node.sectionId)
         ? new vscode.ThemeIcon("loading~spin")
         : new vscode.ThemeIcon("sparkle", new vscode.ThemeColor("charts.blue"));
       item.contextValue = "continue";
@@ -144,20 +143,20 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
         : section.hasExample
           ? "lesson · example"
           : "lesson";
-    item.iconPath = this.isNavigating(kataId, section.index)
+    item.iconPath = this.isNavigating(kataId, section.id)
       ? new vscode.ThemeIcon("loading~spin")
       : sectionIcon(section, isCurrent);
     item.contextValue =
       section.kind === "exercise" ? "exerciseSection" : "lessonSection";
     const baseTooltip = section.isComplete
-      ? `Completed${section.completedAt ? ` · ${new Date(section.completedAt).toLocaleString()}` : ""}`
+      ? `Completed${section.completedAt ? ` \u00b7 ${new Date(section.completedAt).toLocaleString()}` : ""}`
       : section.kind === "exercise"
-        ? "Exercise — click the action icon to open"
-        : "Lesson — click the action icon to open";
+        ? "Exercise \u2014 click the action icon to open"
+        : "Lesson \u2014 click the action icon to open";
     item.tooltip = section.hasExample
-      ? `${baseTooltip} · contains a code example`
+      ? `${baseTooltip} \u00b7 contains a code example`
       : baseTooltip;
-    item.id = `section:${kataId}:${section.index}`;
+    item.id = `section:${kataId}:${section.id}`;
     return item;
   }
 
@@ -169,17 +168,25 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
       const children: KatasNode[] = [];
 
       // Pinned "Up next" shortcut at the top.
+      // When no position is recorded yet (fresh workspace), default to
+      // the first kata / first section so the user always sees an entry.
       const pos = snap.currentPosition;
-      if (pos?.kataId) {
-        const kata = snap.katas.find((k) => k.id === pos.kataId);
+      const resolvedKataId = pos?.kataId || snap.katas[0]?.id;
+      const resolvedSectionId = pos?.kataId
+        ? pos.sectionId
+        : snap.katas[0]?.sections[0]?.id;
+      if (resolvedKataId) {
+        const kata = snap.katas.find((k) => k.id === resolvedKataId);
         if (kata) {
-          const section = kata.sections[pos.sectionIndex];
+          const section = resolvedSectionId
+            ? kata.sections.find((s) => s.id === resolvedSectionId)
+            : kata.sections[0];
           if (section) {
             children.push({
               kind: "continue",
               kataId: kata.id,
               kataTitle: kata.title,
-              sectionIndex: pos.sectionIndex,
+              sectionId: section.id,
               sectionTitle: section.title,
               sectionKind: section.kind,
             });
@@ -191,7 +198,7 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
         children.push({
           kind: "kata",
           kata,
-          isCurrent: kata.id === snap.currentPosition.kataId,
+          isCurrent: kata.id === resolvedKataId,
         });
       }
 
@@ -199,16 +206,17 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
     }
 
     if (node.kind === "kata") {
-      const currentKataId = snap.currentPosition.kataId;
-      const currentSectionIndex = snap.currentPosition.sectionIndex;
+      const currentKataId = snap.currentPosition.kataId || snap.katas[0]?.id;
+      const currentSectionId = snap.currentPosition.kataId
+        ? snap.currentPosition.sectionId
+        : snap.katas[0]?.sections[0]?.id;
       return node.kata.sections.map<KatasNode>((section) => ({
         kind: "section",
         kataId: node.kata.id,
         kataTitle: node.kata.title,
         section,
         isCurrent:
-          node.kata.id === currentKataId &&
-          section.index === currentSectionIndex,
+          node.kata.id === currentKataId && section.id === currentSectionId,
       }));
     }
 

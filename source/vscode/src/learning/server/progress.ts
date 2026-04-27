@@ -32,7 +32,7 @@ export class ProgressManager {
     return {
       version: 1,
       katasRoot: this.katasRoot,
-      position: { kataId: "", sectionIndex: 0, itemIndex: 0 },
+      position: { kataId: "", sectionId: "", itemIndex: 0 },
       completions: {},
       startedAt: new Date().toISOString(),
     };
@@ -55,7 +55,7 @@ export class ProgressManager {
         ) {
           this.data.position = {
             kataId: katas[0].id,
-            sectionIndex: 0,
+            sectionId: katas[0].sections[0]?.id ?? "",
             itemIndex: 0,
           };
         }
@@ -76,27 +76,27 @@ export class ProgressManager {
   }
 
   /** Key for the completions map */
-  private completionKey(kataId: string, sectionIndex: number): string {
-    return `${kataId}__${sectionIndex}`;
+  private completionKey(kataId: string, sectionId: string): string {
+    return `${kataId}__${sectionId}`;
   }
 
-  isComplete(kataId: string, sectionIndex: number): boolean {
-    return this.completionKey(kataId, sectionIndex) in this.data.completions;
+  isComplete(kataId: string, sectionId: string): boolean {
+    return this.completionKey(kataId, sectionId) in this.data.completions;
   }
 
-  markComplete(kataId: string, sectionIndex: number): void {
-    const key = this.completionKey(kataId, sectionIndex);
+  markComplete(kataId: string, sectionId: string): void {
+    const key = this.completionKey(kataId, sectionId);
     if (!(key in this.data.completions)) {
       this.data.completions[key] = { completedAt: new Date().toISOString() };
     }
   }
 
-  getPosition(): { kataId: string; sectionIndex: number; itemIndex: number } {
+  getPosition(): { kataId: string; sectionId: string; itemIndex: number } {
     return { ...this.data.position };
   }
 
-  setPosition(kataId: string, sectionIndex: number, itemIndex: number): void {
-    this.data.position = { kataId, sectionIndex, itemIndex };
+  setPosition(kataId: string, sectionId: string, itemIndex: number): void {
+    this.data.position = { kataId, sectionId, itemIndex };
   }
 
   reset(kataId?: string): void {
@@ -104,8 +104,8 @@ export class ProgressManager {
       // Reset only the given kata
       const kata = this.katas.find((k) => k.id === kataId);
       if (kata) {
-        for (let i = 0; i < kata.sections.length; i++) {
-          delete this.data.completions[this.completionKey(kataId, i)];
+        for (const s of kata.sections) {
+          delete this.data.completions[this.completionKey(kataId, s.id)];
         }
       }
     } else {
@@ -123,11 +123,10 @@ export class ProgressManager {
     let completedSections = 0;
 
     for (const kata of this.katas) {
-      const sections: SectionProgress[] = kata.sections.map((s, i) => {
-        const isComplete = this.isComplete(kata.id, i);
-        const key = this.completionKey(kata.id, i);
+      const sections: SectionProgress[] = kata.sections.map((s) => {
+        const isComplete = this.isComplete(kata.id, s.id);
+        const key = this.completionKey(kata.id, s.id);
         return {
-          index: i,
           id: s.id,
           title: s.title,
           type: s.type,

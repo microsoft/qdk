@@ -70,7 +70,7 @@ export async function promptAction(groups: ActionGroup[]): Promise<Action> {
 
 export async function promptKataJump(
   katas: KataSummary[],
-): Promise<{ kataId: string; sectionIndex: number } | null> {
+): Promise<{ kataId: string } | null> {
   console.log("  Jump to kata (enter number, or 0 to cancel):");
   for (let i = 0; i < katas.length; i++) {
     const k = katas[i];
@@ -82,7 +82,7 @@ export async function promptKataJump(
   const answer = await readLine("  > ");
   const idx = parseInt(answer, 10);
   if (isNaN(idx) || idx < 1 || idx > katas.length) return null;
-  return { kataId: katas[idx - 1].id, sectionIndex: 0 };
+  return { kataId: katas[idx - 1].id };
 }
 
 export async function promptQuestion(): Promise<string> {

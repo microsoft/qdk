@@ -94,7 +94,7 @@ describe("KatasServer", () => {
       const exercise = detail.sections.find((s) => s.type === "exercise");
       assert.ok(exercise, "Should have at least one exercise");
 
-      server.goTo("getting_started", exercise!.index);
+      server.goTo("getting_started", exercise!.id);
       const filePath = server.getExerciseFilePath();
       const content = await readFile(filePath, "utf-8");
       assert.ok(content.length > 0, "Exercise file should have content");
@@ -109,7 +109,7 @@ describe("KatasServer", () => {
     it("readUserCode returns the file content", async () => {
       const detail = server.getKataDetail("getting_started");
       const exercise = detail.sections.find((s) => s.type === "exercise");
-      server.goTo("getting_started", exercise!.index);
+      server.goTo("getting_started", exercise!.id);
       const code = await server.readUserCode();
       assert.ok(code.length > 0);
     });
@@ -117,7 +117,7 @@ describe("KatasServer", () => {
     it("does not overwrite existing exercise files on re-init", async () => {
       const detail = server.getKataDetail("getting_started");
       const exercise = detail.sections.find((s) => s.type === "exercise");
-      server.goTo("getting_started", exercise!.index);
+      server.goTo("getting_started", exercise!.id);
       const filePath = server.getExerciseFilePath();
 
       // Write custom content
@@ -184,7 +184,7 @@ describe("KatasServer", () => {
     it("getPosition returns initial position", () => {
       const pos = server.getPosition();
       assert.ok(pos.kataId, "Should have a kataId");
-      assert.equal(typeof pos.sectionIndex, "number");
+      assert.equal(typeof pos.sectionId, "string");
       assert.equal(typeof pos.itemIndex, "number");
       assert.ok(pos.item, "Should have a NavigationItem");
       assert.ok(pos.item.type, "NavigationItem should have a type");
@@ -199,7 +199,7 @@ describe("KatasServer", () => {
       // Position should have changed
       const moved =
         pos2.kataId !== pos1.kataId ||
-        pos2.sectionIndex !== pos1.sectionIndex ||
+        pos2.sectionId !== pos1.sectionId ||
         pos2.itemIndex !== pos1.itemIndex;
       assert.ok(moved, "Position should change after next()");
     });
@@ -214,7 +214,7 @@ describe("KatasServer", () => {
       const pos2 = server.getPosition();
       const moved =
         pos1.kataId !== pos2.kataId ||
-        pos1.sectionIndex !== pos2.sectionIndex ||
+        pos1.sectionId !== pos2.sectionId ||
         pos1.itemIndex !== pos2.itemIndex;
       assert.ok(moved, "Position should change after previous()");
     });
@@ -240,16 +240,19 @@ describe("KatasServer", () => {
       const detail = server.getKataDetail("getting_started");
       const lastSection = detail.sections[detail.sections.length - 1];
 
-      const state = server.goTo("getting_started", lastSection.index, 0);
+      const state = server.goTo("getting_started", lastSection.id, 0);
       assert.ok(state.position, "Should return state with position");
 
       const pos = server.getPosition();
       assert.equal(pos.kataId, "getting_started");
-      assert.equal(pos.sectionIndex, lastSection.index);
+      assert.equal(pos.sectionId, lastSection.id);
     });
 
     it("goTo() throws for invalid position", () => {
-      assert.throws(() => server.goTo("getting_started", 999), /not found/i);
+      assert.throws(
+        () => server.goTo("getting_started", "nonexistent_section"),
+        /not found/i,
+      );
     });
 
     it("getAvailableActions returns exactly one primary binding", () => {
@@ -389,7 +392,7 @@ describe("KatasServer", () => {
       );
       assert.ok(exerciseSection, "Should have an exercise");
 
-      server.goTo("getting_started", exerciseSection!.index);
+      server.goTo("getting_started", exerciseSection!.id);
       const { result } = await server.checkSolution();
       assert.equal(result.passed, false, "Placeholder should fail");
     });
@@ -402,7 +405,7 @@ describe("KatasServer", () => {
       );
       assert.ok(exerciseSection);
 
-      server.goTo("getting_started", exerciseSection!.index);
+      server.goTo("getting_started", exerciseSection!.id);
 
       const solution = server.getFullSolution();
       assert.ok(solution.length > 0, "Should have a reference solution");
@@ -420,7 +423,7 @@ describe("KatasServer", () => {
       const exerciseSection = detail.sections.find(
         (s) => s.type === "exercise",
       );
-      server.goTo("getting_started", exerciseSection!.index);
+      server.goTo("getting_started", exerciseSection!.id);
       const { result: hint } = server.getNextHint();
       assert.ok(hint, "Should have at least one hint");
       assert.equal(hint!.current, 1);
@@ -433,7 +436,7 @@ describe("KatasServer", () => {
       const exerciseSection = detail.sections.find(
         (s) => s.type === "exercise",
       );
-      server.goTo("getting_started", exerciseSection!.index);
+      server.goTo("getting_started", exerciseSection!.id);
       const solution = server.getFullSolution();
       assert.ok(solution.length > 0);
       assert.ok(
@@ -460,13 +463,13 @@ describe("KatasServer", () => {
       server = await createServer();
       // Navigate through all items in the first section (a lesson) until we cross into the next section
       const pos = server.getPosition();
-      const startSection = pos.sectionIndex;
+      const startSection = pos.sectionId;
       let maxSteps = 50;
       while (maxSteps-- > 0) {
         const { moved } = server.next();
         if (!moved) break;
         const newPos = server.getPosition();
-        if (newPos.sectionIndex !== startSection) break;
+        if (newPos.sectionId !== startSection) break;
       }
       const progress = server.getProgress();
       const kp = progress.katas.get("getting_started");
@@ -480,13 +483,13 @@ describe("KatasServer", () => {
       // First session — navigate through first section to complete it
       const s1 = await createServer();
       const startPos = s1.getPosition();
-      const startSection = startPos.sectionIndex;
+      const startSection = startPos.sectionId;
       let maxSteps = 50;
       while (maxSteps-- > 0) {
         const { moved } = s1.next();
         if (!moved) break;
         const newPos = s1.getPosition();
-        if (newPos.sectionIndex !== startSection) break;
+        if (newPos.sectionId !== startSection) break;
       }
       s1.dispose();
 
@@ -509,13 +512,13 @@ describe("KatasServer", () => {
       const s = await createServer();
       // Navigate through first section to mark it complete
       const pos = s.getPosition();
-      const startSection = pos.sectionIndex;
+      const startSection = pos.sectionId;
       let maxSteps = 50;
       while (maxSteps-- > 0) {
         const { moved } = s.next();
         if (!moved) break;
         const newPos = s.getPosition();
-        if (newPos.sectionIndex !== startSection) break;
+        if (newPos.sectionId !== startSection) break;
       }
       s.resetProgress();
       const progress = s.getProgress();
@@ -531,13 +534,13 @@ describe("KatasServer", () => {
       const s = await createServer(["getting_started"]);
       // Navigate through first section to mark it complete
       const pos = s.getPosition();
-      const startSection = pos.sectionIndex;
+      const startSection = pos.sectionId;
       let maxSteps = 50;
       while (maxSteps-- > 0) {
         const { moved } = s.next();
         if (!moved) break;
         const newPos = s.getPosition();
-        if (newPos.sectionIndex !== startSection) break;
+        if (newPos.sectionId !== startSection) break;
       }
       s.resetProgress("getting_started");
       const progress = s.getProgress();
@@ -567,7 +570,7 @@ describe("KatasServer", () => {
         (s) => s.type === "exercise",
       );
       if (exerciseSection) {
-        server.goTo("getting_started", exerciseSection.index);
+        server.goTo("getting_started", exerciseSection.id);
         const { result: hint } = await server.getAIHint();
         assert.equal(hint, null);
       }

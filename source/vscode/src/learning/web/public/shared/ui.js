@@ -112,7 +112,7 @@
     function applyState(state) {
       if (!state) return;
       const pos = state.position;
-      const key = `${pos.kataId}:${pos.sectionIndex}:${pos.itemIndex}`;
+      const key = `${pos.kataId}:${pos.sectionId}:${pos.itemIndex}`;
       if (key !== lastPositionKey) {
         appendContent(pos);
         lastPositionKey = key;

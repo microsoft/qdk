@@ -236,7 +236,7 @@ async function handleApi(
       case "/api/goto": {
         const state = server.goTo(
           body.kataId as string,
-          (body.sectionIndex as number) ?? 0,
+          (body.sectionId as string) ?? undefined,
           (body.itemIndex as number) ?? 0,
         );
         json(res, serializeState(state));

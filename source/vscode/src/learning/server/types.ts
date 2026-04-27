@@ -79,7 +79,6 @@ export interface KataDetail {
 }
 
 export interface SectionSummary {
-  index: number;
   type: "lesson" | "exercise";
   id: string;
   title: string;
@@ -92,7 +91,7 @@ export interface SectionSummary {
 
 export interface Position {
   kataId: string;
-  sectionIndex: number;
+  sectionId: string;
   itemIndex: number;
   item: NavigationItem;
 }
@@ -211,7 +210,7 @@ export interface NoiseConfig {
 
 export interface OverallProgress {
   katas: Map<string, KataProgress>;
-  currentPosition: { kataId: string; sectionIndex: number; itemIndex: number };
+  currentPosition: { kataId: string; sectionId: string; itemIndex: number };
   stats: { totalSections: number; completedSections: number };
 }
 
@@ -222,7 +221,6 @@ export interface KataProgress {
 }
 
 export interface SectionProgress {
-  index: number;
   id: string;
   title: string;
   type: "lesson" | "exercise";
@@ -236,7 +234,7 @@ export interface ProgressFileData {
   version: 1;
   /** Relative path from the file's parent directory to the katas content folder. */
   katasRoot: string;
-  position: { kataId: string; sectionIndex: number; itemIndex: number };
+  position: { kataId: string; sectionId: string; itemIndex: number };
   completions: Record<string, { completedAt: string }>;
   startedAt: string;
 }
@@ -369,7 +367,7 @@ export interface IKatasServer {
   // Navigation
   next(): NavigationResult;
   previous(): NavigationResult;
-  goTo(kataId: string, sectionIndex: number, itemIndex?: number): ServerState;
+  goTo(kataId: string, sectionId?: string, itemIndex?: number): ServerState;
 
   // Actions on current item
   run(shots?: number): Promise<StatefulResult<RunResult>>;

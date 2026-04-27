@@ -162,7 +162,7 @@
   }
 
   function renderContentLabel(position) {
-    return `${position.kataId} › Section ${position.sectionIndex + 1} › Item ${position.itemIndex + 1}`;
+    return `${position.kataId} › ${position.sectionId} › Item ${position.itemIndex + 1}`;
   }
 
   function renderProgressBar(progress) {
@@ -178,7 +178,7 @@
       html += `<span class="pb-kata-label pb-active">${escapeHtml(currentPosition.kataId)}</span>`;
       html += `<span class="pb-segments">`;
       for (const sec of currentKata.sections) {
-        const isCurrent = sec.index === currentPosition.sectionIndex;
+        const isCurrent = sec.id === currentPosition.sectionId;
         const cls = sec.isComplete ? "done" : isCurrent ? "current" : "";
         html += `<span class="pb-seg ${cls}" title="${escapeHtml(sec.title)}"></span>`;
       }

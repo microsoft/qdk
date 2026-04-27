@@ -11,19 +11,19 @@ import type { SectionKind, OverallProgress } from "./types.js";
 
 export interface OpenSectionArgs {
   kataId: string;
-  sectionIndex: number;
+  sectionId: string;
   kind: SectionKind;
 }
 
 function findSection(
   snapshot: OverallProgress | undefined,
   kataId: string,
-  sectionIndex: number,
+  sectionId: string,
 ) {
   if (!snapshot) return undefined;
   const kata = snapshot.katas.find((k) => k.id === kataId);
   if (!kata) return undefined;
-  const section = kata.sections[sectionIndex];
+  const section = kata.sections.find((s) => s.id === sectionId);
   if (!section) return undefined;
   return { kata, section };
 }
@@ -54,6 +54,7 @@ async function openSection(
         { action: "navigateWidget" },
         {},
       );
+      await tryOpenSectionFile(watcher, info.katasRoot, args);
       return;
     }
   }
@@ -66,11 +67,7 @@ function buildChatPrompt(
   watcher: ProgressWatcher,
   args: OpenSectionArgs,
 ): string {
-  const found = findSection(
-    watcher.lastSnapshot,
-    args.kataId,
-    args.sectionIndex,
-  );
+  const found = findSection(watcher.lastSnapshot, args.kataId, args.sectionId);
   const kataTitle = found?.kata.title ?? args.kataId;
   const sectionTitle = found?.section.title;
 
@@ -81,7 +78,7 @@ function buildChatPrompt(
     ? `the "${sectionTitle}" ${args.kind} in "${kataTitle}"`
     : `"${kataTitle}"`;
 
-  return `/quantum-katas #goto ${args.kataId} ${args.sectionIndex} — Go to ${location}`;
+  return `/quantum-katas #goto ${args.kataId} ${args.sectionId} — Go to ${location}`;
 }
 
 async function askInChat(
@@ -101,6 +98,50 @@ async function askInChat(
     await vscode.commands.executeCommand("workbench.action.chat.open", prompt);
   }
   sendTelemetryEvent(EventType.KatasPanelAction, { action: "askInChat" }, {});
+}
+
+// ─── Open associated .qs file ──────────────────────────────────────────
+
+/**
+ * After a successful in-place navigation, open the associated .qs file
+ * in the editor so the user can start working immediately.
+ */
+async function tryOpenSectionFile(
+  watcher: ProgressWatcher,
+  katasRoot: vscode.Uri,
+  args: OpenSectionArgs,
+): Promise<void> {
+  const found = findSection(watcher.lastSnapshot, args.kataId, args.sectionId);
+  if (!found) return;
+
+  let fileUri: vscode.Uri | undefined;
+  if (args.kind === "exercise") {
+    fileUri = vscode.Uri.joinPath(
+      katasRoot,
+      "exercises",
+      args.kataId,
+      `${found.section.id}.qs`,
+    );
+  } else if (found.section.exampleId) {
+    fileUri = vscode.Uri.joinPath(
+      katasRoot,
+      "examples",
+      args.kataId,
+      `${found.section.exampleId}.qs`,
+    );
+  }
+
+  if (!fileUri) return;
+
+  try {
+    const doc = await vscode.workspace.openTextDocument(fileUri);
+    await vscode.window.showTextDocument(doc, {
+      preview: true,
+      preserveFocus: true,
+    });
+  } catch {
+    // File may not exist yet — skip silently.
+  }
 }
 
 // ─── Navigate signal (.navigate.json) ─────────────────────────────────
@@ -131,7 +172,7 @@ async function tryNavigateSignal(
   const navFileUri = vscode.Uri.joinPath(katasRoot, NAVIGATE_FILE);
   const payload = JSON.stringify({
     kataId: args.kataId,
-    sectionIndex: args.sectionIndex,
+    sectionId: args.sectionId,
     itemIndex: 0,
   });
 
@@ -176,7 +217,7 @@ async function tryNavigateSignal(
   }
 
   // 3. Show spinner on the tree view.
-  treeProvider.setNavigating(args.kataId, args.sectionIndex);
+  treeProvider.setNavigating(args.kataId, args.sectionId);
 
   // 4. Backup stat check — FileSystemWatcher on Windows can miss delete
   //    events. A single check partway through the timeout catches this.
@@ -225,11 +266,11 @@ export function registerKatasCommands(
       const snap = watcher.lastSnapshot;
       const pos = snap?.currentPosition;
       if (snap && pos && pos.kataId) {
-        const found = findSection(snap, pos.kataId, pos.sectionIndex);
+        const found = findSection(snap, pos.kataId, pos.sectionId);
         if (found) {
           await openSection(watcher, treeProvider, {
             kataId: pos.kataId,
-            sectionIndex: pos.sectionIndex,
+            sectionId: pos.sectionId,
             kind: found.section.kind,
           });
           return;
@@ -268,40 +309,46 @@ function normalizeSectionArgs(input: unknown): OpenSectionArgs | undefined {
   const obj = input as Record<string, unknown>;
 
   // Tree node shape — see treeProvider.ts `KatasNode`.
+  if (obj.kind === "continue") {
+    const kataId = obj.kataId as string | undefined;
+    const sectionId = obj.sectionId as string | undefined;
+    const sectionKind = obj.sectionKind as SectionKind | undefined;
+    if (kataId && sectionId && sectionKind) {
+      return { kataId, sectionId, kind: sectionKind };
+    }
+  }
   if (obj.kind === "section") {
     const kataId = obj.kataId as string | undefined;
     const section = obj.section as
-      | { index?: number; kind?: SectionKind }
+      | { id?: string; kind?: SectionKind }
       | undefined;
-    if (
-      kataId &&
-      section &&
-      typeof section.index === "number" &&
-      section.kind
-    ) {
-      return { kataId, sectionIndex: section.index, kind: section.kind };
+    if (kataId && section && section.id && section.kind) {
+      return { kataId, sectionId: section.id, kind: section.kind };
     }
   }
   if (obj.kind === "kata") {
     const kata = obj.kata as
-      | { id?: string; sections?: Array<{ kind?: SectionKind }> }
+      | {
+          id?: string;
+          sections?: Array<{ id?: string; kind?: SectionKind }>;
+        }
       | undefined;
     if (kata?.id && kata.sections && kata.sections.length > 0) {
-      const firstKind = kata.sections[0].kind ?? "lesson";
-      return { kataId: kata.id, sectionIndex: 0, kind: firstKind };
+      const first = kata.sections[0];
+      return {
+        kataId: kata.id,
+        sectionId: first.id ?? "",
+        kind: first.kind ?? "lesson",
+      };
     }
   }
 
   // Already in `OpenSectionArgs` shape.
   const kataId = obj.kataId as string | undefined;
-  const sectionIndex = obj.sectionIndex as number | undefined;
+  const sectionId = obj.sectionId as string | undefined;
   const kind = obj.kind as SectionKind | undefined;
-  if (
-    kataId &&
-    typeof sectionIndex === "number" &&
-    (kind === "lesson" || kind === "exercise")
-  ) {
-    return { kataId, sectionIndex, kind };
+  if (kataId && sectionId && (kind === "lesson" || kind === "exercise")) {
+    return { kataId, sectionId, kind };
   }
   return undefined;
 }

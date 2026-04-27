@@ -75,7 +75,7 @@ export async function runApp(
     if (needsRender) {
       console.log(`\n${"─".repeat(60)}`);
       console.log(
-        `  Kata: ${pos.kataId} | Section: ${pos.sectionIndex + 1} | Item: ${pos.itemIndex + 1}`,
+        `  Kata: ${pos.kataId} | Section: ${pos.sectionId} | Item: ${pos.itemIndex + 1}`,
       );
       console.log("─".repeat(60));
       console.log("");
@@ -271,7 +271,7 @@ export async function runApp(
         const jump = await promptKataJump(katas);
         if (jump) {
           try {
-            server.goTo(jump.kataId, jump.sectionIndex);
+            server.goTo(jump.kataId);
           } catch (err: unknown) {
             console.log(err instanceof Error ? err.message : String(err));
           }

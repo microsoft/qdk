@@ -15,7 +15,7 @@ export interface ProgressFileData {
   version: 1;
   /** Relative path from the file's parent directory to the katas content folder. */
   katasRoot: string;
-  position: { kataId: string; sectionIndex: number; itemIndex: number };
+  position: { kataId: string; sectionId: string; itemIndex: number };
   completions: Record<string, { completedAt: string }>;
   startedAt: string;
 }
@@ -28,6 +28,8 @@ export interface CatalogSection {
   kind: SectionKind;
   /** True for lessons that contain at least one code example. Always false for exercises. */
   hasExample?: boolean;
+  /** For lessons with examples, the id of the first example item (used to resolve the .qs file path). */
+  exampleId?: string;
 }
 
 export interface CatalogKata {
@@ -37,7 +39,6 @@ export interface CatalogKata {
 }
 
 export interface SectionProgress extends CatalogSection {
-  index: number;
   isComplete: boolean;
   completedAt?: string;
 }
@@ -53,6 +54,6 @@ export interface KataProgress {
 export interface OverallProgress {
   katas: KataProgress[];
   /** May point at a kata that is not in the catalog (stale data) — callers should handle. */
-  currentPosition: { kataId: string; sectionIndex: number; itemIndex: number };
+  currentPosition: { kataId: string; sectionId: string; itemIndex: number };
   stats: { totalSections: number; completedSections: number };
 }

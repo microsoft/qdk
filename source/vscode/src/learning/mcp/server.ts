@@ -267,18 +267,18 @@ export async function registerMCPHandlers(
           try {
             const req = JSON.parse(data) as {
               kataId?: string;
-              sectionIndex?: number;
+              sectionId?: string;
               itemIndex?: number;
             };
             if (req.kataId) {
               const state = server.goTo(
                 req.kataId,
-                req.sectionIndex ?? 0,
+                req.sectionId,
                 req.itemIndex ?? 0,
               );
               pendingNavigation = serializeState(state);
               process.stderr.write(
-                `[katas-mcp] navigate signal consumed: ${req.kataId}§${req.sectionIndex ?? 0}\n`,
+                `[katas-mcp] navigate signal consumed: ${req.kataId}§${req.sectionId ?? ""}\n`,
               );
             }
           } catch {
@@ -449,7 +449,7 @@ export async function registerMCPHandlers(
           const defaultData = {
             version: 1,
             katasRoot: katasRootRel,
-            position: { kataId: "", sectionIndex: 0, itemIndex: 0 },
+            position: { kataId: "", sectionId: "", itemIndex: 0 },
             completions: {},
             startedAt: new Date().toISOString(),
           };
@@ -636,15 +636,17 @@ export async function registerMCPHandlers(
     mcp,
     "goto",
     {
-      description: "Jump to a specific kata and section.",
+      description:
+        "Jump to a specific kata and section. Use the section's `id` from `list_katas` or `get_state` to identify the section. " +
+        "If `sectionId` is omitted, jumps to the first section of the kata.",
       inputSchema: {
         kataId: z.string().describe("ID of the kata (e.g. 'getting_started')"),
-        sectionIndex: z
-          .number()
-          .int()
-          .min(0)
-          .default(0)
-          .describe("0-based section index"),
+        sectionId: z
+          .string()
+          .optional()
+          .describe(
+            "Section ID (e.g. 'getting_started__flip_qubit'). Omit to jump to the first section.",
+          ),
         itemIndex: z
           .number()
           .int()
@@ -657,14 +659,14 @@ export async function registerMCPHandlers(
     requireInit(
       async ({
         kataId,
-        sectionIndex,
+        sectionId,
         itemIndex,
       }: {
         kataId: string;
-        sectionIndex?: number;
+        sectionId?: string;
         itemIndex?: number;
       }) => {
-        const state = server.goTo(kataId, sectionIndex ?? 0, itemIndex ?? 0);
+        const state = server.goTo(kataId, sectionId, itemIndex ?? 0);
         return wrapResult({
           widgetId: mintWidgetId(),
           state: serializeState(state),
