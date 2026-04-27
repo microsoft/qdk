@@ -58,11 +58,9 @@ class Device:
         """
         Get the home location (row, column) of the qubit with the given id.
 
-        Args:
-            qubit_id (int): The id of the qubit.
-
-        Returns:
-            tuple[int, int]: The (row, column) location of the qubit.
+        :param qubit_id: The id of the qubit.
+        :return: The (row, column) location of the qubit.
+        :rtype: tuple[int, int]
         """
         if qubit_id < 0 or qubit_id >= len(self.home_locs):
             raise ValueError(f"Qubit id {qubit_id} is out of range")
@@ -72,11 +70,9 @@ class Device:
         """
         Get the ordering index of the qubit with the given id.
 
-        Args:
-            qubit_id (int): The id of the qubit.
-
-        Returns:
-            int: The ordering index of the qubit.
+        :param qubit_id: The id of the qubit.
+        :return: The ordering index of the qubit.
+        :rtype: int
         """
         if qubit_id < 0 or qubit_id >= len(self.home_locs):
             raise ValueError(f"Qubit id {qubit_id} is out of range")
@@ -87,8 +83,8 @@ class Device:
         """
         Get the register zones in the device.
 
-        Returns:
-            list[Zone]: The register zones.
+        :return: The register zones.
+        :rtype: list[Zone]
         """
         return [zone for zone in self.zones if zone.type == ZoneType.REG]
 
@@ -96,8 +92,8 @@ class Device:
         """
         Get the interaction zones in the device.
 
-        Returns:
-            list[Zone]: The interaction zones.
+        :return: The interaction zones.
+        :rtype: list[Zone]
         """
         return [zone for zone in self.zones if zone.type == ZoneType.INTER]
 
@@ -105,8 +101,8 @@ class Device:
         """
         Get the measurement zones in the device.
 
-        Returns:
-            list[Zone]: The measurement zones.
+        :return: The measurement zones.
+        :rtype: list[Zone]
         """
         return [zone for zone in self.zones if zone.type == ZoneType.MEAS]
 
@@ -114,8 +110,7 @@ class Device:
         """
         Compile the given program for the device.
 
-        Args:
-            program (str): The program to compile.
+        :param program: The program to compile.
         """
         raise NotImplementedError("Subclasses must implement compile")
 
@@ -123,8 +118,8 @@ class Device:
         """
         Get the device layout as a dictionary.
 
-        Returns:
-            dict: The device layout as a dictionary.
+        :return: The device layout as a dictionary.
+        :rtype: dict
         """
         return {
             "cols": self.column_count,
@@ -138,7 +133,7 @@ class Device:
         """
         Get the device layout as a dictionary.
 
-        Returns:
-            dict: The device layout as a dictionary.
+        :return: The device layout as a dictionary.
+        :rtype: dict
         """
         return self.as_dict()

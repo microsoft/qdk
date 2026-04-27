@@ -24,9 +24,11 @@ members = [
     "source/compiler/qsc_project",
     "source/compiler/qsc_rir",
     "source/fuzz",
+    "source/index_map",
     "source/language_service",
     "source/simulators",
     "source/pip",
+    "source/qre",
     "source/resource_estimator",
     "source/samples_test",
     "source/wasm",
@@ -82,7 +84,6 @@ wasm-bindgen-futures = "0.4"
 rand = "0.8"
 serde_json = "1.0"
 pyo3 = "0.28"
-quantum-sparse-sim = { path = "../qir-runner/sparsesim" }
 async-trait = "0.1"
 tokio = { version = "1.50", features = ["macros", "rt"] }
 rayon = "1.11.0"

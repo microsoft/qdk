@@ -93,8 +93,26 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+
+def step_start(description):
+    global start_time
+    prefix = "::group::" if os.getenv("GITHUB_ACTIONS") == "true" else ""
+    print(f"{prefix}build.py: {description}")
+    start_time = time.time()
+
+
+def step_end():
+    global start_time
+    duration = time.time() - start_time
+    print(f"build.py: Finished in {duration:.3f}s.")
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        print(f"::endgroup::")
+
+
 if args.check_prereqs:
+    step_start("Checking prerequisites")
     check_prereqs()
+    step_end()
 
 # If no specific project given then build all
 build_all = (
@@ -155,21 +173,6 @@ QISKIT_VERSION_MATRIX = [
         "requirements": ["qiskit>=2.0.0,<3.0.0"],
     },
 ]
-
-
-def step_start(description):
-    global start_time
-    prefix = "::group::" if os.getenv("GITHUB_ACTIONS") == "true" else ""
-    print(f"{prefix}build.py: {description}")
-    start_time = time.time()
-
-
-def step_end():
-    global start_time
-    duration = time.time() - start_time
-    print(f"build.py: Finished in {duration:.3f}s.")
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        print(f"::endgroup::")
 
 
 def install_build_package(cwd, interpreter):
@@ -453,8 +456,10 @@ if build_pip:
         step_end()
 
     if args.integration_tests:
+        step_start("Setting up for integration tests for the pip package")
         test_dir = os.path.join(pip_src, "tests-integration")
         install_python_test_requirements(test_dir, python_bin, check=False)
+        step_end()
 
         for version in QISKIT_VERSION_MATRIX:
             step_start(
@@ -670,7 +675,7 @@ if build_jupyterlab:
     subprocess.run(pip_build_args, check=True, text=True, cwd=jupyterlab_src)
     step_end()
 
-if build_pip and build_widgets and args.integration_tests:
+if build_pip and build_widgets and build_qdk and args.integration_tests:
     step_start("Running notebook samples integration tests")
     # Find all notebooks in the samples directory. Skip some of the samples since these won't run.
     notebook_files = [
@@ -684,15 +689,12 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("circuits.")
             or f.startswith("iterative_phase_estimation.")
             or f.startswith("repeat_until_success.")
-            or f.startswith("python-deps.")
             or f.startswith("cirq_submission_to_azure.")
             or f.startswith("neutral_atom_simulator.")
             or f.startswith("qir_circuit_submission_to_azure.")
             or f.startswith("qiskit_submission_to_azure")
             or f.startswith("pennylane_submission_to_azure.")
             or f.startswith("benzene.")
-            or f.startswith("parallel_teleport.")
-            or f.startswith("carbon.")
         )
     ]
     (python_bin, pip_env) = use_python_env(samples_src)
@@ -705,8 +707,10 @@ if build_pip and build_widgets and args.integration_tests:
         "install",
         "--force-reinstall",
         "--no-index",
+        "--no-deps",
         "--find-links=" + wheels_dir,
-        f"qsharp",
+        "qdk",
+        "qsharp",
     ]
     subprocess.run(pip_install_args, check=True, text=True, cwd=pip_src, env=pip_env)
 
@@ -732,6 +736,7 @@ if build_pip and build_widgets and args.integration_tests:
         "nbconvert",
         "pandas",
         "qutip",
+        "pyqir",
     ]
     subprocess.run(pip_install_args, check=True, text=True, cwd=root_dir, env=pip_env)
 

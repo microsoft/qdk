@@ -197,6 +197,14 @@
             "hidden"
           ],
           "description": "Upload supplemental input data (circuit diagram) to the storage container when submitting jobs to Azure Quantum."
+        },
+        "Q#.azure.quantumOsRoot": {
+          "type": "string",
+          "default": "https://manage.quantum.microsoft.com",
+          "tags": [
+            "hidden"
+          ],
+          "description": "The root URL of the Quantum OS web portal, used when generating deep links to V2 workspaces and jobs."
         }
       }
     },
@@ -1080,8 +1088,7 @@
     "tsc:check:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json",
     "tsc:check": "npm run tsc:check:main && npm run tsc:check:view",
     "tsc:watch": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json --watch --preserveWatchOutput",
-    "tsc:watch:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput",
-    "postinstall": "node -e \"require('fs').cpSync('../../node_modules/web-worker','node_modules/web-worker',{recursive:true})\""
+    "tsc:watch:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput"
   },
   "repository": {
     "type": "git",
