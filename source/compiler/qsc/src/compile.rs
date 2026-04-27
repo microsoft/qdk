@@ -29,6 +29,11 @@ pub enum ErrorKind {
     #[diagnostic(transparent)]
     Pass(#[from] qsc_passes::Error),
 
+    /// Errors from FIR-level transforms (return unification, defunctionalization,
+    /// monomorphization) that run before capability checking.
+    #[diagnostic(transparent)]
+    FirTransform(#[from] qsc_fir_transforms::PipelineError),
+
     /// `Lint` variant represents lints generated during the linting stage. These diagnostics are
     /// typically emitted from the language server and happens after all other compilation passes.
     #[diagnostic(transparent)]

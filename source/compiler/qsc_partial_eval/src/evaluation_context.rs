@@ -156,7 +156,14 @@ impl Scope {
         // Bind the control qubits to both the hybrid and classical maps.
         if let Some(Arg::Var(local_var_id, var)) = ctls_arg {
             hybrid_vars.insert(local_var_id, var.value.clone());
-            env.bind_variable_in_top_frame(local_var_id, var);
+            // Skip binding Value::Var (dynamic SSA variables) into the classical
+            // evaluator's environment. The classical evaluator cannot operate on
+            // these values and would panic (e.g. in eval_binop_lt). This matches
+            // the guard pattern in bind_value_to_immutable_ident,
+            // bind_value_to_mutable_ident, and update_classical_local.
+            if !matches!(var.value, Value::Var(..)) {
+                env.bind_variable_in_top_frame(local_var_id, var);
+            }
         }
 
         // Add the values to both environments.
@@ -165,7 +172,11 @@ impl Scope {
                 continue;
             };
             hybrid_vars.insert(local_var_id, var.value.clone());
-            env.bind_variable_in_top_frame(local_var_id, var);
+            // Skip binding Value::Var into the classical environment, same as
+            // the ctls_arg guard above.
+            if !matches!(var.value, Value::Var(..)) {
+                env.bind_variable_in_top_frame(local_var_id, var);
+            }
         }
 
         // Add the dynamic values to the hybrid variables
@@ -274,6 +285,12 @@ impl Arg {
 }
 
 /// Represents the possible control flow options that an evaluation can have.
+///
+/// Note: The `Return` variant is vestigial for the production pipeline.
+/// The `return_unify` FIR transform pass eliminates all `ExprKind::Return`
+/// nodes before partial evaluation runs. However, partial eval unit tests
+/// bypass FIR transforms and evaluate raw FIR, so the `Return` variant
+/// and its handling code remain for test compatibility.
 pub enum EvalControlFlow {
     Continue(Value),
     Return(Value),

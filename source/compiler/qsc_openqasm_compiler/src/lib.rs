@@ -256,7 +256,7 @@ pub struct QasmCompileUnit {
     /// The QIR profile used for the compilation.
     /// This is used to determine the QIR profile that the generated code
     /// will use.
-    profile: Profile,
+    profile: Option<Profile>,
 }
 
 /// Represents a QASM compilation unit.
@@ -270,7 +270,7 @@ impl QasmCompileUnit {
         errors: Vec<WithSource<crate::Error>>,
         package: Package,
         signature: Option<OperationSignature>,
-        profile: Profile,
+        profile: Option<Profile>,
     ) -> Self {
         Self {
             source_map,
@@ -295,7 +295,7 @@ impl QasmCompileUnit {
 
     /// Returns the QIR target profile associated with the compilation unit.
     #[must_use]
-    pub fn profile(&self) -> Profile {
+    pub fn profile(&self) -> Option<Profile> {
         self.profile
     }
 
@@ -308,7 +308,7 @@ impl QasmCompileUnit {
         Vec<WithSource<crate::Error>>,
         Package,
         Option<OperationSignature>,
-        Profile,
+        Option<Profile>,
     ) {
         (
             self.source_map,

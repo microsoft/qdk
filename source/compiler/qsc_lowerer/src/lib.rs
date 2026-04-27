@@ -52,7 +52,7 @@ pub struct ExecGraphBuilder {
 
 impl ExecGraphBuilder {
     /// Takes the built execution graph and resets the builder.
-    fn take(&mut self) -> ExecGraph {
+    pub fn take(&mut self) -> ExecGraph {
         let debug_exec_graph = self
             .debug
             .drain(..)
@@ -71,18 +71,18 @@ impl ExecGraphBuilder {
     }
 
     /// Pushes a node to *only* the debug execution graph.
-    fn debug_push(&mut self, node: ExecGraphDebugNode) {
+    pub fn debug_push(&mut self, node: ExecGraphDebugNode) {
         self.debug.push(ExecGraphNode::Debug(node));
     }
 
     /// Pushes a node to the execution graph.
-    fn push(&mut self, node: ExecGraphNode) {
+    pub fn push(&mut self, node: ExecGraphNode) {
         self.no_debug.push(node);
         self.debug.push(node);
     }
 
     /// Constructs a node with the given argument, then pushes it to the execution graph.
-    fn push_with_arg<F>(&mut self, node_fn: F, arg: ExecGraphIdx)
+    pub fn push_with_arg<F>(&mut self, node_fn: F, arg: ExecGraphIdx)
     where
         F: Fn(u32) -> ExecGraphNode,
     {
@@ -98,14 +98,15 @@ impl ExecGraphBuilder {
     }
 
     /// Pushes a return node to the execution graph.
-    fn push_ret(&mut self) {
+    pub fn push_ret(&mut self) {
         self.no_debug.push(ExecGraphNode::Ret);
         self.debug
             .push(ExecGraphNode::Debug(ExecGraphDebugNode::RetFrame));
     }
 
     /// Returns the current length of the execution graph.
-    fn len(&self) -> ExecGraphIdx {
+    #[must_use]
+    pub fn len(&self) -> ExecGraphIdx {
         ExecGraphIdx {
             no_debug_idx: self.no_debug.len(),
             debug_idx: self.debug.len(),
@@ -113,7 +114,7 @@ impl ExecGraphBuilder {
     }
 
     /// Constructs a node with the given argument, then sets it at the given index in the execution graph.
-    fn set_with_arg<F>(&mut self, node_fn: F, index: ExecGraphIdx, arg: ExecGraphIdx)
+    pub fn set_with_arg<F>(&mut self, node_fn: F, index: ExecGraphIdx, arg: ExecGraphIdx)
     where
         F: Fn(u32) -> ExecGraphNode,
     {
@@ -131,13 +132,13 @@ impl ExecGraphBuilder {
     }
 
     /// Removes all nodes after and including the given index.
-    fn truncate(&mut self, idx: ExecGraphIdx) {
+    pub fn truncate(&mut self, idx: ExecGraphIdx) {
         self.no_debug.truncate(idx.no_debug_idx);
         self.debug.truncate(idx.debug_idx);
     }
 
     /// Removes the last pushed node.
-    fn pop(&mut self) {
+    pub fn pop(&mut self) {
         self.no_debug.pop();
         self.debug.pop();
     }
@@ -179,6 +180,13 @@ impl Lowerer {
 
     pub fn take_exec_graph(&mut self) -> ExecGraph {
         self.exec_graph.take()
+    }
+
+    /// Consumes the lowerer and returns the Assigner with watermarks
+    /// representing one-past-max for every ID category.
+    #[must_use]
+    pub fn into_assigner(self) -> Assigner {
+        self.assigner
     }
 
     pub fn lower_package(

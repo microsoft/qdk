@@ -563,7 +563,7 @@ pub trait PackageLookup {
 /// within the containing node. Node ids are used to identify nodes within
 /// the package and require mapping from the HIR node id to the new FIR node id.
 /// `PackageId`s and `LocalItemId`s are 1:1 from the HIR and are not remapped.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Package {
     /// The items in the package.
     pub items: IndexMap<LocalItemId, Item>,
@@ -937,7 +937,7 @@ impl ExecGraph {
 
     #[must_use]
     /// Selects the execution graph based on the configuration.
-    fn select_ref(&self, exec_graph_config: ExecGraphConfig) -> &ConfiguredExecGraph {
+    pub fn select_ref(&self, exec_graph_config: ExecGraphConfig) -> &ConfiguredExecGraph {
         match exec_graph_config {
             ExecGraphConfig::Debug => &self.debug,
             ExecGraphConfig::NoDebug => &self.no_debug,
@@ -992,6 +992,13 @@ pub struct ExecGraphIdx {
 }
 
 impl ExecGraphIdx {
+    /// A zero-valued index, used as a placeholder for synthesized FIR nodes
+    /// that do not participate in the execution graph.
+    pub const ZERO: Self = Self {
+        no_debug_idx: 0,
+        debug_idx: 0,
+    };
+
     /// Selects the index based on the configuration.
     fn select(self, exec_graph_config: ExecGraphConfig) -> usize {
         match exec_graph_config {

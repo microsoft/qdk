@@ -153,11 +153,15 @@ impl InternalPackageStoreComputeProperties {
     }
 
     pub fn insert_block(&mut self, id: StoreBlockId, value: ApplicationGeneratorSet) {
-        self.get_mut(id.package).blocks.insert(id.block, value);
+        self.get_mut(id.package)
+            .blocks
+            .insert_if_absent(id.block, value);
     }
 
     pub fn insert_expr(&mut self, id: StoreExprId, value: ApplicationGeneratorSet) {
-        self.get_mut(id.package).exprs.insert(id.expr, value);
+        self.get_mut(id.package)
+            .exprs
+            .insert_if_absent(id.expr, value);
     }
 
     pub fn insert_item(&mut self, id: StoreItemId, value: InternalItemComputeProperties) {
@@ -171,7 +175,8 @@ impl InternalPackageStoreComputeProperties {
                 item_compute_properties
             {
                 // The item already exists but not the specialization.
-                specializations.insert(SpecializationIndex::from(id.functor_set_value), value);
+                specializations
+                    .insert_if_absent(SpecializationIndex::from(id.functor_set_value), value);
             } else {
                 panic!("item should be a callable");
             }
@@ -187,7 +192,9 @@ impl InternalPackageStoreComputeProperties {
     }
 
     pub fn insert_stmt(&mut self, id: StoreStmtId, value: ApplicationGeneratorSet) {
-        self.get_mut(id.package).stmts.insert(id.stmt, value);
+        self.get_mut(id.package)
+            .stmts
+            .insert_if_absent(id.stmt, value);
     }
 }
 

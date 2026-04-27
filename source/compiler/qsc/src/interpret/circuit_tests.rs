@@ -134,6 +134,37 @@ fn circuit_with_groups(code: &str, entry: CircuitEntryPoint) -> String {
     eval_circ.display_with_groups().to_string()
 }
 
+fn circuit_with_groups_without_source_locations(code: &str, entry: CircuitEntryPoint) -> String {
+    let eval_circ = circuit_with_options_success(
+        code,
+        Profile::Unrestricted,
+        entry.clone(),
+        CircuitGenerationMethod::ClassicalEval,
+        TracerConfig {
+            source_locations: false,
+            ..default_test_tracer_config()
+        },
+    );
+
+    let static_circ = circuit_with_options_success(
+        code,
+        Profile::AdaptiveRIF,
+        entry,
+        CircuitGenerationMethod::Static,
+        TracerConfig {
+            source_locations: false,
+            ..default_test_tracer_config()
+        },
+    );
+
+    assert_eq!(
+        eval_circ.display_with_groups().to_string(),
+        static_circ.display_with_groups().to_string()
+    );
+
+    static_circ.display_with_groups().to_string()
+}
+
 fn circuit_static(code: &str) -> Circuit {
     circuit_with_options_success(
         code,
@@ -1607,6 +1638,263 @@ fn operation_declared_in_eval() {
                              ╘═══
     "#]]
     .assert_eq(&c.display_with_groups().to_string());
+}
+
+#[test]
+fn static_entrypoint_handles_callable_returned_from_function() {
+    let circ = circuit_with_options_success(
+        r#"
+            namespace Test {
+                operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                    op(q);
+                }
+
+                function GetOp() : Qubit => Unit {
+                    H
+                }
+
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    ApplyOp(GetOp(), q);
+                }
+            }
+        "#,
+        Profile::AdaptiveRIF,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::Static,
+        TracerConfig {
+            source_locations: false,
+            ..default_test_tracer_config()
+        },
+    )
+    .to_string();
+
+    expect![[r#"
+        q_0    ── H ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn grouped_scopes_use_source_name_for_specialized_direct_callables() {
+    let circ = circuit_with_groups_without_source_locations(
+        r#"
+            namespace Test {
+                operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                    op(q);
+                }
+
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    ApplyOp(H, q);
+                }
+            }
+        "#,
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0    ─ [ [Main] ─── [ [ApplyOp] ─── H ──── ] ──── ] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn grouped_scopes_use_source_name_for_specialized_callable_arrays() {
+    let circ = circuit_with_groups_without_source_locations(
+        r#"
+            namespace Test {
+                operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                    op(q);
+                }
+
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    let ops = [H, X];
+                    for op in ops {
+                        ApplyOp(op, q);
+                    }
+                }
+            }
+        "#,
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0    ─ [ [Main] ─── [ [loop: ops] ── [ [(1)] ── [ [ApplyOp] ─── H ──── ] ──── ] ─── [ [(2)] ── [ [ApplyOp] ─── X ──── ] ──── ] ──── ] ──── ] ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn grouped_scopes_match_for_user_defined_adjoint_specialization() {
+    let circ = circuit_with_groups_without_source_locations(
+        r#"
+            namespace Test {
+                operation EncodeAsLogicalQubit(physicalQubit : Qubit, aux : Qubit[]) : Unit is Adj {
+                    ApplyToEachA(CNOT(physicalQubit, _), aux);
+                }
+
+                @EntryPoint()
+                operation Main() : Unit {
+                    use logicalQubit = Qubit[3];
+                    EncodeAsLogicalQubit(logicalQubit[0], logicalQubit[1...]);
+                    Adjoint EncodeAsLogicalQubit(logicalQubit[0], logicalQubit[1...]);
+                }
+            }
+        "#,
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0    ─ Main[1] ─
+                    ┆
+        q_1    ─ Main[1] ─
+                    ┆
+        q_2    ─ Main[1] ─
+
+        [1] Main:
+            q_0    ─ EncodeAsLogicalQubit[2] ── EncodeAsLogicalQubit'[3] ──
+                                ┆                           ┆
+            q_1    ─ EncodeAsLogicalQubit[2] ── EncodeAsLogicalQubit'[3] ──
+                                ┆                           ┆
+            q_2    ─ EncodeAsLogicalQubit[2] ── EncodeAsLogicalQubit'[3] ──
+
+        [2] EncodeAsLogicalQubit:
+            q_0    ─ <lambda>[4] ─
+                          ┆
+            q_1    ─ <lambda>[4] ─
+                          ┆
+            q_2    ─ <lambda>[4] ─
+
+        [3] EncodeAsLogicalQubit:
+            q_0    ─ <lambda>'[5] ──
+                           ┆
+            q_1    ─ <lambda>'[5] ──
+                           ┆
+            q_2    ─ <lambda>'[5] ──
+
+        [4] <lambda>:
+            q_0    ── ● ──── ● ──
+            q_1    ── X ─────┼───
+            q_2    ───────── X ──
+
+        [5] <lambda>:
+            q_0    ── ● ──── ● ──
+            q_1    ───┼───── X ──
+            q_2    ── X ─────────
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn grouped_scopes_match_for_apply_operation_power_ca_lambda() {
+    let circ = circuit_with_groups_without_source_locations(
+        r#"
+            namespace Test {
+                operation U(q : Qubit) : Unit is Ctl + Adj {
+                    Rz(Std.Math.PI() / 3.0, q);
+                }
+
+                @EntryPoint()
+                operation Main() : Unit {
+                    use state = Qubit();
+                    use phase = Qubit[2];
+                    let oracle = ApplyOperationPowerCA(_, qs => U(qs[0]), _);
+                    ApplyQPE(oracle, [state], phase);
+                }
+            }
+        "#,
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0    ─ Main[1] ─
+                    ┆
+        q_1    ─ Main[1] ─
+                    ┆
+        q_2    ─ Main[1] ─
+
+        [1] Main:
+            q_0    ──────── U[2] ────────────────────────────────────────────────────────────────────
+                              ┆
+            q_1    ── H ─── U[2] ──────── H ─────── Rz(-0.7854) ─── X ─── Rz(0.7854) ──── X ─────────
+                              ┆                                     │                     │
+            q_2    ── H ─── U[2] ─── Rz(-0.7854) ────────────────── ● ─────────────────── ● ──── H ──
+
+        [2] U:
+            q_0    ─ Rz(0.5236) ──── X ─── Rz(-0.5236) ─── X ─── Rz(0.5236) ──── X ─── Rz(-0.5236) ─── X ─── Rz(0.5236) ──── X ─── Rz(-0.5236) ─── X ──
+            q_1    ───────────────── ● ─────────────────── ● ─────────────────── ● ─────────────────── ● ────────────────────┼─────────────────────┼───
+            q_2    ───────────────────────────────────────────────────────────────────────────────────────────────────────── ● ─────────────────── ● ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn grouped_scopes_match_for_repeated_draw_random_bit_calls() {
+    let circ = circuit_with_groups_without_source_locations(
+        r#"
+            namespace Test {
+                operation DrawRandomBit() : Unit {
+                    use q = Qubit();
+                    H(q);
+                    MResetZ(q);
+                }
+
+                @EntryPoint()
+                operation Main() : Unit {
+                    DrawRandomBit();
+                    DrawRandomBit();
+                }
+            }
+        "#,
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0    ─ Main[1] ─
+                    ╘═════
+                    ╘═════
+
+        [1] Main:
+            q_0    ─ DrawRandomBit[2] ─── DrawRandomBit[3] ──
+                             ╘════════════════════┆══════════
+                                                  ╘══════════
+
+        [2] DrawRandomBit:
+            q_0    ── H ──── M ──── |0〉 ──
+                             ╘════════════
+
+
+        [3] DrawRandomBit:
+            q_0    ── H ──── M ──── |0〉 ──
+                             │
+                             ╘════════════
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn static_entrypoint_handles_struct_copy_update() {
+    let circ = circuit_static(
+        r#"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    struct Point3d { X : Double, Y : Double, Z : Double }
+
+                    mutable point = new Point3d { X = 0.0, Y = 0.0, Z = 0.0 };
+                    point = new Point3d { ...point, X = point.X + 1.0 };
+                    let x = point.X;
+                }
+            }
+        "#,
+    );
+
+    expect![""].assert_eq(&circ.to_string());
 }
 
 /// Tests that invoke circuit generation through the debugger.

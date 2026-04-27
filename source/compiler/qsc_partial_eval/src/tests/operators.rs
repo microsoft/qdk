@@ -2138,6 +2138,28 @@ fn integer_exponentiation_with_lhs_classical_integer_and_rhs_classical_negative_
 }
 
 #[test]
+fn integer_exponentiation_with_both_classical_and_rhs_negative_raises_error() {
+    let error = get_partial_evaluation_error(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let _ = MResetZ(q);
+                2 ^ -3
+            }
+        }
+        "#,
+    });
+    assert_error(
+        &error,
+        &expect![[
+            r#"EvaluationFailed("negative integers cannot be used here: -3", PackageSpan { package: PackageId(2), span: Span { lo: 130, hi: 132 } })"#
+        ]],
+    );
+}
+
+#[test]
 fn integer_exponentiation_with_lhs_dynamic_integer_and_rhs_classical_zero_integer() {
     let program = get_rir_program(indoc! {
         r#"
@@ -2817,6 +2839,85 @@ fn integer_equality_comparison_with_lhs_dynamic_integer_and_rhs_classical_intege
                 Jump(1)
             Block 3:Block:
                 Variable(2, Integer) = Store Integer(1)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn integer_equality_comparison_after_dynamic_mutation_is_not_constant_folded() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Bool {
+                use q = Qubit();
+                mutable count = 0;
+                if MResetZ(q) == One {
+                    set count += 1;
+                }
+                count == 1
+            }
+        }
+        "#,
+    });
+    let measurement_callable_id = CallableId(1);
+    assert_callable(
+        &program,
+        measurement_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let readout_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        readout_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let output_record_id = CallableId(3);
+    assert_callable(
+        &program,
+        output_record_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 2, 1
+            Block 1:Block:
+                Variable(3, Boolean) = Icmp Eq, Variable(0, Integer), Integer(1)
+                Variable(4, Boolean) = Store Variable(3, Boolean)
+                Call id(4), args( Variable(4, Boolean), Tag(0, 3), )
+                Return
+            Block 2:Block:
+                Variable(0, Integer) = Store Integer(1)
                 Jump(1)"#]],
     );
 }
@@ -4236,6 +4337,85 @@ fn double_less_or_equal_than_comparison_with_lhs_classical_double_and_rhs_dynami
                 Variable(4, Boolean) = Fcmp Ole, Double(1), Variable(3, Double)
                 Variable(5, Boolean) = Store Variable(4, Boolean)
                 Call id(4), args( Variable(5, Boolean), Tag(0, 3), )
+                Return
+            Block 2:Block:
+                Variable(2, Double) = Store Double(0)
+                Jump(1)
+            Block 3:Block:
+                Variable(2, Double) = Store Double(1)
+                Jump(1)"#]],
+    );
+}
+
+#[test]
+fn double_mod_with_lhs_dynamic_double_and_rhs_classical_double() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Double {
+                use q = Qubit();
+                let i = MResetZ(q) == Zero ? 0.0 | 1.0;
+                i % 2.0
+            }
+        }
+        "#,
+    });
+    let measurement_callable_id = CallableId(1);
+    assert_callable(
+        &program,
+        measurement_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__initialize
+                call_type: Regular
+                input_type:
+                    [0]: Pointer
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let readout_callable_id = CallableId(2);
+    assert_callable(
+        &program,
+        readout_callable_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__qis__mresetz__body
+                call_type: Measurement
+                input_type:
+                    [0]: Qubit
+                    [1]: Result
+                output_type: <VOID>
+                body: <NONE>"#]],
+    );
+    let output_record_id = CallableId(3);
+    assert_callable(
+        &program,
+        output_record_id,
+        &expect![[r#"
+            Callable:
+                name: __quantum__rt__read_result
+                call_type: Readout
+                input_type:
+                    [0]: Result
+                output_type: Boolean
+                body: <NONE>"#]],
+    );
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Boolean) = Call id(3), args( Result(0), )
+                Variable(1, Boolean) = Icmp Eq, Variable(0, Boolean), Bool(false)
+                Branch Variable(1, Boolean), 2, 3
+            Block 1:Block:
+                Variable(3, Double) = Store Variable(2, Double)
+                Variable(4, Double) = Frem Variable(3, Double), Double(2)
+                Variable(5, Double) = Store Variable(4, Double)
+                Call id(4), args( Variable(5, Double), Tag(0, 3), )
                 Return
             Block 2:Block:
                 Variable(2, Double) = Store Double(0)

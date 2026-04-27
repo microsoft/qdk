@@ -15,6 +15,7 @@ use qsc_data_structures::{
     functors::FunctorApp,
     index_map::IndexMap,
     line_column::{Encoding, Position},
+    span::Span,
 };
 use qsc_eval::{
     backend::Tracer,
@@ -25,7 +26,7 @@ use qsc_fir::fir::{
     self, ExprId, ExprKind, PackageId, PackageLookup, PackageStoreLookup, StoreItemId,
 };
 use qsc_frontend::compile::{self};
-use qsc_lowerer::map_fir_package_to_hir;
+use qsc_lowerer::{map_fir_package_to_hir, map_hir_package_to_fir};
 use rustc_hash::{FxHashMap, FxHashSet};
 #[cfg(test)]
 use std::fmt::Display;
@@ -264,6 +265,7 @@ impl CircuitTracer {
             operations,
             qubits,
             self.config.group_by_scope,
+            &self.user_package_ids,
         )
     }
 
@@ -505,9 +507,10 @@ pub(crate) fn finish_circuit(
     mut operations: Vec<OperationOrGroup>,
     qubits: Vec<Qubit>,
     collapse_trivial_groups: bool,
+    user_package_ids: &[PackageId],
 ) -> Circuit {
     if collapse_trivial_groups {
-        collapse_unnecessary_scopes(&mut operations, source_lookup);
+        collapse_unnecessary_scopes(&mut operations, source_lookup, user_package_ids);
     }
     let mut loop_id_cache = Default::default();
     let operations = operations
@@ -529,23 +532,87 @@ pub(crate) fn finish_circuit(
 fn collapse_unnecessary_scopes(
     operations: &mut Vec<OperationOrGroup>,
     source_lookup: &impl SourceLookup,
+    user_package_ids: &[PackageId],
 ) {
     let mut ops = vec![];
     for mut op in operations.drain(..) {
         match &mut op.kind {
             OperationOrGroupKind::Single => {}
             OperationOrGroupKind::Group { children, .. } => {
-                collapse_unnecessary_scopes(children, source_lookup);
+                collapse_unnecessary_scopes(children, source_lookup, user_package_ids);
             }
         }
 
-        if let Some(children) = collapse_if_unnecessary(&mut op, source_lookup) {
+        if let Some(children) = collapse_if_unnecessary(&mut op, source_lookup, user_package_ids) {
             ops.extend(children);
         } else {
             ops.push(op);
         }
     }
+    merge_adjacent_equivalent_groups(&mut ops, source_lookup);
     *operations = ops;
+}
+
+fn merge_adjacent_equivalent_groups(
+    operations: &mut Vec<OperationOrGroup>,
+    source_lookup: &impl SourceLookup,
+) {
+    let mut merged = Vec::with_capacity(operations.len());
+
+    for mut op in operations.drain(..) {
+        if let Some(last) = merged.last_mut()
+            && can_merge_equivalent_group(last, &op, source_lookup)
+        {
+            merge_equivalent_group(last, &mut op);
+            continue;
+        }
+
+        merged.push(op);
+    }
+
+    *operations = merged;
+}
+
+fn can_merge_equivalent_group(
+    last: &OperationOrGroup,
+    next: &OperationOrGroup,
+    source_lookup: &impl SourceLookup,
+) -> bool {
+    matches!(
+        (last.scope_stack_if_group(), next.scope_stack_if_group()),
+        (Some(last_scope_stack), Some(next_scope_stack))
+            if last_scope_stack.current_lexical_scope() == next_scope_stack.current_lexical_scope()
+                && (has_synthesized_callable_ancestor(last_scope_stack, source_lookup)
+                    || has_synthesized_callable_ancestor(next_scope_stack, source_lookup))
+    )
+}
+
+fn has_synthesized_callable_ancestor(
+    scope_stack: &ScopeStack,
+    source_lookup: &impl SourceLookup,
+) -> bool {
+    scope_stack.caller().0.iter().any(|entry| {
+        matches!(entry.lexical_scope(), Scope::Callable(..))
+            && source_lookup.is_synthesized_callable_scope(entry.lexical_scope())
+    })
+}
+
+fn merge_equivalent_group(last: &mut OperationOrGroup, next: &mut OperationOrGroup) {
+    last.merge_inputs(next);
+
+    let next_children = match &mut next.kind {
+        OperationOrGroupKind::Group { children, .. } => take(children),
+        OperationOrGroupKind::Single => Vec::new(),
+    };
+
+    let last_children = match &mut last.kind {
+        OperationOrGroupKind::Group { children, .. } => children,
+        OperationOrGroupKind::Single => {
+            unreachable!("can_merge_equivalent_group only matches groups")
+        }
+    };
+
+    last_children.extend(next_children);
 }
 
 /// If the given operation or group is an outer scope that can be collapsed,
@@ -553,6 +620,7 @@ fn collapse_unnecessary_scopes(
 fn collapse_if_unnecessary(
     op: &mut OperationOrGroup,
     source_lookup: &impl SourceLookup,
+    user_package_ids: &[PackageId],
 ) -> Option<Vec<OperationOrGroup>> {
     if let OperationOrGroupKind::Group {
         scope_stack,
@@ -560,6 +628,12 @@ fn collapse_if_unnecessary(
     } = &mut op.kind
     {
         if let Scope::Loop(..) = scope_stack.current_lexical_scope() {
+            let scope = source_lookup
+                .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default());
+            if should_collapse_non_user_loop_scope(&scope, user_package_ids) {
+                return Some(flatten_loop_iteration_children(children));
+            }
+
             if children.len() == 1 {
                 // remove the loop scope
                 let mut only_child = children.remove(0);
@@ -586,19 +660,121 @@ fn collapse_if_unnecessary(
                 all_children.extend(take(children));
             }
             return Some(all_children);
-        } else if let Scope::Callable(..) = scope_stack.current_lexical_scope()
-            && children.len() == 1
-            && source_lookup
-                .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default())
-                .name
-                .as_ref()
-                == "<lambda>"
-        {
-            // remove the lambda scope
-            return Some(take(children));
+        } else if let Scope::Callable(..) = scope_stack.current_lexical_scope() {
+            let scope = source_lookup
+                .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default());
+            if children.len() == 1
+                && scope.name.as_ref() == "<lambda>"
+                && !should_preserve_apply_to_each_partial_lambda(
+                    source_lookup,
+                    scope_stack,
+                    user_package_ids,
+                )
+            {
+                // remove the lambda scope
+                return Some(take(children));
+            }
+
+            if should_collapse_synthesized_callable_scope(
+                source_lookup,
+                scope_stack.current_lexical_scope(),
+                user_package_ids,
+            ) {
+                return Some(take(children));
+            }
         }
     }
     None
+}
+
+fn should_preserve_apply_to_each_partial_lambda(
+    source_lookup: &impl SourceLookup,
+    scope_stack: &ScopeStack,
+    user_package_ids: &[PackageId],
+) -> bool {
+    let mut loop_id_cache = Default::default();
+    let mut saw_apply_to_each_closure = false;
+
+    for caller in scope_stack.caller().0.iter().rev() {
+        let scope = caller.lexical_scope();
+
+        if matches!(scope, Scope::Loop(..) | Scope::LoopIteration(..)) {
+            continue;
+        }
+
+        let Scope::Callable(..) = scope else {
+            return false;
+        };
+
+        let resolved_scope = source_lookup.resolve_scope(scope, &mut loop_id_cache);
+
+        if source_lookup.is_synthesized_callable_scope(scope)
+            && resolved_scope.name.as_ref().starts_with("ApplyToEach")
+        {
+            saw_apply_to_each_closure = true;
+            continue;
+        }
+
+        if saw_apply_to_each_closure {
+            return source_lookup
+                .callable_scope_origin_package(scope)
+                .is_some_and(|package_id| user_package_ids.contains(&package_id))
+                && !source_lookup.is_synthesized_callable_scope(scope);
+        }
+
+        return false;
+    }
+
+    false
+}
+
+fn should_collapse_non_user_loop_scope(
+    scope: &LexicalScope,
+    user_package_ids: &[PackageId],
+) -> bool {
+    scope.name.as_ref() == "loop: "
+        || scope
+            .location
+            .is_some_and(|location| !user_package_ids.contains(&location.package_id))
+}
+
+fn flatten_loop_iteration_children(children: &mut Vec<OperationOrGroup>) -> Vec<OperationOrGroup> {
+    let mut flattened = Vec::new();
+
+    for mut child in children.drain(..) {
+        match &mut child.kind {
+            OperationOrGroupKind::Group {
+                scope_stack,
+                children,
+            } if matches!(
+                scope_stack.current_lexical_scope(),
+                Scope::LoopIteration(..)
+            ) =>
+            {
+                flattened.extend(take(children));
+            }
+            OperationOrGroupKind::Single | OperationOrGroupKind::Group { .. } => {
+                flattened.push(child);
+            }
+        }
+    }
+
+    flattened
+}
+
+fn should_collapse_synthesized_callable_scope(
+    source_lookup: &impl SourceLookup,
+    scope: &Scope,
+    user_package_ids: &[PackageId],
+) -> bool {
+    if !source_lookup.is_synthesized_callable_scope(scope) {
+        return false;
+    }
+
+    match source_lookup.callable_scope_origin_package(scope) {
+        Some(package_id) => !user_package_ids.contains(&package_id),
+        None => true,
+    }
 }
 
 /// Cache for mapping loop source locations to their corresponding package and expression IDs.
@@ -616,6 +792,15 @@ pub trait SourceLookup {
         location: LogicalStackEntryLocation,
         loop_id_cache: &mut LoopIdCache,
     ) -> Option<PackageOffset>;
+    /// Returns whether a callable scope was synthesized during lowering rather
+    /// than originating from a user-declared HIR item.
+    ///
+    /// Circuit rendering uses this to collapse bookkeeping-only callable
+    /// scopes so they do not appear as separate groups in the final diagram.
+    fn is_synthesized_callable_scope(&self, scope: &Scope) -> bool;
+    /// Returns the package where the callable originally came from, when it
+    /// can be recovered from the callable scope's source metadata.
+    fn callable_scope_origin_package(&self, scope: &Scope) -> Option<PackageId>;
 }
 
 impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
@@ -659,7 +844,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                         package_id: store_item_id.package,
                         offset: scope_offset,
                     }),
-                    name: callable_decl.name.name.clone(),
+                    name: displayable_callable_scope_name(&callable_decl.name.name),
                     is_adjoint: functor_app.adjoint,
                     is_classically_controlled: false,
                 }
@@ -668,12 +853,12 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                 // trim the trailing dagger symbol and set `is_adjoint` accordingly
                 let (name, is_adjoint) = if let Some(pos) = name.rfind('\'') {
                     if pos == name.len() - 1 {
-                        (name[..pos].to_string().into(), true)
+                        (displayable_callable_scope_name(&name[..pos]), true)
                     } else {
-                        (name.clone(), false)
+                        (displayable_callable_scope_name(name), false)
                     }
                 } else {
-                    (name.clone(), false)
+                    (displayable_callable_scope_name(name), false)
                 };
                 LexicalScope {
                     location: Some(*package_offset),
@@ -692,11 +877,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                         .0
                         .get(map_fir_package_to_hir(package_id))
                         .and_then(|p| p.sources.find_by_offset(cond_expr.span.lo))
-                        .map(|s| {
-                            s.contents[(cond_expr.span.lo - s.offset) as usize
-                                ..(cond_expr.span.hi - s.offset) as usize]
-                                .to_string()
-                        });
+                        .and_then(|s| source_span_contents(&s.contents, s.offset, cond_expr.span));
 
                     LexicalScope {
                         name: format!("loop: {}", expr_contents.unwrap_or_default()).into(),
@@ -810,6 +991,129 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
             }
         }
     }
+
+    /// Treat FIR callables with no corresponding HIR item as synthesized
+    /// lowering artifacts, such as specialized helper scopes.
+    fn is_synthesized_callable_scope(&self, scope: &Scope) -> bool {
+        let Some((current_package, offset, name)) = callable_scope_origin_key(self.1, scope) else {
+            return false;
+        };
+
+        let Some(unit) = self.0.get(map_fir_package_to_hir(current_package)) else {
+            return false;
+        };
+
+        match scope {
+            Scope::Callable(CallableId::Id(store_item_id, _)) => {
+                if !unit
+                    .package
+                    .items
+                    .contains_key(qsc_hir::hir::LocalItemId::from(usize::from(
+                        store_item_id.item,
+                    )))
+                {
+                    return true;
+                }
+            }
+            Scope::Callable(CallableId::Source(..)) => {}
+            Scope::Top
+            | Scope::Loop(..)
+            | Scope::LoopIteration(..)
+            | Scope::ClassicallyControlled { .. } => return false,
+        }
+
+        !hir_package_contains_callable_origin(unit, offset, name.as_ref())
+    }
+
+    fn callable_scope_origin_package(&self, scope: &Scope) -> Option<PackageId> {
+        let (current_package, offset, name) = callable_scope_origin_key(self.1, scope)?;
+
+        let current_match = self
+            .0
+            .get(map_fir_package_to_hir(current_package))
+            .and_then(|unit| {
+                hir_package_contains_callable_origin(unit, offset, name.as_ref())
+                    .then_some(current_package)
+            });
+
+        current_match.or_else(|| {
+            self.0.iter().find_map(|(hir_package_id, unit)| {
+                hir_package_contains_callable_origin(unit, offset, name.as_ref())
+                    .then_some(map_hir_package_to_fir(hir_package_id))
+            })
+        })
+    }
+}
+
+fn callable_scope_origin_key(
+    fir_store: &fir::PackageStore,
+    scope: &Scope,
+) -> Option<(PackageId, u32, Rc<str>)> {
+    match scope {
+        Scope::Callable(CallableId::Id(store_item_id, _)) => {
+            let item = fir_store.get_item(*store_item_id);
+            let fir::ItemKind::Callable(callable_decl) = &item.kind else {
+                return None;
+            };
+
+            Some((
+                store_item_id.package,
+                callable_decl.span.lo,
+                displayable_callable_scope_name(&callable_decl.name.name),
+            ))
+        }
+        Scope::Callable(CallableId::Source(package_offset, name)) => Some((
+            package_offset.package_id,
+            package_offset.offset,
+            source_callable_origin_name(name),
+        )),
+        Scope::Top
+        | Scope::Loop(..)
+        | Scope::LoopIteration(..)
+        | Scope::ClassicallyControlled { .. } => None,
+    }
+}
+
+fn source_callable_origin_name(name: &str) -> Rc<str> {
+    if let Some(stripped) = name.strip_suffix('\'') {
+        displayable_callable_scope_name(stripped)
+    } else {
+        displayable_callable_scope_name(name)
+    }
+}
+
+fn hir_package_contains_callable_origin(
+    unit: &compile::CompileUnit,
+    offset: u32,
+    name: &str,
+) -> bool {
+    unit.package.items.values().any(|item| {
+        let qsc_hir::hir::ItemKind::Callable(decl) = &item.kind else {
+            return false;
+        };
+
+        decl.span.lo == offset && displayable_callable_scope_name(&decl.name.name).as_ref() == name
+    })
+}
+
+fn source_span_contents(contents: &str, source_offset: u32, span: Span) -> Option<String> {
+    let start = usize::try_from(span.lo.checked_sub(source_offset)?).ok()?;
+    let end = usize::try_from(span.hi.checked_sub(source_offset)?).ok()?;
+    contents.get(start..end).map(ToString::to_string)
+}
+
+fn displayable_callable_scope_name(name: &str) -> Rc<str> {
+    if name.starts_with("<lambda>") {
+        return name.into();
+    }
+
+    let suffix_start = match (name.find('<'), name.find('{')) {
+        (Some(functor_suffix), Some(callable_suffix)) => functor_suffix.min(callable_suffix),
+        (Some(functor_suffix), None) => functor_suffix,
+        (None, Some(callable_suffix)) => callable_suffix,
+        (None, None) => name.len(),
+    };
+    name[..suffix_start].into()
 }
 
 fn callable_scope_offset(callable_decl: &fir::CallableDecl, functor_app: FunctorApp) -> u32 {

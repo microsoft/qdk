@@ -7,6 +7,10 @@ use indoc::indoc;
 use qsc_data_structures::{
     language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
 };
+use qsc_hir::{
+    hir::{ItemKind, SpecBody, StmtKind},
+    ty::{Prim, Ty},
+};
 
 fn check_hir(input: &str, expect: &Expect) {
     let sources = SourceMap::new([("test".into(), input.into())], None);
@@ -18,6 +22,17 @@ fn check_hir(input: &str, expect: &Expect) {
         LanguageFeatures::default(),
     );
     expect.assert_eq(&unit.package.to_string());
+}
+
+fn compile_unit(input: &str) -> compile::CompileUnit {
+    let sources = SourceMap::new([("test".into(), input.into())], None);
+    compile(
+        &PackageStore::new(compile::core()),
+        &[],
+        sources,
+        TargetCapabilityFlags::all(),
+        LanguageFeatures::default(),
+    )
 }
 
 fn check_errors(input: &str, expect: &Expect) {
@@ -256,6 +271,74 @@ fn lift_local_operation() {
                         ctl: <none>
                         ctl-adj: <none>"#]],
     );
+}
+
+#[test]
+fn explicit_qubit_annotation_preserves_type_through_resolution_and_lowering() {
+    let unit = compile_unit(indoc! {"
+        namespace input {
+            operation Foo() : Unit {
+                use q : Qubit = Qubit();
+                let x = 3;
+            }
+        }
+    "});
+    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+
+    let namespace = unit
+        .ast
+        .package
+        .nodes
+        .iter()
+        .find_map(|node| match node {
+            qsc_ast::ast::TopLevelNode::Namespace(namespace) => Some(namespace),
+            qsc_ast::ast::TopLevelNode::Stmt(_) => None,
+        })
+        .expect("namespace should exist");
+    let ast_callable = namespace
+        .items
+        .iter()
+        .find_map(|item| match &*item.kind {
+            qsc_ast::ast::ItemKind::Callable(callable) if callable.name.name.as_ref() == "Foo" => {
+                Some(callable)
+            }
+            _ => None,
+        })
+        .expect("Foo AST callable should exist");
+    let qsc_ast::ast::CallableBody::Block(ast_block) = &*ast_callable.body else {
+        panic!("Foo AST callable should have a block body");
+    };
+    let qsc_ast::ast::StmtKind::Qubit(_, ast_pat, _, None) = &*ast_block.stmts[0].kind else {
+        panic!("first AST statement should be the qubit allocation");
+    };
+    let qsc_ast::ast::PatKind::Bind(_, Some(_)) = &*ast_pat.kind else {
+        panic!("AST qubit pattern should retain the explicit annotation");
+    };
+
+    assert_eq!(
+        unit.ast.tys.terms.get(ast_pat.id),
+        Some(&Ty::Prim(Prim::Qubit)),
+        "type table should preserve the resolved explicit qubit annotation"
+    );
+
+    let callable = unit
+        .package
+        .items
+        .values()
+        .find_map(|item| match &item.kind {
+            ItemKind::Callable(callable) if callable.name.name.as_ref() == "Foo" => Some(callable),
+            _ => None,
+        })
+        .expect("Foo callable should exist");
+    let SpecBody::Impl(_, block) = &callable.body.body else {
+        panic!("Foo should have an implementation body");
+    };
+    let StmtKind::Qubit(_, pat, init, None) = &block.stmts[0].kind else {
+        panic!("first statement should be the raw qubit allocation");
+    };
+
+    assert_eq!(pat.ty, Ty::Prim(Prim::Qubit));
+    assert_eq!(init.ty, Ty::Prim(Prim::Qubit));
 }
 
 #[test]

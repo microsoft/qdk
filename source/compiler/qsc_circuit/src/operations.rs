@@ -107,20 +107,12 @@ fn operation_circuit_entry_expr(operation_expr: &str, qubit_params: &[QubitParam
     let mut qs_start = 0;
     let mut call_args = vec![];
     for q in qubit_params {
-        // Q# ranges are end-inclusive
-        let qs_end = qs_start + q.num_qubits() - 1;
         if q.dimensions == 0 {
             call_args.push(format!("qs[{qs_start}]"));
         } else {
-            // Array argument - use a range to index
-            let mut call_arg = format!("qs[{qs_start}..{qs_end}]");
-            for _ in 1..q.dimensions {
-                // Chunk the array for multi-dimensional array arguments
-                call_arg = format!("Microsoft.Quantum.Arrays.Chunks({NUM_QUBITS}, {call_arg})");
-            }
-            call_args.push(call_arg);
+            call_args.push(build_nested_qubit_array_arg(qs_start, q.dimensions));
         }
-        qs_start = qs_end + 1;
+        qs_start += q.num_qubits();
     }
 
     let call_args = call_args.join(", ");
@@ -142,6 +134,23 @@ fn operation_circuit_entry_expr(operation_expr: &str, qubit_params: &[QubitParam
 /// The number of qubits to allocate for each qubit array
 /// in the operation arguments.
 const NUM_QUBITS: u32 = 2;
+
+fn build_nested_qubit_array_arg(start: u32, dimensions: u32) -> String {
+    debug_assert!(dimensions > 0, "array dimensions should be positive");
+
+    if dimensions == 1 {
+        let end = start + NUM_QUBITS - 1;
+        return format!("qs[{start}..{end}]");
+    }
+
+    let chunk_width = NUM_QUBITS.pow(dimensions - 1);
+    let chunks = (0..NUM_QUBITS)
+        .map(|chunk_index| {
+            build_nested_qubit_array_arg(start + chunk_index * chunk_width, dimensions - 1)
+        })
+        .collect::<Vec<_>>();
+    format!("[{}]", chunks.join(", "))
+}
 
 fn get_qubit_param_info(input: &Pat) -> Vec<QubitParam> {
     match &input.ty {

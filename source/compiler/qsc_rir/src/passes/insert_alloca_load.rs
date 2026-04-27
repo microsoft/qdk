@@ -127,6 +127,7 @@ fn add_alloca_load_to_block(
             | Instruction::Fsub(lhs, rhs, _)
             | Instruction::Fmul(lhs, rhs, _)
             | Instruction::Fdiv(lhs, rhs, _)
+            | Instruction::Frem(lhs, rhs, _)
             | Instruction::Fcmp(_, lhs, rhs, _)
             | Instruction::Icmp(_, lhs, rhs, _)
             | Instruction::LogicalAnd(lhs, rhs, _)

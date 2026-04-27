@@ -2576,7 +2576,7 @@ impl<'a> PartialEvaluator<'a> {
         let bin_op_variable_id = self.resource_manager.next_var();
 
         let bin_op_rir_variable = match bin_op {
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => {
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
                 rir::Variable::new_double(bin_op_variable_id)
             }
             BinOp::Eq | BinOp::Neq | BinOp::Gt | BinOp::Gte | BinOp::Lt | BinOp::Lte => {
@@ -2597,6 +2597,14 @@ impl<'a> PartialEvaluator<'a> {
                 }
 
                 Instruction::Fdiv(lhs_operand, rhs_operand, bin_op_rir_variable)
+            }
+            BinOp::Mod => {
+                if let Operand::Literal(Literal::Double(0.0)) = rhs_operand {
+                    let error = EvalError::DivZero(bin_op_expr_span).into();
+                    return Err(error);
+                }
+
+                Instruction::Frem(lhs_operand, rhs_operand, bin_op_rir_variable)
             }
             BinOp::Eq => Instruction::Fcmp(
                 FcmpConditionCode::OrderedAndEqual,
