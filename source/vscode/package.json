@@ -211,14 +211,31 @@
     "menus": {
       "editor/title/run": [
         {
+          "command": "qsharp-vscode.learningCheckSolution",
+          "when": "qsharp-vscode.activeEditorIsExercise",
+          "group": "navigation@0"
+        },
+        {
+          "command": "qsharp-vscode.learningNext",
+          "when": "qsharp-vscode.activeEditorIsExercise && qsharp-vscode.activeExercisePassed",
+          "group": "navigation@1"
+        },
+        {
           "command": "qsharp-vscode.runProgram",
           "when": "resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit",
-          "group": "navigation@1"
+          "group": "navigation@2"
         },
         {
           "command": "qsharp-vscode.debugProgram",
           "when": "resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit",
-          "group": "navigation@2"
+          "group": "navigation@3"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "qsharp-vscode.learningShowHint",
+          "when": "qsharp-vscode.activeEditorIsExercise",
+          "group": "navigation"
         }
       ],
       "commandPalette": [
@@ -305,6 +322,26 @@
         {
           "command": "qsharp-vscode.katasOpenSection",
           "when": "false"
+        },
+        {
+          "command": "qsharp-vscode.learningCheckSolution",
+          "when": "qsharp-vscode.activeEditorIsExercise"
+        },
+        {
+          "command": "qsharp-vscode.learningNext",
+          "when": "qsharp-vscode.activeEditorIsExercise"
+        },
+        {
+          "command": "qsharp-vscode.learningShowHint",
+          "when": "qsharp-vscode.activeEditorIsExercise"
+        },
+        {
+          "command": "qsharp-vscode.learningResetExercise",
+          "when": "qsharp-vscode.activeEditorIsExercise"
+        },
+        {
+          "command": "qsharp-vscode.learningOpenPanel",
+          "when": "qsharp-vscode.activeEditorIsExercise"
         }
       ],
       "view/title": [
@@ -655,6 +692,36 @@
         "command": "qsharp-vscode.showKatas",
         "title": "Open Quantum Katas",
         "category": "Q#",
+        "icon": "$(mortar-board)"
+      },
+      {
+        "command": "qsharp-vscode.learningCheckSolution",
+        "title": "Check Solution",
+        "category": "QDK Learning",
+        "icon": "$(pass)"
+      },
+      {
+        "command": "qsharp-vscode.learningNext",
+        "title": "Next",
+        "category": "QDK Learning",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "qsharp-vscode.learningShowHint",
+        "title": "Hint",
+        "category": "QDK Learning",
+        "icon": "$(lightbulb)"
+      },
+      {
+        "command": "qsharp-vscode.learningResetExercise",
+        "title": "Reset Exercise",
+        "category": "QDK Learning",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "qsharp-vscode.learningOpenPanel",
+        "title": "Open in Katas Panel",
+        "category": "QDK Learning",
         "icon": "$(mortar-board)"
       }
     ],

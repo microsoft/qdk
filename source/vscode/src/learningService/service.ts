@@ -88,7 +88,7 @@ export class LearningService {
   private workspaceRoot!: vscode.Uri;
   private katasRoot!: vscode.Uri;
   private learningFile!: vscode.Uri;
-  private katasRootRel = "./quantum-katas";
+  private katasRootRel = "./qdk-learning-ws";
   private renderMarkdown: (input: string) => string;
 
   // ── Progress data (mirrors qdk-learning.json) ──
@@ -124,18 +124,7 @@ export class LearningService {
     this.katasRoot = katasRoot;
     this.learningFile = vscode.Uri.joinPath(workspaceRoot, "qdk-learning.json");
 
-    // Read katasRootRel from the learning file if it exists
-    try {
-      const bytes = await vscode.workspace.fs.readFile(this.learningFile);
-      const parsed = JSON.parse(
-        decoder.decode(bytes),
-      ) as Partial<ProgressFileData>;
-      if (parsed.katasRoot && typeof parsed.katasRoot === "string") {
-        this.katasRootRel = parsed.katasRoot;
-      }
-    } catch {
-      // Missing or corrupt — use default
-    }
+    // katasRootRel is a fixed well-known folder name; no longer configurable.
 
     // Load all katas (HTML format for webview rendering)
     const allKatas = await getAllKatas();
@@ -458,6 +447,18 @@ export class LearningService {
 
   markExampleRun(exampleId: string): void {
     this.ranExamples.add(exampleId);
+  }
+
+  /**
+   * Reset the current exercise file to the original placeholder code.
+   */
+  async resetExercise(): Promise<void> {
+    const exercise = this.resolveExercise();
+    const uri = this.getExerciseFileUri();
+    await vscode.workspace.fs.writeFile(
+      uri,
+      encoder.encode(exercise.placeholderCode),
+    );
   }
 
   async markExerciseComplete(kataId: string, sectionId: string): Promise<void> {

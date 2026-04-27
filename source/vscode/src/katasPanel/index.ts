@@ -25,5 +25,36 @@ export function registerKatasPanelCommand(
       );
       return manager.show();
     }),
+
+    vscode.commands.registerCommand(
+      "qsharp-vscode.learningCheckSolution",
+      async () => {
+        if (!learningService.initialized) {
+          vscode.window.showWarningMessage(
+            "The QDK Learning workspace has not been initialized yet.",
+          );
+          return;
+        }
+        const pos = learningService.getPosition();
+        if (pos.item.type !== "exercise") {
+          vscode.window.showInformationMessage(
+            "Navigate to an exercise to check your solution.",
+          );
+          return;
+        }
+        const manager = KatasPanelManager.getInstance(
+          context.extensionUri,
+          progressWatcher,
+          learningService,
+        );
+        const passed = await manager.checkAndShowResult();
+
+        // Trigger pass/fail flash decoration.
+        void vscode.commands.executeCommand(
+          "qsharp-vscode._learningFlash",
+          passed,
+        );
+      },
+    ),
   );
 }

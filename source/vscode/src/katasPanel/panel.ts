@@ -39,6 +39,18 @@ export class KatasPanelManager {
   ) {}
 
   /**
+   * Show the panel and execute the "check solution" action, sending the
+   * result to the webview so it renders the same output as clicking the
+   * panel's own Check button. Returns whether the solution passed.
+   */
+  async checkAndShowResult(): Promise<boolean> {
+    await this.show();
+    const result = await this.executeCheck();
+    this.sendResult("check", result);
+    return result.passed;
+  }
+
+  /**
    * Show (or create) the Katas panel.
    * If the panel already exists, it's revealed; otherwise a new one is created.
    */

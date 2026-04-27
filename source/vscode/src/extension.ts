@@ -16,7 +16,14 @@ import { activateDebugger } from "./debugger/activate.js";
 import { startOtherQSharpDiagnostics } from "./diagnostics.js";
 import { removeDeprecatedCopilotInstructions } from "./gh-copilot/instructions.js";
 import { registerLanguageModelTools } from "./gh-copilot/tools.js";
-import { LearningService } from "./learningService/index.js";
+import {
+  LearningService,
+  registerEditorContext,
+  registerLearningCommands,
+  createLearningCodeLensProvider,
+  exerciseDocumentSelector,
+  registerLearningDecorations,
+} from "./learningService/index.js";
 // DEAD CODE: MCP server replaced by in-proc qdk-learning-* LM tools.
 // import { registerKatasMcpServer } from "./katasMcp.js";
 import { registerKatasPanelCommand } from "./katasPanel/index.js";
@@ -108,6 +115,15 @@ export async function activate(
   const learningService = new LearningService(context.extensionUri);
   context.subscriptions.push({ dispose: () => learningService.dispose() });
   registerLanguageModelTools(context, learningService);
+  registerEditorContext(context, learningService);
+  registerLearningCommands(context, learningService);
+  registerLearningDecorations(context, learningService);
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      exerciseDocumentSelector,
+      createLearningCodeLensProvider(),
+    ),
+  );
   // DEAD CODE: MCP server replaced by in-proc qdk-learning-* LM tools.
   // The registerKatasMcpServer function and the learning/ CLI bundle are
   // no longer called. They will be deleted in a follow-up change.

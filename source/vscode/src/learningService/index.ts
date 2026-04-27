@@ -2,6 +2,13 @@
 // Licensed under the MIT License.
 
 export { LearningService } from "./service.js";
+export { registerEditorContext } from "./editorContext.js";
+export { registerLearningCommands } from "./commands.js";
+export {
+  createLearningCodeLensProvider,
+  exerciseDocumentSelector,
+} from "./codeLens.js";
+export { registerLearningDecorations } from "./decorations.js";
 export type {
   Position,
   NavigationItem,
