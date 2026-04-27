@@ -258,9 +258,18 @@ class NeutralAtomDevice(Device):
         if noise is None:
             noise = NoiseConfig()
 
-        # Override s, s_adj, and z noise if they are unset
-        # and rz noise is set.
+        # Override t, t_adj, s, s_adj, and z noise if they are unset and rz noise is set.
         if noise and not noise.rz.is_noiseless():
+            if noise.t.is_noiseless():
+                noise.t.x = noise.rz.x
+                noise.t.y = noise.rz.y
+                noise.t.z = noise.rz.z
+                noise.t.loss = noise.rz.loss
+            if noise.t_adj.is_noiseless():
+                noise.t_adj.x = noise.rz.x
+                noise.t_adj.y = noise.rz.y
+                noise.t_adj.z = noise.rz.z
+                noise.t_adj.loss = noise.rz.loss
             if noise.s.is_noiseless():
                 noise.s.x = noise.rz.x
                 noise.s.y = noise.rz.y

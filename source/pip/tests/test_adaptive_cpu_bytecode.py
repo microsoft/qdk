@@ -15,7 +15,7 @@ This is a CPU counterpart to ``test_adaptive_gpu_bytecode.py``.
 
 from collections import Counter
 import pytest
-from qsharp._simulation import run_qir, Result
+from qsharp._simulation import run_qir, NoiseConfig, Result
 import qsharp.openqasm
 from typing import Literal
 
@@ -468,6 +468,60 @@ def test_record_output_ordering(sim_type):
     check_result(
         RECORD_OUTPUT_QIR, "10", num_qubits=2, num_results=2, sim_type=sim_type
     )
+
+
+# =========================================================================
+# OP_READ_LOSS — read whether a measurement observed qubit loss
+# =========================================================================
+
+READ_LOSS_QIR = """
+entry:
+  ; Apply s to qubit 0 purely for its noise side effect. With
+  ; ``noise.s.loss = 1.0`` the simulator faults qubit 0 as lost on every
+  ; shot, so the next mz on qubit 0 records ``MeasurementResult::Loss``
+  ; into result 0. Qubit 1 is left untouched (no noise on x), so the
+  ; conditional X below cleanly flips it to |1⟩.
+  call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  ; Read the loss bit for result 0 — should be 1 because the qubit was lost.
+  %lost = call i1 @__quantum__rt__read_loss(%Result* inttoptr (i64 0 to %Result*))
+  br i1 %lost, label %then, label %end
+
+then:
+  ; Witness: if read_loss reported true, flip qubit 1 to |1⟩.
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+  br label %end
+
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+"""
+
+READ_LOSS_DECLS = """
+declare i1 @__quantum__rt__read_loss(%Result*)
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_read_loss(sim_type):
+    """rz (with 100% loss) → mz → read_loss → branch on loss → mz witness.
+
+    Record both results: result 0 should always be ``Loss`` ('L'), and
+    result 1 should always be ``One`` ('1') because ``read_loss`` saw the
+    loss and the conditional X was applied to qubit 1.
+    """
+    qir = format_qir(
+        READ_LOSS_QIR,
+        extra_decls=READ_LOSS_DECLS,
+        num_qubits=2,
+        num_results=2,
+    )
+    noise = NoiseConfig()
+    noise.s.loss = 1.0
+    results = run_qir(qir, SHOTS, noise, seed=42, type=sim_type)
+    counts = Counter(map_result_list_to_str(r) for r in results)
+    assert counts == {
+        "L1": SHOTS
+    }, f"Expected all {SHOTS} shots to be 'L1', got {counts}"
 
 
 # #########################################################################

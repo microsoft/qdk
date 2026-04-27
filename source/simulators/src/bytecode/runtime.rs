@@ -48,6 +48,7 @@ const OP_MEASURE: u8 = 0x11;
 const OP_RESET: u8 = 0x12;
 const OP_READ_RESULT: u8 = 0x13;
 const OP_RECORD_OUTPUT: u8 = 0x14;
+const OP_READ_LOSS: u8 = 0x15;
 
 // Integer arithmetic
 const OP_ADD: u8 = 0x20;
@@ -420,6 +421,22 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
                 } else {
                     0u64
                 };
+                rt.write_reg(instr.dst, val);
+                rt.pc += 1;
+            }
+
+            OP_READ_LOSS => {
+                // Reports whether the measurement that produced this result
+                // observed a lost qubit. The simulator records ``Loss`` in
+                // its measurement buffer when the qubit was lost prior to
+                // the measurement; here we simply project that to a 1/0 bool
+                // for the program to branch on.
+                let result_id = rt.resolve_u64(instr.src0, flags, 0) as usize;
+                let measurements = sim.measurements();
+                let val = u64::from(
+                    result_id < measurements.len()
+                        && matches!(measurements[result_id], MeasurementResult::Loss),
+                );
                 rt.write_reg(instr.dst, val);
                 rt.pc += 1;
             }

@@ -167,6 +167,13 @@ class QuantumOp:
     q1: int
     q2: int
     q3: int
+    # ``angle`` is stored as the raw bit pattern of an IEEE-754 float
+    # (encoded via ``encode_float_as_bits``) so it can be packed into the
+    # same integer-typed FFI table as the qubit indices. The Rust side
+    # reinterprets these bits as f32/f64 depending on the bytecode width.
+    #
+    # This also follows the same pattern in which floats are encoded as ints
+    # in the ``Instruction`` class.
     angle: int
 
 
@@ -703,9 +710,15 @@ class AdaptiveProfilePass:
                 | "__quantum__rt__begin_parallel"
                 | "__quantum__rt__end_parallel"
                 | "__quantum__qis__barrier__body"
-                | "__quantum__rt__read_loss"
             ):
                 pass  # No-op
+            case "__quantum__rt__read_loss":
+                # Allocate a bool register and emit OP_READ_LOSS so the runtime
+                # can ask the simulator whether the given result was produced
+                # by measuring a lost qubit. Programs may branch on this value.
+                dst = self._alloc_reg(call, REG_TYPE_BOOL)
+                result_reg = self._resolve_result_operand(call.args[0])
+                self._emit(OP_READ_LOSS, dst=dst, src0=result_reg)
             case _ if callee in self._func_to_id:
                 self._emit_ir_function_call(call)
             case _ if "qdk_noise" in call.callee.attributes.func:

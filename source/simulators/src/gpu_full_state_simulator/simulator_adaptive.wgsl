@@ -322,6 +322,7 @@ const OP_MEASURE:       u32 = 0x11;
 const OP_RESET:         u32 = 0x12;
 const OP_READ_RESULT:   u32 = 0x13;
 const OP_RECORD_OUTPUT: u32 = 0x14;
+const OP_READ_LOSS:     u32 = 0x15;
 
 // -- Integer Arithmetic -------------------------------------------------------
 const OP_ADD:           u32 = 0x20;
@@ -943,6 +944,18 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // directly after all shots terminate. The instruction exists to
             // maintain compatibility with the QIR adaptive profile bytecode.
             case OP_RECORD_OUTPUT {
+                pc++;
+            }
+
+            // READ_LOSS: Reports whether the measurement that produced a
+            // result observed a lost qubit. The per-shot ``results`` buffer
+            // encodes loss as the value 2u (0u = Zero, 1u = One, 2u = Loss),
+            // so we compare against 2u and write 1u when the result was a loss,
+            // else 0u.
+            case OP_READ_LOSS {
+                let result_id = instr.src0;
+                let val = atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]);
+                write_reg(shot_idx, instr.dst, select(0u, 1u, val == 2u));
                 pc++;
             }
 
