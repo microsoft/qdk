@@ -699,7 +699,7 @@ if build_pip and build_widgets and build_qdk and args.integration_tests:
     ]
     (python_bin, pip_env) = use_python_env(samples_src)
 
-    # Install the qsharp and qdk package
+    # Install the qsharp package
     pip_install_args = [
         python_bin,
         "-m",
