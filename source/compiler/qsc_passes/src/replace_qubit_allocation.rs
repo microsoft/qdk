@@ -61,7 +61,7 @@ impl<'a> ReplaceQubitAllocation<'a> {
                 QubitInitKind::MemoryArray(e) => Some((true, Some(take(e)))),
                 QubitInitKind::MemorySingle => Some((true, None)),
                 QubitInitKind::Tuple(_) => None,
-                QubitInitKind::Err => panic!("QubitInitKind::Err"),
+                QubitInitKind::Err => unreachable!("QubitInitKind::Err should have been caught by parser"),
             }
         }
 
@@ -204,7 +204,7 @@ impl<'a> ReplaceQubitAllocation<'a> {
                 };
                 (tuple_expr, ids)
             }
-            QubitInitKind::Err => panic!("QubitInitKind::Err"),
+            QubitInitKind::Err => unreachable!("QubitInitKind::Err should have been caught by parser"),
         }
     }
 
@@ -272,7 +272,10 @@ impl<'a> ReplaceQubitAllocation<'a> {
         let api = match (qubit_source, is_memory) {
             (QubitSource::Fresh, false) => "__quantum__rt__qubit_allocate",
             (QubitSource::Dirty, false) => "__quantum__rt__qubit_borrow",
-            (_, true) => "__quantum__rt__memory_qubit_allocate",
+            (QubitSource::Fresh, true) => "__quantum__rt__memory_qubit_allocate",
+            (QubitSource::Dirty, true) => {
+                unreachable!("Borrowing MemoryQubit is rejected by parser")
+            }
         };
         let mut call_expr = create_gen_core_ref(self.core, ns, api, Vec::new(), ident.span);
         call_expr.id = self.assigner.next_node();
@@ -300,7 +303,10 @@ impl<'a> ReplaceQubitAllocation<'a> {
         let api = match (qubit_source, is_memory) {
             (QubitSource::Fresh, false) => "AllocateQubitArray",
             (QubitSource::Dirty, false) => "BorrowQubitArray",
-            (_, true) => "AllocateMemoryQubitArray",
+            (QubitSource::Fresh, true) => "AllocateMemoryQubitArray",
+            (QubitSource::Dirty, true) => {
+                unreachable!("Borrowing MemoryQubit is rejected by parser")
+            }
         };
         let mut call_expr = create_gen_core_ref(self.core, ns, api, Vec::new(), ident.span);
         call_expr.id = self.assigner.next_node();
@@ -570,7 +576,7 @@ fn create_qubit_global_alloc(
                         .collect(),
                 ),
             },
-            QubitInitKind::Err => panic!("QubitInitKind::Err"),
+            QubitInitKind::Err => unreachable!("QubitInitKind::Err should have been caught by parser"),
         }
     }
 

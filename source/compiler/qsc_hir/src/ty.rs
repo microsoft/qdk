@@ -518,7 +518,7 @@ pub enum Prim {
     Pauli,
     /// The qubit type.
     Qubit,
-    /// The quantum memory type.
+    /// The memory qubit type.
     MemoryQubit,
     /// The range type.
     Range,

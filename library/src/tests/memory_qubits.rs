@@ -2,8 +2,7 @@
 // Licensed under the MIT License.
 
 use super::{
-    logical_counts_with_lib, test_expression_compile_fails, test_expression_fails,
-    test_expression_with_lib,
+    logical_counts_with_lib, test_compile_fails, test_expression_fails, test_expression_with_lib,
 };
 use indoc::indoc;
 use qsc::interpret::Value;
@@ -51,26 +50,12 @@ fn check_array_store_load() {
 
 #[test]
 fn check_cannot_apply_gate_to_memory_qubit() {
-    let err = test_expression_compile_fails(indoc! {r#"
-        {
-            use q = MemoryQubit();
-            X(q);
-        }
-    "#});
-
-    assert!(err.contains("type error"));
+    test_compile_fails("{ use q = MemoryQubit(); X(q); }", "", "type error");
 }
 
 #[test]
 fn check_cannot_measure_memory_qubit() {
-    let err = test_expression_compile_fails(indoc! {r#"
-        {
-            use q = MemoryQubit();
-            M(q);
-        }
-    "#});
-
-    assert!(err.contains("type error"));
+    test_compile_fails("{ use q = MemoryQubit(); M(q); }", "", "type error");
 }
 
 // MemoryQubit cannot be released in non-zero state (same as Qubit).
@@ -105,6 +90,24 @@ fn check_do_computation_with_qft() {
             }
         "#},
         &Value::Bool(true),
+    );
+}
+
+#[test]
+fn check_borrow_memory_qubit_not_supported() {
+    test_compile_fails(
+        "{ borrow q = MemoryQubit(); }",
+        "",
+        "MemoryQubit cannot be borrowed.",
+    );
+}
+
+#[test]
+fn check_borrow_memory_qubit_array_not_supported() {
+    test_compile_fails(
+        "{ borrow q = MemoryQubit[5]; }",
+        "",
+        "MemoryQubit cannot be borrowed.",
     );
 }
 

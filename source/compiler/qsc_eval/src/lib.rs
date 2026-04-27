@@ -1331,7 +1331,18 @@ impl State {
                 self.allocate_qubit(env, sim, &call_stack, name)
             }
             "__quantum__rt__qubit_release" | "__quantum__rt__memory_qubit_release" => {
-                self.release_qubit(env, sim, arg, arg_span, &call_stack)?
+                let qubit = arg
+                    .unwrap_qubit()
+                    .try_deref()
+                    .ok_or(Error::QubitDoubleRelease(arg_span))?;
+                env.release_qubit(&qubit);
+                let is_zero = sim.qubit_release(qubit.0, &call_stack);
+                let is_borrowed = self.dirty_qubits.remove(&qubit.0);
+                if is_zero || is_borrowed {
+                    Value::unit()
+                } else {
+                    return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
+                }
             }
             _ => {
                 let val = intrinsic::call(
@@ -1387,28 +1398,6 @@ impl State {
         } else {
             Value::Qubit(q.into())
         }
-    }
-
-    fn release_qubit<B: Backend>(
-        &mut self,
-        env: &mut Env,
-        sim: &mut TracingBackend<'_, B>,
-        arg: Value,
-        arg_span: PackageSpan,
-        call_stack: &[Frame],
-    ) -> Result<Value, Error> {
-        let qubit = arg
-            .unwrap_qubit()
-            .try_deref()
-            .ok_or(Error::QubitDoubleRelease(arg_span))?;
-        env.release_qubit(&qubit);
-        let is_zero = sim.qubit_release(qubit.0, call_stack);
-        let is_borrowed = self.dirty_qubits.remove(&qubit.0);
-        Ok(if is_zero || is_borrowed {
-            Value::unit()
-        } else {
-            return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
-        })
     }
 
     fn eval_field(&mut self, field: Field) {

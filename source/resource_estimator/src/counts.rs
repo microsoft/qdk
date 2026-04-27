@@ -60,9 +60,9 @@ pub struct LogicalCounter {
     memory_qubit_ids: FxHashSet<usize>,
     /// Ids of free memory qubits. Can be reused only for allocating memory qubits.
     free_memory_qubits: Vec<usize>,
-    /// Number of single-qubit Store instructions.
+    /// Number of Store instructions.
     memory_qubit_store_count: usize,
-    /// Number of single-qubit Load instructions.
+    /// Number of Load instructions.
     memory_qubit_load_count: usize,
 }
 
@@ -100,7 +100,7 @@ impl LogicalCounter {
             if let Some(memory_compute) = &self.memory_compute {
                 assert!(
                     !uses_memory_qubits,
-                    "Cannout use MemoryQubits together with MemoryComputeArchitecture"
+                    "Cannot use MemoryQubits together with MemoryComputeArchitecture"
                 );
                 (
                     Some(memory_compute.compute_size() as u64),
