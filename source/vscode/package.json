@@ -449,9 +449,16 @@
     "chatSkills": [
       {
         "path": "./skills/qdk-programming/SKILL.md"
-      },
+      }
+    ],
+    "chatPromptFiles": [
       {
-        "path": "./skills/quantum-katas/SKILL.md"
+        "path": "./prompts/qdk-learning.prompt.md"
+      }
+    ],
+    "chatAgents": [
+      {
+        "path": "./agents/qdk-learning.agent.md"
       }
     ],
     "mcpServerDefinitionProviders": [

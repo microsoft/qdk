@@ -2,10 +2,14 @@
   "version": 1,
   "katasRoot": "./quantum-katas",
   "position": {
-    "kataId": "",
-    "sectionId": "",
+    "kataId": "linear_algebra",
+    "sectionId": "linear_algebra__overview",
     "itemIndex": 0
   },
-  "completions": {},
+  "completions": {
+    "getting_started__getting_started__welcome": {
+      "completedAt": "2026-04-27T12:55:51.708Z"
+    }
+  },
   "startedAt": "2026-04-27T12:55:25.841Z"
 }

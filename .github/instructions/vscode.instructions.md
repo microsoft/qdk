@@ -46,4 +46,4 @@ python build.py --wasm --npm --vscode --integration-tests  # Include VS Code int
 
 - **No CommonJS-only deps** in the learning bundle (ESM).
 - **Webview HTML**: `--vscode-*` CSS variables for theming, CSP-clean nonce-based scripts (no inline event handlers).
-- **Chat skills/instructions** for end users live in `skills/` and `resources/chat-instructions/`. Keep `SKILL.md` in sync when changing user-visible MCP tool behavior.
+- **Chat agents/skills/instructions** for end users live in `agents/`, `skills/`, and `resources/chat-instructions/`. Keep `agents/qdk-learning.agent.md` in sync when changing user-visible MCP tool behavior.

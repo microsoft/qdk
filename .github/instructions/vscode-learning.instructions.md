@@ -1,5 +1,5 @@
 ---
-applyTo: "source/vscode/src/learning/**,source/vscode/src/katasMcp.ts,source/vscode/src/katasProgress/**,source/vscode/skills/quantum-katas/**"
+applyTo: "source/vscode/src/learning/**,source/vscode/src/katasMcp.ts,source/vscode/src/katasProgress/**,source/vscode/agents/qdk-learning.agent.md"
 description: "Q# Quantum Katas MCP server, TUI, web UI, and progress activity-bar panel embedded in the VS Code extension."
 ---
 
@@ -43,9 +43,9 @@ Bundled layout: `out/learning/{index.js,widget/app.html,web/public/**}`.
 
 When editing anything under `web/public/` or `mcp/widget/`, drive the running web server with the browser tools (`open_browser_page`, `read_page`, `click_element`, `run_playwright_code`). Prefer element refs from `read_page` over CSS selectors. For the TUI, a launch smoke test is enough — stdin is hard to automate.
 
-## Keep the skill in sync
+## Keep the agent in sync
 
-[`source/vscode/skills/quantum-katas/SKILL.md`](../../source/vscode/skills/quantum-katas/SKILL.md) documents the MCP tools for agents. When you change anything user-visible in `mcp/server.ts` or `mcp/widget/app.html`, update SKILL.md in the same change.
+[`source/vscode/agents/qdk-learning.agent.md`](../../source/vscode/agents/qdk-learning.agent.md) documents the MCP tools for the QDK Learning agent. When you change anything user-visible in `mcp/server.ts` or `mcp/widget/app.html`, update the agent file in the same change.
 
 # source/vscode/src/katasProgress
 
@@ -56,7 +56,7 @@ The activity-bar **Quantum Katas** panel: a `WebviewView` overview on top of a n
 - **`catalog.ts`** — pulls the kata list dynamically from `qsharp-lang/katas-md` (`getAllKatas()`) so the panel never hardcodes content. Cached. `RECOMMENDED_ORDER` controls display order.
 - **`treeProvider.ts`** — kata → section nodes. **No `item.command`** — clicking a node is a no-op by design. Each tree item exposes a `contextValue` (`kata` | `lessonSection` | `exerciseSection`) for the inline chat-bubble action.
 - **`overviewProvider.ts`** — a `WebviewViewProvider` with two states: a **landing page** (welcome + Get started) when no katas workspace is detected, and a **tracker** (animated progress ring, "up next" card, contextual encouragement, Continue button) once one is. CSP+nonce, no external assets, all messages go through `postMessage` (`ready` / `continue` / `setup`).
-- **`commands.ts`** — registers `qsharp-vscode.katasRefresh`, `katasContinue`, `katasOpenSection`, `katasAskInChat`. Exercise actions open the scaffolded `.qs` file directly; lesson actions and `katasAskInChat` open the chat view (`workbench.action.chat.open`) with a pre-built prompt that triggers the `quantum-katas` skill.
+- **`commands.ts`** — registers `qsharp-vscode.katasRefresh`, `katasContinue`, `katasOpenSection`, `katasAskInChat`. Exercise actions open the scaffolded `.qs` file directly; lesson actions and `katasAskInChat` open the chat view (`workbench.action.chat.open`) with a pre-built prompt that activates the `QDK Learning` agent.
 - **`index.ts`** — `registerKatasProgressView(context)` wires the watcher → tree + webview + commands. Called from `extension.ts` after `registerKatasMcpServer(context)`.
 
 When changing the panel:
