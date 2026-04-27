@@ -79,6 +79,32 @@ math[display="block"] {
   font-size: 1.35em;
 }
 
+/* Branding header */
+.branding {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+}
+.branding-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.branding-text {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fg);
+  opacity: 0.85;
+}
+
 /* Header */
 .header {
   display: flex;
@@ -181,13 +207,22 @@ math[display="block"] {
 .content .file-path-link:hover {
   text-decoration: underline;
 }
-.content .copy-btn {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--muted);
+
+/* Completion banner (inline in exercise body) */
+.content .completion-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
   font-size: 12px;
-  padding: 0 0.25rem;
+  font-weight: 600;
+}
+.completion-banner .completion-icon {
+  font-size: 14px;
 }
 
 /* Output slot */

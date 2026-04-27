@@ -82,7 +82,7 @@
 
   function renderSolutionCheck(result) {
     let html = result.passed
-      ? `<div class="success-celebration"><span class="celebration-icon">✓</span> Correct — solution verified!<button class="next-inline" data-action="next">Next exercise →</button></div>`
+      ? `<div class="success">✔ All tests passed!</div>`
       : `<div class="fail">✘ Check failed</div>`;
     html += renderEvents(result.events);
     if (result.error) {
@@ -152,7 +152,7 @@
         const fileUrl = "file:///" + (fwd.startsWith("/") ? fwd.slice(1) : fwd);
         body += `<p class="file-path">Your code file should be open in the editor to the right. If it\u2019s not visible, <a class="file-path-link" href="${escapeHtml(fileUrl)}" title="Open exercise file">open it here</a>.</p>`;
         if (item.isComplete) {
-          body += `<div class="completion-banner"><span class="completion-icon">✓</span> Completed</div>`;
+          body += `<div class="completion-banner"><span class="completion-icon">✓</span> Correct!</div>`;
         }
         return body;
       }

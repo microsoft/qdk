@@ -14,7 +14,9 @@
 
 export interface Position {
   kataId: string;
+  kataTitle: string;
   sectionId: string;
+  sectionTitle: string;
   itemIndex: number;
   item: NavigationItem;
 }
@@ -104,7 +106,12 @@ export interface KataProgress {
 
 export interface OverallProgress {
   katas: Map<string, KataProgress>;
-  currentPosition: { kataId: string; sectionId: string; itemIndex: number };
+  currentPosition: {
+    kataId: string;
+    kataTitle: string;
+    sectionId: string;
+    itemIndex: number;
+  };
   stats: { totalSections: number; completedSections: number };
 }
 

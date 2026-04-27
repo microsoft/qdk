@@ -200,9 +200,13 @@ export class LearningService {
     if (!fp) {
       throw new Error("No position available — have you called initialize()?");
     }
+    const kata = this.findKata(fp.kataId);
+    const section = kata.sections.find((s) => s.id === fp.sectionId)!;
     return {
       kataId: fp.kataId,
+      kataTitle: kata.title,
       sectionId: fp.sectionId,
+      sectionTitle: section.title,
       itemIndex: fp.itemIndex,
       item: this.resolveNavigationItem(fp),
     };
@@ -318,6 +322,15 @@ export class LearningService {
       check: "Check",
       "reveal-answer": "Reveal",
     };
+
+    // When an exercise is already completed, relabel "Next" to guide the user forward.
+    if (
+      pos.item.type === "exercise" &&
+      pos.item.isComplete &&
+      primary === "next"
+    ) {
+      primaryLabel.next = "Completed \u2014 Next";
+    }
 
     const primaryGroup: ActionGroup = [
       {
@@ -630,9 +643,17 @@ export class LearningService {
       completedSections += completed;
     }
 
+    const currentKataId = this.progressData.position.kataId;
+    const currentKata = currentKataId
+      ? this.katas.find((k) => k.id === currentKataId)
+      : undefined;
+
     return {
       katas: katasMap,
-      currentPosition: { ...this.progressData.position },
+      currentPosition: {
+        ...this.progressData.position,
+        kataTitle: currentKata?.title ?? currentKataId,
+      },
       stats: { totalSections, completedSections },
     };
   }
