@@ -13,8 +13,12 @@
 
 import * as vscode from "vscode";
 import { QscEventTarget } from "qsharp-lang";
-import { getExerciseSources } from "qsharp-lang/katas";
-import type { Exercise } from "qsharp-lang/katas";
+import { getExerciseSources } from "qsharp-lang/katas-md";
+import type { Exercise } from "qsharp-lang/katas-md";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - there are no types for this
+import mk from "@vscode/markdown-it-katex";
+import markdownIt from "markdown-it";
 import { loadCompilerWorker, qsharpExtensionId } from "../common.js";
 import { KatasEngine } from "./engine.js";
 import type { ProgressWatcher } from "../katasProgress/progressReader.js";
@@ -24,6 +28,16 @@ import {
   PANEL_NAVIGATE_FILE,
 } from "../katasProgress/detector.js";
 import type { SolutionCheckResult } from "./types.js";
+
+// ─── Markdown + KaTeX renderer (same pipeline as the API docs panel) ───
+const md = markdownIt("commonmark");
+md.use(mk, {
+  enableMathBlockInHtml: true,
+  enableMathInlineInHtml: true,
+});
+function renderMarkdown(input: string): string {
+  return md.render(input);
+}
 
 let instance: KatasPanelManager | undefined;
 
@@ -62,7 +76,11 @@ export class KatasPanelManager {
 
     // Initialize engine
     this.engine = new KatasEngine();
-    await this.engine.initialize(info.workspaceRoot, info.katasRoot);
+    await this.engine.initialize(
+      info.workspaceRoot,
+      info.katasRoot,
+      renderMarkdown,
+    );
 
     // Create webview panel
     this.panel = vscode.window.createWebviewPanel(
@@ -473,28 +491,6 @@ export class KatasPanelManager {
       return webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, ...parts));
     }
 
-    // Read the HTML template, CSS, render.js, and KaTeX scripts
-    // These are all inlined into the HTML for CSP compliance
-    const nonce = getNonce();
-
-    // We use webview URIs for external resources, but inline scripts/styles
-    // with a nonce for CSP.
-    const katexJsUri = getUri(
-      "out",
-      "learning",
-      "web",
-      "public",
-      "shared",
-      "katex.min.js",
-    );
-    const katexAutoRenderUri = getUri(
-      "out",
-      "learning",
-      "web",
-      "public",
-      "shared",
-      "auto-render.min.js",
-    );
     const renderJsUri = getUri(
       "out",
       "learning",
@@ -504,19 +500,15 @@ export class KatasPanelManager {
       "render.js",
     );
     const cssUri = getUri("out", "katasPanel", "katas-webview.css");
-
-    const cspSource = webview.cspSource;
+    const katexCssUri = getUri("out", "katex", "katex.min.css");
 
     return /*html*/ `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="default-src 'none'; style-src ${cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'; font-src ${cspSource};"
-    />
     <title>Quantum Katas</title>
-    <link rel="stylesheet" href="${cssUri}" nonce="${nonce}" />
+    <link rel="stylesheet" href="${katexCssUri}" />
+    <link rel="stylesheet" href="${cssUri}" />
   </head>
   <body>
     <header id="header" class="header">
@@ -528,14 +520,10 @@ export class KatasPanelManager {
     <nav id="actions" class="action-bar"></nav>
     <footer id="progress-bar" class="progress-bar"></footer>
 
-    <script nonce="${nonce}" src="${katexJsUri}"></script>
-    <script nonce="${nonce}" src="${katexAutoRenderUri}"></script>
-    <script nonce="${nonce}" src="${renderJsUri}"></script>
-    <script nonce="${nonce}">
+    <script src="${renderJsUri}"></script>
+    <script>
       (() => {
         "use strict";
-        // Use MathML output so KaTeX works without external CSS / inline styles.
-        globalThis.__KATAS_KATEX_CONFIG = { output: "mathml" };
         const vscodeApi = acquireVsCodeApi();
         const R = globalThis.KatasRender;
 
@@ -578,7 +566,6 @@ export class KatasPanelManager {
 
         function renderContent(position) {
           contentEl.innerHTML = R.renderContentBody(position.item);
-          R.renderMath(contentEl);
           contentEl.scrollTop = 0;
         }
 
@@ -592,7 +579,6 @@ export class KatasPanelManager {
           outputEl
             .querySelector(".out-dismiss")
             .addEventListener("click", clearOutput);
-          R.renderMath(outputEl);
         }
 
         function labelFor(variant) {
@@ -771,14 +757,4 @@ export class KatasPanelManager {
   </body>
 </html>`;
   }
-}
-
-function getNonce(): string {
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  for (let i = 0; i < 32; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
 }

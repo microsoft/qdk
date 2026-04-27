@@ -12,7 +12,7 @@
  */
 
 import * as vscode from "vscode";
-import { getAllKatas } from "qsharp-lang/katas";
+import { getAllKatas } from "qsharp-lang/katas-md";
 import type {
   Kata,
   Exercise,
@@ -20,7 +20,7 @@ import type {
   LessonItem,
   Solution,
   ContentItem,
-} from "qsharp-lang/katas";
+} from "qsharp-lang/katas-md";
 import type {
   Position,
   NavigationItem,
@@ -78,6 +78,7 @@ export class KatasEngine {
   private katasRoot!: vscode.Uri;
   private learningFile!: vscode.Uri;
   private katasRootRel = "./quantum-katas";
+  private renderMarkdown: (input: string) => string = (s) => s;
 
   // ── Progress data (mirrors qdk-learning.json) ──
   private progressData!: ProgressFileData;
@@ -87,9 +88,11 @@ export class KatasEngine {
   async initialize(
     workspaceRoot: vscode.Uri,
     katasRoot: vscode.Uri,
+    renderMarkdown?: (input: string) => string,
   ): Promise<void> {
     this.workspaceRoot = workspaceRoot;
     this.katasRoot = katasRoot;
+    if (renderMarkdown) this.renderMarkdown = renderMarkdown;
     this.learningFile = vscode.Uri.joinPath(workspaceRoot, "qdk-learning.json");
 
     // Read katasRootRel from the learning file if it exists
@@ -339,7 +342,7 @@ export class KatasEngine {
     const hints: string[] = [];
     for (const item of exercise.explainedSolution.items) {
       if (item.type === "text-content") {
-        hints.push(item.content);
+        hints.push(this.renderMarkdown(item.content));
       }
     }
     if (hints.length === 0) {
@@ -650,7 +653,7 @@ export class KatasEngine {
         type: "exercise",
         id: exercise.id,
         title: exercise.title,
-        description: exercise.description.content,
+        description: this.renderMarkdown(exercise.description.content),
         filePath: fileUri.fsPath,
         isComplete: this.isComplete(kata.id, fp.sectionId),
         hintCount: exercise.explainedSolution.items.filter(
@@ -689,8 +692,8 @@ export class KatasEngine {
         code: exampleItem.code,
         filePath: fileUri.fsPath,
         sectionTitle: lesson.title,
-        contentBefore: before || undefined,
-        contentAfter: after || undefined,
+        contentBefore: before ? this.renderMarkdown(before) : undefined,
+        contentAfter: after ? this.renderMarkdown(after) : undefined,
       } satisfies LessonExampleItem;
     }
 
@@ -700,7 +703,7 @@ export class KatasEngine {
       if (item.type === "text-content") {
         return {
           type: "lesson-text",
-          content: item.content,
+          content: this.renderMarkdown(item.content),
           sectionTitle: lesson.title,
         } satisfies LessonTextItem;
       }
@@ -715,8 +718,8 @@ export class KatasEngine {
           .join("\n\n");
         return {
           type: "lesson-question",
-          description: item.description.content,
-          answer: answerContent,
+          description: this.renderMarkdown(item.description.content),
+          answer: this.renderMarkdown(answerContent),
           sectionTitle: lesson.title,
         } satisfies LessonQuestionItem;
       }
@@ -733,7 +736,7 @@ export class KatasEngine {
 
     return {
       type: "lesson-text",
-      content: merged,
+      content: this.renderMarkdown(merged),
       sectionTitle: lesson.title,
     } satisfies LessonTextItem;
   }
