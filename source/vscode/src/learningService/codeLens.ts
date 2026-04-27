@@ -32,6 +32,11 @@ export function createLearningCodeLensProvider(): vscode.CodeLensProvider {
           tooltip: "Check your solution against the expected answer",
         }),
         new vscode.CodeLens(range, {
+          title: "$(discard) Reset Exercise",
+          command: "qsharp-vscode.learningResetExercise",
+          tooltip: "Reset the exercise to its original state",
+        }),
+        new vscode.CodeLens(range, {
           title: "$(mortar-board) Open in Katas Panel",
           command: "qsharp-vscode.learningOpenPanel",
           tooltip: "Open the Quantum Katas panel for this exercise",
