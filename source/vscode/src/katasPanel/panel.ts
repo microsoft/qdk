@@ -97,6 +97,50 @@ export class KatasPanelManager {
       "qdk.svg",
     );
 
+    // Generate and set HTML
+    this.panel.webview.html = this.getWebviewContent(this.panel.webview);
+
+    this.attachPanel(info);
+  }
+
+  /**
+   * Restore a serialized Katas panel after VS Code restarts.
+   * Re-initializes the service from disk and sends fresh state to the webview.
+   */
+  async restore(panel: vscode.WebviewPanel): Promise<void> {
+    // Detect the katas workspace
+    const info = await detectKatasWorkspace();
+    if (!info) {
+      // Workspace no longer available — dispose the stale panel
+      panel.dispose();
+      return;
+    }
+
+    // Initialize or refresh the shared service from disk
+    if (!this.service.initialized) {
+      await this.service.initialize(info.workspaceRoot, info.katasRoot);
+    } else {
+      await this.service.reloadProgress();
+    }
+
+    this.panel = panel;
+
+    // Re-set HTML — webview resource URIs change across sessions
+    this.panel.webview.html = this.getWebviewContent(this.panel.webview);
+
+    this.attachPanel(info);
+  }
+
+  /**
+   * Wire up shared listeners on an already-created panel.
+   * Called by both show() (new panel) and restore() (deserialized panel).
+   */
+  private attachPanel(info: {
+    workspaceRoot: vscode.Uri;
+    katasRoot: vscode.Uri;
+  }): void {
+    if (!this.panel) return;
+
     this.panel.onDidDispose(
       () => {
         this.panel = undefined;
@@ -107,9 +151,6 @@ export class KatasPanelManager {
       undefined,
       this.disposables,
     );
-
-    // Generate and set HTML
-    this.panel.webview.html = this.getWebviewContent(this.panel.webview);
 
     // Listen for webview messages
     this.panel.webview.onDidReceiveMessage(
@@ -197,11 +238,10 @@ export class KatasPanelManager {
       fileUri = this.service.getExampleFileUri();
     }
     if (fileUri) {
-      await vscode.commands.executeCommand(
-        "vscode.open",
-        fileUri,
-        vscode.ViewColumn.Two,
-      );
+      await vscode.commands.executeCommand("vscode.open", fileUri, {
+        viewColumn: vscode.ViewColumn.Two,
+        preview: false,
+      } satisfies vscode.TextDocumentShowOptions);
     }
   }
 
@@ -233,11 +273,10 @@ export class KatasPanelManager {
 
     if (msg.command === "openFile") {
       const uri = vscode.Uri.parse(msg.uri);
-      await vscode.commands.executeCommand(
-        "vscode.open",
-        uri,
-        vscode.ViewColumn.Two,
-      );
+      await vscode.commands.executeCommand("vscode.open", uri, {
+        viewColumn: vscode.ViewColumn.Two,
+        preview: false,
+      } satisfies vscode.TextDocumentShowOptions);
       return;
     }
 
@@ -317,11 +356,10 @@ export class KatasPanelManager {
       const fileUri = this.service.getExerciseFileUri();
 
       // Open the file first
-      await vscode.commands.executeCommand(
-        "vscode.open",
-        fileUri,
-        vscode.ViewColumn.Two,
-      );
+      await vscode.commands.executeCommand("vscode.open", fileUri, {
+        viewColumn: vscode.ViewColumn.Two,
+        preview: false,
+      } satisfies vscode.TextDocumentShowOptions);
 
       runExerciseInTerminal(
         this.extensionUri,
@@ -334,11 +372,10 @@ export class KatasPanelManager {
       this.service.markExampleRun(pos.item.id);
 
       // Open the file first, then run via normal command
-      await vscode.commands.executeCommand(
-        "vscode.open",
-        fileUri,
-        vscode.ViewColumn.Two,
-      );
+      await vscode.commands.executeCommand("vscode.open", fileUri, {
+        viewColumn: vscode.ViewColumn.Two,
+        preview: false,
+      } satisfies vscode.TextDocumentShowOptions);
       await vscode.commands.executeCommand(
         `${qsharpExtensionId}.runProgram`,
         fileUri,
@@ -361,11 +398,10 @@ export class KatasPanelManager {
       throw new Error("Current item cannot show a circuit.");
     }
 
-    await vscode.commands.executeCommand(
-      "vscode.open",
-      fileUri,
-      vscode.ViewColumn.Two,
-    );
+    await vscode.commands.executeCommand("vscode.open", fileUri, {
+      viewColumn: vscode.ViewColumn.Two,
+      preview: false,
+    } satisfies vscode.TextDocumentShowOptions);
     await vscode.commands.executeCommand(
       `${qsharpExtensionId}.showCircuit`,
       fileUri,
@@ -651,6 +687,7 @@ export class KatasPanelManager {
           }
           renderActions(state.actions);
           renderProgressBar(state.progress);
+          vscodeApi.setState(state);
         }
 
         function invalidateContent() {
@@ -758,6 +795,10 @@ export class KatasPanelManager {
             vscodeApi.postMessage({ command: "openFile", uri: url });
           }
         });
+
+        // Restore cached state immediately for instant render on restart
+        const cachedState = vscodeApi.getState();
+        if (cachedState) applyState(cachedState);
 
         // Signal ready
         vscodeApi.postMessage({ command: "ready" });

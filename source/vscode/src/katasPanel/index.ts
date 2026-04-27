@@ -9,13 +9,32 @@ import type { LearningService } from "../learningService/index.js";
 
 /**
  * Register the `qsharp-vscode.showKatas` command that opens the Quantum Katas
- * webview panel.
+ * webview panel, and register the WebviewPanelSerializer so the panel persists
+ * across VS Code restarts.
  */
 export function registerKatasPanelCommand(
   context: vscode.ExtensionContext,
   progressWatcher: ProgressWatcher,
   learningService: LearningService,
 ): void {
+  // Register the serializer synchronously so VS Code knows this extension
+  // handles the "qsharp-katas" viewType on restart.
+  context.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer("qsharp-katas", {
+      async deserializeWebviewPanel(
+        panel: vscode.WebviewPanel,
+        _state: unknown,
+      ) {
+        const manager = KatasPanelManager.getInstance(
+          context.extensionUri,
+          progressWatcher,
+          learningService,
+        );
+        await manager.restore(panel);
+      },
+    }),
+  );
+
   context.subscriptions.push(
     vscode.commands.registerCommand(`${qsharpExtensionId}.showKatas`, () => {
       const manager = KatasPanelManager.getInstance(

@@ -128,7 +128,7 @@ async function tryOpenSectionFile(
   try {
     const doc = await vscode.workspace.openTextDocument(fileUri);
     await vscode.window.showTextDocument(doc, {
-      preview: true,
+      preview: false,
       preserveFocus: true,
     });
   } catch {
