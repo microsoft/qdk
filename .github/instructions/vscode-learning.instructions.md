@@ -1,22 +1,20 @@
 ---
-applyTo: "source/vscode/src/learningService/**,source/vscode/src/katasPanel/**,source/vscode/src/gh-copilot/learningTools.ts,source/vscode/src/learning/**,source/vscode/src/katasMcp.ts,source/vscode/src/katasProgress/**,source/vscode/agents/qdk-learning.agent.md"
+applyTo: "source/vscode/src/learningService/**,source/vscode/src/katasPanel/**,source/vscode/src/gh-copilot/learningTools.ts,source/vscode/src/katasProgress/**,source/vscode/agents/qdk-learning.agent.md"
 description: "Use when editing the Quantum Katas learning experience: LearningService, LM tools, webview panel, activity-bar progress tree, or the qdk-learning agent file."
 ---
 
 # Key rules
 
-1. **Dead code — do not extend.** `src/learning/`, `src/katasMcp.ts`, and `katasPanel/engine.ts` are dead code (marked `// DEAD CODE` throughout, will be deleted). Never add functionality there; work in `learningService/`, `gh-copilot/learningTools.ts`, or `katasPanel/` instead.
-2. **Keep the agent file in sync.** [`agents/qdk-learning.agent.md`](../../source/vscode/agents/qdk-learning.agent.md) documents LM tools for the QDK Learning agent. When changing anything user-visible in `learningTools.ts` or `katasPanel/`, update the agent file in the same change.
-3. **Detector is shared.** `katasProgress/detector.ts` is the single source of truth for workspace detection. It is consumed by `LearningTools.init()`, `KatasPanelManager`, and `ProgressWatcher`. Adding fields is fine; renaming or removing requires updating all three call sites.
-4. **Visually verify panel changes.** When editing `katasPanel/katas-webview.html` or `.css`, drive the running extension with browser tools (`open_browser_page`, `read_page`, etc.) to verify rendering.
-5. **Telemetry convention.** Use `EventType.KatasPanelAction` with the `action` property (see `telemetry.ts`).
+1. **Keep the agent file in sync.** [`agents/qdk-learning.agent.md`](../../source/vscode/agents/qdk-learning.agent.md) documents LM tools for the QDK Learning agent. When changing anything user-visible in `learningTools.ts` or `katasPanel/`, update the agent file in the same change.
+2. **Detector is shared.** `katasProgress/detector.ts` is the single source of truth for workspace detection. It is consumed by `LearningTools.init()`, `KatasPanelManager`, and `ProgressWatcher`. Adding fields is fine; renaming or removing requires updating all three call sites.
+3. **Visually verify panel changes.** When editing `katasPanel/katas-webview.html` or `.css`, drive the running extension with browser tools (`open_browser_page`, `read_page`, etc.) to verify rendering.
+4. **Telemetry convention.** Use `EventType.KatasPanelAction` with the `action` property (see `telemetry.ts`).
 
 ## Build and test
 
 From `source/vscode`:
 
-- `npm run build` — type-checks all tsconfigs and runs esbuild. Panel assets are copied by `build.mjs` → `copyKatasPanelAssets()`.
-- `npm run test:learning` — node:test over `tests/server.test.ts`.
+- `npm run build` — type-checks all tsconfigs and runs esbuild. Panel assets (HTML, CSS, JS) are copied by `build.mjs` → `copyKatasPanelAssets()`.
 
 # Architecture overview
 
@@ -40,7 +38,7 @@ Singleton `LearningService` — core business logic, UI-agnostic. Owns position,
 
 ## `src/katasPanel/`
 
-`KatasPanelManager` (singleton `WebviewPanel`). Bridges `postMessage` ↔ `LearningService`, watches `.navigate.json` for tree-view navigation signals, opens the associated `.qs` file in a secondary editor column. HTML/CSS assets in `katas-webview.html`/`.css`, copied to `out/` at build time.
+`KatasPanelManager` (singleton `WebviewPanel`). Bridges `postMessage` ↔ `LearningService`, watches `.navigate.json` for tree-view navigation signals, opens the associated `.qs` file in a secondary editor column. HTML/CSS/JS assets in `katas-webview.html`/`.css`/`render.js`, copied to `out/` at build time.
 
 ## `src/katasProgress/`
 

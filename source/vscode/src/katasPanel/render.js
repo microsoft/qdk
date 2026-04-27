@@ -82,8 +82,8 @@
 
   function renderSolutionCheck(result) {
     let html = result.passed
-      ? `<div class="success">✔ All tests passed!</div>`
-      : `<div class="fail">✘ Tests failed</div>`;
+      ? `<div class="success-celebration"><span class="celebration-icon">✓</span> Correct — solution verified!<button class="next-inline" data-action="next">Next exercise →</button></div>`
+      : `<div class="fail">✘ Check failed</div>`;
     html += renderEvents(result.events);
     if (result.error) {
       html += `<div class="fail">${escapeHtml(result.error)}</div>`;
@@ -139,7 +139,7 @@
           const fwd = item.filePath.replace(/\\/g, "/");
           const fileUrl =
             "file:///" + (fwd.startsWith("/") ? fwd.slice(1) : fwd);
-          body += `<p class="file-path"><a class="file-path-link" href="${escapeHtml(fileUrl)}" title="Open this example in the editor"><code>${escapeHtml(item.filePath)}</code></a><button class="copy-btn" data-copy="${escapeHtml(item.filePath)}" title="Copy path">📋</button></p>`;
+          body += `<p class="file-path">This example should be open in the editor. If it\u2019s not visible, <a class="file-path-link" href="${escapeHtml(fileUrl)}" title="Open this example in the editor">open it here</a>.</p>`;
         }
         if (item.contentAfter) body += item.contentAfter;
         return body;
@@ -150,9 +150,9 @@
         let body = `<h3>${escapeHtml(item.title)}</h3>` + item.description;
         const fwd = item.filePath.replace(/\\/g, "/");
         const fileUrl = "file:///" + (fwd.startsWith("/") ? fwd.slice(1) : fwd);
-        body += `<p class="file-path"><a class="file-path-link" href="${escapeHtml(fileUrl)}" title="Open in VS Code"><code>${escapeHtml(item.filePath)}</code></a><button class="copy-btn" data-copy="${escapeHtml(item.filePath)}" title="Copy path">📋</button></p>`;
+        body += `<p class="file-path">Your code file should be open in the editor to the right. If it\u2019s not visible, <a class="file-path-link" href="${escapeHtml(fileUrl)}" title="Open exercise file">open it here</a>.</p>`;
         if (item.isComplete) {
-          body += `<p class="success" style="margin-top:0.5rem">✔ Completed</p>`;
+          body += `<div class="completion-banner"><span class="completion-icon">✓</span> Completed</div>`;
         }
         return body;
       }
@@ -162,7 +162,7 @@
   }
 
   function renderContentLabel(position) {
-    return `${position.kataId} › ${position.sectionId} › Item ${position.itemIndex + 1}`;
+    return `${position.kataTitle || position.kataId} › ${position.sectionTitle || position.sectionId} › Item ${position.itemIndex + 1}`;
   }
 
   function renderProgressBar(progress) {
@@ -175,7 +175,7 @@
     const currentKata =
       katas && currentPosition ? katas[currentPosition.kataId] : null;
     if (currentKata) {
-      html += `<span class="pb-kata-label pb-active">${escapeHtml(currentPosition.kataId)}</span>`;
+      html += `<span class="pb-kata-label pb-active">${escapeHtml(currentPosition.kataTitle || currentPosition.kataId)}</span>`;
       html += `<span class="pb-segments">`;
       for (const sec of currentKata.sections) {
         const isCurrent = sec.id === currentPosition.sectionId;
@@ -184,7 +184,7 @@
       }
       html += `</span>`;
     } else if (currentPosition && currentPosition.kataId) {
-      html += `<span class="pb-kata-label pb-active">${escapeHtml(currentPosition.kataId)}</span>`;
+      html += `<span class="pb-kata-label pb-active">${escapeHtml(currentPosition.kataTitle || currentPosition.kataId)}</span>`;
     }
     return html;
   }

@@ -20,7 +20,7 @@ export default tseslint.config(
       "source/npm/qsharp/src/*.generated.ts",
       "source/playground/public/",
       "source/vscode/out/",
-      "source/vscode/src/learning/web/public/",
+      "source/vscode/src/katasPanel/render.js",
       "source/vscode/test/out/",
       "source/widgets/src/qsharp_widgets/static/",
       "target/",

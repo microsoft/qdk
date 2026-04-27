@@ -1568,12 +1568,10 @@
     "build:watch": "node build.mjs --watch",
     "start": "npm exec --no -- @vscode/test-web --extensionDevelopmentPath . ../../samples",
     "test": "node ./test/runTests.mjs -- ",
-    "test:learning": "node ../../node_modules/typescript/bin/tsc -p ./src/learning/tsconfig.test.json && node -e \"require('fs').writeFileSync('out/learning-test/package.json',JSON.stringify({type:'module',private:true}))\" && node --test out/learning-test/tests/server.test.js",
     "pretest": "npm exec --no playwright install chromium && node ./test/buildTests.mjs",
     "tsc:check:main": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json",
     "tsc:check:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json",
-    "tsc:check:learning": "node ../../node_modules/typescript/bin/tsc -p ./src/learning/tsconfig.json",
-    "tsc:check": "npm run tsc:check:main && npm run tsc:check:view && npm run tsc:check:learning",
+    "tsc:check": "npm run tsc:check:main && npm run tsc:check:view",
     "tsc:watch": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json --watch --preserveWatchOutput",
     "tsc:watch:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput"
   },

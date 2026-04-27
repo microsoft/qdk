@@ -24,8 +24,6 @@ import {
   exerciseDocumentSelector,
   registerLearningDecorations,
 } from "./learningService/index.js";
-// DEAD CODE: MCP server replaced by in-proc qdk-learning-* LM tools.
-// import { registerKatasMcpServer } from "./katasMcp.js";
 import { registerKatasPanelCommand } from "./katasPanel/index.js";
 import { registerKatasProgressView } from "./katasProgress/index.js";
 import { activateLanguageService } from "./language-service/activate.js";
@@ -124,10 +122,6 @@ export async function activate(
       createLearningCodeLensProvider(),
     ),
   );
-  // DEAD CODE: MCP server replaced by in-proc qdk-learning-* LM tools.
-  // The registerKatasMcpServer function and the learning/ CLI bundle are
-  // no longer called. They will be deleted in a follow-up change.
-  // context.subscriptions.push(registerKatasMcpServer(context));
   const progressWatcher = registerKatasProgressView(context);
   registerKatasPanelCommand(context, progressWatcher, learningService);
   // fire-and-forget
