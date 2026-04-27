@@ -92,6 +92,105 @@ export function runProgramInTerminal(
   }
 }
 
+/**
+ * Runs a katas exercise in a VS Code pseudoterminal by calling
+ * `checkExerciseSolution` with the full exercise sources.
+ *
+ * @param extensionUri - The URI of the extension, used for resource paths.
+ * @param userCode - The user's solution code.
+ * @param exerciseSources - The full exercise sources from getExerciseSources().
+ * @param terminalName - The name to display for the terminal.
+ */
+export function runExerciseInTerminal(
+  extensionUri: vscode.Uri,
+  userCode: string,
+  exerciseSources: string[],
+  terminalName: string,
+) {
+  clearCommandDiagnostics();
+
+  let done = false;
+  const output = new vscode.EventEmitter<string>();
+  const closeEmitter = new vscode.EventEmitter<void>();
+  let worker: ReturnType<typeof loadCompilerWorker> | undefined;
+
+  const pty: vscode.Pseudoterminal = {
+    onDidWrite: output.event,
+    onDidClose: closeEmitter.event,
+    open: async () => {
+      worker = loadCompilerWorker(extensionUri);
+      const eventTarget = createDebugConsoleEventTarget((msg) => {
+        msg = msg.replace(/\n/g, "\r\n");
+        output.fire(msg + "\r\n");
+      });
+
+      try {
+        const passed = await worker.checkExerciseSolution(
+          userCode,
+          exerciseSources,
+          eventTarget,
+        );
+
+        if (passed) {
+          output.fire("\r\nResult: exercise passed.\r\n");
+        } else {
+          output.fire("\r\nResult: exercise check failed.\r\n");
+        }
+      } catch (e) {
+        if (e && (e as Error).toString() === "terminated") {
+          output.fire("\r\nProgram cancelled.\r\n");
+        } else {
+          output.fire(
+            `\r\nError: ${e instanceof Error ? e.message : String(e)}\r\n`,
+          );
+        }
+      } finally {
+        worker.terminate();
+        worker = undefined;
+      }
+
+      output.fire("\r\nPress any key to close this terminal.\r\n");
+      done = true;
+    },
+    close: () => {
+      log.debug("Terminal closed, terminating exercise run.");
+      worker?.terminate();
+    },
+    handleInput: (data) => {
+      if (data.length > 4) {
+        log.debug("Ignoring injected terminal input:", data);
+        return;
+      }
+      if (done) {
+        log.debug("Closing terminal after exercise completion.", data);
+        closeEmitter.fire();
+      } else if (data === "\x03") {
+        worker?.terminate();
+      }
+    },
+  };
+
+  const terminal = vscode.window.createTerminal({
+    name: terminalName,
+    pty,
+    iconPath: {
+      light: vscode.Uri.joinPath(
+        extensionUri,
+        "resources",
+        "file-icon-light.svg",
+      ),
+      dark: vscode.Uri.joinPath(
+        extensionUri,
+        "resources",
+        "file-icon-dark.svg",
+      ),
+    },
+    isTransient: true,
+  });
+
+  terminal.show();
+}
+
 const enum ProgramRunStatus {
   AllShotsDone = "all shots done",
   Timeout = "timeout",

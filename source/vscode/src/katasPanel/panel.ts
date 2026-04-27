@@ -15,6 +15,7 @@ import { QscEventTarget } from "qsharp-lang";
 import { getExerciseSources } from "qsharp-lang/katas-md";
 import type { Exercise } from "qsharp-lang/katas-md";
 import { loadCompilerWorker, qsharpExtensionId } from "../common.js";
+import { runExerciseInTerminal } from "../run.js";
 import type { LearningService } from "../learningService/index.js";
 import type { ProgressWatcher } from "../katasProgress/progressReader.js";
 import {
@@ -309,26 +310,42 @@ export class KatasPanelManager {
     if (!this.service.initialized) return;
     const pos = this.service.getPosition();
 
-    let fileUri: vscode.Uri;
     if (pos.item.type === "exercise") {
-      fileUri = this.service.getExerciseFileUri();
+      const exercise = this.service.resolveExercise() as Exercise;
+      const userCode = await this.service.readUserCode();
+      const sources = await getExerciseSources(exercise);
+      const fileUri = this.service.getExerciseFileUri();
+
+      // Open the file first
+      await vscode.commands.executeCommand(
+        "vscode.open",
+        fileUri,
+        vscode.ViewColumn.Two,
+      );
+
+      runExerciseInTerminal(
+        this.extensionUri,
+        userCode,
+        sources,
+        "QDK: Run Program",
+      );
     } else if (pos.item.type === "lesson-example") {
-      fileUri = this.service.getExampleFileUri();
+      const fileUri = this.service.getExampleFileUri();
       this.service.markExampleRun(pos.item.id);
+
+      // Open the file first, then run via normal command
+      await vscode.commands.executeCommand(
+        "vscode.open",
+        fileUri,
+        vscode.ViewColumn.Two,
+      );
+      await vscode.commands.executeCommand(
+        `${qsharpExtensionId}.runProgram`,
+        fileUri,
+      );
     } else {
       throw new Error("Current item cannot be run.");
     }
-
-    // Open the file first, then run
-    await vscode.commands.executeCommand(
-      "vscode.open",
-      fileUri,
-      vscode.ViewColumn.Two,
-    );
-    await vscode.commands.executeCommand(
-      `${qsharpExtensionId}.runProgram`,
-      fileUri,
-    );
   }
 
   private async executeCircuit(): Promise<void> {
