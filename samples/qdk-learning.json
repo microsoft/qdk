@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "katasRoot": "./quantum-katas",
+  "katasRoot": "./qdk-learning-ws",
   "position": {
-    "kataId": "getting_started",
-    "sectionId": "getting_started__flip_qubit",
+    "kataId": "qubit",
+    "sectionId": "qubit__learn_single_qubit_state",
     "itemIndex": 0
   },
   "completions": {
@@ -12,6 +12,9 @@
     },
     "getting_started__getting_started__flip_qubit": {
       "completedAt": "2026-04-27T19:20:14.911Z"
+    },
+    "qubit__qubit__qsharp_data_type": {
+      "completedAt": "2026-04-27T20:13:26.936Z"
     }
   },
   "startedAt": "2026-04-27T19:19:08.205Z"

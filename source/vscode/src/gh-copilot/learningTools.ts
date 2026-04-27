@@ -55,7 +55,7 @@ export class LearningTools {
       }
     }
 
-    katasRoot = vscode.Uri.joinPath(workspaceRoot, "quantum-katas");
+    katasRoot = vscode.Uri.joinPath(workspaceRoot, "qdk-learning-ws");
 
     // Create qdk-learning.json if it doesn't exist
     const learningFile = vscode.Uri.joinPath(
@@ -68,7 +68,7 @@ export class LearningTools {
       // File doesn't exist — create it
       const defaultData = {
         version: 1,
-        katasRoot: "./quantum-katas",
+        katasRoot: "./qdk-learning-ws",
         position: { kataId: "", sectionId: "", itemIndex: 0 },
         completions: {},
         startedAt: new Date().toISOString(),

@@ -55,7 +55,7 @@ export async function detectKatasWorkspace(): Promise<
     const learningFile = vscode.Uri.joinPath(folder.uri, LEARNING_FILE);
     if (!(await uriExists(learningFile))) continue;
 
-    let katasRootRel = "./quantum-katas";
+    let katasRootRel = "./qdk-learning-ws";
     try {
       const bytes = await vscode.workspace.fs.readFile(learningFile);
       const raw = new TextDecoder("utf-8").decode(bytes);

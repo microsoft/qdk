@@ -18,8 +18,8 @@ async function createServer(
   await s.initialize({
     kataIds,
     learningFilePath: join(workspacePath, "qdk-learning.json"),
-    katasRoot: join(workspacePath, "quantum-katas"),
-    katasRootRel: "./quantum-katas",
+    katasRoot: join(workspacePath, "qdk-learning-ws"),
+    katasRootRel: "./qdk-learning-ws",
     aiProvider: new NoOpAIProvider(),
   });
   return s;

@@ -25,8 +25,7 @@ samples/scratch/
 *.pyd
 /python_doc/
 
-# Scaffolded at runtime by the learning CLI / katas MCP server when
-# invoked without an explicit --workspace. Can appear anywhere the CLI
-# is run from; never source-controlled.
-quantum-katas/
-!source/vscode/skills/quantum-katas/
+# Scaffolded at runtime by the QDK Learning experience. Can appear
+# anywhere the learning tools are invoked; never source-controlled.
+qdk-learning-ws/
+qdk-learning.json

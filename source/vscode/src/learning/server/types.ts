@@ -52,7 +52,7 @@ export interface InitConfig {
   katasRoot: string;
   /**
    * Relative katasRoot value to persist back into `qdk-learning.json`.
-   * Typically `"./quantum-katas"`.
+   * Typically `"./qdk-learning-ws"`.
    */
   katasRootRel: string;
   /** Optional AI provider for intelligent features */

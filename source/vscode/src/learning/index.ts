@@ -76,7 +76,7 @@ if ([useWeb, useMcpStdio, useMcpHttp].filter(Boolean).length > 1) {
 
 const port = parseInt(values.port ?? "3000", 10);
 const LEARNING_FILE = "qdk-learning.json";
-const DEFAULT_KATAS_ROOT = "./quantum-katas";
+const DEFAULT_KATAS_ROOT = "./qdk-learning-ws";
 
 // In MCP mode we defer initialization until the agent calls `init` —
 // so the raw CLI values are handed through without resolving a default.

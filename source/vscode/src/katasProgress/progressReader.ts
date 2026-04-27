@@ -26,7 +26,7 @@ function completionKey(kataId: string, sectionId: string): string {
 function emptyProgressFile(): ProgressFileData {
   return {
     version: 1,
-    katasRoot: "./quantum-katas",
+    katasRoot: "./qdk-learning-ws",
     position: { kataId: "", sectionId: "", itemIndex: 0 },
     completions: {},
     startedAt: new Date().toISOString(),

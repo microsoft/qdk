@@ -411,7 +411,7 @@ export async function registerMCPHandlers(
           .string()
           .optional()
           .describe(
-            'Relative path from workspacePath to the katas content folder (exercises, examples). Defaults to "./quantum-katas".',
+            'Relative path from workspacePath to the katas content folder (exercises, examples). Defaults to "./qdk-learning-ws".',
           ),
         kataIds: z
           .array(z.string())
@@ -428,7 +428,7 @@ export async function registerMCPHandlers(
         );
       }
       const resolved = resolve(workspacePath);
-      const katasRootRel = katasRootArg ?? "./quantum-katas";
+      const katasRootRel = katasRootArg ?? "./qdk-learning-ws";
       const learningFilePath = join(resolved, LEARNING_FILE);
       const resolvedKatasRoot = resolve(resolved, katasRootRel);
 
