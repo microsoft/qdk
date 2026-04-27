@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::vec;
 
 use qsc_data_structures::error::WithSource;
+use qsc_data_structures::target::Profile;
 use qsc_frontend::compile::PackageStore;
 use qsc_hir::hir::PackageId;
 use qsc_openqasm_compiler::compiler::parse_and_compile_to_qsharp_ast_with_config;
@@ -56,7 +57,17 @@ pub struct CompileRawQasmResult(
 
 #[must_use]
 pub fn compile_openqasm(unit: QasmCompileUnit, package_type: PackageType) -> CompileRawQasmResult {
-    let (source_map, openqasm_errors, package, sig, profile) = unit.into_tuple();
+    compile_openqasm_with_profile_override(unit, package_type, None)
+}
+
+#[must_use]
+pub fn compile_openqasm_with_profile_override(
+    unit: QasmCompileUnit,
+    package_type: PackageType,
+    profile_override: Option<Profile>,
+) -> CompileRawQasmResult {
+    let (source_map, openqasm_errors, package, sig, pragma_profile) = unit.into_tuple();
+    let profile = profile_override.unwrap_or(pragma_profile.unwrap_or(Profile::Unrestricted));
 
     let (stdid, mut store) = package_store_with_stdlib(profile.into());
     let dependencies = vec![(PackageId::CORE, None), (stdid, None)];

@@ -252,7 +252,7 @@ impl Compilation {
         );
         let res = qsc::openqasm::semantic::parse_sources(&sources);
         let unit = compile_to_qsharp_ast_with_config(res, config);
-        let target_profile = unit.profile();
+        let target_profile = unit.profile().unwrap_or(Profile::Unrestricted);
         let CompileRawQasmResult(store, source_package_id, _, _sig, mut compile_errors) =
             qsc::openqasm::compile_openqasm(unit, package_type);
 
@@ -413,7 +413,34 @@ fn run_fir_passes(
         return;
     }
 
-    let (fir_store, fir_package_id) = qsc::lower_hir_to_fir(package_store, package_id);
+    let (mut fir_store, fir_package_id, _assigner) =
+        qsc::lower_hir_to_fir(package_store, package_id);
+
+    // Run FIR transforms (monomorphize, defunctionalize, etc.) before capability checking.
+    // This matches the codegen pipeline ordering in qsc/src/codegen.rs.
+    // The transforms require an entry expression (defunctionalize uses reachability from entry),
+    // so only run when the package has one.
+    if fir_store.get(fir_package_id).entry.is_some() {
+        // CONTRACT: On success, `run_pipeline` produces FIR satisfying `InvariantLevel::PostAll`:
+        //   - No `Ty::Param` in reachable code (monomorphization completed).
+        //   - No `ExprKind::Return` in reachable code (return unification completed).
+        //   - No `Ty::Arrow` params / `ExprKind::Closure` (defunctionalization completed).
+        //   - No `Ty::Udt` / `ExprKind::Struct` / `Field::Path` (UDT erasure completed).
+        //   - All exec-graph ranges populated (exec-graph rebuild completed).
+        // RCA (capability checking) assumes these invariants hold. See
+        // `qsc_fir_transforms::invariants::check` for the authoritative checker.
+        let transform_errors = qsc::fir_transforms::run_pipeline(&mut fir_store, fir_package_id);
+        if !transform_errors.is_empty() {
+            for err in transform_errors {
+                errors.push(WithSource::from_map(
+                    &unit.sources,
+                    compile::ErrorKind::FirTransform(err),
+                ));
+            }
+            return; // Don't run RCA on invalid FIR
+        }
+    }
+
     let caps_results =
         PassContext::run_fir_passes_on_fir(&fir_store, fir_package_id, target_profile.into());
     if let Err(caps_errors) = caps_results {

@@ -31,6 +31,7 @@ use qsc::{
         compiler::parse_and_compile_to_qsharp_ast_with_config, io::InMemorySourceResolver,
     },
     packages::BuildableProgram,
+    target::Profile,
 };
 use qsc_project::{FileSystem, ProjectType, StdFs};
 
@@ -124,6 +125,7 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
         config,
     );
     let (source_map, errors, package, sig, profile) = unit.into_tuple();
+    let profile = profile.unwrap_or(Profile::Unrestricted);
     assert!(errors.is_empty(), "QASM compilation failed: {errors:?}");
 
     let Some(signature) = sig else {

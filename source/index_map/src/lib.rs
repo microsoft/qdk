@@ -121,6 +121,21 @@ impl<K: Into<usize>, V> IndexMap<K, V> {
         self.values[index] = Some(value);
     }
 
+    /// Inserts a value at the given index only if no value is already present.
+    /// Returns `true` if the value was inserted, `false` if a value already existed.
+    pub fn insert_if_absent(&mut self, key: K, value: V) -> bool {
+        let index = key.into();
+        if index >= self.values.len() {
+            self.values.resize_with(index + 1, || None);
+        }
+        if self.values[index].is_none() {
+            self.values[index] = Some(value);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn contains_key(&self, key: K) -> bool {
         let index: usize = key.into();
         self.values.get(index).is_some_and(Option::is_some)
@@ -337,5 +352,36 @@ impl IndexMut<usize> for IndexMap<usize, usize> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         self.get_mut(index)
             .expect("IndexMap::index_mut: index out of bounds")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insert_if_absent_into_empty_returns_true() {
+        let mut map: IndexMap<usize, i32> = IndexMap::new();
+        assert!(map.insert_if_absent(0, 42));
+        assert_eq!(*map.get(0).expect("IndexMap::get: index out of bounds"), 42);
+    }
+
+    #[test]
+    fn insert_if_absent_occupied_returns_false_preserves_original() {
+        let mut map: IndexMap<usize, i32> = IndexMap::new();
+        map.insert(0, 42);
+        assert!(!map.insert_if_absent(0, 99));
+        assert_eq!(*map.get(0).expect("IndexMap::get: index out of bounds"), 42);
+    }
+
+    #[test]
+    fn insert_if_absent_extends_capacity_for_sparse_key() {
+        let mut map: IndexMap<usize, i32> = IndexMap::new();
+        assert!(map.insert_if_absent(100, 7));
+        assert_eq!(
+            *map.get(100).expect("IndexMap::get: index out of bounds"),
+            7
+        );
+        assert!(!map.contains_key(0));
     }
 }

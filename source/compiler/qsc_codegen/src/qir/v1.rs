@@ -220,7 +220,8 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Sub(lhs, rhs, variable) => {
                 binop_to_qir("sub", lhs, rhs, *variable, program)
             }
-            rir::Instruction::Alloca(..)
+            rir::Instruction::Frem(..)
+            | rir::Instruction::Alloca(..)
             | rir::Instruction::Load(..)
             | rir::Instruction::Index(..) => {
                 unimplemented!("advanced instructions are not supported in QIR v1 generation")

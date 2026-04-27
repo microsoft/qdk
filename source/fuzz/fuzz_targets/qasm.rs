@@ -52,7 +52,7 @@ fn compile(data: &[u8]) {
                 package,
                 sources,
                 PackageType::Lib,
-                profile.into(),
+                profile.unwrap_or(Profile::Unrestricted).into(),
             );
         });
     }

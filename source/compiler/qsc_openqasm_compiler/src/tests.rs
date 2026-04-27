@@ -188,7 +188,12 @@ fn compile_qasm_to_qir(source: &str) -> Result<String, Vec<Report>> {
     let unit = compile(source)?;
     fail_on_compilation_errors(&unit);
     let package = unit.package;
-    let qir = generate_qir_from_ast(package, unit.source_map, unit.profile).map_err(|errors| {
+    let qir = generate_qir_from_ast(
+        package,
+        unit.source_map,
+        unit.profile.unwrap_or(Profile::Unrestricted),
+    )
+    .map_err(|errors| {
         errors
             .iter()
             .map(|e| Report::new(e.clone()))
@@ -216,6 +221,7 @@ fn compile_qasm_best_effort(source: &str) {
         config,
     );
     let (sources, _, package, _, profile) = unit.into_tuple();
+    let profile = profile.unwrap_or(Profile::Unrestricted);
 
     let (stdid, store) = package_store_with_stdlib(profile.into());
     let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
@@ -413,7 +419,7 @@ fn verify_qsharp_from_qasm_source(
 
 /// Verifies a Q# AST package (with namespaces) compiles through the Q# compiler.
 fn verify_qsharp_ast(unit: &QasmCompileUnit) -> miette::Result<(), Vec<Report>> {
-    let capabilities = unit.profile.into();
+    let capabilities = unit.profile.unwrap_or(Profile::Unrestricted).into();
     let (stdid, store) = package_store_with_stdlib(capabilities);
     let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
     let (_compiled, errors) = compile_ast(

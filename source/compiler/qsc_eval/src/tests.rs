@@ -213,6 +213,31 @@ fn block_empty_is_unit_expr() {
 }
 
 #[test]
+fn qubit_array_length_expr() {
+    check_expr(
+        "",
+        indoc! {"{
+            use qs = Qubit[4];
+            Length(qs)
+        }"},
+        &expect!["4"],
+    );
+}
+
+#[test]
+fn qubit_array_chunks_expr() {
+    check_expr(
+        "",
+        indoc! {"{
+            use qs = Qubit[4];
+            let chunks = Std.Arrays.Chunks(2, qs);
+            Length(chunks[0])
+        }"},
+        &expect!["2"],
+    );
+}
+
+#[test]
 fn block_shadowing_expr() {
     check_expr(
         "",
