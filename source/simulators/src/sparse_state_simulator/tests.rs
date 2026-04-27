@@ -721,3 +721,49 @@ fn test_global_phase_dropped_when_all_qubits_released() {
     assert_eq!(index, &BigUint::zero());
     assert_eq!(value, &Complex64::one());
 }
+
+#[test]
+fn test_apply_four_qubit_unitary() {
+    let mut sim = SparseStateSim::default();
+    let qs: Vec<usize> = (0..4).map(|_| sim.allocate()).collect();
+
+    let mut unitary = Array2::eye(16);
+    unitary.swap((0, 0), (0, 1));
+    unitary.swap((1, 0), (1, 1));
+
+    sim.apply(&unitary, &qs, None);
+
+    assert!(sim.qubit_is_zero(qs[0]));
+    assert!(sim.qubit_is_zero(qs[1]));
+    assert!(sim.qubit_is_zero(qs[2]));
+    assert!(almost_equal(sim.joint_probability(&[qs[3]]), 1.0));
+}
+
+/// Verifies that permutation works correctly on four qubits.
+#[test]
+fn test_apply_permutation_four_qubits() {
+    let mut sim = SparseStateSim::new(None);
+    let q0 = sim.allocate();
+    let q1 = sim.allocate();
+    let q2 = sim.allocate();
+    let q3 = sim.allocate();
+
+    // Create a superposition with four qubits
+    sim.h(q0);
+    sim.h(q1);
+    sim.mcx(&[q0, q1], q2);
+    sim.mcx(&[q1], q3);
+
+    // Create a permutation that reverses the bit order: |abcd⟩ → |dcba⟩
+    // For 4 qubits, this is: 0→0, 1→8, 2→4, 3→12, 4→2, 5→10, 6→6, 7→14, 8→1, 9→9, 10→5, 11→13, 12→3, 13→11, 14→7, 15→15
+    let perm = Array1::from_vec(vec![0, 8, 4, 12, 2, 10, 6, 14, 1, 9, 5, 13, 3, 11, 7, 15]);
+    sim.apply_permutation(&perm, &[q0, q1, q2, q3]);
+
+    // State should still be normalized
+    let (state, _) = sim.get_state();
+    let norm: f64 = state.iter().map(|(_, amp)| amp.norm_sqr()).sum();
+    assert!(almost_equal(norm, 1.0));
+
+    // Verify the state is not empty
+    assert!(!state.is_empty());
+}

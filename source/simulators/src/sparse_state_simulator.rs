@@ -13,7 +13,7 @@ mod matrix_testing;
 mod tests;
 
 use index_map::IndexMap;
-use ndarray::{Array2, s};
+use ndarray::{Array1, Array2, s};
 use nearly_zero::NearlyZero;
 use num_bigint::BigUint;
 use num_complex::Complex64;
@@ -1287,6 +1287,63 @@ impl SparseStateSim {
             !self.state.is_empty(),
             "State vector should never be empty."
         );
+    }
+
+    /// Applies a permutation transformation to the state vector on the given target qubits.
+    /// The permutation array maps basis state indices to new indices. If `permutation[i] = j`,
+    /// then the basis state |i⟩ on the target qubits is mapped to position j.
+    /// # Panics
+    ///
+    /// This function will panic if the permutation array length does not match 2^(number of targets).
+    /// This function will panic if given ids in targets that do not correspond to allocated qubits,
+    /// or if there are duplicate ids in targets.
+    pub fn apply_permutation(&mut self, permutation: &Array1<usize>, targets: &[usize]) {
+        assert!(
+            permutation.len() == 1_usize << targets.len(),
+            "size mismatch."
+        );
+
+        Self::check_for_duplicates(targets);
+        self.flush_queue(targets, FlushLevel::HRxRy);
+
+        // Get the internal positions of the target qubits
+        let target_positions: Vec<u64> = targets
+            .iter()
+            .map(|id| {
+                *self
+                    .id_map
+                    .get(*id)
+                    .unwrap_or_else(|| panic!("Unable to find qubit with id {id}"))
+                    as u64
+            })
+            .collect();
+
+        let mut new_state = SparseStateMap::default();
+
+        for (mut index, value) in self.state.drain(..) {
+            // Extract bits from target positions
+            let mut old_bits = BigUint::zero();
+            for (i, &pos) in target_positions.iter().enumerate() {
+                if index.bit(pos) {
+                    old_bits.set_bit(i as u64, true);
+                }
+            }
+
+            // Look up permutation
+            let old_bits_usize = old_bits.to_usize().expect("Permutation index out of range");
+            let new_bits_usize = permutation[old_bits_usize];
+
+            // Update index with permuted bits at target positions
+            for (i, &pos) in target_positions.iter().enumerate() {
+                let new_bit = (new_bits_usize >> i) & 1 == 1;
+                index.set_bit(pos, new_bit);
+            }
+
+            // Insert into new state. Since a permutation is a bijection, each input maps to a unique output.
+            new_state.insert(index, value);
+        }
+
+        self.state = new_state.drain().collect();
     }
 }
 
