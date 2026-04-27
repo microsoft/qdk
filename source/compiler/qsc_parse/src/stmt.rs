@@ -160,7 +160,7 @@ fn parse_qubit(s: &mut ParserContext) -> Result<Box<StmtKind>> {
 }
 
 fn parse_qubit_init(s: &mut ParserContext) -> Result<Box<QubitInit>> {
-    let help_text = "to allocate qubits, use syntax like `use q = Qubit();`, `use qs = Qubit[N];`, `use m = MemoryQubit();`, or `use (q1, q2) = (Qubit(), Qubit());`";
+    let help_text = "to allocate qubits, use syntax like `use q = Qubit();`, `use qs = Qubit[N];`, or `use (q1, q2) = (Qubit(), Qubit());`";
     let lo = s.peek().span.lo;
     s.expect(WordKinds::Qubit);
     let kind = if let Ok(name) = ident(s) {

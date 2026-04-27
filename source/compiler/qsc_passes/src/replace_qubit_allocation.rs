@@ -61,7 +61,7 @@ impl<'a> ReplaceQubitAllocation<'a> {
                 QubitInitKind::MemoryArray(e) => Some((true, Some(take(e)))),
                 QubitInitKind::MemorySingle => Some((true, None)),
                 QubitInitKind::Tuple(_) => None,
-                QubitInitKind::Err => unreachable!("QubitInitKind::Err should have been caught by parser"),
+                QubitInitKind::Err => panic!("QubitInitKind::Err"),
             }
         }
 
@@ -204,7 +204,7 @@ impl<'a> ReplaceQubitAllocation<'a> {
                 };
                 (tuple_expr, ids)
             }
-            QubitInitKind::Err => unreachable!("QubitInitKind::Err should have been caught by parser"),
+            QubitInitKind::Err => panic!("QubitInitKind::Err"),
         }
     }
 
@@ -576,7 +576,7 @@ fn create_qubit_global_alloc(
                         .collect(),
                 ),
             },
-            QubitInitKind::Err => unreachable!("QubitInitKind::Err should have been caught by parser"),
+            QubitInitKind::Err => panic!("QubitInitKind::Err"),
         }
     }
 

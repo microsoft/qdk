@@ -51,16 +51,15 @@ pub fn test_compile_fails(expr: &str, lib: &str, expected_error_substring: &str)
 
     let (std_id, store) = qsc::compile::package_store_with_stdlib(profile.into());
 
-    let compile_errors = match Interpreter::new(
+    let Err(compile_errors) = Interpreter::new(
         sources,
         PackageType::Exe,
         profile.into(),
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
-    ) {
-        Ok(_) => panic!("test should fail to compile"),
-        Err(errors) => errors,
+    ) else {
+        panic!("test should fail to compile")
     };
 
     let error = compile_errors
