@@ -8,20 +8,8 @@ use qsc::interpret::Value;
 
 #[test]
 fn check_xor() {
-    test_expression(
-        "Std.Logical.Xor(false, false)",
-        &Value::Bool(false),
-    );
-    test_expression(
-        "Std.Logical.Xor(false, true)",
-        &Value::Bool(true),
-    );
-    test_expression(
-        "Std.Logical.Xor(true, false)",
-        &Value::Bool(true),
-    );
-    test_expression(
-        "Std.Logical.Xor(true, true)",
-        &Value::Bool(false),
-    );
+    test_expression("Std.Logical.Xor(false, false)", &Value::Bool(false));
+    test_expression("Std.Logical.Xor(false, true)", &Value::Bool(true));
+    test_expression("Std.Logical.Xor(true, false)", &Value::Bool(true));
+    test_expression("Std.Logical.Xor(true, true)", &Value::Bool(false));
 }

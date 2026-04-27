@@ -219,18 +219,12 @@ fn check_result_array_as_int() {
 
 #[test]
 fn check_result_zero_as_bool() {
-    test_expression(
-        "Std.Convert.ResultAsBool(Zero)",
-        &Value::Bool(false),
-    );
+    test_expression("Std.Convert.ResultAsBool(Zero)", &Value::Bool(false));
 }
 
 #[test]
 fn check_result_one_as_bool() {
-    test_expression(
-        "Std.Convert.ResultAsBool(One)",
-        &Value::Bool(true),
-    );
+    test_expression("Std.Convert.ResultAsBool(One)", &Value::Bool(true));
 }
 
 #[test]
@@ -251,18 +245,12 @@ fn check_result_array_as_bool_array() {
 
 #[test]
 fn check_bool_true_as_result() {
-    test_expression(
-        "Std.Convert.BoolAsResult(true)",
-        &Value::RESULT_ONE,
-    );
+    test_expression("Std.Convert.BoolAsResult(true)", &Value::RESULT_ONE);
 }
 
 #[test]
 fn check_bool_false_as_result() {
-    test_expression(
-        "Std.Convert.BoolAsResult(false)",
-        &Value::RESULT_ZERO,
-    );
+    test_expression("Std.Convert.BoolAsResult(false)", &Value::RESULT_ZERO);
 }
 
 #[test]

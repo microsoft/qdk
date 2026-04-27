@@ -362,18 +362,9 @@ fn check_index_of() {
 
 #[test]
 fn check_index_range() {
-    test_expression(
-        "Std.Arrays.IndexRange([7,6,5,4])::Start",
-        &Value::Int(0),
-    );
-    test_expression(
-        "Std.Arrays.IndexRange([7,6,5,4])::Step",
-        &Value::Int(1),
-    );
-    test_expression(
-        "Std.Arrays.IndexRange([7,6,5,4])::End",
-        &Value::Int(3),
-    );
+    test_expression("Std.Arrays.IndexRange([7,6,5,4])::Start", &Value::Int(0));
+    test_expression("Std.Arrays.IndexRange([7,6,5,4])::Step", &Value::Int(1));
+    test_expression("Std.Arrays.IndexRange([7,6,5,4])::End", &Value::Int(3));
 }
 
 #[test]
@@ -408,10 +399,7 @@ fn check_is_empty() {
         &Value::Bool(true),
     );
     test_expression("Std.Arrays.IsEmpty([1])", &Value::Bool(false));
-    test_expression(
-        "Std.Arrays.IsEmpty([1, 2, 3, 4, 5])",
-        &Value::Bool(false),
-    );
+    test_expression("Std.Arrays.IsEmpty([1, 2, 3, 4, 5])", &Value::Bool(false));
 }
 
 #[test]
@@ -423,10 +411,7 @@ fn check_is_rectangular_array() {
         }",
         &Value::Bool(true),
     );
-    test_expression(
-        "Std.Arrays.IsRectangularArray([[1]])",
-        &Value::Bool(true),
-    );
+    test_expression("Std.Arrays.IsRectangularArray([[1]])", &Value::Bool(true));
     test_expression(
         "Std.Arrays.IsRectangularArray([[1, 2], [3, 4]])",
         &Value::Bool(true),
@@ -481,10 +466,7 @@ fn check_is_square_array() {
         }",
         &Value::Bool(true),
     );
-    test_expression(
-        "Std.Arrays.IsSquareArray([[1]])",
-        &Value::Bool(true),
-    );
+    test_expression("Std.Arrays.IsSquareArray([[1]])", &Value::Bool(true));
     test_expression(
         "Std.Arrays.IsSquareArray([[1, 2], [3, 4]])",
         &Value::Bool(true),
