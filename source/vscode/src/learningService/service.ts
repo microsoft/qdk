@@ -24,6 +24,10 @@ import type {
   Solution,
   ContentItem,
 } from "qsharp-lang/katas-md";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - there are no types for this
+import mk from "@vscode/markdown-it-katex";
+import markdownIt from "markdown-it";
 import { loadCompilerWorker } from "../common.js";
 import type {
   Position,
@@ -85,7 +89,7 @@ export class LearningService {
   private katasRoot!: vscode.Uri;
   private learningFile!: vscode.Uri;
   private katasRootRel = "./quantum-katas";
-  private renderMarkdown: (input: string) => string = (s) => s;
+  private renderMarkdown: (input: string) => string;
 
   // ── Progress data (mirrors qdk-learning.json) ──
   private progressData!: ProgressFileData;
@@ -96,7 +100,15 @@ export class LearningService {
   private readonly _onDidChangeState = new vscode.EventEmitter<LearningState>();
   readonly onDidChangeState = this._onDidChangeState.event;
 
-  constructor(private readonly extensionUri: vscode.Uri) {}
+  constructor(private readonly extensionUri: vscode.Uri) {
+    // Set up markdown-it + KaTeX renderer (same pipeline as the API docs panel)
+    const md = markdownIt("commonmark");
+    md.use(mk, {
+      enableMathBlockInHtml: true,
+      enableMathInlineInHtml: true,
+    });
+    this.renderMarkdown = (input: string) => md.render(input);
+  }
 
   get initialized(): boolean {
     return this._initialized;
@@ -107,11 +119,9 @@ export class LearningService {
   async initialize(
     workspaceRoot: vscode.Uri,
     katasRoot: vscode.Uri,
-    renderMarkdown?: (input: string) => string,
   ): Promise<void> {
     this.workspaceRoot = workspaceRoot;
     this.katasRoot = katasRoot;
-    if (renderMarkdown) this.renderMarkdown = renderMarkdown;
     this.learningFile = vscode.Uri.joinPath(workspaceRoot, "qdk-learning.json");
 
     // Read katasRootRel from the learning file if it exists

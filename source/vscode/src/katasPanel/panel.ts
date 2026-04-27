@@ -14,10 +14,6 @@ import * as vscode from "vscode";
 import { QscEventTarget } from "qsharp-lang";
 import { getExerciseSources } from "qsharp-lang/katas-md";
 import type { Exercise } from "qsharp-lang/katas-md";
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore - there are no types for this
-import mk from "@vscode/markdown-it-katex";
-import markdownIt from "markdown-it";
 import { loadCompilerWorker, qsharpExtensionId } from "../common.js";
 import type { LearningService } from "../learningService/index.js";
 import type { ProgressWatcher } from "../katasProgress/progressReader.js";
@@ -26,16 +22,6 @@ import {
   NAVIGATE_FILE,
 } from "../katasProgress/detector.js";
 import type { SolutionCheckResult } from "../learningService/types.js";
-
-// ─── Markdown + KaTeX renderer (same pipeline as the API docs panel) ───
-const md = markdownIt("commonmark");
-md.use(mk, {
-  enableMathBlockInHtml: true,
-  enableMathInlineInHtml: true,
-});
-function renderMarkdown(input: string): string {
-  return md.render(input);
-}
 
 let instance: KatasPanelManager | undefined;
 
@@ -73,11 +59,7 @@ export class KatasPanelManager {
 
     // Initialize the shared service if needed
     if (!this.service.initialized) {
-      await this.service.initialize(
-        info.workspaceRoot,
-        info.katasRoot,
-        renderMarkdown,
-      );
+      await this.service.initialize(info.workspaceRoot, info.katasRoot);
     }
 
     // Create webview panel
