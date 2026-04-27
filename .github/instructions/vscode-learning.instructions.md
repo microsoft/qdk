@@ -1,74 +1,53 @@
 ---
-applyTo: "source/vscode/src/learning/**,source/vscode/src/katasMcp.ts,source/vscode/src/katasProgress/**,source/vscode/agents/qdk-learning.agent.md"
-description: "Q# Quantum Katas MCP server, TUI, web UI, and progress activity-bar panel embedded in the VS Code extension."
+applyTo: "source/vscode/src/learningService/**,source/vscode/src/katasPanel/**,source/vscode/src/gh-copilot/learningTools.ts,source/vscode/src/learning/**,source/vscode/src/katasMcp.ts,source/vscode/src/katasProgress/**,source/vscode/agents/qdk-learning.agent.md"
+description: "Use when editing the Quantum Katas learning experience: LearningService, LM tools, webview panel, activity-bar progress tree, or the qdk-learning agent file."
 ---
 
-# source/vscode/src/learning
+# Key rules
 
-This folder builds a single Node bundle (`out/learning/index.js`) that provides four front-ends over one shared `KatasServer`:
-
-- **MCP stdio** — `node out/learning/index.js --mcp`. Launched by the extension via `vscode.lm.registerMcpServerDefinitionProvider` (see [`src/katasMcp.ts`](../../source/vscode/src/katasMcp.ts)).
-- **MCP HTTP** — `node out/learning/index.js --mcp-http --port <P>` (Streamable HTTP at `/mcp`). Used for smoke tests.
-- **Web UI** — `node out/learning/index.js --web --port <P>` serves the standalone app at `/` and an MCP-widget preview at `/widget`.
-- **TUI** — `node out/learning/index.js` (interactive terminal; requires a real TTY).
-
-Use `--workspace <path>` to control where exercise `.qs` files and `qdk-learning.json` are scaffolded. Without it, the CWD is used (gitignored repo-wide).
+1. **Dead code — do not extend.** `src/learning/`, `src/katasMcp.ts`, and `katasPanel/engine.ts` are dead code (marked `// DEAD CODE` throughout, will be deleted). Never add functionality there; work in `learningService/`, `gh-copilot/learningTools.ts`, or `katasPanel/` instead.
+2. **Keep the agent file in sync.** [`agents/qdk-learning.agent.md`](../../source/vscode/agents/qdk-learning.agent.md) documents LM tools for the QDK Learning agent. When changing anything user-visible in `learningTools.ts` or `katasPanel/`, update the agent file in the same change.
+3. **Detector is shared.** `katasProgress/detector.ts` is the single source of truth for workspace detection. It is consumed by `LearningTools.init()`, `KatasPanelManager`, and `ProgressWatcher`. Adding fields is fine; renaming or removing requires updating all three call sites.
+4. **Visually verify panel changes.** When editing `katasPanel/katas-webview.html` or `.css`, drive the running extension with browser tools (`open_browser_page`, `read_page`, etc.) to verify rendering.
+5. **Telemetry convention.** Use `EventType.KatasPanelAction` with the `action` property (see `telemetry.ts`).
 
 ## Build and test
 
 From `source/vscode`:
 
-- `npm run build` — type-checks all three tsconfigs and runs esbuild's `learning-cli` platform. Asset copy (widget HTML, `web/public/`) happens in `build.mjs` → `copyLearningAssets()`.
-- `npm run test:learning` — node:test over `tests/server.test.ts` (31 tests).
-- **Restart the web server after every rebuild.** It caches the inlined widget HTML in memory on first request.
+- `npm run build` — type-checks all tsconfigs and runs esbuild. Panel assets are copied by `build.mjs` → `copyKatasPanelAssets()`.
+- `npm run test:learning` — node:test over `tests/server.test.ts`.
 
-## Runtime dependencies
+# Architecture overview
 
-- `qsharp-lang` is consumed from the in-repo workspace (`source/npm/qsharp`), **not** npmjs. `server/compiler.ts` explicitly calls `loadWasmModule()` on `qsharp-lang/lib/nodejs/qsc_wasm_bg.wasm` before `getCompiler()`.
-- The bundle is ESM (`src/learning/package.json` + `out/learning/package.json` both set `"type": "module"`). Do not introduce CommonJS-only dependencies.
+Everything runs **in-process** inside the extension host. No out-of-process servers.
 
-## Path resolution
-
-`__dirname` differs between dev (tsx from source) and the bundle (`out/learning/`). When loading assets, probe the bundled layout first and fall back to the source layout:
-
-```ts
-const sharedDir = existsSync(join(__dirname, "web", "public", "shared"))
-  ? join(__dirname, "web", "public", "shared")
-  : join(__dirname, "..", "web", "public", "shared");
+```
+extension.ts
+  → LearningService(extensionUri)            # singleton, owns all state
+  → registerLanguageModelTools(ctx, service)  # wraps service as vscode.lm tools
+  → registerKatasProgressView(ctx)            # activity-bar tree + ProgressWatcher
+  → registerKatasPanelCommand(ctx, watcher, service)  # full-size webview panel
 ```
 
-Bundled layout: `out/learning/{index.js,widget/app.html,web/public/**}`.
+## `src/learningService/`
 
-## UI changes need visual verification
+Singleton `LearningService` — core business logic, UI-agnostic. Owns position, progress, `.qs` file scaffolding. Uses `QscEventTarget` + `loadCompilerWorker` for run/circuit/check. Fires `onDidChangeState` after every mutation so UIs stay in sync.
 
-When editing anything under `web/public/` or `mcp/widget/`, drive the running web server with the browser tools (`open_browser_page`, `read_page`, `click_element`, `run_playwright_code`). Prefer element refs from `read_page` over CSS selectors. For the TUI, a launch smoke test is enough — stdin is hard to automate.
+## `src/gh-copilot/learningTools.ts`
 
-## Keep the agent in sync
+`LearningTools` wraps `LearningService` as `vscode.lm` language-model tools (registered via `registerLanguageModelTools` in `tools.ts`). All methods return `{ result?, state }` with state serialized compactly (current kata only). Most methods auto-reveal the webview panel via `openPanel()`. Throws `CopilotToolError` for user-facing errors. `circuit()` and `estimate()` delegate to `QSharpTools`.
 
-[`source/vscode/agents/qdk-learning.agent.md`](../../source/vscode/agents/qdk-learning.agent.md) documents the MCP tools for the QDK Learning agent. When you change anything user-visible in `mcp/server.ts` or `mcp/widget/app.html`, update the agent file in the same change.
+## `src/katasPanel/`
 
-# source/vscode/src/katasProgress
+`KatasPanelManager` (singleton `WebviewPanel`). Bridges `postMessage` ↔ `LearningService`, watches `.navigate.json` for tree-view navigation signals, opens the associated `.qs` file in a secondary editor column. HTML/CSS assets in `katas-webview.html`/`.css`, copied to `out/` at build time.
 
-The activity-bar **Quantum Katas** panel: a `WebviewView` overview on top of a native `TreeView` of katas/sections, both fed by a `FileSystemWatcher` over `<workspaceRoot>/qdk-learning.json`. This panel is independent of the MCP/web/TUI bundle above — it runs in the extension host and only reads the progress file written by `KatasServer`.
+## `src/katasProgress/`
 
-- **`detector.ts`** — single source of truth for "is there a katas workspace, and where is it?". Scans each open `vscode.workspace.workspaceFolders` for an existing `qdk-learning.json`. Returns `{ workspaceRoot, katasRoot, learningFile, katasDirExists }`. **Also used by [`src/katasMcp.ts`](../../source/vscode/src/katasMcp.ts)** to launch the MCP server with `--workspace` and skip the chat-side `init` round-trip.
-- **`progressReader.ts`** — `ProgressWatcher` runs the detector, watches `qdk-learning.json`, parses it against the catalog, exposes `lastSnapshot` + `onDidChange`, and maintains the `qsharp-vscode.katasDetected` context key (drives view welcome content).
-- **`catalog.ts`** — pulls the kata list dynamically from `qsharp-lang/katas-md` (`getAllKatas()`) so the panel never hardcodes content. Cached. `RECOMMENDED_ORDER` controls display order.
-- **`treeProvider.ts`** — kata → section nodes. **No `item.command`** — clicking a node is a no-op by design. Each tree item exposes a `contextValue` (`kata` | `lessonSection` | `exerciseSection`) for the inline chat-bubble action.
-- **`overviewProvider.ts`** — a `WebviewViewProvider` with two states: a **landing page** (welcome + Get started) when no katas workspace is detected, and a **tracker** (animated progress ring, "up next" card, contextual encouragement, Continue button) once one is. CSP+nonce, no external assets, all messages go through `postMessage` (`ready` / `continue` / `setup`).
-- **`commands.ts`** — registers `qsharp-vscode.katasRefresh`, `katasContinue`, `katasOpenSection`, `katasAskInChat`. Exercise actions open the scaffolded `.qs` file directly; lesson actions and `katasAskInChat` open the chat view (`workbench.action.chat.open`) with a pre-built prompt that activates the `QDK Learning` agent.
-- **`index.ts`** — `registerKatasProgressView(context)` wires the watcher → tree + webview + commands. Called from `extension.ts` after `registerKatasMcpServer(context)`.
+Activity-bar sidebar — a native `TreeView` fed by `ProgressWatcher` over `qdk-learning.json`.
 
-When changing the panel:
-
-- The detector contract is shared with `katasMcp.ts`. Adding fields is fine; renaming or removing requires updating both call sites and the eager-init path in `learning/index.ts`.
-- The webview HTML lives inline in `overviewProvider.getHtml()` — keep it small, themeable via `--vscode-*` CSS variables, and CSP-clean (no inline event handlers).
-- Telemetry uses `EventType.KatasPanelAction` with the `action` property (see `telemetry.ts`).
-
-## External references
-
-Fetch canonical sources for non-trivial MCP-design decisions:
-
-- MCP Apps spec: https://raw.githubusercontent.com/modelcontextprotocol/ext-apps/refs/heads/main/specification/2026-01-26/apps.mdx
-- MCP Apps patterns: https://raw.githubusercontent.com/modelcontextprotocol/ext-apps/refs/heads/main/docs/patterns.md
-- MCP base spec: https://modelcontextprotocol.io/specification/2025-11-25.md
+- **`detector.ts`** — scans workspace folders for `qdk-learning.json`, returns `KatasWorkspaceInfo`.
+- **`progressReader.ts`** — `ProgressWatcher` watches the progress file, maintains `qsharp-vscode.katasDetected` context key.
+- **`catalog.ts`** — loads kata list from `qsharp-lang/katas-md` (`getAllKatas()`). `RECOMMENDED_ORDER` controls display order.
+- **`treeProvider.ts`** — renders kata → section nodes with a "continue" node. `contextValue`: `kata` | `section` | `continue`.
+- **`commands.ts`** — `katasRefresh`, `katasContinue`, `katasOpenSection`, `katasAskInChat`. Uses `.navigate.json` signal-file IPC (2s timeout, 500ms backup stat for Windows) to navigate the panel; falls back to chat with `/qdk-learning #goto`.
