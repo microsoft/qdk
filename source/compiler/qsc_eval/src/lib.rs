@@ -38,7 +38,7 @@ use num_bigint::BigInt;
 use output::Receiver;
 use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span};
 use qsc_fir::fir::{
-    self, BinOp, BlockId, CallableImpl, ConfiguredExecGraph, ExecGraph, ExecGraphConfig,
+    self, BinOp, BlockId, CallableImpl, ConfiguredExecGraph, ExecExpr, ExecGraph, ExecGraphConfig,
     ExecGraphDebugNode, ExecGraphNode, Expr, ExprId, ExprKind, Field, FieldAssign, Global, Lit,
     LocalItemId, LocalVarId, PackageId, PackageStoreLookup, PatId, PatKind, PrimField, Res, StmtId,
     StoreItemId, StringComponent, UnOp,
@@ -772,9 +772,26 @@ impl State {
                     self.eval_bind(env, globals, *pat);
                     continue;
                 }
+                // Some(ExecGraphNode::Expr(expr)) => {
+                //     self.idx += 1;
+                //     match self.eval_expr(env, sim, globals, out, *expr) {
+                //         Ok(()) => continue,
+                //         Err(e) => {
+                //             if self.error_behavior == ErrorBehavior::StopOnError {
+                //                 let error_str = e.to_string();
+                //                 self.set_last_error(e, self.capture_stack());
+                //                 // Clear the execution graph stack to indicate that execution has failed.
+                //                 // This will prevent further execution steps.
+                //                 self.exec_graph_stack.clear();
+                //                 return Ok(StepResult::Fail(error_str));
+                //             }
+                //             return Err((e, self.capture_stack()));
+                //         }
+                //     }
+                // }
                 Some(ExecGraphNode::Expr(expr)) => {
                     self.idx += 1;
-                    match self.eval_expr(env, sim, globals, out, *expr) {
+                    match self.eval_exec_expr(env, sim, globals, out, *expr) {
                         Ok(()) => continue,
                         Err(e) => {
                             if self.error_behavior == ErrorBehavior::StopOnError {
@@ -1063,6 +1080,75 @@ impl State {
             ExprKind::While(..) => {
                 panic!("while expr should be handled by control flow")
             }
+        }
+
+        Ok(())
+    }
+
+    fn eval_exec_expr<B: Backend>(
+        &mut self,
+        env: &mut Env,
+        sim: &mut TracingBackend<'_, B>,
+        globals: &impl PackageStoreLookup,
+        out: &mut impl Receiver,
+        expr: ExecExpr,
+    ) -> Result<(), Error> {
+        match &expr {
+            ExecExpr::Array { len } => self.eval_arr(*len),
+            ExecExpr::ArrayRepeat { span } => self.eval_arr_repeat(*span)?,
+            ExecExpr::Assign { binding } => self.eval_assign(env, globals, *binding)?,
+            ExecExpr::AssignOp { op, binding, span } => {
+                let (is_array, is_unique) =
+                    is_updatable_in_place(env, globals.get_expr((self.package, *binding).into()));
+                if is_array {
+                    if is_unique {
+                        self.eval_array_append_in_place(env, globals, *binding)?;
+                        return Ok(());
+                    }
+                    let rhs_val = self.take_val_register();
+                    self.eval_expr(env, sim, globals, out, *binding)?;
+                    self.push_val();
+                    self.set_val_register(rhs_val);
+                }
+                self.eval_binop(*op, *span)?;
+                self.eval_assign(env, globals, *binding)?;
+            }
+            ExecExpr::AssignIndex { binding, span } => {
+                let (_, is_unique) =
+                    is_updatable_in_place(env, globals.get_expr((self.package, *binding).into()));
+                if is_unique {
+                    self.eval_update_index_in_place(env, globals, *binding, *span)?;
+                    return Ok(());
+                }
+                self.push_val();
+                self.eval_expr(env, sim, globals, out, *binding)?;
+                self.eval_update_index(*span)?;
+                self.eval_assign(env, globals, *binding)?;
+            }
+            ExecExpr::BinOp { op, span } => self.eval_binop(*op, *span)?,
+            ExecExpr::Call {
+                callee_span,
+                args_span,
+            } => self.eval_call(env, sim, globals, *callee_span, *args_span, out)?,
+            ExecExpr::Fail { span } => {
+                return Err(Error::UserFail(
+                    self.take_val_register().unwrap_string().to_string(),
+                    self.to_global_span(*span),
+                ));
+            }
+            ExecExpr::Index { span } => self.eval_index(*span)?,
+            ExecExpr::Range {
+                has_start,
+                has_step,
+                has_end,
+            } => self.eval_range(*has_start, *has_step, *has_end),
+            ExecExpr::UpdateIndex { span } => self.eval_update_index(*span)?,
+            ExecExpr::Tuple { len } => self.eval_tup(*len),
+            ExecExpr::UnOp { op } => self.eval_unop(*op),
+            ExecExpr::Var { res, span } => {
+                self.set_val_register(resolve_binding(env, self.package, *res, *span)?);
+            }
+            ExecExpr::Expr(expr_id) => self.eval_expr(env, sim, globals, out, *expr_id)?,
         }
 
         Ok(())
