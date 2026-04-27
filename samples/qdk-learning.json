@@ -3,7 +3,7 @@
   "katasRoot": "./quantum-katas",
   "position": {
     "kataId": "complex_arithmetic",
-    "sectionId": "complex_arithmetic__powers_of_i",
+    "sectionId": "complex_arithmetic__complex_addition",
     "itemIndex": 0
   },
   "completions": {
@@ -36,6 +36,12 @@
     },
     "complex_arithmetic__complex_arithmetic__algebraic_perspective": {
       "completedAt": "2026-04-27T17:52:39.586Z"
+    },
+    "complex_arithmetic__complex_arithmetic__powers_of_i": {
+      "completedAt": "2026-04-27T18:01:17.578Z"
+    },
+    "complex_arithmetic__complex_arithmetic__complex_numbers": {
+      "completedAt": "2026-04-27T18:01:26.148Z"
     }
   },
   "startedAt": "2026-04-27T17:05:22.489Z"

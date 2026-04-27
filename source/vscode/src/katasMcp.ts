@@ -1,6 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+// DEAD CODE: This MCP server registration has been replaced by in-proc
+// qdk-learning-* LM tools (see gh-copilot/learningTools.ts). This file and
+// the learning/ CLI bundle will be deleted in a follow-up change.
+
 import * as vscode from "vscode";
 import { log } from "qsharp-lang";
 import { detectKatasWorkspace, LEARNING_FILE } from "./katasProgress/detector";

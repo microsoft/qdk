@@ -4,11 +4,10 @@
 /**
  * Singleton webview panel manager for the Quantum Katas full-view experience.
  *
- * Creates a WebviewPanel, bridges postMessage ↔ KatasEngine, delegates run /
+ * Creates a WebviewPanel, bridges postMessage ↔ LearningService, delegates run /
  * circuit to VS Code commands, uses loadCompilerWorker for exercise checking,
- * listens to ProgressWatcher.onDidChange for progress sync, and watches
- * .navigate.json for tree-view navigation signals, and .panel-navigate.json
- * for MCP server navigation signals.
+ * listens to LearningService.onDidChangeState for state sync, and watches
+ * .navigate.json for tree-view navigation signals.
  */
 
 import * as vscode from "vscode";
@@ -20,14 +19,13 @@ import type { Exercise } from "qsharp-lang/katas-md";
 import mk from "@vscode/markdown-it-katex";
 import markdownIt from "markdown-it";
 import { loadCompilerWorker, qsharpExtensionId } from "../common.js";
-import { KatasEngine } from "./engine.js";
+import type { LearningService } from "../learningService/index.js";
 import type { ProgressWatcher } from "../katasProgress/progressReader.js";
 import {
   detectKatasWorkspace,
   NAVIGATE_FILE,
-  PANEL_NAVIGATE_FILE,
 } from "../katasProgress/detector.js";
-import type { SolutionCheckResult } from "./types.js";
+import type { SolutionCheckResult } from "../learningService/types.js";
 
 // ─── Markdown + KaTeX renderer (same pipeline as the API docs panel) ───
 const md = markdownIt("commonmark");
@@ -43,16 +41,15 @@ let instance: KatasPanelManager | undefined;
 
 export class KatasPanelManager {
   private panel: vscode.WebviewPanel | undefined;
-  private engine: KatasEngine | undefined;
   private ready = false;
   private queuedMessages: unknown[] = [];
   private disposables: vscode.Disposable[] = [];
   private navigateWatcher: vscode.FileSystemWatcher | undefined;
-  private panelNavigateWatcher: vscode.FileSystemWatcher | undefined;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly progressWatcher: ProgressWatcher,
+    private readonly service: LearningService,
   ) {}
 
   /**
@@ -74,13 +71,14 @@ export class KatasPanelManager {
       return;
     }
 
-    // Initialize engine
-    this.engine = new KatasEngine();
-    await this.engine.initialize(
-      info.workspaceRoot,
-      info.katasRoot,
-      renderMarkdown,
-    );
+    // Initialize the shared service if needed
+    if (!this.service.initialized) {
+      await this.service.initialize(
+        info.workspaceRoot,
+        info.katasRoot,
+        renderMarkdown,
+      );
+    }
 
     // Create webview panel
     this.panel = vscode.window.createWebviewPanel(
@@ -109,8 +107,6 @@ export class KatasPanelManager {
         this.panel = undefined;
         this.ready = false;
         this.queuedMessages = [];
-        this.engine?.dispose();
-        this.engine = undefined;
         this.disposeWatchers();
       },
       undefined,
@@ -130,9 +126,19 @@ export class KatasPanelManager {
     // Listen for progress changes (external edits to qdk-learning.json)
     this.disposables.push(
       this.progressWatcher.onDidChange(async () => {
-        if (this.engine && this.panel) {
-          await this.engine.reloadProgress();
+        if (this.service.initialized && this.panel) {
+          await this.service.reloadProgress();
           this.sendState();
+        }
+      }),
+    );
+
+    // Listen for state changes from LM tools (navigation, check, etc.)
+    this.disposables.push(
+      this.service.onDidChangeState(() => {
+        if (this.panel) {
+          this.sendState();
+          this.openCurrentFile().catch(() => {});
         }
       }),
     );
@@ -143,7 +149,6 @@ export class KatasPanelManager {
 
   dispose(): void {
     this.panel?.dispose();
-    this.engine?.dispose();
     this.disposeWatchers();
     for (const d of this.disposables) d.dispose();
     this.disposables = [];
@@ -155,9 +160,14 @@ export class KatasPanelManager {
   static getInstance(
     extensionUri: vscode.Uri,
     progressWatcher: ProgressWatcher,
+    learningService: LearningService,
   ): KatasPanelManager {
     if (!instance) {
-      instance = new KatasPanelManager(extensionUri, progressWatcher);
+      instance = new KatasPanelManager(
+        extensionUri,
+        progressWatcher,
+        learningService,
+      );
     }
     return instance;
   }
@@ -174,8 +184,8 @@ export class KatasPanelManager {
   }
 
   private sendState(): void {
-    if (!this.engine) return;
-    this.sendMessage({ command: "state", state: this.engine.getState() });
+    if (!this.service.initialized) return;
+    this.sendMessage({ command: "state", state: this.service.getState() });
   }
 
   /**
@@ -183,13 +193,13 @@ export class KatasPanelManager {
    * corresponding .qs file in the secondary editor column.
    */
   private async openCurrentFile(): Promise<void> {
-    if (!this.engine) return;
-    const pos = this.engine.getPosition();
+    if (!this.service.initialized) return;
+    const pos = this.service.getPosition();
     let fileUri: vscode.Uri | undefined;
     if (pos.item.type === "exercise") {
-      fileUri = this.engine.getExerciseFileUri();
+      fileUri = this.service.getExerciseFileUri();
     } else if (pos.item.type === "lesson-example") {
-      fileUri = this.engine.getExampleFileUri();
+      fileUri = this.service.getExampleFileUri();
     }
     if (fileUri) {
       await vscode.commands.executeCommand(
@@ -201,12 +211,12 @@ export class KatasPanelManager {
   }
 
   private sendResult(action: string, result: unknown): void {
-    if (!this.engine) return;
+    if (!this.service.initialized) return;
     this.sendMessage({
       command: "result",
       action,
       result,
-      state: this.engine.getState(),
+      state: this.service.getState(),
     });
   }
 
@@ -242,17 +252,17 @@ export class KatasPanelManager {
   }
 
   private async handleAction(action: string): Promise<void> {
-    if (!this.engine) return;
+    if (!this.service.initialized) return;
 
     try {
       switch (action) {
         case "next": {
-          const result = this.engine.next();
+          const result = this.service.next();
           this.sendResult("next", result);
           break;
         }
         case "back": {
-          const result = this.engine.previous();
+          const result = this.service.previous();
           this.sendResult("back", result);
           break;
         }
@@ -272,22 +282,22 @@ export class KatasPanelManager {
           break;
         }
         case "hint": {
-          const { result } = this.engine.getNextHint();
+          const { result } = this.service.getNextHint();
           this.sendResult("hint", result);
           break;
         }
         case "solution": {
-          const code = this.engine.getFullSolution();
+          const code = this.service.getFullSolution();
           this.sendResult("solution", code);
           break;
         }
         case "reveal-answer": {
-          const { result } = this.engine.revealAnswer();
+          const { result } = this.service.revealAnswer();
           this.sendResult("reveal-answer", result);
           break;
         }
         case "progress": {
-          const progress = this.engine.getProgress();
+          const progress = this.service.getProgress();
           this.sendResult("progress", progress);
           break;
         }
@@ -302,15 +312,15 @@ export class KatasPanelManager {
   // ─── Command delegation ───
 
   private async executeRun(): Promise<void> {
-    if (!this.engine) return;
-    const pos = this.engine.getPosition();
+    if (!this.service.initialized) return;
+    const pos = this.service.getPosition();
 
     let fileUri: vscode.Uri;
     if (pos.item.type === "exercise") {
-      fileUri = this.engine.getExerciseFileUri();
+      fileUri = this.service.getExerciseFileUri();
     } else if (pos.item.type === "lesson-example") {
-      fileUri = this.engine.getExampleFileUri();
-      this.engine.markExampleRun(pos.item.id);
+      fileUri = this.service.getExampleFileUri();
+      this.service.markExampleRun(pos.item.id);
     } else {
       throw new Error("Current item cannot be run.");
     }
@@ -328,14 +338,14 @@ export class KatasPanelManager {
   }
 
   private async executeCircuit(): Promise<void> {
-    if (!this.engine) return;
-    const pos = this.engine.getPosition();
+    if (!this.service.initialized) return;
+    const pos = this.service.getPosition();
 
     let fileUri: vscode.Uri;
     if (pos.item.type === "exercise") {
-      fileUri = this.engine.getExerciseFileUri();
+      fileUri = this.service.getExerciseFileUri();
     } else if (pos.item.type === "lesson-example") {
-      fileUri = this.engine.getExampleFileUri();
+      fileUri = this.service.getExampleFileUri();
     } else {
       throw new Error("Current item cannot show a circuit.");
     }
@@ -352,16 +362,17 @@ export class KatasPanelManager {
   }
 
   private async executeCheck(): Promise<SolutionCheckResult> {
-    if (!this.engine) return { passed: false, events: [], error: "No engine" };
+    if (!this.service.initialized)
+      return { passed: false, events: [], error: "Service not initialized" };
 
-    const pos = this.engine.getPosition();
+    const pos = this.service.getPosition();
     if (pos.item.type !== "exercise") {
       throw new Error("Current item is not an exercise.");
     }
 
     // Get the exercise object for exercise sources
-    const exercise = this.engine["resolveExercise"]() as Exercise;
-    const userCode = await this.engine.readUserCode();
+    const exercise = this.service.resolveExercise() as Exercise;
+    const userCode = await this.service.readUserCode();
     const sources = await getExerciseSources(exercise);
 
     // Use the extension's compiler worker
@@ -393,7 +404,7 @@ export class KatasPanelManager {
       }
 
       if (passed) {
-        await this.engine.markExerciseComplete(pos.kataId, pos.sectionId);
+        await this.service.markExerciseComplete(pos.kataId, pos.sectionId);
       }
 
       return {
@@ -419,7 +430,7 @@ export class KatasPanelManager {
     }
   }
 
-  // ─── .navigate.json / .panel-navigate.json watchers ───
+  // ─── .navigate.json watcher (tree-view → panel) ───
 
   private setupNavigateWatcher(info: {
     workspaceRoot: vscode.Uri;
@@ -427,17 +438,17 @@ export class KatasPanelManager {
   }): void {
     this.disposeWatchers();
 
-    // Shared handler for both signal files: read JSON, navigate engine,
+    // Handler for the tree-view signal file: read JSON, navigate service,
     // update webview, open the .qs file beside the panel, and delete the
     // signal file to indicate consumption.
-    const makeHandler = (signalFile: string) => async () => {
-      if (!this.engine) return;
-      const navUri = vscode.Uri.joinPath(info.katasRoot, signalFile);
+    const handleTreeNavigate = async () => {
+      if (!this.service.initialized) return;
+      const navUri = vscode.Uri.joinPath(info.katasRoot, NAVIGATE_FILE);
       try {
         const bytes = await vscode.workspace.fs.readFile(navUri);
         const data = JSON.parse(new TextDecoder("utf-8").decode(bytes));
         if (data.kataId) {
-          this.engine.goTo(data.kataId, data.sectionId, data.itemIndex ?? 0);
+          this.service.goTo(data.kataId, data.sectionId, data.itemIndex ?? 0);
           this.sendState();
           await this.openCurrentFile();
           this.panel?.reveal(vscode.ViewColumn.One);
@@ -456,30 +467,17 @@ export class KatasPanelManager {
     );
     this.navigateWatcher =
       vscode.workspace.createFileSystemWatcher(treePattern);
-    const handleTreeNavigate = makeHandler(NAVIGATE_FILE);
     this.navigateWatcher.onDidCreate(handleTreeNavigate);
     this.navigateWatcher.onDidChange(handleTreeNavigate);
 
-    // MCP server → panel (written by the out-of-process MCP katas server).
-    // This is a temporary signal-file IPC workaround. When the katas tool
-    // implementations are moved in-proc, replace with a direct call to
-    // this.engine.goTo() from the tool handler.
-    const mcpPattern = new vscode.RelativePattern(
-      info.katasRoot,
-      PANEL_NAVIGATE_FILE,
-    );
-    this.panelNavigateWatcher =
-      vscode.workspace.createFileSystemWatcher(mcpPattern);
-    const handleMcpNavigate = makeHandler(PANEL_NAVIGATE_FILE);
-    this.panelNavigateWatcher.onDidCreate(handleMcpNavigate);
-    this.panelNavigateWatcher.onDidChange(handleMcpNavigate);
+    // DEAD CODE: The .panel-navigate.json MCP server → panel watcher has been
+    // removed. Navigation from LM tools now goes through
+    // LearningService.onDidChangeState events instead.
   }
 
   private disposeWatchers(): void {
     this.navigateWatcher?.dispose();
     this.navigateWatcher = undefined;
-    this.panelNavigateWatcher?.dispose();
-    this.panelNavigateWatcher = undefined;
   }
 
   // ─── HTML generation ───

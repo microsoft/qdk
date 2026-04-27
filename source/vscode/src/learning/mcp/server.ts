@@ -1,6 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+// DEAD CODE: This out-of-process MCP server has been replaced by in-proc
+// qdk-learning-* LM tools (see gh-copilot/learningTools.ts). This file and
+// the learning/ CLI bundle will be deleted in a follow-up change.
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";

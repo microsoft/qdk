@@ -1,21 +1,21 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// DEAD CODE: KatasEngine has been replaced by LearningService
-// (see learningService/service.ts). Will be deleted in a follow-up change.
-
 /**
- * In-proc Katas engine for the VS Code extension host.
+ * In-proc Learning Service for the VS Code extension host.
  *
- * Re-implements the navigation / progress / scaffolding logic from
- * `learning/server/server.ts` using `vscode.workspace.fs` instead of
- * `node:fs`. No compiler dependency — run/circuit/check are handled
- * externally by the panel manager via existing VS Code commands and the
- * compiler worker.
+ * A singleton service that manages learning state (navigation, progress,
+ * file scaffolding) and provides code execution (run, circuit, check)
+ * using the compiler worker. Both the Katas Panel webview and the
+ * `qdk-learning-*` LM tools use this service.
+ *
+ * Lifted from `katasPanel/engine.ts` with compiler execution added
+ * (following the `QSharpTools` pattern from `gh-copilot/qsharpTools.ts`).
  */
 
 import * as vscode from "vscode";
-import { getAllKatas } from "qsharp-lang/katas-md";
+import { QscEventTarget } from "qsharp-lang";
+import { getAllKatas, getExerciseSources } from "qsharp-lang/katas-md";
 import type {
   Kata,
   Exercise,
@@ -24,6 +24,7 @@ import type {
   Solution,
   ContentItem,
 } from "qsharp-lang/katas-md";
+import { loadCompilerWorker } from "../common.js";
 import type {
   Position,
   NavigationItem,
@@ -33,13 +34,16 @@ import type {
   ExerciseItem,
   PrimaryAction,
   ActionGroup,
-  KatasState,
+  LearningState,
   NavigationResult,
   HintResult,
   OverallProgress,
   KataProgress,
   SectionProgress,
   ProgressFileData,
+  SolutionCheckResult,
+  RunResult,
+  KataSummary,
 } from "./types.js";
 
 /** Recommended pedagogical order — kept in sync with the learning server. */
@@ -70,7 +74,7 @@ interface FlatPosition {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8");
 
-export class KatasEngine {
+export class LearningService {
   private katas: Kata[] = [];
   private flatPositions: FlatPosition[] = [];
   private currentFlatIndex = 0;
@@ -85,6 +89,18 @@ export class KatasEngine {
 
   // ── Progress data (mirrors qdk-learning.json) ──
   private progressData!: ProgressFileData;
+
+  private _initialized = false;
+
+  // ── State change event ──
+  private readonly _onDidChangeState = new vscode.EventEmitter<LearningState>();
+  readonly onDidChangeState = this._onDidChangeState.event;
+
+  constructor(private readonly extensionUri: vscode.Uri) {}
+
+  get initialized(): boolean {
+    return this._initialized;
+  }
 
   // ─── Lifecycle ───
 
@@ -169,10 +185,13 @@ export class KatasEngine {
       }
       if (idx >= 0) this.currentFlatIndex = idx;
     }
+
+    this._initialized = true;
   }
 
   dispose(): void {
     this.saveProgress().catch(() => {});
+    this._onDidChangeState.dispose();
   }
 
   // ─── Navigation ───
@@ -190,7 +209,7 @@ export class KatasEngine {
     };
   }
 
-  getState(): KatasState {
+  getState(): LearningState {
     return {
       position: this.getPosition(),
       actions: this.getAvailableActions(),
@@ -217,7 +236,9 @@ export class KatasEngine {
     }
 
     this.syncPosition();
-    return { moved: true, state: this.getState() };
+    const state = this.getState();
+    this._onDidChangeState.fire(state);
+    return { moved: true, state };
   }
 
   previous(): NavigationResult {
@@ -227,10 +248,16 @@ export class KatasEngine {
 
     this.currentFlatIndex--;
     this.syncPosition();
-    return { moved: true, state: this.getState() };
+    const state = this.getState();
+    this._onDidChangeState.fire(state);
+    return { moved: true, state };
   }
 
-  goTo(kataId: string, sectionId?: string, itemIndex: number = 0): KatasState {
+  goTo(
+    kataId: string,
+    sectionId?: string,
+    itemIndex: number = 0,
+  ): LearningState {
     if (!sectionId) {
       const firstIdx = this.flatPositions.findIndex(
         (fp) => fp.kataId === kataId,
@@ -238,7 +265,9 @@ export class KatasEngine {
       if (firstIdx < 0) throw new Error(`Kata not found: ${kataId}`);
       this.currentFlatIndex = firstIdx;
       this.syncPosition();
-      return this.getState();
+      const state = this.getState();
+      this._onDidChangeState.fire(state);
+      return state;
     }
 
     let idx = this.flatPositions.findIndex(
@@ -259,7 +288,9 @@ export class KatasEngine {
     }
     this.currentFlatIndex = idx;
     this.syncPosition();
-    return this.getState();
+    const state = this.getState();
+    this._onDidChangeState.fire(state);
+    return state;
   }
 
   // ─── Actions ───
@@ -340,7 +371,7 @@ export class KatasEngine {
 
   // ─── Hints & solutions ───
 
-  getNextHint(): { result: HintResult | null; state: KatasState } {
+  getNextHint(): { result: HintResult | null; state: LearningState } {
     const exercise = this.resolveExercise();
     const hints: string[] = [];
     for (const item of exercise.explainedSolution.items) {
@@ -372,7 +403,7 @@ export class KatasEngine {
     return solution?.code ?? "";
   }
 
-  revealAnswer(): { result: string; state: KatasState } {
+  revealAnswer(): { result: string; state: LearningState } {
     const pos = this.getPosition();
     if (pos.item.type !== "lesson-question") {
       throw new Error("Current item is not a question");
@@ -415,21 +446,152 @@ export class KatasEngine {
     return decoder.decode(bytes);
   }
 
-  /**
-   * Mark the current example as run (affects primary action).
-   * Called by the panel manager after executing the run command.
-   */
   markExampleRun(exampleId: string): void {
     this.ranExamples.add(exampleId);
   }
 
-  /**
-   * Mark an exercise as complete and save progress. Called by the panel
-   * manager after a successful check.
-   */
   async markExerciseComplete(kataId: string, sectionId: string): Promise<void> {
     this.markComplete(kataId, sectionId);
     await this.saveProgress();
+    this._onDidChangeState.fire(this.getState());
+  }
+
+  // ─── Code execution (compiler worker) ───
+
+  async run(
+    shots: number = 1,
+  ): Promise<{ result: RunResult; state: LearningState }> {
+    const pos = this.getPosition();
+    const fileUri = this.getCurrentCodeFileUri();
+
+    // Mark examples as run
+    if (pos.item.type === "lesson-example") {
+      this.markExampleRun(pos.item.id);
+    }
+
+    const worker = loadCompilerWorker(this.extensionUri);
+    const eventTarget = new QscEventTarget(true);
+
+    try {
+      const code = await this.readCurrentCode(fileUri);
+      const program = {
+        sources: [["code.qs", code]] as [string, string][],
+        languageFeatures: [] as string[],
+        profile: "unrestricted" as const,
+      };
+      await worker.run(program, "", shots, eventTarget);
+
+      const events = this.extractEvents(eventTarget);
+      const shotResults = eventTarget.getResults();
+      const allPassed = shotResults.every((s) => s.success);
+
+      return {
+        result: {
+          success: allPassed,
+          events,
+          result: allPassed ? this.extractResult(eventTarget) : undefined,
+          error: allPassed ? undefined : this.extractError(events),
+        },
+        state: this.getState(),
+      };
+    } catch (err: unknown) {
+      return {
+        result: {
+          success: false,
+          events: [],
+          error: err instanceof Error ? err.message : String(err),
+        },
+        state: this.getState(),
+      };
+    } finally {
+      worker.terminate();
+    }
+  }
+
+  async checkSolution(): Promise<{
+    result: SolutionCheckResult;
+    state: LearningState;
+  }> {
+    const pos = this.getPosition();
+    if (pos.item.type !== "exercise") {
+      throw new Error("Current item is not an exercise.");
+    }
+
+    const exercise = this.resolveExercise();
+    const userCode = await this.readUserCode();
+    const sources = await getExerciseSources(exercise);
+
+    const worker = loadCompilerWorker(this.extensionUri);
+    const eventTarget = new QscEventTarget(true);
+
+    try {
+      const passed = await worker.checkExerciseSolution(
+        userCode,
+        sources,
+        eventTarget,
+      );
+
+      const events = this.extractEvents(eventTarget);
+
+      if (passed) {
+        await this.markExerciseComplete(pos.kataId, pos.sectionId);
+      }
+
+      return {
+        result: {
+          passed,
+          events,
+          error: passed
+            ? undefined
+            : events.length > 0
+              ? events
+                  .filter((e) => e.message)
+                  .map((e) => e.message)
+                  .join("\n") || undefined
+              : "Solution check failed.",
+        },
+        state: this.getState(),
+      };
+    } catch (err: unknown) {
+      return {
+        result: {
+          passed: false,
+          events: [],
+          error: err instanceof Error ? err.message : String(err),
+        },
+        state: this.getState(),
+      };
+    } finally {
+      worker.terminate();
+    }
+  }
+
+  // ─── Catalog ───
+
+  listKatas(): KataSummary[] {
+    const progress = this.getProgress();
+    let foundFirstIncomplete = false;
+
+    return this.katas.map((kata) => {
+      const kataProgress = progress.katas.get(kata.id);
+      const completedCount = kataProgress?.completed ?? 0;
+      const sectionCount = kataProgress?.total ?? kata.sections.length;
+      const allComplete = completedCount === sectionCount && sectionCount > 0;
+
+      let recommended = false;
+      if (!allComplete && !foundFirstIncomplete) {
+        foundFirstIncomplete = true;
+        recommended = true;
+      }
+
+      return {
+        id: kata.id,
+        title: kata.title,
+        sectionCount,
+        completedCount,
+        recommended,
+      };
+    });
   }
 
   // ─── Progress ───
@@ -470,12 +632,76 @@ export class KatasEngine {
     // Restore position
     const savedPos = this.progressData.position;
     if (savedPos.kataId) {
-      let idx = this.flatPositions.findIndex(
+      const idx = this.flatPositions.findIndex(
         (fp) =>
           fp.kataId === savedPos.kataId && fp.sectionId === savedPos.sectionId,
       );
       if (idx >= 0) this.currentFlatIndex = idx;
     }
+  }
+
+  // ─── Private: compiler helpers ───
+
+  private getCurrentCodeFileUri(): vscode.Uri {
+    const pos = this.getPosition();
+    if (pos.item.type === "exercise") {
+      return this.getExerciseFileUri();
+    } else if (pos.item.type === "lesson-example") {
+      return this.getExampleFileUri();
+    }
+    throw new Error("Current item cannot be run.");
+  }
+
+  private async readCurrentCode(fileUri: vscode.Uri): Promise<string> {
+    const bytes = await vscode.workspace.fs.readFile(fileUri);
+    return decoder.decode(bytes);
+  }
+
+  private extractEvents(
+    eventTarget: QscEventTarget,
+  ): { type: string; message?: string }[] {
+    const events: { type: string; message?: string }[] = [];
+    const resultCount = eventTarget.resultCount();
+    const results = eventTarget.getResults();
+    for (let i = 0; i < resultCount; i++) {
+      const r = results[i];
+      for (const evt of r.events) {
+        if (evt.type === "Message") {
+          events.push({
+            type: "Message",
+            message: (evt as { message: string }).message,
+          });
+        } else {
+          events.push({ type: evt.type });
+        }
+      }
+    }
+    return events;
+  }
+
+  private extractResult(eventTarget: QscEventTarget): string | undefined {
+    const resultCount = eventTarget.resultCount();
+    const results = eventTarget.getResults();
+    if (resultCount > 0) {
+      const lastResult = results[resultCount - 1];
+      if (typeof lastResult.result === "string") {
+        return lastResult.result;
+      }
+      // VSDiagnostic error shape — extract error messages
+      const errors = lastResult.result.errors ?? [];
+      return (
+        errors.map((e) => e.diagnostic?.message ?? String(e)).join("\n") ||
+        undefined
+      );
+    }
+    return undefined;
+  }
+
+  private extractError(
+    events: { type: string; message?: string }[],
+  ): string | undefined {
+    const messages = events.filter((e) => e.message).map((e) => e.message);
+    return messages.length > 0 ? messages.join("\n") : "Execution failed.";
   }
 
   // ─── Private: progress persistence via vscode.workspace.fs ───
@@ -630,7 +856,7 @@ export class KatasEngine {
     return kata;
   }
 
-  private resolveExercise(): Exercise {
+  resolveExercise(): Exercise {
     const pos = this.getPosition();
     const kata = this.findKata(pos.kataId);
     const section = kata.sections.find((s) => s.id === pos.sectionId);

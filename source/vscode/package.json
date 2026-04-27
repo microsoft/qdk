@@ -1174,6 +1174,342 @@
           "required": [],
           "additionalProperties": false
         }
+      },
+      {
+        "name": "qdk-learning-init",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningInit",
+        "displayName": "Initialize QDK Learning Workspace",
+        "modelDescription": "Initialize the QDK Learning workspace for Quantum Katas. Creates a qdk-learning.json file and scaffolds exercise files. Auto-detects the workspace root if workspacePath is omitted. Call this before any other qdk-learning tool if the workspace has not been initialized.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "workspacePath": {
+              "type": "string",
+              "description": "Absolute path to the workspace directory. If omitted, auto-detects from the current VS Code workspace."
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-show-panel",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningShowPanel",
+        "displayName": "Show QDK Learning Panel",
+        "modelDescription": "Open the full-size Quantum Katas panel at the current position. The panel renders the current lesson/example/question/exercise and provides a clickable action bar. The agent should NOT re-render the item body in chat — the panel owns that. Call this once to start or resume a session.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-get-state",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningGetState",
+        "displayName": "Get QDK Learning State",
+        "modelDescription": "Read the current learning position and progress without opening or navigating the panel. Use when the agent needs to catch up with the user's current position after they may have interacted with the panel directly.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-get-progress",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningGetProgress",
+        "displayName": "Get QDK Learning Progress",
+        "modelDescription": "Return the full per-kata progress breakdown including all sections with completion status. Use when the user asks about their overall progress.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-list-katas",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningListKatas",
+        "displayName": "List Quantum Katas",
+        "modelDescription": "List all available Quantum Katas with their completion status. Returns an array of katas with id, title, sectionCount, completedCount, and a recommended flag indicating the next suggested kata. Use this when the user wants to browse available katas or pick a specific one to work on.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-next",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningNext",
+        "displayName": "QDK Learning Next",
+        "modelDescription": "Move to the next item (lesson text, example, question, or exercise) in the Quantum Katas learning sequence. Auto-marks lesson sections as complete when crossing a section boundary. The panel automatically follows.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-previous",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningPrevious",
+        "displayName": "QDK Learning Previous",
+        "modelDescription": "Move to the previous item in the Quantum Katas learning sequence. The panel automatically follows.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-goto",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningGoto",
+        "displayName": "QDK Learning Go To",
+        "modelDescription": "Jump to a specific kata and section in the Quantum Katas. Use the kataId from list-katas or get-state. If sectionId is omitted, jumps to the first section of the kata.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "kataId": {
+              "type": "string",
+              "description": "ID of the kata (e.g. 'getting_started')"
+            },
+            "sectionId": {
+              "type": "string",
+              "description": "Section ID within the kata. Omit to jump to the first section."
+            },
+            "itemIndex": {
+              "type": "number",
+              "description": "0-based item index within the section. Defaults to 0."
+            }
+          },
+          "required": [
+            "kataId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-run",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningRun",
+        "displayName": "QDK Learning Run",
+        "modelDescription": "Run the Q# code at the current learning position (exercise or example). Returns execution events and result.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "shots": {
+              "type": "number",
+              "description": "Number of times to run the program. Defaults to 1.",
+              "default": 1
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-run-with-noise",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningRunWithNoise",
+        "displayName": "QDK Learning Run with Noise",
+        "modelDescription": "Run the Q# code at the current learning position with noise simulation (many shots). Default is 100 shots.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "shots": {
+              "type": "number",
+              "description": "Number of shots for the noisy simulation. Defaults to 100.",
+              "default": 100
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-circuit",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningCircuit",
+        "displayName": "QDK Learning Circuit",
+        "modelDescription": "Generate the quantum circuit diagram for the Q# code at the current learning position. The circuit is displayed in the Circuit panel.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-estimate",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningEstimate",
+        "displayName": "QDK Learning Resource Estimate",
+        "modelDescription": "Estimate physical resources (qubits, runtime) for the Q# code at the current learning position. Results are displayed in the resource estimator panel.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-check",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningCheck",
+        "displayName": "QDK Learning Check Solution",
+        "modelDescription": "Check the student's Q# solution to the current exercise against the test harness. Marks the exercise as complete on pass. Only valid when the current item is an exercise.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-hint",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningHint",
+        "displayName": "QDK Learning Hint",
+        "modelDescription": "Reveal the next built-in hint for the current exercise. Hints are revealed progressively — each call reveals one more. Returns the hint text and current/total count.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-reveal-answer",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningRevealAnswer",
+        "displayName": "QDK Learning Reveal Answer",
+        "modelDescription": "Reveal the answer to the current lesson question. Only valid when the current item is a lesson question.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-solution",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningSolution",
+        "displayName": "QDK Learning Solution",
+        "modelDescription": "Show the full reference solution code for the current exercise. Warning: this spoils the exercise. Only use when the student explicitly asks for the solution.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
       }
     ]
   },

@@ -16,7 +16,9 @@ import { activateDebugger } from "./debugger/activate.js";
 import { startOtherQSharpDiagnostics } from "./diagnostics.js";
 import { removeDeprecatedCopilotInstructions } from "./gh-copilot/instructions.js";
 import { registerLanguageModelTools } from "./gh-copilot/tools.js";
-import { registerKatasMcpServer } from "./katasMcp.js";
+import { LearningService } from "./learningService/index.js";
+// DEAD CODE: MCP server replaced by in-proc qdk-learning-* LM tools.
+// import { registerKatasMcpServer } from "./katasMcp.js";
 import { registerKatasPanelCommand } from "./katasPanel/index.js";
 import { registerKatasProgressView } from "./katasProgress/index.js";
 import { activateLanguageService } from "./language-service/activate.js";
@@ -103,10 +105,15 @@ export async function activate(
   registerWebViewCommands(context);
   await initFileSystem(context);
   await initProjectCreator(context);
-  registerLanguageModelTools(context);
-  context.subscriptions.push(registerKatasMcpServer(context));
+  const learningService = new LearningService(context.extensionUri);
+  context.subscriptions.push({ dispose: () => learningService.dispose() });
+  registerLanguageModelTools(context, learningService);
+  // DEAD CODE: MCP server replaced by in-proc qdk-learning-* LM tools.
+  // The registerKatasMcpServer function and the learning/ CLI bundle are
+  // no longer called. They will be deleted in a follow-up change.
+  // context.subscriptions.push(registerKatasMcpServer(context));
   const progressWatcher = registerKatasProgressView(context);
-  registerKatasPanelCommand(context, progressWatcher);
+  registerKatasPanelCommand(context, progressWatcher, learningService);
   // fire-and-forget
   removeDeprecatedCopilotInstructions(context);
 

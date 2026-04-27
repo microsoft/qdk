@@ -1,6 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+// DEAD CODE: This CLI entry point for the out-of-process MCP katas server has
+// been replaced by in-proc qdk-learning-* LM tools (see
+// gh-copilot/learningTools.ts). This file will be deleted in a follow-up change.
+
 import { resolve, join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { parseArgs } from "node:util";

@@ -6,13 +6,16 @@ import * as vscode from "vscode";
 import { EventType, sendTelemetryEvent, UserFlowStatus } from "../telemetry";
 import { getRandomGuid } from "../utils";
 import * as azqTools from "./azureQuantumTools";
+import { LearningTools } from "./learningTools";
 import { QSharpTools } from "./qsharpTools";
 import { CopilotToolError } from "./types";
 import { ToolState } from "./azureQuantumTools";
+import type { LearningService } from "../learningService/index";
 
 // state
 const workspaceState: ToolState = {};
 let qsharpTools: QSharpTools | undefined;
+let learningTools: LearningTools | undefined;
 
 const toolDefinitions: {
   name: string;
@@ -100,10 +103,89 @@ const toolDefinitions: {
     name: "qsharp-get-library-descriptions",
     tool: async () => await qsharpTools!.qsharpGetLibraryDescriptions(),
   },
+  // ─── QDK Learning tools ───
+  {
+    name: "qdk-learning-init",
+    tool: async (input) => await learningTools!.init(input),
+    confirm: (input: {
+      workspacePath?: string;
+    }): vscode.PreparedToolInvocation => ({
+      confirmationMessages: {
+        title: "Initialize QDK Learning workspace",
+        message: input.workspacePath
+          ? `Initialize a Quantum Katas learning workspace at ${input.workspacePath}? Exercise files and progress will be saved there.`
+          : `Initialize a Quantum Katas learning workspace in the current folder? Exercise files and progress will be saved there.`,
+      },
+    }),
+  },
+  {
+    name: "qdk-learning-show-panel",
+    tool: async () => await learningTools!.showPanel(),
+  },
+  {
+    name: "qdk-learning-get-state",
+    tool: async () => learningTools!.getState(),
+  },
+  {
+    name: "qdk-learning-get-progress",
+    tool: async () => learningTools!.getProgress(),
+  },
+  {
+    name: "qdk-learning-list-katas",
+    tool: async () => learningTools!.listKatas(),
+  },
+  {
+    name: "qdk-learning-next",
+    tool: async () => learningTools!.next(),
+  },
+  {
+    name: "qdk-learning-previous",
+    tool: async () => learningTools!.previous(),
+  },
+  {
+    name: "qdk-learning-goto",
+    tool: async (input) => learningTools!.goTo(input),
+  },
+  {
+    name: "qdk-learning-run",
+    tool: async (input) => await learningTools!.run(input),
+  },
+  {
+    name: "qdk-learning-run-with-noise",
+    tool: async (input) => await learningTools!.runWithNoise(input),
+  },
+  {
+    name: "qdk-learning-circuit",
+    tool: async () => await learningTools!.circuit(),
+  },
+  {
+    name: "qdk-learning-estimate",
+    tool: async () => await learningTools!.estimate(),
+  },
+  {
+    name: "qdk-learning-check",
+    tool: async () => await learningTools!.check(),
+  },
+  {
+    name: "qdk-learning-hint",
+    tool: async () => learningTools!.hint(),
+  },
+  {
+    name: "qdk-learning-reveal-answer",
+    tool: async () => learningTools!.revealAnswer(),
+  },
+  {
+    name: "qdk-learning-solution",
+    tool: async () => learningTools!.solution(),
+  },
 ];
 
-export function registerLanguageModelTools(context: vscode.ExtensionContext) {
+export function registerLanguageModelTools(
+  context: vscode.ExtensionContext,
+  learningService: LearningService,
+) {
   qsharpTools = new QSharpTools(context.extensionUri);
+  learningTools = new LearningTools(learningService, qsharpTools);
   for (const { name, tool: fn, confirm: confirmFn } of toolDefinitions) {
     context.subscriptions.push(
       vscode.lm.registerTool(name, tool(context, name, fn, confirmFn)),

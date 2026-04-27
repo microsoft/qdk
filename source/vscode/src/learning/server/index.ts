@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+// DEAD CODE: The standalone KatasServer has been replaced by the in-proc
+// LearningService (see learningService/service.ts). Will be deleted.
+
 export { KatasServer } from "./server.js";
 export { CompilerService } from "./compiler.js";
 export { WorkspaceManager } from "./workspace.js";
