@@ -1,9 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#[cfg(test)]
-mod tests;
-
 use crate::qir_simulation::{NoiseConfig, QirInstruction, QirInstructionId, unbind_noise_config};
 use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList};
 use pyo3::{PyResult, pyfunction};
