@@ -1786,9 +1786,9 @@ impl<'a> PartialEvaluator<'a> {
                 })
             }
             .map_err(std::convert::Into::into),
-            "__quantum__qis__m__body" => Ok(self.measure_qubit(builder::m_decl(), args_value)),
+            "__quantum__qis__m__body" => Ok(self.measure_qubit(builder::m_decl(), &args_value)),
             "__quantum__qis__mresetz__body" => {
-                Ok(self.measure_qubit(builder::mresetz_decl(), args_value))
+                Ok(self.measure_qubit(builder::mresetz_decl(), &args_value))
             }
             // The following intrinsic operations and functions are no-ops.
             "BeginEstimateCaching" => Ok(Value::Bool(true)),
@@ -3106,11 +3106,9 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
-    fn measure_qubit(&mut self, measure_callable: Callable, args_value: Value) -> Value {
+    fn measure_qubit(&mut self, measure_callable: Callable, args_value: &Value) -> Value {
         // Get the qubit and result IDs to use in the qubit measure instruction.
-        let qubit = args_value.unwrap_qubit();
-        let qubit_value = Value::Qubit(qubit);
-        let qubit_operand = self.map_eval_value_to_rir_operand(&qubit_value);
+        let qubit_operand = self.map_eval_value_to_rir_operand(args_value);
         let result_value = Value::Result(self.resource_manager.next_result_register());
         let result_operand = self.map_eval_value_to_rir_operand(&result_value);
 
