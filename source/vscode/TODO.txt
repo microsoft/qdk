@@ -1,4 +1,4 @@
-- big widget panel
-- mobius icon from bill
+- updated mobius icon
 - hook up run action
+- remove unneeded tools
 - bring quantum workspaces into panel
