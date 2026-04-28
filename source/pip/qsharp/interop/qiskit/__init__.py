@@ -105,4 +105,5 @@ __all__ = [
     "estimate",
     "EstimatorParams",
     "EstimatorResult",
+    "QasmError",
 ]
