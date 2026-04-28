@@ -217,13 +217,16 @@ class IntOperand:
     bits: int
 
     def __post_init__(self):
-        # Mask to the appropriate word-width so negative Python ints become
-        # their two's-complement representation
+        # Mask to the appropriate word-width so negative Python ints and
+        # wider-than-target constants become their two's-complement
+        # representation at the target bit width
         # (e.g. -7 → 0xFFFFFFF9 for 32-bit, 0xFFFFFFFFFFFFFFF9 for 64-bit).
+        #
+        # Note: we have no way to tell if a negative number, represented by
+        #       pyqir as an u64 is an overflow or just a negative number.
+        #       therefore we don't perform overflow checks here, and instead
+        #       default to a wrapping behavior.
         mask = (1 << self.bits) - 1
-        min_val = -(1 << (self.bits - 1))
-        if self.val < min_val or self.val > mask:
-            raise ValueError(f"Value {self.val} does not fit in {self.bits} bits")
         self.val = self.val & mask
 
 
