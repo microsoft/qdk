@@ -257,7 +257,7 @@ class Entanglement(anywidget.AnyWidget):
         Parameters
         ----------
         wavefunction : optional
-            A ``qdk.chemistry.Wavefunction`` instance (from the
+            A ``qdk_chemistry.Wavefunction`` instance (from the
             ``qdk-chemistry`` package) with single-orbital entropies and
             mutual information.  When provided, *s1_entropies* and
             *mutual_information* are extracted automatically.
@@ -321,7 +321,7 @@ class Entanglement(anywidget.AnyWidget):
         """
         if wavefunction is not None:
             try:
-                from qdk.chemistry import Wavefunction as _Wavefunction
+                from qdk_chemistry.data import Wavefunction as _Wavefunction
             except ImportError:
                 raise ImportError(
                     "The 'qdk-chemistry' package is required when passing a "
@@ -329,7 +329,7 @@ class Entanglement(anywidget.AnyWidget):
                 ) from None
             if not isinstance(wavefunction, _Wavefunction):
                 raise TypeError(
-                    f"Expected a qdk.chemistry.Wavefunction instance, "
+                    f"Expected a qdk_chemistry.data.Wavefunction instance, "
                     f"got {type(wavefunction).__qualname__}"
                 )
 
