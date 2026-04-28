@@ -144,7 +144,7 @@ def trace_from_entry_expr_cached(
         Trace: A trace representing the resource profile of the program.
     """
     if cache_path and cache_path.exists():
-        return Trace.from_json(cache_path.read_text())
+        return Trace.from_json(cache_path.read_text(encoding="utf-8"))
 
     trace = trace_from_entry_expr(entry_expr, *args)
 
