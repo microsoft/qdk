@@ -572,6 +572,13 @@ fn initialize(
         // Set the |0...0> amplitude to 1.0 from the first workgroup & thread for the shot
         stateVector[params.shot_state_vector_start] = vec2f(1.0, 0.0);
         reset_all(params.shot_idx);
+
+        // Zero the results buffer for this shot so stale exit codes from
+        // prior runs do not leak via atomicCompareExchangeWeak in OP_RET.
+        let results_base = u32(params.shot_idx) * RESULT_COUNT;
+        for (var r = 0u; r < RESULT_COUNT; r++) {
+            atomicStore(&results[results_base + r], 0u);
+        }
     }
 }
 
@@ -805,7 +812,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let arg_offset = instr.aux2;
                 let func = batch_data.program.function_table[func_id];
                 // Push return info onto the call stack
-                let sp = state.call_sp;
+                let sp = shots[shot_idx].interp.call_sp;
                 // Guard: prevent call stack overflow (max 8 frames)
                 if sp >= 8u {
                     shots[shot_idx].interp.exit_code = ERR_CALL_STACK_OVERFLOW;
@@ -839,7 +846,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // return register (not 0xFFFFFFFF), copies the return value into
             // that register.
             case OP_CALL_RETURN {
-                if state.call_sp == 0u {
+                if shots[shot_idx].interp.call_sp == 0u {
                     shots[shot_idx].interp.exit_code = ERR_CALL_STACK_UNDERFLOW;
                     let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                     atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_CALL_STACK_UNDERFLOW);
@@ -849,11 +856,11 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                     break;
                 }
 
-                let sp = state.call_sp - 1;
+                let sp = shots[shot_idx].interp.call_sp - 1;
                 shots[shot_idx].interp.call_sp = sp;
-                block_id = state.call_stack_frames[sp].block_id;  // go back to the callers block
-                pc = state.call_stack_frames[sp].return_pc;       // restore pc
-                let return_reg = state.call_stack_frames[sp].return_reg;
+                block_id = shots[shot_idx].interp.call_stack_frames[sp].block_id;
+                pc = shots[shot_idx].interp.call_stack_frames[sp].return_pc;
+                let return_reg = shots[shot_idx].interp.call_stack_frames[sp].return_reg;
                 if return_reg != VOID_RETURN {
                     write_reg(shot_idx, return_reg, read_reg(shot_idx, instr.src0));
                 }

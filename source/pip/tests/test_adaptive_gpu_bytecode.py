@@ -59,8 +59,11 @@ def _run(qir: str, shots: int = SHOTS, seed: int = 42):
 
 def map_result_list_to_str(results):
     s = ""
-    for r in results:
-        match r:
+    if isinstance(results, (list, tuple)):
+        for r in results:
+            s += map_result_list_to_str(r)
+    else:
+        match results:
             case Result.Zero:
                 s += "0"
             case Result.One:
@@ -88,7 +91,7 @@ def check_result(
         record=record,
     )
     results = _run(qir, SHOTS)["shot_results"]
-    counts = Counter(results)
+    counts = Counter(map_result_list_to_str(r) for r in results)
     assert counts == {
         expected: SHOTS
     }, f"Expected all {SHOTS} shots to be '{expected}', got {counts}"
@@ -202,8 +205,6 @@ def test_nop_smoke():
 # Every test already exercises RET implicitly. This tests an explicit early ret.
 RET_QIR = """
 entry:
-  ret i64 0
-  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
 """
 
@@ -541,6 +542,41 @@ def test_read_loss():
     assert counts == {
         "L1": SHOTS
     }, f"Expected all {SHOTS} shots to be 'L1', got {counts}"
+
+
+# =========================================================================
+# move (OpID 28) — qubit move with associated noise
+# =========================================================================
+
+MOVE_QIR = """
+entry:
+  ; ``move`` is a no-op on the simulator state, but the simulator applies
+  ; the configured ``noise.mov`` faults to the moved qubit. With
+  ; ``noise.mov.x = 1.0`` every move flips the qubit, so q0 ends in |1⟩.
+  call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 0 to %Qubit*), i64 0, i64 0)
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+MOVE_DECLS = """\
+declare void @__quantum__qis__move__body(%Qubit*, i64, i64)
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_move_applies_noise():
+    """move (with 100% X noise) → mz → always 1."""
+    qir = format_qir(MOVE_QIR, extra_decls=MOVE_DECLS, num_qubits=1, num_results=1)
+    noise = NoiseConfig()
+    noise.mov.x = 1.0
+    results = run_qir(qir, SHOTS, noise, seed=42, type="gpu")
+    counts = Counter(map_result_list_to_str(r) for r in results)
+    assert counts == {"1": SHOTS}, f"Expected all {SHOTS} shots to be '1', got {counts}"
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_move_noiseless_is_noop():
+    """move without noise is a pure no-op → q0 stays in |0⟩ → measure 0."""
+    check_result(MOVE_QIR, "0", extra_decls=MOVE_DECLS)
 
 
 # #########################################################################
@@ -1276,7 +1312,7 @@ def test_dynamic_qubit_loop():
     """3-qubit GHZ via dynamic qubit loop — only '000' and '111' should appear."""
     qir = format_qir(DYNAMIC_QUBIT_LOOP_QIR, num_qubits=3, num_results=3)
     results = _run(qir, shots=5000, seed=42)["shot_results"]
-    counts = Counter(results)
+    counts = Counter(map_result_list_to_str(r) for r in results)
     assert set(counts.keys()) <= {"000", "111"}, f"Unexpected GHZ outcomes: {counts}"
     assert counts.get("000", 0) > 1500
     assert counts.get("111", 0) > 1500
@@ -1360,6 +1396,61 @@ measure:
 def test_switch_from_arithmetic():
     """Switch on computed value 2*3-4=2 → case2 → X → 1."""
     check_result(SWITCH_ARITH_QIR, "1")
+
+
+# #########################################################################
+#  Structured Output Recording
+# #########################################################################
+
+NESTED_OUTPUT_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define i64 @ENTRYPOINT__main() #0 {
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 3 to %Qubit*), %Result* inttoptr (i64 3 to %Result*))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
+  call void @__quantum__rt__array_record_output(i64 2, i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+  call void @__quantum__rt__array_record_output(i64 2, i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* null)
+  ret i64 0
+}
+
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__array_record_output(i64, i8*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="4" }
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_nested_output_structure():
+    """Verify that adaptive results preserve nested tuple/array structure.
+
+    The QIR records output as a tuple of two arrays: ([r0, r1], [r2, r3]).
+    Before the fix, run_adaptive flattened this into [r0, r1, r2, r3].
+    """
+    results = _run(NESTED_OUTPUT_QIR, shots=10)
+    for shot in results["shot_results"]:
+        assert isinstance(shot, tuple), f"Expected tuple, got {type(shot)}: {shot}"
+        assert len(shot) == 2, f"Expected 2-element tuple, got {len(shot)}: {shot}"
+        assert isinstance(
+            shot[0], list
+        ), f"Expected list, got {type(shot[0])}: {shot[0]}"
+        assert isinstance(
+            shot[1], list
+        ), f"Expected list, got {type(shot[1])}: {shot[1]}"
+        assert shot == ([Result.Zero, Result.One], [Result.Zero, Result.One])
 
 
 # =========================================================================
@@ -1722,7 +1813,7 @@ while (i < 50) {
 bit[4] result = measure q;
 """
     results = _run_openqasm(qasm_src, shots=100)
-    shot_results = results["shot_results"]
+    shot_results = [map_result_list_to_str(r) for r in results["shot_results"]]
     # Results include the mid-circuit measurement bit plus 4 final qubits
     assert all(
         len(r) >= 4 and all(c in "01" for c in r) for r in shot_results

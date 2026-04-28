@@ -770,7 +770,8 @@ impl GpuContext {
             self.resources.reset_diagnostics_header()?;
 
             // Initialize state vectors and shot data via the init kernel.
-            // The init kernel zeros and configures the base ShotData fields per shot.
+            // The init kernel also zeros the results buffer per shot to prevent
+            // stale exit codes from prior runs leaking via atomicCompareExchangeWeak.
             {
                 let kernels = self.resources.get_kernels()?;
                 let mut encoder = self.resources.get_encoder("Adaptive Init Encoder")?;

@@ -26,16 +26,19 @@ SIM_TYPES = ["cpu", "clifford"]
 
 
 def map_result_list_to_str(results):
-    results_str = ""
-    for r in results:
-        match r:
+    s = ""
+    if isinstance(results, (list, tuple)):
+        for r in results:
+            s += map_result_list_to_str(r)
+    else:
+        match results:
             case Result.Zero:
-                results_str += "0"
+                s += "0"
             case Result.One:
-                results_str += "1"
+                s += "1"
             case Result.Loss:
-                results_str += "L"
-    return results_str
+                s += "L"
+    return s
 
 
 def _run(
@@ -238,6 +241,7 @@ continue__2:
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 4 to %Qubit*))
   br label %exit
 exit:
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([5 x i8], [5 x i8]* @0, i32 0, i32 0))
   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* getelementptr inbounds ([5 x i8], [5 x i8]* @1, i32 0, i32 0))
   ret void
@@ -252,6 +256,7 @@ declare void @__quantum__qis__mz__body(%Qubit*, %Result*) #1
 declare void @__quantum__rt__initialize(i8*)
 declare i1 @__quantum__qis__read_result__body(%Result*)
 declare void @__quantum__rt__result_record_output(%Result*, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
 
 attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="5" "required_num_results"="4" }
 attributes #1 = { "irreversible" }

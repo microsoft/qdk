@@ -34,7 +34,23 @@ try:
 except OSError as e:
     SKIP_REASON = str(e)
 
-from qsharp._simulation import GpuSimulator
+from qsharp._simulation import GpuSimulator, Result
+
+
+def map_result_list_to_str(results):
+    s = ""
+    if isinstance(results, (list, tuple)):
+        for r in results:
+            s += map_result_list_to_str(r)
+    else:
+        match results:
+            case Result.Zero:
+                s += "0"
+            case Result.One:
+                s += "1"
+            case Result.Loss:
+                s += "L"
+    return s
 
 
 # Acquiring the GPU resources takes time, so we acquire them once and use them
@@ -143,7 +159,7 @@ def test_measure_and_correct_histogram():
         code == 0 for code in results["shot_result_codes"]
     ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
 
-    counts = Counter(shot_results)
+    counts = Counter(map_result_list_to_str(r) for r in shot_results)
     # Each shot produces a single-bit result string: "0" or "1"
     count_0 = counts.get("0", 0)
     count_1 = counts.get("1", 0)
@@ -169,7 +185,7 @@ def test_conditional_loop_all_results_are_one():
         code == 0 for code in results["shot_result_codes"]
     ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
 
-    counts = Counter(shot_results)
+    counts = Counter(map_result_list_to_str(r) for r in shot_results)
     # Every shot should exit with result "1"
     assert (
         counts.get("1", 0) == shots
@@ -288,7 +304,7 @@ def test_loop_with_phi_ghz_histogram():
         code == 0 for code in results["shot_result_codes"]
     ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
 
-    counts = Counter(shot_results)
+    counts = Counter(map_result_list_to_str(r) for r in shot_results)
     # Only "00000" and "11111" should appear
     assert set(counts.keys()) <= {
         "00000",
@@ -322,7 +338,7 @@ def test_boolean_computation_histogram():
         code == 0 for code in results["shot_result_codes"]
     ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
 
-    counts = Counter(shot_results)
+    counts = Counter(map_result_list_to_str(r) for r in shot_results)
     count_0 = counts.get("0", 0)
     count_1 = counts.get("1", 0)
 
@@ -382,6 +398,7 @@ continue__2:
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 4 to %Qubit*))
   br label %exit
 exit:
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* getelementptr inbounds ([5 x i8], [5 x i8]* @0, i32 0, i32 0))
   call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* getelementptr inbounds ([5 x i8], [5 x i8]* @1, i32 0, i32 0))
   ret void
@@ -396,6 +413,7 @@ declare void @__quantum__qis__mz__body(%Qubit*, %Result*) #1
 declare void @__quantum__rt__initialize(i8*)
 declare i1 @__quantum__qis__read_result__body(%Result*)
 declare void @__quantum__rt__result_record_output(%Result*, i8*)
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
 
 attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="5" "required_num_results"="4" }
 attributes #1 = { "irreversible" }
@@ -423,7 +441,7 @@ def test_teleport_chain_histogram():
         code == 0 for code in results["shot_result_codes"]
     ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
 
-    counts = Counter(shot_results)
+    counts = Counter(map_result_list_to_str(r) for r in shot_results)
     # Only "00" and "11" should appear (results 4 and 5 are correlated)
     assert set(counts.keys()) <= {
         "00",
@@ -494,7 +512,7 @@ def test_dynamic_rotation_angle():
         code == 0 for code in results["shot_result_codes"]
     ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
 
-    counts = Counter(shot_results)
+    counts = Counter(map_result_list_to_str(r) for r in shot_results)
     count_0 = counts.get("0", 0)
     count_1 = counts.get("1", 0)
 

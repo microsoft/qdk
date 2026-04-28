@@ -32,8 +32,11 @@ SIM_TYPES = ["cpu", "clifford"]
 
 def map_result_list_to_str(results):
     results_str = ""
-    for r in results:
-        match r:
+    if isinstance(results, (list, tuple)):
+        for r in results:
+            results_str += map_result_list_to_str(r)
+    else:
+        match results:
             case Result.Zero:
                 results_str += "0"
             case Result.One:
@@ -186,15 +189,12 @@ def test_nop_smoke(sim_type):
 
 RET_QIR = """
 entry:
-  ret i64 0
-  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
 """
 
 
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_ret(sim_type):
-    check_result(RET_QIR, "0", sim_type=sim_type)
+    check_result(RET_QIR, "", sim_type=sim_type, num_qubits=0, num_results=0)
 
 
 # =========================================================================
@@ -522,6 +522,46 @@ def test_read_loss(sim_type):
     assert counts == {
         "L1": SHOTS
     }, f"Expected all {SHOTS} shots to be 'L1', got {counts}"
+
+
+# =========================================================================
+# move (OpID 28) — qubit move with associated noise
+# =========================================================================
+
+MOVE_QIR = """
+entry:
+  ; ``move`` is a no-op on the simulator state, but the simulator applies
+  ; the configured ``noise.mov`` faults to the moved qubit. With
+  ; ``noise.mov.x = 1.0`` every move flips the qubit, so q0 ends in |1⟩.
+  call void @__quantum__qis__move__body(%Qubit* inttoptr (i64 0 to %Qubit*), i64 0, i64 0)
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+MOVE_DECLS = """\
+declare void @__quantum__qis__move__body(%Qubit*, i64, i64)
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_move_applies_noise(sim_type):
+    """move (with 100% X noise) → mz → always 1."""
+    qir = format_qir(MOVE_QIR, extra_decls=MOVE_DECLS, num_qubits=1, num_results=1)
+    noise = NoiseConfig()
+    noise.mov.x = 1.0
+    results = run_qir(qir, SHOTS, noise, seed=42, type=sim_type)
+    counts = Counter(map_result_list_to_str(r) for r in results)
+    assert counts == {"1": SHOTS}, f"Expected all {SHOTS} shots to be '1', got {counts}"
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_move_noiseless_is_noop(sim_type):
+    """move without noise is a pure no-op → q0 stays in |0⟩ → measure 0."""
+    check_result(
+        MOVE_QIR,
+        "0",
+        extra_decls=MOVE_DECLS,
+        sim_type=sim_type,
+    )
 
 
 # #########################################################################
@@ -1311,6 +1351,62 @@ SHIFT_BITWISE_CHAIN_QIR = """
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_shift_bitwise_chain(sim_type):
     check_arith_result(SHIFT_BITWISE_CHAIN_QIR, "1", sim_type=sim_type)
+
+
+# #########################################################################
+#  Structured Output Recording
+# #########################################################################
+
+
+NESTED_OUTPUT_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define i64 @ENTRYPOINT__main() #0 {
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 3 to %Qubit*), %Result* inttoptr (i64 3 to %Result*))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
+  call void @__quantum__rt__array_record_output(i64 2, i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+  call void @__quantum__rt__array_record_output(i64 2, i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* null)
+  ret i64 0
+}
+
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__array_record_output(i64, i8*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="4" }
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_nested_output_structure(sim_type):
+    """Verify that adaptive results preserve nested tuple/array structure.
+
+    The QIR records output as a tuple of two arrays: ([r0, r1], [r2, r3]).
+    Before the fix, run_adaptive flattened this into [r0, r1, r2, r3].
+    """
+    results = run_qir(NESTED_OUTPUT_QIR, shots=10, seed=42, type=sim_type)
+    for shot in results:
+        assert isinstance(shot, tuple), f"Expected tuple, got {type(shot)}: {shot}"
+        assert len(shot) == 2, f"Expected 2-element tuple, got {len(shot)}: {shot}"
+        assert isinstance(
+            shot[0], list
+        ), f"Expected list, got {type(shot[0])}: {shot[0]}"
+        assert isinstance(
+            shot[1], list
+        ), f"Expected list, got {type(shot[1])}: {shot[1]}"
+        assert shot == ([Result.Zero, Result.One], [Result.Zero, Result.One])
 
 
 # =========================================================================

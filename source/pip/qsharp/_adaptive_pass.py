@@ -55,6 +55,7 @@ GATE_MAP: Dict[str, int] = {
     "mz": 21,
     "mresetz": 22,
     "swap": 24,
+    "move": 28,
 }
 
 # Gates that take a result ID as a second argument
@@ -65,6 +66,12 @@ RESET_GATES = {"reset"}
 
 # Rotation gates that take an angle parameter as first argument
 ROTATION_GATES = {"rx", "ry", "rz", "rxx", "ryy", "rzz"}
+
+# Single-qubit gates whose QIR signature carries device-specific extra
+# arguments after the qubit pointer (e.g. ``move(qubit, i64, i64)``). The
+# extra args are scheduling metadata for hardware backends and are not
+# qubit IDs, so we resolve only ``args[0]`` and ignore the rest.
+MOVE_GATES = {"move"}
 
 # ---------------------------------------------------------------------------
 # ICmp / FCmp predicate mappings
@@ -781,6 +788,24 @@ class AdaptiveProfilePass:
                 OP_RESET,
                 aux0=qop_idx,
                 aux1=q,
+            )
+            return
+        if gate_name in MOVE_GATES:
+            # ``move(qubit, i64, i64)``: only the first arg is a qubit; the
+            # remaining args are device-specific scheduling metadata that
+            # the simulator ignores. Emit a single-qubit OP_QUANTUM_GATE so
+            # the runtime invokes ``Simulator::mov`` (which applies the
+            # configured ``noise.mov`` faults to that qubit).
+            q1, q2, q3 = self._resolve_qubit_operands([call.args[0]])
+            angle = FloatOperand(0.0, self._bytecode_kind)
+            qop_idx = self._emit_quantum_op(op_id, q1.val, q2.val, q3.val, angle.val)
+            self._emit(
+                OP_QUANTUM_GATE,
+                src0=angle,
+                aux0=qop_idx,
+                aux1=q1,
+                aux2=q2,
+                aux3=q3,
             )
             return
         if gate_name in ROTATION_GATES:

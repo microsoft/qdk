@@ -348,7 +348,7 @@ def test_noise_intrinsic_1q_x_flip(sim_type):
     table = noise.intrinsic("noise_1q", 1)
     table.x = 1.0
     output = run_qir(QIR_NOISE_1Q, shots=1, noise=noise, type=sim_type)
-    assert output == [[Result.One]]
+    assert output == [Result.One]
 
 
 QASM_NOISE_2Q = """

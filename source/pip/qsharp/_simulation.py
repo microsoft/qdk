@@ -530,6 +530,7 @@ def run_base(
 
 def run_adaptive(
     rust_run_adaptive_fn: Callable,
+    mod: pyqir.Module,
     program: AdaptiveProgram,
     shots: int,
     noise: Optional[NoiseConfig],
@@ -539,18 +540,9 @@ def run_adaptive(
     Runs an adaptive profile program given a rust simulator. Adds output recording logic.
     """
     results = rust_run_adaptive_fn(program.as_dict(), shots, noise, seed)
-    # Extract recorded output result indices from the bytecode.
-    # OP_RECORD_OUTPUT with aux1=0 is result_record_output where
-    # src0 is the result index in the results buffer.
-    recorded_result_indices = []
-    for ins in program.instructions:
-        if (ins.opcode & 0xFF) == OP_RECORD_OUTPUT and ins.aux1 == 0:
-            recorded_result_indices.append(ins.src0)
-    # Filter shot_results to only include recorded output indices
-    filtered = []
-    for s in results:
-        filtered.append([str_to_result(s[i]) for i in recorded_result_indices])
-    return filtered
+    recorder = OutputRecordingPass()
+    recorder.run(mod)
+    return list(map(recorder.process_output, results))
 
 
 def run_qir_clifford(
@@ -562,7 +554,7 @@ def run_qir_clifford(
     (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise)
-        return run_adaptive(run_clifford_adaptive, program, shots, noise, seed)
+        return run_adaptive(run_clifford_adaptive, mod, program, shots, noise, seed)
     else:
         return run_base(run_clifford, mod, shots, noise, seed)
 
@@ -577,7 +569,7 @@ def run_qir_cpu(
     DecomposeCcxPass().run(mod)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise)
-        return run_adaptive(run_cpu_adaptive, program, shots, noise, seed)
+        return run_adaptive(run_cpu_adaptive, mod, program, shots, noise, seed)
     else:
         return run_base(run_cpu_full_state, mod, shots, noise, seed)
 
@@ -593,7 +585,9 @@ def run_qir_gpu(
     DecomposeCcxPass().run(mod)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit32).run(mod, noise)
-        return run_adaptive(run_adaptive_parallel_shots, program, shots, noise, seed)
+        return run_adaptive(
+            run_adaptive_parallel_shots, mod, program, shots, noise, seed
+        )
     else:
         return run_base(run_parallel_shots, mod, shots, noise, seed)
 
@@ -625,7 +619,7 @@ class GpuSimulator:
     def __init__(self):
         self.gpu_context = GpuContext()
         self._is_adaptive = False
-        self._recorded_result_indices = []
+        self._recorder = None
         self.tables = None
 
     def load_noise_tables(
@@ -667,15 +661,11 @@ class GpuSimulator:
                 mod, noise_intrinsics=noise_intrinsics
             )
             self.gpu_context.set_adaptive_program(program.as_dict())
-
-            # Extract recorded output result indices from the bytecode.
-            # OP_RECORD_OUTPUT with aux1=0 is result_record_output where
-            # src0 is the result index in the results buffer.
-            self._recorded_result_indices = []
-            for instr in program.instructions:
-                if instr.opcode & 0xFF == OP_RECORD_OUTPUT and instr.aux1 == 0:
-                    self._recorded_result_indices.append(instr.src0)
+            # This is used later for output recording
+            self._recorder = OutputRecordingPass()
+            self._recorder.run(mod)
         else:
+            self._is_adaptive = False
             (self.gates, self.required_num_qubits, self.required_num_results) = (
                 prepare_qir_with_correlated_noise(
                     input, self.tables if not self.tables is None else []
@@ -693,13 +683,19 @@ class GpuSimulator:
         seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         if self._is_adaptive:
             results = self.gpu_context.run_adaptive_shots(shots, seed=seed)
-            # Filter shot_results to only include recorded output indices
-            if self._recorded_result_indices:
-                indices = self._recorded_result_indices
-                filtered = []
-                for s in results["shot_results"]:
-                    filtered.append("".join(s[i] for i in indices))
-                results["shot_results"] = filtered
+            for i, (shot_ret_code, shot_result) in enumerate(
+                zip(results["shot_result_codes"], results["shot_results"])
+            ):
+                if shot_ret_code == 0:
+                    # If the ret_code was zero, we do an output recording pass
+                    # on the output.
+                    results["shot_results"][i] = self._recorder.process_output(
+                        shot_result
+                    )
+                else:
+                    # If the shot finished with a ret_code other than zero,
+                    # we set the result to `None`.
+                    results["shot_results"][i] = None
             return results
         return self.gpu_context.run_shots(shots, seed=seed)
 
