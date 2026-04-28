@@ -238,7 +238,6 @@ def test_loss_noise_produces_loss_marker(sim_type):
     check_histogram(results, {"-": 0.1, "1": 0.9})
 
 
-@pytest.mark.skip(reason="loss behavior in cpu and gpu simulators is different")
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_two_qubit_loss(sim_type):
     noise = NoiseConfig()
@@ -369,7 +368,6 @@ def test_noise_accumulates_across_multiple_gates(sim_type):
     check_histogram(results, {"0": 0.82, "1": 0.18})
 
 
-@pytest.mark.skip(reason="loss behavior in cpu and gpu simulators is different")
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_bell_state_with_combined_noise(sim_type):
     noise = NoiseConfig()
