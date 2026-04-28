@@ -9,6 +9,7 @@ from typing import Literal
 import anywidget
 import traitlets
 
+
 try:
     __version__ = importlib.metadata.version("qsharp_widgets")
 except importlib.metadata.PackageNotFoundError:
@@ -222,6 +223,153 @@ class Atoms(anywidget.AnyWidget):
 
     def __init__(self, machine_layout, trace_data):
         super().__init__(machine_layout=machine_layout, trace_data=trace_data)
+
+
+class Entanglement(anywidget.AnyWidget):
+    _esm = pathlib.Path(__file__).parent / "static" / "index.js"
+    _css = pathlib.Path(__file__).parent / "static" / "index.css"
+
+    comp = traitlets.Unicode("Entanglement").tag(sync=True)
+    s1_entropies = traitlets.List().tag(sync=True)
+    mutual_information = traitlets.List().tag(sync=True)
+    labels = traitlets.List().tag(sync=True)
+    selected_indices = traitlets.List(allow_none=True, default_value=None).tag(sync=True)
+    groups = traitlets.Dict(allow_none=True, default_value=None).tag(sync=True)
+    options = traitlets.Dict().tag(sync=True)
+
+    def __init__(
+        self,
+        wavefunction=None,
+        *,
+        s1_entropies=None,
+        mutual_information=None,
+        labels=None,
+        selected_indices=None,
+        groups=None,
+        **options,
+    ):
+        """
+        Displays an entanglement chord diagram.
+
+        Can be constructed either from a ``Wavefunction`` object or from raw
+        entropy / mutual-information arrays.
+
+        Parameters
+        ----------
+        wavefunction : optional
+            A ``qdk_chemistry.Wavefunction`` instance (from the
+            ``qdk-chemistry`` package) with single-orbital entropies and
+            mutual information.  When provided, *s1_entropies* and
+            *mutual_information* are extracted automatically.
+        s1_entropies : list[float], optional
+            Single-orbital entropies (length *N*).  Required when
+            *wavefunction* is not given.
+        mutual_information : list[list[float]], optional
+            N×N mutual-information matrix.  Required when *wavefunction*
+            is not given.
+        labels : list[str], optional
+            Orbital labels.  Defaults to ``["0", "1", …]``.
+        selected_indices : list[int], optional
+            Orbital indices to highlight (single group, legacy API).
+        groups : dict[str, list[int]], optional
+            Named groups of orbital indices.  Each group is rendered with
+            a distinct outline colour and, when grouped, its members are
+            placed adjacent on the ring.  Takes precedence over
+            *selected_indices* for grouping when both are provided.
+        **options
+            Visual knobs forwarded to the JS component.  All are
+            optional; snake_case names are converted to camelCase
+            automatically.
+
+            ``gap_deg`` : float
+                Gap in degrees between adjacent arcs.  Default ``3``.
+            ``radius`` : float
+                Outer radius of the ring in SVG user units.  Default ``1``.
+            ``arc_width`` : float
+                Radial thickness of each arc as a fraction of the
+                radius.  Default ``0.08``.
+            ``line_scale`` : float or None
+                Chord width multiplier.  ``None`` (default) auto-scales
+                to the data range.
+            ``mi_threshold`` : float
+                Minimum mutual-information value to draw a chord.
+                Default ``0`` (draw all).
+            ``s1_vmax`` : float or None
+                Clamp for the single-orbital-entropy colour scale.
+                Default ``ln(4)``.
+            ``mi_vmax`` : float or None
+                Clamp for the mutual-information colour scale.
+                Default ``ln(16)``.
+            ``title`` : str or None
+                Title shown above the diagram.
+                Default ``"Entanglement"``.
+            ``width`` : int
+                SVG viewport width in pixels.  Default ``600``.
+            ``height`` : int
+                SVG viewport height in pixels.  Default ``660``.
+            ``selection_color`` : str
+                CSS colour for the highlight outline around selected
+                arcs.  Default auto-detected from background luminance.
+            ``selection_linewidth`` : float
+                Stroke width of the selection outline.  Default ``1.2``.
+            ``group_colors`` : list[str]
+                Override outline colours for each group (cycles if
+                fewer colours than groups).
+            ``group_selected`` : bool
+                When ``True``, reorder arcs so that members of each
+                group sit adjacent on the ring.  Default ``False``.
+        """
+        if wavefunction is not None:
+            try:
+                from qdk_chemistry.data import Wavefunction as _Wavefunction
+            except ImportError:
+                raise ImportError(
+                    "The 'qdk-chemistry' package is required when passing a "
+                    "wavefunction object.  Install it with:  pip install qdk-chemistry"
+                ) from None
+            if not isinstance(wavefunction, _Wavefunction):
+                raise TypeError(
+                    f"Expected a qdk_chemistry.data.Wavefunction instance, "
+                    f"got {type(wavefunction).__qualname__}"
+                )
+
+            raw_s1 = wavefunction.get_single_orbital_entropies()
+            raw_mi = wavefunction.get_mutual_information()
+            # Accept numpy arrays or plain lists; normalise to plain lists.
+            s1_entropies = (
+                raw_s1.tolist() if hasattr(raw_s1, "tolist") else list(raw_s1)
+            )
+            mutual_information = (
+                raw_mi.tolist() if hasattr(raw_mi, "tolist") else [list(row) for row in raw_mi]
+            )
+            n = len(s1_entropies)
+            if labels is None:
+                try:
+                    orbitals = wavefunction.get_orbitals()
+                    if orbitals.has_active_space():
+                        active_indices = orbitals.get_active_space_indices()[0]
+                        labels = [str(idx) for idx in active_indices]
+                    else:
+                        labels = [str(i) for i in range(n)]
+                except (AttributeError, TypeError, IndexError):
+                    labels = [str(i) for i in range(n)]
+        elif s1_entropies is None or mutual_information is None:
+            raise ValueError(
+                "Either 'wavefunction' or both 's1_entropies' and "
+                "'mutual_information' must be provided."
+            )
+
+        if labels is None:
+            labels = [str(i) for i in range(len(s1_entropies))]
+
+        super().__init__(
+            s1_entropies=s1_entropies,
+            mutual_information=mutual_information,
+            labels=labels,
+            selected_indices=selected_indices,
+            groups=groups,
+            options=options,
+        )
 
 
 class MoleculeViewer(anywidget.AnyWidget):
