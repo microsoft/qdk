@@ -130,11 +130,9 @@ export interface ProgressFileData {
 
 // ─── Bundled state ───
 
-export interface AllHintsResult {
+export interface HintContext {
   hints: string[];
-  exerciseId: string;
-  exerciseTitle: string;
-  description: string;
+  solutionExplanation: string;
 }
 
 export interface LearningState {

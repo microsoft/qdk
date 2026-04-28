@@ -260,7 +260,7 @@ export class LearningTools {
    */
   async hint(): Promise<{ result: unknown; state: unknown }> {
     await this.ensureInitialized();
-    const r = this.service.getAllHints();
+    const r = this.service.getHintContext();
     return { result: r.result, state: this.serializeState() };
   }
 

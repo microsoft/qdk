@@ -33,6 +33,7 @@ declare module "qsharp-lang/katas-md" {
     explainedSolution: ExplainedSolution;
     openQasm?: { operationName: string };
     sourceIds: string[];
+    hints?: string[];
   }
   export type LessonItem = TextContent | Example | Question;
   export type ContentItem = TextContent | Example | Solution;

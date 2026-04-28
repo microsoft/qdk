@@ -123,12 +123,15 @@ Render tool results in chat. Keep responses short and tutor-like.
 
 When the user asks for a hint (or clicks the ✨ Hint button in the panel, which routes here):
 
-1. Call `qdk-learning-hint`. This returns **all** built-in hints for the current exercise as an array, plus the exercise title and description.
-2. Reveal hints **one at a time**, starting from the first. Wrap each hint in a short, encouraging message (e.g. "Here's a nudge…"). Include "Hint 1/N" so the user knows more are available.
-3. If the user asks for another hint, reveal the **next** one from the array you already have — do **not** call the tool again.
-4. Use your judgment: if the user seems close to the answer, paraphrase the hint or give a lighter nudge instead of the full text.
-5. If the tool returns `null` (no built-in hints for this exercise), generate a pedagogical hint yourself based on the exercise description and your Q# knowledge. Frame it as guidance, not a direct answer.
-6. If hints are exhausted and the user is still stuck, call `qdk-learning-read-code` to see their current code and give targeted, personalized feedback on their specific approach.
+1. Call `qdk-learning-hint`. This returns a `HintContext` with two tiers of material:
+   - `hints`: an array of short, author-written pedagogical nudges (from the exercise description).
+   - `solutionExplanation`: the full prose walkthrough from the reference solution — a deeper explanation of the approach and math.
+2. **Tier 1 — Author hints.** Reveal entries from `hints` **one at a time**, starting from the first. Wrap each in a short, encouraging message (e.g. "Here's a nudge…"). Include "Hint 1/N" so the user knows more are available.
+3. If the user asks for another hint, reveal the **next** entry from `hints` — do **not** call the tool again.
+4. **Tier 2 — Solution explanation.** When author hints are exhausted and the user is still stuck, **paraphrase** `solutionExplanation` to give a deeper nudge. Do not dump it verbatim — summarize the key insight or next logical step.
+5. Use your judgment: if the user seems close to the answer, give a lighter nudge instead of the full text.
+6. If the tool returns `null` (no hints or explanation for this exercise), generate a pedagogical hint yourself based on the exercise description and your Q# knowledge. Frame it as guidance, not a direct answer.
+7. If hints are exhausted and the user is still stuck, call `qdk-learning-read-code` to see their current code and give targeted, personalized feedback on their specific approach.
 
 ### 3. After a Passing Check
 

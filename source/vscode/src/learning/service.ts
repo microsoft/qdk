@@ -41,7 +41,7 @@ import type {
   ActionGroup,
   LearningState,
   NavigationResult,
-  AllHintsResult,
+  HintContext,
   OverallProgress,
   KataProgress,
   SectionProgress,
@@ -400,27 +400,27 @@ export class LearningService {
 
   // ─── Hints & solutions ───
 
-  getAllHints(): { result: AllHintsResult | null; state: LearningState } {
+  getHintContext(): { result: HintContext | null; state: LearningState } {
     const exercise = this.resolveExercise();
-    const hints: string[] = [];
+
+    // Author-written pedagogical hints from index.md <details> blocks.
+    const hints = (exercise.hints ?? []).map((h) => this.renderMarkdown(h));
+
+    // Solution explanation prose from solution.md (text-content blocks).
+    const explanationParts: string[] = [];
     for (const item of exercise.explainedSolution.items) {
       if (item.type === "text-content") {
-        hints.push(this.renderMarkdown(item.content));
+        explanationParts.push(this.renderMarkdown(item.content));
       }
     }
-    if (hints.length === 0) {
+    const solutionExplanation = explanationParts.join("\n");
+
+    if (hints.length === 0 && solutionExplanation.length === 0) {
       return { result: null, state: this.getState() };
     }
 
-    const pos = this.getPosition();
     return {
-      result: {
-        hints,
-        exerciseId: exercise.id,
-        exerciseTitle:
-          pos.item.type === "exercise" ? pos.item.title : exercise.id,
-        description: pos.item.type === "exercise" ? pos.item.description : "",
-      },
+      result: { hints, solutionExplanation },
       state: this.getState(),
     };
   }
@@ -946,9 +946,11 @@ export class LearningService {
         description: this.renderMarkdown(exercise.description.content),
         filePath: fileUri.fsPath,
         isComplete: this.isComplete(kata.id, fp.sectionId),
-        hintCount: exercise.explainedSolution.items.filter(
-          (i: ContentItem) => i.type === "text-content",
-        ).length,
+        hintCount:
+          (exercise.hints?.length ?? 0) +
+          exercise.explainedSolution.items.filter(
+            (i: ContentItem) => i.type === "text-content",
+          ).length,
       } satisfies ExerciseItem;
     }
 
@@ -1003,8 +1005,9 @@ export class LearningService {
             if (ai.type === "text-content") {
               return ai.content;
             }
-            if (ai.type === "example")
+            if (ai.type === "example") {
               return `\`\`\`qsharp\n${ai.code}\n\`\`\``;
+            }
             return "";
           })
           .join("\n\n");

@@ -29,7 +29,7 @@ export type {
   ActionGroup,
   LearningState,
   NavigationResult,
-  AllHintsResult,
+  HintContext,
   OverallProgress,
   KataProgress,
   SectionProgress,
