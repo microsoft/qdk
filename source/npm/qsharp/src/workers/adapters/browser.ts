@@ -7,7 +7,9 @@ export class BrowserWorkerHost implements IWorkerHost {
   private worker: Worker;
 
   constructor(url: string | URL) {
-    const scriptUrl = typeof url === "string" ? url : url.href;
+    // Make sure the URL is absolute so that importScripts works inside the blob
+    const scriptUrl =
+      typeof url === "string" ? new URL(url, import.meta.url).href : url.href;
     const bootstrap = `
       self.WorkerSelf = {
         postMessage(msg) { self.postMessage(msg); },
