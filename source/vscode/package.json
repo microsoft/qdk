@@ -1226,30 +1226,6 @@
         }
       },
       {
-        "name": "qdk-learning-init",
-        "tags": [
-          "qdk",
-          "qdk-learning",
-          "quantum-katas"
-        ],
-        "toolReferenceName": "qdkLearningInit",
-        "displayName": "Initialize QDK Learning Workspace",
-        "modelDescription": "Initialize the QDK Learning workspace for Quantum Katas. Creates a qdk-learning.json file and scaffolds exercise files. Auto-detects the workspace root if workspacePath is omitted. Call this before any other qdk-learning tool if the workspace has not been initialized.",
-        "canBeReferencedInPrompt": true,
-        "icon": "./resources/file-icon-light.svg",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "workspacePath": {
-              "type": "string",
-              "description": "Absolute path to the workspace directory. If omitted, auto-detects from the current VS Code workspace."
-            }
-          },
-          "required": [],
-          "additionalProperties": false
-        }
-      },
-      {
         "name": "qdk-learning-show-panel",
         "tags": [
           "qdk",

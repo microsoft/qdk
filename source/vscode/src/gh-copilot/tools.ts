@@ -17,10 +17,23 @@ const workspaceState: ToolState = {};
 let qsharpTools: QSharpTools | undefined;
 let learningTools: LearningTools | undefined;
 
+/**
+ * Shared confirmation callback for all `qdk-learning-*` tools.
+ * Returns a confirmation prompt when the service is uninitialized,
+ * or `undefined` to skip confirmation once initialization is done.
+ */
+async function learningInitConfirm(): Promise<
+  vscode.PreparedToolInvocation | undefined
+> {
+  return learningTools!.confirmInit();
+}
+
 const toolDefinitions: {
   name: string;
   tool: (input: any) => Promise<any>;
-  confirm?: (input: any) => vscode.PreparedToolInvocation;
+  confirm?: (
+    input: any,
+  ) => vscode.ProviderResult<vscode.PreparedToolInvocation | undefined>;
 }[] = [
   // match these to the "languageModelTools" entries in package.json
   {
@@ -104,86 +117,95 @@ const toolDefinitions: {
     tool: async () => await qsharpTools!.qsharpGetLibraryDescriptions(),
   },
   // ─── QDK Learning tools ───
-  {
-    name: "qdk-learning-init",
-    tool: async (input) => await learningTools!.init(input),
-    confirm: (input: {
-      workspacePath?: string;
-    }): vscode.PreparedToolInvocation => ({
-      confirmationMessages: {
-        title: "Initialize QDK Learning workspace",
-        message: input.workspacePath
-          ? `Initialize a Quantum Katas learning workspace at ${input.workspacePath}? Exercise files and progress will be saved there.`
-          : `Initialize a Quantum Katas learning workspace in the current folder? Exercise files and progress will be saved there.`,
-      },
-    }),
-  },
+  // All learning tools use `learningInitConfirm` to prompt the user on
+  // first use (before the workspace has been initialized). Once the
+  // service is initialized the confirmation is skipped automatically.
   {
     name: "qdk-learning-show-panel",
     tool: async () => await learningTools!.showPanel(),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-get-state",
-    tool: async () => learningTools!.getState(),
+    tool: async () => await learningTools!.getState(),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-get-progress",
-    tool: async () => learningTools!.getProgress(),
+    tool: async () => await learningTools!.getProgress(),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-list-katas",
-    tool: async () => learningTools!.listKatas(),
+    tool: async () => await learningTools!.listKatas(),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-next",
-    tool: async () => learningTools!.next(),
+    tool: async () => await learningTools!.next(),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-previous",
-    tool: async () => learningTools!.previous(),
+    tool: async () => await learningTools!.previous(),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-goto",
-    tool: async (input) => learningTools!.goTo(input),
+    tool: async (input) => await learningTools!.goTo(input),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-run",
     tool: async (input) => await learningTools!.run(input),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-read-code",
     tool: async () => await learningTools!.readCode(),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-estimate",
     tool: async () => await learningTools!.estimate(),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-check",
     tool: async () => await learningTools!.check(),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-hint",
-    tool: async () => learningTools!.hint(),
+    tool: async () => await learningTools!.hint(),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-reveal-answer",
-    tool: async () => learningTools!.revealAnswer(),
+    tool: async () => await learningTools!.revealAnswer(),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-solution",
-    tool: async () => learningTools!.solution(),
+    tool: async () => await learningTools!.solution(),
+    confirm: learningInitConfirm,
   },
   {
     name: "qdk-learning-reset",
     tool: async () => await learningTools!.resetExercise(),
-    confirm: (): vscode.PreparedToolInvocation => ({
-      confirmationMessages: {
-        title: "Reset Exercise",
-        message:
-          "Reset the current exercise to the original placeholder? Your code will be lost.",
-      },
-    }),
+    confirm: async () => {
+      // If the service is not yet initialized, show the init confirmation
+      // first. Otherwise show the reset-specific confirmation.
+      const initConfirm = await learningTools!.confirmInit();
+      if (initConfirm) return initConfirm;
+      return {
+        confirmationMessages: {
+          title: "Reset Exercise",
+          message:
+            "Reset the current exercise to the original placeholder? Your code will be lost.",
+        },
+      };
+    },
   },
 ];
 
@@ -204,15 +226,17 @@ function tool<T>(
   context: vscode.ExtensionContext,
   toolName: string,
   toolFn: (input: T) => Promise<any>,
-  confirmFn?: (input: T) => vscode.PreparedToolInvocation,
+  confirmFn?: (
+    input: T,
+  ) => vscode.ProviderResult<vscode.PreparedToolInvocation | undefined>,
 ): vscode.LanguageModelTool<any> {
   return {
     invoke: (options: vscode.LanguageModelToolInvocationOptions<T>) =>
       invokeTool(context, toolName, options, toolFn),
-    prepareInvocation:
-      confirmFn &&
-      ((options: vscode.LanguageModelToolInvocationPrepareOptions<T>) =>
-        confirmFn(options.input)),
+    prepareInvocation: confirmFn
+      ? (options: vscode.LanguageModelToolInvocationPrepareOptions<T>) =>
+          confirmFn(options.input)
+      : undefined,
   };
 }
 

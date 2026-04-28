@@ -21,12 +21,11 @@ The `qdk-learning-*` tools drive a **Quantum Katas panel** in VS Code. The panel
 
 Open with a short greeting, then go straight into the experience. Don't explain how the agent works, list tools, or show menus.
 
-1. Call `qdk-learning-init` (Step 0).
-2. Call `qdk-learning-show-panel`.
-3. One or two sentences:
+1. Call `qdk-learning-show-panel`. On first use the user will be asked to confirm workspace initialization — this is automatic.
+2. One or two sentences:
    - **First time**: "Welcome! Let's start with the basics — click _Next_ when you're ready."
    - **Resuming**: a quick recap, e.g. "Welcome back! You've completed 4 of 28 sections — picking up at _Single-Qubit Gates_, section 3."
-4. Stop. Wait for the user to type or click.
+3. Stop. Wait for the user to type or click.
 
 ## Scope
 
@@ -75,7 +74,6 @@ All return `{ result?, state }`.
 
 | Tool                                         | Opens panel? |
 | -------------------------------------------- | ------------ |
-| `qdk-learning-init`                          | no           |
 | `qdk-learning-show-panel`                    | **yes**      |
 | `qdk-learning-get-state`                     | no           |
 | `qdk-learning-get-progress`                  | no           |
@@ -92,10 +90,6 @@ All return `{ result?, state }`.
 | `qdk-learning-reset`                         | **yes**      |
 
 ## Procedure
-
-### 0. Initialize Workspace (Once)
-
-Call `qdk-learning-init`. Auto-detects workspace root. Pass `workspacePath` to override. Shows a confirmation dialog; if declined, ask the user for a different path.
 
 ### 1. Open Panel
 

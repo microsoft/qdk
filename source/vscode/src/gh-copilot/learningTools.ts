@@ -2,8 +2,11 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-import { LearningService } from "../learningService/index.js";
-import { detectKatasWorkspace } from "../katasProgress/detector.js";
+import { LearningService, KATAS_WS_FOLDER } from "../learningService/index.js";
+import {
+  detectKatasWorkspace,
+  LEARNING_FILE,
+} from "../katasProgress/detector.js";
 import { CopilotToolError } from "./types.js";
 import { QSharpTools } from "./qsharpTools.js";
 
@@ -18,56 +21,76 @@ export class LearningTools {
     private readonly qsharpTools: QSharpTools,
   ) {}
 
-  private ensureInitialized(): void {
-    if (!this.service.initialized) {
+  // ─── Auto-init helpers ───
+
+  /**
+   * Resolve the workspace root to use for initialization.
+   * Checks for an existing `qdk-learning.json`, then falls back to the
+   * first open workspace folder.
+   *
+   * Side-effect free — safe for {@link confirmInit}.
+   */
+  private async resolveWorkspaceRoot(): Promise<vscode.Uri> {
+    const detected = await detectKatasWorkspace();
+    if (detected) return detected.workspaceRoot;
+
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders || folders.length === 0) {
       throw new CopilotToolError(
-        "The QDK Learning workspace has not been initialized. " +
-          "Call the qdk-learning-init tool first to set up the learning workspace.",
+        "No workspace folder is open. Open a folder first, then try again.",
       );
     }
+    return folders[0].uri;
   }
 
   /**
-   * Initialize the learning workspace. Auto-detects the workspace root
-   * from the open VS Code workspace folders, or uses the provided path.
+   * Called by `prepareInvocation` on every learning tool.
+   *
+   * Returns a confirmation prompt when the service has not yet been
+   * initialized (so the user can approve file creation), or `undefined`
+   * to skip confirmation when already initialized.
+   *
+   * **Must be free of side-effects** — only reads state and the filesystem.
    */
-  async init(input: {
-    workspacePath?: string;
-  }): Promise<{ workspacePath: string; state: unknown }> {
-    let workspaceRoot: vscode.Uri;
+  async confirmInit(): Promise<vscode.PreparedToolInvocation | undefined> {
+    if (this.service.initialized) return undefined;
 
-    if (input.workspacePath) {
-      workspaceRoot = vscode.Uri.file(input.workspacePath);
-    } else {
-      const detected = await detectKatasWorkspace();
-      if (detected) {
-        workspaceRoot = detected.workspaceRoot;
-      } else {
-        // Fall back to first workspace folder
-        const folders = vscode.workspace.workspaceFolders;
-        if (!folders || folders.length === 0) {
-          throw new CopilotToolError(
-            "No workspace folder is open. Open a folder first, then try again.",
-          );
-        }
-        workspaceRoot = folders[0].uri;
-      }
+    let workspacePath: string;
+    try {
+      workspacePath = (await this.resolveWorkspaceRoot()).fsPath;
+    } catch {
+      // Can't resolve — let invoke() surface the error.
+      return undefined;
     }
 
-    const katasRoot = vscode.Uri.joinPath(workspaceRoot, "qdk-learning-ws");
+    return {
+      confirmationMessages: {
+        title: "Initialize QDK Learning workspace",
+        message:
+          `Set up a Quantum Katas learning workspace in **${workspacePath}**? ` +
+          `Exercise files and progress tracking will be created in a \`${KATAS_WS_FOLDER}\` subfolder.`,
+      },
+    };
+  }
+
+  /**
+   * Ensures the learning service is initialized, performing first-time
+   * setup if necessary. Called at the start of every tool invocation
+   * (after the user has already approved via {@link confirmInit}).
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (this.service.initialized) return;
+
+    const workspaceRoot = await this.resolveWorkspaceRoot();
+    const katasRoot = vscode.Uri.joinPath(workspaceRoot, KATAS_WS_FOLDER);
 
     // Create qdk-learning.json if it doesn't exist
-    const learningFile = vscode.Uri.joinPath(
-      workspaceRoot,
-      "qdk-learning.json",
-    );
+    const learningFile = vscode.Uri.joinPath(workspaceRoot, LEARNING_FILE);
     try {
       await vscode.workspace.fs.stat(learningFile);
     } catch {
-      // File doesn't exist — create it
       const defaultData = {
         version: 1,
-        katasRoot: "./qdk-learning-ws",
         position: { kataId: "", sectionId: "", itemIndex: 0 },
         completions: {},
         startedAt: new Date().toISOString(),
@@ -78,21 +101,14 @@ export class LearningTools {
       );
     }
 
-    if (!this.service.initialized) {
-      await this.service.initialize(workspaceRoot, katasRoot);
-    }
-
-    return {
-      workspacePath: workspaceRoot.fsPath,
-      state: this.serializeState(),
-    };
+    await this.service.initialize(workspaceRoot, katasRoot);
   }
 
   /**
    * Open the full-size Quantum Katas panel at the current position.
    */
   async showPanel(): Promise<{ state: unknown }> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     await this.openPanel();
     return { state: this.serializeState() };
   }
@@ -100,16 +116,16 @@ export class LearningTools {
   /**
    * Read the current learning position and progress.
    */
-  getState(): { state: unknown } {
-    this.ensureInitialized();
+  async getState(): Promise<{ state: unknown }> {
+    await this.ensureInitialized();
     return { state: this.serializeState() };
   }
 
   /**
    * Return the full per-kata progress breakdown.
    */
-  getProgress(): { progress: unknown; state: unknown } {
-    this.ensureInitialized();
+  async getProgress(): Promise<{ progress: unknown; state: unknown }> {
+    await this.ensureInitialized();
     const progress = this.service.getProgress();
     return {
       progress: this.serializeProgressFull(progress),
@@ -120,8 +136,8 @@ export class LearningTools {
   /**
    * List all available katas with completion status.
    */
-  listKatas(): { katas: unknown; state: unknown } {
-    this.ensureInitialized();
+  async listKatas(): Promise<{ katas: unknown; state: unknown }> {
+    await this.ensureInitialized();
     return {
       katas: this.service.listKatas(),
       state: this.serializeState(),
@@ -132,7 +148,7 @@ export class LearningTools {
    * Move to the next item.
    */
   async next(): Promise<{ moved: boolean; state: unknown }> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     const r = this.service.next();
     await this.openPanel();
     return { moved: r.moved, state: this.serializeState() };
@@ -142,7 +158,7 @@ export class LearningTools {
    * Move to the previous item.
    */
   async previous(): Promise<{ moved: boolean; state: unknown }> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     const r = this.service.previous();
     await this.openPanel();
     return { moved: r.moved, state: this.serializeState() };
@@ -156,7 +172,7 @@ export class LearningTools {
     sectionId?: string;
     itemIndex?: number;
   }): Promise<{ state: unknown }> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     this.service.goTo(input.kataId, input.sectionId, input.itemIndex ?? 0);
     await this.openPanel();
     return { state: this.serializeState() };
@@ -168,7 +184,7 @@ export class LearningTools {
   async run(input: {
     shots?: number;
   }): Promise<{ result: unknown; state: unknown }> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     const r = await this.service.run(input.shots ?? 1);
     await this.openPanel();
     return { result: r.result, state: this.serializeState() };
@@ -183,7 +199,7 @@ export class LearningTools {
     filePath: string;
     state: unknown;
   }> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     const pos = this.service.getPosition();
     let code: string;
     let filePath: string;
@@ -207,7 +223,7 @@ export class LearningTools {
    * Reset the current exercise to its original placeholder code.
    */
   async resetExercise(): Promise<{ state: unknown }> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     await this.service.resetExercise();
     await this.openPanel();
     return { state: this.serializeState() };
@@ -218,7 +234,7 @@ export class LearningTools {
    * Delegates to the existing qdk-run-resource-estimator tool with the current file.
    */
   async estimate(): Promise<{ result: unknown; state: unknown }> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     const filePath = this.getCurrentFilePath();
     const result = await this.qsharpTools.runResourceEstimator({ filePath });
     await this.openPanel();
@@ -229,7 +245,7 @@ export class LearningTools {
    * Check the student's solution. Marks it complete on pass.
    */
   async check(): Promise<{ result: unknown; state: unknown }> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     const r = await this.service.checkSolution();
     await this.openPanel();
     return { result: r.result, state: this.serializeState() };
@@ -239,7 +255,7 @@ export class LearningTools {
    * Return all built-in hints for the current exercise.
    */
   async hint(): Promise<{ result: unknown; state: unknown }> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     const r = this.service.getAllHints();
     return { result: r.result, state: this.serializeState() };
   }
@@ -248,7 +264,7 @@ export class LearningTools {
    * Reveal the answer to the current lesson question.
    */
   async revealAnswer(): Promise<{ result: unknown; state: unknown }> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     const r = this.service.revealAnswer();
     await this.openPanel();
     return { result: r.result, state: this.serializeState() };
@@ -258,7 +274,7 @@ export class LearningTools {
    * Show the full reference solution code.
    */
   async solution(): Promise<{ result: string; state: unknown }> {
-    this.ensureInitialized();
+    await this.ensureInitialized();
     const result = this.service.getFullSolution();
     await this.openPanel();
     return { result, state: this.serializeState() };
