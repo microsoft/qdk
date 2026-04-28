@@ -223,12 +223,11 @@ export class LearningTools {
   }
 
   /**
-   * Reveal the next built-in hint for the current exercise.
+   * Return all built-in hints for the current exercise.
    */
   async hint(): Promise<{ result: unknown; state: unknown }> {
     this.ensureInitialized();
-    const r = this.service.getNextHint();
-    await this.openPanel();
+    const r = this.service.getAllHints();
     return { result: r.result, state: this.serializeState() };
   }
 

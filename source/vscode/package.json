@@ -1513,7 +1513,7 @@
         ],
         "toolReferenceName": "qdkLearningHint",
         "displayName": "QDK Learning Hint",
-        "modelDescription": "Reveal the next built-in hint for the current exercise. Hints are revealed progressively — each call reveals one more. Returns the hint text and current/total count.",
+        "modelDescription": "Return ALL built-in hints for the current exercise. Returns an array of hint texts (HTML), the exercise ID, title, and description. The agent should reveal hints ONE AT A TIME, starting from the first. If the user asks for more help, reveal the next hint. Use judgment — paraphrase or give a lighter nudge if the user is close. If no built-in hints are available (null result), generate a pedagogical hint from the exercise description context.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {

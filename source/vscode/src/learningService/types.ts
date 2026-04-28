@@ -72,7 +72,7 @@ export type Action =
   | "run"
   | "circuit"
   | "check"
-  | "hint"
+  | "hint-chat"
   | "solution"
   | "reveal-answer"
   | "progress"
@@ -84,6 +84,8 @@ export interface ActionBinding {
   label: string;
   action: Action;
   primary?: boolean;
+  /** Codicon name to display as an icon prefix on the button. */
+  codicon?: string;
 }
 
 export type ActionGroup = ActionBinding[];
@@ -127,10 +129,11 @@ export interface ProgressFileData {
 
 // ─── Bundled state ───
 
-export interface HintResult {
-  hint: string;
-  current: number;
-  total: number;
+export interface AllHintsResult {
+  hints: string[];
+  exerciseId: string;
+  exerciseTitle: string;
+  description: string;
 }
 
 export interface LearningState {

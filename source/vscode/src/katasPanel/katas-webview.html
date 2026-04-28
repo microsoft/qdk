@@ -122,7 +122,14 @@
               if (binding.action === "quit" || binding.action === "menu")
                 continue;
               const btn = document.createElement("button");
-              btn.textContent = binding.label;
+              if (binding.codicon) {
+                const icon = document.createElement("span");
+                icon.className = "codicon codicon-" + binding.codicon;
+                btn.appendChild(icon);
+                btn.appendChild(document.createTextNode(" " + binding.label));
+              } else {
+                btn.textContent = binding.label;
+              }
               if (binding.primary) btn.classList.add("primary");
               btn.dataset.action = binding.action;
               btn.disabled = busy;
@@ -173,6 +180,15 @@
 
         function executeAction(action) {
           if (busy) return;
+
+          if (action === "hint-chat") {
+            vscodeApi.postMessage({
+              command: "openChat",
+              text: "Give me a hint",
+            });
+            return;
+          }
+
           setBusy(true);
 
           const slow = ["run", "circuit", "check"].includes(action);
@@ -211,13 +227,6 @@
                     result.passed ? "pass" : "fail",
                   );
                   if (result.passed) invalidateContent();
-                  break;
-                case "hint":
-                  showOutput(
-                    result
-                      ? R.renderHint(result)
-                      : '<div class="message">No more hints available.</div>',
-                  );
                   break;
                 case "reveal-answer":
                   showOutput("<div>" + result + "</div>");

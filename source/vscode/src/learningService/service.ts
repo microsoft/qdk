@@ -40,7 +40,7 @@ import type {
   ActionGroup,
   LearningState,
   NavigationResult,
-  HintResult,
+  AllHintsResult,
   OverallProgress,
   KataProgress,
   SectionProgress,
@@ -83,7 +83,6 @@ export class LearningService {
   private flatPositions: FlatPosition[] = [];
   private currentFlatIndex = 0;
   private ranExamples = new Set<string>();
-  private hintRevealCount = new Map<string, number>();
 
   private workspaceRoot!: vscode.Uri;
   private katasRoot!: vscode.Uri;
@@ -373,7 +372,7 @@ export class LearningService {
           { key: "c", label: "Circuit", action: "circuit" },
         ];
         const helpGroup: ActionGroup = [
-          { key: "h", label: "Hint", action: "hint" },
+          { key: "h", label: "Hint", action: "hint-chat", codicon: "sparkle" },
           { key: "s", label: "Solution", action: "solution" },
         ];
         return [primaryGroup, codeTools, helpGroup, navGroup];
@@ -383,7 +382,7 @@ export class LearningService {
 
   // ─── Hints & solutions ───
 
-  getNextHint(): { result: HintResult | null; state: LearningState } {
+  getAllHints(): { result: AllHintsResult | null; state: LearningState } {
     const exercise = this.resolveExercise();
     const hints: string[] = [];
     for (const item of exercise.explainedSolution.items) {
@@ -395,14 +394,15 @@ export class LearningService {
       return { result: null, state: this.getState() };
     }
 
-    const current = Math.min(
-      (this.hintRevealCount.get(exercise.id) ?? 0) + 1,
-      hints.length,
-    );
-    this.hintRevealCount.set(exercise.id, current);
-
+    const pos = this.getPosition();
     return {
-      result: { hint: hints[current - 1], current, total: hints.length },
+      result: {
+        hints,
+        exerciseId: exercise.id,
+        exerciseTitle:
+          pos.item.type === "exercise" ? pos.item.title : exercise.id,
+        description: pos.item.type === "exercise" ? pos.item.description : "",
+      },
       state: this.getState(),
     };
   }

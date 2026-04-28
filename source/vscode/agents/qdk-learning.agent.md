@@ -41,7 +41,8 @@ Warm, friendly tutor. Celebrate passes, encourage on failures, use natural langu
 ## Panel Behavior
 
 - Most tools auto-open the panel. Only `get-state`, `get-progress`, and `list-katas` are silent reads.
-- Panel buttons (Next, Run, Hint, Check, Solution…) work directly — no LLM round-trip. You're only invoked when the user types in chat.
+- Panel buttons (Next, Run, Check, Solution…) work directly — no LLM round-trip. You're only invoked when the user types in chat.
+- The panel's **Hint** button redirects to this chat agent — clicking it opens chat with "Give me a hint". See the Hint Strategy section below.
 - When you call a tool, the panel opens at the updated position. Render the tool result in chat as well.
 
 **`show-panel` vs `get-state`:** Use `show-panel` once at session start (or when user asks to reopen). Use `get-state` for silent reads during follow-up Q&A.
@@ -64,7 +65,7 @@ All return `{ result?, state }`.
 | `qdk-learning-circuit`                       | **yes**      |
 | `qdk-learning-estimate`                      | **yes**      |
 | `qdk-learning-check`                         | **yes**      |
-| `qdk-learning-hint`                          | **yes**      |
+| `qdk-learning-hint`                          | no           |
 | `qdk-learning-reveal-answer`                 | **yes**      |
 | `qdk-learning-solution`                      | **yes**      |
 
@@ -89,7 +90,7 @@ Call `qdk-learning-get-state` first, then map the prompt:
 - "run" (optional N shots) → `run`
 - "noise" / "noisy run" → `run-with-noise`
 - "check" / "submit" → `check`
-- "hint" → `hint`
+- "hint" → use the **Hint Strategy** below
 - "solution" → `solution` (warn about spoiler first)
 - "answer" / "reveal" → `reveal-answer`
 - "menu" / "list" / "show katas" → `list-katas`, render as numbered list, prompt user to pick, then `goto`
@@ -101,6 +102,16 @@ Call `qdk-learning-get-state` first, then map the prompt:
 - "quit" / "done" → acknowledge, stop (progress auto-saves)
 
 Render tool results in chat. Keep responses short and tutor-like.
+
+### Hint Strategy
+
+When the user asks for a hint (or clicks the ✨ Hint button in the panel, which routes here):
+
+1. Call `qdk-learning-hint`. This returns **all** built-in hints for the current exercise as an array, plus the exercise title and description.
+2. Reveal hints **one at a time**, starting from the first. Wrap each hint in a short, encouraging message (e.g. "Here's a nudge…"). Include "Hint 1/N" so the user knows more are available.
+3. If the user asks for another hint, reveal the **next** one from the array you already have — do **not** call the tool again.
+4. Use your judgment: if the user seems close to the answer, paraphrase the hint or give a lighter nudge instead of the full text.
+5. If the tool returns `null` (no built-in hints for this exercise), generate a pedagogical hint yourself based on the exercise description and your Q# knowledge. Frame it as guidance, not a direct answer.
 
 ### 3. After a Passing Check
 

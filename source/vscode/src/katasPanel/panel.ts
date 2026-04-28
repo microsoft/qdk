@@ -267,6 +267,14 @@ export class KatasPanelManager {
       return;
     }
 
+    if (msg.command === "openChat") {
+      const text = msg.text || "Give me a hint";
+      await vscode.commands.executeCommand("workbench.action.chat.open", {
+        query: `/qdk-learning ${text}`,
+      });
+      return;
+    }
+
     if (msg.command === "action") {
       await this.handleAction(msg.action);
     }
@@ -300,11 +308,6 @@ export class KatasPanelManager {
         case "check": {
           const result = await this.executeCheck();
           this.sendResult("check", result);
-          break;
-        }
-        case "hint": {
-          const { result } = this.service.getNextHint();
-          this.sendResult("hint", result);
           break;
         }
         case "solution": {
@@ -476,6 +479,7 @@ export class KatasPanelManager {
     const renderJsUri = getUri("out", "katasPanel", "render.js");
     const cssUri = getUri("out", "katasPanel", "katas-webview.css");
     const katexCssUri = getUri("out", "katex", "katex.min.css");
+    const codiconCssUri = getUri("out", "katex", "codicon.css");
 
     return /*html*/ `<!doctype html>
 <html lang="en">
@@ -483,6 +487,7 @@ export class KatasPanelManager {
     <meta charset="utf-8" />
     <title>Quantum Katas</title>
     <link rel="stylesheet" href="${katexCssUri}" />
+    <link rel="stylesheet" href="${codiconCssUri}" />
     <link rel="stylesheet" href="${cssUri}" />
   </head>
   <body>
@@ -580,7 +585,14 @@ export class KatasPanelManager {
               if (binding.action === "quit" || binding.action === "menu")
                 continue;
               const btn = document.createElement("button");
-              btn.textContent = binding.label;
+              if (binding.codicon) {
+                const icon = document.createElement("span");
+                icon.className = "codicon codicon-" + binding.codicon;
+                btn.appendChild(icon);
+                btn.appendChild(document.createTextNode(" " + binding.label));
+              } else {
+                btn.textContent = binding.label;
+              }
               if (binding.primary) btn.classList.add("primary");
               btn.dataset.action = binding.action;
               btn.disabled = busy;
@@ -632,6 +644,12 @@ export class KatasPanelManager {
 
         function executeAction(action) {
           if (busy) return;
+
+          if (action === "hint-chat") {
+            vscodeApi.postMessage({ command: "openChat", text: "Give me a hint" });
+            return;
+          }
+
           setBusy(true);
 
           var slow = ["run", "circuit", "check"].indexOf(action) >= 0;
@@ -670,13 +688,7 @@ export class KatasPanelManager {
                   );
                   if (result.passed) invalidateContent();
                   break;
-                case "hint":
-                  showOutput(
-                    result
-                      ? R.renderHint(result)
-                      : '<div class="message">No more hints available.</div>',
-                  );
-                  break;
+
                 case "reveal-answer":
                   showOutput("<div>" + result + "</div>");
                   break;

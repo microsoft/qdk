@@ -17,9 +17,10 @@ export function registerLearningCommands(
   context.subscriptions.push(
     vscode.commands.registerCommand("qsharp-vscode.learningShowHint", () => {
       if (!service.initialized) return;
-      service.getNextHint();
-      // Open the katas panel which will show the hint.
-      void vscode.commands.executeCommand("qsharp-vscode.showKatas");
+      // Redirect to chat agent for hint delivery.
+      void vscode.commands.executeCommand("workbench.action.chat.open", {
+        query: "/qdk-learning Give me a hint",
+      });
     }),
 
     vscode.commands.registerCommand(

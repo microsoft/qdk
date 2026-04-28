@@ -117,14 +117,6 @@
     return html;
   }
 
-  function renderHint(hint) {
-    if (!hint) return `<div class="message">No more hints available.</div>`;
-    return (
-      `<div class="hint-badge">Hint ${hint.current}/${hint.total}</div>` +
-      `<div>${hint.hint}</div>`
-    );
-  }
-
   /** Content body HTML for a position item (lesson-text, lesson-example, lesson-question, exercise). */
   function renderContentBody(item) {
     switch (item.type) {
@@ -220,7 +212,6 @@
     renderCircuit,
     renderEstimate,
     renderProgress,
-    renderHint,
     renderContentBody,
     renderContentLabel,
     renderProgressBar,
