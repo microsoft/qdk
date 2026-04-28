@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 use crate::rir::{
-    Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Program, Ty,
-    Variable, VariableId,
+    Block, BlockId, Callable, CallableId, CallableType, Instruction, Literal, Operand, Prim,
+    Program, Ty, Variable, VariableId,
 };
 
 use super::{check_unreachable_blocks, check_unreachable_callable, check_unreachable_instrs};
@@ -18,7 +18,7 @@ fn test_check_unreachable_instrs_panics_on_missing_terminator() {
             Operand::Literal(Literal::Bool(true)),
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
         )]),
     );
@@ -44,7 +44,7 @@ fn test_check_unreachable_instrs_succeeds_on_terminator_after_other_instrs() {
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
             Instruction::Return,
@@ -65,7 +65,7 @@ fn test_check_unreachable_instrs_panics_on_unreachable_instrs_after_terminator()
                 Operand::Literal(Literal::Bool(true)),
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
             ),
         ]),
@@ -133,7 +133,7 @@ fn test_check_unreachable_blocks_succeeds_on_no_unreachable_blocks_with_branch()
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(1),
             BlockId(2),
@@ -190,7 +190,7 @@ fn test_check_unreachable_blocks_panics_on_unreachable_block_with_branch() {
         Block(vec![Instruction::Branch(
             Variable {
                 variable_id: VariableId(0),
-                ty: Ty::Boolean,
+                ty: Ty::Prim(Prim::Boolean),
             },
             BlockId(1),
             BlockId(1),

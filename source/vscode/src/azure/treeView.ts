@@ -5,6 +5,7 @@ import * as vscode from "vscode";
 import { queryWorkspace } from "./workspaceActions";
 import { log } from "qsharp-lang";
 import { targetSupportQir } from "./providerProperties";
+import { QuantumUris } from "./networkRequests";
 
 // See docs at https://code.visualstudio.com/api/extension-guides/tree-view
 
@@ -23,9 +24,7 @@ function localDate(date: string) {
   return new Date(date).toLocaleString();
 }
 
-export class WorkspaceTreeProvider
-  implements vscode.TreeDataProvider<WorkspaceTreeItem>
-{
+export class WorkspaceTreeProvider implements vscode.TreeDataProvider<WorkspaceTreeItem> {
   static instance: WorkspaceTreeProvider;
   private treeState: Map<string, WorkspaceConnection> = new Map();
 
@@ -108,6 +107,8 @@ export type WorkspaceConnection = {
   name: string;
   endpointUri: string;
   tenantId: string;
+  subscriptionId?: string;
+  offeringId?: string;
   apiKey?: string;
   providers: Provider[];
   jobs: Job[];
@@ -252,9 +253,13 @@ export class WorkspaceTreeItem extends vscode.TreeItem {
       case "job": {
         const job = itemData as Job;
         this.collapsibleState = vscode.TreeItemCollapsibleState.None;
+        const { isV2Workspace } = QuantumUris.parseEndpointUri(
+          workspace.endpointUri,
+        );
+        const v2Suffix = isV2Workspace ? "-v2" : "";
         switch (job.status) {
           case "Executing":
-            this.contextValue = "job-cancelable";
+            this.contextValue = `job-cancelable${v2Suffix}`;
           // falls through
           case "Finishing":
             this.iconPath = new vscode.ThemeIcon("run-all");
@@ -262,7 +267,7 @@ export class WorkspaceTreeItem extends vscode.TreeItem {
           case "Queued":
           case "Waiting":
             this.iconPath = new vscode.ThemeIcon("loading~spin");
-            this.contextValue = "job-cancelable";
+            this.contextValue = `job-cancelable${v2Suffix}`;
             break;
           case "CancellationRequested":
           case "Cancelling":
@@ -270,16 +275,16 @@ export class WorkspaceTreeItem extends vscode.TreeItem {
             break;
           case "Cancelled":
             this.iconPath = new vscode.ThemeIcon("circle-slash");
-            this.contextValue = "result";
+            this.contextValue = `result${v2Suffix}`;
             break;
           case "Failed":
             this.iconPath = new vscode.ThemeIcon("error");
-            this.contextValue = "result";
+            this.contextValue = `result${v2Suffix}`;
             break;
           case "Completed":
           case "Succeeded":
             this.iconPath = new vscode.ThemeIcon("pass");
-            this.contextValue = "result-download";
+            this.contextValue = `result-download${v2Suffix}`;
             break;
         }
         // Tooltip

@@ -97,6 +97,14 @@ pub enum Error {
     #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicExponent"))]
     UseOfDynamicExponent(#[label] Span),
 
+    #[error("cannot use an array with dynamic contents")]
+    #[diagnostic(help(
+        "using an array whose contents depend on a measurement result is not supported by the configured target profile"
+    ))]
+    #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-array"))]
+    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicArray"))]
+    UseOfDynamicArray(#[label] Span),
+
     #[error("cannot use a dynamically-sized array")]
     #[diagnostic(help(
         "using an array whose size depends on a measurement result is not supported by the configured target profile"
@@ -236,6 +244,14 @@ pub enum Error {
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-advanced-output"))]
     #[diagnostic(code("Qsc.CapabilitiesCk.UseOfAdvancedOutput"))]
     UseOfAdvancedOutput(#[label] Span),
+
+    #[error("cannot use a dynamic generic parameter")]
+    #[diagnostic(help(
+        "using a generic parameter whose resolution depends on a measurement result is not supported by the configured target profile"
+    ))]
+    #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-generic"))]
+    #[diagnostic(code("Qsc.CapabilitiesCk.UseOfDynamicGeneric"))]
+    UseOfDynamicGeneric(#[label] Span),
 }
 
 #[must_use]
@@ -276,6 +292,9 @@ pub fn generate_errors_from_runtime_features(
     }
     if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicExponent) {
         errors.push(Error::UseOfDynamicExponent(span));
+    }
+    if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicArray) {
+        errors.push(Error::UseOfDynamicArray(span));
     }
     if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) {
         errors.push(Error::UseOfDynamicallySizedArray(span));
@@ -333,6 +352,9 @@ pub fn generate_errors_from_runtime_features(
     }
     if runtime_features.contains(RuntimeFeatureFlags::CallToCustomReset) {
         errors.push(Error::CallToCustomReset(span));
+    }
+    if runtime_features.contains(RuntimeFeatureFlags::UseOfDynamicGeneric) {
+        errors.push(Error::UseOfDynamicGeneric(span));
     }
     errors
 }

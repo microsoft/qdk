@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from pyqir import QirModuleVisitor, is_entry_point, qubit_id, required_num_qubits
+from pyqir import QirModuleVisitor, is_entry_point, ptr_id, required_num_qubits
 
 
 class ValidateBeginEndParallel(QirModuleVisitor):
@@ -54,8 +54,8 @@ class PerQubitOrdering(QirModuleVisitor):
             super()._on_call_instr(call)
 
     def _on_qis_cz(self, call, ctrl, target):
-        ctrl_id = qubit_id(ctrl)
-        target_id = qubit_id(target)
+        ctrl_id = ptr_id(ctrl)
+        target_id = ptr_id(target)
         assert (
             ctrl_id is not None and target_id is not None
         ), "Qubit ids should be known"
@@ -63,17 +63,17 @@ class PerQubitOrdering(QirModuleVisitor):
         self.qubit_instructions[target_id].append(str(call))
 
     def _on_qis_sx(self, call, target):
-        target_id = qubit_id(target)
+        target_id = ptr_id(target)
         assert target_id is not None, "Qubit id should be known"
         self.qubit_instructions[target_id].append(str(call))
 
     def _on_qis_rz(self, call, angle, target):
-        target_id = qubit_id(target)
+        target_id = ptr_id(target)
         assert target_id is not None, "Qubit id should be known"
         self.qubit_instructions[target_id].append(str(call))
 
     def _on_qis_mresetz(self, call, target, result):
-        target_id = qubit_id(target)
+        target_id = ptr_id(target)
         assert target_id is not None, "Qubit id should be known"
         self.qubit_instructions[target_id].append(str(call))
 

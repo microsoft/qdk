@@ -35,13 +35,17 @@ import {
 import {
   cancelPendingJob,
   deleteJobRequest,
-  getAzurePortalWorkspaceLink,
+  getWorkspacePortalLink,
+  getQuantumOsJobLink,
   getJobFiles,
   getPythonCodeForWorkspace,
+  getTenantIdForSubscription,
+  parseConnectionString,
   queryWorkspaces,
   submitJob,
   uploadBlob,
 } from "./workspaceActions";
+import { UriRouteHandler } from "../uriHandler.js";
 
 const workspacesSecret = `${qsharpExtensionId}.workspaces`;
 let extensionUri: vscode.Uri;
@@ -64,6 +68,21 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
     log.debug("Loading workspaces: ", savedWorkspaces);
     const workspaces: WorkspaceConnection[] = JSON.parse(savedWorkspaces);
     for (const workspace of workspaces) {
+      // Backfill tenant ID for workspaces saved before tenant discovery was added,
+      // or for connection-string/deep-link workspaces that didn't have it populated.
+      if (!workspace.tenantId && !workspace.apiKey) {
+        // AAD workspace with missing tenant ID — shouldn't normally happen,
+        // but recover gracefully.
+        log.warn("AAD workspace loaded without a tenant ID:", workspace.id);
+      } else if (!workspace.tenantId) {
+        const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)/;
+        const subscriptionId =
+          workspace.id.match(idRegex)?.groups?.subscriptionId;
+        if (subscriptionId) {
+          workspace.tenantId =
+            (await getTenantIdForSubscription(subscriptionId)) ?? "";
+        }
+      }
       workspaceTreeProvider.updateWorkspace(workspace);
       // Start refreshing each workspace until pending jobs are complete
       startRefreshCycle(workspaceTreeProvider, workspace);
@@ -467,6 +486,19 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
+      `${qsharpExtensionId}.jobOpenPortal`,
+      async (arg: WorkspaceTreeItem) => {
+        const treeItem = arg || currentTreeItem;
+        if (treeItem?.type !== "job") return;
+        const job = treeItem.itemData as Job;
+        const link = getQuantumOsJobLink(treeItem.workspace, job.id);
+        vscode.env.openExternal(vscode.Uri.parse(link));
+      },
+    ),
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
       `${qsharpExtensionId}.workspaceOpenPortal`,
       async (arg: WorkspaceTreeItem) => {
         // Could be run via the treeItem icon or the menu command.
@@ -474,11 +506,58 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         if (treeItem?.type !== "workspace") return;
         const workspace = treeItem.itemData as WorkspaceConnection;
 
-        const link = getAzurePortalWorkspaceLink(workspace);
+        const link = getWorkspacePortalLink(workspace);
         vscode.env.openExternal(vscode.Uri.parse(link));
       },
     ),
   );
+
+  /**
+   * URI route handler for the "/connectWorkspace" path.
+   *
+   * Expects a `connectionString` query parameter in the connection string format:
+   *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<https://...>
+   *
+   * Shows a confirmation modal before saving the workspace.
+   */
+  const connectWorkspaceUriHandler: UriRouteHandler = async (params) => {
+    const connStr = params.get("connectionString");
+    if (!connStr) {
+      vscode.window.showErrorMessage(
+        "No connection string provided in the workspace URI.",
+      );
+      return;
+    }
+
+    const workspace = parseConnectionString(connStr);
+    if (!workspace) {
+      vscode.window.showErrorMessage(
+        "The workspace URI contained an invalid connection string.",
+      );
+      return;
+    }
+
+    const confirmed = await vscode.window.showInformationMessage(
+      `Add quantum workspace "${workspace.name}" to your connections?`,
+      { modal: true },
+      "Add Workspace",
+    );
+    if (confirmed === "Add Workspace") {
+      // Discover the tenant ID before saving, so portal deep links work correctly.
+      const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)/;
+      const subscriptionId =
+        workspace.id.match(idRegex)?.groups?.subscriptionId;
+      if (subscriptionId) {
+        workspace.tenantId =
+          (await getTenantIdForSubscription(subscriptionId)) ?? "";
+      }
+      workspaceTreeProvider.updateWorkspace(workspace);
+      await saveWorkspaceList();
+      startRefreshCycle(workspaceTreeProvider, workspace);
+    }
+  };
+
+  return { connectWorkspaceUriHandler };
 }
 
 type Buckets = {
@@ -672,8 +751,7 @@ async function uploadSupplementalData(
   token: string,
   associationId: string,
 ) {
-  const endpointMatch = quantumUris.endpoint.match(QuantumUris.endpointRegExp);
-  const isV2Workspace = endpointMatch?.groups?.versionSuffix === "-v2";
+  const { isV2Workspace } = QuantumUris.parseEndpointUri(quantumUris.endpoint);
 
   if (isV2Workspace) {
     const circuitDiagram = await getCircuitJson(program);

@@ -7,6 +7,8 @@ from ._noisy_simulator import (
     Instrument,
     DensityMatrixSimulator,
     StateVectorSimulator,
+    DensityMatrix,
+    StateVector,
 )
 
 __all__ = [
@@ -15,4 +17,6 @@ __all__ = [
     "Instrument",
     "DensityMatrixSimulator",
     "StateVectorSimulator",
+    "DensityMatrix",
+    "StateVector",
 ]

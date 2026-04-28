@@ -331,3 +331,27 @@ def on_neutral_atom_simulate_end(
         },
         type="histogram",
     )
+
+
+# QRE telemetry events
+
+
+def on_qre_estimate(post_process: bool, use_graph: bool) -> None:
+    log_telemetry(
+        "qsharp.qre.estimate",
+        1,
+        properties={
+            "post_process": post_process,
+            "use_graph": use_graph,
+        },
+    )
+
+
+def on_qre_application_created(application_type: str) -> None:
+    log_telemetry(
+        "qsharp.qre.application.created",
+        1,
+        properties={
+            "application_type": application_type,
+        },
+    )

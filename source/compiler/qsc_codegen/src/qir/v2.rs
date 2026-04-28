@@ -34,22 +34,29 @@ impl ToQir<String> for rir::Literal {
                 }
             }
             rir::Literal::Integer(i) => format!("i64 {i}"),
-            rir::Literal::Pointer => "ptr null".to_string(),
+            rir::Literal::NullPointer => "ptr null".to_string(),
             rir::Literal::Qubit(q) => format!("ptr inttoptr (i64 {q} to ptr)"),
             rir::Literal::Result(r) => format!("ptr inttoptr (i64 {r} to ptr)"),
             rir::Literal::Tag(idx, _) => format!("ptr @{idx}"),
+            rir::Literal::Array(idx) => format!("ptr @array{idx}"),
         }
     }
 }
 
 impl ToQir<String> for rir::Ty {
-    fn to_qir(&self, _program: &rir::Program) -> String {
+    fn to_qir(&self, program: &rir::Program) -> String {
         match self {
-            rir::Ty::Boolean => "i1".to_string(),
-            rir::Ty::Double => "double".to_string(),
-            rir::Ty::Integer => "i64".to_string(),
-            rir::Ty::Pointer | rir::Ty::Qubit | rir::Ty::Result => "ptr".to_string(),
+            rir::Ty::Prim(prim) => ToQir::<String>::to_qir(prim, program),
+            rir::Ty::Array(size, elem_ty) => {
+                format!("[{size} x {}]", ToQir::<String>::to_qir(elem_ty, program))
+            }
         }
+    }
+}
+
+impl ToQir<String> for rir::Prim {
+    fn to_qir(&self, _program: &rir::Program) -> String {
+        get_prim_ty(*self).to_owned()
     }
 }
 
@@ -212,8 +219,28 @@ impl ToQir<String> for rir::Instruction {
             }
             rir::Instruction::Alloca(variable) => alloca_to_qir(*variable, program),
             rir::Instruction::Load(var_from, var_to) => load_to_qir(*var_from, *var_to, program),
+            rir::Instruction::Index(array_op, index_op, result_var) => {
+                index_to_qir(array_op, index_op, result_var, program)
+            }
         }
     }
+}
+
+fn index_to_qir(
+    array_op: &rir::Operand,
+    index_op: &rir::Operand,
+    result_var: &rir::Variable,
+    program: &rir::Program,
+) -> String {
+    // Only need to emit the getelementptr instruction here, as passes are expected to insert the subsequent load instruction.
+    format!(
+        "  {} = getelementptr {}, ptr {}, {} {}",
+        ToQir::<String>::to_qir(&result_var.variable_id, program),
+        ToQir::<String>::to_qir(&result_var.ty, program),
+        get_value_as_str(array_op, program),
+        get_value_ty(index_op),
+        get_value_as_str(index_op, program)
+    )
 }
 
 fn convert_to_qir(
@@ -228,7 +255,7 @@ fn convert_to_qir(
         "input/output types ({operand_ty}, {var_ty}) should not match in convert"
     );
 
-    let convert_instr = match (operand_ty, var_ty) {
+    let convert_instr = match (operand_ty.as_str(), var_ty.as_str()) {
         ("i64", "double") => "sitofp i64",
         ("double", "i64") => "fptosi double",
         _ => panic!("unsupported conversion from {operand_ty} to {var_ty} in convert instruction"),
@@ -511,9 +538,12 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
                 }
             }
             rir::Literal::Integer(i) => format!("{i}"),
-            rir::Literal::Pointer => "null".to_string(),
+            rir::Literal::NullPointer => "null".to_string(),
             rir::Literal::Qubit(q) => format!("{q}"),
             rir::Literal::Result(r) => format!("{r}"),
+            rir::Literal::Array(idx) => {
+                format!("@array{idx}")
+            }
             rir::Literal::Tag(..) => panic!(
                 "tag literals should not be used as string values outside of output recording"
             ),
@@ -522,7 +552,7 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
     }
 }
 
-fn get_value_ty(lhs: &rir::Operand) -> &str {
+fn get_value_ty(lhs: &rir::Operand) -> String {
     match lhs {
         rir::Operand::Literal(lit) => match lit {
             rir::Literal::Integer(_) => "i64",
@@ -530,19 +560,28 @@ fn get_value_ty(lhs: &rir::Operand) -> &str {
             rir::Literal::Double(_) => get_f64_ty(),
             rir::Literal::Qubit(_)
             | rir::Literal::Result(_)
-            | rir::Literal::Pointer
-            | rir::Literal::Tag(..) => "ptr",
-        },
+            | rir::Literal::NullPointer
+            | rir::Literal::Tag(..)
+            | rir::Literal::Array(_) => "ptr",
+        }
+        .to_owned(),
         rir::Operand::Variable(var) => get_variable_ty(*var),
     }
 }
 
-fn get_variable_ty(variable: rir::Variable) -> &'static str {
+fn get_variable_ty(variable: rir::Variable) -> String {
     match variable.ty {
-        rir::Ty::Integer => "i64",
-        rir::Ty::Boolean => "i1",
-        rir::Ty::Double => get_f64_ty(),
-        rir::Ty::Qubit | rir::Ty::Result | rir::Ty::Pointer => "ptr",
+        rir::Ty::Prim(prim) => get_prim_ty(prim).to_owned(),
+        rir::Ty::Array(size, elem_ty) => format!("[{size} x {}]", get_prim_ty(elem_ty)),
+    }
+}
+
+fn get_prim_ty(prim: rir::Prim) -> &'static str {
+    match prim {
+        rir::Prim::Integer => "i64",
+        rir::Prim::Boolean => "i1",
+        rir::Prim::Double => get_f64_ty(),
+        rir::Prim::Qubit | rir::Prim::Result | rir::Prim::Pointer => "ptr",
     }
 }
 
@@ -621,6 +660,19 @@ impl ToQir<String> for rir::Callable {
     }
 }
 
+impl ToQir<String> for rir::ArrayLiteral {
+    fn to_qir(&self, program: &rir::Program) -> String {
+        let elem_ty = get_prim_ty(self.ty);
+        let elems = self
+            .contents
+            .iter()
+            .map(|elem| ToQir::<String>::to_qir(elem, program))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("[{} x {}] [{}]", self.contents.len(), elem_ty, elems)
+    }
+}
+
 impl ToQir<String> for rir::Program {
     fn to_qir(&self, _program: &rir::Program) -> String {
         let callables = self
@@ -636,6 +688,15 @@ impl ToQir<String> for rir::Program {
                 constants,
                 "@{idx} = internal constant [{} x i8] c\"{tag}\\00\"",
                 tag.len() + 1
+            )
+            .expect("writing to string should succeed");
+        }
+        for (idx, array) in self.array_literals.iter().enumerate() {
+            // We need to add the array as a global constant.
+            writeln!(
+                constants,
+                "@array{idx} = internal constant {}",
+                ToQir::<String>::to_qir(array, self)
             )
             .expect("writing to string should succeed");
         }

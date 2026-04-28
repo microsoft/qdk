@@ -1,10 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { getCompilerWorker, IDocFile } from "qsharp-lang";
+import { IDocFile } from "qsharp-lang";
 import { Uri } from "vscode";
 import { sendMessageToPanel } from "./webviewPanel";
 import { getActiveProgram } from "./programConfig";
+import { loadCompilerWorker } from "./common";
 
 export async function showDocumentationCommand(extensionUri: Uri) {
   const program = await getActiveProgram();
@@ -20,11 +21,7 @@ export async function showDocumentationCommand(extensionUri: Uri) {
   );
 
   // Get API documentation from compiler.
-  const compilerWorkerScriptPath = Uri.joinPath(
-    extensionUri,
-    "./out/compilerWorker.js",
-  ).toString();
-  const worker = getCompilerWorker(compilerWorkerScriptPath);
+  const worker = loadCompilerWorker(extensionUri);
   const docFiles = await worker.getDocumentation(program.programConfig);
 
   const documentation: IDocFile[] = [];

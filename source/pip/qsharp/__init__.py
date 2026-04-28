@@ -30,10 +30,9 @@ from ._native import Result, Pauli, QSharpError, TargetProfile, estimate_custom
 # IPython notebook specific features
 try:
     if __IPYTHON__:  # type: ignore
-        from ._ipython import register_magic, enable_classic_notebook_codemirror_mode
+        from ._ipython import register_magic
 
         register_magic()
-        enable_classic_notebook_codemirror_mode()
 except NameError:
     pass
 

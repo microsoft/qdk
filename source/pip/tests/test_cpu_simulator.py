@@ -326,7 +326,7 @@ def test_cpu_cy_noise_distribution():
     count_target_one = 0
     for shot in output:
         shot_results = cast(Sequence[Result], shot)
-        if shot_results[0] == Result.One:
+        if shot_results[-1] == Result.One:
             count_target_one += 1
 
     actual_p1 = count_target_one / n_shots

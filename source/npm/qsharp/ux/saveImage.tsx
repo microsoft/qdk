@@ -20,8 +20,7 @@ async function cloneChildren<T extends HTMLElement>(
   nativeNode: T,
   clonedNode: T,
 ): Promise<T> {
-  let children: T[] = [];
-  children = toArray<T>((nativeNode.shadowRoot ?? nativeNode).childNodes);
+  const children = toArray<T>((nativeNode.shadowRoot ?? nativeNode).childNodes);
 
   // Depth-first traversal of DOM objects
   await children.reduce(

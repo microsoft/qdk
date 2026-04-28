@@ -292,13 +292,13 @@ class AdaptiveProfilePass:
     ) -> AdaptiveProgram:
         """Process module and return the AdaptiveProgram.
 
-        Args:
-            mod: The QIR module to process.
-            noise: Optional NoiseConfig. When provided, noise intrinsic calls
-                are resolved to correlated noise ops using the intrinsics table.
-            noise_intrinsics: Optional dict mapping noise intrinsic callee names
-                to noise table IDs. Takes precedence over ``noise`` if both are
-                given.
+        :param mod: The QIR module to process.
+        :param noise: Optional NoiseConfig. When provided, noise intrinsic calls
+            are resolved to correlated noise ops using the intrinsics table.
+        :param noise_intrinsics: Optional dict mapping noise intrinsic callee names
+            to noise table IDs. Takes precedence over ``noise`` if both are given.
+        :return: The processed adaptive program.
+        :rtype: AdaptiveProgram
         """
         if mod.get_flag("arrays"):
             raise ValueError("QIR arrays are not currently supported.")
@@ -437,15 +437,12 @@ class AdaptiveProfilePass:
         if isinstance(value, pyqir.Instruction):
             return self._alloc_reg(value, self._type_tag(value.type))
 
-        # Constant expressions (e.g. inttoptr (i64 N to %Qubit*)).
+        # Constant expressions (e.g. inttoptr (i64 N to ptr)).
         if isinstance(value, pyqir.Constant):
             # Try extracting as a qubit/result pointer constant.
-            qid = pyqir.qubit_id(value)
-            if qid is not None:
-                return IntOperand(qid)
-            rid = pyqir.result_id(value)
-            if rid is not None:
-                return IntOperand(rid)
+            pid = pyqir.ptr_id(value)
+            if pid is not None:
+                return IntOperand(pid)
             # Null pointer
             if value.is_null:
                 reg = self._alloc_reg(value, REG_TYPE_PTR)

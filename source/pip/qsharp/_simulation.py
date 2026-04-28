@@ -19,8 +19,8 @@ from ._native import (
 from pyqir import (
     Function,
     FunctionType,
+    PointerType,
     Type,
-    qubit_type,
     Linkage,
 )
 from ._qsharp import QirInputData, Result
@@ -75,41 +75,41 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             self.gates.append(
                 (
                     QirInstructionId.CCX,
-                    pyqir.qubit_id(call.args[0]),
-                    pyqir.qubit_id(call.args[1]),
-                    pyqir.qubit_id(call.args[2]),
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
+                    pyqir.ptr_id(call.args[2]),
                 )
             )
         elif callee_name == "__quantum__qis__cx__body":
             self.gates.append(
                 (
                     QirInstructionId.CX,
-                    pyqir.qubit_id(call.args[0]),
-                    pyqir.qubit_id(call.args[1]),
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
                 )
             )
         elif callee_name == "__quantum__qis__cy__body":
             self.gates.append(
                 (
                     QirInstructionId.CY,
-                    pyqir.qubit_id(call.args[0]),
-                    pyqir.qubit_id(call.args[1]),
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
                 )
             )
         elif callee_name == "__quantum__qis__cz__body":
             self.gates.append(
                 (
                     QirInstructionId.CZ,
-                    pyqir.qubit_id(call.args[0]),
-                    pyqir.qubit_id(call.args[1]),
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
                 )
             )
         elif callee_name == "__quantum__qis__swap__body":
             self.gates.append(
                 (
                     QirInstructionId.SWAP,
-                    pyqir.qubit_id(call.args[0]),
-                    pyqir.qubit_id(call.args[1]),
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
                 )
             )
         elif callee_name == "__quantum__qis__rx__body":
@@ -117,7 +117,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 (
                     QirInstructionId.RX,
                     call.args[0].value,
-                    pyqir.qubit_id(call.args[1]),
+                    pyqir.ptr_id(call.args[1]),
                 )
             )
         elif callee_name == "__quantum__qis__rxx__body":
@@ -125,8 +125,8 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 (
                     QirInstructionId.RXX,
                     call.args[0].value,
-                    pyqir.qubit_id(call.args[1]),
-                    pyqir.qubit_id(call.args[2]),
+                    pyqir.ptr_id(call.args[1]),
+                    pyqir.ptr_id(call.args[2]),
                 )
             )
         elif callee_name == "__quantum__qis__ry__body":
@@ -134,7 +134,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 (
                     QirInstructionId.RY,
                     call.args[0].value,
-                    pyqir.qubit_id(call.args[1]),
+                    pyqir.ptr_id(call.args[1]),
                 )
             )
         elif callee_name == "__quantum__qis__ryy__body":
@@ -142,8 +142,8 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 (
                     QirInstructionId.RYY,
                     call.args[0].value,
-                    pyqir.qubit_id(call.args[1]),
-                    pyqir.qubit_id(call.args[2]),
+                    pyqir.ptr_id(call.args[1]),
+                    pyqir.ptr_id(call.args[2]),
                 )
             )
         elif callee_name == "__quantum__qis__rz__body":
@@ -151,7 +151,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 (
                     QirInstructionId.RZ,
                     call.args[0].value,
-                    pyqir.qubit_id(call.args[1]),
+                    pyqir.ptr_id(call.args[1]),
                 )
             )
         elif callee_name == "__quantum__qis__rzz__body":
@@ -159,59 +159,59 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 (
                     QirInstructionId.RZZ,
                     call.args[0].value,
-                    pyqir.qubit_id(call.args[1]),
-                    pyqir.qubit_id(call.args[2]),
+                    pyqir.ptr_id(call.args[1]),
+                    pyqir.ptr_id(call.args[2]),
                 )
             )
         elif callee_name == "__quantum__qis__h__body":
-            self.gates.append((QirInstructionId.H, pyqir.qubit_id(call.args[0])))
+            self.gates.append((QirInstructionId.H, pyqir.ptr_id(call.args[0])))
         elif callee_name == "__quantum__qis__s__body":
-            self.gates.append((QirInstructionId.S, pyqir.qubit_id(call.args[0])))
+            self.gates.append((QirInstructionId.S, pyqir.ptr_id(call.args[0])))
         elif callee_name == "__quantum__qis__s__adj":
-            self.gates.append((QirInstructionId.SAdj, pyqir.qubit_id(call.args[0])))
+            self.gates.append((QirInstructionId.SAdj, pyqir.ptr_id(call.args[0])))
         elif callee_name == "__quantum__qis__sx__body":
-            self.gates.append((QirInstructionId.SX, pyqir.qubit_id(call.args[0])))
+            self.gates.append((QirInstructionId.SX, pyqir.ptr_id(call.args[0])))
         elif callee_name == "__quantum__qis__t__body":
-            self.gates.append((QirInstructionId.T, pyqir.qubit_id(call.args[0])))
+            self.gates.append((QirInstructionId.T, pyqir.ptr_id(call.args[0])))
         elif callee_name == "__quantum__qis__t__adj":
-            self.gates.append((QirInstructionId.TAdj, pyqir.qubit_id(call.args[0])))
+            self.gates.append((QirInstructionId.TAdj, pyqir.ptr_id(call.args[0])))
         elif callee_name == "__quantum__qis__x__body":
-            self.gates.append((QirInstructionId.X, pyqir.qubit_id(call.args[0])))
+            self.gates.append((QirInstructionId.X, pyqir.ptr_id(call.args[0])))
         elif callee_name == "__quantum__qis__y__body":
-            self.gates.append((QirInstructionId.Y, pyqir.qubit_id(call.args[0])))
+            self.gates.append((QirInstructionId.Y, pyqir.ptr_id(call.args[0])))
         elif callee_name == "__quantum__qis__z__body":
-            self.gates.append((QirInstructionId.Z, pyqir.qubit_id(call.args[0])))
+            self.gates.append((QirInstructionId.Z, pyqir.ptr_id(call.args[0])))
         elif callee_name == "__quantum__qis__m__body":
             self.gates.append(
                 (
                     QirInstructionId.M,
-                    pyqir.qubit_id(call.args[0]),
-                    pyqir.result_id(call.args[1]),
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
                 )
             )
         elif callee_name == "__quantum__qis__mz__body":
             self.gates.append(
                 (
                     QirInstructionId.MZ,
-                    pyqir.qubit_id(call.args[0]),
-                    pyqir.result_id(call.args[1]),
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
                 )
             )
         elif callee_name == "__quantum__qis__mresetz__body":
             self.gates.append(
                 (
                     QirInstructionId.MResetZ,
-                    pyqir.qubit_id(call.args[0]),
-                    pyqir.result_id(call.args[1]),
+                    pyqir.ptr_id(call.args[0]),
+                    pyqir.ptr_id(call.args[1]),
                 )
             )
         elif callee_name == "__quantum__qis__reset__body":
-            self.gates.append((QirInstructionId.RESET, pyqir.qubit_id(call.args[0])))
+            self.gates.append((QirInstructionId.RESET, pyqir.ptr_id(call.args[0])))
         elif callee_name == "__quantum__qis__move__body":
             self.gates.append(
                 (
                     QirInstructionId.Move,
-                    pyqir.qubit_id(call.args[0]),
+                    pyqir.ptr_id(call.args[0]),
                 )
             )
         elif callee_name == "__quantum__rt__result_record_output":
@@ -219,7 +219,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             self.gates.append(
                 (
                     QirInstructionId.ResultRecordOutput,
-                    str(pyqir.result_id(call.args[0])),
+                    str(pyqir.ptr_id(call.args[0])),
                     tag,
                 )
             )
@@ -263,7 +263,7 @@ class CorrelatedNoisePass(AggregateGatesPass):
                 (
                     QirInstructionId.CorrelatedNoise,
                     self.noise_intrinsics_table.get_intrinsic_id(callee_name),
-                    [pyqir.qubit_id(arg) for arg in call.args],
+                    [pyqir.ptr_id(arg) for arg in call.args],
                 )
             )
         elif "qdk_noise" in call.callee.attributes.func:
@@ -294,7 +294,7 @@ class GpuCorrelatedNoisePass(AggregateGatesPass):
                 (
                     QirInstructionId.CorrelatedNoise,
                     int(self.noise_table[callee_name]),  # Noise table ID
-                    [pyqir.qubit_id(qubit) for qubit in call.args],  # qubit args
+                    [pyqir.ptr_id(qubit) for qubit in call.args],  # qubit args
                 )
             )
         elif "qdk_noise" in call.callee.attributes.func:
@@ -329,7 +329,7 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
                 self._counters.pop()
 
     def _on_rt_result_record_output(self, call, result, target):
-        self._output_str += f"o[{pyqir.result_id(result)}]"
+        self._output_str += f"o[{pyqir.ptr_id(result)}]"
         while len(self._counters) > 0:
             self._output_str += ","
             self._counters[-1] -= 1
@@ -367,7 +367,7 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
 
     def _on_module(self, module):
         void = Type.void(module.context)
-        qubit_ty = qubit_type(module.context)
+        qubit_ty = PointerType(Type.void(module.context))
 
         # Find or create all the needed functions.
         for func in module.functions:
@@ -696,20 +696,18 @@ def run_qir(
     """
     Simulate the given QIR source.
 
-    Args:
-        input: The QIR source to simulate.
-        type: The type of simulator to use.
-            Use `"clifford"` if your QIR only contains Clifford gates and measurements.
-            Use `"gpu"` if you have a GPU available in your system.
-            Use `"cpu"` as a fallback option if you don't have a GPU in your system.
-            If `None` (default), the GPU simulator will be tried first, falling back to
-            CPU if a suitable GPU device could not be located.
-        shots: The number of shots to run.
-        noise: A noise model to use in the simulation.
-        seed: A seed for reproducibility.
-
-    Returns:
-        A list of measurement results, in the order they happened during the simulation.
+    :param input: The QIR source to simulate.
+    :param type: The type of simulator to use.
+        Use ``"clifford"`` if your QIR only contains Clifford gates and measurements.
+        Use ``"gpu"`` if you have a GPU available in your system.
+        Use ``"cpu"`` as a fallback option if you don't have a GPU in your system.
+        If ``None`` (default), the GPU simulator will be tried first, falling back to
+        CPU if a suitable GPU device could not be located.
+    :param shots: The number of shots to run.
+    :param noise: A noise model to use in the simulation.
+    :param seed: A seed for reproducibility.
+    :return: A list of measurement results, in the order they happened during the simulation.
+    :rtype: List
     """
     if type is None:
         try:

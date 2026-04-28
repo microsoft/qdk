@@ -17,6 +17,7 @@ pub struct Program {
     pub num_results: u32,
     pub attrs: Attributes,
     pub tags: Vec<String>,
+    pub array_literals: Vec<ArrayLiteral>,
     pub dbg_info: DbgInfo,
 }
 
@@ -48,6 +49,14 @@ impl Display for Program {
         indent = set_indentation(indent, 2);
         for (idx, tag) in self.tags.iter().enumerate() {
             writeln!(indent, "[{idx}]: {tag}")?;
+        }
+        indent = set_indentation(indent, 1);
+        if !self.array_literals.is_empty() {
+            writeln!(indent, "array_literals:")?;
+            indent = set_indentation(indent, 2);
+            for (idx, array) in self.array_literals.iter().enumerate() {
+                writeln!(indent, "[{idx}]: {array}")?;
+            }
         }
         Ok(())
     }
@@ -383,6 +392,7 @@ pub enum Instruction {
     Convert(Operand, Variable),
     Load(Variable, Variable),
     Alloca(Variable),
+    Index(Operand, Operand, Variable),
     Return,
 }
 
@@ -481,6 +491,10 @@ impl Display for Instruction {
                 let mut indent = set_indentation(indented(f), 0);
                 write!(indent, "{variable} = Alloca")?;
             }
+            Self::Index(array_var, index_opr, result_var) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{result_var} = Index {array_var}, {index_opr}")?;
+            }
             Self::Return => write!(f, "Return")?,
         }
         Ok(())
@@ -528,7 +542,7 @@ impl Variable {
     pub fn new_boolean(id: VariableId) -> Self {
         Self {
             variable_id: id,
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         }
     }
 
@@ -536,7 +550,7 @@ impl Variable {
     pub fn new_integer(id: VariableId) -> Self {
         Self {
             variable_id: id,
-            ty: Ty::Integer,
+            ty: Ty::Prim(Prim::Integer),
         }
     }
 
@@ -544,7 +558,7 @@ impl Variable {
     pub fn new_double(id: VariableId) -> Self {
         Self {
             variable_id: id,
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }
     }
 
@@ -552,13 +566,29 @@ impl Variable {
     pub fn new_ptr(id: VariableId) -> Self {
         Self {
             variable_id: id,
-            ty: Ty::Pointer,
+            ty: Ty::Prim(Prim::Pointer),
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ty {
+    Prim(Prim),
+    Array(usize, Prim),
+}
+
+impl Display for Ty {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match &self {
+            Ty::Prim(prim) => write!(f, "{prim}")?,
+            Ty::Array(size, prim) => write!(f, "Array({size}, {prim})")?,
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Prim {
     Qubit,
     Result,
     Boolean,
@@ -567,7 +597,7 @@ pub enum Ty {
     Pointer,
 }
 
-impl Display for Ty {
+impl Display for Prim {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
             Self::Qubit => write!(f, "Qubit")?,
@@ -601,12 +631,14 @@ impl Operand {
     pub fn get_type(&self) -> Ty {
         match self {
             Operand::Literal(lit) => match lit {
-                Literal::Qubit(_) => Ty::Qubit,
-                Literal::Result(_) => Ty::Result,
-                Literal::Bool(_) => Ty::Boolean,
-                Literal::Integer(_) => Ty::Integer,
-                Literal::Double(_) => Ty::Double,
-                Literal::Pointer | Literal::Tag(..) => Ty::Pointer,
+                Literal::Qubit(_) => Ty::Prim(Prim::Qubit),
+                Literal::Result(_) => Ty::Prim(Prim::Result),
+                Literal::Bool(_) => Ty::Prim(Prim::Boolean),
+                Literal::Integer(_) => Ty::Prim(Prim::Integer),
+                Literal::Double(_) => Ty::Prim(Prim::Double),
+                Literal::NullPointer | Literal::Tag(..) | Literal::Array(_) => {
+                    Ty::Prim(Prim::Pointer)
+                }
             },
             Operand::Variable(var) => var.ty,
         }
@@ -621,7 +653,8 @@ pub enum Literal {
     Integer(i64),
     Double(f64),
     Tag(usize, usize),
-    Pointer,
+    Array(usize),
+    NullPointer,
 }
 
 impl Display for Literal {
@@ -633,7 +666,8 @@ impl Display for Literal {
             Self::Integer(i) => write!(f, "Integer({i})")?,
             Self::Double(d) => write!(f, "Double({d})")?,
             Self::Tag(idx, len) => write!(f, "Tag({idx}, {len})")?,
-            Self::Pointer => write!(f, "Pointer")?,
+            Self::Array(idx) => write!(f, "Array({idx})")?,
+            Self::NullPointer => write!(f, "Pointer")?,
         }
         Ok(())
     }
@@ -665,7 +699,7 @@ impl PartialEq for Literal {
                     false
                 }
             }
-            Self::Pointer => matches!(other, Self::Pointer),
+            Self::NullPointer => matches!(other, Self::NullPointer),
             Self::Qubit(self_qubit) => {
                 if let Self::Qubit(other_qubit) = other {
                     self_qubit == other_qubit
@@ -687,11 +721,44 @@ impl PartialEq for Literal {
                     false
                 }
             }
+            Self::Array(self_idx) => {
+                if let Self::Array(other_idx) = other {
+                    self_idx == other_idx
+                } else {
+                    false
+                }
+            }
         }
     }
 }
 
 impl Eq for Literal {}
+
+#[derive(Clone, Debug)]
+pub struct ArrayLiteral {
+    pub contents: Vec<Literal>,
+    pub ty: Prim,
+}
+
+impl Display for ArrayLiteral {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        for (index, literal) in self.contents.iter().enumerate() {
+            write!(f, "{literal}")?;
+            if index != self.contents.len() - 1 {
+                write!(f, ", ")?;
+            }
+        }
+        write!(f, "]")?;
+        Ok(())
+    }
+}
+
+impl PartialEq for ArrayLiteral {
+    fn eq(&self, other: &Self) -> bool {
+        self.ty == other.ty && self.contents == other.contents
+    }
+}
 
 fn set_indentation<'a, 'b>(
     indent: Indented<'a, Formatter<'b>>,

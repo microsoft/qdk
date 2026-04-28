@@ -24,7 +24,7 @@ type ReportEntry = {
 // THIS CODE HAS BEEN AUTOMATICALLY GENERATED WITH generate_report_code.py from output_data.md
 export function CreateReport(result: SingleEstimateResult): ReportData {
   const groups = [] as ReportGroup[];
-  let entries = [] as ReportEntry[];
+  let entries: ReportEntry[];
   const numberFormat = new Intl.NumberFormat();
   const numberFormatF64 = new Intl.NumberFormat(undefined, {
     maximumFractionDigits: 2,
