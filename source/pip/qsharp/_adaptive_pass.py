@@ -221,6 +221,9 @@ class IntOperand:
         # their two's-complement representation
         # (e.g. -7 → 0xFFFFFFF9 for 32-bit, 0xFFFFFFFFFFFFFFF9 for 64-bit).
         mask = (1 << self.bits) - 1
+        min_val = -(1 << (self.bits - 1))
+        if self.val < min_val or self.val > mask:
+            raise ValueError(f"Value {self.val} does not fit in {self.bits} bits")
         self.val = self.val & mask
 
 
