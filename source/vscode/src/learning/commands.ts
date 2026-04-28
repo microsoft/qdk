@@ -18,11 +18,17 @@ function findSection(
   kataId: string,
   sectionId: string,
 ) {
-  if (!snapshot) return undefined;
+  if (!snapshot) {
+    return undefined;
+  }
   const kata = snapshot.katas.find((k) => k.id === kataId);
-  if (!kata) return undefined;
+  if (!kata) {
+    return undefined;
+  }
   const section = kata.sections.find((s) => s.id === sectionId);
-  if (!section) return undefined;
+  if (!section) {
+    return undefined;
+  }
   return { kata, section };
 }
 
@@ -74,7 +80,9 @@ async function askInChat(
 }
 
 function normalizeSectionArgs(input: unknown): OpenSectionArgs | undefined {
-  if (!input || typeof input !== "object") return undefined;
+  if (!input || typeof input !== "object") {
+    return undefined;
+  }
   const obj = input as Record<string, unknown>;
 
   // Tree node shape — see treeProvider.ts `KatasNode`.
@@ -138,7 +146,9 @@ export function registerLearningCommands(
     // ─── Editor-facing commands ───
 
     vscode.commands.registerCommand("qsharp-vscode.learningShowHint", () => {
-      if (!service.initialized) return;
+      if (!service.initialized) {
+        return;
+      }
       // Redirect to chat agent for hint delivery.
       void vscode.commands.executeCommand("workbench.action.chat.open", {
         query: "/qdk-learning Give me a hint",
@@ -148,7 +158,9 @@ export function registerLearningCommands(
     vscode.commands.registerCommand(
       "qsharp-vscode.learningResetExercise",
       async () => {
-        if (!service.initialized) return;
+        if (!service.initialized) {
+          return;
+        }
 
         const pos = service.getPosition();
         if (pos.item.type !== "exercise") {
@@ -163,7 +175,9 @@ export function registerLearningCommands(
           { modal: true },
           "Reset",
         );
-        if (confirmed !== "Reset") return;
+        if (confirmed !== "Reset") {
+          return;
+        }
 
         await service.resetExercise();
         vscode.window.showInformationMessage("Exercise has been reset.");
@@ -171,7 +185,9 @@ export function registerLearningCommands(
     ),
 
     vscode.commands.registerCommand("qsharp-vscode.learningNext", async () => {
-      if (!service.initialized) return;
+      if (!service.initialized) {
+        return;
+      }
       const { moved } = service.next();
       if (!moved) {
         vscode.window.showInformationMessage(
@@ -221,7 +237,9 @@ export function registerLearningCommands(
       "qsharp-vscode.katasOpenSection",
       async (input: unknown) => {
         const args = normalizeSectionArgs(input);
-        if (!args) return;
+        if (!args) {
+          return;
+        }
         await openSection(service, args);
       },
     ),
@@ -230,7 +248,9 @@ export function registerLearningCommands(
       "qsharp-vscode.katasAskInChat",
       async (input: unknown) => {
         const args = normalizeSectionArgs(input);
-        if (!args) return;
+        if (!args) {
+          return;
+        }
         await askInChat(watcher, args);
       },
     ),

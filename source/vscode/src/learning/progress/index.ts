@@ -11,10 +11,14 @@ function buildTreeMessage(
   snapshot: OverallProgress | undefined,
   detected: boolean,
 ): string | undefined {
-  if (!detected || !snapshot) return undefined;
+  if (!detected || !snapshot) {
+    return undefined;
+  }
 
   const katas = snapshot.katas;
-  if (katas.length === 0) return undefined;
+  if (katas.length === 0) {
+    return undefined;
+  }
 
   const completedKatas = katas.filter(
     (k) => k.total > 0 && k.completed === k.total,
@@ -51,6 +55,7 @@ function buildTreeMessage(
  */
 export function registerKatasProgressView(
   context: vscode.ExtensionContext,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   learningService: LearningService,
 ): ProgressWatcher {
   const watcher = new ProgressWatcher();

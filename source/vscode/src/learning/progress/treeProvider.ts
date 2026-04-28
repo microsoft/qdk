@@ -135,7 +135,9 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
 
   getChildren(node?: KatasNode): KatasNode[] {
     const snap = this.snapshot;
-    if (!snap) return [];
+    if (!snap) {
+      return [];
+    }
 
     if (!node) {
       const children: KatasNode[] = [];

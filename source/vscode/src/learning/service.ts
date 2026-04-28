@@ -29,7 +29,7 @@ import type {
 import mk from "@vscode/markdown-it-katex";
 import markdownIt from "markdown-it";
 import { loadCompilerWorker } from "../common.js";
-import { LEARNING_FILE } from "./progress/detector.js";
+import { LEARNING_FILE } from "./index.js";
 import type {
   Position,
   NavigationItem,
@@ -179,7 +179,9 @@ export class LearningService {
             fp.sectionId === savedPos.sectionId,
         );
       }
-      if (idx >= 0) this.currentFlatIndex = idx;
+      if (idx >= 0) {
+        this.currentFlatIndex = idx;
+      }
     }
 
     this._initialized = true;
@@ -262,7 +264,9 @@ export class LearningService {
       const firstIdx = this.flatPositions.findIndex(
         (fp) => fp.kataId === kataId,
       );
-      if (firstIdx < 0) throw new Error(`Kata not found: ${kataId}`);
+      if (firstIdx < 0) {
+        throw new Error(`Kata not found: ${kataId}`);
+      }
       this.currentFlatIndex = firstIdx;
       this.syncPosition();
       const state = this.getState();
@@ -682,7 +686,9 @@ export class LearningService {
         (fp) =>
           fp.kataId === savedPos.kataId && fp.sectionId === savedPos.sectionId,
       );
-      if (idx >= 0) this.currentFlatIndex = idx;
+      if (idx >= 0) {
+        this.currentFlatIndex = idx;
+      }
     }
   }
 
@@ -834,7 +840,9 @@ export class LearningService {
   private async scaffoldExercises(): Promise<void> {
     for (const kata of this.katas) {
       for (const section of kata.sections) {
-        if (section.type !== "exercise") continue;
+        if (section.type !== "exercise") {
+          continue;
+        }
         const exercise = section as Exercise;
         const fileUri = vscode.Uri.joinPath(
           this.katasRoot,
@@ -842,7 +850,9 @@ export class LearningService {
           kata.id,
           `${exercise.id}.qs`,
         );
-        if (await this.uriExists(fileUri)) continue;
+        if (await this.uriExists(fileUri)) {
+          continue;
+        }
         await this.ensureParentDir(fileUri);
         await vscode.workspace.fs.writeFile(
           fileUri,
@@ -855,10 +865,14 @@ export class LearningService {
   private async scaffoldExamples(): Promise<void> {
     for (const kata of this.katas) {
       for (const section of kata.sections) {
-        if (section.type !== "lesson") continue;
+        if (section.type !== "lesson") {
+          continue;
+        }
         const lesson = section as Lesson;
         for (const item of lesson.items) {
-          if (item.type !== "example") continue;
+          if (item.type !== "example") {
+            continue;
+          }
           const fileUri = vscode.Uri.joinPath(
             this.katasRoot,
             "examples",
@@ -897,7 +911,9 @@ export class LearningService {
 
   private findKata(kataId: string): Kata {
     const kata = this.katas.find((k) => k.id === kataId);
-    if (!kata) throw new Error(`Kata not found: ${kataId}`);
+    if (!kata) {
+      throw new Error(`Kata not found: ${kataId}`);
+    }
     return kata;
   }
 
@@ -984,7 +1000,9 @@ export class LearningService {
       if (item.type === "question") {
         const answerContent = item.answer.items
           .map((ai) => {
-            if (ai.type === "text-content") return ai.content;
+            if (ai.type === "text-content") {
+              return ai.content;
+            }
             if (ai.type === "example")
               return `\`\`\`qsharp\n${ai.code}\n\`\`\``;
             return "";
@@ -1002,7 +1020,9 @@ export class LearningService {
     // Multiple items — concatenate
     const merged = items
       .map((i: LessonItem) => {
-        if (i.type === "text-content") return i.content;
+        if (i.type === "text-content") {
+          return i.content;
+        }
         return "";
       })
       .filter(Boolean)

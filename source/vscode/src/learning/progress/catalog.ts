@@ -36,7 +36,9 @@ let cached: CatalogKata[] | undefined;
  * (~2 MB), which esbuild statically bundles into the extension entry.
  */
 export async function loadCatalog(): Promise<CatalogKata[]> {
-  if (cached) return cached;
+  if (cached) {
+    return cached;
+  }
 
   const allKatas = await getAllKatas();
 

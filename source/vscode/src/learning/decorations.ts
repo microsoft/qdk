@@ -58,7 +58,9 @@ export function registerLearningDecorations(
   function applyPlaceholderDecorations(
     editor: vscode.TextEditor | undefined,
   ): void {
-    if (!editor) return;
+    if (!editor) {
+      return;
+    }
 
     const fsPath = editor.document.uri.fsPath.replace(/\\/g, "/");
     if (!fsPath.includes(`/${KATAS_WS_FOLDER}/exercises/`)) {
@@ -99,7 +101,9 @@ export function registerLearningDecorations(
       "qsharp-vscode._learningFlash",
       (passed: boolean) => {
         const editor = vscode.window.activeTextEditor;
-        if (!editor) return;
+        if (!editor) {
+          return;
+        }
 
         clearFlash(editor);
 

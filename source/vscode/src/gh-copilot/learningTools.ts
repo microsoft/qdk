@@ -2,11 +2,12 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-import { LearningService, KATAS_WS_FOLDER } from "../learning/index.js";
 import {
-  detectKatasWorkspace,
+  LearningService,
+  KATAS_WS_FOLDER,
   LEARNING_FILE,
-} from "../learning/progress/detector.js";
+} from "../learning/index.js";
+import { detectKatasWorkspace } from "../learning/progress/detector.js";
 import { CopilotToolError } from "./types.js";
 import { QSharpTools } from "./qsharpTools.js";
 
@@ -20,8 +21,6 @@ export class LearningTools {
     private readonly qsharpTools: QSharpTools,
   ) {}
 
-  // ─── Auto-init helpers ───
-
   /**
    * Resolve the workspace root to use for initialization.
    * Checks for an existing `qdk-learning.json`, then falls back to the
@@ -31,7 +30,9 @@ export class LearningTools {
    */
   private async resolveWorkspaceRoot(): Promise<vscode.Uri> {
     const detected = await detectKatasWorkspace();
-    if (detected) return detected.workspaceRoot;
+    if (detected) {
+      return detected.workspaceRoot;
+    }
 
     const folders = vscode.workspace.workspaceFolders;
     if (!folders || folders.length === 0) {
@@ -52,7 +53,9 @@ export class LearningTools {
    * **Must be free of side-effects** — only reads state and the filesystem.
    */
   async confirmInit(): Promise<vscode.PreparedToolInvocation | undefined> {
-    if (this.service.initialized) return undefined;
+    if (this.service.initialized) {
+      return undefined;
+    }
 
     let workspacePath: string;
     try {
@@ -78,7 +81,9 @@ export class LearningTools {
    * (after the user has already approved via {@link confirmInit}).
    */
   private async ensureInitialized(): Promise<void> {
-    if (this.service.initialized) return;
+    if (this.service.initialized) {
+      return;
+    }
 
     const workspaceRoot = await this.resolveWorkspaceRoot();
     const katasRoot = vscode.Uri.joinPath(workspaceRoot, KATAS_WS_FOLDER);
@@ -310,6 +315,7 @@ export class LearningTools {
     // doesn't see it until reveal-answer is explicitly called.
     let position = state.position;
     if (position.item.type === "lesson-question") {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { answer: _answer, ...itemWithoutAnswer } = position.item;
       position = {
         ...position,

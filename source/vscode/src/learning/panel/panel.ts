@@ -131,7 +131,9 @@ export class KatasPanelManager {
    * Called by both show() (new panel) and restore() (deserialized panel).
    */
   private attachPanel(): void {
-    if (!this.panel) return;
+    if (!this.panel) {
+      return;
+    }
 
     this.panel.onDidDispose(
       () => {
@@ -173,7 +175,9 @@ export class KatasPanelManager {
 
   dispose(): void {
     this.panel?.dispose();
-    for (const d of this.disposables) d.dispose();
+    for (const d of this.disposables) {
+      d.dispose();
+    }
     this.disposables = [];
     instance = undefined;
   }
@@ -198,7 +202,9 @@ export class KatasPanelManager {
   // ─── Message bridge ───
 
   private sendMessage(msg: unknown): void {
-    if (!this.panel) return;
+    if (!this.panel) {
+      return;
+    }
     if (this.ready) {
       this.panel.webview.postMessage(msg);
     } else {
@@ -207,7 +213,9 @@ export class KatasPanelManager {
   }
 
   private sendState(): void {
-    if (!this.service.initialized) return;
+    if (!this.service.initialized) {
+      return;
+    }
     this.sendMessage({ command: "state", state: this.service.getState() });
   }
 
@@ -216,7 +224,9 @@ export class KatasPanelManager {
    * corresponding .qs file in the secondary editor column.
    */
   private async openCurrentFile(): Promise<void> {
-    if (!this.service.initialized) return;
+    if (!this.service.initialized) {
+      return;
+    }
     const pos = this.service.getPosition();
     let fileUri: vscode.Uri | undefined;
     if (pos.item.type === "exercise") {
@@ -233,7 +243,9 @@ export class KatasPanelManager {
   }
 
   private sendResult(action: string, result: unknown): void {
-    if (!this.service.initialized) return;
+    if (!this.service.initialized) {
+      return;
+    }
     this.sendMessage({
       command: "result",
       action,
@@ -286,7 +298,9 @@ export class KatasPanelManager {
   }
 
   private async handleAction(action: string): Promise<void> {
-    if (!this.service.initialized) return;
+    if (!this.service.initialized) {
+      return;
+    }
 
     try {
       switch (action) {
@@ -336,7 +350,9 @@ export class KatasPanelManager {
   // ─── Command delegation ───
 
   private async executeRun(): Promise<void> {
-    if (!this.service.initialized) return;
+    if (!this.service.initialized) {
+      return;
+    }
     const pos = this.service.getPosition();
 
     if (pos.item.type === "exercise") {
@@ -376,7 +392,9 @@ export class KatasPanelManager {
   }
 
   private async executeCircuit(): Promise<void> {
-    if (!this.service.initialized) return;
+    if (!this.service.initialized) {
+      return;
+    }
     const pos = this.service.getPosition();
 
     let fileUri: vscode.Uri;
@@ -399,8 +417,9 @@ export class KatasPanelManager {
   }
 
   private async executeCheck(): Promise<SolutionCheckResult> {
-    if (!this.service.initialized)
+    if (!this.service.initialized) {
       return { passed: false, events: [], error: "Service not initialized" };
+    }
 
     const pos = this.service.getPosition();
     if (pos.item.type !== "exercise") {
@@ -567,8 +586,12 @@ export class KatasPanelManager {
         }
 
         function labelFor(variant) {
-          if (variant === "pass") return "Result";
-          if (variant === "fail") return "Result";
+          if (variant === "pass") {
+            return "Result";
+          }
+          if (variant === "fail") {
+            return "Result";
+          }
           return "Output";
         }
 
@@ -584,8 +607,9 @@ export class KatasPanelManager {
             const div = document.createElement("div");
             div.className = "action-group";
             for (const binding of group) {
-              if (binding.action === "quit" || binding.action === "menu")
+              if (binding.action === "quit" || binding.action === "menu") {
                 continue;
+              }
               const btn = document.createElement("button");
               if (binding.codicon) {
                 const icon = document.createElement("span");
@@ -595,12 +619,19 @@ export class KatasPanelManager {
               } else {
                 btn.textContent = binding.label;
               }
-              if (binding.primary) btn.classList.add("primary");
+              if (binding.primary) {
+                btn.classList.add("primary");
+              }
               // Tooltip: show label + shortcut key + chat note for AI actions
               var tip = binding.label;
-              if (binding.key && binding.key !== "space") tip += " (" + binding.key.toUpperCase() + ")";
-              else if (binding.key === "space") tip += " (Space)";
-              if (binding.codicon === "sparkle") tip += " — opens Copilot Chat";
+              if (binding.key && binding.key !== "space") {
+                tip += " (" + binding.key.toUpperCase() + ")";
+              } else if (binding.key === "space") {
+                tip += " (Space)";
+              }
+              if (binding.codicon === "sparkle") {
+                tip += " — opens Copilot Chat";
+              }
               btn.title = tip;
               btn.dataset.action = binding.action;
               btn.disabled = busy;
@@ -610,14 +641,17 @@ export class KatasPanelManager {
               div.appendChild(btn);
               currentActionBindings.push(binding);
             }
-            if (div.children.length > 0) actionsEl.appendChild(div);
+            if (div.children.length > 0) {
+              actionsEl.appendChild(div);
+            }
           }
         }
 
         function setBusy(b) {
           busy = b;
-          for (const btn of actionsEl.querySelectorAll("button"))
+          for (const btn of actionsEl.querySelectorAll("button")) {
             btn.disabled = b;
+          }
         }
 
         function renderProgressBar(progress) {
@@ -629,7 +663,9 @@ export class KatasPanelManager {
         }
 
         function applyState(state) {
-          if (!state) return;
+          if (!state) {
+            return;
+          }
           const pos = state.position;
           const key = pos.kataId + ":" + pos.sectionId + ":" + pos.itemIndex;
           if (key !== lastPositionKey) {
@@ -652,7 +688,9 @@ export class KatasPanelManager {
         // ─── Action dispatch ───
 
         function executeAction(action) {
-          if (busy) return;
+          if (busy) {
+            return;
+          }
 
           if (action === "hint-chat") {
             vscodeApi.postMessage({ command: "openChat", text: "Give me a hint" });
@@ -672,7 +710,9 @@ export class KatasPanelManager {
           setBusy(true);
 
           var slow = ["run", "circuit", "check"].indexOf(action) >= 0;
-          if (slow) showOutput('<div class="loading">Working…</div>');
+          if (slow) {
+            showOutput('<div class="loading">Working…</div>');
+          }
 
           vscodeApi.postMessage({ command: "action", action: action });
         }
@@ -705,7 +745,9 @@ export class KatasPanelManager {
                     R.renderSolutionCheck(result),
                     result.passed ? "pass" : "fail",
                   );
-                  if (result.passed) invalidateContent();
+                  if (result.passed) {
+                    invalidateContent();
+                  }
                   break;
 
                 case "reveal-answer":
@@ -726,7 +768,9 @@ export class KatasPanelManager {
                   clearOutput();
                   break;
               }
-              if (msg.state) applyState(msg.state);
+              if (msg.state) {
+                applyState(msg.state);
+              }
               setBusy(false);
               break;
             }
@@ -745,7 +789,9 @@ export class KatasPanelManager {
         // Chat-link clicks (data-chat) → open chat via extension host.
         document.addEventListener("click", function(e) {
           var link = e.target.closest("[data-chat]");
-          if (!link) return;
+          if (!link) {
+            return;
+          }
           e.preventDefault();
           vscodeApi.postMessage({ command: "openChat", text: link.dataset.chat });
         });
@@ -753,7 +799,9 @@ export class KatasPanelManager {
         // File-path link clicks → open via extension host.
         contentEl.addEventListener("click", function(e) {
           var a = e.target.closest("a.file-path-link");
-          if (!a) return;
+          if (!a) {
+            return;
+          }
           e.preventDefault();
           var url = a.getAttribute("href");
           if (url) {
@@ -763,13 +811,19 @@ export class KatasPanelManager {
 
         // Keyboard shortcuts — dispatch based on the key bindings in the action bar.
         document.addEventListener("keydown", function(e) {
-          if (busy) return;
+          if (busy) {
+            return;
+          }
           // Ignore when focus is inside an input/textarea.
           var tag = (e.target.tagName || "").toLowerCase();
-          if (tag === "input" || tag === "textarea" || tag === "select") return;
+          if (tag === "input" || tag === "textarea" || tag === "select") {
+            return;
+          }
 
           var key = e.key.toLowerCase();
-          if (key === " ") key = "space";
+          if (key === " ") {
+            key = "space";
+          }
           var btn = actionsEl.querySelector('button[data-action]:not(:disabled)');
           // Find matching binding by scanning all rendered buttons.
           var buttons = actionsEl.querySelectorAll("button[data-action]");
@@ -802,7 +856,9 @@ export class KatasPanelManager {
 
         // Restore cached state immediately for instant render on restart
         const cachedState = vscodeApi.getState();
-        if (cachedState) applyState(cachedState);
+        if (cachedState) {
+          applyState(cachedState);
+        }
 
         // Signal ready
         vscodeApi.postMessage({ command: "ready" });

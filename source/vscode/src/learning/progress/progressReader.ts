@@ -4,11 +4,8 @@
 import * as vscode from "vscode";
 import { log } from "qsharp-lang";
 import { loadCatalog } from "./catalog.js";
-import {
-  detectKatasWorkspace,
-  KatasWorkspaceInfo,
-  LEARNING_FILE,
-} from "./detector.js";
+import { LEARNING_FILE } from "../index.js";
+import { detectKatasWorkspace, KatasWorkspaceInfo } from "./detector.js";
 import type {
   CatalogKata,
   KataProgress,
@@ -122,7 +119,9 @@ export class ProgressWatcher implements vscode.Disposable {
    * change events into a single reload.
    */
   private scheduleReload(): void {
-    if (this.reloadScheduled) return;
+    if (this.reloadScheduled) {
+      return;
+    }
     this.reloadScheduled = true;
     queueMicrotask(() => {
       this.reloadScheduled = false;
@@ -190,7 +189,9 @@ export class ProgressWatcher implements vscode.Disposable {
         const bytes = await vscode.workspace.fs.readFile(info.learningFile);
         const raw = new TextDecoder("utf-8").decode(bytes);
         const parsed = JSON.parse(raw) as ProgressFileData;
-        if (parsed && parsed.version === 1) data = parsed;
+        if (parsed && parsed.version === 1) {
+          data = parsed;
+        }
       } catch {
         // File missing or corrupt — use an empty snapshot.
       }
@@ -211,7 +212,9 @@ export class ProgressWatcher implements vscode.Disposable {
   dispose(): void {
     this.fileWatcher?.dispose();
     this.changeEmitter.dispose();
-    for (const d of this.disposables) d.dispose();
+    for (const d of this.disposables) {
+      d.dispose();
+    }
     this.disposables = [];
   }
 }

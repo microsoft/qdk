@@ -7,7 +7,9 @@
 
 (function () {
   function escapeHtml(str) {
-    if (!str) return "";
+    if (!str) {
+      return "";
+    }
     return String(str)
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
@@ -19,14 +21,20 @@
   function formatComplex(re, im) {
     const r = +re.toFixed(4);
     const i = +im.toFixed(4);
-    if (i === 0) return `${r}`;
-    if (r === 0) return `${i}i`;
+    if (i === 0) {
+      return `${r}`;
+    }
+    if (r === 0) {
+      return `${i}i`;
+    }
     return `${r}${i >= 0 ? "+" : ""}${i}i`;
   }
 
   function renderQuantumState(dump) {
     const entries = Object.entries(dump.state);
-    if (entries.length === 0) return "";
+    if (entries.length === 0) {
+      return "";
+    }
     let html = `<table><tr><th>Basis</th><th>Amplitude</th><th>Probability</th></tr>`;
     for (const [basis, [re, im]] of entries) {
       const prob = (re * re + im * im) * 100;
@@ -39,7 +47,9 @@
 
   function renderMatrix(matrixInfo) {
     const m = matrixInfo.matrix;
-    if (!m || m.length === 0) return "";
+    if (!m || m.length === 0) {
+      return "";
+    }
     let html = `<table>`;
     for (const row of m) {
       html += `<tr>`;
@@ -114,14 +124,18 @@
         // Render surrounding lesson text (if present) together with the
         // example file link so the user sees the full context on one page.
         let body = "";
-        if (item.contentBefore) body += item.contentBefore;
+        if (item.contentBefore) {
+          body += item.contentBefore;
+        }
         if (item.filePath) {
           const fwd = item.filePath.replace(/\\/g, "/");
           const fileUrl =
             "file:///" + (fwd.startsWith("/") ? fwd.slice(1) : fwd);
           body += `<p class="file-path">This example should be open in the editor. If it\u2019s not visible, <a class="file-path-link" href="${escapeHtml(fileUrl)}" title="Open this example in the editor">open it here</a>.</p>`;
         }
-        if (item.contentAfter) body += item.contentAfter;
+        if (item.contentAfter) {
+          body += item.contentAfter;
+        }
         return body;
       }
       case "lesson-question":
