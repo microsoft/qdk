@@ -4,6 +4,7 @@
 from concurrent.futures import Executor
 import json
 import logging
+import warnings
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
@@ -135,6 +136,12 @@ class ResourceEstimatorBackend(BackendBase):
         """
         Estimates the resource usage of a QASM source code.
         """
+        warnings.warn(
+            "This version of QRE is deprecated and will be removed in a future release. Please use the new version of QRE in qdk.qre. Refer to aka.ms/qdk.QREv3 for more information.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         params = input_params.pop("params", None)
         if params is None:
             params = [{}]

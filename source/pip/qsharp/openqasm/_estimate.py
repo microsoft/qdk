@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 import json
+import warnings
 from time import monotonic
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 from .._fs import read_file, list_directory, resolve
@@ -47,6 +48,12 @@ def estimate(
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
     :raises QSharpError: If there is an error compiling the program.
     """
+
+    warnings.warn(
+        "This version of QRE is deprecated and will be removed in a future release. Please use the new version of QRE in qdk.qre. Refer to aka.ms/qdk.QREv3 for more information.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     ipython_helper()
 

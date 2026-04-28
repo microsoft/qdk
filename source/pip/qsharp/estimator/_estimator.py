@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from .._native import physical_estimates
 
 import json
+import warnings
 
 try:
     # Both markdown and mdx_math (from python-markdown-math) must be present for our markdown
@@ -16,6 +17,13 @@ try:
     has_markdown = True
 except ImportError:
     has_markdown = False
+
+
+warnings.warn(
+    "This version of QRE is deprecated and will be removed in a future release. Please use the new version of QRE in qdk.qre. Refer to aka.ms/qdk.QREv3 for more information.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 class EstimatorError(BaseException):
@@ -572,6 +580,12 @@ class EstimatorParams(EstimatorInputParamsItem):
     MAX_NUM_ITEMS: int = 1000
 
     def __init__(self, num_items: Optional[int] = None):
+        warnings.warn(
+            "This version of QRE is deprecated and will be removed in a future release. Please use the new version of QRE in qdk.qre. Refer to aka.ms/qdk.QREv3 for more information.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         EstimatorInputParamsItem.__init__(self)
 
         if num_items is not None:
