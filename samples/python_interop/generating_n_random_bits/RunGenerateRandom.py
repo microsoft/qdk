@@ -5,7 +5,8 @@ this_dir = Path(__file__).parent
 qsharp.init(project_root=this_dir)
 
 from qdk import code
-GenerateRandomNumbers = code.GenerateRandomNumbers
+
+GenerateRandomNumbers = code.GenerateRandomNumbers.GenerateRandomNumbers
 
 nQubits = input("Enter the number of random bits to be generated: ")
 (results, number) = GenerateRandomNumbers(int(nQubits))
