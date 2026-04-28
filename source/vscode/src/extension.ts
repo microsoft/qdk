@@ -122,7 +122,7 @@ export async function activate(
       createLearningCodeLensProvider(),
     ),
   );
-  const progressWatcher = registerKatasProgressView(context);
+  const progressWatcher = registerKatasProgressView(context, learningService);
   registerKatasPanelCommand(context, progressWatcher, learningService);
   // fire-and-forget
   removeDeprecatedCopilotInstructions(context);

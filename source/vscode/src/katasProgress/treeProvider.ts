@@ -69,35 +69,9 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
 
   private snapshot: OverallProgress | undefined;
 
-  /** Tracks the section currently being navigated to (shows a spinner). */
-  private navigatingKataId: string | undefined;
-  private navigatingSectionId: string | undefined;
-
   update(snapshot: OverallProgress | undefined): void {
     this.snapshot = snapshot;
     this.emitter.fire(undefined);
-  }
-
-  /** Show a spinner on the given section while awaiting widget navigation. */
-  setNavigating(kataId: string, sectionId: string): void {
-    this.navigatingKataId = kataId;
-    this.navigatingSectionId = sectionId;
-    this.emitter.fire(undefined);
-  }
-
-  /** Clear the navigation spinner. */
-  clearNavigating(): void {
-    if (this.navigatingKataId !== undefined) {
-      this.navigatingKataId = undefined;
-      this.navigatingSectionId = undefined;
-      this.emitter.fire(undefined);
-    }
-  }
-
-  private isNavigating(kataId: string, sectionId: string): boolean {
-    return (
-      this.navigatingKataId === kataId && this.navigatingSectionId === sectionId
-    );
   }
 
   getTreeItem(node: KatasNode): vscode.TreeItem {
@@ -107,9 +81,10 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
         vscode.TreeItemCollapsibleState.None,
       );
       item.description = node.kataTitle;
-      item.iconPath = this.isNavigating(node.kataId, node.sectionId)
-        ? new vscode.ThemeIcon("loading~spin")
-        : new vscode.ThemeIcon("sparkle", new vscode.ThemeColor("charts.blue"));
+      item.iconPath = new vscode.ThemeIcon(
+        "sparkle",
+        new vscode.ThemeColor("charts.blue"),
+      );
       item.contextValue = "continue";
       item.tooltip = `Continue learning — ${node.kataTitle}: ${node.sectionTitle}`;
       item.id = "continue";
@@ -143,9 +118,7 @@ export class KatasTreeProvider implements vscode.TreeDataProvider<KatasNode> {
         : section.hasExample
           ? "lesson · example"
           : "lesson";
-    item.iconPath = this.isNavigating(kataId, section.id)
-      ? new vscode.ThemeIcon("loading~spin")
-      : sectionIcon(section, isCurrent);
+    item.iconPath = sectionIcon(section, isCurrent);
     item.contextValue =
       section.kind === "exercise" ? "exerciseSection" : "lessonSection";
     const baseTooltip = section.isComplete

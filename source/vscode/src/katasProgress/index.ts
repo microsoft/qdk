@@ -3,6 +3,7 @@
 
 import * as vscode from "vscode";
 import { registerKatasCommands } from "./commands.js";
+import type { LearningService } from "../learningService/index.js";
 import { ProgressWatcher } from "./progressReader.js";
 import { KatasTreeProvider } from "./treeProvider.js";
 import type { OverallProgress } from "./types.js";
@@ -51,6 +52,7 @@ function buildTreeMessage(
  */
 export function registerKatasProgressView(
   context: vscode.ExtensionContext,
+  learningService: LearningService,
 ): ProgressWatcher {
   const watcher = new ProgressWatcher();
   context.subscriptions.push(watcher);
@@ -73,7 +75,7 @@ export function registerKatasProgressView(
     }),
   );
 
-  registerKatasCommands(context, watcher, treeProvider);
+  registerKatasCommands(context, watcher, learningService);
 
   // Kick off initial detection + load; fire-and-forget.
   void watcher.start();

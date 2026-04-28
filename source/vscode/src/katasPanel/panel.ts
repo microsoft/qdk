@@ -6,8 +6,7 @@
  *
  * Creates a WebviewPanel, bridges postMessage ↔ LearningService, delegates run /
  * circuit to VS Code commands, uses loadCompilerWorker for exercise checking,
- * listens to LearningService.onDidChangeState for state sync, and watches
- * .navigate.json for tree-view navigation signals.
+ * and listens to LearningService.onDidChangeState for state sync.
  */
 
 import * as vscode from "vscode";
@@ -18,10 +17,7 @@ import { loadCompilerWorker, qsharpExtensionId } from "../common.js";
 import { runExerciseInTerminal } from "../run.js";
 import type { LearningService } from "../learningService/index.js";
 import type { ProgressWatcher } from "../katasProgress/progressReader.js";
-import {
-  detectKatasWorkspace,
-  NAVIGATE_FILE,
-} from "../katasProgress/detector.js";
+import { detectKatasWorkspace } from "../katasProgress/detector.js";
 import type { SolutionCheckResult } from "../learningService/types.js";
 
 let instance: KatasPanelManager | undefined;
@@ -31,7 +27,6 @@ export class KatasPanelManager {
   private ready = false;
   private queuedMessages: unknown[] = [];
   private disposables: vscode.Disposable[] = [];
-  private navigateWatcher: vscode.FileSystemWatcher | undefined;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -100,7 +95,7 @@ export class KatasPanelManager {
     // Generate and set HTML
     this.panel.webview.html = this.getWebviewContent(this.panel.webview);
 
-    this.attachPanel(info);
+    this.attachPanel();
   }
 
   /**
@@ -128,17 +123,14 @@ export class KatasPanelManager {
     // Re-set HTML — webview resource URIs change across sessions
     this.panel.webview.html = this.getWebviewContent(this.panel.webview);
 
-    this.attachPanel(info);
+    this.attachPanel();
   }
 
   /**
    * Wire up shared listeners on an already-created panel.
    * Called by both show() (new panel) and restore() (deserialized panel).
    */
-  private attachPanel(info: {
-    workspaceRoot: vscode.Uri;
-    katasRoot: vscode.Uri;
-  }): void {
+  private attachPanel(): void {
     if (!this.panel) return;
 
     this.panel.onDidDispose(
@@ -146,7 +138,6 @@ export class KatasPanelManager {
         this.panel = undefined;
         this.ready = false;
         this.queuedMessages = [];
-        this.disposeWatchers();
       },
       undefined,
       this.disposables,
@@ -178,14 +169,10 @@ export class KatasPanelManager {
         }
       }),
     );
-
-    // Watch .navigate.json for tree-view navigation signals
-    this.setupNavigateWatcher(info);
   }
 
   dispose(): void {
     this.panel?.dispose();
-    this.disposeWatchers();
     for (const d of this.disposables) d.dispose();
     this.disposables = [];
     instance = undefined;
@@ -475,52 +462,6 @@ export class KatasPanelManager {
     } finally {
       worker.terminate();
     }
-  }
-
-  // ─── .navigate.json watcher (tree-view → panel) ───
-
-  private setupNavigateWatcher(info: {
-    workspaceRoot: vscode.Uri;
-    katasRoot: vscode.Uri;
-  }): void {
-    this.disposeWatchers();
-
-    // Handler for the tree-view signal file: read JSON, navigate service,
-    // update webview, open the .qs file beside the panel, and delete the
-    // signal file to indicate consumption.
-    const handleTreeNavigate = async () => {
-      if (!this.service.initialized) return;
-      const navUri = vscode.Uri.joinPath(info.katasRoot, NAVIGATE_FILE);
-      try {
-        const bytes = await vscode.workspace.fs.readFile(navUri);
-        const data = JSON.parse(new TextDecoder("utf-8").decode(bytes));
-        if (data.kataId) {
-          this.service.goTo(data.kataId, data.sectionId, data.itemIndex ?? 0);
-          this.sendState();
-          await this.openCurrentFile();
-          this.panel?.reveal(vscode.ViewColumn.One);
-        }
-        // Delete the file to signal we consumed it
-        await vscode.workspace.fs.delete(navUri);
-      } catch {
-        // File already consumed or missing
-      }
-    };
-
-    // Tree-view → panel (written by katasProgress tree provider)
-    const treePattern = new vscode.RelativePattern(
-      info.katasRoot,
-      NAVIGATE_FILE,
-    );
-    this.navigateWatcher =
-      vscode.workspace.createFileSystemWatcher(treePattern);
-    this.navigateWatcher.onDidCreate(handleTreeNavigate);
-    this.navigateWatcher.onDidChange(handleTreeNavigate);
-  }
-
-  private disposeWatchers(): void {
-    this.navigateWatcher?.dispose();
-    this.navigateWatcher = undefined;
   }
 
   // ─── HTML generation ───

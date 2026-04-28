@@ -6,8 +6,6 @@ import type { ProgressFileData } from "./types.js";
 
 /** Well-known file that marks a workspace folder as a katas workspace. */
 export const LEARNING_FILE = "qdk-learning.json";
-/** Signal file used for tree-view → panel navigation. */
-export const NAVIGATE_FILE = ".navigate.json";
 
 export interface KatasWorkspaceInfo {
   /**
