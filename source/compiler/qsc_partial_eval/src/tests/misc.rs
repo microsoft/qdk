@@ -907,3 +907,69 @@ fn measurement_in_loop_of_variable_qubit_supported() {
             Variable(1, Boolean) = Store Bool(true)
             Jump(4)"#]]);
 }
+
+#[test]
+fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
+    let program = get_rir_program_with_capabilities(
+        indoc! {
+        r#"
+        @Measurement()
+        operation Mzz(q1 : Qubit, q2 : Qubit) : Result {
+            body intrinsic;
+        }
+        operation Main() : Bool {
+            use qs = Qubit[4];
+            mutable noisy = false;
+            for idx in 0..2..3 {
+                if Mzz(qs[idx], qs[idx + 1]) == One {
+                    noisy = true;
+                }
+            }
+            noisy
+        }
+        "#,
+        },
+        Profile::AdaptiveRIFLA.into(),
+    );
+
+    assert_blocks(&program, &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Integer) = Store Integer(0)
+            Variable(0, Integer) = Store Integer(1)
+            Variable(0, Integer) = Store Integer(2)
+            Variable(0, Integer) = Store Integer(3)
+            Variable(0, Integer) = Store Integer(4)
+            Variable(1, Boolean) = Store Bool(false)
+            Variable(2, Integer) = Store Integer(0)
+            Jump(1)
+        Block 1:Block:
+            Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(3)
+            Variable(4, Boolean) = Store Bool(true)
+            Branch Variable(3, Boolean), 3, 4
+        Block 2:Block:
+            Variable(11, Boolean) = Store Variable(1, Boolean)
+            Call id(4), args( Variable(11, Boolean), Tag(0, 3), )
+            Return
+        Block 3:Block:
+            Branch Variable(4, Boolean), 5, 2
+        Block 4:Block:
+            Variable(4, Boolean) = Store Bool(false)
+            Jump(3)
+        Block 5:Block:
+            Variable(5, Qubit) = Index Array(0), Variable(2, Integer)
+            Variable(6, Integer) = Add Variable(2, Integer), Integer(1)
+            Variable(7, Qubit) = Index Array(0), Variable(6, Integer)
+            Call id(2), args( Variable(5, Qubit), Variable(7, Qubit), Result(0), )
+            Variable(8, Boolean) = Call id(3), args( Result(0), )
+            Variable(9, Boolean) = Store Variable(8, Boolean)
+            Branch Variable(9, Boolean), 7, 6
+        Block 6:Block:
+            Variable(10, Integer) = Add Variable(2, Integer), Integer(2)
+            Variable(2, Integer) = Store Variable(10, Integer)
+            Jump(1)
+        Block 7:Block:
+            Variable(1, Boolean) = Store Bool(true)
+            Jump(6)"#]]);
+}

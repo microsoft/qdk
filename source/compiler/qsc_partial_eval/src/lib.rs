@@ -3034,19 +3034,18 @@ impl<'a> PartialEvaluator<'a> {
         let mut results_values = Vec::new();
 
         match args_value {
-            Value::Qubit(qubit) => {
+            Value::Qubit(_) | Value::Var(_) => {
                 input_type.push(qsc_rir::rir::Ty::Prim(rir::Prim::Qubit));
-                operands.push(self.map_eval_value_to_rir_operand(&Value::Qubit(qubit)));
+                operands.push(self.map_eval_value_to_rir_operand(&args_value));
             }
             Value::Tuple(values, _) => {
                 for value in &*values {
-                    let Value::Qubit(qubit) = value else {
-                        panic!(
-                            "by this point a qsc_pass should have checked that all arguments are Qubits"
-                        )
-                    };
+                    assert!(
+                        matches!(value, Value::Qubit(_) | Value::Var(_)),
+                        "by this point a qsc_pass should have checked that all arguments are Qubits"
+                    );
                     input_type.push(qsc_rir::rir::Ty::Prim(rir::Prim::Qubit));
-                    operands.push(self.map_eval_value_to_rir_operand(&Value::Qubit(qubit.clone())));
+                    operands.push(self.map_eval_value_to_rir_operand(value));
                 }
             }
             _ => {
