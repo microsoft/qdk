@@ -75,7 +75,6 @@ export type Action =
   | "hint-chat"
   | "explain-chat"
   | "discuss-chat"
-  | "solution"
   | "reveal-answer"
   | "progress"
   | "menu"

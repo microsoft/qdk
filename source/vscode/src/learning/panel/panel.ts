@@ -329,11 +329,6 @@ export class KatasPanelManager {
           this.sendResult("check", result);
           break;
         }
-        case "solution": {
-          const code = this.service.getFullSolution();
-          this.sendResult("solution", code);
-          break;
-        }
         case "reveal-answer": {
           const { result } = this.service.revealAnswer();
           this.sendResult("reveal-answer", result);

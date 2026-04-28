@@ -245,13 +245,6 @@
                 '</div><a class="chat-link" data-chat="Explain why this is the answer"><span class="codicon codicon-sparkle"></span> Explain this answer</a>',
             );
             break;
-          case "solution":
-            showOutput(
-              '<div style="margin-bottom:0.3rem"><strong>Reference Solution</strong></div><pre>' +
-                R.escapeHtml(result) +
-                '</pre><a class="chat-link" data-chat="Explain this solution step by step"><span class="codicon codicon-sparkle"></span> Explain this solution</a>',
-            );
-            break;
           case "run":
           case "circuit":
             clearOutput();

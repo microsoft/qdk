@@ -377,7 +377,7 @@ export class LearningService {
             ]
           : [{ key: "r", label: "Run", action: "run" }];
         const helpGroup: ActionGroup = pos.item.isComplete
-          ? [{ key: "s", label: "Solution", action: "solution" }]
+          ? []
           : [
               {
                 key: "h",
@@ -385,7 +385,6 @@ export class LearningService {
                 action: "hint-chat",
                 codicon: "sparkle",
               },
-              { key: "s", label: "Solution", action: "solution" },
             ];
         return [primaryGroup, codeTools, helpGroup, navGroup];
       }
