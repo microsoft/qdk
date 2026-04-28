@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Per-opcode tests for the adaptive GPU bytecode interpreter.
+"""Per-opcode tests for the adaptive CPU bytecode interpreter.
 
 Each test targets one (or a small family of) bytecode instruction(s) by
 supplying hand-written Adaptive Profile QIR that exercises the instruction
@@ -10,32 +10,15 @@ and encodes the expected result into a measurement outcome.
 Tests are ordered to match the opcode definitions in ``_adaptive_opcodes.py``
 so that coverage can be verified by reading both files side by side.
 
-Requires QDK_GPU_TESTS env var and a GPU adapter.
+This is a CPU counterpart to ``test_adaptive_gpu_bytecode.py``.
 """
 
-import os
-import sys
 from collections import Counter
 import pytest
+from qsharp._simulation import run_qir, NoiseConfig, Result
 import qsharp.openqasm
+from typing import Literal
 
-# Skip the whole module when GPU tests aren't requested.
-if not os.environ.get("QDK_GPU_TESTS"):
-    pytest.skip("Skipping GPU tests (QDK_GPU_TESTS not set)", allow_module_level=True)
-
-SKIP_REASON = "GPU is not available"
-GPU_AVAILABLE = False
-
-try:
-    from qsharp._native import try_create_gpu_adapter
-
-    gpu_info = try_create_gpu_adapter()
-    print(f"*** USING GPU: {gpu_info}", file=sys.stderr)
-    GPU_AVAILABLE = True
-except OSError as e:
-    SKIP_REASON = str(e)
-
-from qsharp._simulation import GpuSimulator, NoiseConfig, Result, run_qir
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -44,33 +27,34 @@ from qsharp._simulation import GpuSimulator, NoiseConfig, Result, run_qir
 # Deterministic programs need a single shot but we run multiple shots
 # to verify that multiple shots yield the same result.
 SHOTS = 100
-
-# Acquiring the GPU resources takes time, so we acquire them once and use them
-# for all the tests. This is fine since pytest runs tests sequencially.
-sim = GpuSimulator()
-
-
-def _run(qir: str, shots: int = SHOTS, seed: int = 42):
-    """Run *qir* on the GPU and return the shot_results list."""
-    global sim
-    sim.set_program(qir)
-    return sim.run_shots(shots, seed=seed)
+SIM_TYPES = ["cpu", "clifford"]
 
 
 def map_result_list_to_str(results):
-    s = ""
+    results_str = ""
     if isinstance(results, (list, tuple)):
         for r in results:
-            s += map_result_list_to_str(r)
+            results_str += map_result_list_to_str(r)
     else:
         match results:
             case Result.Zero:
-                s += "0"
+                results_str += "0"
             case Result.One:
-                s += "1"
+                results_str += "1"
             case Result.Loss:
-                s += "L"
-    return s
+                results_str += "L"
+    return results_str
+
+
+def _run(
+    qir: str,
+    shots: int = SHOTS,
+    seed: int = 42,
+    sim_type: Literal["clifford", "cpu"] = "cpu",
+):
+    """Run *qir* on the given simulator and return shot results as a list of strings."""
+    results = run_qir(qir, shots, seed=seed, type=sim_type)
+    return [map_result_list_to_str(r) for r in results]
 
 
 def check_result(
@@ -81,6 +65,7 @@ def check_result(
     num_qubits: int = 1,
     num_results: int = 1,
     record=None,
+    sim_type: Literal["clifford", "cpu"] = "cpu",
 ):
     """Assert every shot produces *expected*."""
     qir = format_qir(
@@ -90,16 +75,18 @@ def check_result(
         num_results=num_results,
         record=record,
     )
-    results = _run(qir, SHOTS)["shot_results"]
-    counts = Counter(map_result_list_to_str(r) for r in results)
+    results = _run(qir, SHOTS, sim_type=sim_type)
+    counts = Counter(results)
     assert counts == {
         expected: SHOTS
     }, f"Expected all {SHOTS} shots to be '{expected}', got {counts}"
 
 
-def check_arith_result(qir_fragment: str, expected: str):
+def check_arith_result(
+    qir_fragment: str, expected: str, sim_type: Literal["clifford", "cpu"] = "cpu"
+):
     body = build_arith_body(qir_fragment)
-    check_result(body, expected)
+    check_result(body, expected, sim_type=sim_type)
 
 
 _DECLS = """\
@@ -184,34 +171,30 @@ end:
 # OP_NOP — no-op
 # =========================================================================
 
-# NOP is not directly emittable from QIR, but we confirm basic program works.
-# Covered implicitly by every test above. A separate "smoke" is still nice:
 NOP_SMOKE_QIR = """
 entry:
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_nop_smoke():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_nop_smoke(sim_type):
     """Minimal program: just measure |0⟩ → always 0."""
-    check_result(NOP_SMOKE_QIR, "0")
+    check_result(NOP_SMOKE_QIR, "0", sim_type=sim_type)
 
 
 # =========================================================================
 # OP_RET — return / program termination
 # =========================================================================
 
-# Every test already exercises RET implicitly. This tests an explicit early ret.
 RET_QIR = """
 entry:
-  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_ret():
-    check_result(RET_QIR, "0")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_ret(sim_type):
+    check_result(RET_QIR, "", sim_type=sim_type, num_qubits=0, num_results=0)
 
 
 # =========================================================================
@@ -228,10 +211,10 @@ target:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_jump():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_jump(sim_type):
     """Unconditional jump lands at target block, X applied → measure 1."""
-    check_result(JUMP_QIR, "1")
+    check_result(JUMP_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -267,14 +250,14 @@ measure:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_branch_true():
-    check_result(BRANCH_TRUE_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_branch_true(sim_type):
+    check_result(BRANCH_TRUE_QIR, "1", sim_type=sim_type)
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_branch_false():
-    check_result(BRANCH_FALSE_QIR, "0")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_branch_false(sim_type):
+    check_result(BRANCH_FALSE_QIR, "0", sim_type=sim_type)
 
 
 # =========================================================================
@@ -323,14 +306,14 @@ measure:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_switch_case():
-    check_result(SWITCH_CASE1_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_switch_case(sim_type):
+    check_result(SWITCH_CASE1_QIR, "1", sim_type=sim_type)
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_switch_default():
-    check_result(SWITCH_DEFAULT_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_switch_default(sim_type):
+    check_result(SWITCH_DEFAULT_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -352,10 +335,10 @@ entry:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_call_and_return():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_call_and_return(sim_type):
     """Call a helper function that applies X, then measure."""
-    check_result(CALL_QIR, "1", extra_decls=CALL_QIR_FN)
+    check_result(CALL_QIR, "1", extra_decls=CALL_QIR_FN, sim_type=sim_type)
 
 
 # #########################################################################
@@ -367,14 +350,12 @@ def test_call_and_return():
 # OP_QUANTUM_GATE — single and two-qubit gates
 # =========================================================================
 
-# X gate: |0⟩ → |1⟩
 GATE_X_QIR = """
 entry:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
 """
 
-# CNOT gate: |10⟩ → |11⟩
 GATE_CNOT_QIR = """
 entry:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
@@ -383,22 +364,20 @@ entry:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_gate_x():
-    check_result(GATE_X_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_gate_x(sim_type):
+    check_result(GATE_X_QIR, "1", sim_type=sim_type)
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_gate_cnot():
-    check_result(GATE_CNOT_QIR, "1", num_qubits=2)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_gate_cnot(sim_type):
+    check_result(GATE_CNOT_QIR, "1", num_qubits=2, sim_type=sim_type)
 
 
 # =========================================================================
 # OP_MEASURE — measurement (also see OP_READ_RESULT below)
 # =========================================================================
 
-# OP_MEASURE is exercised in nearly every test via mresetz. This test
-# explicitly uses mz (non-resetting measurement) + separate reset.
 MZ_THEN_RESET_QIR = """
 entry:
   call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
@@ -411,10 +390,10 @@ entry:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_mz_then_reset():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_mz_then_reset(sim_type):
     "X → MZ → MZ → reset should give 110."
-    check_result(MZ_THEN_RESET_QIR, "110", num_results=3)
+    check_result(MZ_THEN_RESET_QIR, "110", num_results=3, sim_type=sim_type)
 
 
 # =========================================================================
@@ -432,10 +411,10 @@ entry:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_reset():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_reset(sim_type):
     """X → reset → measure should give 0."""
-    check_result(RESET_QIR, "0")
+    check_result(RESET_QIR, "0", sim_type=sim_type)
 
 
 # =========================================================================
@@ -462,19 +441,18 @@ end:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_read_result():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_read_result(sim_type):
     """X → MResetZ → read_result → if 1: X again → MResetZ.
     First result is always 1, read_result sees it, applies X, second result is also 1.
     """
-    check_result(READ_RESULT_QIR, "11", num_results=2)
+    check_result(READ_RESULT_QIR, "11", num_results=2, sim_type=sim_type)
 
 
 # =========================================================================
 # OP_RECORD_OUTPUT — output recording
 # =========================================================================
 
-# Explicitly test recording two results in order.
 RECORD_OUTPUT_QIR = """
 entry:
   ; q0 = |1⟩, q1 = |0⟩
@@ -484,10 +462,12 @@ entry:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_record_output_ordering():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_record_output_ordering(sim_type):
     """Two results recorded: result0=1, result1=0 → '10'."""
-    check_result(RECORD_OUTPUT_QIR, "10", num_qubits=2, num_results=2)
+    check_result(
+        RECORD_OUTPUT_QIR, "10", num_qubits=2, num_results=2, sim_type=sim_type
+    )
 
 
 # =========================================================================
@@ -516,14 +496,14 @@ end:
   call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
 """
 
-READ_LOSS_DECLS = """\
+READ_LOSS_DECLS = """
 declare i1 @__quantum__rt__read_loss(%Result*)
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_read_loss():
-    """s (with 100% loss) → mz → read_loss → branch on loss → mz witness.
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_read_loss(sim_type):
+    """rz (with 100% loss) → mz → read_loss → branch on loss → mz witness.
 
     Record both results: result 0 should always be ``Loss`` ('L'), and
     result 1 should always be ``One`` ('1') because ``read_loss`` saw the
@@ -537,7 +517,7 @@ def test_read_loss():
     )
     noise = NoiseConfig()
     noise.s.loss = 1.0
-    results = run_qir(qir, SHOTS, noise, seed=42, type="gpu")
+    results = run_qir(qir, SHOTS, noise, seed=42, type=sim_type)
     counts = Counter(map_result_list_to_str(r) for r in results)
     assert counts == {
         "L1": SHOTS
@@ -562,21 +542,26 @@ declare void @__quantum__qis__move__body(%Qubit*, i64, i64)
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_move_applies_noise():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_move_applies_noise(sim_type):
     """move (with 100% X noise) → mz → always 1."""
     qir = format_qir(MOVE_QIR, extra_decls=MOVE_DECLS, num_qubits=1, num_results=1)
     noise = NoiseConfig()
     noise.mov.x = 1.0
-    results = run_qir(qir, SHOTS, noise, seed=42, type="gpu")
+    results = run_qir(qir, SHOTS, noise, seed=42, type=sim_type)
     counts = Counter(map_result_list_to_str(r) for r in results)
     assert counts == {"1": SHOTS}, f"Expected all {SHOTS} shots to be '1', got {counts}"
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_move_noiseless_is_noop():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_move_noiseless_is_noop(sim_type):
     """move without noise is a pure no-op → q0 stays in |0⟩ → measure 0."""
-    check_result(MOVE_QIR, "0", extra_decls=MOVE_DECLS)
+    check_result(
+        MOVE_QIR,
+        "0",
+        extra_decls=MOVE_DECLS,
+        sim_type=sim_type,
+    )
 
 
 # #########################################################################
@@ -603,56 +588,59 @@ INT_ARITH_PARAMS = [
 ]
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "bin_op,lhs,rhs,expected",
     INT_ARITH_PARAMS,
 )
-def test_int_arith_imm_imm(bin_op, lhs, rhs, expected):
+def test_int_arith_imm_imm(sim_type, bin_op, lhs, rhs, expected):
     check_arith_result(
         f"""
         %a = {bin_op} i64 {lhs}, {rhs}
         %flag = icmp eq i64 %a, {expected}""",
         "1",
+        sim_type=sim_type,
     )
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "bin_op,lhs,rhs,expected",
     INT_ARITH_PARAMS,
 )
-def test_int_arith_imm_reg(bin_op, lhs, rhs, expected):
+def test_int_arith_imm_reg(sim_type, bin_op, lhs, rhs, expected):
     check_arith_result(
         f"""
         %rhs = add i64 {rhs}, 0
         %a = {bin_op} i64 {lhs}, %rhs
         %flag = icmp eq i64 %a, {expected}""",
         "1",
+        sim_type=sim_type,
     )
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "bin_op,lhs,rhs,expected",
     INT_ARITH_PARAMS,
 )
-def test_int_arith_reg_imm(bin_op, lhs, rhs, expected):
+def test_int_arith_reg_imm(sim_type, bin_op, lhs, rhs, expected):
     check_arith_result(
         f"""
         %lhs = add i64 {lhs}, 0
         %a = {bin_op} i64 %lhs, {rhs}
         %flag = icmp eq i64 %a, {expected}""",
         "1",
+        sim_type=sim_type,
     )
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "bin_op,lhs,rhs,expected",
     INT_ARITH_PARAMS,
 )
-def test_int_arith_reg_reg(bin_op, lhs, rhs, expected):
+def test_int_arith_reg_reg(sim_type, bin_op, lhs, rhs, expected):
     check_arith_result(
         f"""
         %lhs = add i64 {lhs}, 0
@@ -660,23 +648,24 @@ def test_int_arith_reg_reg(bin_op, lhs, rhs, expected):
         %a = {bin_op} i64 %lhs, %rhs
         %flag = icmp eq i64 %a, {expected}""",
         "1",
+        sim_type=sim_type,
     )
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "bin_op,lhs,rhs,expected",
     INT_ARITH_PARAMS,
 )
-def test_int_arith_negative_test(bin_op, lhs, rhs, expected):
+def test_int_arith_negative_test(sim_type, bin_op, lhs, rhs, expected):
     """Checks that the tests fail if the result is different from the expected value."""
-    # Override the expected value.
     expected = 12345
     check_arith_result(
         f"""
         %a = {bin_op} i64 {lhs}, {rhs}
         %flag = icmp eq i64 %a, {expected}""",
         "0",
+        sim_type=sim_type,
     )
 
 
@@ -690,7 +679,7 @@ def test_int_arith_negative_test(bin_op, lhs, rhs, expected):
 # =========================================================================
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "pred,lhs,rhs,expected",
     [
@@ -716,10 +705,11 @@ def test_int_arith_negative_test(bin_op, lhs, rhs, expected):
         ("uge", 2, 3, "0"),
     ],
 )
-def test_icmp(pred, lhs, rhs, expected):
+def test_icmp(sim_type, pred, lhs, rhs, expected):
     check_arith_result(
         f"%flag = icmp {pred} i64 {lhs}, {rhs}",
         expected,
+        sim_type=sim_type,
     )
 
 
@@ -741,14 +731,14 @@ ICMP_UNSIGNED_WRAP_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_icmp_signed_negative():
-    check_arith_result(ICMP_SIGNED_VS_UNSIGNED_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_icmp_signed_negative(sim_type):
+    check_arith_result(ICMP_SIGNED_VS_UNSIGNED_QIR, "1", sim_type=sim_type)
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_icmp_unsigned_wrap():
-    check_arith_result(ICMP_UNSIGNED_WRAP_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_icmp_unsigned_wrap(sim_type):
+    check_arith_result(ICMP_UNSIGNED_WRAP_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -756,7 +746,7 @@ def test_icmp_unsigned_wrap():
 # =========================================================================
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "pred,lhs,rhs,expected",
     [
@@ -774,10 +764,11 @@ def test_icmp_unsigned_wrap():
         ("oge", "2.0", "3.0", "0"),
     ],
 )
-def test_fcmp(pred, lhs, rhs, expected):
+def test_fcmp(sim_type, pred, lhs, rhs, expected):
     check_arith_result(
         f"%flag = fcmp {pred} double {lhs}, {rhs}",
         expected,
+        sim_type=sim_type,
     )
 
 
@@ -794,56 +785,59 @@ FLOAT_ARITH_PARAMS = [
 ]
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "bin_op,lhs,rhs,expected",
     FLOAT_ARITH_PARAMS,
 )
-def test_float_arith_imm_imm(bin_op, lhs, rhs, expected):
+def test_float_arith_imm_imm(sim_type, bin_op, lhs, rhs, expected):
     check_arith_result(
         f"""
         %a = {bin_op} double {lhs}, {rhs}
         %flag = fcmp oeq double %a, {expected}""",
         "1",
+        sim_type=sim_type,
     )
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "bin_op,lhs,rhs,expected",
     FLOAT_ARITH_PARAMS,
 )
-def test_float_arith_imm_reg(bin_op, lhs, rhs, expected):
+def test_float_arith_imm_reg(sim_type, bin_op, lhs, rhs, expected):
     check_arith_result(
         f"""
         %rhs = fadd double {rhs}, 0.0
         %a = {bin_op} double {lhs}, %rhs
         %flag = fcmp oeq double %a, {expected}""",
         "1",
+        sim_type=sim_type,
     )
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "bin_op,lhs,rhs,expected",
     FLOAT_ARITH_PARAMS,
 )
-def test_float_arith_reg_imm(bin_op, lhs, rhs, expected):
+def test_float_arith_reg_imm(sim_type, bin_op, lhs, rhs, expected):
     check_arith_result(
         f"""
         %lhs = fadd double {lhs}, 0.0
         %a = {bin_op} double %lhs, {rhs}
         %flag = fcmp oeq double %a, {expected}""",
         "1",
+        sim_type=sim_type,
     )
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "bin_op,lhs,rhs,expected",
     FLOAT_ARITH_PARAMS,
 )
-def test_float_arith_reg_reg(bin_op, lhs, rhs, expected):
+def test_float_arith_reg_reg(sim_type, bin_op, lhs, rhs, expected):
     check_arith_result(
         f"""
         %lhs = fadd double {lhs}, 0.0
@@ -851,23 +845,24 @@ def test_float_arith_reg_reg(bin_op, lhs, rhs, expected):
         %a = {bin_op} double %lhs, %rhs
         %flag = fcmp oeq double %a, {expected}""",
         "1",
+        sim_type=sim_type,
     )
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
 @pytest.mark.parametrize(
     "bin_op,lhs,rhs,expected",
     FLOAT_ARITH_PARAMS,
 )
-def test_float_arith_negative_test(bin_op, lhs, rhs, expected):
+def test_float_arith_negative_test(sim_type, bin_op, lhs, rhs, expected):
     """Checks that the tests fail if the result is different from the expected value."""
-    # Override the expected value.
     expected = 12345.0
     check_arith_result(
         f"""
         %a = {bin_op} double {lhs}, {rhs}
         %flag = fcmp oeq double %a, {expected}""",
         "0",
+        sim_type=sim_type,
     )
 
 
@@ -887,9 +882,9 @@ ZEXT_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_zext():
-    check_arith_result(ZEXT_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_zext(sim_type):
+    check_arith_result(ZEXT_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -903,9 +898,9 @@ SEXT_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_sext():
-    check_arith_result(SEXT_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_sext(sim_type):
+    check_arith_result(SEXT_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -920,14 +915,13 @@ TRUNC_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_trunc():
-    check_arith_result(TRUNC_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_trunc(sim_type):
+    check_arith_result(TRUNC_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
 # OP_FPEXT / OP_FPTRUNC — float extension/truncation
-# (identity on GPU since everything is f32)
 # =========================================================================
 
 FPEXT_QIR = """
@@ -939,17 +933,15 @@ FPEXT_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_fpext():
-    check_arith_result(FPEXT_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_fpext(sim_type):
+    check_arith_result(FPEXT_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
 # OP_INTTOPTR / OP_MOV — dynamic qubit addressing
 # =========================================================================
 
-# inttoptr is used when qubit IDs come from computations rather than literals.
-# Compute qubit index from arithmetic, then apply X via inttoptr.
 INTTOPTR_QIR = """
 entry:
   ; Compute qubit ID 0 from arithmetic
@@ -960,9 +952,9 @@ entry:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_inttoptr_dynamic_qubit():
-    check_result(INTTOPTR_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_inttoptr_dynamic_qubit(sim_type):
+    check_result(INTTOPTR_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -977,9 +969,9 @@ FPTOSI_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_fptosi():
-    check_arith_result(FPTOSI_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_fptosi(sim_type):
+    check_arith_result(FPTOSI_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -995,9 +987,9 @@ SITOFP_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_sitofp():
-    check_arith_result(SITOFP_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_sitofp(sim_type):
+    check_arith_result(SITOFP_QIR, "1", sim_type=sim_type)
 
 
 # #########################################################################
@@ -1009,8 +1001,6 @@ def test_sitofp():
 # OP_PHI — phi node
 # =========================================================================
 
-# Classic loop counter: phi selects 0 from entry, incremented value from loop.
-# Loops 5 times, then checks counter == 5 → X → measure 1.
 PHI_LOOP_QIR = """
 entry:
   br label %loop
@@ -1035,9 +1025,9 @@ measure:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_phi_loop_counter():
-    check_result(PHI_LOOP_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_phi_loop_counter(sim_type):
+    check_result(PHI_LOOP_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -1057,22 +1047,20 @@ SELECT_FALSE_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_select_true():
-    check_arith_result(SELECT_TRUE_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_select_true(sim_type):
+    check_arith_result(SELECT_TRUE_QIR, "1", sim_type=sim_type)
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_select_false():
-    check_arith_result(SELECT_FALSE_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_select_false(sim_type):
+    check_arith_result(SELECT_FALSE_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
 # OP_CONST — constant materialization
 # =========================================================================
 
-# Constants are exercised in nearly every test (immediates in icmp, add, etc.)
-# This explicitly tests a large constant going through the pipeline.
 CONST_QIR = """
   ; Use a specific constant 12345, check add identity
   %a = add i64 12345, 0
@@ -1080,9 +1068,9 @@ CONST_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_const():
-    check_arith_result(CONST_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_const(sim_type):
+    check_arith_result(CONST_QIR, "1", sim_type=sim_type)
 
 
 # #########################################################################
@@ -1116,10 +1104,12 @@ measure:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_and_i1_boolean():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_and_i1_boolean(sim_type):
     """Deterministic boolean AND: both qubits |1⟩ → and i1 true, true → X → 1."""
-    check_result(AND_I1_QIR, "1", num_qubits=2, num_results=3, record=[2])
+    check_result(
+        AND_I1_QIR, "1", num_qubits=2, num_results=3, record=[2], sim_type=sim_type
+    )
 
 
 # =========================================================================
@@ -1145,10 +1135,12 @@ measure:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_or_i1_boolean():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_or_i1_boolean(sim_type):
     """Deterministic boolean OR: q0=1, q1=0 → or i1 true, false → true → X → 1."""
-    check_result(OR_I1_QIR, "1", num_qubits=2, num_results=3, record=[2])
+    check_result(
+        OR_I1_QIR, "1", num_qubits=2, num_results=3, record=[2], sim_type=sim_type
+    )
 
 
 # =========================================================================
@@ -1173,10 +1165,12 @@ measure:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_xor_i1_not():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_xor_i1_not(sim_type):
     """XOR i1 used as NOT: measure 0 → XOR true → true → X → 1."""
-    check_result(XOR_NOT_QIR, "1", num_qubits=1, num_results=2, record=[1])
+    check_result(
+        XOR_NOT_QIR, "1", num_qubits=1, num_results=2, record=[1], sim_type=sim_type
+    )
 
 
 # #########################################################################
@@ -1197,9 +1191,9 @@ CHAINED_ARITH_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_chained_arithmetic():
-    check_arith_result(CHAINED_ARITH_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_chained_arithmetic(sim_type):
+    check_arith_result(CHAINED_ARITH_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -1227,10 +1221,10 @@ measure:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_phi_diamond():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_phi_diamond(sim_type):
     """Diamond CFG with phi: true branch → phi resolves to 42 → X → 1."""
-    check_result(PHI_DIAMOND_QIR, "1")
+    check_result(PHI_DIAMOND_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -1245,16 +1239,15 @@ SELECT_COMPUTED_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_select_computed():
-    check_arith_result(SELECT_COMPUTED_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_select_computed(sim_type):
+    check_arith_result(SELECT_COMPUTED_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
 # Nested loop — OP_PHI + OP_BRANCH + OP_ADD + OP_ICMP combined
 # =========================================================================
 
-# Sum 1+2+3+4+5 = 15 using a loop, then check sum == 15
 NESTED_LOOP_SUM_QIR = """
 entry:
   br label %loop
@@ -1277,10 +1270,10 @@ measure:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_nested_loop_sum():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_nested_loop_sum(sim_type):
     """Sum 1..5 using phi loop, check total == 15."""
-    check_result(NESTED_LOOP_SUM_QIR, "1")
+    check_result(NESTED_LOOP_SUM_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -1307,12 +1300,12 @@ measure:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_dynamic_qubit_loop():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_dynamic_qubit_loop(sim_type):
     """3-qubit GHZ via dynamic qubit loop — only '000' and '111' should appear."""
     qir = format_qir(DYNAMIC_QUBIT_LOOP_QIR, num_qubits=3, num_results=3)
-    results = _run(qir, shots=5000, seed=42)["shot_results"]
-    counts = Counter(map_result_list_to_str(r) for r in results)
+    results = _run(qir, shots=5000, seed=42, sim_type=sim_type)
+    counts = Counter(results)
     assert set(counts.keys()) <= {"000", "111"}, f"Unexpected GHZ outcomes: {counts}"
     assert counts.get("000", 0) > 1500
     assert counts.get("111", 0) > 1500
@@ -1330,9 +1323,9 @@ BIT_PACK_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_bit_packing():
-    check_arith_result(BIT_PACK_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_bit_packing(sim_type):
+    check_arith_result(BIT_PACK_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -1355,9 +1348,65 @@ SHIFT_BITWISE_CHAIN_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_shift_bitwise_chain():
-    check_arith_result(SHIFT_BITWISE_CHAIN_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_shift_bitwise_chain(sim_type):
+    check_arith_result(SHIFT_BITWISE_CHAIN_QIR, "1", sim_type=sim_type)
+
+
+# #########################################################################
+#  Structured Output Recording
+# #########################################################################
+
+
+NESTED_OUTPUT_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define i64 @ENTRYPOINT__main() #0 {
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 3 to %Qubit*), %Result* inttoptr (i64 3 to %Result*))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
+  call void @__quantum__rt__array_record_output(i64 2, i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+  call void @__quantum__rt__array_record_output(i64 2, i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* null)
+  ret i64 0
+}
+
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__array_record_output(i64, i8*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="4" }
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_nested_output_structure(sim_type):
+    """Verify that adaptive results preserve nested tuple/array structure.
+
+    The QIR records output as a tuple of two arrays: ([r0, r1], [r2, r3]).
+    Before the fix, run_adaptive flattened this into [r0, r1, r2, r3].
+    """
+    results = run_qir(NESTED_OUTPUT_QIR, shots=10, seed=42, type=sim_type)
+    for shot in results:
+        assert isinstance(shot, tuple), f"Expected tuple, got {type(shot)}: {shot}"
+        assert len(shot) == 2, f"Expected 2-element tuple, got {len(shot)}: {shot}"
+        assert isinstance(
+            shot[0], list
+        ), f"Expected list, got {type(shot[0])}: {shot[0]}"
+        assert isinstance(
+            shot[1], list
+        ), f"Expected list, got {type(shot[1])}: {shot[1]}"
+        assert shot == ([Result.Zero, Result.One], [Result.Zero, Result.One])
 
 
 # =========================================================================
@@ -1392,65 +1441,10 @@ measure:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_switch_from_arithmetic():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_switch_from_arithmetic(sim_type):
     """Switch on computed value 2*3-4=2 → case2 → X → 1."""
-    check_result(SWITCH_ARITH_QIR, "1")
-
-
-# #########################################################################
-#  Structured Output Recording
-# #########################################################################
-
-NESTED_OUTPUT_QIR = """\
-%Result = type opaque
-%Qubit = type opaque
-
-define i64 @ENTRYPOINT__main() #0 {
-  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 3 to %Qubit*))
-  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
-  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 2 to %Qubit*), %Result* inttoptr (i64 2 to %Result*))
-  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 3 to %Qubit*), %Result* inttoptr (i64 3 to %Result*))
-  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
-  call void @__quantum__rt__array_record_output(i64 2, i8* null)
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
-  call void @__quantum__rt__array_record_output(i64 2, i8* null)
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 2 to %Result*), i8* null)
-  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 3 to %Result*), i8* null)
-  ret i64 0
-}
-
-declare void @__quantum__qis__x__body(%Qubit*)
-declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
-declare void @__quantum__rt__array_record_output(i64, i8*)
-declare void @__quantum__rt__result_record_output(%Result*, i8*)
-
-attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="4" }
-"""
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_nested_output_structure():
-    """Verify that adaptive results preserve nested tuple/array structure.
-
-    The QIR records output as a tuple of two arrays: ([r0, r1], [r2, r3]).
-    Before the fix, run_adaptive flattened this into [r0, r1, r2, r3].
-    """
-    results = _run(NESTED_OUTPUT_QIR, shots=10)
-    for shot in results["shot_results"]:
-        assert isinstance(shot, tuple), f"Expected tuple, got {type(shot)}: {shot}"
-        assert len(shot) == 2, f"Expected 2-element tuple, got {len(shot)}: {shot}"
-        assert isinstance(
-            shot[0], list
-        ), f"Expected list, got {type(shot[0])}: {shot[0]}"
-        assert isinstance(
-            shot[1], list
-        ), f"Expected list, got {type(shot[1])}: {shot[1]}"
-        assert shot == ([Result.Zero, Result.One], [Result.Zero, Result.One])
+    check_result(SWITCH_ARITH_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -1467,9 +1461,9 @@ FLOAT_ROUNDTRIP_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_float_roundtrip():
-    check_arith_result(FLOAT_ROUNDTRIP_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_float_roundtrip(sim_type):
+    check_arith_result(FLOAT_ROUNDTRIP_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -1497,10 +1491,15 @@ entry:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_call_with_return_value():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_call_with_return_value(sim_type):
     """Call a function returning i64, use result in comparison."""
-    check_result(CALL_WITH_RETVAL_QIR, "1", extra_decls=CALL_WITH_RETVAL_QIR_FN)
+    check_result(
+        CALL_WITH_RETVAL_QIR,
+        "1",
+        extra_decls=CALL_WITH_RETVAL_QIR_FN,
+        sim_type=sim_type,
+    )
 
 
 # =========================================================================
@@ -1517,10 +1516,10 @@ MUL_DIV_REM_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_mul_div_rem_identity():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_mul_div_rem_identity(sim_type):
     """Division identity: (a/b)*b + (a%b) == a."""
-    check_arith_result(MUL_DIV_REM_QIR, "1")
+    check_arith_result(MUL_DIV_REM_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -1546,10 +1545,10 @@ measure:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_measure_and_branch():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_measure_and_branch(sim_type):
     """Deterministic measure-and-correct: X→MResetZ→read_result→X→MResetZ → always 1."""
-    check_result(MEASURE_BRANCH_QIR, "1", num_results=2, record=[1])
+    check_result(MEASURE_BRANCH_QIR, "1", num_results=2, record=[1], sim_type=sim_type)
 
 
 # =========================================================================
@@ -1566,45 +1565,9 @@ ADD_REG_REG_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_add_register_register():
-    check_arith_result(ADD_REG_REG_QIR, "1")
-
-
-# =========================================================================
-# Error code check — all tests should produce clean shots
-# =========================================================================
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_no_error_codes():
-    """Verify that a representative program produces zero error codes."""
-    qir = format_qir(build_arith_body(ADD_REG_REG_QIR))
-    codes = _run(qir)["shot_result_codes"]
-    assert all(
-        c == 0 for c in codes
-    ), f"Non-zero error codes: {[c for c in codes if c != 0]}"
-
-
-# =========================================================================
-# Error code check — can return error codes
-# =========================================================================
-
-ERROR_CODE_QIR = """
-entry:
-  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-  ret i64 1
-"""
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_error_codes():
-    """Verify that a representative program produces zero error codes."""
-    qir = format_qir(ERROR_CODE_QIR)
-    codes = _run(qir)["shot_result_codes"]
-    assert all(
-        c == 1 for c in codes
-    ), f"All error codes should be 1: {[c for c in codes if c != 1]}"
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_add_register_register(sim_type):
+    check_arith_result(ADD_REG_REG_QIR, "1", sim_type=sim_type)
 
 
 # #########################################################################
@@ -1613,7 +1576,7 @@ def test_error_codes():
 
 
 # =========================================================================
-# SREM with negative dividend  (GPU signed-modulo edge case)
+# SREM with negative dividend
 # =========================================================================
 
 SREM_NEG_DIVIDEND_QIR = """
@@ -1624,10 +1587,10 @@ SREM_NEG_DIVIDEND_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_srem_negative_dividend():
-    """srem must preserve the sign of the dividend on GPU."""
-    check_arith_result(SREM_NEG_DIVIDEND_QIR, "1")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_srem_negative_dividend(sim_type):
+    """srem must preserve the sign of the dividend."""
+    check_arith_result(SREM_NEG_DIVIDEND_QIR, "1", sim_type=sim_type)
 
 
 SREM_NEG_BOTH_QIR = """
@@ -1640,10 +1603,10 @@ SREM_NEG_BOTH_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_srem_negative_both():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_srem_negative_both(sim_type):
     """srem with both operands negative."""
-    check_arith_result(SREM_NEG_BOTH_QIR, "1")
+    check_arith_result(SREM_NEG_BOTH_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -1657,10 +1620,10 @@ SEXT_I1_FALSE_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_sext_i1_false():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_sext_i1_false(sim_type):
     """sext of false (i1 0) must be 0."""
-    check_arith_result(SEXT_I1_FALSE_QIR, "1")
+    check_arith_result(SEXT_I1_FALSE_QIR, "1", sim_type=sim_type)
 
 
 SEXT_I1_RUNTIME_QIR = """
@@ -1672,10 +1635,10 @@ SEXT_I1_RUNTIME_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_sext_i1_runtime():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_sext_i1_runtime(sim_type):
     """sext of a runtime i1 true value must also sign-extend to -1."""
-    check_arith_result(SEXT_I1_RUNTIME_QIR, "1")
+    check_arith_result(SEXT_I1_RUNTIME_QIR, "1", sim_type=sim_type)
 
 
 # =========================================================================
@@ -1699,10 +1662,15 @@ entry:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_call_inttoptr_arg():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_call_inttoptr_arg(sim_type):
     """Call a helper with an inttoptr constant expression argument."""
-    check_result(CALL_INTTOPTR_ARG_QIR, "1", extra_decls=CALL_INTTOPTR_ARG_QIR_FN)
+    check_result(
+        CALL_INTTOPTR_ARG_QIR,
+        "1",
+        extra_decls=CALL_INTTOPTR_ARG_QIR_FN,
+        sim_type=sim_type,
+    )
 
 
 # =========================================================================
@@ -1718,40 +1686,10 @@ SITOFP_NEG_QIR = """
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_sitofp_negative():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_sitofp_negative(sim_type):
     """sitofp must correctly convert a negative integer."""
-    check_arith_result(SITOFP_NEG_QIR, "1")
-
-
-# =========================================================================
-# Call stack overflow guard
-# =========================================================================
-
-RECURSIVE_OVERFLOW_BODY = """
-entry:
-  call void @recursive_fn(%Qubit* inttoptr (i64 0 to %Qubit*))
-  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-"""
-
-RECURSIVE_OVERFLOW_FN = """
-define void @recursive_fn(%Qubit* %q) {
-entry:
-  call void @recursive_fn(%Qubit* %q)
-  ret void
-}
-"""
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_call_stack_overflow_guard():
-    """Verify GPU interpreter handles call stack overflow gracefully."""
-    qir = format_qir(RECURSIVE_OVERFLOW_BODY, extra_decls=RECURSIVE_OVERFLOW_FN)
-    codes = _run(qir, shots=10)["shot_result_codes"]
-    # Every shot should return error code 3 (ERR_CALL_STACK_OVERFLOW)
-    assert all(
-        c == 3 for c in codes
-    ), f"Expected all error codes to be 3 (stack overflow), got {codes}"
+    check_arith_result(SITOFP_NEG_QIR, "1", sim_type=sim_type)
 
 
 # #########################################################################
@@ -1759,16 +1697,20 @@ def test_call_stack_overflow_guard():
 # #########################################################################
 
 
-def _run_openqasm(qasm_src: str, shots: int = SHOTS, seed: int = 42):
-    """Compile OpenQASM source via the adaptive pass and run on the GPU."""
-    global sim
+def _run_openqasm(
+    qasm_src: str,
+    shots: int = SHOTS,
+    seed: int = 42,
+    sim_type: Literal["clifford", "cpu"] = "cpu",
+):
+    """Compile OpenQASM source via the adaptive pass and run on the given simulator."""
     qir = qsharp.openqasm.compile(
         qasm_src,
         output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
         target_profile=qsharp.TargetProfile.Adaptive_RIF,
     )
-    sim.set_program(qir)
-    return sim.run_shots(shots, seed=seed)
+    results = run_qir(qir, shots, seed=seed, type=sim_type)
+    return [map_result_list_to_str(r) for r in results]
 
 
 # =========================================================================
@@ -1776,8 +1718,8 @@ def _run_openqasm(qasm_src: str, shots: int = SHOTS, seed: int = 42):
 # =========================================================================
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_complex_rus_exceeds_128_registers():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_complex_rus_exceeds_128_registers(sim_type):
     """A complex repeat-until-success pattern with 50 iterations.
 
     The Q# compiler fully unrolls the loop for the Adaptive_RIF profile,
@@ -1812,13 +1754,7 @@ while (i < 50) {
 }
 bit[4] result = measure q;
 """
-    results = _run_openqasm(qasm_src, shots=100)
-    shot_results = [map_result_list_to_str(r) for r in results["shot_results"]]
-    # Results include the mid-circuit measurement bit plus 4 final qubits
+    results = _run_openqasm(qasm_src, shots=100, sim_type=sim_type)
     assert all(
-        len(r) >= 4 and all(c in "01" for c in r) for r in shot_results
-    ), f"Unexpected result format: {shot_results[:5]}"
-    # All shots should succeed (result code 0)
-    assert all(
-        c == 0 for c in results["shot_result_codes"]
-    ), f"Some shots failed: {results['shot_result_codes']}"
+        len(r) >= 4 and all(c in "01" for c in r) for r in results
+    ), f"Unexpected result format: {results[:5]}"

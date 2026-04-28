@@ -155,3 +155,38 @@ def test_device_simulate_with_loss() -> None:
 
     assert result == [[qsharp.Result.Loss, qsharp.Result.Loss]]
     assert result2 == [[qsharp.Result.Loss, qsharp.Result.Loss]]
+
+
+def test_s_noise_inherits_from_rz():
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval("operation Main() : Result { use q = Qubit(); S(q); MResetZ(q) }")
+    ir = qsharp.compile("Main()")
+    noise = NoiseConfig()
+    noise.rz.x = 1.0
+    device = NeutralAtomDevice()
+    output = device.simulate(ir, 1, noise)
+    assert output == [qsharp.Result.One]
+
+
+def test_z_noise_inherits_from_rz():
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval("operation Main() : Result { use q = Qubit(); Z(q); MResetZ(q) }")
+    ir = qsharp.compile("Main()")
+    noise = NoiseConfig()
+    noise.rz.x = 1.0
+    device = NeutralAtomDevice()
+    output = device.simulate(ir, 1, noise)
+    assert output == [qsharp.Result.One]
+
+
+def test_s_adj_noise_inherits_from_rz():
+    qsharp.init(target_profile=qsharp.TargetProfile.Base)
+    qsharp.eval(
+        "operation Main() : Result { use q = Qubit(); Adjoint S(q); MResetZ(q) }"
+    )
+    ir = qsharp.compile("Main()")
+    noise = NoiseConfig()
+    noise.rz.x = 1.0
+    device = NeutralAtomDevice()
+    output = device.simulate(ir, 1, noise)
+    assert output == [qsharp.Result.One]

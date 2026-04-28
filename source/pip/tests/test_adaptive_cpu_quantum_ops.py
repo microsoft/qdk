@@ -1,40 +1,28 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""End-to-end tests for the adaptive GPU bytecode interpreter pipeline.
+"""End-to-end tests for the adaptive CPU bytecode interpreter pipeline.
 
 Tests run Adaptive Profile QIR through the full pipeline:
-Python AdaptiveProfilePass → Rust receiver → GPU interpreter → results.
+Python AdaptiveProfilePass → Rust receiver → CPU interpreter → results.
 
-Requires QDK_GPU_TESTS env var and a GPU adapter.
+This is a CPU counterpart to ``test_adaptive_gpu_quantum_ops.py``.
 
 For smaller tests covering the full Adaptive Profile instruction set,
-see `test_adaptive_gpu_bytecode.py`.
+see ``test_adaptive_cpu_bytecode.py``.
 """
 
-import os
-import sys
 from collections import Counter
-
 import pytest
+from qsharp._simulation import run_qir, Result
+from typing import Literal
 
-# Skip all tests in this module if QDK_GPU_TESTS is not set
-if not os.environ.get("QDK_GPU_TESTS"):
-    pytest.skip("Skipping GPU tests (QDK_GPU_TESTS not set)", allow_module_level=True)
+SIM_TYPES = ["cpu", "clifford"]
 
-SKIP_REASON = "GPU is not available"
-GPU_AVAILABLE = False
 
-try:
-    from qsharp._native import try_create_gpu_adapter
-
-    gpu_info = try_create_gpu_adapter()
-    print(f"*** USING GPU: {gpu_info}", file=sys.stderr)
-    GPU_AVAILABLE = True
-except OSError as e:
-    SKIP_REASON = str(e)
-
-from qsharp._simulation import GpuSimulator, Result
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 def map_result_list_to_str(results):
@@ -53,16 +41,15 @@ def map_result_list_to_str(results):
     return s
 
 
-# Acquiring the GPU resources takes time, so we acquire them once and use them
-# for all the tests. This is fine since pytest runs tests sequencially.
-sim = GpuSimulator()
-
-
-def run_shots(qir: str, shots: int = 10_000, seed: int = 42):
-    """Run *qir* on the GPU and return the shot_results list."""
-    global sim
-    sim.set_program(qir)
-    return sim.run_shots(shots, seed=seed)
+def _run(
+    qir: str,
+    shots: int,
+    seed: int = 42,
+    sim_type: Literal["clifford", "cpu"] = "cpu",
+):
+    """Run *qir* on the given simulator and return shot results as a list of strings."""
+    results = run_qir(qir, shots, seed=seed, type=sim_type)
+    return [map_result_list_to_str(r) for r in results]
 
 
 # ---------------------------------------------------------------------------
@@ -70,10 +57,6 @@ def run_shots(qir: str, shots: int = 10_000, seed: int = 42):
 # ---------------------------------------------------------------------------
 
 # Example 1: Measure-and-correct (H → MResetZ → read_result → branch → X)
-# After H and MResetZ, qubit 0 collapses to |0⟩ or |1⟩ with equal probability.
-# If measured 1, X is applied to flip it back to |0⟩.
-# The result register records the measurement outcome before correction.
-# Expected histogram: ~50% "0" and ~50% "1" on result 0.
 MEASURE_AND_CORRECT_QIR = """\
 %Result = type opaque
 %Qubit = type opaque
@@ -106,10 +89,6 @@ attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_
 """
 
 # Example 3: Conditionally terminating loop
-# Repeatedly applies H → Mz → read_result until result is 1.
-# Each iteration has 50% chance of exiting. Loop iteration count
-# follows a geometric distribution with p=0.5.
-# Result register 0 always records 1 (the exit condition).
 CONDITIONAL_LOOP_QIR = """\
 %Result = type opaque
 %Qubit = type opaque
@@ -139,65 +118,7 @@ declare void @__quantum__rt__result_record_output(%Result*, i8*)
 attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
 """
 
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_measure_and_correct_histogram():
-    """Example 1: H → MResetZ → read_result → conditional X.
-
-    Run 10000 shots and verify ~50/50 split of "0" and "1" outcomes.
-    The measurement result records whether H collapsed to |1⟩ (then X corrects).
-    """
-    results = run_shots(MEASURE_AND_CORRECT_QIR)
-    shot_results = results["shot_results"]
-    assert len(shot_results) == 10000
-    assert all(
-        code == 0 for code in results["shot_result_codes"]
-    ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
-
-    counts = Counter(map_result_list_to_str(r) for r in shot_results)
-    # Each shot produces a single-bit result string: "0" or "1"
-    count_0 = counts.get("0", 0)
-    count_1 = counts.get("1", 0)
-
-    # Verify ~50/50 within 10% tolerance (very generous for 10000 shots)
-    assert count_0 > 4000, f"Expected ~5000 '0' results, got {count_0}"
-    assert count_1 > 4000, f"Expected ~5000 '1' results, got {count_1}"
-    assert count_0 + count_1 == 10000, "All shots should produce a result"
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_conditional_loop_all_results_are_one():
-    """Example 3: The loop exits only when measurement yields 1.
-
-    Every shot's recorded result should be "1" since the loop continues
-    until that outcome.
-    """
-    shots = 5000
-    results = run_shots(CONDITIONAL_LOOP_QIR, shots=shots)
-    shot_results = results["shot_results"]
-    assert len(shot_results) == shots
-    assert all(
-        code == 0 for code in results["shot_result_codes"]
-    ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
-
-    counts = Counter(map_result_list_to_str(r) for r in shot_results)
-    # Every shot should exit with result "1"
-    assert (
-        counts.get("1", 0) == shots
-    ), f"Expected all {shots} shots to produce '1', got counts: {counts}"
-
-
 # Example 2: Loop with phi node — GHZ state preparation
-# Applies H to qubit 0, then loops from i=1 to 4,
-# applying CNOT(q0, q_i) in each iteration using a phi node
-# to track the loop counter. After the loop, all 5 qubits
-# are measured. This creates a GHZ-like state (|00000⟩ + |11111⟩)/√2,
-# so all 5 measurements must agree.
 LOOP_WITH_PHI_QIR = """\
 %Result = type opaque
 %Qubit = type opaque
@@ -240,11 +161,6 @@ attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_
 """
 
 # Example 4: Classical boolean computation
-# Applies H to qubits 0 and 1, measures both, then computes
-# the AND of the two results. If both are 1, applies X to qubit 0
-# (which was reset to |0⟩ by MResetZ). Final measurement of qubit 0
-# records whether both original measurements were 1.
-# Expected: ~25% "1" (both measured 1) and ~75% "0".
 BOOLEAN_COMPUTATION_QIR = """\
 %Result = type opaque
 %Qubit = type opaque
@@ -284,80 +200,7 @@ declare void @__quantum__rt__result_record_output(%Result*, i8*)
 attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="3" }
 """
 
-
-# ---------------------------------------------------------------------------
-# Tests — Example 2: Loop with phi (GHZ state)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_loop_with_phi_ghz_histogram():
-    """Example 2: H → loop CNOT(q0, q_i) for i=1..4 → measure all.
-
-    Creates (|00000⟩ + |11111⟩)/√2. All 5 measurements must agree.
-    Run 10000 shots and verify only "00000" and "11111" appear near 50/50.
-    """
-    results = run_shots(LOOP_WITH_PHI_QIR)
-    shot_results = results["shot_results"]
-    assert len(shot_results) == 10000
-    assert all(
-        code == 0 for code in results["shot_result_codes"]
-    ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
-
-    counts = Counter(map_result_list_to_str(r) for r in shot_results)
-    # Only "00000" and "11111" should appear
-    assert set(counts.keys()) <= {
-        "00000",
-        "11111",
-    }, f"Unexpected outcomes in GHZ state: {counts}"
-
-    count_00000 = counts.get("00000", 0)
-    count_11111 = counts.get("11111", 0)
-
-    assert count_00000 > 4000, f"Expected ~5000 '00000' results, got {count_00000}"
-    assert count_11111 > 4000, f"Expected ~5000 '11111' results, got {count_11111}"
-    assert count_00000 + count_11111 == 10000, "All shots should produce a result"
-
-
-# ---------------------------------------------------------------------------
-# Tests — Example 4: Boolean computation (AND gate)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_boolean_computation_histogram():
-    """Example 4: H(q0), H(q1) → MResetZ both → AND results → conditional X.
-
-    r2=1 only when both r0=1 AND r1=1 (~25% of shots).
-    Run 10000 shots and verify ~25% "1" and ~75% "0".
-    """
-    results = run_shots(BOOLEAN_COMPUTATION_QIR)
-    shot_results = results["shot_results"]
-    assert len(shot_results) == 10000
-    assert all(
-        code == 0 for code in results["shot_result_codes"]
-    ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
-
-    counts = Counter(map_result_list_to_str(r) for r in shot_results)
-    count_0 = counts.get("0", 0)
-    count_1 = counts.get("1", 0)
-
-    assert 1500 < count_1 < 3500, f"Expected ~2500 '1' results (~25%), got {count_1}"
-    assert 6500 < count_0 < 8500, f"Expected ~7500 '0' results (~75%), got {count_0}"
-    assert count_0 + count_1 == 10000, "All shots should produce a result"
-
-
-# ---------------------------------------------------------------------------
-# QIR fixture — Example 5: Teleport chain
-# ---------------------------------------------------------------------------
-
 # Example 5: Teleport chain
-# Creates two Bell pairs: (q0,q1) and (q2,q4).
-# Teleports q1's state to q4 via measure-and-correct on the q1-q2 channel,
-# with separate mz and reset operations. After teleportation, q0 and q4
-# are entangled. The final measurements of q0 and q4 (results 4 and 5,
-# labeled "0_t0" and "0_t1") should be correlated: either both "0" or
-# both "1", with ~50/50 distribution.
 TELEPORT_CHAIN_QIR = """\
 %Result = type opaque
 %Qubit = type opaque
@@ -421,28 +264,111 @@ attributes #1 = { "irreversible" }
 
 
 # ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_measure_and_correct_histogram(sim_type):
+    """Example 1: H → MResetZ → read_result → conditional X.
+
+    Run 10000 shots and verify ~50/50 split of "0" and "1" outcomes.
+    """
+    results = _run(MEASURE_AND_CORRECT_QIR, shots=10000, seed=42, sim_type=sim_type)
+    assert len(results) == 10000
+
+    counts = Counter(results)
+    count_0 = counts.get("0", 0)
+    count_1 = counts.get("1", 0)
+
+    assert count_0 > 4000, f"Expected ~5000 '0' results, got {count_0}"
+    assert count_1 > 4000, f"Expected ~5000 '1' results, got {count_1}"
+    assert count_0 + count_1 == 10000, "All shots should produce a result"
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_conditional_loop_all_results_are_one(sim_type):
+    """Example 3: The loop exits only when measurement yields 1.
+
+    Every shot's recorded result should be "1".
+    """
+    shots = 5000
+    results = _run(CONDITIONAL_LOOP_QIR, shots=shots, seed=99, sim_type=sim_type)
+    assert len(results) == shots
+
+    counts = Counter(results)
+    assert (
+        counts.get("1", 0) == shots
+    ), f"Expected all {shots} shots to produce '1', got counts: {counts}"
+
+
+# ---------------------------------------------------------------------------
+# Tests — Example 2: Loop with phi (GHZ state)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_loop_with_phi_ghz_histogram(sim_type):
+    """Example 2: H → loop CNOT(q0, q_i) for i=1..4 → measure all.
+
+    Creates (|00000⟩ + |11111⟩)/√2. All 5 measurements must agree.
+    """
+    results = _run(LOOP_WITH_PHI_QIR, shots=10000, seed=42, sim_type=sim_type)
+    assert len(results) == 10000
+
+    counts = Counter(results)
+    assert set(counts.keys()) <= {
+        "00000",
+        "11111",
+    }, f"Unexpected outcomes in GHZ state: {counts}"
+
+    count_00000 = counts.get("00000", 0)
+    count_11111 = counts.get("11111", 0)
+
+    assert count_00000 > 4000, f"Expected ~5000 '00000' results, got {count_00000}"
+    assert count_11111 > 4000, f"Expected ~5000 '11111' results, got {count_11111}"
+    assert count_00000 + count_11111 == 10000, "All shots should produce a result"
+
+
+# ---------------------------------------------------------------------------
+# Tests — Example 4: Boolean computation (AND gate)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_boolean_computation_histogram(sim_type):
+    """Example 4: H(q0), H(q1) → MResetZ both → AND results → conditional X.
+
+    r2=1 only when both r0=1 AND r1=1 (~25% of shots).
+    """
+    results = _run(BOOLEAN_COMPUTATION_QIR, shots=10000, seed=42, sim_type=sim_type)
+    assert len(results) == 10000
+
+    counts = Counter(results)
+    count_0 = counts.get("0", 0)
+    count_1 = counts.get("1", 0)
+
+    assert 1500 < count_1 < 3500, f"Expected ~2500 '1' results (~25%), got {count_1}"
+    assert 6500 < count_0 < 8500, f"Expected ~7500 '0' results (~75%), got {count_0}"
+    assert count_0 + count_1 == 10000, "All shots should produce a result"
+
+
+# ---------------------------------------------------------------------------
 # Tests — Example 5: Teleport chain
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_teleport_chain_histogram():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_teleport_chain_histogram(sim_type):
     """Example 5: Teleport chain with 2 Bell pairs and measure-and-correct.
 
-    Creates Bell pairs (q0,q1) and (q2,q4), then teleports q1's state to q4
-    via the q1→q2 channel. After teleportation, q0 and q4 are entangled.
-    Final measurements of q0 and q4 (results 2 and 3, labeled "0_t0" and
-    "0_t1") should be correlated: both "0" or both "1", near 50/50.
+    Final measurements of q0 and q4 should be correlated:
+    both "0" or both "1", near 50/50.
     """
-    results = run_shots(TELEPORT_CHAIN_QIR)
-    shot_results = results["shot_results"]
-    assert len(shot_results) == 10000
-    assert all(
-        code == 0 for code in results["shot_result_codes"]
-    ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
+    results = _run(TELEPORT_CHAIN_QIR, shots=10000, seed=42, sim_type=sim_type)
+    assert len(results) == 10000
 
-    counts = Counter(map_result_list_to_str(r) for r in shot_results)
-    # Only "00" and "11" should appear (results 4 and 5 are correlated)
+    counts = Counter(results)
     assert set(counts.keys()) <= {
         "00",
         "11",
@@ -503,16 +429,11 @@ attributes #1 = { "irreversible" }
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_dynamic_rotation_angle():
-    results = run_shots(DYNAMIC_ROTATION_ANGLE_QIR)
-    shot_results = results["shot_results"]
-    assert len(shot_results) == 10_000
-    assert all(
-        code == 0 for code in results["shot_result_codes"]
-    ), f"Some shots had non-zero error codes: {[c for c in results['shot_result_codes'] if c != 0]}"
+    results = _run(DYNAMIC_ROTATION_ANGLE_QIR, shots=10_000, seed=42, sim_type="cpu")
+    assert len(results) == 10_000
 
-    counts = Counter(map_result_list_to_str(r) for r in shot_results)
+    counts = Counter(results)
     count_0 = counts.get("0", 0)
     count_1 = counts.get("1", 0)
 

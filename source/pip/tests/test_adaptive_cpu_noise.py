@@ -1,50 +1,29 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Per-opcode tests for the adaptive GPU bytecode interpreter.
+"""Noise tests for the adaptive CPU bytecode interpreter.
 
-Each test targets one (or a small family of) bytecode instruction(s) by
-supplying hand-written Adaptive Profile QIR that exercises the instruction
-and encodes the expected result into a measurement outcome.
+Each test targets noise injection by supplying hand-written Adaptive Profile
+QIR that exercises noise channels and encodes the expected result into a
+measurement outcome.
 
-Tests are ordered to match the opcode definitions in ``_adaptive_opcodes.py``
-so that coverage can be verified by reading both files side by side.
-
-Requires QDK_GPU_TESTS env var and a GPU adapter.
+This is a CPU counterpart to ``test_adaptive_gpu_noise.py``.
 """
 
-import os
-import sys
 from collections import Counter
-import pytest
 from typing import Optional, List
+import pytest
+from qsharp._simulation import run_qir, NoiseConfig, Result
 import qsharp.openqasm
+from typing import Literal
 
-# Skip the whole module when GPU tests aren't requested.
-if not os.environ.get("QDK_GPU_TESTS"):
-    pytest.skip("Skipping GPU tests (QDK_GPU_TESTS not set)", allow_module_level=True)
-
-SKIP_REASON = "GPU is not available"
-GPU_AVAILABLE = False
-
-try:
-    from qsharp._native import try_create_gpu_adapter
-
-    gpu_info = try_create_gpu_adapter()
-    print(f"*** USING GPU: {gpu_info}", file=sys.stderr)
-    GPU_AVAILABLE = True
-except OSError as e:
-    SKIP_REASON = str(e)
-
-from qsharp._simulation import run_qir, GpuSimulator, NoiseConfig, Result
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-# Deterministic programs need a single shot but we run multiple shots
-# to verify that multiple shots yield the same result.
 SHOTS = 100
+SIM_TYPES = ["cpu", "clifford"]
 
 
 def map_result_list_to_str(results: List[Result]):
@@ -69,6 +48,7 @@ def get_histogram(
     noise: Optional[NoiseConfig] = None,
     record: Optional[List[int]] = None,
     shots=SHOTS,
+    sim_type: Literal["clifford", "cpu"] = "cpu",
 ):
     qir = format_qir(
         qir_fragment,
@@ -78,7 +58,7 @@ def get_histogram(
         record=record,
     )
     results = map(
-        map_result_list_to_str, run_qir(qir, shots, noise, seed=42, type="gpu")
+        map_result_list_to_str, run_qir(qir, shots, noise, seed=42, type=sim_type)
     )
     return Counter(results)
 
@@ -92,6 +72,7 @@ def check_result(
     num_results: int = 1,
     noise: Optional[NoiseConfig] = None,
     record: Optional[List[int]] = None,
+    sim_type: Literal["clifford", "cpu"] = "cpu",
 ):
     """Assert every shot produces *expected*."""
     counts = get_histogram(
@@ -101,6 +82,7 @@ def check_result(
         num_results=num_results,
         noise=noise,
         record=record,
+        sim_type=sim_type,
     )
 
     assert counts == {
@@ -177,58 +159,60 @@ entry:
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_no_noise_on_i_yields_0():
-    check_result(I_QIR, "0", num_qubits=2)
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_no_noise_on_i_yields_0(sim_type):
+    check_result(I_QIR, "0", num_qubits=2, sim_type=sim_type)
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_x_noise_on_i_yields_1():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_x_noise_on_i_yields_1(sim_type):
     noise = NoiseConfig()
     noise.cx.ix = 1.0
-    check_result(I_QIR, "1", num_qubits=2, noise=noise)
+    check_result(I_QIR, "1", num_qubits=2, noise=noise, sim_type=sim_type)
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_y_noise_on_i_yields_1():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_y_noise_on_i_yields_1(sim_type):
     noise = NoiseConfig()
     noise.cx.iy = 1.0
-    check_result(I_QIR, "1", num_qubits=2, noise=noise)
+    check_result(I_QIR, "1", num_qubits=2, noise=noise, sim_type=sim_type)
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_z_noise_on_i_yields_0():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_z_noise_on_i_yields_0(sim_type):
     noise = NoiseConfig()
     noise.cx.iz = 1.0
-    check_result(I_QIR, "0", num_qubits=2, noise=noise)
+    check_result(I_QIR, "0", num_qubits=2, noise=noise, sim_type=sim_type)
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_x_noise_on_h_i_h_yields_0():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_x_noise_on_h_i_h_yields_0(sim_type):
     noise = NoiseConfig()
     noise.cx.ix = 1.0
-    check_result(H_I_H_QIR, "0", num_qubits=2, noise=noise)
+    check_result(H_I_H_QIR, "0", num_qubits=2, noise=noise, sim_type=sim_type)
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_y_noise_on_h_i_h_yields_1():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_y_noise_on_h_i_h_yields_1(sim_type):
     noise = NoiseConfig()
     noise.cx.iy = 1.0
-    check_result(H_I_H_QIR, "1", num_qubits=2, noise=noise)
+    check_result(H_I_H_QIR, "1", num_qubits=2, noise=noise, sim_type=sim_type)
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_z_noise_on_h_i_h_yields_1():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_z_noise_on_h_i_h_yields_1(sim_type):
     noise = NoiseConfig()
     noise.cx.iz = 1.0
-    check_result(H_I_H_QIR, "1", num_qubits=2, noise=noise)
+    check_result(H_I_H_QIR, "1", num_qubits=2, noise=noise, sim_type=sim_type)
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_probabilistic_x_noise():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_probabilistic_x_noise(sim_type):
     noise = NoiseConfig()
     noise.cx.ix = 0.5
-    counts = get_histogram(I_QIR, shots=1000, num_qubits=2, noise=noise)
+    counts = get_histogram(
+        I_QIR, shots=1000, num_qubits=2, noise=noise, sim_type=sim_type
+    )
 
     assert counts["0"] > 400, f"Expected ~500 '0' results, got {counts['0']}"
     assert counts["1"] > 400, f"Expected ~500 '1' results, got {counts['1']}"
@@ -254,35 +238,26 @@ QIR_WITH_CORRELATED_NOISE = qsharp.openqasm.compile(
 )
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_noise_intrinsics_noiseless():
-    output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=None, type="gpu")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_noise_intrinsics_noiseless(sim_type):
+    output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=None, type=sim_type)
     assert output == [[Result.Zero, Result.One, Result.Zero]]
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_noise_intrinsics_noisy():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_noise_intrinsics_noisy(sim_type):
     noise = NoiseConfig()
     table = noise.intrinsic("test_noise_intrinsic", 3)
     table.yyy = 1.0
-    output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type="gpu")
+    output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type=sim_type)
     assert output == [[Result.One, Result.Zero, Result.One]]
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_noise_intrinsics_load_csv_dir():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_noise_intrinsics_load_csv_dir(sim_type):
     noise = NoiseConfig()
     noise.load_csv_dir("./csv_dir_test")
-    output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type="gpu")
-    assert output == [[Result.One, Result.Zero, Result.One]]
-
-
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_noise_intrinsics_gpu_sim_class():
-    sim = GpuSimulator()
-    sim.load_noise_tables("./csv_dir_test")
-    sim.set_program(QIR_WITH_CORRELATED_NOISE)
-    output = sim.run_shots(shots=1)["shot_results"]
+    output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type=sim_type)
     assert output == [[Result.One, Result.Zero, Result.One]]
 
 
@@ -335,13 +310,13 @@ attributes #2 = { "qdk_noise" }
 """
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_noise_intrinsics_with_registers_noisy():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_noise_intrinsics_with_registers_noisy(sim_type):
     noise = NoiseConfig()
     table = noise.intrinsic("test_noise_intrinsic", 3)
     table.yyy = 1.0
     output = run_qir(
-        NOISE_INTRINSICS_WITH_REGISTERS_QIR, shots=1, noise=noise, type="gpu"
+        NOISE_INTRINSICS_WITH_REGISTERS_QIR, shots=1, noise=noise, type=sim_type
     )
     assert output == [[Result.One, Result.Zero, Result.One]]
 
@@ -367,12 +342,12 @@ QIR_NOISE_1Q = qsharp.openqasm.compile(
 )
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_noise_intrinsic_1q_x_flip():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_noise_intrinsic_1q_x_flip(sim_type):
     noise = NoiseConfig()
     table = noise.intrinsic("noise_1q", 1)
     table.x = 1.0
-    output = run_qir(QIR_NOISE_1Q, shots=1, noise=noise, type="gpu")
+    output = run_qir(QIR_NOISE_1Q, shots=1, noise=noise, type=sim_type)
     assert output == [Result.One]
 
 
@@ -396,13 +371,13 @@ QIR_NOISE_2Q = qsharp.openqasm.compile(
 )
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_noise_intrinsic_2q_xx_flip():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_noise_intrinsic_2q_xx_flip(sim_type):
     noise = NoiseConfig()
     table = noise.intrinsic("noise_2q", 2)
     table.xx = 1.0
     # qs[0] was |1>, qs[1] was |0> -> XX flips both -> qs[0]=|0>, qs[1]=|1>
-    output = run_qir(QIR_NOISE_2Q, shots=1, noise=noise, type="gpu")
+    output = run_qir(QIR_NOISE_2Q, shots=1, noise=noise, type=sim_type)
     assert output == [[Result.Zero, Result.One]]
 
 
@@ -427,11 +402,11 @@ QIR_NOISE_5Q = qsharp.openqasm.compile(
 )
 
 
-@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
-def test_noise_intrinsic_5q_xxxxx_flip():
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_noise_intrinsic_5q_xxxxx_flip(sim_type):
     noise = NoiseConfig()
     table = noise.intrinsic("noise_5q", 5)
     table.xxxxx = 1.0
     # Initial: |01010> -> XXXXX flips all -> |10101>
-    output = run_qir(QIR_NOISE_5Q, shots=1, noise=noise, type="gpu")
+    output = run_qir(QIR_NOISE_5Q, shots=1, noise=noise, type=sim_type)
     assert output == [[Result.One, Result.Zero, Result.One, Result.Zero, Result.One]]
