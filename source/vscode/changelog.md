@@ -1,5 +1,19 @@
 # QDK Changelog
 
+## v1.28.0
+
+Below are some of the highlights for the 1.28 release of the QDK.
+
+### Feature
+
+TODO
+
+## Other notable changes
+
+TODO
+
+**Full Changelog**: <https://github.com/microsoft/qdk/compare/v1.27.0...v1.28.0>
+
 ## v1.27.0
 
 Below are some of the highlights for the 1.27 release of the QDK.
