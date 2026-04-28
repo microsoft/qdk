@@ -206,11 +206,7 @@ export function copyKatasPanelAssets() {
   console.log("Copying katasPanel assets to: " + outDir);
   mkdirSync(outDir, { recursive: true });
   for (const file of readdirSync(srcDir)) {
-    if (
-      file.endsWith(".css") ||
-      file.endsWith(".html") ||
-      file.endsWith(".js")
-    ) {
+    if (file.endsWith(".css") || file.endsWith(".js")) {
       copyFileSync(join(srcDir, file), join(outDir, file));
     }
   }
