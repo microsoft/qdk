@@ -661,19 +661,10 @@ class AdaptiveProfilePass:
         callee = call.callee.name
 
         match callee:
-            case (
-                "__quantum__rt__initialize"
-                | "__quantum__rt__begin_parallel"
-                | "__quantum__rt__end_parallel"
-                | "__quantum__qis__barrier__body"
-            ):
-                pass  # No-op
             case "__quantum__qis__read_result__body" | "__quantum__rt__read_result":
                 dst = self._alloc_reg(call, REG_TYPE_BOOL)
                 result_reg = self._resolve_result_operand(call.args[0])
                 self._emit(OP_READ_RESULT, dst=dst, src0=result_reg)
-            case _ if callee.startswith("__quantum__qis__"):
-                self._emit_quantum_call(call)
             case "__quantum__rt__result_record_output":
                 result_reg = self._resolve_result_operand(call.args[0])
                 label_str = self._extract_label(call.args[1])
@@ -722,6 +713,13 @@ class AdaptiveProfilePass:
                 self._emit(
                     OP_RECORD_OUTPUT, src0=src, aux0=label_idx, aux1=4
                 )  # aux1=4 -> int
+            case (
+                "__quantum__rt__initialize"
+                | "__quantum__rt__begin_parallel"
+                | "__quantum__rt__end_parallel"
+                | "__quantum__qis__barrier__body"
+            ):
+                pass  # No-op
             case "__quantum__rt__read_loss":
                 # Allocate a bool register and emit OP_READ_LOSS so the runtime
                 # can ask the simulator whether the given result was produced
@@ -729,6 +727,8 @@ class AdaptiveProfilePass:
                 dst = self._alloc_reg(call, REG_TYPE_BOOL)
                 result_reg = self._resolve_result_operand(call.args[0])
                 self._emit(OP_READ_LOSS, dst=dst, src0=result_reg)
+            case _ if callee.startswith("__quantum__qis__"):
+                self._emit_quantum_call(call)
             case _ if callee in self._func_to_id:
                 self._emit_ir_function_call(call)
             case _ if "qdk_noise" in call.callee.attributes.func:
