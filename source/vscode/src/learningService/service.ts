@@ -347,27 +347,62 @@ export class LearningService {
 
     switch (pos.item.type) {
       case "lesson-text": {
-        return [primaryGroup, [{ key: "b", label: "Back", action: "back" }]];
+        const aiGroup: ActionGroup = [
+          {
+            key: "e",
+            label: "Explain",
+            action: "explain-chat",
+            codicon: "sparkle",
+          },
+        ];
+        return [
+          primaryGroup,
+          aiGroup,
+          [{ key: "b", label: "Back", action: "back" }],
+        ];
       }
       case "lesson-example": {
         const codeTools: ActionGroup = [
           { key: "r", label: "Run", action: "run" },
           { key: "c", label: "Circuit", action: "circuit" },
         ];
-        return [primaryGroup, codeTools, navGroup];
+        const aiGroup: ActionGroup = [
+          {
+            key: "e",
+            label: "Explain",
+            action: "explain-chat",
+            codicon: "sparkle",
+          },
+        ];
+        return [primaryGroup, codeTools, aiGroup, navGroup];
       }
       case "lesson-question": {
-        return [primaryGroup, navGroup];
+        const aiGroup: ActionGroup = [
+          {
+            key: "d",
+            label: "Discuss",
+            action: "discuss-chat",
+            codicon: "sparkle",
+          },
+        ];
+        return [primaryGroup, aiGroup, navGroup];
       }
       case "exercise": {
         const codeTools: ActionGroup = [
           { key: "r", label: "Run", action: "run" },
           { key: "c", label: "Circuit", action: "circuit" },
         ];
-        const helpGroup: ActionGroup = [
-          { key: "h", label: "Hint", action: "hint-chat", codicon: "sparkle" },
-          { key: "s", label: "Solution", action: "solution" },
-        ];
+        const helpGroup: ActionGroup = pos.item.isComplete
+          ? [{ key: "s", label: "Solution", action: "solution" }]
+          : [
+              {
+                key: "h",
+                label: "Hint",
+                action: "hint-chat",
+                codicon: "sparkle",
+              },
+              { key: "s", label: "Solution", action: "solution" },
+            ];
         return [primaryGroup, codeTools, helpGroup, navGroup];
       }
     }

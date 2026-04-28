@@ -88,6 +88,9 @@
     if (result.error) {
       html += `<div class="fail">${escapeHtml(result.error)}</div>`;
     }
+    if (!result.passed) {
+      html += `<a class="chat-link" data-chat="Help me understand why my solution failed"><span class="codicon codicon-sparkle"></span> What went wrong?</a>`;
+    }
     return html;
   }
 

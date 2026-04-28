@@ -73,6 +73,8 @@ export type Action =
   | "circuit"
   | "check"
   | "hint-chat"
+  | "explain-chat"
+  | "discuss-chat"
   | "solution"
   | "reveal-answer"
   | "progress"

@@ -391,6 +391,20 @@ math[display="block"] {
   background: var(--accent);
 }
 
+/* Chat entry-point links (inline in output area) */
+.chat-link {
+  display: inline-block;
+  margin-top: 0.45rem;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+}
+.chat-link:hover {
+  text-decoration: underline;
+  color: var(--accent-hover);
+}
+
 .loading {
   color: var(--muted);
   font-style: italic;

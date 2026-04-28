@@ -650,6 +650,16 @@ export class KatasPanelManager {
             return;
           }
 
+          if (action === "explain-chat") {
+            vscodeApi.postMessage({ command: "openChat", text: "Explain this concept in more detail" });
+            return;
+          }
+
+          if (action === "discuss-chat") {
+            vscodeApi.postMessage({ command: "openChat", text: "Help me think through this question without revealing the answer" });
+            return;
+          }
+
           setBusy(true);
 
           var slow = ["run", "circuit", "check"].indexOf(action) >= 0;
@@ -690,13 +700,16 @@ export class KatasPanelManager {
                   break;
 
                 case "reveal-answer":
-                  showOutput("<div>" + result + "</div>");
+                  showOutput(
+                    "<div>" + result +
+                    '</div><a class="chat-link" data-chat="Explain why this is the answer"><span class="codicon codicon-sparkle"></span> Explain this answer</a>',
+                  );
                   break;
                 case "solution":
                   showOutput(
                     '<div style="margin-bottom:0.3rem"><strong>Reference Solution</strong></div><pre>' +
                       R.escapeHtml(result) +
-                      "</pre>",
+                      '</pre><a class="chat-link" data-chat="Explain this solution step by step"><span class="codicon codicon-sparkle"></span> Explain this solution</a>',
                   );
                   break;
                 case "run":
@@ -718,6 +731,14 @@ export class KatasPanelManager {
               setBusy(false);
               break;
           }
+        });
+
+        // Chat-link clicks (data-chat) → open chat via extension host.
+        document.addEventListener("click", function(e) {
+          var link = e.target.closest("[data-chat]");
+          if (!link) return;
+          e.preventDefault();
+          vscodeApi.postMessage({ command: "openChat", text: link.dataset.chat });
         });
 
         // File-path link clicks → open via extension host.
