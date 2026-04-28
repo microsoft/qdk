@@ -815,18 +815,20 @@ impl Lowerer {
             // // All other expressions should be added to the execution graph.
             // _ => self.exec_graph.push(ExecGraphNode::Expr(id)),
             fir::ExprKind::Array(a) => {
-                self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::Array { len: a.len() }));
+                self.exec_graph.push(ExecGraphNode::Expr(
+                    fir::ExecExpr::Array { len: a.len() },
+                    expr.span,
+                ));
             }
             fir::ExprKind::ArrayRepeat(..) => {
                 self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::ArrayRepeat {
-                        span: expr.span,
-                    }));
+                    .push(ExecGraphNode::Expr(fir::ExecExpr::ArrayRepeat, expr.span));
             }
             fir::ExprKind::Assign(lhs, _) => {
-                self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::Assign { binding: *lhs }));
+                self.exec_graph.push(ExecGraphNode::Expr(
+                    fir::ExecExpr::Assign { binding: *lhs },
+                    expr.span,
+                ));
                 self.exec_graph.push(ExecGraphNode::Unit);
             }
             fir::ExprKind::AssignOp(op, lhs, rhs) => {
@@ -835,12 +837,14 @@ impl Lowerer {
                     .get(*rhs)
                     .expect("should have lowered rhs expr")
                     .span;
-                self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::AssignOp {
+                self.exec_graph.push(ExecGraphNode::Expr(
+                    fir::ExecExpr::AssignOp {
                         op: *op,
                         binding: *lhs,
-                        span: rhs_span,
-                    }));
+                        rhs_span,
+                    },
+                    expr.span,
+                ));
                 self.exec_graph.push(ExecGraphNode::Unit);
             }
             fir::ExprKind::AssignIndex(lhs, mid, _) => {
@@ -849,11 +853,13 @@ impl Lowerer {
                     .get(*mid)
                     .expect("should have lowered mid expr")
                     .span;
-                self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::AssignIndex {
+                self.exec_graph.push(ExecGraphNode::Expr(
+                    fir::ExecExpr::AssignIndex {
                         binding: *lhs,
-                        span: mid_span,
-                    }));
+                        index_span: mid_span,
+                    },
+                    expr.span,
+                ));
                 self.exec_graph.push(ExecGraphNode::Unit);
             }
             fir::ExprKind::BinOp(op, _, rhs) => {
@@ -862,11 +868,10 @@ impl Lowerer {
                     .get(*rhs)
                     .expect("should have lowered rhs expr")
                     .span;
-                self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::BinOp {
-                        op: *op,
-                        span: rhs_span,
-                    }));
+                self.exec_graph.push(ExecGraphNode::Expr(
+                    fir::ExecExpr::BinOp { op: *op, rhs_span },
+                    expr.span,
+                ));
             }
             fir::ExprKind::Call(callee, args) => {
                 let callee_span = self
@@ -879,15 +884,17 @@ impl Lowerer {
                     .get(*args)
                     .expect("should have lowered arg expr")
                     .span;
-                self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::Call {
+                self.exec_graph.push(ExecGraphNode::Expr(
+                    fir::ExecExpr::Call {
                         callee_span,
                         args_span,
-                    }));
+                    },
+                    expr.span,
+                ));
             }
             fir::ExprKind::Fail(..) => {
                 self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::Fail { span: expr.span }));
+                    .push(ExecGraphNode::Expr(fir::ExecExpr::Fail, expr.span));
             }
             fir::ExprKind::Index(_, rhs) => {
                 let rhs_span = self
@@ -895,16 +902,20 @@ impl Lowerer {
                     .get(*rhs)
                     .expect("should have lowered index expr")
                     .span;
-                self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::Index { span: rhs_span }));
+                self.exec_graph.push(ExecGraphNode::Expr(
+                    fir::ExecExpr::Index { rhs_span },
+                    expr.span,
+                ));
             }
             fir::ExprKind::Range(start, step, end) => {
-                self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::Range {
+                self.exec_graph.push(ExecGraphNode::Expr(
+                    fir::ExecExpr::Range {
                         has_start: start.is_some(),
                         has_step: step.is_some(),
                         has_end: end.is_some(),
-                    }));
+                    },
+                    expr.span,
+                ));
             }
             fir::ExprKind::UpdateIndex(_, mid, _) => {
                 let mid_span = self
@@ -912,35 +923,40 @@ impl Lowerer {
                     .get(*mid)
                     .expect("should have lowered mid expr")
                     .span;
-                self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::UpdateIndex {
-                        span: mid_span,
-                    }));
+                self.exec_graph.push(ExecGraphNode::Expr(
+                    fir::ExecExpr::UpdateIndex {
+                        index_span: mid_span,
+                    },
+                    expr.span,
+                ));
             }
             fir::ExprKind::Tuple(tup) => {
-                self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::Tuple { len: tup.len() }));
+                self.exec_graph.push(ExecGraphNode::Expr(
+                    fir::ExecExpr::Tuple { len: tup.len() },
+                    expr.span,
+                ));
             }
             fir::ExprKind::UnOp(op, _) => {
-                self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::UnOp { op: *op }));
+                self.exec_graph.push(ExecGraphNode::Expr(
+                    fir::ExecExpr::UnOp { op: *op },
+                    expr.span,
+                ));
             }
             fir::ExprKind::Var(res, _) => {
-                self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::Var {
-                        res: *res,
-                        span: expr.span,
-                    }));
+                self.exec_graph.push(ExecGraphNode::Expr(
+                    fir::ExecExpr::Var { res: *res },
+                    expr.span,
+                ));
             }
 
             fir::ExprKind::AssignField(..) => {
                 self.exec_graph
-                    .push(ExecGraphNode::Expr(fir::ExecExpr::Expr(id)));
+                    .push(ExecGraphNode::Expr(fir::ExecExpr::Expr(id), expr.span));
                 self.exec_graph.push(ExecGraphNode::Unit);
             }
             _ => self
                 .exec_graph
-                .push(ExecGraphNode::Expr(fir::ExecExpr::Expr(id))),
+                .push(ExecGraphNode::Expr(fir::ExecExpr::Expr(id), expr.span)),
         }
 
         let expr = fir::Expr {
