@@ -668,8 +668,6 @@ class AdaptiveProfilePass:
                 dst = self._alloc_reg(call, REG_TYPE_BOOL)
                 result_reg = self._resolve_result_operand(call.args[0])
                 self._emit(OP_READ_RESULT, dst=dst, src0=result_reg)
-            case _ if callee.startswith("__quantum__qis__"):
-                self._emit_quantum_call(call)
             case "__quantum__rt__result_record_output":
                 result_reg = self._resolve_result_operand(call.args[0])
                 label_str = self._extract_label(call.args[1])
@@ -732,6 +730,8 @@ class AdaptiveProfilePass:
                 dst = self._alloc_reg(call, REG_TYPE_BOOL)
                 result_reg = self._resolve_result_operand(call.args[0])
                 self._emit(OP_READ_LOSS, dst=dst, src0=result_reg)
+            case _ if callee.startswith("__quantum__qis__"):
+                self._emit_quantum_call(call)
             case _ if callee in self._func_to_id:
                 self._emit_ir_function_call(call)
             case _ if "qdk_noise" in call.callee.attributes.func:
