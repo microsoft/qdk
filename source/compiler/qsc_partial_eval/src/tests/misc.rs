@@ -875,7 +875,9 @@ fn measurement_in_loop_of_variable_qubit_supported() {
         Profile::AdaptiveRIFLA.into(),
     );
 
-    assert_blocks(&program, &expect![[r#"
+    assert_blocks(
+        &program,
+        &expect![[r#"
         Blocks:
         Block 0:Block:
             Call id(1), args( Pointer, )
@@ -905,7 +907,8 @@ fn measurement_in_loop_of_variable_qubit_supported() {
             Jump(1)
         Block 5:Block:
             Variable(1, Boolean) = Store Bool(true)
-            Jump(4)"#]]);
+            Jump(4)"#]],
+    );
 }
 
 #[test]
@@ -932,7 +935,9 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
         Profile::AdaptiveRIFLA.into(),
     );
 
-    assert_blocks(&program, &expect![[r#"
+    assert_blocks(
+        &program,
+        &expect![[r#"
         Blocks:
         Block 0:Block:
             Call id(1), args( Pointer, )
@@ -971,5 +976,6 @@ fn custom_two_qubit_measurement_in_loop_of_variable_qubits_supported() {
             Jump(1)
         Block 7:Block:
             Variable(1, Boolean) = Store Bool(true)
-            Jump(6)"#]]);
+            Jump(6)"#]],
+    );
 }
