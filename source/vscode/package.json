@@ -1406,7 +1406,7 @@
         ],
         "toolReferenceName": "qdkLearningRun",
         "displayName": "QDK Learning Run",
-        "modelDescription": "Run the Q# code at the current learning position (exercise or example). Returns execution events and result.",
+        "modelDescription": "Run the Q# code at the current learning position (exercise or example). Returns execution events and result. Use the 'shots' parameter to run multiple times (e.g. 100) for statistical analysis.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {
@@ -1423,40 +1423,15 @@
         }
       },
       {
-        "name": "qdk-learning-run-with-noise",
+        "name": "qdk-learning-read-code",
         "tags": [
           "qdk",
           "qdk-learning",
           "quantum-katas"
         ],
-        "toolReferenceName": "qdkLearningRunWithNoise",
-        "displayName": "QDK Learning Run with Noise",
-        "modelDescription": "Run the Q# code at the current learning position with noise simulation (many shots). Default is 100 shots.",
-        "canBeReferencedInPrompt": true,
-        "icon": "./resources/file-icon-light.svg",
-        "inputSchema": {
-          "type": "object",
-          "properties": {
-            "shots": {
-              "type": "number",
-              "description": "Number of shots for the noisy simulation. Defaults to 100.",
-              "default": 100
-            }
-          },
-          "required": [],
-          "additionalProperties": false
-        }
-      },
-      {
-        "name": "qdk-learning-circuit",
-        "tags": [
-          "qdk",
-          "qdk-learning",
-          "quantum-katas"
-        ],
-        "toolReferenceName": "qdkLearningCircuit",
-        "displayName": "QDK Learning Circuit",
-        "modelDescription": "Generate the quantum circuit diagram for the Q# code at the current learning position. The circuit is displayed in the Circuit panel.",
+        "toolReferenceName": "qdkLearningReadCode",
+        "displayName": "Read Current Code",
+        "modelDescription": "Read the user's current Q# code for the active exercise or example. Returns the code text and file path. Use this when the user asks for help with their code, debugging, or feedback on their approach. Does not open the panel.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {
@@ -1552,6 +1527,25 @@
         "toolReferenceName": "qdkLearningSolution",
         "displayName": "QDK Learning Solution",
         "modelDescription": "Show the full reference solution code for the current exercise. Warning: this spoils the exercise. Only use when the student explicitly asks for the solution.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-reset",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningReset",
+        "displayName": "Reset Exercise",
+        "modelDescription": "Reset the current exercise to its original placeholder code. WARNING: this destroys the user's work. Only use when the student explicitly asks to reset or start over. Requires confirmation.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {

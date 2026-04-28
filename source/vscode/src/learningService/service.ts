@@ -364,7 +364,6 @@ export class LearningService {
       case "lesson-example": {
         const codeTools: ActionGroup = [
           { key: "r", label: "Run", action: "run" },
-          { key: "c", label: "Circuit", action: "circuit" },
         ];
         const aiGroup: ActionGroup = [
           {
@@ -390,7 +389,6 @@ export class LearningService {
       case "exercise": {
         const codeTools: ActionGroup = [
           { key: "r", label: "Run", action: "run" },
-          { key: "c", label: "Circuit", action: "circuit" },
         ];
         const helpGroup: ActionGroup = pos.item.isComplete
           ? [{ key: "s", label: "Solution", action: "solution" }]

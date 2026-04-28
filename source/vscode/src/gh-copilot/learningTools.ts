@@ -175,29 +175,42 @@ export class LearningTools {
   }
 
   /**
-   * Run with noise simulation.
+   * Read the user's current Q# code at the active exercise or example.
+   * Silent read — does not open the panel.
    */
-  async runWithNoise(input: {
-    shots?: number;
-  }): Promise<{ result: unknown; state: unknown }> {
+  async readCode(): Promise<{
+    code: string;
+    filePath: string;
+    state: unknown;
+  }> {
     this.ensureInitialized();
-    // For now, noise simulation uses the same run path with more shots.
-    // The LearningService.run method handles the execution.
-    const r = await this.service.run(input.shots ?? 100);
-    await this.openPanel();
-    return { result: r.result, state: this.serializeState() };
+    const pos = this.service.getPosition();
+    let code: string;
+    let filePath: string;
+    if (pos.item.type === "exercise") {
+      code = await this.service.readUserCode();
+      filePath = this.service.getExerciseFileUri().fsPath;
+    } else if (pos.item.type === "lesson-example") {
+      const uri = this.service.getExampleFileUri();
+      const bytes = await vscode.workspace.fs.readFile(uri);
+      code = new TextDecoder().decode(bytes);
+      filePath = uri.fsPath;
+    } else {
+      throw new CopilotToolError(
+        "Current item is not an exercise or example — there is no code to read.",
+      );
+    }
+    return { code, filePath, state: this.serializeState() };
   }
 
   /**
-   * Generate the quantum circuit diagram for the current Q# code.
-   * Delegates to the existing qdk-generate-circuit tool with the current file.
+   * Reset the current exercise to its original placeholder code.
    */
-  async circuit(): Promise<{ result: unknown; state: unknown }> {
+  async resetExercise(): Promise<{ state: unknown }> {
     this.ensureInitialized();
-    const filePath = this.getCurrentFilePath();
-    const result = await this.qsharpTools.generateCircuit({ filePath });
+    await this.service.resetExercise();
     await this.openPanel();
-    return { result, state: this.serializeState() };
+    return { state: this.serializeState() };
   }
 
   /**
@@ -277,8 +290,20 @@ export class LearningTools {
     // Compact progress: only current kata's progress + headline stats
     const cur = progress.currentPosition?.kataId;
     const currentKata = cur ? progress.katas[cur] : undefined;
+
+    // Strip the answer from lesson-question items so the model
+    // doesn't see it until reveal-answer is explicitly called.
+    let position = state.position;
+    if (position.item.type === "lesson-question") {
+      const { answer: _answer, ...itemWithoutAnswer } = position.item;
+      position = {
+        ...position,
+        item: itemWithoutAnswer as typeof position.item,
+      };
+    }
+
     return {
-      position: state.position,
+      position,
       actions: state.actions,
       progress: {
         stats: progress.stats,

@@ -83,13 +83,13 @@ All return `{ result?, state }`.
 | `qdk-learning-next`, `qdk-learning-previous` | **yes**      |
 | `qdk-learning-goto`                          | **yes**      |
 | `qdk-learning-run` (optional `shots`)        | **yes**      |
-| `qdk-learning-run-with-noise` (default 100)  | **yes**      |
-| `qdk-learning-circuit`                       | **yes**      |
+| `qdk-learning-read-code`                     | no           |
 | `qdk-learning-estimate`                      | **yes**      |
 | `qdk-learning-check`                         | **yes**      |
 | `qdk-learning-hint`                          | no           |
 | `qdk-learning-reveal-answer`                 | **yes**      |
 | `qdk-learning-solution`                      | **yes**      |
+| `qdk-learning-reset`                         | **yes**      |
 
 ## Procedure
 
@@ -110,15 +110,15 @@ Call `qdk-learning-get-state` first, then map the prompt:
 - "next" / "continue" → `next`
 - "back" / "previous" → `previous`
 - "run" (optional N shots) → `run`
-- "noise" / "noisy run" → `run-with-noise`
 - "check" / "submit" → `check`
 - "hint" → use the **Hint Strategy** below
+- "help with my code" / "what's wrong" / "debug" → call `read-code`, then give personalized feedback
 - "solution" → `solution` (warn about spoiler first)
 - "answer" / "reveal" → `reveal-answer`
+- "reset" / "start over" → `reset` (requires confirmation — warns about losing code)
 - "menu" / "list" / "show katas" → `list-katas`, render as numbered list, prompt user to pick, then `goto`
 - "go to <kata>" / "jump to <section>" → resolve via `list-katas` or `get-state`, then `goto`
 - "progress" → `get-progress`
-- "circuit" → `circuit`
 - "estimate" → `estimate`
 - Free-form question → answer directly using Q# knowledge + current state
 - "quit" / "done" → acknowledge, stop (progress auto-saves)
@@ -134,6 +134,7 @@ When the user asks for a hint (or clicks the ✨ Hint button in the panel, which
 3. If the user asks for another hint, reveal the **next** one from the array you already have — do **not** call the tool again.
 4. Use your judgment: if the user seems close to the answer, paraphrase the hint or give a lighter nudge instead of the full text.
 5. If the tool returns `null` (no built-in hints for this exercise), generate a pedagogical hint yourself based on the exercise description and your Q# knowledge. Frame it as guidance, not a direct answer.
+6. If hints are exhausted and the user is still stuck, call `qdk-learning-read-code` to see their current code and give targeted, personalized feedback on their specific approach.
 
 ### 3. After a Passing Check
 

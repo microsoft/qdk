@@ -151,12 +151,8 @@ const toolDefinitions: {
     tool: async (input) => await learningTools!.run(input),
   },
   {
-    name: "qdk-learning-run-with-noise",
-    tool: async (input) => await learningTools!.runWithNoise(input),
-  },
-  {
-    name: "qdk-learning-circuit",
-    tool: async () => await learningTools!.circuit(),
+    name: "qdk-learning-read-code",
+    tool: async () => await learningTools!.readCode(),
   },
   {
     name: "qdk-learning-estimate",
@@ -177,6 +173,17 @@ const toolDefinitions: {
   {
     name: "qdk-learning-solution",
     tool: async () => learningTools!.solution(),
+  },
+  {
+    name: "qdk-learning-reset",
+    tool: async () => await learningTools!.resetExercise(),
+    confirm: (): vscode.PreparedToolInvocation => ({
+      confirmationMessages: {
+        title: "Reset Exercise",
+        message:
+          "Reset the current exercise to the original placeholder? Your code will be lost.",
+      },
+    }),
   },
 ];
 
