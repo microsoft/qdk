@@ -54,9 +54,17 @@ export function createProxy<
     qscLogLevel: log.getLogLevel(),
   });
 
+  // When the log level changes, update the worker's log level as well.
+  const unsubscribeLevelChanged = log.addLevelChangedListener((level) => {
+    worker.postMessage({ type: "set-log-level", level });
+  });
+
   // If you lose the 'this' binding, some environments have issues
   const postMessage = worker.postMessage.bind(worker);
-  const onTerminate = () => worker.terminate();
+  const onTerminate = () => {
+    unsubscribeLevelChanged();
+    worker.terminate();
+  };
 
   // Create the proxy which will forward method calls to the worker
   const proxy = createProxyInternal<TService, TServiceEventMsg>(

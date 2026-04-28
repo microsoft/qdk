@@ -98,7 +98,7 @@ export async function instantiateWasm() {
 
   // Once ready, set up logging and telemetry as soon as possible after instantiating
   wasm.initLogging(log.logWithLevel, log.getLogLevel());
-  log.onLevelChanged = (level) => wasm.setLogLevel(level);
+  log.addLevelChangedListener((level) => wasm.setLogLevel(level));
 }
 
 export async function getLibrarySourceContent(
