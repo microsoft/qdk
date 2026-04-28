@@ -46,12 +46,14 @@ try:
         pass
 
     # Register all currently-loaded qsharp.qre.* modules as qdk.qre.* aliases.
-    for _key in list(sys.modules.keys()):
-        if _key.startswith("qsharp.qre."):
-            _qdk_key = "qdk.qre." + _key[len("qsharp.qre."):]
-            sys.modules.setdefault(_qdk_key, sys.modules[_key])
+    def _register_qre_aliases() -> None:
+        for _key in list(sys.modules.keys()):
+            if _key.startswith("qsharp.qre."):
+                _qdk_key = "qdk.qre." + _key[len("qsharp.qre."):]
+                sys.modules.setdefault(_qdk_key, sys.modules[_key])
 
-    del _key, _qdk_key
+    _register_qre_aliases()
+    del _register_qre_aliases
 
 except Exception as ex:
     raise ImportError(

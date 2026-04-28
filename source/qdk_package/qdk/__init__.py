@@ -82,13 +82,18 @@ _qsharp_private_submodules = [
     "_device._atom._decomp",
     "_device._atom._validate",
 ]
-for _submod in _qsharp_private_submodules:
-    _qdk_key = f"qdk.{_submod}"
-    _qsharp_key = f"qsharp.{_submod}"
-    if _qdk_key not in sys.modules and _qsharp_key in sys.modules:
-        sys.modules[_qdk_key] = sys.modules[_qsharp_key]
 
-del _qsharp_private_submodules, _submod, _qdk_key, _qsharp_key
+
+def _register_qsharp_aliases() -> None:
+    for _submod in _qsharp_private_submodules:
+        _qdk_key = f"qdk.{_submod}"
+        _qsharp_key = f"qsharp.{_submod}"
+        if _qdk_key not in sys.modules and _qsharp_key in sys.modules:
+            sys.modules[_qdk_key] = sys.modules[_qsharp_key]
+
+
+_register_qsharp_aliases()
+del _qsharp_private_submodules, _register_qsharp_aliases
 
 __all__ = [
     "code",
