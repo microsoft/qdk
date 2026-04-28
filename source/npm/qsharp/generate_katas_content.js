@@ -44,6 +44,7 @@ mdValidator.use(mk.default, katexOpts);
 
 const validate = true; // Consider making this a command-line option
 let emitHtml = true;
+let stripHints = false;
 
 const forceRegeneration =
   process.argv.includes("--force") || process.argv.includes("-f");
@@ -439,10 +440,25 @@ function createExerciseSection(kataPath, properties, globalCodeSources) {
   const exercisePath = join(kataPath, properties.path);
   // Generate the object using the macro properties.
   // Get the description from the index.md file in the exercise folder.
-  const descriptionMarkdown = tryReadFile(
+  let descriptionMarkdown = tryReadFile(
     join(exercisePath, "index.md"),
     `Could not read index.md file for exercise ${properties.id}`,
   );
+
+  // Strip inline hint blocks from exercise descriptions when requested.
+  // The VS Code extension provides hints through a separate AI-powered
+  // button instead of the embedded <details> blocks.
+  const hintPattern =
+    /<details>\s*<summary>[\s\S]*?Need a hint[\s\S]*?<\/summary>([\s\S]*?)<\/details>/gi;
+  let extractedHints;
+  if (stripHints) {
+    // Capture the inner content of each hint block before stripping.
+    extractedHints = [...descriptionMarkdown.matchAll(hintPattern)].map((m) =>
+      m[1].trim(),
+    );
+    descriptionMarkdown = descriptionMarkdown.replace(hintPattern, "").trim();
+  }
+
   const description = createTextContent(descriptionMarkdown);
 
   // Aggregate the exercise sources. The verification source file is Verification.qs.
@@ -483,6 +499,9 @@ function createExerciseSection(kataPath, properties, globalCodeSources) {
     sourceIds,
     placeholderCode,
     explainedSolution,
+    ...(extractedHints && extractedHints.length > 0
+      ? { hints: extractedHints }
+      : {}),
   };
 }
 
@@ -826,8 +845,10 @@ function needsRegeneration(katasPath, outputPath) {
 if (needsRegeneration(katasContentPath, katasGeneratedContentPath)) {
   // Generate HTML and Markdown versions of the katas bundle
   emitHtml = true;
+  stripHints = false;
   generateKatasContent(katasContentPath, katasGeneratedContentPath);
   emitHtml = false;
+  stripHints = true;
   generateKatasContent(katasContentPath, katasGeneratedContentPath);
 } else {
   console.log("Content is up to date, skipping generation");
