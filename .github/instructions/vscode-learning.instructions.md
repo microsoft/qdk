@@ -38,7 +38,7 @@ Singleton `LearningService` — core business logic, UI-agnostic. Owns position,
 
 ## `src/katasPanel/`
 
-`KatasPanelManager` (singleton `WebviewPanel`). Bridges `postMessage` ↔ `LearningService`, watches `.navigate.json` for tree-view navigation signals, opens the associated `.qs` file in a secondary editor column. HTML/CSS/JS assets in `katas-webview.html`/`.css`/`render.js`, copied to `out/` at build time.
+`KatasPanelManager` (singleton `WebviewPanel`). Bridges `postMessage` ↔ `LearningService`, opens the associated `.qs` file in a secondary editor column. HTML/CSS/JS assets in `katas-webview.html`/`.css`/`render.js`, copied to `out/` at build time.
 
 ## `src/katasProgress/`
 
@@ -48,4 +48,4 @@ Activity-bar sidebar — a native `TreeView` fed by `ProgressWatcher` over `qdk-
 - **`progressReader.ts`** — `ProgressWatcher` watches the progress file, maintains `qsharp-vscode.katasDetected` context key.
 - **`catalog.ts`** — loads kata list from `qsharp-lang/katas-md` (`getAllKatas()`). `RECOMMENDED_ORDER` controls display order.
 - **`treeProvider.ts`** — renders kata → section nodes with a "continue" node. `contextValue`: `kata` | `section` | `continue`.
-- **`commands.ts`** — `katasRefresh`, `katasContinue`, `katasOpenSection`, `katasAskInChat`. Uses `.navigate.json` signal-file IPC (2s timeout, 500ms backup stat for Windows) to navigate the panel; falls back to chat with `/qdk-learning #goto`.
+- **`commands.ts`** — `katasRefresh`, `katasContinue`, `katasOpenSection`, `katasAskInChat`. Navigates the panel directly; falls back to chat with `/qdk-learning #goto`.
