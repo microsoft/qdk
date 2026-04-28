@@ -7,7 +7,9 @@ export class BrowserWorkerHost implements IWorkerHost {
   private worker: Worker;
 
   constructor(url: string | URL) {
-    // Make sure the URL is absolute so that importScripts works inside the blob
+    // Resolve to an absolute URL because importScripts inside a blob worker
+    // cannot resolve relative URLs (there is no base URL to resolve against).
+    // Note: import.meta.url is replaced with document.URL by the bundler.
     const scriptUrl =
       typeof url === "string" ? new URL(url, import.meta.url).href : url.href;
     const bootstrap = `
