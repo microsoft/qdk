@@ -368,6 +368,10 @@ math[display="block"] {
   color: var(--muted);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
+  cursor: pointer;
+}
+.progress-bar:hover {
+  background: var(--btn-secondary-hover-bg);
 }
 .pb-segments {
   display: inline-flex;

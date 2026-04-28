@@ -275,6 +275,11 @@ export class KatasPanelManager {
       return;
     }
 
+    if (msg.command === "focusProgress") {
+      await vscode.commands.executeCommand("qsharp-vscode.katasTree.focus");
+      return;
+    }
+
     if (msg.command === "action") {
       await this.handleAction(msg.action);
     }
@@ -318,11 +323,6 @@ export class KatasPanelManager {
         case "reveal-answer": {
           const { result } = this.service.revealAnswer();
           this.sendResult("reveal-answer", result);
-          break;
-        }
-        case "progress": {
-          const progress = this.service.getProgress();
-          this.sendResult("progress", progress);
           break;
         }
         default:
@@ -502,7 +502,7 @@ export class KatasPanelManager {
     <section id="content" class="content"></section>
     <div id="output" class="output" hidden></div>
     <nav id="actions" class="action-bar"></nav>
-    <footer id="progress-bar" class="progress-bar"></footer>
+    <footer id="progress-bar" class="progress-bar" title="View progress"></footer>
 
     <script src="${renderJsUri}"></script>
     <script>
@@ -699,9 +699,6 @@ export class KatasPanelManager {
                       "</pre>",
                   );
                   break;
-                case "progress":
-                  showOutput(R.renderProgress(result));
-                  break;
                 case "run":
                 case "circuit":
                   clearOutput();
@@ -732,6 +729,11 @@ export class KatasPanelManager {
           if (url) {
             vscodeApi.postMessage({ command: "openFile", uri: url });
           }
+        });
+
+        // Click the progress bar footer → focus sidebar tree view
+        progressEl.addEventListener("click", () => {
+          vscodeApi.postMessage({ command: "focusProgress" });
         });
 
         // Restore cached state immediately for instant render on restart

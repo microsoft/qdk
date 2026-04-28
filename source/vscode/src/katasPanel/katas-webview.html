@@ -23,7 +23,11 @@
     <section id="content" class="content"></section>
     <div id="output" class="output" hidden></div>
     <nav id="actions" class="action-bar"></nav>
-    <footer id="progress-bar" class="progress-bar"></footer>
+    <footer
+      id="progress-bar"
+      class="progress-bar"
+      title="View progress"
+    ></footer>
 
     <script nonce="__NONCE__">
       // KaTeX MathML output — no external fonts needed.
@@ -238,9 +242,7 @@
                       "</pre>",
                   );
                   break;
-                case "progress":
-                  showOutput(R.renderProgress(result));
-                  break;
+
                 case "run":
                 case "circuit":
                   // These open external views — just clear loading state.
@@ -280,6 +282,11 @@
           if (url) {
             vscodeApi.postMessage({ command: "openFile", uri: url });
           }
+        });
+
+        // Click the progress bar footer → focus sidebar tree view
+        progressEl.addEventListener("click", () => {
+          vscodeApi.postMessage({ command: "focusProgress" });
         });
 
         // Signal ready

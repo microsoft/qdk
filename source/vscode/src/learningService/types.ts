@@ -107,7 +107,7 @@ export interface KataProgress {
 }
 
 export interface OverallProgress {
-  katas: Map<string, KataProgress>;
+  katas: Record<string, KataProgress>;
   currentPosition: {
     kataId: string;
     kataTitle: string;

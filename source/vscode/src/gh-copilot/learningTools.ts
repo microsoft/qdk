@@ -276,7 +276,7 @@ export class LearningTools {
     const progress = state.progress;
     // Compact progress: only current kata's progress + headline stats
     const cur = progress.currentPosition?.kataId;
-    const currentKata = cur ? progress.katas.get(cur) : undefined;
+    const currentKata = cur ? progress.katas[cur] : undefined;
     return {
       position: state.position,
       actions: state.actions,
@@ -291,9 +291,6 @@ export class LearningTools {
   private serializeProgressFull(
     progress: import("../learningService/types.js").OverallProgress,
   ): object {
-    return {
-      ...progress,
-      katas: Object.fromEntries(progress.katas),
-    };
+    return progress;
   }
 }

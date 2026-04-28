@@ -343,18 +343,11 @@ export class LearningService {
     const navGroup: ActionGroup = [
       { key: "f", label: "Next", action: "next" },
       { key: "b", label: "Back", action: "back" },
-      { key: "p", label: "Progress", action: "progress" },
     ];
 
     switch (pos.item.type) {
       case "lesson-text": {
-        return [
-          primaryGroup,
-          [
-            { key: "b", label: "Back", action: "back" },
-            { key: "p", label: "Progress", action: "progress" },
-          ],
-        ];
+        return [primaryGroup, [{ key: "b", label: "Back", action: "back" }]];
       }
       case "lesson-example": {
         const codeTools: ActionGroup = [
@@ -597,7 +590,7 @@ export class LearningService {
     let foundFirstIncomplete = false;
 
     return this.katas.map((kata) => {
-      const kataProgress = progress.katas.get(kata.id);
+      const kataProgress = progress.katas[kata.id];
       const completedCount = kataProgress?.completed ?? 0;
       const sectionCount = kataProgress?.total ?? kata.sections.length;
       const allComplete = completedCount === sectionCount && sectionCount > 0;
@@ -649,7 +642,7 @@ export class LearningService {
       : undefined;
 
     return {
-      katas: katasMap,
+      katas: Object.fromEntries(katasMap),
       currentPosition: {
         ...this.progressData.position,
         kataTitle: currentKata?.title ?? currentKataId,

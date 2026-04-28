@@ -102,21 +102,6 @@
     );
   }
 
-  function renderProgress(progress) {
-    const { stats, katas } = progress;
-    const pct =
-      stats.totalSections > 0
-        ? Math.round((stats.completedSections / stats.totalSections) * 100)
-        : 0;
-    let html = `<div style="margin-bottom:0.5rem"><strong>Overall: ${stats.completedSections}/${stats.totalSections} sections (${pct}%)</strong></div>`;
-    for (const [id, kata] of Object.entries(katas)) {
-      const kPct =
-        kata.total > 0 ? Math.round((kata.completed / kata.total) * 100) : 0;
-      html += `<div>${escapeHtml(id)}: ${kata.completed}/${kata.total} (${kPct}%)</div>`;
-    }
-    return html;
-  }
-
   /** Content body HTML for a position item (lesson-text, lesson-example, lesson-question, exercise). */
   function renderContentBody(item) {
     switch (item.type) {
@@ -211,7 +196,6 @@
     renderMatrix,
     renderCircuit,
     renderEstimate,
-    renderProgress,
     renderContentBody,
     renderContentLabel,
     renderProgressBar,
