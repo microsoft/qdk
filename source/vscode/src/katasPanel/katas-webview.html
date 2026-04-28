@@ -59,14 +59,21 @@
 
         let busy = false;
         let lastPositionKey = null;
+        let currentActionBindings = [];
 
         // ─── Rendering ───
 
         function renderHeader(position) {
           const item = position.item;
-          const sectionTitle =
+          const itemTitle =
             item.type === "exercise" ? item.title : item.sectionTitle || "";
-          crumbEl.textContent = `${position.kataId} · ${position.sectionId} · #${position.itemIndex + 1}${sectionTitle ? " — " + sectionTitle : ""}`;
+          crumbEl.textContent =
+            (position.kataTitle || position.kataId) +
+            " › " +
+            (position.sectionTitle || position.sectionId) +
+            (itemTitle && itemTitle !== position.sectionTitle
+              ? " › " + itemTitle
+              : "");
 
           badgeEl.className = "badge";
           if (item.type === "exercise") {
@@ -119,6 +126,7 @@
 
         function renderActions(groups) {
           actionsEl.innerHTML = "";
+          currentActionBindings = [];
           for (const group of groups) {
             const div = document.createElement("div");
             div.className = "action-group";
@@ -135,12 +143,20 @@
                 btn.textContent = binding.label;
               }
               if (binding.primary) btn.classList.add("primary");
+              // Tooltip: show label + shortcut key + chat note for AI actions
+              let tip = binding.label;
+              if (binding.key && binding.key !== "space")
+                tip += " (" + binding.key.toUpperCase() + ")";
+              else if (binding.key === "space") tip += " (Space)";
+              if (binding.codicon === "sparkle") tip += " — opens Copilot Chat";
+              btn.title = tip;
               btn.dataset.action = binding.action;
               btn.disabled = busy;
               btn.addEventListener("click", () =>
                 executeAction(binding.action),
               );
               div.appendChild(btn);
+              currentActionBindings.push(binding);
             }
             if (div.children.length > 0) actionsEl.appendChild(div);
           }
@@ -318,6 +334,35 @@
         // Click the progress bar footer → focus sidebar tree view
         progressEl.addEventListener("click", () => {
           vscodeApi.postMessage({ command: "focusProgress" });
+        });
+
+        // Keyboard shortcuts — dispatch based on the key bindings in the action bar.
+        document.addEventListener("keydown", (e) => {
+          if (busy) return;
+          const tag = (e.target.tagName || "").toLowerCase();
+          if (tag === "input" || tag === "textarea" || tag === "select") return;
+
+          let key = e.key.toLowerCase();
+          if (key === " ") key = "space";
+          if (key === "space") {
+            const btns = actionsEl.querySelectorAll("button[data-action]");
+            for (const btn of btns) {
+              if (btn.classList.contains("primary")) {
+                e.preventDefault();
+                executeAction(btn.dataset.action);
+                return;
+              }
+            }
+          }
+          if (key.length === 1 && currentActionBindings) {
+            for (const b of currentActionBindings) {
+              if (b.key === key) {
+                e.preventDefault();
+                executeAction(b.action);
+                return;
+              }
+            }
+          }
         });
 
         // Signal ready

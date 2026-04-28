@@ -522,6 +522,7 @@ export class KatasPanelManager {
 
         let busy = false;
         let lastPositionKey = null;
+        let currentActionBindings = [];
 
         // ─── Rendering ───
 
@@ -578,6 +579,7 @@ export class KatasPanelManager {
 
         function renderActions(groups) {
           actionsEl.innerHTML = "";
+          currentActionBindings = [];
           for (const group of groups) {
             const div = document.createElement("div");
             div.className = "action-group";
@@ -594,12 +596,19 @@ export class KatasPanelManager {
                 btn.textContent = binding.label;
               }
               if (binding.primary) btn.classList.add("primary");
+              // Tooltip: show label + shortcut key + chat note for AI actions
+              var tip = binding.label;
+              if (binding.key && binding.key !== "space") tip += " (" + binding.key.toUpperCase() + ")";
+              else if (binding.key === "space") tip += " (Space)";
+              if (binding.codicon === "sparkle") tip += " — opens Copilot Chat";
+              btn.title = tip;
               btn.dataset.action = binding.action;
               btn.disabled = busy;
               btn.addEventListener("click", () =>
                 executeAction(binding.action),
               );
               div.appendChild(btn);
+              currentActionBindings.push(binding);
             }
             if (div.children.length > 0) actionsEl.appendChild(div);
           }
@@ -749,6 +758,40 @@ export class KatasPanelManager {
           var url = a.getAttribute("href");
           if (url) {
             vscodeApi.postMessage({ command: "openFile", uri: url });
+          }
+        });
+
+        // Keyboard shortcuts — dispatch based on the key bindings in the action bar.
+        document.addEventListener("keydown", function(e) {
+          if (busy) return;
+          // Ignore when focus is inside an input/textarea.
+          var tag = (e.target.tagName || "").toLowerCase();
+          if (tag === "input" || tag === "textarea" || tag === "select") return;
+
+          var key = e.key.toLowerCase();
+          if (key === " ") key = "space";
+          var btn = actionsEl.querySelector('button[data-action]:not(:disabled)');
+          // Find matching binding by scanning all rendered buttons.
+          var buttons = actionsEl.querySelectorAll("button[data-action]");
+          for (var i = 0; i < buttons.length; i++) {
+            // Match by looking up the key from current action groups.
+            // For Space, trigger the primary action.
+            if (key === "space" && buttons[i].classList.contains("primary")) {
+              e.preventDefault();
+              executeAction(buttons[i].dataset.action);
+              return;
+            }
+          }
+          // Match single-letter shortcuts against rendered bindings.
+          if (key.length === 1 && currentActionBindings) {
+            for (var j = 0; j < currentActionBindings.length; j++) {
+              var b = currentActionBindings[j];
+              if (b.key === key) {
+                e.preventDefault();
+                executeAction(b.action);
+                return;
+              }
+            }
           }
         });
 

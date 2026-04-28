@@ -319,17 +319,8 @@ export class LearningService {
       next: "Next",
       run: "Run",
       check: "Check",
-      "reveal-answer": "Reveal",
+      "reveal-answer": "Show Answer",
     };
-
-    // When an exercise is already completed, relabel "Next" to guide the user forward.
-    if (
-      pos.item.type === "exercise" &&
-      pos.item.isComplete &&
-      primary === "next"
-    ) {
-      primaryLabel.next = "Completed \u2014 Next";
-    }
 
     const primaryGroup: ActionGroup = [
       {
@@ -340,10 +331,7 @@ export class LearningService {
       },
     ];
 
-    const navGroup: ActionGroup = [
-      { key: "f", label: "Next", action: "next" },
-      { key: "b", label: "Back", action: "back" },
-    ];
+    const navGroup: ActionGroup = [{ key: "b", label: "Back", action: "back" }];
 
     switch (pos.item.type) {
       case "lesson-text": {
@@ -355,16 +343,12 @@ export class LearningService {
             codicon: "sparkle",
           },
         ];
-        return [
-          primaryGroup,
-          aiGroup,
-          [{ key: "b", label: "Back", action: "back" }],
-        ];
+        return [primaryGroup, aiGroup, navGroup];
       }
       case "lesson-example": {
-        const codeTools: ActionGroup = [
-          { key: "r", label: "Run", action: "run" },
-        ];
+        // Only show Run in codeTools when it's not already the primary.
+        const codeTools: ActionGroup =
+          primary === "run" ? [] : [{ key: "r", label: "Run", action: "run" }];
         const aiGroup: ActionGroup = [
           {
             key: "e",
@@ -373,7 +357,9 @@ export class LearningService {
             codicon: "sparkle",
           },
         ];
-        return [primaryGroup, codeTools, aiGroup, navGroup];
+        return [primaryGroup, codeTools, aiGroup, navGroup].filter(
+          (g) => g.length > 0,
+        );
       }
       case "lesson-question": {
         const aiGroup: ActionGroup = [
@@ -387,9 +373,13 @@ export class LearningService {
         return [primaryGroup, aiGroup, navGroup];
       }
       case "exercise": {
-        const codeTools: ActionGroup = [
-          { key: "r", label: "Run", action: "run" },
-        ];
+        // When completed, keep Check available so users can re-validate.
+        const codeTools: ActionGroup = pos.item.isComplete
+          ? [
+              { key: "c", label: "Check", action: "check" },
+              { key: "r", label: "Run", action: "run" },
+            ]
+          : [{ key: "r", label: "Run", action: "run" }];
         const helpGroup: ActionGroup = pos.item.isComplete
           ? [{ key: "s", label: "Solution", action: "solution" }]
           : [
