@@ -13,8 +13,6 @@
 
 export interface ProgressFileData {
   version: 1;
-  /** Relative path from the file's parent directory to the katas content folder. */
-  katasRoot: string;
   position: { kataId: string; sectionId: string; itemIndex: number };
   completions: Record<string, { completedAt: string }>;
   startedAt: string;

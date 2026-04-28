@@ -2,9 +2,7 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-
-/** Well-known workspace folder name for katas files. */
-const KATAS_WS_FOLDER = "qdk-learning-ws";
+import { KATAS_WS_FOLDER } from "./index.js";
 
 /**
  * Document selector that matches exercise files inside the well-known

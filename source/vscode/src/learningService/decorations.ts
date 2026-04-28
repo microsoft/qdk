@@ -3,9 +3,7 @@
 
 import * as vscode from "vscode";
 import type { LearningService } from "./service.js";
-
-/** Well-known workspace folder name for katas files. */
-const KATAS_WS_FOLDER = "qdk-learning-ws";
+import { KATAS_WS_FOLDER } from "./index.js";
 
 const FLASH_DURATION_MS = 2000;
 

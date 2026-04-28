@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-import type { ProgressFileData } from "./types.js";
+import { KATAS_WS_FOLDER_REL } from "../learningService/index.js";
 
 /** Well-known file that marks a workspace folder as a katas workspace. */
 export const LEARNING_FILE = "qdk-learning.json";
@@ -13,7 +13,7 @@ export interface KatasWorkspaceInfo {
    * Passed to the katas server / MCP CLI as `--workspace`.
    */
   workspaceRoot: vscode.Uri;
-  /** The katas content folder, resolved from `katasRoot` in the learning file. */
+  /** The katas content folder, resolved from the well-known folder name. */
   katasRoot: vscode.Uri;
   /** Path to `qdk-learning.json`. */
   learningFile: vscode.Uri;
@@ -43,19 +43,7 @@ export async function detectKatasWorkspace(): Promise<
     const learningFile = vscode.Uri.joinPath(folder.uri, LEARNING_FILE);
     if (!(await uriExists(learningFile))) continue;
 
-    let katasRootRel = "./qdk-learning-ws";
-    try {
-      const bytes = await vscode.workspace.fs.readFile(learningFile);
-      const raw = new TextDecoder("utf-8").decode(bytes);
-      const parsed = JSON.parse(raw) as Partial<ProgressFileData>;
-      if (parsed.katasRoot && typeof parsed.katasRoot === "string") {
-        katasRootRel = parsed.katasRoot;
-      }
-    } catch {
-      // Corrupt or unreadable — use default katasRoot.
-    }
-
-    const katasRoot = vscode.Uri.joinPath(folder.uri, katasRootRel);
+    const katasRoot = vscode.Uri.joinPath(folder.uri, KATAS_WS_FOLDER_REL);
     return {
       workspaceRoot: folder.uri,
       katasRoot,

@@ -123,7 +123,6 @@ export interface OverallProgress {
 
 export interface ProgressFileData {
   version: 1;
-  katasRoot: string;
   position: { kataId: string; sectionId: string; itemIndex: number };
   completions: Record<string, { completedAt: string }>;
   startedAt: string;

@@ -87,7 +87,6 @@ export class LearningService {
   private workspaceRoot!: vscode.Uri;
   private katasRoot!: vscode.Uri;
   private learningFile!: vscode.Uri;
-  private katasRootRel = "./qdk-learning-ws";
   private renderMarkdown: (input: string) => string;
 
   // ── Progress data (mirrors qdk-learning.json) ──
@@ -122,8 +121,6 @@ export class LearningService {
     this.workspaceRoot = workspaceRoot;
     this.katasRoot = katasRoot;
     this.learningFile = vscode.Uri.joinPath(workspaceRoot, "qdk-learning.json");
-
-    // katasRootRel is a fixed well-known folder name; no longer configurable.
 
     // Load all katas (HTML format for webview rendering)
     const allKatas = await getAllKatas();
@@ -757,7 +754,6 @@ export class LearningService {
   private freshProgressData(): ProgressFileData {
     return {
       version: 1,
-      katasRoot: this.katasRootRel,
       position: {
         kataId: this.katas[0]?.id ?? "",
         sectionId: this.katas[0]?.sections[0]?.id ?? "",
@@ -773,7 +769,7 @@ export class LearningService {
       const bytes = await vscode.workspace.fs.readFile(this.learningFile);
       const parsed = JSON.parse(decoder.decode(bytes)) as ProgressFileData;
       if (parsed.version === 1) {
-        this.progressData = { ...parsed, katasRoot: this.katasRootRel };
+        this.progressData = parsed;
         // Validate position references a known kata
         if (
           this.katas.length > 0 &&

@@ -3,9 +3,7 @@
 
 import * as vscode from "vscode";
 import type { LearningService } from "./service.js";
-
-/** Well-known workspace folder name for katas files. */
-const KATAS_WS_FOLDER = "qdk-learning-ws";
+import { KATAS_WS_FOLDER } from "./index.js";
 
 // Context keys set on the VS Code context for use in `when` clauses.
 const CTX_IS_EXERCISE = "qsharp-vscode.activeEditorIsExercise";
