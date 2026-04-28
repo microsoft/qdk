@@ -4,13 +4,80 @@
 
 Below are some of the highlights for the 1.28 release of the QDK.
 
-### Feature
+### Resource Estimation v3
 
-TODO
+The Quantum Resource Estimation feature has been significantly re-written to be far more capable in modelling and estimating quantum resource requirements across languages, frameworks, architectures, and modalities.
+
+The new implementation is being done in phases, and this initial release includes the Python APIs. The old QRE Python APIs and the VS Code `Estimate` CodeLens experience are now marked as deprecated.
+
+For more details on the new APIs and examples of their usage, see the [QREv3 wiki](https://aka.ms/qdk.QREv3).
+
+### Improved simulator capabilities
+
+In this release we have exposed the Python API to directly run QIR on the underlying simulators (CPU state vector, Clifford, and density matrix simulators, and the GPU state vector simulator). The simulators have also been updated to be able to handle programs generated for the `QIR Adaptive Profile`, which means the quantum programs the simulators runs may contain mid-circuit measurement, conditional branching, loops, etc.
+
+See the [QDK Simulators](https://github.com/microsoft/qdk/wiki/QDK-Python-Simulators) wiki page for more details.
+
+### VS Code extension hosting
+
+The [VS Code extension](https://code.visualstudio.com/api/advanced-topics/extension-host) has been updated from being purely a [web extension](https://code.visualstudio.com/api/extension-guides/web-extensions) to being run in the local Node.js host when running on a desktop VS Code instance. This fixes issues that could be encountered when running in a `remote` configuration, such as when using WSL. This also lays the groundwork for future work on more `agentic` flows that require interacting with other local Node.js or Python processes (such as MCP Agents).
+
+### Debugging "Break on entry"
+
+The integrated quantum debugger for Q\# and OpenQASM used to always break on the first statement when launched. This now defaults to `false`. This can be configured via `launch.json` in VS Code, e.g.
+
+```json
+{
+  "name": "Debug Q# file",
+  "type": "qsharp",
+  "request": "launch",
+  "program": "${workspaceFolder}/samples/algorithms/Grover.qs",
+  "stopOnEntry": true
+}
+```
+
+### RIFLA code generation
+
+TODO: Worth discussing yet?
+
+### Orbital widget
+
+TODO: Worth mentioning?
 
 ## Other notable changes
 
-TODO
+- Simplify debugger breaking by @joao-boechat in [#3034](https://github.com/microsoft/qdk/pull/3034)
+- Introduce QIR v2.1 Profile `Adaptive_RIFLA` by @swernli in [#3037](https://github.com/microsoft/qdk/pull/3037)
+- Improvements to Q# library documentation by @filipw in [#3083](https://github.com/microsoft/qdk/pull/3083)
+- Optimize `PreparePureStateD` by @swernli in [#3048](https://github.com/microsoft/qdk/pull/3048)
+- Add loop emission to `Adaptive_RIFLA` by @swernli in [#3038](https://github.com/microsoft/qdk/pull/3038)
+- Ignore dynamic `Fact` by @swernli in [#3098](https://github.com/microsoft/qdk/pull/3098)
+- Bump wgpu by @billti in [#3100](https://github.com/microsoft/qdk/pull/3100)
+- add `DecomposeCcxPass` to `run_qir_cpu` by @orpuente-MS in [#3107](https://github.com/microsoft/qdk/pull/3107)
+- Enable running the VS Code extension host on the workspace (Node.js) by default by @joao-boechat in [#3093](https://github.com/microsoft/qdk/pull/3093)
+- Use separate browser/node entrypoints instead of runtime environment detection by @minestarks in [#3121](https://github.com/microsoft/qdk/pull/3121)
+- Bump quantum-sparse-sim to v0.9.4 by @fedimser in [#3122](https://github.com/microsoft/qdk/pull/3122)
+- RIFLA: Support emission of loops over constant arrays by @swernli in [#3101](https://github.com/microsoft/qdk/pull/3101)
+- Sccarda/python docs update by @ScottCarda-MS in [#3131](https://github.com/microsoft/qdk/pull/3131)
+- Copy sparse simulator into QDK by @swernli in [#3137](https://github.com/microsoft/qdk/pull/3137)
+- Upgrade pyqir to v0.12.3 by @orpuente-MS in [#3130](https://github.com/microsoft/qdk/pull/3130)
+- RIFLA: Support iteration over arrays of qubits by @swernli in [#3103](https://github.com/microsoft/qdk/pull/3103)
+- QRE Update by @msoeken in [#3090](https://github.com/microsoft/qdk/pull/3090)
+- Update Python Docs for `qdk` package by @ScottCarda-MS in [#3144](https://github.com/microsoft/qdk/pull/3144)
+- Copilot skill file updates by @minestarks in [#3154](https://github.com/microsoft/qdk/pull/3154)
+- Remove legacy Jupyter CodeMirror Q# syntax highlighting injection by @Copilot in [#3140](https://github.com/microsoft/qdk/pull/3140)
+- Fix run command hanging on compile errors for OpenQASM and Q# programs by @minestarks in [#3155](https://github.com/microsoft/qdk/pull/3155)
+- Re-export python simulators from `qdk.simulation` by @orpuente-MS in [#3145](https://github.com/microsoft/qdk/pull/3145)
+- Default to OpenQASM semantics on compile by @swernli in [#3167](https://github.com/microsoft/qdk/pull/3167)
+- Align gpu and cpu loss behavior by @orpuente-MS in [#3129](https://github.com/microsoft/qdk/pull/3129)
+- Adaptive Profile support for CPU-full-state and Clifford simulators by @orpuente-MS in [#3086](https://github.com/microsoft/qdk/pull/3086)
+- Sample notebooks for QRE update by @msoeken in [#3110](https://github.com/microsoft/qdk/pull/3110)
+- Add orbital entanglement diagram widget by @nabbelbabbel in [#2974](https://github.com/microsoft/qdk/pull/2974)
+- Add deprecation messages for current QRE by @msoeken in [#3170](https://github.com/microsoft/qdk/pull/3170)
+
+## New Contributors
+
+- @nabbelbabbel made their first contribution in https://github.com/microsoft/qdk/pull/2974
 
 **Full Changelog**: <https://github.com/microsoft/qdk/compare/v1.27.0...v1.28.0>
 
