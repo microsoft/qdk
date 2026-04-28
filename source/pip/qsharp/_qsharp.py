@@ -43,6 +43,7 @@ import json
 import os
 import sys
 import types
+import warnings
 from pathlib import Path
 from time import monotonic
 from dataclasses import make_dataclass
@@ -1053,6 +1054,12 @@ def estimate(
     :return: The estimated resources.
     :rtype: EstimatorResult
     """
+
+    warnings.warn(
+        "This version of QRE is deprecated and will be removed in a future release. Please use the new version of QRE in qdk.qre. Refer to aka.ms/qdk.QREv3 for more information.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     ipython_helper()
 
