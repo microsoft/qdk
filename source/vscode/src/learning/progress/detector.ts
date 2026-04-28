@@ -2,10 +2,7 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-import { KATAS_WS_FOLDER_REL } from "../index.js";
-
-/** Well-known file that marks a workspace folder as a katas workspace. */
-export const LEARNING_FILE = "qdk-learning.json";
+import { KATAS_WS_FOLDER_REL, LEARNING_FILE } from "../index.js";
 
 export interface KatasWorkspaceInfo {
   /**

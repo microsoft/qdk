@@ -7,6 +7,9 @@ export const KATAS_WS_FOLDER = "qdk-learning-ws";
 /** Relative path form of {@link KATAS_WS_FOLDER}, for use in URI joins. */
 export const KATAS_WS_FOLDER_REL = `./${KATAS_WS_FOLDER}`;
 
+/** Well-known file that marks a workspace folder as a katas workspace. */
+export const LEARNING_FILE = "qdk-learning.json";
+
 export { LearningService } from "./service.js";
 export { registerEditorContext } from "./editorContext.js";
 export { registerLearningCommands } from "./commands.js";

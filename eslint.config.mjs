@@ -21,6 +21,7 @@ export default tseslint.config(
       "source/playground/public/",
       "source/vscode/out/",
       "source/vscode/src/katasPanel/render.js",
+      "source/vscode/src/learning/panel/render.js",
       "source/vscode/test/out/",
       "source/widgets/src/qsharp_widgets/static/",
       "target/",
