@@ -194,7 +194,13 @@ impl Visitor for PropagationVisitor<'_> {
                     GateModifierKind::Inv => {
                         new_constraints.requires_adj = true;
                     }
-                    GateModifierKind::Ctrl(_) | GateModifierKind::NegCtrl(_) => {
+                    GateModifierKind::Ctrl(_) => {
+                        new_constraints.requires_ctl = true;
+                    }
+                    GateModifierKind::NegCtrl(_) => {
+                        // The negctrl modifier uses ApplyControlledOnInt which requires
+                        // Adj + Ctl because it uses a within/apply pattern internally.
+                        new_constraints.requires_adj = true;
                         new_constraints.requires_ctl = true;
                     }
                     GateModifierKind::Pow(_) => {
@@ -231,7 +237,13 @@ impl Visitor for FunctorConstraintSolver {
                 GateModifierKind::Inv => {
                     call_constraints.requires_adj = true;
                 }
-                GateModifierKind::Ctrl(_) | GateModifierKind::NegCtrl(_) => {
+                GateModifierKind::Ctrl(_) => {
+                    call_constraints.requires_ctl = true;
+                }
+                GateModifierKind::NegCtrl(_) => {
+                    // The negctrl modifier uses ApplyControlledOnInt which requires
+                    // Adj + Ctl because it uses a within/apply pattern internally.
+                    call_constraints.requires_adj = true;
                     call_constraints.requires_ctl = true;
                 }
                 GateModifierKind::Pow(_) => {

@@ -20,7 +20,7 @@ use qsc_hir::hir::PackageId;
 use qsc_openqasm_parser::io::{InMemorySourceResolver, SourceResolver};
 use qsc_openqasm_parser::semantic::{QasmSemanticParseResult, parse_source};
 use qsc_passes::PackageType;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::sync::Arc;
 
 pub(crate) mod assignment;
@@ -110,6 +110,7 @@ fn compile_with_config<S: Into<Arc<str>>>(
         errors,
         pragma_config: PragmaConfig::default(),
         functor_constraints: FxHashMap::default(),
+        assigned_input_symbols: FxHashSet::default(),
     };
 
     let unit = compiler.compile(&program);
@@ -176,6 +177,7 @@ pub fn compile_all_with_config<P: Into<Arc<str>>>(
         errors,
         pragma_config: PragmaConfig::default(),
         functor_constraints: FxHashMap::default(),
+        assigned_input_symbols: FxHashSet::default(),
     };
 
     let unit = compiler.compile(&program);
@@ -285,6 +287,7 @@ pub(crate) fn parse_all<P: Into<Arc<str>>>(
 pub fn compile_qasm_to_qsharp_file<S: Into<Arc<str>>>(
     source: S,
 ) -> miette::Result<String, Vec<Report>> {
+    let source: Arc<str> = source.into();
     let config = CompilerConfig::new(
         QubitSemantics::Qiskit,
         OutputSemantics::OpenQasm,
@@ -293,17 +296,13 @@ pub fn compile_qasm_to_qsharp_file<S: Into<Arc<str>>>(
         None,
     );
     let unit = compile_with_config(source, config)?;
-    if unit.has_errors() {
-        let errors = unit.errors.into_iter().map(Report::new).collect();
-        return Err(errors);
-    }
-    let qsharp = gen_qsharp(&unit.package);
-    Ok(qsharp)
+    qsharp_from_qasm_compilation(unit)
 }
 
 pub fn compile_qasm_to_qsharp_operation<S: Into<Arc<str>>>(
     source: S,
 ) -> miette::Result<String, Vec<Report>> {
+    let source: Arc<str> = source.into();
     let config = CompilerConfig::new(
         QubitSemantics::Qiskit,
         OutputSemantics::OpenQasm,
@@ -311,12 +310,13 @@ pub fn compile_qasm_to_qsharp_operation<S: Into<Arc<str>>>(
         Some("Test".into()),
         None,
     );
-    let unit = compile_with_config(source, config)?;
+    let unit = compile_with_config(source.clone(), config)?;
     if unit.has_errors() {
         let errors = unit.errors.into_iter().map(Report::new).collect();
         return Err(errors);
     }
     let qsharp = gen_qsharp(&unit.package);
+    verify_qsharp_from_qasm_source(source, QubitSemantics::Qiskit)?;
     Ok(qsharp)
 }
 
@@ -360,6 +360,7 @@ pub fn compile_qasm_to_qsharp_with_semantics<S: Into<Arc<str>>>(
     source: S,
     qubit_semantics: QubitSemantics,
 ) -> miette::Result<String, Vec<Report>> {
+    let source: Arc<str> = source.into();
     let config = CompilerConfig::new(
         qubit_semantics,
         OutputSemantics::Qiskit,
@@ -367,8 +368,14 @@ pub fn compile_qasm_to_qsharp_with_semantics<S: Into<Arc<str>>>(
         None,
         None,
     );
-    let unit = compile_with_config(source, config)?;
-    qsharp_from_qasm_compilation(unit)
+    let unit = compile_with_config(source.clone(), config)?;
+    if unit.has_errors() {
+        let errors = unit.errors.into_iter().map(Report::new).collect();
+        return Err(errors);
+    }
+    let qsharp = gen_qsharp(&unit.package);
+    verify_qsharp_from_qasm_source(source, qubit_semantics)?;
+    Ok(qsharp)
 }
 
 pub fn qsharp_from_qasm_compilation(unit: QasmCompileUnit) -> miette::Result<String, Vec<Report>> {
@@ -377,7 +384,52 @@ pub fn qsharp_from_qasm_compilation(unit: QasmCompileUnit) -> miette::Result<Str
         return Err(errors);
     }
     let qsharp = gen_qsharp(&unit.package);
+    verify_qsharp_ast(&unit)?;
     Ok(qsharp)
+}
+
+/// Verifies that QASM source produces valid Q# by re-compiling it in File mode
+/// (which produces a complete Q# program) and passing the result through the Q#
+/// compiler. This is used for fragments mode where the Q# AST has top-level
+/// statements that the Q# compiler cannot process directly.
+fn verify_qsharp_from_qasm_source(
+    source: Arc<str>,
+    qubit_semantics: QubitSemantics,
+) -> miette::Result<(), Vec<Report>> {
+    let config = CompilerConfig::new(
+        qubit_semantics,
+        OutputSemantics::OpenQasm,
+        ProgramType::File,
+        Some("Test".into()),
+        None,
+    );
+    let file_unit = compile_with_config(source, config)?;
+    if file_unit.has_errors() {
+        let errors = file_unit.errors.into_iter().map(Report::new).collect();
+        return Err(errors);
+    }
+    verify_qsharp_ast(&file_unit)
+}
+
+/// Verifies a Q# AST package (with namespaces) compiles through the Q# compiler.
+fn verify_qsharp_ast(unit: &QasmCompileUnit) -> miette::Result<(), Vec<Report>> {
+    let capabilities = unit.profile.into();
+    let (stdid, store) = package_store_with_stdlib(capabilities);
+    let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
+    let (_compiled, errors) = compile_ast(
+        &store,
+        &dependencies,
+        unit.package.clone(),
+        unit.source_map.clone(),
+        PackageType::Lib,
+        capabilities,
+    );
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        let reports = errors.into_iter().map(Report::new).collect();
+        Err(reports)
+    }
 }
 
 pub fn compile_qasm_stmt_to_qsharp<S: Into<Arc<str>>>(
@@ -390,6 +442,7 @@ pub fn compile_qasm_stmt_to_qsharp_with_semantics<S: Into<Arc<str>>>(
     source: S,
     qubit_semantics: QubitSemantics,
 ) -> miette::Result<String, Vec<Report>> {
+    let source: Arc<str> = source.into();
     let config = CompilerConfig::new(
         qubit_semantics,
         OutputSemantics::Qiskit,
@@ -397,11 +450,12 @@ pub fn compile_qasm_stmt_to_qsharp_with_semantics<S: Into<Arc<str>>>(
         None,
         None,
     );
-    let unit = compile_with_config(source, config)?;
+    let unit = compile_with_config(source.clone(), config)?;
     if unit.has_errors() {
         let errors = unit.errors.into_iter().map(Report::new).collect();
         return Err(errors);
     }
+    verify_qsharp_from_qasm_source(source, qubit_semantics)?;
     let qsharp = get_last_statement_as_qsharp(&unit.package);
     Ok(qsharp)
 }
