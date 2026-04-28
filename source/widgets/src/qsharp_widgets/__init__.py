@@ -9,12 +9,6 @@ from typing import Literal
 import anywidget
 import traitlets
 
-import re as _re
-
-
-def _snake_to_camel(name: str) -> str:
-    return _re.sub(r"_([a-z])", lambda m: m.group(1).upper(), name)
-
 
 try:
     __version__ = importlib.metadata.version("qsharp_widgets")
@@ -263,8 +257,9 @@ class Entanglement(anywidget.AnyWidget):
         Parameters
         ----------
         wavefunction : optional
-            A ``Wavefunction`` with single-orbital entropies and mutual
-            information.  When provided, *s1_entropies* and
+            A ``qdk.chemistry.Wavefunction`` instance (from the
+            ``qdk-chemistry`` package) with single-orbital entropies and
+            mutual information.  When provided, *s1_entropies* and
             *mutual_information* are extracted automatically.
         s1_entropies : list[float], optional
             Single-orbital entropies (length *N*).  Required when
@@ -282,21 +277,71 @@ class Entanglement(anywidget.AnyWidget):
             placed adjacent on the ring.  Takes precedence over
             *selected_indices* for grouping when both are provided.
         **options
-            Forwarded to the JS component as visual knobs
-            (``gap_deg``, ``radius``, ``arc_width``, ``line_scale``,
-            ``mi_threshold``, ``s1_vmax``, ``mi_vmax``, ``title``,
-            ``width``, ``height``, ``selection_color``,
-            ``selection_linewidth``, ``group_colors``).
+            Visual knobs forwarded to the JS component.  All are
+            optional; snake_case names are converted to camelCase
+            automatically.
+
+            ``gap_deg`` : float
+                Gap in degrees between adjacent arcs.  Default ``3``.
+            ``radius`` : float
+                Outer radius of the ring in SVG user units.  Default ``1``.
+            ``arc_width`` : float
+                Radial thickness of each arc as a fraction of the
+                radius.  Default ``0.08``.
+            ``line_scale`` : float or None
+                Chord width multiplier.  ``None`` (default) auto-scales
+                to the data range.
+            ``mi_threshold`` : float
+                Minimum mutual-information value to draw a chord.
+                Default ``0`` (draw all).
+            ``s1_vmax`` : float or None
+                Clamp for the single-orbital-entropy colour scale.
+                Default ``ln(4)``.
+            ``mi_vmax`` : float or None
+                Clamp for the mutual-information colour scale.
+                Default ``ln(16)``.
+            ``title`` : str or None
+                Title shown above the diagram.
+                Default ``"Entanglement"``.
+            ``width`` : int
+                SVG viewport width in pixels.  Default ``600``.
+            ``height`` : int
+                SVG viewport height in pixels.  Default ``660``.
+            ``selection_color`` : str
+                CSS colour for the highlight outline around selected
+                arcs.  Default auto-detected from background luminance.
+            ``selection_linewidth`` : float
+                Stroke width of the selection outline.  Default ``1.2``.
+            ``group_colors`` : list[str]
+                Override outline colours for each group (cycles if
+                fewer colours than groups).
+            ``group_selected`` : bool
+                When ``True``, reorder arcs so that members of each
+                group sit adjacent on the ring.  Default ``False``.
         """
         if wavefunction is not None:
-            import numpy as np
+            try:
+                from qdk.chemistry import Wavefunction as _Wavefunction
+            except ImportError:
+                raise ImportError(
+                    "The 'qdk-chemistry' package is required when passing a "
+                    "wavefunction object.  Install it with:  pip install qdk-chemistry"
+                ) from None
+            if not isinstance(wavefunction, _Wavefunction):
+                raise TypeError(
+                    f"Expected a qdk.chemistry.Wavefunction instance, "
+                    f"got {type(wavefunction).__qualname__}"
+                )
 
-            s1_entropies = np.asarray(
-                wavefunction.get_single_orbital_entropies()
-            ).tolist()
-            mutual_information = np.asarray(
-                wavefunction.get_mutual_information()
-            ).tolist()
+            raw_s1 = wavefunction.get_single_orbital_entropies()
+            raw_mi = wavefunction.get_mutual_information()
+            # Accept numpy arrays or plain lists; normalise to plain lists.
+            s1_entropies = (
+                raw_s1.tolist() if hasattr(raw_s1, "tolist") else list(raw_s1)
+            )
+            mutual_information = (
+                raw_mi.tolist() if hasattr(raw_mi, "tolist") else [list(row) for row in raw_mi]
+            )
             n = len(s1_entropies)
             if labels is None:
                 try:
