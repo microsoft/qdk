@@ -16,14 +16,8 @@
 import * as vscode from "vscode";
 import { QscEventTarget } from "qsharp-lang";
 import { getAllKatas, getExerciseSources } from "qsharp-lang/katas-md";
-import type {
-  Kata,
-  Exercise,
-  Lesson,
-  LessonItem,
-  Solution,
-  ContentItem,
-} from "qsharp-lang/katas-md";
+import type { Kata, Exercise } from "qsharp-lang/katas-md";
+import type { Lesson, LessonItem, Solution } from "qsharp-lang/katas";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - there are no types for this
 import mk from "@vscode/markdown-it-katex";
@@ -949,7 +943,7 @@ export class LearningService {
         hintCount:
           (exercise.hints?.length ?? 0) +
           exercise.explainedSolution.items.filter(
-            (i: ContentItem) => i.type === "text-content",
+            (i) => i.type === "text-content",
           ).length,
       } satisfies ExerciseItem;
     }
