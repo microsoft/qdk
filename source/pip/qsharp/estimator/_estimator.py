@@ -19,13 +19,6 @@ except ImportError:
     has_markdown = False
 
 
-warnings.warn(
-    "This version of QRE is deprecated and will be removed in a future release. Please use the new version of QRE in qdk.qre. Refer to aka.ms/qdk.QREv3 for more information.",
-    DeprecationWarning,
-    stacklevel=2,
-)
-
-
 class EstimatorError(BaseException):
     """
     An error returned from the resource estimation.
