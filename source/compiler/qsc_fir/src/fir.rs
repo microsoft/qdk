@@ -1022,7 +1022,7 @@ pub enum ExecGraphNode {
     Bind(PatId),
     /// An expression to execute.
     // Expr(ExprId),
-    Expr(ExecExpr),
+    Expr(ExecExpr, Span),
     /// An unconditional jump with to given location.
     Jump(u32),
     /// A conditional jump with to given location, where the jump is only taken if the condition is
@@ -1046,34 +1046,30 @@ pub enum ExecExpr {
     Array {
         len: usize,
     },
-    ArrayRepeat {
-        span: Span,
-    },
+    ArrayRepeat,
     Assign {
         binding: ExprId,
     },
     AssignOp {
         op: BinOp,
         binding: ExprId,
-        span: Span,
+        rhs_span: Span,
     },
     AssignIndex {
         binding: ExprId,
-        span: Span,
+        index_span: Span,
     },
     BinOp {
         op: BinOp,
-        span: Span,
+        rhs_span: Span,
     },
     Call {
         callee_span: Span,
         args_span: Span,
     },
-    Fail {
-        span: Span,
-    },
+    Fail,
     Index {
-        span: Span,
+        rhs_span: Span,
     },
     Range {
         has_start: bool,
@@ -1081,7 +1077,7 @@ pub enum ExecExpr {
         has_end: bool,
     },
     UpdateIndex {
-        span: Span,
+        index_span: Span,
     },
     Tuple {
         len: usize,
@@ -1091,7 +1087,6 @@ pub enum ExecExpr {
     },
     Var {
         res: Res,
-        span: Span,
     },
     Expr(ExprId),
 }

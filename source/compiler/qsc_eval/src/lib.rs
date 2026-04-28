@@ -789,9 +789,9 @@ impl State {
                 //         }
                 //     }
                 // }
-                Some(ExecGraphNode::Expr(expr)) => {
+                Some(ExecGraphNode::Expr(expr, span)) => {
                     self.idx += 1;
-                    match self.eval_exec_expr(env, sim, globals, out, *expr) {
+                    match self.eval_exec_expr(env, sim, globals, out, *expr, *span) {
                         Ok(()) => continue,
                         Err(e) => {
                             if self.error_behavior == ErrorBehavior::StopOnError {
@@ -1092,12 +1092,18 @@ impl State {
         globals: &impl PackageStoreLookup,
         out: &mut impl Receiver,
         expr: ExecExpr,
+        span: Span,
     ) -> Result<(), Error> {
+        self.current_span = span;
         match &expr {
             ExecExpr::Array { len } => self.eval_arr(*len),
-            ExecExpr::ArrayRepeat { span } => self.eval_arr_repeat(*span)?,
+            ExecExpr::ArrayRepeat => self.eval_arr_repeat(span)?,
             ExecExpr::Assign { binding } => self.eval_assign(env, globals, *binding)?,
-            ExecExpr::AssignOp { op, binding, span } => {
+            ExecExpr::AssignOp {
+                op,
+                binding,
+                rhs_span,
+            } => {
                 let (is_array, is_unique) =
                     is_updatable_in_place(env, globals.get_expr((self.package, *binding).into()));
                 if is_array {
@@ -1110,43 +1116,46 @@ impl State {
                     self.push_val();
                     self.set_val_register(rhs_val);
                 }
-                self.eval_binop(*op, *span)?;
+                self.eval_binop(*op, *rhs_span)?;
                 self.eval_assign(env, globals, *binding)?;
             }
-            ExecExpr::AssignIndex { binding, span } => {
+            ExecExpr::AssignIndex {
+                binding,
+                index_span,
+            } => {
                 let (_, is_unique) =
                     is_updatable_in_place(env, globals.get_expr((self.package, *binding).into()));
                 if is_unique {
-                    self.eval_update_index_in_place(env, globals, *binding, *span)?;
+                    self.eval_update_index_in_place(env, globals, *binding, *index_span)?;
                     return Ok(());
                 }
                 self.push_val();
                 self.eval_expr(env, sim, globals, out, *binding)?;
-                self.eval_update_index(*span)?;
+                self.eval_update_index(*index_span)?;
                 self.eval_assign(env, globals, *binding)?;
             }
-            ExecExpr::BinOp { op, span } => self.eval_binop(*op, *span)?,
+            ExecExpr::BinOp { op, rhs_span } => self.eval_binop(*op, *rhs_span)?,
             ExecExpr::Call {
                 callee_span,
                 args_span,
             } => self.eval_call(env, sim, globals, *callee_span, *args_span, out)?,
-            ExecExpr::Fail { span } => {
+            ExecExpr::Fail => {
                 return Err(Error::UserFail(
                     self.take_val_register().unwrap_string().to_string(),
-                    self.to_global_span(*span),
+                    self.to_global_span(span),
                 ));
             }
-            ExecExpr::Index { span } => self.eval_index(*span)?,
+            ExecExpr::Index { rhs_span } => self.eval_index(*rhs_span)?,
             ExecExpr::Range {
                 has_start,
                 has_step,
                 has_end,
             } => self.eval_range(*has_start, *has_step, *has_end),
-            ExecExpr::UpdateIndex { span } => self.eval_update_index(*span)?,
+            ExecExpr::UpdateIndex { index_span } => self.eval_update_index(*index_span)?,
             ExecExpr::Tuple { len } => self.eval_tup(*len),
             ExecExpr::UnOp { op } => self.eval_unop(*op),
-            ExecExpr::Var { res, span } => {
-                self.set_val_register(resolve_binding(env, self.package, *res, *span)?);
+            ExecExpr::Var { res } => {
+                self.set_val_register(resolve_binding(env, self.package, *res, span)?);
             }
             ExecExpr::Expr(expr_id) => self.eval_expr(env, sim, globals, out, *expr_id)?,
         }
