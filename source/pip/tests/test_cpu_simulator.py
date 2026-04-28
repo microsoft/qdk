@@ -9,13 +9,13 @@ import random
 
 import pytest
 
-from qsharp._native import Result
+from qdk._native import Result
 
-import qsharp
-from qsharp import TargetProfile
-from qsharp import openqasm
+import qdk
+from qdk import TargetProfile
+from qdk import openqasm
 
-from qsharp._simulation import run_qir_cpu, NoiseConfig
+from qdk._simulation import run_qir_cpu, NoiseConfig
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
@@ -43,8 +43,8 @@ def result_array_to_string(results: Sequence[Result]) -> str:
 
 
 def test_cpu_seeding_no_noise():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(
         """
         operation BellTest() : Result[] {
             use qs = Qubit[2];
@@ -55,7 +55,7 @@ def test_cpu_seeding_no_noise():
         """
     )
 
-    qir = str(qsharp.compile("BellTest()"))
+    qir = str(qdk.compile("BellTest()"))
 
     results = [run_qir_cpu(qir, 1, None, seed)[0] for seed in range(100)]
     print(results)
@@ -77,10 +77,10 @@ def test_cpu_seeding_no_noise():
 
 def test_cpu_no_noise():
     """Simple test that CPU simulator works without noise."""
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(read_file_relative("CliffordIsing.qs"))
 
-    input = qsharp.compile(
+    input = qdk.compile(
         "IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 10.0, 10)"
     )
 
@@ -91,7 +91,7 @@ def test_cpu_no_noise():
 
 
 def test_cpu_isolated_loss():
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
     program = """
 import Std.Math.PI;
 operation Main() : Result[] {
@@ -105,9 +105,9 @@ operation Main() : Result[] {
     MeasureEachZ(qs)
 }
     """
-    qsharp.eval(program)
+    qdk.eval(program)
 
-    input = qsharp.compile("Main()")
+    input = qdk.compile("Main()")
 
     noise = NoiseConfig()
     noise.x.loss = 0.1
@@ -136,7 +136,7 @@ operation Main() : Result[] {
 
 
 def test_cpu_isolated_loss_and_noise():
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
     program = """
 import Std.Math.PI;
 operation Main() : Result[] {
@@ -151,9 +151,9 @@ operation Main() : Result[] {
     MeasureEachZ(qs)
 }
     """
-    qsharp.eval(program)
+    qdk.eval(program)
 
-    input = qsharp.compile("Main()")
+    input = qdk.compile("Main()")
 
     noise = NoiseConfig()
     noise.x.set_bitflip(0.001)
@@ -193,7 +193,7 @@ def build_x_chain_qir(n_instances: int, n_x: int) -> str:
     src_parallel = prefix + infix * n_x + suffix
 
     # Compile resulting program
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
     qir_parallel = openqasm.compile(src_parallel)
     return str(qir_parallel)
 
@@ -213,7 +213,7 @@ def build_cy_noise_qir(n_cy: int) -> str:
         c = measure q;
         """
 
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
     qir_program = openqasm.compile(src)
     return str(qir_program)
 
@@ -319,7 +319,7 @@ def generate_op_sequence(
 
 @pytest.mark.parametrize("noisy_gate, noise_number", [(0, 2), (1, 1), (2, 2), (3, 2)])
 def test_cpu_permuted_rotations(noisy_gate: int, noise_number: int):
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
 
     n_shots = 2000
     n_qubits = 11
@@ -376,8 +376,8 @@ operation tiny_coeffs() : Result[] {{
 """
 
     program = prefix + infix + suffix
-    qsharp.eval(program)
-    input = qsharp.compile("tiny_coeffs()")
+    qdk.eval(program)
+    input = qdk.compile("tiny_coeffs()")
 
     noise = NoiseConfig()
     p_combined_loss = 1.0 - ((1.0 - p_loss) ** noise_number)
@@ -434,7 +434,7 @@ operation tiny_coeffs() : Result[] {{
 
 
 def test_ccx_gate_gets_decomposed():
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
     program = """
     operation Main() : Result[] {
         use qs = Qubit[3];
@@ -444,8 +444,8 @@ def test_ccx_gate_gets_decomposed():
         MeasureEachZ(qs)
     }
     """
-    qsharp.eval(program)
-    input = qsharp.compile("Main()")
+    qdk.eval(program)
+    input = qdk.compile("Main()")
     output = run_qir_cpu(str(input), shots=1000)
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     histogram = Counter(result)

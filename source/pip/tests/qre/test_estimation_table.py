@@ -7,20 +7,20 @@ cirq = pytest.importorskip("cirq")
 
 import pandas as pd
 
-from qsharp.qre import (
+from qdk.qre import (
     PSSPC,
     LatticeSurgery,
     estimate,
 )
-from qsharp.qre.application import QSharpApplication
-from qsharp.qre.models import SurfaceCode, GateBased
-from qsharp.qre._estimation import (
+from qdk.qre.application import QSharpApplication
+from qdk.qre.models import SurfaceCode, GateBased
+from qdk.qre._estimation import (
     EstimationTable,
     EstimationTableEntry,
 )
-from qsharp.qre._instruction import InstructionSource
-from qsharp.qre.instruction_ids import LATTICE_SURGERY
-from qsharp.qre.property_keys import DISTANCE, NUM_TS_PER_ROTATION
+from qdk.qre._instruction import InstructionSource
+from qdk.qre.instruction_ids import LATTICE_SURGERY
+from qdk.qre.property_keys import DISTANCE, NUM_TS_PER_ROTATION
 
 from .conftest import ExampleFactory
 

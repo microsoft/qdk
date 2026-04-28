@@ -9,13 +9,13 @@ import random
 
 import pytest
 
-from qsharp._native import Result
+from qdk._native import Result
 
-import qsharp
-from qsharp import TargetProfile
-from qsharp import openqasm, run
+import qdk
+from qdk import TargetProfile
+from qdk import openqasm, run
 
-from qsharp._simulation import NoiseConfig
+from qdk._simulation import NoiseConfig
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
@@ -44,8 +44,8 @@ def result_array_to_string(results: Sequence[Result]) -> str:
 
 def test_sparse_no_noise():
     """Simple test that sparse simulator works without noise."""
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(read_file_relative("CliffordIsing.qs"))
 
     output = run("IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 10.0, 10)", 1)
     print(output)
@@ -55,8 +55,8 @@ def test_sparse_no_noise():
 
 def test_sparse_bitflip_noise():
     """Bitflip noise for sparse simulator."""
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(read_file_relative("CliffordIsing.qs"))
 
     p_noise = 0.005
     noise = NoiseConfig()
@@ -77,8 +77,8 @@ def test_sparse_bitflip_noise():
 
 
 def test_sparse_mixed_noise():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(read_file_relative("CliffordIsing.qs"))
 
     noise = NoiseConfig()
     noise.rz.set_bitflip(0.008)
@@ -99,7 +99,7 @@ def test_sparse_mixed_noise():
 
 
 def test_sparse_isolated_loss():
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
     program = """
 import Std.Math.PI;
 operation Main() : Result[] {
@@ -113,7 +113,7 @@ operation Main() : Result[] {
     MeasureEachZ(qs)
 }
     """
-    qsharp.eval(program)
+    qdk.eval(program)
 
     noise = NoiseConfig()
     noise.x.loss = 0.1
@@ -142,7 +142,7 @@ operation Main() : Result[] {
 
 
 def test_sparse_isolated_loss_and_noise():
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
     program = """
 import Std.Math.PI;
 operation Main() : Result[] {
@@ -157,7 +157,7 @@ operation Main() : Result[] {
     MeasureEachZ(qs)
 }
     """
-    qsharp.eval(program)
+    qdk.eval(program)
 
     noise = NoiseConfig()
     noise.x.set_bitflip(0.001)
@@ -233,7 +233,7 @@ def test_sparse_x_chain(
     Compare result frequencies with analytically computed probabilities
     """
     # Use the sparse simulator with noise
-    qsharp.init()
+    qdk.init()
     noise = NoiseConfig()
     noise.x.set_bitflip(p_noise)
 
@@ -274,7 +274,7 @@ def test_sparse_cy_noise_distribution():
     n_shots = 1000
     expected_p1 = (1.0 - (1.0 - 2.0 * p_z) ** n_cy) / 2.0
 
-    qsharp.init()
+    qdk.init()
     noise = NoiseConfig()
     noise.cy.set_pauli_noise("IZ", p_z)
 
@@ -320,7 +320,7 @@ def generate_op_sequence(
 
 @pytest.mark.parametrize("noisy_gate, noise_number", [(0, 2), (1, 1), (2, 2), (3, 2)])
 def test_sparse_permuted_rotations(noisy_gate: int, noise_number: int):
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
 
     n_shots = 400
     n_qubits = 11
@@ -377,7 +377,7 @@ operation tiny_coeffs() : Result[] {{
 """
 
     program = prefix + infix + suffix
-    qsharp.eval(program)
+    qdk.eval(program)
 
     noise = NoiseConfig()
     p_combined_loss = 1.0 - ((1.0 - p_loss) ** noise_number)

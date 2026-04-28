@@ -12,8 +12,8 @@ from dataclasses import astuple, asdict
 import pyqir
 import pytest
 
-from qsharp._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram, Bytecode
-from qsharp._adaptive_bytecode import *
+from qdk._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram, Bytecode
+from qdk._adaptive_bytecode import *
 
 
 # ---------------------------------------------------------------------------

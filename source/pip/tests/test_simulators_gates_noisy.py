@@ -4,9 +4,9 @@
 from collections import Counter
 import os
 import pytest
-import qsharp
-from qsharp import compile, Result, TargetProfile
-from qsharp._simulation import run_qir as _run_qir, NoiseConfig, try_create_gpu_adapter
+import qdk
+from qdk import compile, Result, TargetProfile
+from qdk._simulation import run_qir as _run_qir, NoiseConfig, try_create_gpu_adapter
 from typing import Literal, List, Optional, TypeAlias
 
 
@@ -20,7 +20,7 @@ def _init_base_profile():
     which means this file would inherit the interpreter state of
     another file.
     """
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
 
 
 SEED = 42
@@ -96,8 +96,8 @@ def compile_and_run_with_declarations(
     declarations, entry_expr, shots=1, noise=None, seed=None, sim_type: SimType = "cpu"
 ):
     """Register top-level Q# declarations, then compile and run an entry expression."""
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(declarations)
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(declarations)
     qir = compile(entry_expr)
     return run_qir(qir, shots=shots, noise=noise, seed=seed, type=sim_type)
 

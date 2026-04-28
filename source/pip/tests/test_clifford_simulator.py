@@ -4,12 +4,12 @@
 from pathlib import Path
 import pyqir
 
-import qsharp
-from qsharp._simulation import run_qir_clifford, NoiseConfig
-from qsharp._device._atom import NeutralAtomDevice
-from qsharp._device._atom._decomp import DecomposeRzAnglesToCliffordGates
-from qsharp._device._atom._validate import ValidateNoConditionalBranches
-from qsharp import TargetProfile, Result
+import qdk
+from qdk._simulation import run_qir_clifford, NoiseConfig
+from qdk._device._atom import NeutralAtomDevice
+from qdk._device._atom._decomp import DecomposeRzAnglesToCliffordGates
+from qdk._device._atom._validate import ValidateNoConditionalBranches
+from qdk import TargetProfile, Result
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
@@ -35,10 +35,10 @@ def read_file_relative(file_name: str) -> str:
 
 
 def test_smoke():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(read_file_relative("CliffordIsing.qs"))
 
-    input = qsharp.compile(
+    input = qdk.compile(
         "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 5.0, 5)"
     )
     input = transform_to_clifford(input)
@@ -47,10 +47,10 @@ def test_smoke():
 
 
 def test_1224_clifford_ising():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(read_file_relative("CliffordIsing.qs"))
 
-    input = qsharp.compile(
+    input = qdk.compile(
         "IsingModel2DEvolution(20, 50, PI() / 2.0, PI() / 2.0, 5.0, 5)"
     )
     qir = transform_to_clifford(input)
@@ -61,17 +61,17 @@ def test_1224_clifford_ising():
 
 
 def test_million():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordCalls.qs"))
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(read_file_relative("CliffordCalls.qs"))
 
-    ir = qsharp.compile("Main()")
+    ir = qdk.compile("Main()")
     output = run_qir_clifford(str(ir), 1, NoiseConfig())
     print(output)
 
 
 def test_program_with_branching_succeeds():
-    qsharp.init(target_profile=TargetProfile.Adaptive_RI)
-    qsharp.eval(
+    qdk.init(target_profile=TargetProfile.Adaptive_RI)
+    qdk.eval(
         """
         operation Main() : Result {
             use q = Qubit();
@@ -83,7 +83,7 @@ def test_program_with_branching_succeeds():
         }
         """
     )
-    ir = qsharp.compile("Main()")
+    ir = qdk.compile("Main()")
     results = run_qir_clifford(str(ir), 1, NoiseConfig())
     assert len(results) == 1
 

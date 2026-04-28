@@ -7,7 +7,7 @@ import pytest
 
 cirq = pytest.importorskip("cirq")
 
-from qsharp.applications.magnets import (
+from qdk.applications.magnets import (
     Hyperedge,
     Hypergraph,
     Model,

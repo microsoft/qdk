@@ -18,7 +18,7 @@ import sys
 from collections import Counter
 import pytest
 from typing import Optional, List
-import qsharp.openqasm
+import qdk.openqasm
 
 # Skip the whole module when GPU tests aren't requested.
 if not os.environ.get("QDK_GPU_TESTS"):
@@ -28,7 +28,7 @@ SKIP_REASON = "GPU is not available"
 GPU_AVAILABLE = False
 
 try:
-    from qsharp._native import try_create_gpu_adapter
+    from qdk._native import try_create_gpu_adapter
 
     gpu_info = try_create_gpu_adapter()
     print(f"*** USING GPU: {gpu_info}", file=sys.stderr)
@@ -36,7 +36,7 @@ try:
 except OSError as e:
     SKIP_REASON = str(e)
 
-from qsharp._simulation import run_qir, GpuSimulator, NoiseConfig, Result
+from qdk._simulation import run_qir, GpuSimulator, NoiseConfig, Result
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -247,10 +247,10 @@ test_noise_intrinsic qs[0], qs[1], qs[2];
 bit[3] res = measure qs;
 """
 
-QIR_WITH_CORRELATED_NOISE = qsharp.openqasm.compile(
+QIR_WITH_CORRELATED_NOISE = qdk.openqasm.compile(
     QASM_WITH_CORRELATED_NOISE,
-    output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
-    target_profile=qsharp.TargetProfile.Adaptive_RIF,
+    output_semantics=qdk.openqasm.OutputSemantics.OpenQasm,
+    target_profile=qdk.TargetProfile.Adaptive_RIF,
 )
 
 
@@ -360,10 +360,10 @@ noise_1q q;
 bit res = measure q;
 """
 
-QIR_NOISE_1Q = qsharp.openqasm.compile(
+QIR_NOISE_1Q = qdk.openqasm.compile(
     QASM_NOISE_1Q,
-    output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
-    target_profile=qsharp.TargetProfile.Adaptive_RIF,
+    output_semantics=qdk.openqasm.OutputSemantics.OpenQasm,
+    target_profile=qdk.TargetProfile.Adaptive_RIF,
 )
 
 
@@ -389,10 +389,10 @@ noise_2q qs[0], qs[1];
 bit[2] res = measure qs;
 """
 
-QIR_NOISE_2Q = qsharp.openqasm.compile(
+QIR_NOISE_2Q = qdk.openqasm.compile(
     QASM_NOISE_2Q,
-    output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
-    target_profile=qsharp.TargetProfile.Adaptive_RIF,
+    output_semantics=qdk.openqasm.OutputSemantics.OpenQasm,
+    target_profile=qdk.TargetProfile.Adaptive_RIF,
 )
 
 
@@ -420,10 +420,10 @@ noise_5q qs[0], qs[1], qs[2], qs[3], qs[4];
 bit[5] res = measure qs;
 """
 
-QIR_NOISE_5Q = qsharp.openqasm.compile(
+QIR_NOISE_5Q = qdk.openqasm.compile(
     QASM_NOISE_5Q,
-    output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
-    target_profile=qsharp.TargetProfile.Adaptive_RIF,
+    output_semantics=qdk.openqasm.OutputSemantics.OpenQasm,
+    target_profile=qdk.TargetProfile.Adaptive_RIF,
 )
 
 

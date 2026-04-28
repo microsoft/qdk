@@ -7,10 +7,10 @@ from typing import cast
 
 import pytest
 
-from qsharp.qre import LOGICAL
-from qsharp.qre.models import SurfaceCode, GateBased, RoundBasedFactory
-from qsharp.qre.instruction_ids import LATTICE_SURGERY, T
-from qsharp.qre._isa_enumeration import (
+from qdk.qre import LOGICAL
+from qdk.qre.models import SurfaceCode, GateBased, RoundBasedFactory
+from qdk.qre.instruction_ids import LATTICE_SURGERY, T
+from qdk.qre._isa_enumeration import (
     ISARefNode,
     _ComponentQuery,
     _ProductNode,
@@ -22,7 +22,7 @@ from .conftest import ExampleFactory, ExampleLogicalFactory
 
 def test_enumerate_instances():
     """Test enumeration of SurfaceCode instances with default and custom domains."""
-    from qsharp.qre._enumeration import _enumerate_instances
+    from qdk.qre._enumeration import _enumerate_instances
 
     instances = list(_enumerate_instances(SurfaceCode))
 
@@ -47,7 +47,7 @@ def test_enumerate_instances():
 
 def test_enumerate_instances_bool():
     """Test that boolean dataclass fields enumerate both True and False."""
-    from qsharp.qre._enumeration import _enumerate_instances
+    from qdk.qre._enumeration import _enumerate_instances
 
     @dataclass
     class BoolConfig:
@@ -62,7 +62,7 @@ def test_enumerate_instances_bool():
 
 def test_enumerate_instances_enum():
     """Test that Enum dataclass fields enumerate all members."""
-    from qsharp.qre._enumeration import _enumerate_instances
+    from qdk.qre._enumeration import _enumerate_instances
 
     class Color(Enum):
         RED = 1
@@ -83,7 +83,7 @@ def test_enumerate_instances_enum():
 
 def test_enumerate_instances_failure():
     """Test that a field with no domain and no default raises ValueError."""
-    from qsharp.qre._enumeration import _enumerate_instances
+    from qdk.qre._enumeration import _enumerate_instances
 
     @dataclass
     class InvalidConfig:
@@ -97,7 +97,7 @@ def test_enumerate_instances_failure():
 
 def test_enumerate_instances_single():
     """Test enumeration of a dataclass with a single non-kw-only field."""
-    from qsharp.qre._enumeration import _enumerate_instances
+    from qdk.qre._enumeration import _enumerate_instances
 
     @dataclass
     class SingleConfig:
@@ -110,7 +110,7 @@ def test_enumerate_instances_single():
 
 def test_enumerate_instances_literal():
     """Test that Literal-typed fields enumerate their allowed values."""
-    from qsharp.qre._enumeration import _enumerate_instances
+    from qdk.qre._enumeration import _enumerate_instances
 
     from typing import Literal
 
@@ -127,7 +127,7 @@ def test_enumerate_instances_literal():
 
 def test_enumerate_instances_nested():
     """Test enumeration of nested dataclass fields."""
-    from qsharp.qre._enumeration import _enumerate_instances
+    from qdk.qre._enumeration import _enumerate_instances
 
     @dataclass
     class InnerConfig:
@@ -147,7 +147,7 @@ def test_enumerate_instances_nested():
 
 def test_enumerate_instances_union():
     """Test enumeration of union-typed dataclass fields."""
-    from qsharp.qre._enumeration import _enumerate_instances
+    from qdk.qre._enumeration import _enumerate_instances
 
     @dataclass
     class OptionA:
@@ -174,7 +174,7 @@ def test_enumerate_instances_union():
 
 def test_enumerate_instances_nested_with_constraints():
     """Test constraining nested dataclass fields via a dict."""
-    from qsharp.qre._enumeration import _enumerate_instances
+    from qdk.qre._enumeration import _enumerate_instances
 
     @dataclass
     class InnerConfig:
@@ -194,7 +194,7 @@ def test_enumerate_instances_nested_with_constraints():
 
 def test_enumerate_instances_union_single_type():
     """Test restricting a union field to a single member type."""
-    from qsharp.qre._enumeration import _enumerate_instances
+    from qdk.qre._enumeration import _enumerate_instances
 
     @dataclass
     class OptionA:
@@ -227,7 +227,7 @@ def test_enumerate_instances_union_single_type():
 
 def test_enumerate_instances_union_list_of_types():
     """Test restricting a union field to a subset of member types."""
-    from qsharp.qre._enumeration import _enumerate_instances
+    from qdk.qre._enumeration import _enumerate_instances
 
     @dataclass
     class OptionA:
@@ -257,7 +257,7 @@ def test_enumerate_instances_union_list_of_types():
 
 def test_enumerate_instances_union_constraint_dict():
     """Test constraining union field members via a type-to-kwargs dict."""
-    from qsharp.qre._enumeration import _enumerate_instances
+    from qdk.qre._enumeration import _enumerate_instances
 
     @dataclass
     class OptionA:

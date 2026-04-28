@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 import pytest
-import qsharp
+import qdk
 
 
 class SampleAlgorithm:
@@ -74,7 +74,7 @@ def sample_qubit():
 
 def test_wrong_input():
     pytest.raises(
-        AttributeError, qsharp.estimate_custom, 42, sample_qubit(), SampleCode()
+        AttributeError, qdk.estimate_custom, 42, sample_qubit(), SampleCode()
     )
 
     # Catches missing methods in SampleAlgorithm
@@ -83,7 +83,7 @@ def test_wrong_input():
         delattr(SampleAlgorithm, method_name)
         pytest.raises(
             AttributeError,
-            qsharp.estimate_custom,
+            qdk.estimate_custom,
             SampleAlgorithm(),
             sample_qubit(),
             SampleCode(),
@@ -103,7 +103,7 @@ def test_wrong_input():
         delattr(SampleCode, method_name)
         pytest.raises(
             AttributeError,
-            qsharp.estimate_custom,
+            qdk.estimate_custom,
             SampleAlgorithm(),
             sample_qubit(),
             SampleCode(),
@@ -115,7 +115,7 @@ def test_wrong_input():
     SampleAlgorithm.logical_qubits = "not a method"
     pytest.raises(
         TypeError,
-        qsharp.estimate_custom,
+        qdk.estimate_custom,
         SampleAlgorithm(),
         sample_qubit(),
         SampleCode(),
@@ -127,7 +127,7 @@ def test_wrong_input():
     SampleAlgorithm.logical_depth = lambda self, budget, extra: 20
     pytest.raises(
         RuntimeError,
-        qsharp.estimate_custom,
+        qdk.estimate_custom,
         SampleAlgorithm(),
         sample_qubit(),
         SampleCode(),
@@ -135,7 +135,7 @@ def test_wrong_input():
     SampleAlgorithm.logical_depth = lambda self: 20
     pytest.raises(
         RuntimeError,
-        qsharp.estimate_custom,
+        qdk.estimate_custom,
         SampleAlgorithm(),
         sample_qubit(),
         SampleCode(),
@@ -144,7 +144,7 @@ def test_wrong_input():
 
 
 def test_estimate_without_factories():
-    result = qsharp.estimate_custom(SampleAlgorithm(), sample_qubit(), SampleCode())
+    result = qdk.estimate_custom(SampleAlgorithm(), sample_qubit(), SampleCode())
 
     assert len(result["factoryParts"]) == 0
     assert len(result["layoutOverhead"]["numMagicStates"]) == 0
@@ -157,7 +157,7 @@ def test_estimate_without_factories():
 
 
 def test_with_single_factory():
-    result = qsharp.estimate_custom(
+    result = qdk.estimate_custom(
         SampleAlgorithm(), sample_qubit(), SampleCode(), [SampleFactory()]
     )
     assert len(result["factoryParts"]) == 1
@@ -168,7 +168,7 @@ def test_with_single_factory():
 
 
 def test_with_multiple_factories():
-    result = qsharp.estimate_custom(
+    result = qdk.estimate_custom(
         SampleAlgorithm(magic_states=[50, 100, 200]),
         sample_qubit(),
         SampleCode(),
@@ -183,7 +183,7 @@ def test_with_multiple_factories():
 
 
 def test_with_factory_builder():
-    result = qsharp.estimate_custom(
+    result = qdk.estimate_custom(
         SampleAlgorithm(),
         sample_qubit(),
         SampleCode(),
@@ -207,7 +207,7 @@ def test_with_trivial_factory_unit():
             "failure_probability": lambda _: 0.0,
         }
 
-    result = qsharp.estimate_custom(
+    result = qdk.estimate_custom(
         SampleAlgorithm(),
         {**sample_qubit(), "error_rate": 1e-6},
         SampleCode(),
@@ -220,7 +220,7 @@ def test_with_trivial_factory_unit():
     # Apply override to return T gate directly if error rate is low enough
     SampleFactoryBuilder.trivial_distillation_unit = _trivial_distillation_unit
 
-    result = qsharp.estimate_custom(
+    result = qdk.estimate_custom(
         SampleAlgorithm(),
         {**sample_qubit(), "error_rate": 1e-6},
         SampleCode(),
@@ -234,13 +234,13 @@ def test_with_trivial_factory_unit():
 
 
 def test_prune_error_budget():
-    result = qsharp.estimate_custom(SampleAlgorithm(), sample_qubit(), SampleCode())
+    result = qdk.estimate_custom(SampleAlgorithm(), sample_qubit(), SampleCode())
 
     assert abs(result["errorBudget"]["logical"] - 0.01 / 3) < 1e-6
     assert abs(result["errorBudget"]["rotations"] - 0.01 / 3) < 1e-6
     assert abs(result["errorBudget"]["magic_states"] - 0.01 / 3) < 1e-6
 
-    result = qsharp.estimate_custom(
+    result = qdk.estimate_custom(
         SampleAlgorithm(), sample_qubit(), SampleCode(), error_budget=0.1
     )
 
@@ -256,7 +256,7 @@ def test_prune_error_budget():
 
     SampleAlgorithm.prune_error_budget = _prune_error_budget
 
-    result = qsharp.estimate_custom(SampleAlgorithm(), sample_qubit(), SampleCode())
+    result = qdk.estimate_custom(SampleAlgorithm(), sample_qubit(), SampleCode())
 
     assert abs(result["errorBudget"]["logical"] - 0.01 / 2) < 1e-6
     assert abs(result["errorBudget"]["rotations"]) < 1e-6

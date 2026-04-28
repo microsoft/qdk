@@ -1,8 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from qsharp.qre import LOGICAL, PHYSICAL
-from qsharp.qre.instruction_ids import (
+from qdk.qre import LOGICAL, PHYSICAL
+from qdk.qre.instruction_ids import (
     T,
     CCZ,
     CCX,
@@ -26,7 +26,7 @@ from qsharp.qre.instruction_ids import (
     SQRT_SQRT_Z,
     SQRT_SQRT_Z_DAG,
 )
-from qsharp.qre.models import (
+from qdk.qre.models import (
     GateBased,
     Majorana,
     RoundBasedFactory,
@@ -36,7 +36,7 @@ from qsharp.qre.models import (
     ThreeAux,
     TwoDimensionalYokedSurfaceCode,
 )
-from qsharp.qre.property_keys import DISTANCE
+from qdk.qre.property_keys import DISTANCE
 
 
 # ---------------------------------------------------------------------------
@@ -580,7 +580,7 @@ class TestLitinski19Factory:
 
     def test_table2_scenario_no_ccz(self):
         """Table 2 scenario: T error ~10x higher than Clifford, no CCZ."""
-        from qsharp.qre._qre import _ProvenanceGraph
+        from qdk.qre._qre import _ProvenanceGraph
 
         arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
@@ -608,7 +608,7 @@ class TestLitinski19Factory:
 
     def test_no_yield_when_error_too_high(self):
         """If T error > 10x Clifford, no entries match."""
-        from qsharp.qre._qre import _ProvenanceGraph
+        from qdk.qre._qre import _ProvenanceGraph
 
         arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
@@ -756,14 +756,14 @@ class TestMagicUpToClifford:
 
     def test_no_family_present_passes_through(self):
         """If no family member is present, ISA passes through unchanged."""
-        from qsharp.qre._qre import _ProvenanceGraph
+        from qdk.qre._qre import _ProvenanceGraph
 
         arch = GateBased(gate_time=50, measurement_time=100)
         ctx = arch.context()
         modifier = MagicUpToClifford()
 
         # ISA with only a LATTICE_SURGERY instruction (no T or CCZ family)
-        from qsharp.qre import linear_function
+        from qdk.qre import linear_function
 
         graph = _ProvenanceGraph()
         isa_input = graph.make_isa(
