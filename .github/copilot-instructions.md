@@ -36,6 +36,8 @@ Directories at the repo root (Q# content):
 
 ## Development Workflow
 
+**Important**: The build script (`build.py`) and many development tasks require Python. Always use the `get_python_environment_details` and `configure_python_environment` tools, if available, to determine the correct Python environment before running any Python commands. Do not assume a system-level Python is available or correct.
+
 - `./build.py` runs full CI checks, including lints and unit tests.
 - `./build.py --wasm --npm --vscode` only builds the VS Code extension, including its dependencies the WASM module and the `qsharp-lang` npm package.
 - `./build.py --pip` only builds the `qsharp` Python package, including its native dependencies.
@@ -50,7 +52,3 @@ Directories at the repo root (Q# content):
 - Before opening a PR, ensure the following.
   - Code **must** be formatted by running `cargo fmt` and `npm run prettier:fix`.
   - `./build.py` without any command-line arguments **must** run without errors or warnings.
-
-## Python Environment
-
-- The build script (`build.py`) and many development tasks require Python. Always use the `get_python_environment_details` and `configure_python_environment` tools to determine the correct Python environment before running any Python commands. Do not assume a system-level Python is available or correct.
