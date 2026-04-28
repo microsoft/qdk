@@ -186,7 +186,7 @@ class Histogram(anywidget.AnyWidget):
         )
 
     def run(self, entry_expr, shots):
-        import qsharp
+        from qdk import qsharp
 
         self._new_buckets = {}
         self._new_count = 0
