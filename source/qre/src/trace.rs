@@ -227,6 +227,16 @@ impl Trace {
         self.deep_iter().map(|(_, m)| m).sum()
     }
 
+    pub fn runtime(&self, locked: &LockedISA) -> Result<u64, Error> {
+        Ok(self
+            .block
+            .depth_and_used(Some(&|op: &Gate| {
+                let instr = get_instruction(locked, op.id)?;
+                Ok(instr.expect_time(Some(op.qubits.len() as u64)))
+            }))?
+            .0)
+    }
+
     #[allow(
         clippy::cast_precision_loss,
         clippy::cast_possible_truncation,
@@ -310,14 +320,7 @@ impl Trace {
             Property::Int(total_compute_qubits.cast_signed()),
         );
 
-        result.add_runtime(
-            self.block
-                .depth_and_used(Some(&|op: &Gate| {
-                    let instr = get_instruction(&locked, op.id)?;
-                    Ok(instr.expect_time(Some(op.qubits.len() as u64)))
-                }))?
-                .0,
-        );
+        result.add_runtime(self.runtime(&locked)?);
 
         // ------------------------------------------------------------------
         // Factory overhead estimation. Each factory produces states at
