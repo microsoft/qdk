@@ -29,6 +29,7 @@ import type {
 import mk from "@vscode/markdown-it-katex";
 import markdownIt from "markdown-it";
 import { loadCompilerWorker } from "../common.js";
+import { LEARNING_FILE } from "./progress/detector.js";
 import type {
   Position,
   NavigationItem,
@@ -120,7 +121,7 @@ export class LearningService {
   ): Promise<void> {
     this.workspaceRoot = workspaceRoot;
     this.katasRoot = katasRoot;
-    this.learningFile = vscode.Uri.joinPath(workspaceRoot, "qdk-learning.json");
+    this.learningFile = vscode.Uri.joinPath(workspaceRoot, LEARNING_FILE);
 
     // Load all katas (HTML format for webview rendering)
     const allKatas = await getAllKatas();

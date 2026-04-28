@@ -10,7 +10,7 @@ import { LearningTools } from "./learningTools";
 import { QSharpTools } from "./qsharpTools";
 import { CopilotToolError } from "./types";
 import { ToolState } from "./azureQuantumTools";
-import type { LearningService } from "../learningService/index";
+import type { LearningService } from "../learning/index";
 
 // state
 const workspaceState: ToolState = {};

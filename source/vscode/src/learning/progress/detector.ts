@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-import { KATAS_WS_FOLDER_REL } from "../learningService/index.js";
+import { KATAS_WS_FOLDER_REL } from "../index.js";
 
 /** Well-known file that marks a workspace folder as a katas workspace. */
 export const LEARNING_FILE = "qdk-learning.json";
@@ -41,7 +41,9 @@ export async function detectKatasWorkspace(): Promise<
 > {
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
     const learningFile = vscode.Uri.joinPath(folder.uri, LEARNING_FILE);
-    if (!(await uriExists(learningFile))) continue;
+    if (!(await uriExists(learningFile))) {
+      continue;
+    }
 
     const katasRoot = vscode.Uri.joinPath(folder.uri, KATAS_WS_FOLDER_REL);
     return {

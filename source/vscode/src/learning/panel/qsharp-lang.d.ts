@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// Type declarations for qsharp-lang sub-module imports used by katasPanel.
+// Type declarations for qsharp-lang sub-module imports used by the learning panel.
 // The main declarations live in src/learning/qsharp-lang.d.ts but that
 // directory is excluded from the main tsconfig.
 

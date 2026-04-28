@@ -2,10 +2,10 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-import { qsharpExtensionId } from "../common.js";
+import { qsharpExtensionId } from "../../common.js";
 import { KatasPanelManager } from "./panel.js";
-import type { ProgressWatcher } from "../katasProgress/progressReader.js";
-import type { LearningService } from "../learningService/index.js";
+import type { ProgressWatcher } from "../progress/progressReader.js";
+import type { LearningService } from "../index.js";
 
 /**
  * Register the `qsharp-vscode.showKatas` command that opens the Quantum Katas

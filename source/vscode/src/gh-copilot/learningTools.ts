@@ -2,18 +2,17 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-import { LearningService, KATAS_WS_FOLDER } from "../learningService/index.js";
+import { LearningService, KATAS_WS_FOLDER } from "../learning/index.js";
 import {
   detectKatasWorkspace,
   LEARNING_FILE,
-} from "../katasProgress/detector.js";
+} from "../learning/progress/detector.js";
 import { CopilotToolError } from "./types.js";
 import { QSharpTools } from "./qsharpTools.js";
 
 /**
  * Wraps the shared {@link LearningService} singleton for use as
- * `vscode.lm` language model tools. One method per tool, following
- * the same pattern as {@link QSharpTools}.
+ * `vscode.lm` language model tools.
  */
 export class LearningTools {
   constructor(
@@ -330,7 +329,7 @@ export class LearningTools {
   }
 
   private serializeProgressFull(
-    progress: import("../learningService/types.js").OverallProgress,
+    progress: import("../learning/types.js").OverallProgress,
   ): object {
     return progress;
   }

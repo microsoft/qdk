@@ -2,8 +2,7 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-import { registerKatasCommands } from "./commands.js";
-import type { LearningService } from "../learningService/index.js";
+import type { LearningService } from "../index.js";
 import { ProgressWatcher } from "./progressReader.js";
 import { KatasTreeProvider } from "./treeProvider.js";
 import type { OverallProgress } from "./types.js";
@@ -74,8 +73,6 @@ export function registerKatasProgressView(
       );
     }),
   );
-
-  registerKatasCommands(context, watcher, learningService);
 
   // Kick off initial detection + load; fire-and-forget.
   void watcher.start();

@@ -4,19 +4,11 @@
 /**
  * Shared types for the Quantum Katas activity-bar panel.
  *
- * Progress schema is mirrored from the learning-server's
- * `ProgressFileData` (see source/vscode/src/learning/server/progress.ts).
- * We deliberately re-declare it here so this module does not depend on
- * anything inside `src/learning/` — the learning subtree is bundled as
- * a separate Node CLI and pulls in the full ~2 MB kata markdown catalog.
+ * `ProgressFileData` is defined in `../types.ts` (the canonical learning
+ * types module) and re-exported here for convenience.
  */
 
-export interface ProgressFileData {
-  version: 1;
-  position: { kataId: string; sectionId: string; itemIndex: number };
-  completions: Record<string, { completedAt: string }>;
-  startedAt: string;
-}
+export type { ProgressFileData } from "../types.js";
 
 export type SectionKind = "lesson" | "exercise";
 

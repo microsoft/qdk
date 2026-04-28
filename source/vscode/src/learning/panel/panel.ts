@@ -13,12 +13,12 @@ import * as vscode from "vscode";
 import { QscEventTarget } from "qsharp-lang";
 import { getExerciseSources } from "qsharp-lang/katas-md";
 import type { Exercise } from "qsharp-lang/katas-md";
-import { loadCompilerWorker, qsharpExtensionId } from "../common.js";
-import { runExerciseInTerminal } from "../run.js";
-import type { LearningService } from "../learningService/index.js";
-import type { ProgressWatcher } from "../katasProgress/progressReader.js";
-import { detectKatasWorkspace } from "../katasProgress/detector.js";
-import type { SolutionCheckResult } from "../learningService/types.js";
+import { loadCompilerWorker, qsharpExtensionId } from "../../common.js";
+import { runExerciseInTerminal } from "../../run.js";
+import type { LearningService } from "../index.js";
+import type { ProgressWatcher } from "../progress/progressReader.js";
+import { detectKatasWorkspace } from "../progress/detector.js";
+import type { SolutionCheckResult } from "../types.js";
 
 let instance: KatasPanelManager | undefined;
 
@@ -476,8 +476,8 @@ export class KatasPanelManager {
       return webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, ...parts));
     }
 
-    const renderJsUri = getUri("out", "katasPanel", "render.js");
-    const cssUri = getUri("out", "katasPanel", "katas-webview.css");
+    const renderJsUri = getUri("out", "learning", "panel", "render.js");
+    const cssUri = getUri("out", "learning", "panel", "webview.css");
     const katexCssUri = getUri("out", "katex", "katex.min.css");
     const codiconCssUri = getUri("out", "katex", "codicon.css");
 

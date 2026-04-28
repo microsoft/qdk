@@ -23,9 +23,9 @@ import {
   createLearningCodeLensProvider,
   exerciseDocumentSelector,
   registerLearningDecorations,
-} from "./learningService/index.js";
-import { registerKatasPanelCommand } from "./katasPanel/index.js";
-import { registerKatasProgressView } from "./katasProgress/index.js";
+} from "./learning/index.js";
+import { registerKatasPanelCommand } from "./learning/panel/index.js";
+import { registerKatasProgressView } from "./learning/progress/index.js";
 import { activateLanguageService } from "./language-service/activate.js";
 import {
   Logging,
@@ -114,7 +114,6 @@ export async function activate(
   context.subscriptions.push({ dispose: () => learningService.dispose() });
   registerLanguageModelTools(context, learningService);
   registerEditorContext(context, learningService);
-  registerLearningCommands(context, learningService);
   registerLearningDecorations(context, learningService);
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
@@ -123,6 +122,7 @@ export async function activate(
     ),
   );
   const progressWatcher = registerKatasProgressView(context, learningService);
+  registerLearningCommands(context, learningService, progressWatcher);
   registerKatasPanelCommand(context, progressWatcher, learningService);
   // fire-and-forget
   removeDeprecatedCopilotInstructions(context);
