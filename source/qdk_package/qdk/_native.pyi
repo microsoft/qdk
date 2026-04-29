@@ -1,0 +1,1140 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+from enum import Enum
+from typing import Any, Callable, Optional, Dict, List, Tuple, TypedDict, overload
+
+# pylint: disable=unused-argument
+# E302 is fighting with the formatter for number of blank lines
+# flake8: noqa: E302
+
+class OutputSemantics(Enum):
+    """
+    Represents the output semantics for OpenQASM 3 compilation.
+    Each has implications on the output of the compilation
+    and the semantic checks that are performed.
+    """
+
+    Qiskit: OutputSemantics
+    """
+    The output is in Qiskit format meaning that the output
+    is all of the classical registers, in reverse order
+    in which they were added to the circuit with each
+    bit within each register in reverse order.
+    """
+
+    OpenQasm: OutputSemantics
+    """
+    [OpenQASM 3 has two output modes](https://openqasm.com/language/directives.html#input-output)
+    - If the programmer provides one or more `output` declarations, then
+        variables described as outputs will be returned as output.
+        The spec make no mention of endianness or order of the output.
+    - Otherwise, assume all of the declared variables are returned as output.
+    """
+
+    ResourceEstimation: OutputSemantics
+    """
+    No output semantics are applied. The entry point returns `Unit`.
+    """
+
+class ProgramType(Enum):
+    """
+    Represents the type of compilation output to create
+    """
+
+    File: ProgramType
+    """
+    Creates an operation in a namespace as if the program is a standalone
+    file. Inputs are lifted to the operation params. Output are lifted to
+    the operation return type. The operation is marked as `@EntryPoint`
+    as long as there are no input parameters.
+    """
+
+    Operation: ProgramType
+    """
+    Programs are compiled to a standalone function. Inputs are lifted to
+    the operation params. Output are lifted to the operation return type.
+    """
+
+    Fragments: ProgramType
+    """
+    Creates a list of statements from the program. This is useful for
+    interactive environments where the program is a list of statements
+    imported into the current scope.
+    This is also useful for testing individual statements compilation.
+    """
+
+class TargetProfile(Enum):
+    """
+    A Q# target profile.
+
+    A target profile describes the capabilities of the hardware or simulator
+    which will be used to run the Q# program.
+    """
+
+    @classmethod
+    def from_str(cls, value: str) -> TargetProfile: ...
+    """
+    Creates a target profile from a string.
+    :param value: The string to parse.
+    :raises ValueError: If the string does not match any target profile.
+    """
+
+    Base: TargetProfile
+    """
+    Target supports the minimal set of capabilities required to run a quantum
+    program.
+
+    This option maps to the Base Profile as defined by the QIR specification.
+    """
+
+    Adaptive_RI: TargetProfile
+    """
+    Target supports the Adaptive profile with the integer computation extension.
+
+    This profile includes all of the required Adaptive Profile
+    capabilities, as well as the optional integer computation
+    extension defined by the QIR specification.
+    """
+
+    Adaptive_RIF: TargetProfile
+    """
+    Target supports the Adaptive profile with integer & floating-point
+    computation extensions.
+
+    This profile includes all required Adaptive Profile and `Adaptive_RI`
+    capabilities, as well as the optional floating-point computation
+    extension defined by the QIR specification.
+    """
+
+    Adaptive_RIFLA: TargetProfile
+    """
+    Target supports the Adaptive profile with integer & floating-point
+    computation extensions as well as loop extension and statically-sized
+    arrays extension.
+    """
+
+    Unrestricted: TargetProfile
+    """
+    Describes the unrestricted set of capabilities required to run any Q# program.
+    """
+
+class GlobalCallable:
+    """
+    A callable reference that can be invoked with arguments.
+    """
+
+    ...
+
+class Closure:
+    """
+    A closure reference that can be passed back into Q#.
+    """
+
+    ...
+
+class Interpreter:
+    """A Q# interpreter."""
+
+    def __init__(
+        self,
+        target_profile: TargetProfile,
+        language_features: Optional[List[str]],
+        project_root: Optional[str],
+        read_file: Callable[[str], Tuple[str, str]],
+        list_directory: Callable[[str], List[Dict[str, str]]],
+        resolve_path: Callable[[str, str], str],
+        fetch_github: Callable[[str, str, str, str], str],
+        make_callable: Optional[Callable[[GlobalCallable, List[str], str], None]],
+        make_class: Optional[Callable[[TypeIR, List[str], str], None]],
+        trace_circuit: Optional[bool],
+    ) -> None:
+        """
+        Initializes the Q# interpreter.
+
+        :param target_profile: The target profile to use for the interpreter.
+        :param project_root: A directory that contains a `qsharp.json` manifest.
+        :param read_file: A function that reads a file from the file system.
+        :param list_directory: A function that lists the contents of a directory.
+        :param resolve_path: A function that joins path segments and normalizes the resulting path.
+        :param make_callable: A function that registers a Q# callable in the in the environment module.
+        :param trace_circuit: Enables tracing of circuit during execution.
+            Passing `True` is required for the `dump_circuit` function to return a circuit.
+            The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
+        """
+        ...
+
+    def interpret(self, input: str, output_fn: Callable[[Output], None]) -> Any:
+        """
+        Interprets Q# source code.
+
+        :param input: The Q# source code to interpret.
+        :param output_fn: A callback function that will be called with each output.
+
+        :returns value: The value returned by the last statement in the input.
+
+        :raises QSharpError: If there is an error interpreting the input.
+        """
+        ...
+
+    def run(
+        self,
+        entry_expr: Optional[str],
+        output_fn: Optional[Callable[[Output], None]],
+        noise_config: Optional[NoiseConfig],
+        noise: Optional[Tuple[float, float, float]],
+        qubit_loss: Optional[float],
+        callable: Optional[GlobalCallable | Closure],
+        args: Optional[Any],
+        seed: Optional[int],
+    ) -> Any:
+        """
+        Runs the given Q# expression with an independent instance of the simulator.
+
+        :param entry_expr: The entry expression.
+        :param output_fn: A callback function that will be called with each output.
+        :param noise_config: The noise configuration to use in simulation.
+        :param noise: A tuple with probabilities of Pauli-X, Pauli-Y, and Pauli-Z errors
+            to use in simulation as a parametric Pauli noise.
+        :param qubit_loss: The probability of qubit loss in simulation.
+        :param callable: The callable to run, if no entry expression is provided.
+        :param args: The arguments to pass to the callable, if any.
+        :param seed: The seed to use for the random number generator in simulation, if any.
+
+        :returns values: A result or runtime errors.
+
+        :raises QSharpError: If there is an error interpreting the input.
+        """
+        ...
+
+    def invoke(
+        self,
+        callable: GlobalCallable | Closure,
+        args: Any,
+        output_fn: Callable[[Output], None],
+    ) -> Any:
+        """
+        Invokes the callable with the given arguments, converted into the appropriate Q# values.
+        :param callable: The callable to invoke.
+        :param args: The arguments to pass to the callable.
+        :param output_fn: A callback function that will be called with each output.
+        :returns values: A result or runtime errors.
+        :raises QSharpError: If there is an error interpreting the input.
+        """
+        ...
+
+    def qir(
+        self,
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
+    ) -> str:
+        """
+        Generates QIR from Q# source code. Either an entry expression or a callable with arguments must be provided.
+
+        :param entry_expr: The entry expression.
+        :param callable: The callable to generate QIR for, if no entry expression is provided.
+        :param args: The arguments to pass to the callable, if any.
+
+        :returns qir: The QIR string.
+        """
+        ...
+
+    def circuit(
+        self,
+        config: CircuitConfig,
+        entry_expr: Optional[str] = None,
+        *,
+        operation: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
+    ) -> Circuit:
+        """
+        Synthesizes a circuit for a Q# program. Either an entry
+        expression or an operation must be provided.
+
+        :param config: Circuit generation options.
+
+        :param entry_expr: An entry expression.
+
+        :keyword operation: The operation to synthesize. This can be a name of
+            an operation of a lambda expression. The operation must take only
+            qubits or arrays of qubits as parameters.
+
+        :keyword callable: The callable to synthesize the circuit for, if no entry expression is provided.
+
+        :keyword args: The arguments to pass to the callable, if any.
+
+        :raises QSharpError: If there is an error synthesizing the circuit.
+        """
+        ...
+
+    def estimate(
+        self,
+        params: str,
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
+    ) -> str:
+        """
+        Estimates resources for Q# source code.
+
+        :param params: The parameters to configure estimation.
+        :param entry_expr: The entry expression to estimate.
+        :param callable: The callable to estimate resources for, if no entry expression is provided.
+        :param args: The arguments to pass to the callable, if any.
+
+        :returns resources: The estimated resources.
+        """
+        ...
+
+    def logical_counts(
+        self,
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
+    ) -> Dict[str, int]:
+        """
+        Estimates logical operation counts for Q# source code.
+
+        :param entry_expr: The entry expression to estimate.
+        :param callable: The callable to estimate resources for, if no entry expression is provided.
+        :param args: The arguments to pass to the callable, if any.
+
+        :returns resources: The logical resources.
+        """
+        ...
+
+    def set_quantum_seed(self, seed: Optional[int]) -> None:
+        """
+        Sets the seed for the quantum random number generator.
+
+        :param seed: The seed to use for the quantum random number generator. If None,
+            the seed will be generated from entropy.
+        """
+        ...
+
+    def set_classical_seed(self, seed: Optional[int]) -> None:
+        """
+        Sets the seed for the classical random number generator.
+
+        :param seed: The seed to use for the classical random number generator. If None,
+            the seed will be generated from entropy.
+        """
+        ...
+
+    def dump_machine(self) -> StateDumpData:
+        """
+        Returns the sparse state vector of the simulator as a StateDump object.
+
+        :return: The state of the simulator.
+        """
+        ...
+
+    def dump_circuit(self) -> Circuit:
+        """
+        Dumps a circuit showing the current state of the simulator.
+
+        This circuit will contain the gates that have been applied
+        in the simulator up to the current point.
+
+        Requires the interpreter to be initialized with `trace_circuit=True`.
+
+        :raises QSharpError: If the interpreter was not initialized with ``trace_circuit=True``.
+        """
+        ...
+
+    def import_qasm(
+        self,
+        source: str,
+        output_fn: Callable[[Output], None],
+        read_file: Callable[[str], Tuple[str, str]],
+        list_directory: Callable[[str], List[Dict[str, str]]],
+        resolve_path: Callable[[str, str], str],
+        fetch_github: Callable[[str, str, str, str], str],
+        **kwargs,
+    ) -> Any:
+        """
+        Imports OpenQASM source code into the active Q# interpreter.
+
+        :param source: An OpenQASM program or fragment.
+        :param output_fn: The function to handle the output of the execution.
+        :param read_file: A callable that reads a file and returns its content and path.
+        :param list_directory: A callable that lists the contents of a directory.
+        :param resolve_path: A callable that resolves a file path given a base path and a relative path.
+        :param fetch_github: A callable that fetches a file from GitHub.
+        :param **kwargs: Common options:
+
+          - ``name`` (str): The name of the program.
+          - ``search_path`` (str): The optional search path for resolving file references.
+          - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
+          - ``program_type`` (ProgramType): The type of program compilation to perform.
+        :return: The value returned by the last statement in the source code.
+        :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+        :raises QSharpError: If there is an error compiling or evaluating the program.
+        """
+        ...
+
+class Result(Enum):
+    """
+    A Q# measurement result.
+    """
+
+    Zero: int
+    One: int
+    Loss: int
+
+class Pauli(Enum):
+    """
+    A Q# Pauli operator.
+    """
+
+    I: int
+    X: int
+    Y: int
+    Z: int
+
+class Output:
+    """
+    An output returned from the Q# interpreter.
+    Outputs can be a state dumps or messages. These are normally printed to the console.
+    """
+
+    def __repr__(self) -> str: ...
+    def __str__(self) -> str: ...
+    def _repr_markdown_(self) -> Optional[str]: ...
+    def state_dump(self) -> Optional[StateDumpData]: ...
+    def is_state_dump(self) -> bool: ...
+    def is_matrix(self) -> bool: ...
+    def is_message(self) -> bool: ...
+
+class StateDumpData:
+    """
+    A state dump returned from the Q# interpreter.
+    """
+
+    """
+    The number of allocated qubits at the time of the dump.
+    """
+    qubit_count: int
+
+    """
+    Get the amplitudes of the state vector as a dictionary from state integer to
+    complex amplitudes.
+    """
+    def get_dict(self) -> dict: ...
+    def __repr__(self) -> str: ...
+    def __str__(self) -> str: ...
+    def _repr_markdown_(self) -> str: ...
+    def _repr_latex_(self) -> Optional[str]: ...
+
+class CircuitConfig:
+    """
+    Configuration options for circuit generation.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_operations: Optional[int] = None,
+        generation_method: Optional["CircuitGenerationMethod"] = None,
+        source_locations: bool = False,
+        group_by_scope: bool = False,
+        prune_classical_qubits: bool = False,
+    ) -> None: ...
+
+    max_operations: Optional[int]
+    """
+    The maximum number of operations to include in the generated circuit.
+    """
+
+    generation_method: Optional[CircuitGenerationMethod]
+    """
+    The method to use for circuit generation.
+    """
+
+    source_locations: Optional[bool]
+    """
+    Whether to include source locations in the generated circuit.
+    """
+
+class CircuitGenerationMethod(Enum):
+    """
+    The method to use for circuit generation.
+    """
+
+    ClassicalEval: CircuitGenerationMethod
+    """
+    Use classical evaluation to generate the circuit.
+    """
+
+    Simulate: CircuitGenerationMethod
+    """
+    Use simulation to generate the circuit.
+    """
+
+    Static: CircuitGenerationMethod
+    """
+    Compile the program and transform to a circuit using partial evaluation.
+    Only works for AdaptiveRIF-compliant programs.
+    Requires a non-Unrestricted target profile (e.g. TargetProfile.Adaptive_RIF).
+    """
+
+class Circuit:
+    """
+    A quantum circuit diagram generated from a Q# or OpenQASM program.
+
+    Returned by :func:`qsharp.circuit` and :func:`qsharp.dump_circuit`.
+    """
+
+    def json(self) -> str: ...
+    def __repr__(self) -> str: ...
+    def __str__(self) -> str: ...
+
+class QSharpError(BaseException):
+    """
+    An error returned from the Q# interpreter.
+    """
+
+    ...
+
+class QasmError(BaseException):
+    """
+    An error returned from the OpenQASM parser.
+    """
+
+    ...
+
+def physical_estimates(logical_resources: str, params: str) -> str:
+    """
+    Estimates physical resources from pre-calculated logical resources.
+
+    :param logical_resources: The logical resources to estimate from.
+    :param params: The parameters to configure physical estimation.
+
+    :return: The estimated resources.
+    :rtype: str
+    """
+    ...
+
+def circuit_qasm_program(
+    source: str,
+    read_file: Callable[[str], Tuple[str, str]],
+    list_directory: Callable[[str], List[Dict[str, str]]],
+    resolve_path: Callable[[str, str], str],
+    fetch_github: Callable[[str, str, str, str], str],
+    **kwargs,
+) -> Circuit:
+    """
+    Synthesizes a circuit for an OpenQASM program.
+
+    .. note::
+        This call while exported is not intended to be used directly by the user.
+        It is intended to be used by the Python wrapper which will handle the
+        callbacks and other Python specific details.
+
+    :param source: An OpenQASM program.
+    :param read_file: A callable that reads a file and returns its content and path.
+    :param list_directory: A callable that lists the contents of a directory.
+    :param resolve_path: A callable that resolves a file path given a base path and a relative path.
+    :param fetch_github: A callable that fetches a file from GitHub.
+    :param **kwargs: Common options:
+
+      - ``name`` (str): The name of the program.
+      - ``search_path`` (str): The optional search path for resolving file references.
+    :return: The synthesized circuit.
+    :rtype: Circuit
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If there is an error evaluating or synthesizing the circuit.
+    """
+    ...
+
+def compile_qasm_program_to_qir(
+    source: str,
+    read_file: Callable[[str], Tuple[str, str]],
+    list_directory: Callable[[str], List[Dict[str, str]]],
+    resolve_path: Callable[[str, str], str],
+    fetch_github: Callable[[str, str, str, str], str],
+    **kwargs,
+) -> str:
+    """
+    Compiles the OpenQASM source code into a program that can be submitted to a
+    target as QIR (Quantum Intermediate Representation).
+
+    .. note::
+        This call while exported is not intended to be used directly by the user.
+        It is intended to be used by the Python wrapper which will handle the
+        callbacks and other Python specific details.
+
+    :param source: The OpenQASM source code to compile to QIR.
+    :param read_file: A callable that reads a file and returns its content and path.
+    :param list_directory: A callable that lists the contents of a directory.
+    :param resolve_path: A callable that resolves a file path given a base path and a relative path.
+    :param fetch_github: A callable that fetches a file from GitHub.
+    :param **kwargs: Common options:
+
+      - ``name`` (str): The name of the circuit.
+      - ``target_profile`` (TargetProfile): The target profile to use for code generation.
+      - ``search_path`` (str): The optional search path for resolving file references.
+      - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
+    :return: The converted QIR code as a string.
+    :rtype: str
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If there is an error compiling the program.
+    """
+    ...
+
+def compile_qasm_to_qsharp(
+    source: str,
+    read_file: Callable[[str], Tuple[str, str]],
+    list_directory: Callable[[str], List[Dict[str, str]]],
+    resolve_path: Callable[[str, str], str],
+    fetch_github: Callable[[str, str, str, str], str],
+    **kwargs,
+) -> str:
+    """
+    Converts a OpenQASM program to Q#.
+
+    .. note::
+        This call while exported is not intended to be used directly by the user.
+        It is intended to be used by the Python wrapper which will handle the
+        callbacks and other Python specific details.
+
+    :param source: The OpenQASM source code to convert.
+    :param read_file: A callable that reads a file and returns its content and path.
+    :param list_directory: A callable that lists the contents of a directory.
+    :param resolve_path: A callable that resolves a file path given a base path and a relative path.
+    :param fetch_github: A callable that fetches a file from GitHub.
+    :param **kwargs: Common options:
+
+      - ``name`` (str): The name of the circuit.
+      - ``search_path`` (str): The optional search path for resolving file references.
+    :return: The converted Q# code as a string.
+    :rtype: str
+    """
+    ...
+
+def resource_estimate_qasm_program(
+    source: str,
+    job_params: str,
+    read_file: Callable[[str], Tuple[str, str]],
+    list_directory: Callable[[str], List[Dict[str, str]]],
+    resolve_path: Callable[[str, str], str],
+    fetch_github: Callable[[str, str, str, str], str],
+    **kwargs,
+) -> str:
+    """
+    Estimates the resource requirements for executing OpenQASM source code.
+
+    .. note::
+        This call while exported is not intended to be used directly by the user.
+        It is intended to be used by the Python wrapper which will handle the
+        callbacks and other Python specific details.
+
+    :param source: The OpenQASM source code to estimate resource requirements for.
+    :param job_params: The parameters for the job as a JSON string.
+    :param read_file: A callable that reads a file and returns its content and path.
+    :param list_directory: A callable that lists the contents of a directory.
+    :param resolve_path: A callable that resolves a file path given a base path and a relative path.
+    :param fetch_github: A callable that fetches a file from GitHub.
+    :param **kwargs: Common options:
+
+      - ``name`` (str): The name of the circuit. Defaults to ``'program'``.
+      - ``search_path`` (str): The optional search path for resolving imports.
+    :return: The estimated resource requirements as a JSON string.
+    :rtype: str
+    """
+    ...
+
+def run_qasm_program(
+    source: str,
+    output_fn: Callable[[Output], None],
+    noise_config: Optional[NoiseConfig],
+    noise: Optional[Tuple[float, float, float]],
+    qubit_loss: Optional[float],
+    read_file: Callable[[str], Tuple[str, str]],
+    list_directory: Callable[[str], List[Dict[str, str]]],
+    resolve_path: Callable[[str, str], str],
+    fetch_github: Callable[[str, str, str, str], str],
+    **kwargs,
+) -> Any:
+    """
+    Runs the given OpenQASM program for the given number of shots.
+    Each shot uses an independent instance of the simulator.
+
+    .. note::
+        This call while exported is not intended to be used directly by the user.
+        It is intended to be used by the Python wrapper which will handle the
+        callbacks and other Python specific details.
+
+    :param source: The OpenQASM source code to execute.
+    :param output_fn: The function to handle the output of the execution.
+    :param noise_config: Optional noise configuration for noisy simulation.
+    :param noise: Optional Pauli noise as a tuple of ``(x, y, z)`` probabilities.
+    :param qubit_loss: The probability of qubit loss in simulation.
+    :param read_file: A callable that reads a file and returns its contents.
+    :param list_directory: A callable that lists the contents of a directory.
+    :param resolve_path: A callable that resolves a path given a base path and a relative path.
+    :param fetch_github: A callable that fetches a file from GitHub.
+    :param **kwargs: Common options:
+
+      - ``target_profile`` (TargetProfile): The target profile to use for execution.
+      - ``name`` (str): The name of the circuit. Defaults to ``'program'``.
+      - ``search_path`` (str): The optional search path for resolving imports.
+      - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
+      - ``shots`` (int): The number of shots to run. Defaults to ``1``.
+      - ``seed`` (int): The seed to use for the random number generator.
+    :return: The result of the execution.
+    :rtype: Any
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If there is an error interpreting the input.
+    """
+    ...
+
+def estimate_custom(
+    algorithm,
+    qubit,
+    qec,
+    factories: List = [],
+    *,
+    error_budget: float = 0.01,
+    max_factories: Optional[int] = None,
+    logical_depth_factor: Optional[float] = None,
+    max_physical_qubits: Optional[int] = None,
+    max_duration: Optional[int] = None,
+    error_budget_pruning: bool = False,
+) -> Dict:
+    """
+    Estimates quantum resources for a given algorithm, qubit, and code.
+
+    :param algorithm: Python object representing the algorithm.
+    :param qubit: The qubit properties as a dictionary.
+    :param qec: Python object representing the quantum error correction code.
+    :param factories: List of python objects representing factories. Defaults to ``[]``.
+    :type factories: List
+    :keyword error_budget: The total error budget, which is uniformly distributed. Defaults to ``0.01``.
+    :kwtype error_budget: float
+    :keyword max_factories: Constrains the number of factories. Defaults to ``None``.
+    :kwtype max_factories: int
+    :keyword logical_depth_factor: Extends algorithmic logical depth by a factor >= 1. Defaults to ``None``.
+    :kwtype logical_depth_factor: float
+    :keyword max_physical_qubits: Forces estimator to not exceed provided number of physical qubits, may fail.
+        Defaults to ``None``.
+    :kwtype max_physical_qubits: int
+    :keyword max_duration: Allows estimator to run for given runtime in nanoseconds, may fail.
+        Defaults to ``None``.
+    :kwtype max_duration: int
+    :keyword error_budget_pruning: Will try to prune the error budget to increase magic state error budget.
+        Defaults to ``False``.
+    :kwtype error_budget_pruning: bool
+    :return: A dictionary with resource estimation results.
+    :rtype: Dict
+    """
+    ...
+
+class UdtValue:
+    """
+    A Q# UDT value. Objects of this class represent UDT values generated
+    in Q# and sent to Python. It is then converted into a Python object
+    in the `qsharp_value_to_python_value` function in `_qsharp.py`.
+    """
+
+    name: str
+    fields: List[Tuple[str, Any]]
+
+class TypeIR:
+    """
+    A Q# type. Objects of this class represent a Q# type. This is used
+    to send the definitions of the Q# UDTs defined by the user to Python
+    and creating equivalent Python dataclasses in `qsharp.code.*`.
+    """
+
+    def kind(self) -> TypeKind: ...
+    def unwrap_primitive(self) -> PrimitiveKind: ...
+    def unwrap_tuple(self) -> List[TypeIR]: ...
+    def unwrap_array(self) -> List[TypeIR]: ...
+    def unwrap_udt(self) -> UdtIR: ...
+
+class TypeKind(Enum):
+    """
+    A Q# type kind.
+    """
+
+    Primitive: int
+    Tuple: int
+    Array: int
+    Udt: int
+
+class PrimitiveKind(Enum):
+    """
+    A Q# primitive.
+    """
+
+    Bool: int
+    Int: int
+    Double: int
+    Complex: int
+    String: int
+    Pauli: int
+    Result: int
+
+class UdtIR:
+    """
+    A Q# Udt.
+    """
+
+    name: str
+    fields: List[Tuple[str, TypeIR]]
+
+class QirInstructionId(Enum):
+    I: QirInstructionId
+    H: QirInstructionId
+    X: QirInstructionId
+    Y: QirInstructionId
+    Z: QirInstructionId
+    S: QirInstructionId
+    SAdj: QirInstructionId
+    SX: QirInstructionId
+    SXAdj: QirInstructionId
+    T: QirInstructionId
+    TAdj: QirInstructionId
+    CNOT: QirInstructionId
+    CX: QirInstructionId
+    CY: QirInstructionId
+    CZ: QirInstructionId
+    CCX: QirInstructionId
+    SWAP: QirInstructionId
+    RX: QirInstructionId
+    RY: QirInstructionId
+    RZ: QirInstructionId
+    RXX: QirInstructionId
+    RYY: QirInstructionId
+    RZZ: QirInstructionId
+    RESET: QirInstructionId
+    M: QirInstructionId
+    MResetZ: QirInstructionId
+    MZ: QirInstructionId
+    Move: QirInstructionId
+    ReadResult: QirInstructionId
+    ResultRecordOutput: QirInstructionId
+    BoolRecordOutput: QirInstructionId
+    IntRecordOutput: QirInstructionId
+    DoubleRecordOutput: QirInstructionId
+    TupleRecordOutput: QirInstructionId
+    ArrayRecordOutput: QirInstructionId
+    CorrelatedNoise: QirInstructionId
+
+class QirInstruction: ...
+
+class IdleNoiseParams:
+    s_probability: float
+
+class NoiseTable:
+    loss: float
+
+    def __init__(self, num_qubits: int):
+        """
+        Initializes a new noise table for an operation that targets `num_qubits` qubits.
+        """
+
+    def __getattr__(self, name: str) -> float:
+        """
+        Defining __getattr__ allows getting noise like this
+
+        noise_table.ziz
+
+        for arbitrary pauli fields.
+        """
+
+    def __setattr__(self, name: str, value: float):
+        """
+        Defining __setattr__ allows setting noise like this
+
+        noise_table = NoiseTable(3)
+        noise_table.ziz = 0.005
+
+        for arbitrary pauli fields. Setting an element that was
+        previously set overrides that entry with the new value.
+        """
+
+    @overload
+    def set_pauli_noise(self, lst: list[tuple[str, float]]):
+        """
+        The correlated pauli noise to use in simulation. Setting an element
+        that was previously set overrides that entry with the new value.
+
+        Example::
+
+            noise_table = NoiseTable(2)
+            noise_table.set_pauli_noise([("XI", 1e-10), ("XZ", 1e-8)])
+        """
+
+    @overload
+    def set_pauli_noise(self, pauli_strings: list[str], values: list[float]):
+        """
+        The correlated pauli noise to use in simulation. Setting an element
+        that was previously set overrides that entry with the new value.
+
+        Example::
+
+            noise_table = NoiseTable(2)
+            noise_table.set_pauli_noise(["XI", "XZ"], [1e-10, 3.7e-8])
+        """
+
+    @overload
+    def set_pauli_noise(self, pauli_string: str, value: float):
+        """
+        The correlated pauli noise to use in simulation. Setting an element
+        that was previously set overrides that entry with the new value.
+
+        Example::
+
+            noise_table = NoiseTable(2)
+            noise_table.set_pauli_noise("XZ", 1e-10)
+        """
+
+    def set_depolarizing(self, value: float):
+        """
+        The depolarizing noise to use in simulation.
+        """
+
+    def set_bitflip(self, value: float):
+        """
+        The bit flip noise to use in simulation.
+        """
+
+    def set_phaseflip(self, value: float):
+        """
+        The phase flip noise to use in simulation.
+        """
+
+class NoiseIntrinsicsTable:
+    def __contains__(self, name: str) -> bool:
+        """
+        This enables support for `in` membership checks.
+        """
+
+    def __getitem__(self, name: str) -> NoiseTable:
+        """
+        Defining __getitem__ allows getting intrinsic noise tables like this:
+            noise_config = NoiseConfig()
+            my_intrinsic_noise_table = noise_config.intrinsics["my_intrinsic"]
+        """
+
+    def __setitem__(self, name: str, value: float):
+        """
+        Defining __setitem__ allows setting intrinsic noise tables like this:
+            noise_config = NoiseConfig()
+            my_intrinsic_noise_table = NoiseTable(3)
+            my_intrinsic_noise_table.ziz = 0.01
+            noise_config.intrinsics["my_intrinsic"] = my_intrinsic_noise_table
+        """
+
+    def get_intrinsic_id(self, name: str) -> int:
+        """
+        Each intrinsic inserted in the table is assigned an integer id.
+        This method returns that id given an intrinsic's name.
+        """
+
+class NoiseConfig:
+    x: NoiseTable
+    y: NoiseTable
+    z: NoiseTable
+    h: NoiseTable
+    s: NoiseTable
+    s_adj: NoiseTable
+    t: NoiseTable
+    t_adj: NoiseTable
+    sx: NoiseTable
+    sx_adj: NoiseTable
+    rx: NoiseTable
+    ry: NoiseTable
+    rz: NoiseTable
+    cx: NoiseTable
+    cy: NoiseTable
+    cz: NoiseTable
+    rxx: NoiseTable
+    ryy: NoiseTable
+    rzz: NoiseTable
+    swap: NoiseTable
+    mov: NoiseTable
+    mresetz: NoiseTable
+    # idle: IdleNoiseParams
+    intrinsics: NoiseIntrinsicsTable
+
+    def intrinsic(self, name: str, num_qubits: int) -> NoiseTable:
+        """
+        The noise table for a custom intrinsic.
+        """
+
+    def load_csv_dir(self, dir_path: str):
+        """
+        Loads noise tables from the specified directory path. For each .csv file found in the directory,
+        the noise table is loaded and associated with a unique identifier. The name of the file (without the .csv extension)
+        is used as the label for the noise table, which should match the QIR instruction that will apply noise using this table.
+
+        Each line of the table should be of the format: "IXYZ,1.345e-4" where IXYZ is a string of Pauli operators
+        representing the error on each qubit (Z applying to the first qubit argument, Y to the second, etc.), and the second value
+        is the corresponding error probability for that specific Pauli string.
+
+        Blank lines, lines starting with #, or lines that start with the string "pauli" (i.e., a column header) are ignored.
+        """
+        ...
+
+def run_clifford(
+    input: List[QirInstruction],
+    num_qubits: int,
+    num_results: int,
+    shots: int,
+    noise: Optional[NoiseConfig],
+    seed: Optional[int],
+) -> List[str]:
+    """
+    Run the given list of QIR instructions in a Clifford simulator,
+    using the given `NoiseConfig`, if any.
+
+    Returns a list of result strings. Each result string is composed
+    of '0's, '1's, and 'L's, representing if each measurement result
+    was a Zero, One, or Loss respectively.
+    """
+    ...
+
+def run_cpu_full_state(
+    input: List[QirInstruction],
+    num_qubits: int,
+    num_results: int,
+    shots: int,
+    noise: Optional[NoiseConfig],
+    seed: Optional[int],
+) -> List[str]:
+    """
+    Run the given list of QIR instructions in a CPU full-state simulator,
+    using the given `NoiseConfig`, if any.
+
+    Returns a list of result strings. Each result string is composed
+    of '0's, '1's, and 'L's, representing if each measurement result
+    was a Zero, One, or Loss respectively.
+    """
+    ...
+
+def try_create_gpu_adapter() -> str:
+    """
+    Checks if a compatible GPU adapter is available on the system.
+
+    This function attempts to request a GPU adapter to determine if GPU-accelerated
+    quantum simulation is supported. It's useful for capability detection before
+    attempting to run GPU-based simulations.
+
+    # Errors
+
+    Raises `OSError` if:
+    - No compatible GPU is found
+    - GPU drivers are missing or not functioning properly
+    """
+    pass
+
+def run_parallel_shots(
+    input: List[QirInstruction],
+    shots: int,
+    qubit_count: int,
+    result_count: int,
+    noise: Optional[NoiseConfig],
+    seed: Optional[int],
+) -> List[str]:
+    """ """
+    ...
+
+def run_adaptive_parallel_shots(
+    input: dict,
+    shots: int,
+    noise: Optional[NoiseConfig],
+    seed: Optional[int],
+) -> List[str]:
+    """
+    Run the given list of QIR instructions in a CPU full-state simulator,
+    using the given `NoiseConfig`, if any.
+
+    The input is an `AdaptiveProgram` converted to a dict using the
+    .as_dict() method.
+
+    Returns a list of result strings. Each result string is composed
+    of '0's, '1's, and 'L's, representing if each measurement result
+    was a Zero, One, or Loss respectively.
+    """
+    ...
+
+# This is a little clunky, but until we move to Python 3.11 as a minimum, the NotRequired annotation
+# for Dict fields that may be missing is not availalble. See https://peps.python.org/pep-0655/#motivation
+class _GpuShotResultsBase(TypedDict):
+    shot_results: List[str]
+    """Bit strings for each shot ('0', '1', or 'L' for lost qubits)."""
+
+    shot_result_codes: List[int]
+    """Result codes for each shot. 0 = Success, else Failure  (Specific codes are an internal detail)."""
+
+class GpuShotResults(_GpuShotResultsBase, total=False):
+    """
+    Results from running shots on the GPU simulator.
+    """
+
+    diagnostics: str
+    """Diagnostic information if available. (Useful primarly for debugging by the development team)"""
+
+class GpuContext:
+    def load_noise_tables(self, dir_path: str) -> List[Tuple[int, str, int]]:
+        """
+        Loads noise tables from the specified directory path. For each .csv file found in the directory,
+        the noise table is loaded and associated with a unique identifier. The name of the file (without the .csv extension)
+        is used as the label for the noise table, which should match the QIR instruction that will apply noise using this table.
+
+        Each line of the table should be for the format: "IXYZ,1.345e-4" where IXYZ is a string of Pauli operators
+        representing the error on each qubit (Z applying to the first qubit argument, Y to the second, etc.), and the second value
+        is the corresponding error probability for that specific Pauli string.
+
+        Blank lines, lines starting with #, or lines that start with the string "pauli" (i.e., a column header) are ignored.
+        """
+        ...
+
+    def get_noise_table_ids(self) -> List[Tuple[int, str, int]]:
+        """
+        Retrieves the currently loaded noise table as a string.
+        """
+        ...
+
+    def set_program(
+        self,
+        input: List[QirInstruction],
+        qubit_count: int,
+        result_count: int,
+    ) -> None:
+        """
+        Sets the QIR program to be executed on the GPU.
+        """
+        ...
+
+    def set_adaptive_program(self, program: dict) -> None:
+        """
+        Sets an Adaptive Profile QIR program for GPU execution.
+
+        The program dict contains bytecode instructions, block/function tables,
+        quantum op pool, and side tables produced by AdaptiveProfilePass.
+        """
+        ...
+
+    def set_noise(self, noise: NoiseConfig) -> None:
+        """
+        Sets the noise configuration for the GPU simulation.
+        """
+        ...
+
+    def run_shots(self, shot_count: int, seed: int) -> GpuShotResults:
+        """
+        Runs the specified number of shots of the loaded program on the GPU.
+        """
+        ...
+
+    def run_adaptive_shots(self, shot_count: int, seed: int) -> GpuShotResults:
+        """
+        Runs the specified number of shots of the loaded adaptive program on the GPU.
+        """
+        ...

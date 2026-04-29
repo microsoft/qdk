@@ -17,5 +17,5 @@ Key exports:
 For full API documentation see [qsharp](:mod:`qsharp`).
 """
 
-from qsharp import *  # pyright: ignore[reportWildcardImportFromLibrary]
-from qsharp.utils import dump_operation  # pyright: ignore[reportUnusedImport]
+from ._qsharp import *  # pyright: ignore[reportWildcardImportFromLibrary]
+from .utils import dump_operation  # pyright: ignore[reportUnusedImport]

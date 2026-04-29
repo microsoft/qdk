@@ -16,13 +16,13 @@ Optional extras install additional dependencies and submodules:
 """
 
 
-from qsharp.telemetry_events import on_qdk_import
+from .telemetry_events import on_qdk_import
 
 on_qdk_import()
 
 # Some common utilities are lifted to the qdk root.
-from qsharp import code
-from qsharp import (
+from . import code
+from ._qsharp import (
     set_quantum_seed,
     set_classical_seed,
     dump_machine,

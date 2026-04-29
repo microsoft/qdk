@@ -16,5 +16,5 @@ This module exposes the core building blocks for noise-aware quantum simulation:
   or correlated noise channels.
 """
 
-from qsharp._device._atom import NeutralAtomDevice
-from qsharp._simulation import NoiseConfig
+from ._device._atom import NeutralAtomDevice
+from ._simulation import NoiseConfig

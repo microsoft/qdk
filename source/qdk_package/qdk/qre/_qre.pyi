@@ -1,0 +1,1679 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+from __future__ import annotations
+from typing import Any, Callable, Iterator, Optional, overload
+
+import pandas as pd
+
+class ISA:
+    def __add__(self, other: ISA) -> ISA:
+        """
+        Concatenate two ISAs (logical union). Instructions in the second
+        operand overwrite instructions in the first operand if they have the
+        same ID.
+        """
+        ...
+
+    def __contains__(self, id: int) -> bool:
+        """
+        Check if the ISA contains an instruction with the given ID.
+
+        Args:
+            id (int): The instruction ID.
+
+        Returns:
+            bool: True if the ISA contains an instruction with the given ID, False otherwise.
+        """
+        ...
+
+    def satisfies(self, requirements: ISARequirements) -> bool:
+        """
+        Check if the ISA satisfies the given ISA requirements.
+        """
+        ...
+
+    def __getitem__(self, id: int) -> Instruction:
+        """
+        Get an instruction by its ID.
+
+        Args:
+            id (int): The instruction ID.
+
+        Returns:
+            Instruction: The instruction.
+        """
+        ...
+
+    def get(
+        self, id: int, default: Optional[Instruction] = None
+    ) -> Optional[Instruction]:
+        """
+        Get an instruction by its ID, or return a default value if not found.
+
+        Args:
+            id (int): The instruction ID.
+            default (Optional[Instruction]): The default value to return if the
+                instruction is not found.
+
+        Returns:
+            Optional[Instruction]: The instruction, or the default value if not found.
+        """
+        ...
+
+    def __len__(self) -> int:
+        """
+        Return the number of instructions in the ISA.
+
+        Returns:
+            int: The number of instructions.
+        """
+        ...
+
+    def node_index(self, id: int) -> Optional[int]:
+        """
+        Return the provenance graph node index for the given instruction ID.
+
+        Args:
+            id (int): The instruction ID.
+
+        Returns:
+            Optional[int]: The node index, or None if not found.
+        """
+        ...
+
+    def add_node(self, instruction_id: int, node_index: int) -> None:
+        """
+        Add a pre-existing provenance graph node to the ISA.
+
+        Args:
+            instruction_id (int): The instruction ID.
+            node_index (int): The node index in the provenance graph.
+        """
+        ...
+
+    def as_frame(self) -> pd.DataFrame:
+        """
+        Return a pandas DataFrame representation of the ISA.
+
+        The DataFrame will have one row per instruction, with columns for
+        instruction properties such as time, space, and error rate. The exact
+        columns may vary based on the properties of the instructions in the ISA.
+
+        Returns:
+            pd.DataFrame: A DataFrame representation of the ISA.
+        """
+        ...
+
+    def __iter__(self) -> Iterator[Instruction]:
+        """
+        Return an iterator over the instructions.
+
+        Note:
+            The order of instructions is not guaranteed.
+
+        Returns:
+            Iterator[Instruction]: The instruction iterator.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """
+        Return a string representation of the ISA.
+
+        Note:
+            The order of instructions in the output is not guaranteed.
+
+        Returns:
+            str: A string representation of the ISA.
+        """
+        ...
+
+class ISARequirements:
+    @overload
+    def __new__(cls, *constraints: Constraint) -> ISARequirements: ...
+    @overload
+    def __new__(cls, constraints: list[Constraint], /) -> ISARequirements: ...
+    def __new__(cls, *constraints: Constraint | list[Constraint]) -> ISARequirements:
+        """
+        Create an ISA requirements specification from a list of instructions
+        constraints.
+
+        Args:
+            constraints (list[Constraint] | *Constraint): The list of instruction
+                constraints.
+        """
+        ...
+
+    def __len__(self) -> int:
+        """
+        Return the number of constraints in the requirements specification.
+
+        Returns:
+            int: The number of constraints.
+        """
+        ...
+
+    def __iter__(self) -> Iterator[Constraint]:
+        """
+        Return an iterator over the constraints.
+
+        Note:
+            The order of constraints is not guaranteed.
+
+        Returns:
+            Iterator[Constraint]: The constraint iterator.
+        """
+        ...
+
+    def as_frame(self) -> pd.DataFrame:
+        """
+        Return a pandas DataFrame representation of the ISA requirements.
+
+        The DataFrame will have one row per instruction, with columns for
+        constraint properties such as encoding.
+
+        Returns:
+            pd.DataFrame: A DataFrame representation of the ISA requirements.
+        """
+        ...
+
+class Instruction:
+    @staticmethod
+    def fixed_arity(
+        id: int,
+        encoding: int,
+        arity: int,
+        time: int,
+        space: Optional[int],
+        length: Optional[int],
+        error_rate: float,
+    ) -> Instruction:
+        """
+        Create an instruction with a fixed arity.
+
+        Note:
+            This function is not intended to be called directly by the user, use qre.instruction instead.
+
+        Args:
+            id (int): The instruction ID.
+            encoding (int): The instruction encoding. 0 = Physical, 1 = Logical.
+            arity (int): The instruction arity.
+            time (int): The instruction time in ns.
+            space (Optional[int]): The instruction space in number of physical
+                qubits.  If None, length is used.
+            length (Optional[int]): The arity including ancilla qubits.  If None,
+                arity is used.
+            error_rate (float): The instruction error rate.
+
+        Returns:
+            Instruction: The instruction.
+        """
+        ...
+
+    @staticmethod
+    def variable_arity(
+        id: int,
+        encoding: int,
+        time_fn: _IntFunction,
+        space_fn: _IntFunction,
+        error_rate_fn: _FloatFunction,
+        length_fn: Optional[_IntFunction],
+    ) -> Instruction:
+        """
+        Create an instruction with variable arity.
+
+        Note:
+            This function is not intended to be called directly by the user, use qre.instruction instead.
+
+        Args:
+            id (int): The instruction ID.
+            encoding (int): The instruction encoding. 0 = Physical, 1 = Logical.
+            time_fn (_IntFunction): The time function.
+            space_fn (_IntFunction): The space function.
+            error_rate_fn (_FloatFunction): The error rate function.
+            length_fn (Optional[_IntFunction]): The length function.
+                If None, space_fn is used.
+
+        Returns:
+            Instruction: The instruction.
+        """
+        ...
+
+    def with_id(self, id: int) -> Instruction:
+        """
+        Return a copy of the instruction with the given ID.
+
+        Note:
+            The created instruction will not inherit the source property of the
+            original instruction and must be set by the user if intended.
+
+        Args:
+            id (int): The instruction ID.
+
+        Returns:
+            Instruction: A copy of the instruction with the given ID.
+        """
+        ...
+
+    @property
+    def id(self) -> int:
+        """
+        The instruction ID.
+
+        Returns:
+            int: The instruction ID.
+        """
+        ...
+
+    @property
+    def encoding(self) -> int:
+        """
+        The instruction encoding. 0 = Physical, 1 = Logical.
+
+        Returns:
+            int: The instruction encoding.
+        """
+        ...
+
+    @property
+    def arity(self) -> Optional[int]:
+        """
+        The instruction arity.
+
+        Returns:
+            Optional[int]: The instruction arity.
+        """
+        ...
+
+    def space(self, arity: Optional[int] = None) -> Optional[int]:
+        """
+        The instruction space in number of physical qubits.
+
+        Args:
+            arity (Optional[int]): The specific arity to check.
+
+        Returns:
+            Optional[int]: The instruction space in number of physical qubits.
+        """
+        ...
+
+    def time(self, arity: Optional[int] = None) -> Optional[int]:
+        """
+        The instruction time in ns.
+
+        Args:
+            arity (Optional[int]): The specific arity to check.
+
+        Returns:
+            Optional[int]: The instruction time in ns.
+        """
+        ...
+
+    def error_rate(self, arity: Optional[int] = None) -> Optional[float]:
+        """
+        The instruction error rate.
+
+        Args:
+            arity (Optional[int]): The specific arity to check.
+
+        Returns:
+            Optional[float]: The instruction error rate.
+        """
+        ...
+
+    def expect_space(self, arity: Optional[int] = None) -> int:
+        """
+        The instruction space in number of physical qubits. Raises an error if not found.
+
+        Args:
+            arity (Optional[int]): The specific arity to check.
+
+        Returns:
+            int: The instruction space in number of physical qubits.
+        """
+        ...
+
+    def expect_time(self, arity: Optional[int] = None) -> int:
+        """
+        The instruction time in ns. Raises an error if not found.
+
+        Args:
+            arity (Optional[int]): The specific arity to check.
+
+        Returns:
+            int: The instruction time in ns.
+        """
+        ...
+
+    def expect_error_rate(self, arity: Optional[int] = None) -> float:
+        """
+        The instruction error rate. Raises an error if not found.
+
+        Args:
+            arity (Optional[int]): The specific arity to check.
+
+        Returns:
+            float: The instruction error rate.
+        """
+        ...
+
+    def set_source(self, index: int) -> None:
+        """
+        Set the source index for the instruction.
+
+        Args:
+            index (int): The source index to set.
+        """
+        ...
+
+    @property
+    def source(self) -> int:
+        """
+        Get the source index for the instruction.
+
+        Returns:
+            int: The source index for the instruction.
+        """
+        ...
+
+    def set_property(self, key: int, value: int) -> None:
+        """
+        Set a property on the instruction.
+
+        Args:
+            key (int): The property key.
+            value (int): The property value.
+        """
+        ...
+
+    def get_property(self, key: int) -> Optional[int]:
+        """
+        Get a property by its key.
+
+        Args:
+            key (int): The property key.
+
+        Returns:
+            Optional[int]: The property value, or None if not found.
+        """
+        ...
+
+    def has_property(self, key: int) -> bool:
+        """
+        Check if the instruction has a property with the given key.
+
+        Args:
+            key (int): The property key.
+
+        Returns:
+            bool: True if the instruction has the property, False otherwise.
+        """
+        ...
+
+    def get_property_or(self, key: int, default: int) -> int:
+        """
+        Get a property by its key, or return a default value if not found.
+
+        Args:
+            key (int): The property key.
+            default (int): The default value to return if the property is not found.
+
+        Returns:
+            int: The property value, or the default value if not found.
+        """
+        ...
+
+    def __getitem__(self, key: int) -> int:
+        """
+        Get a property by its key, or raise an error if not found.
+
+        Args:
+            key (int): The property key.
+
+        Returns:
+            int: The property value.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """
+        Return a string representation of the instruction.
+
+        Returns:
+            str: A string representation of the instruction.
+        """
+        ...
+
+class ConstraintBound:
+    """
+    A bound for a constraint.
+    """
+
+    @staticmethod
+    def lt(value: float) -> ConstraintBound:
+        """
+        Create a less than constraint bound.
+
+        Args:
+            value (float): The value.
+
+        Returns:
+            ConstraintBound: The constraint bound.
+        """
+        ...
+
+    @staticmethod
+    def le(value: float) -> ConstraintBound:
+        """
+        Create a less equal constraint bound.
+
+        Args:
+            value (float): The value.
+
+        Returns:
+            ConstraintBound: The constraint bound.
+        """
+        ...
+
+    @staticmethod
+    def eq(value: float) -> ConstraintBound:
+        """
+        Create an equal constraint bound.
+
+        Args:
+            value (float): The value.
+
+        Returns:
+            ConstraintBound: The constraint bound.
+        """
+        ...
+
+    @staticmethod
+    def gt(value: float) -> ConstraintBound:
+        """
+        Create a greater than constraint bound.
+
+        Args:
+            value (float): The value.
+
+        Returns:
+            ConstraintBound: The constraint bound.
+        """
+        ...
+
+    @staticmethod
+    def ge(value: float) -> ConstraintBound:
+        """
+        Create a greater equal constraint bound.
+
+        Args:
+            value (float): The value.
+
+        Returns:
+            ConstraintBound: The constraint bound.
+        """
+        ...
+
+class Constraint:
+    """
+    An instruction constraint that can be used to describe ISA requirements
+    for ISA transformations.
+    """
+
+    def __new__(
+        cls,
+        id: int,
+        encoding: int,
+        arity: Optional[int],
+        error_rate: Optional[ConstraintBound],
+    ) -> Constraint:
+        """
+        Note:
+            This function is not intended to be called directly by the user, use qre.constraint instead.
+
+        Args:
+            id (int): The instruction ID.
+            encoding (int): The instruction encoding. 0 = Physical, 1 = Logical.
+            arity (Optional[int]): The instruction arity. If None, instruction is
+                assumed to have variable arity.
+            error_rate (Optional[ConstraintBound]): The constraint on the error rate.
+
+        Returns:
+            InstructionConstraint: The instruction constraint.
+        """
+        ...
+
+    @property
+    def id(self) -> int:
+        """
+        The instruction ID.
+
+        Returns:
+            int: The instruction ID.
+        """
+        ...
+
+    @property
+    def encoding(self) -> int:
+        """
+        The instruction encoding. 0 = Physical, 1 = Logical.
+
+        Returns:
+            int: The instruction encoding.
+        """
+        ...
+
+    @property
+    def arity(self) -> Optional[int]:
+        """
+        The instruction arity.
+
+        Returns:
+            Optional[int]: The instruction arity.
+        """
+        ...
+
+    @property
+    def error_rate(self) -> Optional[ConstraintBound]:
+        """
+        The constraint on the instruction error rate.
+
+        Returns:
+            Optional[ConstraintBound]: The constraint on the instruction error rate.
+        """
+        ...
+
+    def add_property(self, property: int) -> None:
+        """
+        Add a property requirement to the constraint.
+
+        Args:
+            property (int): The property key that must be present in matching instructions.
+        """
+        ...
+
+    def has_property(self, property: int) -> bool:
+        """
+        Check if the constraint requires a specific property.
+
+        Args:
+            property (int): The property key to check.
+
+        Returns:
+            bool: True if the constraint requires this property, False otherwise.
+        """
+        ...
+
+class _IntFunction:
+    def __call__(self, arity: int) -> int: ...
+
+class _FloatFunction:
+    def __call__(self, arity: int) -> float: ...
+
+@overload
+def constant_function(value: int) -> _IntFunction: ...
+@overload
+def constant_function(value: float) -> _FloatFunction: ...
+def constant_function(
+    value: int | float,
+) -> _IntFunction | _FloatFunction:
+    """
+    Create a constant function.
+
+    Args:
+        value (int | float): The constant value.
+
+    Returns:
+        _IntFunction | _FloatFunction: The constant function.
+    """
+    ...
+
+@overload
+def linear_function(slope: int) -> _IntFunction: ...
+@overload
+def linear_function(slope: float) -> _FloatFunction: ...
+def linear_function(
+    slope: int | float,
+) -> _IntFunction | _FloatFunction:
+    """
+    Create a linear function.
+
+    Args:
+        slope (int | float): The slope.
+
+    Returns:
+        _IntFunction | _FloatFunction: The linear function.
+    """
+    ...
+
+@overload
+def block_linear_function(
+    block_size: int, slope: int, offset: Optional[int] = None
+) -> _IntFunction: ...
+@overload
+def block_linear_function(
+    block_size: int, slope: float, offset: Optional[float] = None
+) -> _FloatFunction: ...
+def block_linear_function(
+    block_size: int, slope: int | float, offset: Optional[int | float] = None
+) -> _IntFunction | _FloatFunction:
+    """
+    Create a block linear function that takes an arity (number of qubits) as
+    input.  Given an arity, it will compute the number of blocks `num_blocks` by
+    computing `ceil(arity / block_size)` and then return `slope * num_blocks +
+    offset`.
+
+    Args:
+        block_size (int): The block size.
+        slope (int | float): The slope.
+        offset (Optional[int | float]): The offset.  Default is `None`, which is
+          treated as 0 for int and 0.0 for float.
+
+    Returns:
+        _IntFunction | _FloatFunction: The block linear function.
+    """
+    ...
+
+@overload
+def generic_function(func: Callable[[int], int]) -> _IntFunction: ...
+@overload
+def generic_function(func: Callable[[int], float]) -> _FloatFunction: ...
+def generic_function(
+    func: Callable[[int], int | float],
+) -> _IntFunction | _FloatFunction:
+    """
+    Create a generic function from a Python callable.
+
+    Note:
+        Only use this function if the other function constructors
+        (constant_function, linear_function, and block_linear_function) do not
+        meet your needs, as using a Python callable can have performance
+        implications.  If using this function, keep the logic in the callable as
+        simple as possible to minimize overhead.
+
+    Args:
+        func (Callable[[int], int | float]): The Python callable.
+
+    Returns:
+        _IntFunction | _FloatFunction: The generic function.
+    """
+    ...
+
+class _ProvenanceGraph:
+    """
+    Represents the provenance graph of instructions in a trace.  Each node in
+    the graph corresponds to an instruction and the transform from which it was
+    produced, and edges represent transformations applied to instructions during
+    enumeration.
+    """
+
+    def add_node(
+        self, instruction: Instruction, transform_id: int, children: list[int]
+    ) -> int:
+        """
+        Add a node to the provenance graph.
+
+        Args:
+            instruction (int): The instruction corresponding to the node.
+            transform_id (int): The transform ID corresponding to the node.
+            children (list[int]): The list of child node indices in the provenance graph.
+
+        Returns:
+            int: The index of the added node in the provenance graph.
+        """
+        ...
+
+    def instruction(self, node_index: int) -> Instruction:
+        """
+        Return the instruction for a given node index.
+
+        Args:
+            node_index (int): The index of the node in the provenance graph.
+
+        Returns:
+            int: The instruction corresponding to the node.
+        """
+        ...
+
+    def transform_id(self, node_index: int) -> int:
+        """
+        Return the transform ID for a given node index.
+
+        Args:
+            node_index (int): The index of the node in the provenance graph.
+
+        Returns:
+            int: The transform ID corresponding to the node.
+        """
+        ...
+
+    def children(self, node_index: int) -> list[int]:
+        """
+        Return the list of child node indices for a given node index.
+
+        Args:
+            node_index (int): The index of the node in the provenance graph.
+
+        Returns:
+            list[int]: The list of child node indices.
+        """
+        ...
+
+    def num_nodes(self) -> int:
+        """
+        Return the number of nodes in the provenance graph.
+
+        Returns:
+            int: The number of nodes in the provenance graph.
+        """
+        ...
+
+    def num_edges(self) -> int:
+        """
+        Return the number of edges in the provenance graph.
+
+        Returns:
+            int: The number of edges in the provenance graph.
+        """
+        ...
+
+    @overload
+    def add_instruction(
+        self,
+        instruction: Instruction,
+    ) -> int: ...
+    @overload
+    def add_instruction(
+        self,
+        id: int,
+        encoding: int = 0,
+        *,
+        arity: Optional[int] = 1,
+        time: int | _IntFunction = ...,
+        space: Optional[int | _IntFunction] = None,
+        length: Optional[int | _IntFunction] = None,
+        error_rate: float | _FloatFunction = ...,
+        **kwargs: int,
+    ) -> int: ...
+    def add_instruction(
+        self,
+        id_or_instruction: int | Instruction,
+        encoding: int = 0,
+        *,
+        arity: Optional[int] = 1,
+        time: int | _IntFunction = ...,
+        space: Optional[int | _IntFunction] = None,
+        length: Optional[int | _IntFunction] = None,
+        error_rate: float | _FloatFunction = ...,
+        **kwargs: int,
+    ) -> int:
+        """
+        Add an instruction to the provenance graph with no transform or
+        children.
+
+        Can be called with a pre-existing ``Instruction`` or with keyword
+        args to create one inline.
+
+        Args:
+            id_or_instruction: An instruction ID (int) or ``Instruction``.
+            encoding: 0 = Physical, 1 = Logical. Ignored for ``Instruction``.
+            arity: Instruction arity, ``None`` for variable. Ignored for
+                ``Instruction``.
+            time: Time in ns (or ``_IntFunction``). Ignored for ``Instruction``.
+            space: Space in physical qubits (or ``_IntFunction``). Ignored for
+                ``Instruction``.
+            length: Arity including ancillas. Ignored for ``Instruction``.
+            error_rate: Error rate (or ``_FloatFunction``). Ignored for
+                ``Instruction``.
+            **kwargs: Additional properties (e.g. ``distance=9``).
+
+        Returns:
+            int: The node index of the added instruction.
+        """
+        ...
+
+    def make_isa(self, node_indices: list[int]) -> ISA:
+        """
+        Create an ISA backed by this provenance graph from the given node
+        indices.
+
+        Args:
+            node_indices: A list of node indices in the provenance graph.
+
+        Returns:
+            ISA: An ISA referencing this provenance graph.
+        """
+        ...
+
+    def build_pareto_index(self) -> None:
+        """
+        Builds the per-instruction-ID Pareto index.
+
+        For each instruction ID, retains only the Pareto-optimal nodes w.r.t.
+        (space, time, error_rate) evaluated at arity 1. Must be called after
+        all nodes have been added.
+        """
+        ...
+
+    def query_satisfying(
+        self,
+        requirements: ISARequirements,
+        min_node_idx: Optional[int] = None,
+    ) -> list[ISA]:
+        """
+        Return ISAs formed from Pareto-optimal graph nodes satisfying the
+        given requirements.
+
+        For each constraint in requirements, selects matching Pareto-optimal
+        nodes. Returns the Cartesian product of per-constraint matches,
+        augmented with one representative node per unconstrained instruction
+        ID.
+
+        Must be called after ``build_pareto_index``.
+
+        Args:
+            requirements: The ISA requirements to satisfy.
+            min_node_idx: If provided, only consider Pareto nodes at or above
+                this index for constrained groups.
+
+        Returns:
+            list[ISA]: ISAs formed from matching Pareto-optimal nodes.
+        """
+        ...
+
+    def raw_node_count(self) -> int:
+        """
+        Return the raw node count (including the sentinel at index 0).
+
+        Returns:
+            int: The number of nodes in the graph.
+        """
+        ...
+
+    def total_isa_count(self) -> int:
+        """
+        Return the total number of ISAs that can be formed from Pareto-optimal
+        nodes.
+
+        Requires ``build_pareto_index`` to have been called.
+
+        Returns:
+            int: The total number of ISAs that can be formed.
+        """
+        ...
+
+class EstimationResult:
+    """
+    Represents the result of a resource estimation.
+    """
+
+    def __new__(
+        cls, *, qubits: int = 0, runtime: int = 0, error: float = 0.0
+    ) -> EstimationResult:
+        """
+        Create a new estimation result.
+
+        Args:
+            qubits (int): The number of logical qubits.
+            runtime (int): The runtime in nanoseconds.
+            error (float): The error probability of the computation.
+
+        Returns:
+            EstimationResult: The estimation result.
+        """
+        ...
+
+    @property
+    def qubits(self) -> int:
+        """
+        The number of logical qubits.
+
+        Returns:
+            int: The number of logical qubits.
+        """
+        ...
+
+    @qubits.setter
+    def qubits(self, qubits: int) -> None:
+        """
+        Set the number of logical qubits.
+
+        Args:
+            qubits (int): The number of logical qubits to set.
+        """
+        ...
+
+    @property
+    def runtime(self) -> int:
+        """
+        The runtime in nanoseconds.
+
+        Returns:
+            int: The runtime in nanoseconds.
+        """
+        ...
+
+    @runtime.setter
+    def runtime(self, runtime: int) -> None:
+        """
+        Set the runtime.
+
+        Args:
+            runtime (int): The runtime in nanoseconds to set.
+        """
+        ...
+
+    @property
+    def error(self) -> float:
+        """
+        The error probability of the computation.
+
+        Returns:
+            float: The error probability of the computation.
+        """
+        ...
+
+    @error.setter
+    def error(self, error: float) -> None:
+        """
+        Set the error probability.
+
+        Args:
+            error (float): The error probability to set.
+        """
+        ...
+
+    @property
+    def factories(self) -> dict[int, FactoryResult]:
+        """
+        The factory results.
+
+        Returns:
+            dict[int, FactoryResult]: A dictionary mapping factory IDs to their results.
+        """
+        ...
+
+    @property
+    def isa(self) -> ISA:
+        """
+        The ISA used for the estimation.
+
+        Returns:
+            ISA: The ISA used for the estimation.
+        """
+        ...
+
+    @property
+    def properties(self) -> dict[int, bool | int | float | str]:
+        """
+        Custom properties from application generation and trace transform.
+
+        Returns:
+            dict[int, bool | int | float | str]: A dictionary mapping property keys to their values.
+        """
+        ...
+
+    def set_property(self, key: int, value: bool | int | float | str) -> None:
+        """
+        Set a custom property.
+
+        Args:
+            key (int) The property key.
+            value (bool | int | float | str): The property value. All values of type `int`, `float`, `bool`, and `str`
+                are supported.  Any other value is converted to a string using its `__str__` method.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """
+        Return a string representation of the estimation result.
+
+        Returns:
+            str: A string representation of the estimation result.
+        """
+        ...
+
+class _EstimationCollection:
+    """
+    Represents a collection of estimation results.  Results are stored as a 2D
+    Pareto frontier with physical qubits and runtime as objectives.
+    """
+
+    def __new__(cls) -> _EstimationCollection:
+        """
+        Create a new estimation collection.
+
+        Returns:
+            _EstimationCollection: The estimation collection.
+        """
+        ...
+
+    def insert(self, result: EstimationResult) -> None:
+        """
+        Insert an estimation result into the collection.
+
+        Args:
+            result (EstimationResult): The estimation result to insert.
+        """
+        ...
+
+    def __len__(self) -> int:
+        """
+        Return the number of estimation results in the collection.
+
+        Returns:
+            int: The number of estimation results.
+        """
+        ...
+
+    def __iter__(self) -> Iterator[EstimationResult]:
+        """
+        Return an iterator over the estimation results.
+
+        Returns:
+            Iterator[EstimationResult]: The estimation result iterator.
+        """
+        ...
+
+    @property
+    def total_jobs(self) -> int:
+        """
+        Return the total number of (trace, ISA) estimation jobs.
+
+        Returns:
+            int: The total number of jobs.
+        """
+        ...
+
+    @property
+    def successful_estimates(self) -> int:
+        """
+        Return the number of estimation jobs that completed successfully
+        (before Pareto filtering).
+
+        Returns:
+            int: The number of successful estimates.
+        """
+        ...
+
+    @property
+    def all_summaries(self) -> list[tuple[int, int, int, int]]:
+        """
+        Return lightweight summaries of ALL successful estimates as a list
+        of (trace_index, isa_index, qubits, runtime) tuples.
+
+        Returns:
+            list[tuple[int, int, int, int]]: List of (trace_index, isa_index,
+                qubits, runtime) for every successful estimation.
+        """
+        ...
+
+    @property
+    def isas(self) -> list[ISA]:
+        """
+        Return the list of ISAs for which estimates were performed.
+
+        Returns:
+            list[ISA]: The list of ISAs.
+        """
+        ...
+
+class FactoryResult:
+    """
+    Represents the result of a factory used in resource estimation.
+    """
+
+    @property
+    def copies(self) -> int:
+        """
+        The number of factory copies.
+
+        Returns:
+            int: The number of factory copies.
+        """
+        ...
+
+    @property
+    def runs(self) -> int:
+        """
+        The number of factory runs.
+
+        Returns:
+            int: The number of factory runs.
+        """
+        ...
+
+    @property
+    def error_rate(self) -> float:
+        """
+        The error rate of the factory.
+
+        Returns:
+            float: The error rate of the factory.
+        """
+        ...
+
+    @property
+    def states(self) -> int:
+        """
+        The number of states produced by the factory.
+
+        Returns:
+            int: The number of states produced by the factory.
+        """
+        ...
+
+class Trace:
+    """
+    Represents a quantum program optimized for resource estimation.
+
+    A trace originates from a quantum application and can be modified via trace
+    transformations. It consists of blocks of operations.
+    """
+
+    def __new__(cls, compute_qubits: int) -> Trace:
+        """
+        Create a new trace.
+
+        Returns:
+            Trace: The trace.
+        """
+        ...
+
+    def clone_empty(self, compute_qubits: Optional[int] = None) -> Trace:
+        """
+        Create a new trace with the same metadata but empty block.
+
+        Args:
+            compute_qubits (Optional[int]): The number of compute qubits. If None,
+                the number of compute qubits of the original trace is used.
+
+        Returns:
+            Trace: The new trace.
+        """
+        ...
+
+    @classmethod
+    def from_json(cls, json: str) -> Trace:
+        """
+        Create a trace from a JSON string.
+
+        Args:
+            json (str): The JSON string.
+
+        Returns:
+            Trace: The trace.
+        """
+        ...
+
+    def to_json(self) -> str:
+        """
+        Serializes the trace to a JSON string.
+
+        Returns:
+            str: The JSON string representation of the trace.
+        """
+        ...
+
+    @property
+    def compute_qubits(self) -> int:
+        """
+        The number of compute qubits.
+
+        Returns:
+            int: The number of compute qubits.
+        """
+        ...
+
+    @compute_qubits.setter
+    def compute_qubits(self, qubits: int) -> None:
+        """
+        Set the number of compute qubits.
+
+        Args:
+            qubits (int): The number of compute qubits to set.
+        """
+        ...
+
+    @property
+    def base_error(self) -> float:
+        """
+        The base error of the trace.
+
+        Returns:
+            float: The base error of the trace.
+        """
+        ...
+
+    def increment_base_error(self, amount: float) -> None:
+        """
+        Increments the base error.
+
+        Args:
+            amount (float): The amount to increment.
+        """
+        ...
+
+    @property
+    def memory_qubits(self) -> Optional[int]:
+        """
+        The number of memory qubits, if set.
+
+        Returns:
+            Optional[int]: The number of memory qubits, or None if not set.
+        """
+        ...
+
+    def has_memory_qubits(self) -> bool:
+        """
+        Check if the trace has memory qubits set.
+
+        Returns:
+            bool: True if memory qubits are set, False otherwise.
+        """
+        ...
+
+    @memory_qubits.setter
+    def memory_qubits(self, qubits: int) -> None:
+        """
+        Set the number of memory qubits.
+
+        Args:
+            qubits (int): The number of memory qubits.
+        """
+        ...
+
+    def increment_memory_qubits(self, amount: int) -> None:
+        """
+        Increments the number of memory qubits. If memory qubits have not been
+        set, initializes them to 0 before incrementing.
+
+        Args:
+            amount (int): The amount to increment.
+        """
+        ...
+
+    def increment_resource_state(self, resource_id: int, amount: int) -> None:
+        """
+        Increments a resource state count.
+
+        Args:
+            resource_id (int): The resource state ID.
+            amount (int): The amount to increment.
+        """
+        ...
+
+    def set_property(self, key: int, value: Any) -> None:
+        """
+        Set a property.  All values of type `int`, `float`, `bool`, and `str`
+        are supported.  Any other value is converted to a string using its
+        `__str__` method.
+
+        Args:
+            key (int): The property key.
+            value (Any): The property value.
+        """
+        ...
+
+    def get_property(self, key: int) -> Optional[int | float | bool | str]:
+        """
+        Get a property.
+
+        Args:
+            key (int): The property key.
+
+        Returns:
+            Optional[int | float | bool | str]: The property value, or None if not found.
+        """
+        ...
+
+    def has_property(self, key: int) -> bool:
+        """
+        Check if a property with the given key exists.
+
+        Args:
+            key (int): The property key.
+
+        Returns:
+            bool: True if the property exists, False otherwise.
+        """
+        ...
+
+    @property
+    def total_qubits(self) -> int:
+        """
+        The total number of qubits (compute + memory).
+
+        Returns:
+            int: The total number of qubits.
+        """
+        ...
+
+    @property
+    def depth(self) -> int:
+        """
+        The trace depth.
+
+        Returns:
+            int: The trace depth.
+        """
+        ...
+
+    @property
+    def num_gates(self) -> int:
+        """
+        The total number of gates in the trace.
+
+        Returns:
+            int: The total number of gates.
+        """
+        ...
+
+    def estimate(
+        self, isa: ISA, max_error: Optional[float] = None
+    ) -> Optional[EstimationResult]:
+        """
+        Estimate resources for the trace given a logical ISA.
+
+        Args:
+            isa (ISA): The logical ISA.
+            max_error (Optional[float]): The maximum allowed error. If None,
+                Pareto points are computed.
+
+        Returns:
+            Optional[EstimationResult]: The estimation result if max_error is
+                provided, otherwise valid Pareto points.
+        """
+        ...  # The implementation in Rust returns Option<EstimationResult>, so it fits
+
+    @property
+    def resource_states(self) -> dict[int, int]:
+        """
+        The resource states used in the trace.
+
+        Returns:
+            dict[int, int]: A dictionary mapping instruction IDs to their counts.
+        """
+        ...
+
+    def add_operation(
+        self, id: int, qubits: list[int], params: list[float] = []
+    ) -> None:
+        """
+        Add an operation to the trace.
+
+        Args:
+            id (int): The operation ID.
+            qubits (list[int]): The qubits involved in the operation.
+            params (list[float]): The operation parameters.
+        """
+        ...
+
+    def root_block(self) -> Block:
+        """
+        Return the root block of the trace.
+
+        Returns:
+            Block: The root block of the trace.
+        """
+        ...
+
+    def add_block(self, repetitions: int = 1) -> Block:
+        """
+        Add a block to the trace.
+
+        Args:
+            repetitions (int): The number of times the block is repeated.
+
+        Returns:
+            Block: The block.
+        """
+        ...
+
+    @property
+    def required_isa(self) -> ISARequirements:
+        """
+        The required ISA for the trace.
+
+        Returns:
+            ISARequirements: The required ISA for the trace.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """
+        Return a string representation of the trace.
+
+        Returns:
+            str: A string representation of the trace.
+        """
+        ...
+
+class Block:
+    """
+    Represents a block of operations in a trace.
+
+    An operation in a block can either refer to an instruction applied to some
+    qubits or can be another block to create a hierarchical structure. Blocks
+    can be repeated.
+    """
+
+    def add_operation(
+        self, id: int, qubits: list[int], params: list[float] = []
+    ) -> None:
+        """
+        Add an operation to the block.
+
+        Args:
+            id (int): The operation ID.
+            qubits (list[int]): The qubits involved in the operation.
+            params (list[float]): The operation parameters.
+        """
+        ...
+
+    def add_block(self, repetitions: int = 1) -> Block:
+        """
+        Add a nested block to the block.
+
+        Args:
+            repetitions (int): The number of times the block is repeated.
+
+        Returns:
+            Block: The block.
+        """
+        ...
+
+    def __str__(self) -> str:
+        """
+        Return a string representation of the block.
+
+        Returns:
+            str: A string representation of the block.
+        """
+        ...
+
+class PSSPC:
+    def __new__(cls, num_ts_per_rotation: int, ccx_magic_states: bool) -> PSSPC: ...
+    def transform(self, trace: Trace) -> Optional[Trace]: ...
+
+class LatticeSurgery:
+    def __new__(cls, slow_down_factor: float) -> LatticeSurgery: ...
+    def transform(self, trace: Trace) -> Optional[Trace]: ...
+
+class InstructionFrontier:
+    """
+    Represents a Pareto frontier of instructions with space, time, and error
+    rates as objectives.
+    """
+
+    def __new__(cls, *, with_error_objective: bool = True) -> InstructionFrontier:
+        """
+        Create a new instruction frontier.
+
+        Args:
+            with_error_objective (bool): If True (default), the frontier uses
+                three objectives (space, time, error rate). If False, it uses
+                two objectives (space, time).
+        """
+        ...
+
+    def insert(self, point: Instruction):
+        """
+        Insert an instruction into the frontier.
+
+        Args:
+            point (Instruction): The instruction to insert.
+        """
+        ...
+
+    def extend(self, points: list[Instruction]) -> None:
+        """
+        Extend the frontier with a list of instructions.
+
+        Args:
+            points (list[Instruction]): The instructions to insert.
+        """
+        ...
+
+    def __len__(self) -> int:
+        """
+        Return the number of instructions in the frontier.
+
+        Returns:
+            int: The number of instructions.
+        """
+        ...
+
+    def __iter__(self) -> Iterator[Instruction]:
+        """
+        Return an iterator over the instructions in the frontier.
+
+        Returns:
+            Iterator[Instruction]: The iterator.
+        """
+        ...
+
+    @staticmethod
+    def load(
+        filename: str, *, with_error_objective: bool = True
+    ) -> InstructionFrontier:
+        """
+        Load an instruction frontier from a file.
+
+        Args:
+            filename (str): The file name.
+            with_error_objective (bool): If True (default), the frontier uses
+                three objectives (space, time, error rate). If False, it uses
+                two objectives (space, time).
+
+        Returns:
+            InstructionFrontier: The loaded instruction frontier.
+        """
+        ...
+
+    def dump(self, filename: str) -> None:
+        """
+        Dump the instruction frontier to a file.
+
+        Args:
+            filename (str): The file name.
+        """
+        ...
+
+def _estimate_parallel(
+    traces: list[Trace],
+    isas: list[ISA],
+    max_error: float = 1.0,
+    post_process: bool = False,
+) -> _EstimationCollection:
+    """
+    Estimate resources for multiple traces and ISAs in parallel.
+
+    Args:
+        traces (list[Trace]): The list of traces.
+        isas (list[ISA]): The list of ISAs.
+        max_error (float): The maximum allowed error. The default is 1.0.
+        post_process (bool): If True, computes auxiliary data such as result
+            summaries needed for post-processing after estimation.
+
+    Returns:
+        _EstimationCollection: The estimation collection.
+    """
+    ...
+
+def _estimate_with_graph(
+    traces: list[Trace],
+    graph: _ProvenanceGraph,
+    max_error: float = 1.0,
+    post_process: bool = False,
+) -> _EstimationCollection:
+    """
+    Estimate resources using a Pareto-filtered provenance graph.
+
+    Instead of forming the full Cartesian product of ISAs × traces, this
+    function enumerates per-trace instruction combinations from the
+    Pareto-optimal subsets in the frozen graph.
+
+    Args:
+        traces (list[Trace]): The list of traces to estimate.
+        graph (_ProvenanceGraph): The provenance graph to use for estimation.
+        max_error (float): The maximum allowed error. The default is 1.0.
+        post_process (bool): If True, computes auxiliary data such as result
+            summaries and ISAs needed for post-processing after estimation.
+
+    Returns:
+        _EstimationCollection: The estimation collection.
+    """
+    ...
+
+def _binom_ppf(q: float, n: int, p: float) -> int:
+    """
+    A replacement for SciPy's binom.ppf that is faster and does not require
+    SciPy as a dependency.
+    """
+    ...
+
+def _float_to_bits(f: float) -> int:
+    """Convert a float to its bit representation as an integer."""
+    ...
+
+def _float_from_bits(b: int) -> float:
+    """Convert a float from its bit representation as an integer."""
+    ...
+
+def instruction_name(id: int) -> Optional[str]:
+    """
+    Return the name of an instruction given its ID, if known.
+
+    Args:
+        id (int): The instruction ID.
+
+    Returns:
+        Optional[str]: The name of the instruction, or None if the ID is not recognized.
+    """
+    ...
+
+def property_name_to_key(name: str) -> Optional[int]:
+    """
+    Convert a property name to its corresponding key, if known.
+
+    Args:
+        name (str): The property name.
+
+    Returns:
+        Optional[int]: The property key, or None if the name is not recognized.
+    """
+    ...
+
+def property_name(id: int) -> Optional[str]:
+    """
+    Convert a property key to its corresponding name, if known.
+
+    Args:
+        id (int): The property key.
+
+    Returns:
+        Optional[str]: The property name, or None if the key is not recognized.
+    """
+    ...
