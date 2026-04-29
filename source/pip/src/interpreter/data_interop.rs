@@ -216,6 +216,7 @@ where
 
 /// Given a type, convert a Python object into a Q# value of that type. This will recur through tuples and arrays,
 /// and will return an error if the type is not supported or the object cannot be converted.
+#[allow(clippy::too_many_lines)]
 pub(super) fn pyobj_to_value(
     ctx: &interpret::Interpreter,
     py: Python,
@@ -231,7 +232,12 @@ pub(super) fn pyobj_to_value(
             Prim::String => Ok(Value::String(extract_obj::<String>(py, obj, ty)?.into())),
             Prim::Result => Ok(Value::Result(extract_obj::<Result>(py, obj, ty)?.into())),
             Prim::Pauli => Ok(Value::Pauli(extract_obj::<Pauli>(py, obj, ty)?.into())),
-            Prim::Qubit | Prim::Range | Prim::RangeTo | Prim::RangeFrom | Prim::RangeFull => {
+            Prim::Qubit
+            | Prim::MemoryQubit
+            | Prim::Range
+            | Prim::RangeTo
+            | Prim::RangeFrom
+            | Prim::RangeFull => {
                 unimplemented!("primitive input type: {prim_ty:?}")
             }
         },
@@ -333,7 +339,12 @@ pub(super) fn type_ir_from_qsharp_ty(ctx: &interpret::Interpreter, ty: &Ty) -> O
                 Prim::String => PrimitiveKind::String,
                 Prim::Pauli => PrimitiveKind::Pauli,
                 Prim::Result => PrimitiveKind::Result,
-                Prim::Qubit | Prim::Range | Prim::RangeTo | Prim::RangeFrom | Prim::RangeFull => {
+                Prim::Qubit
+                | Prim::MemoryQubit
+                | Prim::Range
+                | Prim::RangeTo
+                | Prim::RangeFrom
+                | Prim::RangeFull => {
                     return None;
                 }
             };
@@ -469,7 +480,7 @@ pub(crate) fn value_to_pyobj(
             let closure: Closure = value.clone().into();
             closure.into_py_any(py)
         }
-        Value::Qubit(..) | Value::Range(..) | Value::Var(..) => {
+        Value::Qubit(..) | Value::MemoryQubit(..) | Value::Range(..) | Value::Var(..) => {
             format!("<{}> {}", value.type_name(), value).into_py_any(py)
         }
     }

@@ -1013,8 +1013,12 @@ impl With<'_> {
             ast::QubitInitKind::Array(length) => {
                 hir::QubitInitKind::Array(Box::new(self.lower_expr(length)))
             }
+            ast::QubitInitKind::MemoryArray(length) => {
+                hir::QubitInitKind::MemoryArray(Box::new(self.lower_expr(length)))
+            }
             ast::QubitInitKind::Paren(_) => unreachable!("parentheses should be removed earlier"),
             ast::QubitInitKind::Single => hir::QubitInitKind::Single,
+            ast::QubitInitKind::MemorySingle => hir::QubitInitKind::MemorySingle,
             ast::QubitInitKind::Tuple(items) => {
                 hir::QubitInitKind::Tuple(items.iter().map(|i| self.lower_qubit_init(i)).collect())
             }

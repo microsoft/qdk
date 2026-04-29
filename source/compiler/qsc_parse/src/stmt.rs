@@ -140,6 +140,12 @@ fn parse_qubit(s: &mut ParserContext) -> Result<Box<StmtKind>> {
     let lhs = pat(s)?;
     token(s, TokenKind::Eq)?;
     let rhs = parse_qubit_init(s)?;
+
+    if matches!(source, QubitSource::Dirty) && contains_memory_qubit_init(&rhs) {
+        return Err(Error::new(ErrorKind::Convert("use", "borrow", rhs.span))
+            .with_help("MemoryQubit cannot be borrowed."));
+    }
+
     let block = if s.contains_language_feature(LanguageFeatures::V2PreviewSyntax) {
         None
     } else {
@@ -158,20 +164,34 @@ fn parse_qubit_init(s: &mut ParserContext) -> Result<Box<QubitInit>> {
     let lo = s.peek().span.lo;
     s.expect(WordKinds::Qubit);
     let kind = if let Ok(name) = ident(s) {
-        if name.name.as_ref() != "Qubit" {
-            return Err(Error::new(ErrorKind::Convert(
-                "qubit initializer",
-                "identifier",
-                name.span,
-            ))
-            .with_help(help_text));
-        } else if token(s, TokenKind::Open(Delim::Paren)).is_ok() {
+        let is_memory = match name.name.as_ref() {
+            "Qubit" => false,
+            "MemoryQubit" => true,
+            _ => {
+                return Err(Error::new(ErrorKind::Convert(
+                    "qubit initializer",
+                    "identifier",
+                    name.span,
+                ))
+                .with_help(help_text));
+            }
+        };
+
+        if token(s, TokenKind::Open(Delim::Paren)).is_ok() {
             token(s, TokenKind::Close(Delim::Paren)).map_err(|e| e.with_help(help_text))?;
-            QubitInitKind::Single
+            if is_memory {
+                QubitInitKind::MemorySingle
+            } else {
+                QubitInitKind::Single
+            }
         } else if token(s, TokenKind::Open(Delim::Bracket)).is_ok() {
             let size = expr(s).map_err(|e| e.with_help(help_text))?;
             token(s, TokenKind::Close(Delim::Bracket)).map_err(|e| e.with_help(help_text))?;
-            QubitInitKind::Array(size)
+            if is_memory {
+                QubitInitKind::MemoryArray(size)
+            } else {
+                QubitInitKind::Array(size)
+            }
         } else {
             let token = s.peek();
             return Err(
@@ -196,6 +216,15 @@ fn parse_qubit_init(s: &mut ParserContext) -> Result<Box<QubitInit>> {
         span: s.span(lo),
         kind: Box::new(kind),
     }))
+}
+
+fn contains_memory_qubit_init(init: &QubitInit) -> bool {
+    match &*init.kind {
+        QubitInitKind::MemoryArray(_) | QubitInitKind::MemorySingle => true,
+        QubitInitKind::Array(_) | QubitInitKind::Single | QubitInitKind::Err => false,
+        QubitInitKind::Paren(inner) => contains_memory_qubit_init(inner),
+        QubitInitKind::Tuple(inits) => inits.iter().any(|i| contains_memory_qubit_init(i)),
+    }
 }
 
 pub(super) fn check_semis(s: &mut ParserContext, stmts: &[Box<Stmt>]) {

@@ -13,6 +13,7 @@ indoc = { workspace = true }
 num-bigint = { workspace = true }
 expect-test = { workspace = true }
 qsc = { path = "../source/compiler/qsc" }
+resource_estimator = { path = "../source/resource_estimator" }
 
 [lints]
 workspace = true

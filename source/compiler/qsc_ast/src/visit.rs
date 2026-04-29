@@ -399,9 +399,9 @@ pub fn walk_pat<'a>(vis: &mut impl Visitor<'a>, pat: &'a Pat) {
 
 pub fn walk_qubit_init<'a>(vis: &mut impl Visitor<'a>, init: &'a QubitInit) {
     match &*init.kind {
-        QubitInitKind::Array(len) => vis.visit_expr(len),
+        QubitInitKind::Array(len) | QubitInitKind::MemoryArray(len) => vis.visit_expr(len),
         QubitInitKind::Paren(init) => vis.visit_qubit_init(init),
-        QubitInitKind::Single | QubitInitKind::Err => {}
+        QubitInitKind::Single | QubitInitKind::MemorySingle | QubitInitKind::Err => {}
         QubitInitKind::Tuple(inits) => inits.iter().for_each(|i| vis.visit_qubit_init(i)),
     }
 }

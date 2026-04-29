@@ -83,6 +83,33 @@ fn use_qubit_array() {
 }
 
 #[test]
+fn use_memory_qubit_stmt() {
+    check(
+        parse,
+        "use m = MemoryQubit();",
+        &expect![[r#"
+            Stmt _id_ [0-22]: Qubit (Fresh)
+                Pat _id_ [4-5]: Bind:
+                    Ident _id_ [4-5] "m"
+                QubitInit _id_ [8-21] MemorySingle"#]],
+    );
+}
+
+#[test]
+fn use_memory_qubit_array() {
+    check(
+        parse,
+        "use ms = MemoryQubit[5];",
+        &expect![[r#"
+            Stmt _id_ [0-24]: Qubit (Fresh)
+                Pat _id_ [4-6]: Bind:
+                    Ident _id_ [4-6] "ms"
+                QubitInit _id_ [9-23] MemoryArray:
+                    Expr _id_ [21-22]: Lit: Int(5)"#]],
+    );
+}
+
+#[test]
 fn use_pat_match() {
     check(
         parse,

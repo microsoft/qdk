@@ -11,6 +11,7 @@ mod intrinsic;
 mod logical;
 mod math;
 mod measurement;
+mod memory_qubits;
 mod openqasm;
 mod state_preparation;
 mod table_lookup;
@@ -20,6 +21,9 @@ use qsc::{
     Backend, LanguageFeatures, PackageType, SourceMap, SparseSim,
     interpret::{self, GenericReceiver, Interpreter, Value},
     target::Profile,
+};
+use resource_estimator::{
+    Error as ResourceEstimatorError, logical_counts_expr, system::LogicalResourceCounts,
 };
 
 /// # Panics
@@ -38,6 +42,35 @@ pub fn test_expression_fails(expr: &str) -> String {
         Profile::Unrestricted,
         &mut SparseSim::default(),
     )
+}
+
+/// Asserts that given Q# expression fails to compile with given error message.
+pub fn test_compile_fails(expr: &str, lib: &str, expected_error_substring: &str) {
+    let profile = Profile::Unrestricted;
+    let sources = SourceMap::new([("test".into(), lib.into())], Some(expr.into()));
+
+    let (std_id, store) = qsc::compile::package_store_with_stdlib(profile.into());
+
+    let Err(compile_errors) = Interpreter::new(
+        sources,
+        PackageType::Exe,
+        profile.into(),
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+    ) else {
+        panic!("test should fail to compile")
+    };
+
+    let error = compile_errors
+        .iter()
+        .map(|e| format!("{e}:{e:?}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        error.contains(expected_error_substring),
+        "Expected to contain: {expected_error_substring}\nGot: {error}"
+    );
 }
 
 pub fn test_expression_with_lib(expr: &str, lib: &str, expected: &Value) -> String {
@@ -263,4 +296,34 @@ fn stdlib_reexport_single_case() {
     }"#,
         &Value::Tuple(vec![].into(), None),
     );
+}
+
+// Runs resource estimator for given expression, returns logical counts.
+pub fn logical_counts_with_lib(expr: &str, lib: &str) -> LogicalResourceCounts {
+    let profile = Profile::Unrestricted;
+    let sources = SourceMap::new([("test".into(), lib.into())], Some(expr.into()));
+
+    let (std_id, store) = qsc::compile::package_store_with_stdlib(profile.into());
+
+    let mut interpreter = Interpreter::new(
+        sources,
+        PackageType::Exe,
+        profile.into(),
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+    )
+    .expect("test should compile");
+
+    logical_counts_expr(&mut interpreter, expr)
+        .unwrap_or_else(|errs| panic_with_resource_estimation_errors(&errs))
+}
+
+fn panic_with_resource_estimation_errors(errs: &[ResourceEstimatorError]) -> ! {
+    let joined = errs
+        .iter()
+        .map(|e| format!("{e}:{e:?}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    panic!("resource estimation failed:\n{joined}");
 }

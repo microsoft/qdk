@@ -233,6 +233,16 @@ pub(crate) fn call<B: Backend>(
             ),
         )),
         "__quantum__rt__read_loss" => Ok(Value::Bool(arg == Value::Result(val::Result::Loss))),
+        "__quantum__qis__memory_qubit_store" => two_qubit_gate(
+            |q0, q1| sim.memory_qubit_store(q0, q1, call_stack),
+            arg,
+            arg_span,
+        ),
+        "__quantum__qis__memory_qubit_load" => two_qubit_gate(
+            |q0, q1| sim.memory_qubit_load(q0, q1, call_stack),
+            arg,
+            arg_span,
+        ),
         _ => {
             let qubits = arg.qubits();
             let qubits_len = qubits.len();

@@ -3473,6 +3473,7 @@ impl<'a> PartialEvaluator<'a> {
             | Value::Global(_, _)
             | Value::Pauli(_)
             | Value::Qubit(_)
+            | Value::MemoryQubit(_)
             | Value::Range(_)
             | Value::String(_) => panic!("unsupported value type in output recording"),
         }
