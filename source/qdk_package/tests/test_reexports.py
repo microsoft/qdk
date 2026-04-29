@@ -1,45 +1,34 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import pytest, importlib
+"""Tests for qdk re-export shims.
+
+Only ``qdk.widgets`` and ``qdk.azure`` are re-export shims wrapping third-party
+packages.  All other qdk submodules (estimator, openqasm, qiskit, cirq, qre,
+etc.) now own their code directly and are covered by functional tests elsewhere.
+"""
+
+import importlib
+import pytest
 
 
-def test_qdk_qsharp_submodule_available():
-    # Import the qsharp submodule explicitly.
-    qdk_qsharp = importlib.import_module("qdk.qsharp")
-    # Ensure a core API is reachable via submodule
-    assert hasattr(qdk_qsharp, "run"), "qsharp.run missing in submodule"
+# ---- Friendly error messages when optional deps are missing ----
+
+_REEXPORT_SHIMS = {
+    "qdk.widgets": {"dep": "qsharp_widgets", "hint": "pip install qdk[jupyter]"},
+    "qdk.azure": {"dep": "azure.quantum", "hint": "pip install qdk[azure]"},
+}
 
 
-def test_estimator_and_openqasm_shims():
-    est = importlib.import_module("qdk.estimator")
-    oq = importlib.import_module("qdk.openqasm")
-    assert hasattr(est, "__doc__")
-    assert hasattr(oq, "__doc__")
+@pytest.mark.parametrize("mod,spec", _REEXPORT_SHIMS.items())
+def test_missing_optional_gives_helpful_error(mod, spec):
+    """When the upstream dep is absent, importing the shim should raise
+    ImportError containing a pip-install hint."""
+    try:
+        importlib.import_module(spec["dep"])
+        pytest.skip(f"{spec['dep']} is installed; cannot test missing-dep path")
+    except ImportError:
+        pass
 
-
-def test_missing_optional_direct_imports():
-    # If optional extras truly not installed, importing their submodules should raise ImportError.
-    # We probe without using mocks here.
-    for mod in ("qdk.widgets", "qdk.azure", "qdk.qiskit", "qdk.cirq", "qdk.qre"):
-        base_dep = {
-            "qdk.widgets": "qsharp_widgets",
-            "qdk.azure": "azure.quantum",
-            "qdk.qiskit": "qiskit",
-            "qdk.cirq": "cirq",
-            "qdk.qre": "qre",
-        }[mod]
-        try:
-            importlib.import_module(base_dep)
-            dep_installed = True
-        except Exception:
-            dep_installed = False
-        if not dep_installed:
-            try:
-                importlib.import_module(mod)
-            except ImportError as e:
-                # Expected path: verify helpful hint present
-                assert "pip install qdk[" in str(e)
-            else:
-                # If it imported anyway, treat as environment providing the feature (e.g. via dev install)
-                pass
+    with pytest.raises(ImportError, match=spec["hint"]):
+        importlib.import_module(mod)

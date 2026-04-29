@@ -46,6 +46,7 @@ from qdk._qsharp import (
 from qdk._native import Result, Pauli, QSharpError, TargetProfile, estimate_custom
 
 from qdk import telemetry_events
+
 telemetry_events.on_import()
 
 # IPython notebook specific features

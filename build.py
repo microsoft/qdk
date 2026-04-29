@@ -346,7 +346,7 @@ def install_python_test_requirements(cwd, interpreter, check: bool = True):
         subprocess.run(command_args, check=check, text=True, cwd=cwd)
 
 
-def build_qsharp_wheel(cwd, interpreter, pip_env):
+def build_maturin_wheel(cwd, interpreter, pip_env):
     # Read the build dependencies out of the pyproject.toml and install them first.
     with open(os.path.join(cwd, "pyproject.toml"), "rb") as f:
         requires = tomllib.load(f)["build-system"]["requires"]
@@ -438,18 +438,74 @@ def run_ci_historic_benchmark():
             f.write(result.stdout)
 
 
+if build_qdk:
+    step_start("Building the qdk python package")
+
+    # Reuse (or create) the pip environment so qdk wheel can be built/installed consistently.
+    (python_bin, pip_env) = use_python_env(qdk_python_src)
+
+    # Build the qdk wheel with maturin (it now owns the native extension).
+    build_maturin_wheel(qdk_python_src, python_bin, pip_env)
+    step_end()
+
+    if run_tests:
+        step_start("Running tests for the qdk python package")
+        # Install per-package test requirements (pytest, etc.)
+        install_python_test_requirements(qdk_python_src, python_bin)
+
+        # Install qdk from the freshly built wheel.
+        install_args = [
+            python_bin,
+            "-m",
+            "pip",
+            "install",
+            "--force-reinstall",
+            "--no-index",
+            "--find-links=" + wheels_dir,
+            "qdk",
+        ]
+        subprocess.run(install_args, check=True, text=True, cwd=qdk_python_src)
+
+        # Run its test suite
+        run_python_tests(os.path.join(qdk_python_src, "tests"), python_bin, pip_env)
+        step_end()
+
 if build_pip:
     step_start("Building the pip package")
 
     (python_bin, pip_env) = use_python_env(pip_src)
 
-    build_qsharp_wheel(pip_src, python_bin, pip_env)
+    # qsharp is now a pure-Python shim depending on qdk.
+    # Build with setuptools (no maturin needed).
+    pip_build_args = [
+        python_bin,
+        "-m",
+        "build",
+        "--wheel",
+        "-v",
+        "--outdir",
+        wheels_dir,
+        pip_src,
+    ]
+    subprocess.run(pip_build_args, check=True, text=True, cwd=pip_src, env=pip_env)
     step_end()
 
     if run_tests:
         step_start("Running tests for the pip package")
 
         install_python_test_requirements(pip_src, python_bin)
+        # Install qdk first (qsharp depends on it)
+        install_args = [
+            python_bin,
+            "-m",
+            "pip",
+            "install",
+            "--force-reinstall",
+            "--no-index",
+            "--find-links=" + wheels_dir,
+            "qdk",
+        ]
+        subprocess.run(install_args, check=True, text=True, cwd=pip_src)
         install_qsharp_python_package(pip_src, wheels_dir, python_bin)
         run_python_tests(os.path.join(pip_src, "tests"), python_bin, pip_env)
 
@@ -483,53 +539,6 @@ if build_pip:
 
             step_end()
 
-
-if build_qdk:
-    step_start("Building the qdk python package")
-
-    # Reuse (or create) the pip environment so qsharp wheel can be built/installed consistently.
-    (python_bin, pip_env) = use_python_env(qdk_python_src)
-
-    # Build the qdk wheel (no dependency build needed; it's a thin meta-package)
-    qdk_build_args = [
-        python_bin,
-        "-m",
-        "build",
-        "--wheel",
-        "-v",
-        "--outdir",
-        wheels_dir,
-        qdk_python_src,
-    ]
-    subprocess.run(qdk_build_args, check=True, text=True, cwd=qdk_python_src)
-    step_end()
-
-    if run_tests:
-        step_start("Running tests for the qdk python package")
-        # Install per-package test requirements (pytest, etc.)
-        install_python_test_requirements(qdk_python_src, python_bin)
-
-        # Install qsharp wheel first so dependency resolution is offline & version-synced.
-        install_qsharp_python_package(qdk_python_src, wheels_dir, python_bin)
-
-        # Install qdk itself from the freshly built wheel (force to ensure isolation)
-        install_args = [
-            python_bin,
-            "-m",
-            "pip",
-            "install",
-            "--force-reinstall",
-            "--no-index",
-            "--no-deps",
-            "--find-links=" + wheels_dir,
-            "qdk",
-            "qsharp",
-        ]
-        subprocess.run(install_args, check=True, text=True, cwd=qdk_python_src)
-
-        # Run its test suite
-        run_python_tests(os.path.join(qdk_python_src, "tests"), python_bin, pip_env)
-        step_end()
 
 if build_widgets:
     step_start("Building the Python widgets")

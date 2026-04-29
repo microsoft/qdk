@@ -3,7 +3,7 @@
 
 """Centralized mock helpers for tests.
 
-Provides lightweight stand-ins for optional (and required during tests) dependencies.
+Provides lightweight stand-ins for optional dependencies.
 
 Functions return a list of module names they created so callers can later clean them
 up using cleanup_modules(). This keeps test intent explicit.
@@ -15,102 +15,7 @@ from typing import List
 
 
 def _not_impl(*_a, **_k):
-    raise NotImplementedError("qsharp stub: real 'qsharp' package not installed")
-
-
-def mock_qsharp() -> List[str]:
-    """Ensure a minimal 'qsharp' module exists.
-
-    In real usage the qsharp package provides a compiled extension. Tests only
-    need the attribute surface that qdk re-exports (run/estimate presently used
-    for sanity checks). If the real package is installed this is a no-op.
-    """
-    created: List[str] = []
-    if "qsharp" not in sys.modules:
-        stub = types.ModuleType("qsharp")
-
-        stub.run = _not_impl
-        stub.estimate = _not_impl
-        # Provide utility symbols expected to re-export at root
-        stub.code = object()
-        stub.set_quantum_seed = _not_impl
-        stub.set_classical_seed = _not_impl
-        stub.dump_machine = _not_impl
-        stub.init = _not_impl
-
-        class _T:  # placeholder types
-            pass
-
-        stub.Result = _T
-        stub.TargetProfile = _T
-        stub.StateDump = _T
-        stub.ShotResult = _T
-        stub.PauliNoise = _T
-        stub.DepolarizingNoise = _T
-        stub.BitFlipNoise = _T
-        stub.PhaseFlipNoise = _T
-        stub.__all__ = [
-            "run",
-            "estimate",
-            "code",
-            "set_quantum_seed",
-            "set_classical_seed",
-            "dump_machine",
-            "init",
-            "Result",
-            "TargetProfile",
-            "StateDump",
-            "ShotResult",
-            "PauliNoise",
-            "DepolarizingNoise",
-            "BitFlipNoise",
-            "PhaseFlipNoise",
-            "estimator",
-            "openqasm",
-            "utils",
-        ]
-        # Minimal submodules to back lifted shims
-        est = types.ModuleType("qsharp.estimator")
-        est.__doc__ = "mock estimator"
-        sys.modules["qsharp.estimator"] = est
-        stub.estimator = est
-        oq = types.ModuleType("qsharp.openqasm")
-        oq.__doc__ = "mock openqasm"
-        sys.modules["qsharp.openqasm"] = oq
-        stub.openqasm = oq
-        utils_mod = types.ModuleType("qsharp.utils")
-        utils_mod.dump_operation = _not_impl
-        sys.modules["qsharp.utils"] = utils_mod
-        stub.utils = utils_mod
-
-        sys.modules["qsharp"] = stub
-        # Telemetry events package with on_qdk_import function expected by qdk import
-        telemetry_pkg = types.ModuleType("qsharp.telemetry_events")
-
-        def on_qdk_import():
-            return None
-
-        telemetry_pkg.on_qdk_import = on_qdk_import
-        sys.modules["qsharp.telemetry_events"] = telemetry_pkg
-        # Interop namespace for qiskit shim expectations
-        interop = types.ModuleType("qsharp.interop")
-        sys.modules["qsharp.interop"] = interop
-        interop_qk = types.ModuleType("qsharp.interop.qiskit")
-        interop_qk.__doc__ = "mock qsharp interop qiskit"
-        sys.modules["qsharp.interop.qiskit"] = interop_qk
-
-        created.extend(
-            [
-                "qsharp",
-                "qsharp.estimator",
-                "qsharp.openqasm",
-                "qsharp.utils",
-                "qsharp.telemetry_events",
-                "qsharp.interop",
-                "qsharp.interop.qiskit",
-            ]
-        )
-    return created
+    raise NotImplementedError("stub: dependency not installed")
 
 
 def mock_widgets() -> List[str]:
@@ -150,33 +55,6 @@ def mock_azure() -> List[str]:
                 "azure.quantum.job",
             ]
         )
-    return created
-
-
-def mock_qiskit() -> List[str]:
-    created: List[str] = []
-    if "qiskit" not in sys.modules:
-        qk = types.ModuleType("qiskit")
-        qk.transpile = _not_impl
-        sys.modules["qiskit"] = qk
-        created.append("qiskit")
-    return created
-
-
-def mock_cirq() -> List[str]:
-    created: List[str] = []
-    if "cirq" not in sys.modules:
-        cq = types.ModuleType("cirq")
-        sys.modules["cirq"] = cq
-        created.append("cirq")
-    if "qsharp.interop.cirq" not in sys.modules:
-        interop_cirq = types.ModuleType("qsharp.interop.cirq")
-        interop_cirq.__doc__ = "mock qsharp interop cirq"
-        sys.modules["qsharp.interop.cirq"] = interop_cirq
-        interop = sys.modules.get("qsharp.interop")
-        if interop is not None:
-            interop.cirq = interop_cirq
-        created.append("qsharp.interop.cirq")
     return created
 
 

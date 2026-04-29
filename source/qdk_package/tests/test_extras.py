@@ -1,19 +1,20 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import pytest, importlib
+"""Tests for the re-export shims that wrap optional third-party packages.
 
-from mocks import (
-    mock_widgets,
-    mock_azure,
-    mock_qiskit,
-    mock_cirq,
-    cleanup_modules,
-)
+Only ``qdk.widgets`` (wraps ``qsharp_widgets``) and ``qdk.azure`` (wraps
+``azure.quantum``) are re-export shims. We mock the upstream packages and
+verify that the shims surface the expected attributes.
+"""
+
+import importlib
+import pytest
+
+from mocks import mock_widgets, mock_azure, cleanup_modules
 
 
-# Standard contract description for each extra we test.
-EXTRAS = {
+MOCK_EXTRAS = {
     "widgets": {
         "mock": mock_widgets,
         "module": "qdk.widgets",
@@ -26,21 +27,11 @@ EXTRAS = {
             hasattr(mod, name) for name in ("target", "argument_types", "job")
         ),
     },
-    "qiskit": {
-        "mock": mock_qiskit,
-        "module": "qdk.qiskit",
-        "post_assert": lambda mod: hasattr(mod, "__doc__"),
-    },
-    "cirq": {
-        "mock": mock_cirq,
-        "module": "qdk.cirq",
-        "post_assert": lambda mod: hasattr(mod, "__doc__"),
-    },
 }
 
 
-@pytest.mark.parametrize("name,spec", EXTRAS.items())
-def test_direct_import_with_mock(name, spec):
+@pytest.mark.parametrize("name,spec", MOCK_EXTRAS.items())
+def test_reexport_shim_with_mock(name, spec):
     created = spec["mock"]()
     try:
         imported = importlib.import_module(spec["module"])
