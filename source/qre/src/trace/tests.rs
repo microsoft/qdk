@@ -301,7 +301,7 @@ fn test_runtime_single_operation() {
     let isa = isa_with_times(&[(T, 1, 100)]);
     let locked = isa.lock();
 
-    assert_eq!(trace.runtime(&locked).unwrap(), 100);
+    assert_eq!(trace.runtime(&locked).expect("runtime computation failed"), 100);
 }
 
 #[test]
@@ -314,7 +314,7 @@ fn test_runtime_parallel_operations() {
     let locked = isa.lock();
 
     // Parallel: runtime is the max of the two = 100
-    assert_eq!(trace.runtime(&locked).unwrap(), 100);
+    assert_eq!(trace.runtime(&locked).expect("runtime computation failed"), 100);
 }
 
 #[test]
@@ -327,7 +327,7 @@ fn test_runtime_sequential_operations() {
     let locked = isa.lock();
 
     // Sequential on qubit 0: 100 + 50 = 150
-    assert_eq!(trace.runtime(&locked).unwrap(), 150);
+    assert_eq!(trace.runtime(&locked).expect("runtime computation failed"), 150);
 }
 
 #[test]
@@ -340,7 +340,7 @@ fn test_runtime_with_repeated_block() {
     let locked = isa.lock();
 
     // Block depth = 100, repeated 5 times = 500
-    assert_eq!(trace.runtime(&locked).unwrap(), 500);
+    assert_eq!(trace.runtime(&locked).expect("runtime computation failed"), 500);
 }
 
 #[test]
@@ -354,7 +354,7 @@ fn test_runtime_nested_blocks() {
     let locked = isa.lock();
 
     // Inner: 10 * 2 = 20, outer: 20 * 3 = 60
-    assert_eq!(trace.runtime(&locked).unwrap(), 60);
+    assert_eq!(trace.runtime(&locked).expect("runtime computation failed"), 60);
 }
 
 #[test]
@@ -365,7 +365,7 @@ fn test_runtime_multi_qubit_gate() {
     let isa = isa_with_times(&[(CX, 2, 200)]);
     let locked = isa.lock();
 
-    assert_eq!(trace.runtime(&locked).unwrap(), 200);
+    assert_eq!(trace.runtime(&locked).expect("runtime computation failed"), 200);
 }
 
 #[test]
@@ -382,7 +382,7 @@ fn test_runtime_sequential_after_multi_qubit() {
     // T on q0: 200 + 100 = 300
     // H on q1: 200 + 50 = 250
     // max = 300
-    assert_eq!(trace.runtime(&locked).unwrap(), 300);
+    assert_eq!(trace.runtime(&locked).expect("runtime computation failed"), 300);
 }
 
 #[test]
@@ -392,7 +392,7 @@ fn test_runtime_empty_trace() {
     let isa = ISA::new();
     let locked = isa.lock();
 
-    assert_eq!(trace.runtime(&locked).unwrap(), 0);
+    assert_eq!(trace.runtime(&locked).expect("runtime computation failed"), 0);
 }
 
 #[test]
@@ -410,7 +410,7 @@ fn test_runtime_block_parallel_to_operation() {
     // Block: 10 * 4 = 40 on q0
     // H: 50 on q1
     // max = 50
-    assert_eq!(trace.runtime(&locked).unwrap(), 50);
+    assert_eq!(trace.runtime(&locked).expect("runtime computation failed"), 50);
 }
 
 #[test]
@@ -443,5 +443,5 @@ fn test_runtime_mixed_sequential_and_parallel() {
     // q1: H ends at 50, CX starts at 100, ends at 300
     // q2: T ends at 100
     // max = 300
-    assert_eq!(trace.runtime(&locked).unwrap(), 300);
+    assert_eq!(trace.runtime(&locked).expect("runtime computation failed"), 300);
 }
