@@ -135,6 +135,11 @@ fn operation_circuit_entry_expr(operation_expr: &str, qubit_params: &[QubitParam
 /// in the operation arguments.
 const NUM_QUBITS: u32 = 2;
 
+/// Constructs a nested qubit array argument for a circuit entry expression.
+///
+/// Generates explicit array constructors for multi-dimensional qubit array parameters.
+/// For example, a 2D qubit array parameter receives nested array syntax: `[[qs[0..1], qs[2..3]], [qs[4..5], qs[6..7]]]`
+/// Recursively partitions the qubit range into `NUM_QUBITS` wide chunks at each dimension level.
 fn build_nested_qubit_array_arg(start: u32, dimensions: u32) -> String {
     debug_assert!(dimensions > 0, "array dimensions should be positive");
 

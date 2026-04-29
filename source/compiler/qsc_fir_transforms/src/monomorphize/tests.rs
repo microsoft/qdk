@@ -710,7 +710,7 @@ fn mono_generic_with_functor_param() {
 fn mono_functor_specialized_clone_preserves_explicit_specs() {
     check_details(
         indoc! {r#"
-                operation ApplyOp<'T>(op : 'T => Unit, x : 'T) : Unit is Adj + Ctl {
+                operation ApplyOp<'T>(op : 'T => Unit is Adj + Ctl, x : 'T) : Unit is Adj + Ctl {
                     body ... { op(x); }
                     adjoint ... { Adjoint op(x); }
                     controlled (ctls, ...) { Controlled op(ctls, x); }
@@ -966,6 +966,7 @@ fn monomorphize_no_entry_returns_immediately() {
         TargetCapabilityFlags::empty(),
         LanguageFeatures::default(),
     );
+    crate::test_utils::assert_no_compile_errors("user code", &unit.errors);
     let pass_errors = run_default_passes(hir_store.core(), &mut unit, PackageType::Lib);
     assert!(pass_errors.is_empty());
     let hir_pkg_id = hir_store.insert(unit);

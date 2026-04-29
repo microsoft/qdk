@@ -24,12 +24,29 @@ pub mod qir {
 
     use crate::interpret::Error;
 
+    /// Prepared Flat Intermediate Representation (FIR) ready for QIR/RIR code generation.
+    ///
+    /// Contains:
+    /// - `fir_store`: Complete lowered FIR package store after all compiler passes
+    /// - `fir_package_id`: Main package ID within the store
+    /// - `compute_properties`: Resource analysis (qubit/instruction counts, etc.)
+    ///
+    /// Invariants (when created with full pipeline):
+    /// - No type parameters remain (monomorphization complete)
+    /// - No return statements (return unification complete)
+    /// - No arrow types or closures (defunctionalization complete)
+    /// - No UDT types (UDT erasure complete)
+    /// - Execution graphs fully populated
     pub struct PreparedBackendFir {
         pub fir_store: qsc_fir::fir::PackageStore,
         pub fir_package_id: qsc_fir::fir::PackageId,
         pub compute_properties: qsc_rca::PackageStoreComputeProperties,
     }
 
+    /// Extracts the entry point expression from prepared FIR.
+    ///
+    /// Forms a `ProgramEntry` suitable for downstream codegen (QIR, RIR generation)
+    /// by combining the entry expression and its associated execution graph.
     pub(crate) fn entry_from_prepared_fir(prepared_fir: &PreparedBackendFir) -> ProgramEntry {
         let package = prepared_fir.fir_store.get(prepared_fir.fir_package_id);
         ProgramEntry {
@@ -117,6 +134,10 @@ pub mod qir {
         }
     }
 
+    /// Runs the full FIR transformation pipeline through all stages.
+    ///
+    /// Applies compiler passes (monomorphization, defunctionalization, UDT erasure, etc.)
+    /// to produce backend-ready FIR satisfying full invariants.
     pub fn run_backend_pipeline(
         package_store: &PackageStore,
         package_id: qsc_hir::hir::PackageId,
@@ -133,6 +154,16 @@ pub mod qir {
         )
     }
 
+    /// Runs the FIR pipeline up to a specified stage with optional item pinning.
+    ///
+    /// Allows fine-grained control over pipeline execution:
+    /// - `stage`: Which pipeline stage to stop at (e.g., `PipelineStage::Full` for all passes)
+    /// - `pinned_items`: Callables to preserve even if not reached from entry
+    ///   (useful for callable arguments that might otherwise be eliminated by DCE)
+    ///
+    /// This is critical for higher-order function support: when a callable is passed
+    /// as an argument, it may not be directly reachable from entry and would normally be
+    /// removed during dead-code elimination. Pinning preserves these for specialization.
     pub fn run_backend_pipeline_to(
         package_store: &PackageStore,
         package_id: qsc_hir::hir::PackageId,
@@ -423,6 +454,19 @@ pub mod qir {
         }
     }
 
+    /// Prepares backend FIR when a callable is invoked with concrete argument values.
+    ///
+    /// This is the key enabler for higher-order function and closure support in circuit/QIR generation.
+    /// When a callable receives callable arguments (e.g., `ApplyOp(op: Qubit => Unit, q: Qubit)`),
+    /// this function:
+    ///
+    /// 1. Collects all concrete (non-arrow-typed) callables from the argument values
+    /// 2. Seeds concrete callables into the entry to make them reachable from the main entry point
+    /// 3. Pins arrow-input callables to prevent their elimination during DCE
+    /// 4. Runs the full pipeline with these constraints
+    ///
+    /// This allows specialization to occur, generating concrete code for each unique callable
+    /// argument combination rather than leaving abstract higher-order code.
     pub fn prepare_backend_fir_from_callable_args(
         package_store: &PackageStore,
         callable: qsc_hir::hir::ItemId,
@@ -558,6 +602,11 @@ pub mod qir {
         )
     }
 
+    /// Prepares backend FIR for a single callable without inline arguments.
+    ///
+    /// Used when a callable is referenced but its concrete argument values are not yet known.
+    /// For callables with arrow-typed inputs, skips the full pipeline to preserve abstract
+    /// higher-order structure that will be specialized later via `prepare_backend_fir_from_callable_args`.
     pub fn prepare_backend_fir_from_callable(
         package_store: &PackageStore,
         callable: qsc_hir::hir::ItemId,

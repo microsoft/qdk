@@ -583,10 +583,7 @@ fn replace_expr_references(package: &mut Package, old_expr_id: ExprId, new_expr_
 
 fn replace_expr_in_stmt(stmt: &mut Stmt, old_expr_id: ExprId, new_expr_id: ExprId) {
     match &mut stmt.kind {
-        StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) => {
-            replace_expr_id(expr_id, old_expr_id, new_expr_id);
-        }
-        StmtKind::Local(_, _, expr_id) => {
+        StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
             replace_expr_id(expr_id, old_expr_id, new_expr_id);
         }
         StmtKind::Item(_) => {}

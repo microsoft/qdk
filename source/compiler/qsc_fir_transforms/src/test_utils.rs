@@ -22,12 +22,28 @@ use qsc_lowerer::map_hir_package_to_fir;
 
 pub(crate) use crate::PipelineStage;
 
-pub fn assert_no_pipeline_errors(context: &str, errors: &[crate::PipelineError]) {
-    let error_messages = errors
+fn format_errors<T: ToString>(errors: &[T]) -> String {
+    errors
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub(crate) fn assert_no_compile_errors(context: &str, errors: &[frontend_compile::Error]) {
+    let error_messages = errors
+        .iter()
+        .map(|error| format!("{error:?}"))
+        .collect::<Vec<_>>()
         .join("\n");
+    assert!(
+        errors.is_empty(),
+        "{context} has Q# compilation errors:\n{error_messages}"
+    );
+}
+
+pub fn assert_no_pipeline_errors(context: &str, errors: &[crate::PipelineError]) {
+    let error_messages = format_errors(errors);
     assert!(
         errors.is_empty(),
         "{context} produced FIR transform pipeline errors:\n{error_messages}"
@@ -39,6 +55,7 @@ pub fn assert_no_pipeline_errors(context: &str, errors: &[crate::PipelineError])
 #[must_use]
 pub fn package_store_with_stdlib(capabilities: TargetCapabilityFlags) -> HirPackageStore {
     let mut core_unit = frontend_compile::core();
+    assert_no_compile_errors("core library", &core_unit.errors);
     let core_errors = run_core_passes(&mut core_unit);
     assert!(
         core_errors.is_empty(),
@@ -47,6 +64,7 @@ pub fn package_store_with_stdlib(capabilities: TargetCapabilityFlags) -> HirPack
     let mut store = HirPackageStore::new(core_unit);
 
     let mut std_unit = frontend_compile::std(&store, capabilities);
+    assert_no_compile_errors("std library", &std_unit.errors);
     let std_errors = run_default_passes(store.core(), &mut std_unit, PackageType::Lib);
     assert!(std_errors.is_empty(), "std library has compilation errors");
     store.insert(std_unit);
@@ -89,6 +107,7 @@ pub fn compile_to_fir_with_capabilities(
         capabilities,
         LanguageFeatures::default(),
     );
+    assert_no_compile_errors("user code", &unit.errors);
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Exe);
     assert!(pass_errors.is_empty(), "user code has compilation errors");
     let hir_package_id = store.insert(unit);
@@ -138,6 +157,7 @@ pub fn compile_to_fir_with_entry(source: &str, entry: &str) -> (fir::PackageStor
         TargetCapabilityFlags::empty(),
         LanguageFeatures::default(),
     );
+    assert_no_compile_errors("user code", &unit.errors);
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Exe);
     assert!(pass_errors.is_empty(), "user code has compilation errors");
     let hir_package_id = store.insert(unit);

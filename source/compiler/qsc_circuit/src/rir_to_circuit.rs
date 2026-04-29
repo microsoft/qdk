@@ -27,6 +27,10 @@ use crate::{
     rir_to_circuit::control_flow::{StructuredControlFlow, reconstruct_control_flow},
 };
 
+/// Converts a Runtime Intermediate Representation (RIR) program into a visual circuit.
+///
+/// Traverses the RIR's structured control flow, collects quantum operations, tracks variable
+/// assignments, and synthesizes the final circuit with scope grouping and qubit-wire mapping.
 pub fn rir_to_circuit(
     program_rir: &Program,
     config: TracerConfig,

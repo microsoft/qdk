@@ -74,12 +74,10 @@ pub fn eliminate_dead_items(
     // the preserved exports don't point at removed items. Cross-package
     // export targets and unresolved (Res::Err) exports are ignored.
     for item in package.items.values() {
-        if let ItemKind::Export(_name, res) = &item.kind {
-            if let Res::Item(item_id) = res {
-                if item_id.package == package_id {
-                    local_reachable.insert(item_id.item);
-                }
-            }
+        if let ItemKind::Export(_name, Res::Item(item_id)) = &item.kind
+            && item_id.package == package_id
+        {
+            local_reachable.insert(item_id.item);
         }
     }
 

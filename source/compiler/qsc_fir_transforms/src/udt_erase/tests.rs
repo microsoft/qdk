@@ -678,10 +678,9 @@ fn nested_udt_erased_to_nested_tuple() {
                 namespace Test {
                     newtype Inner = (A: Int, B: Int);
                     newtype Outer = (First: Inner, Extra: Bool);
-                    function MakeOuter() : ((Int, Int), Bool) {
+                    function MakeOuter() : Outer {
                         let i = Inner(1, 2);
-                        let o = Outer(i, true);
-                        (o::First, o::Extra)
+                        Outer(i, true)
                     }
                     @EntryPoint()
                     function Main() : Unit {
@@ -1063,7 +1062,7 @@ fn udt_copy_update_multiple_fields() {
     );
 }
 
-/// Verifies that `new Wrapper { ...w, val = 10 }` on a single-field UDT
+/// Verifies that `w w/ val <- 10` on a single-field UDT
 /// is lowered to the scalar replacement value directly.
 #[test]
 fn udt_copy_update_single_field_udt() {
@@ -1074,7 +1073,7 @@ fn udt_copy_update_single_field_udt() {
                 @EntryPoint()
                 function Main() : Unit {
                     let w = Wrapper(99);
-                    let w2 = new Wrapper { ...w, val = 10 };
+                    let w2 = w w/ val <- 10;
                 }
             }
         "},
@@ -1337,20 +1336,19 @@ fn single_field_struct_passes_post_all_invariant() {
     );
 }
 
-/// Trailing-comma newtype `newtype X = (f: T,)` has a constructor whose
-/// input type becomes `Tuple([T])` after erasure but the call-site argument
-/// is scalar `T`. UDT erase eliminates the constructor call and wraps the
-/// argument in a tuple, so the full pipeline passes without type mismatches.
+/// Single-field struct syntax has a constructor whose pure type is
+/// `Tuple([T])`. UDT erase eliminates the constructor call while preserving
+/// the tuple wrapper, so the full pipeline passes without type mismatches.
 #[test]
-fn trailing_comma_newtype_passes_post_all_invariant() {
+fn single_field_struct_constructor_passes_post_all_invariant() {
     use crate::test_utils::{PipelineStage, compile_and_run_pipeline_to};
 
     let _ = compile_and_run_pipeline_to(
         indoc! {"
-            newtype Wrapper = (Value : Int,);
+            struct Wrapper { Value : Int }
 
             function Main() : Int {
-                let w = Wrapper(42);
+                let w = new Wrapper { Value = 42 };
                 0
             }
         "},
@@ -1358,18 +1356,17 @@ fn trailing_comma_newtype_passes_post_all_invariant() {
     );
 }
 
-/// Trailing-comma newtype variant `newtype X = (f: T,)` also produces
-/// `UdtDefKind::Tuple([Field])`, triggering the same Tuple([T]) pure type
-/// as struct syntax. Verify UDT erase keeps the tuple wrapper.
+/// Single-field struct syntax produces `UdtDefKind::Tuple([Field])`. Verify
+/// UDT erase keeps the tuple wrapper.
 #[test]
-fn trailing_comma_newtype_single_field_erased_to_tuple() {
+fn single_field_struct_erased_to_tuple() {
     check_erasure(
         indoc! {"
             namespace Test {
-                newtype Wrapper = (Value : Int,);
+                struct Wrapper { Value : Int }
                 @EntryPoint()
                 function Main() : Unit {
-                    let w = Wrapper(42);
+                    let w = new Wrapper { Value = 42 };
                 }
             }
         "},
@@ -1378,17 +1375,16 @@ fn trailing_comma_newtype_single_field_erased_to_tuple() {
     );
 }
 
-/// Trailing-comma variant with a function returning the wrapper type:
-/// the erased output type is `(Int,)` (single-element tuple), confirming
-/// `UdtDefKind::Tuple([Field])` preserves the tuple wrapper in return
-/// position.
+/// Single-field struct variant with a function returning the wrapper type: the
+/// erased output type is `(Int,)` (single-element tuple), confirming
+/// `UdtDefKind::Tuple([Field])` preserves the tuple wrapper in return position.
 #[test]
-fn trailing_comma_newtype_return_type_erased_to_single_element_tuple() {
+fn single_field_struct_return_type_erased_to_single_element_tuple() {
     check_erasure(
         indoc! {"
             namespace Test {
-                newtype Wrapper = (Value : Int,);
-                function Make() : Wrapper { Wrapper(42) }
+                struct Wrapper { Value : Int }
+                function Make() : Wrapper { new Wrapper { Value = 42 } }
                 @EntryPoint()
                 function Main() : Unit {
                     let _ = Make();

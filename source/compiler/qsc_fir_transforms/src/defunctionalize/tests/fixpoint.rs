@@ -594,114 +594,60 @@ fn pipeline_callable_array_iteration_exceeding_old_multi_cap() {
     );
 }
 
+fn nested_hof_source(level_count: usize) -> String {
+    assert!(level_count > 0);
+
+    let mut source = String::new();
+    source.push_str("operation Level01(op : Qubit => Unit, q : Qubit) : Unit {\n    op(q);\n}\n");
+
+    for level in 2..=level_count {
+        source.push_str(&format!(
+            "operation Level{level:02}(op : Qubit => Unit, q : Qubit) : Unit {{\n    Level{previous:02}(op, q);\n}}\n",
+            previous = level - 1,
+        ));
+    }
+
+    source.push_str(&format!(
+        "@EntryPoint()\noperation Main() : Unit {{\n    use q = Qubit();\n    Level{level_count:02}(H, q);\n}}\n"
+    ));
+    source
+}
+
 #[test]
 fn defunc_20_level_hof_returns_fixpoint_reached() {
     // Regression test: 20-level HOF nesting is under the convergence cap.
-    //
-    // Invariant: The defunctionalization pass has a maximum iteration count
-    // (MAX_ITERATIONS=5) and a dynamic cap (20 levels). When nested HOF
-    // levels exceed this cap, the pass returns FixpointNotReached error
-    // rather than panicking or silently failing.
-    //
-    // This test constructs a 20-level HOF and verifies that defunctionalization
-    // succeeds.
-    let source = r#"
-        operation Level00(f : (Int) -> Int) : Int { f(1) }
-        operation Level01(f : ((Int) -> Int) -> Int) : Int { Level00(f(fun x -> x)) }
-        operation Level02(f : (((Int) -> Int) -> Int) -> Int) : Int { Level01(f(fun g -> g(fun x -> x))) }
-        operation Level03(f : ((((Int) -> Int) -> Int) -> Int) -> Int) : Int { Level02(f(fun h -> h(fun g -> g(fun x -> x)))) }
-        operation Level04(f : (((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level03(f(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))) }
-        operation Level05(f : ((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level04(f(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))) }
-        operation Level06(f : (((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level05(f(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))) }
-        operation Level07(f : ((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level06(f(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))))) }
-        operation Level08(f : (((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level07(f(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))))) }
-        operation Level09(f : ((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level08(f(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))))))) }
-        operation Level10(f : (((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level09(f(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))))))) }
-        operation Level11(f : ((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level10(f(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))))))))) }
-        operation Level12(f : (((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level11(f(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))))))))) }
-        operation Level13(f : ((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level12(f(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))))))))))) }
-        operation Level14(f : (((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level13(f(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))))))))))) }
-        operation Level15(f : ((((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level14(f(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))))))))))))) }
-        operation Level16(f : (((((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level15(f(fun u -> u(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))))))))))))) }
-        operation Level17(f : ((((((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level16(f(fun v -> v(fun u -> u(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))))))))))))))) }
-        operation Level18(f : (((((((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level17(f(fun w -> w(fun v -> v(fun u -> u(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))))))))))))))) }
-        operation Level19(f : ((((((((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level18(f(fun x -> x(fun w -> w(fun v -> v(fun u -> u(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun a -> a)))))))))))))))))))) }
-        @EntryPoint()
-        operation Main() : Int {
-            Level19(fun y -> y(fun x -> x(fun w -> w(fun v -> v(fun u -> u(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun a -> a)))))))))))))))))))))
-        }
-    "#;
+    let source = nested_hof_source(20);
 
-    let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_monomorphized_fir(source);
+    let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_monomorphized_fir(&source);
     let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
     let errors = super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
 
-    // Verify: FixpointNotReached error is not present
     assert!(
         errors.is_empty(),
-        "Expected defunctionalization to succeed for 20-level HOF"
+        "Expected defunctionalization to succeed for 20-level HOF, got: {:?}",
+        errors.iter().map(ToString::to_string).collect::<Vec<_>>()
     );
 }
 
 #[test]
-#[ignore = "work in progress: no error"]
-fn defunc_21_level_hof_returns_fixpoint_not_reached() {
-    // Regression test: 21-level HOF nesting exceeds convergence cap.
-    //
-    // Invariant: The defunctionalization pass has a maximum iteration count
-    // (MAX_ITERATIONS=5) and a dynamic cap (20 levels). When nested HOF
-    // levels exceed this cap, the pass returns FixpointNotReached error
-    // rather than panicking or silently failing.
-    //
-    // This test constructs a 21-level HOF and verifies that defunctionalization
-    // returns an error indicating convergence was not reached.
-    let source = r#"
-        operation Level00(f : (Int) -> Int) : Int { f(1) }
-        operation Level01(f : ((Int) -> Int) -> Int) : Int { Level00(f(fun x -> x)) }
-        operation Level02(f : (((Int) -> Int) -> Int) -> Int) : Int { Level01(f(fun g -> g(fun x -> x))) }
-        operation Level03(f : ((((Int) -> Int) -> Int) -> Int) -> Int) : Int { Level02(f(fun h -> h(fun g -> g(fun x -> x)))) }
-        operation Level04(f : (((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level03(f(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))) }
-        operation Level05(f : ((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level04(f(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))) }
-        operation Level06(f : (((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level05(f(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))) }
-        operation Level07(f : ((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level06(f(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))))) }
-        operation Level08(f : (((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level07(f(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))))) }
-        operation Level09(f : ((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level08(f(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))))))) }
-        operation Level10(f : (((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level09(f(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))))))) }
-        operation Level11(f : ((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level10(f(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))))))))) }
-        operation Level12(f : (((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level11(f(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))))))))) }
-        operation Level13(f : ((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level12(f(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))))))))))) }
-        operation Level14(f : (((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level13(f(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))))))))))) }
-        operation Level15(f : ((((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level14(f(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))))))))))))) }
-        operation Level16(f : (((((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level15(f(fun u -> u(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))))))))))))) }
-        operation Level17(f : ((((((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level16(f(fun v -> v(fun u -> u(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x)))))))))))))))))) }
-        operation Level18(f : (((((((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level17(f(fun w -> w(fun v -> v(fun u -> u(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun x -> x))))))))))))))))))) }
-        operation Level19(f : ((((((((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level18(f(fun x -> x(fun w -> w(fun v -> v(fun u -> u(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun a -> a)))))))))))))))))))) }
-        operation Level20(f : (((((((((((((((((((((Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) -> Int) : Int { Level19(f(fun y -> y(fun x -> x(fun w -> w(fun v -> v(fun u -> u(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun a -> a))))))))))))))))))))) }
-        @EntryPoint()
-        operation Main() : Int {
-            Level20(fun z -> z(fun y -> y(fun x -> x(fun w -> w(fun v -> v(fun u -> u(fun t -> t(fun s -> s(fun r -> r(fun q -> q(fun p -> p(fun o -> o(fun n -> n(fun m -> m(fun l -> l(fun k -> k(fun j -> j(fun i -> i(fun h -> h(fun g -> g(fun a -> a)))))))))))))))))))))))
-        }
-    "#;
+fn defunc_21_level_hof_returns_static_resolution_error() {
+    // Regression test: 21-level HOF nesting exceeds the current static
+    // resolution depth, but still reports a defunctionalization diagnostic
+    // instead of panicking or lowering invalid FIR.
+    let source = nested_hof_source(21);
 
-    let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_monomorphized_fir(source);
+    let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_monomorphized_fir(&source);
     let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
     let errors = super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
 
-    // Verify: FixpointNotReached error is present
     assert!(
         !errors.is_empty(),
         "Expected defunctionalization error for 21-level HOF"
     );
 
-    let has_fixpoint_error = errors.iter().any(|e| {
-        e.to_string().contains("did not converge")
-            || e.to_string().contains("Fixpoint")
-            || e.to_string().contains("iteration")
-    });
-
     assert!(
-        has_fixpoint_error,
-        "Expected FixpointNotReached or convergence error, got: {:?}",
-        errors.iter().map(|e| e.to_string()).collect::<Vec<_>>()
+        matches!(errors.as_slice(), [super::super::Error::DynamicCallable(_)]),
+        "Expected DynamicCallable error, got: {:?}",
+        errors.iter().map(ToString::to_string).collect::<Vec<_>>()
     );
 }

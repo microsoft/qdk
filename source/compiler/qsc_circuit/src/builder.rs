@@ -499,9 +499,12 @@ impl CircuitTracer {
     }
 }
 
-/// Take a sequence of operations and build the final `Circuit`.
-/// Operations are laid out into columns. Unnecessary groups are removed.
-/// Source location metadata is resolved into displayable file/line/column information.
+/// Constructs the final circuit representation from operations and qubits.
+///
+/// This function:
+/// - Optionally collapses unnecessary scope groups based on user/library package origin
+/// - Lays out operations into columns for circuit visualization
+/// - Resolves source location metadata into displayable file/line/column information
 pub(crate) fn finish_circuit(
     source_lookup: &impl SourceLookup,
     mut operations: Vec<OperationOrGroup>,
@@ -529,6 +532,16 @@ pub(crate) fn finish_circuit(
 /// An unnecessary loop scope is one that either has a single child iteration,
 /// or has multiple iterations that each operate on distinct sets of qubits (i.e. a "vertical" loop).
 /// An unnecessary lambda scope is one where the lambda has a single child operation.
+/// Recursively collapses unnecessary scope groups and merges equivalent adjacent groups.
+///
+/// An operation/group is considered unnecessary if:
+/// - It's a loop scope with a single child iteration
+/// - It's a loop scope where all iterations operate on disjoint qubit sets ("vertical" loop)
+/// - It's a lambda scope with a single child, and is not a partial lambda from `ApplyToEach`
+/// - It's a synthesized callable scope from a non-user package
+///
+/// After collapsing, adjacent groups with equivalent scopes tied to synthesized callable
+/// ancestry are merged to further reduce noise in the circuit display.
 fn collapse_unnecessary_scopes(
     operations: &mut Vec<OperationOrGroup>,
     source_lookup: &impl SourceLookup,
@@ -553,6 +566,15 @@ fn collapse_unnecessary_scopes(
     *operations = ops;
 }
 
+/// Merges adjacent operation groups that are equivalent and share synthesized callable ancestry.
+///
+/// Groups are merged when they:
+/// - Have the same current lexical scope
+/// - Share a synthesized callable ancestor in their scope stack (indicating they stem from
+///   synthetic transformations like specialization or closure wrapping)
+///
+/// This reduces visual clutter by consolidating synthetic groupings that represent
+/// the same logical scope applied to different iterations or cases.
 fn merge_adjacent_equivalent_groups(
     operations: &mut Vec<OperationOrGroup>,
     source_lookup: &impl SourceLookup,
@@ -573,6 +595,10 @@ fn merge_adjacent_equivalent_groups(
     *operations = merged;
 }
 
+/// Determines whether two adjacent groups can be merged.
+///
+/// Groups can merge if they have the same lexical scope AND at least one has a
+/// synthesized callable ancestor, indicating they are synthetic variations of the same scope.
 fn can_merge_equivalent_group(
     last: &OperationOrGroup,
     next: &OperationOrGroup,
@@ -587,6 +613,11 @@ fn can_merge_equivalent_group(
     )
 }
 
+/// Checks whether a scope stack has a synthesized callable ancestor.
+///
+/// Synthesized callables arise from compiler transformations like specialization, functor
+/// application, or closure wrapping. A scope has a synthesized ancestor if any callable
+/// in its caller chain is marked as synthesized.
 fn has_synthesized_callable_ancestor(
     scope_stack: &ScopeStack,
     source_lookup: &impl SourceLookup,
@@ -597,6 +628,10 @@ fn has_synthesized_callable_ancestor(
     })
 }
 
+/// Merges the next group into the last group by combining their child operations.
+///
+/// Propagates inputs from next into last, then appends all child operations from next
+/// to last's children, consolidating them into a single group.
 fn merge_equivalent_group(last: &mut OperationOrGroup, next: &mut OperationOrGroup) {
     last.merge_inputs(next);
 
@@ -615,8 +650,15 @@ fn merge_equivalent_group(last: &mut OperationOrGroup, next: &mut OperationOrGro
     last_children.extend(next_children);
 }
 
-/// If the given operation or group is an outer scope that can be collapsed,
-/// returns its children operations or groups.
+/// Determines whether a scope group should be collapsed and returns its flattened children.
+///
+/// Returns `Some(children)` if the group is unnecessary and can be safely removed;
+/// `None` if the group should be preserved.
+///
+/// Collapse rules:
+/// - **Loop scopes**: Collapse if from non-user package, has single child, or operates on disjoint qubits
+/// - **Lambda scopes**: Collapse if single child and not a partial lambda from `ApplyToEach`
+/// - **Synthesized callables**: Collapse based on origin package and synthetic status
 fn collapse_if_unnecessary(
     op: &mut OperationOrGroup,
     source_lookup: &impl SourceLookup,
@@ -687,6 +729,14 @@ fn collapse_if_unnecessary(
     None
 }
 
+/// Determines whether a lambda scope should be preserved to maintain ApplyToEach structure.
+///
+/// Preserves lambda scopes that are:
+/// - Partial lambdas created within `ApplyToEach` closures
+/// - Called from user code (not synthesized)
+///
+/// This ensures that higher-order loop patterns like `ApplyToEach(op, qubits)` remain
+/// readable in circuit displays rather than being flattened away.
 fn should_preserve_apply_to_each_partial_lambda(
     source_lookup: &impl SourceLookup,
     scope_stack: &ScopeStack,
@@ -728,6 +778,10 @@ fn should_preserve_apply_to_each_partial_lambda(
     false
 }
 
+/// Determines whether a loop scope originates from library code and should be collapsed.
+///
+/// Library loops (those from non-user packages or generic synthetic loop markers) are
+/// collapsed to reduce clutter. User-authored loops are preserved.
 fn should_collapse_non_user_loop_scope(
     scope: &LexicalScope,
     user_package_ids: &[PackageId],
@@ -738,6 +792,10 @@ fn should_collapse_non_user_loop_scope(
             .is_some_and(|location| !user_package_ids.contains(&location.package_id))
 }
 
+/// Flattens loop iteration groups, extracting their children.
+///
+/// When a loop scope is collapsed, its loop-iteration child groups are unwrapped,
+/// promoting their operations to the parent level for a cleaner circuit structure.
 fn flatten_loop_iteration_children(children: &mut Vec<OperationOrGroup>) -> Vec<OperationOrGroup> {
     let mut flattened = Vec::new();
 
@@ -762,6 +820,10 @@ fn flatten_loop_iteration_children(children: &mut Vec<OperationOrGroup>) -> Vec<
     flattened
 }
 
+/// Determines whether a synthesized callable scope should be collapsed.
+///
+/// Synthesized callables from library packages are collapsed to reduce visualization noise.
+/// Synthesized callables from user packages may be retained to preserve semantic intent.
 fn should_collapse_synthesized_callable_scope(
     source_lookup: &impl SourceLookup,
     scope: &Scope,

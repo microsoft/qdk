@@ -862,49 +862,49 @@ fn all_four_specializations_with_return_in_loop() {
     check_no_returns_q(
         indoc! {r#"
         namespace Test {
-            operation Op(q : Qubit) : Int is Adj + Ctl {
+            operation Op(q : Qubit) : Unit is Adj + Ctl {
                 body ... {
                     mutable i = 0;
                     while i < 5 {
                         if i == 3 {
-                            return i;
+                            return ();
                         }
                         i += 1;
                     }
-                    -1
+                    ()
                 }
                 adjoint ... {
                     mutable j = 0;
                     while j < 5 {
                         if j == 2 {
-                            return j;
+                            return ();
                         }
                         j += 1;
                     }
-                    -1
+                    ()
                 }
                 controlled (cs, ...) {
                     mutable k = 0;
                     while k < 5 {
                         if k == 4 {
-                            return k;
+                            return ();
                         }
                         k += 1;
                     }
-                    -1
+                    ()
                 }
                 controlled adjoint (cs, ...) {
                     mutable m = 0;
                     while m < 5 {
                         if m == 1 {
-                            return m;
+                            return ();
                         }
                         m += 1;
                     }
-                    -1
+                    ()
                 }
             }
-            operation Main() : Int {
+            operation Main() : Unit {
                 use q = Qubit();
                 Op(q)
             }
@@ -912,38 +912,37 @@ fn all_four_specializations_with_return_in_loop() {
     "#},
         &expect![[r#"
             // namespace Test
-            operation Opq : Qubit : Int is Adj + Ctl {
+            operation Opq : Qubit : Unit is Adj + Ctl {
                 body {
                     mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
+                    mutable __ret_val : Unit = ();
                     mutable i : Int = 0;
                     while not __has_returned and
-                    @generated_ident_146 < 5 {
+                    @generated_ident_142 < 5 {
                         if
-                        @generated_ident_146 == 3 {
+                        @generated_ident_142 == 3 {
                             {
-                                __ret_val =
-                                @generated_ident_146;
+                                __ret_val = ();
                                 __has_returned = true;
                             };
                         }
 
                         if not __has_returned {
-                            @generated_ident_146 += 1;
+                            @generated_ident_142 += 1;
                         };
                     }
 
-                    let __trailing_result : Int = -1;
+                    let __trailing_result : Unit = ();
                     if __has_returned __ret_val else __trailing_result
                 }
                 adjoint {
                     mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
+                    mutable __ret_val : Unit = ();
                     mutable j : Int = 0;
                     while not __has_returned and j < 5 {
                         if j == 2 {
                             {
-                                __ret_val = j;
+                                __ret_val = ();
                                 __has_returned = true;
                             };
                         }
@@ -953,17 +952,17 @@ fn all_four_specializations_with_return_in_loop() {
                         };
                     }
 
-                    let __trailing_result : Int = -1;
+                    let __trailing_result : Unit = ();
                     if __has_returned __ret_val else __trailing_result
                 }
                 controlled {
                     mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
+                    mutable __ret_val : Unit = ();
                     mutable k : Int = 0;
                     while not __has_returned and k < 5 {
                         if k == 4 {
                             {
-                                __ret_val = k;
+                                __ret_val = ();
                                 __has_returned = true;
                             };
                         }
@@ -973,17 +972,17 @@ fn all_four_specializations_with_return_in_loop() {
                         };
                     }
 
-                    let __trailing_result : Int = -1;
+                    let __trailing_result : Unit = ();
                     if __has_returned __ret_val else __trailing_result
                 }
                 controlled adjoint {
                     mutable __has_returned : Bool = false;
-                    mutable __ret_val : Int = 0;
+                    mutable __ret_val : Unit = ();
                     mutable m : Int = 0;
                     while not __has_returned and m < 5 {
                         if m == 1 {
                             {
-                                __ret_val = m;
+                                __ret_val = ();
                                 __has_returned = true;
                             };
                         }
@@ -993,17 +992,17 @@ fn all_four_specializations_with_return_in_loop() {
                         };
                     }
 
-                    let __trailing_result : Int = -1;
+                    let __trailing_result : Unit = ();
                     if __has_returned __ret_val else __trailing_result
                 }
             }
-            operation Main() : Int {
+            operation Main() : Unit {
                 body {
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     let
-                    @generated_ident_146 : Int = Op(q);
+                    @generated_ident_142 : Unit = Op(q);
                     __quantum__rt__qubit_release(q);
-                    @generated_ident_146
+                    @generated_ident_142
                 }
             }
             // entry
