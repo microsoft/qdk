@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 use crate::qir_simulation::{
-    NoiseConfig, QirInstruction, QirInstructionId, pydict_to_adaptive_program, unbind_noise_config,
+    NoiseConfig, QirInstruction, QirInstructionId, adaptive_program_from_pydict,
+    unbind_noise_config,
 };
 use pyo3::{
     IntoPyObjectExt, PyResult,
@@ -37,9 +38,9 @@ pub fn try_create_gpu_adapter() -> PyResult<String> {
 pub fn run_parallel_shots<'py>(
     py: Python<'py>,
     input: &Bound<'py, PyList>,
-    shots: i32,
     qubit_count: i32,
     result_count: i32,
+    shots: i32,
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<Py<PyAny>> {
@@ -254,7 +255,7 @@ impl GpuContext {
 
         gpu_context.swith_to_adaptive();
 
-        let adaptive_program = pydict_to_adaptive_program(program)?;
+        let adaptive_program = adaptive_program_from_pydict(program)?;
         let num_results = adaptive_program.num_results;
 
         gpu_context
@@ -418,7 +419,7 @@ pub fn run_adaptive_parallel_shots<'py>(
 ) -> PyResult<Py<PyAny>> {
     let noise = noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
     let rng_seed = seed.unwrap_or(0xfeed_face);
-    let program = pydict_to_adaptive_program(input)?;
+    let program = adaptive_program_from_pydict(input)?;
     let result_count: usize = program.num_results as usize;
     let sim_results = qdk_simulators::run_adaptive_shots_sync(program, &noise, shots, rng_seed, 0)
         .map_err(PyRuntimeError::new_err)?;

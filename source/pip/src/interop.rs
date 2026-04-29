@@ -333,7 +333,7 @@ pub(crate) fn compile_qasm_program_to_qir(
     let res = qsc::openqasm::semantic::parse_sources(&sources);
 
     let program_ty = ProgramType::File;
-    let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::Qiskit)?;
+    let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::OpenQasm)?;
     let (package, source_map, signature) =
         compile_qasm_enriching_errors(res, &operation_name, program_ty, output_semantics, false)?;
 
@@ -432,7 +432,7 @@ pub(crate) fn compile_qasm_to_qsharp(
     let res = qsc::openqasm::semantic::parse_sources(&sources);
 
     let program_ty = get_program_type(&kwargs, || ProgramType::File)?;
-    let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::Qiskit)?;
+    let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::OpenQasm)?;
     let (package, _, _) =
         compile_qasm_enriching_errors(res, &operation_name, program_ty, output_semantics, true)?;
 

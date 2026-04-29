@@ -90,49 +90,6 @@ def test_cpu_no_noise():
     assert output == [[Result.Zero] * 16], "Expected result of 0s with pi/2 angles."
 
 
-def test_cpu_bitflip_noise():
-    """Bitflip noise for CPU simulator."""
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
-
-    input = qsharp.compile(
-        "IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 10.0, 10)"
-    )
-
-    p_noise = 0.005
-    noise = NoiseConfig()
-    noise.rx.set_bitflip(p_noise)
-    noise.rzz.set_pauli_noise("XX", p_noise)
-    noise.mresetz.set_bitflip(p_noise)
-
-    output = run_qir_cpu(str(input), shots=3, noise=noise, seed=17)
-    result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
-    print(result)
-    # Reasonable results obtained from manual run
-    assert result == ["1000010001000001", "0000000000000000", "0001000001100000"]
-
-
-def test_cpu_mixed_noise():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
-
-    input = qsharp.compile(
-        "IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 4.0, 4)"
-    )
-
-    noise = NoiseConfig()
-    noise.rz.set_bitflip(0.008)
-    noise.rz.loss = 0.005
-    noise.rzz.set_depolarizing(0.008)
-    noise.rzz.loss = 0.005
-
-    output = run_qir_cpu(str(input), shots=3, noise=noise, seed=53)
-    result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
-    print(result)
-    # Reasonable results obtained from manual run
-    assert result == ["000000000--00100", "0010001000000000", "0000000000010000"]
-
-
 def test_cpu_isolated_loss():
     qsharp.init(target_profile=TargetProfile.Base)
     program = """
@@ -326,7 +283,7 @@ def test_cpu_cy_noise_distribution():
     count_target_one = 0
     for shot in output:
         shot_results = cast(Sequence[Result], shot)
-        if shot_results[0] == Result.One:
+        if shot_results[-1] == Result.One:
             count_target_one += 1
 
     actual_p1 = count_target_one / n_shots

@@ -44,6 +44,7 @@ OP_MEASURE = 0x11
 OP_RESET = 0x12
 OP_READ_RESULT = 0x13
 OP_RECORD_OUTPUT = 0x14
+OP_READ_LOSS = 0x15
 
 # ── Integer Arithmetic ───────────────────────────────────────────────────────
 OP_ADD = 0x20
@@ -127,6 +128,3 @@ REG_TYPE_I64 = 2
 REG_TYPE_F32 = 3
 REG_TYPE_F64 = 4
 REG_TYPE_PTR = 5
-
-# ── Sentinel values ──────────────────────────────────────────────────────────
-VOID_RETURN = 0xFFFFFFFF  # Function does not have a return value.

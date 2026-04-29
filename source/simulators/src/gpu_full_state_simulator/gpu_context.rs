@@ -12,9 +12,10 @@ use crate::gpu_resources::GpuResources;
 use crate::noise_config::NoiseConfig;
 use crate::noise_mapping::get_noise_ops;
 use crate::shader_types::{
-    DiagnosticsData, InterpreterState, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT, MAX_QUBITS_PER_WORKGROUP,
-    MAX_REGISTERS, MAX_SHOT_ENTRIES, MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT, MIN_REGISTERS, Op,
-    SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms, WorkgroupCollationBuffer, ops,
+    self, DiagnosticsData, InterpreterState, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT,
+    MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOT_ENTRIES, MAX_SHOTS_PER_BATCH,
+    MIN_QUBIT_COUNT, MIN_REGISTERS, Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms,
+    WorkgroupCollationBuffer, ops,
 };
 
 // On Windows, running larger circuits/shots can hit TDR issues if too many ops are dispatched in one go.
@@ -33,7 +34,7 @@ pub struct GpuContext {
     run_params: RunParams,
 
     // Adaptive program data (set via set_adaptive_program)
-    adaptive_program: Option<AdaptiveProgram>,
+    adaptive_program: Option<AdaptiveProgram<u32>>,
 
     // Indicates if items impacting the Ops have changed and need to be re-uploaded / recompiled
     program_is_dirty: bool,
@@ -542,8 +543,10 @@ impl GpuContext {
         }
     }
 
-    pub fn set_adaptive_program(&mut self, program: AdaptiveProgram) -> Result<(), String> {
+    pub fn set_adaptive_program(&mut self, program: AdaptiveProgram<u32>) -> Result<(), String> {
         self.program.clear();
+        self.program
+            .extend_from_slice(&shader_types::build_op_pool(&program.quantum_ops));
         let num_qubits = u32_to_i32(program.num_qubits);
 
         // Always allocate a minumum number of qubits to ensure good data alignment, GPU thread usage, etc.
@@ -628,8 +631,11 @@ impl GpuContext {
             .copy_from_slice(&program_bytes);
 
         self.resources.upload_batch_data(&batch_data)?;
-        self.resources
-            .upload_ops_data(cast_slice(&program.quantum_ops))?;
+        if let Some(program) = &self.program_with_noise {
+            self.resources.upload_ops_data(cast_slice(program))?;
+        } else {
+            self.resources.upload_ops_data(cast_slice(&self.program))?;
+        }
 
         Ok(())
     }
@@ -668,7 +674,7 @@ impl GpuContext {
                     .adaptive_program
                     .as_mut()
                     .ok_or("No adaptive program has been set")?;
-                let (noisy_ops, index_map) = add_noise_to_adaptive_ops(&program.quantum_ops, noise);
+                let (noisy_ops, index_map) = add_noise_to_adaptive_ops(&self.program, noise);
                 // Patch bytecode instructions that reference quantum op indices.
                 // OP_QUANTUM_GATE (0x10), OP_MEASURE (0x11), OP_RESET (0x12)
                 // all store the op pool index in `aux0`.
@@ -678,7 +684,7 @@ impl GpuContext {
                         instr.aux0 = index_map[instr.aux0 as usize];
                     }
                 }
-                program.quantum_ops = noisy_ops;
+                self.program_with_noise = Some(noisy_ops);
             }
             // Upload the combined batch_data buffer (noise + program) to binding 7
             self.upload_batch_data()?;
@@ -764,7 +770,8 @@ impl GpuContext {
             self.resources.reset_diagnostics_header()?;
 
             // Initialize state vectors and shot data via the init kernel.
-            // The init kernel zeros and configures the base ShotData fields per shot.
+            // The init kernel also zeros the results buffer per shot to prevent
+            // stale exit codes from prior runs leaking via atomicCompareExchangeWeak.
             {
                 let kernels = self.resources.get_kernels()?;
                 let mut encoder = self.resources.get_encoder("Adaptive Init Encoder")?;

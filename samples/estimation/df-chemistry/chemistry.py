@@ -5,7 +5,7 @@ import math
 import numpy as np
 import numpy.linalg as LA
 import numpy.typing as npt
-import qsharp
+from qdk import qsharp
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path

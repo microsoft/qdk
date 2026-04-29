@@ -34,8 +34,27 @@ export function getQuantumOsJobLink(
   jobId: string,
 ) {
   // Quantum OS job page format:
-  // <quantumOsRoot>/jobs/<job-id>
-  return `${getQuantumOsRoot()}/jobs/${jobId}`;
+  // <quantumOsRoot>/jobs/<job-id>#<workspace-fragment>
+  const fragment = buildQuantumOsFragment(workspace);
+  return `${getQuantumOsRoot()}/jobs/${jobId}#${fragment}`;
+}
+
+function buildQuantumOsFragment(workspace: WorkspaceConnection): string {
+  const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\//;
+  const subscriptionId =
+    workspace.subscriptionId ??
+    workspace.id.match(idRegex)?.groups?.subscriptionId ??
+    "";
+  const offeringId =
+    workspace.offeringId ?? workspace.providers[0]?.providerId ?? "";
+
+  return (
+    `tenantId=${workspace.tenantId}` +
+    `&subscriptionId=${subscriptionId}` +
+    `&role=Researcher` +
+    (offeringId ? `&offeringId=${offeringId}` : "") +
+    `&workspaceId=${workspace.id}`
+  );
 }
 
 export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
@@ -48,20 +67,7 @@ export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
     //
     // workspace.id starts with '/' (e.g. "/subscriptions/.../Workspaces/<name>"),
     // so it is appended directly to produce a clean path with literal slashes.
-    const idRegex =
-      /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\//;
-    const subscriptionId =
-      workspace.id.match(idRegex)?.groups?.subscriptionId ?? "";
-
-    const offeringId = workspace.providers[0]?.providerId ?? "";
-
-    const fragment =
-      `tenantId=${workspace.tenantId}` +
-      `&subscriptionId=${subscriptionId}` +
-      `&role=Researcher` +
-      (offeringId ? `&offeringId=${offeringId}` : "") +
-      `&workspaceId=${workspace.id}`;
-
+    const fragment = buildQuantumOsFragment(workspace);
     return `${getQuantumOsRoot()}/workspaces/${workspace.name}#${fragment}`;
   }
 
@@ -75,6 +81,41 @@ export type EndEventProperties = {
   reason: string;
   flowStatus: UserFlowStatus;
 };
+
+/**
+ * Discovers the tenant ID for an Azure subscription using an ARM
+ * unauthenticated challenge. An unauthenticated request to the ARM
+ * subscription endpoint always returns a 401 with a WWW-Authenticate header
+ * containing the tenant ID, e.g.:
+ *   Bearer authorization_uri="https://login.microsoftonline.com/<tenantId>", ...
+ */
+export async function getTenantIdForSubscription(
+  subscriptionId: string,
+): Promise<string | undefined> {
+  const url = `${AzureUris.mgmtEndpoint}/subscriptions/${subscriptionId}?api-version=${AzureUris.mgmtApiVersion}`;
+  try {
+    const response = await fetch(url);
+    const wwwAuth = response.headers.get("WWW-Authenticate") ?? "";
+    const match = wwwAuth.match(
+      /authorization_uri="https:\/\/(?:login\.microsoftonline\.com|login\.windows\.net)\/([^"]+)"/,
+    );
+    const tenantId = match?.[1];
+    if (!tenantId) {
+      log.warn(
+        "Could not parse tenant ID from WWW-Authenticate header",
+        wwwAuth,
+      );
+    }
+    return tenantId;
+  } catch (e) {
+    log.warn(
+      "Failed to discover tenant ID for subscription",
+      subscriptionId,
+      e,
+    );
+    return undefined;
+  }
+}
 
 export async function queryWorkspaces(): Promise<
   WorkspaceConnection | undefined
@@ -204,6 +245,7 @@ export function parseConnectionString(
     name: partsMap.get("workspacename")!,
     endpointUri: partsMap.get("quantumendpoint")!,
     tenantId: "", // Blank means not authenticated via a token
+    subscriptionId: partsMap.get("subscriptionid"),
     apiKey: partsMap.get("apikey"),
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
     jobs: [],
@@ -279,6 +321,14 @@ async function getWorkspaceWithConnectionString(
         endEventProperties.flowStatus = UserFlowStatus.Aborted;
         return;
       }
+    }
+
+    // Discover and populate the tenant ID from the subscription.
+    const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)/;
+    const subscriptionId = workspace.id.match(idRegex)?.groups?.subscriptionId;
+    if (subscriptionId) {
+      workspace.tenantId =
+        (await getTenantIdForSubscription(subscriptionId)) ?? "";
     }
 
     return workspace;
@@ -406,6 +456,7 @@ async function getWorkspaceWithAzureAD(
     name: workspace.name,
     endpointUri: fixedEndpoint,
     tenantId: tenantAuth.tenantId,
+    subscriptionId,
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
     jobs: [],
   };
@@ -453,6 +504,12 @@ export async function queryWorkspace(workspace: WorkspaceConnection) {
   workspace.providers = workspace.providers.filter(
     (provider) => !shouldExcludeProvider(provider.providerId),
   );
+
+  // Cache the first offering ID on the workspace so portal links work even
+  // before providers are re-fetched in a subsequent refresh cycle.
+  if (!workspace.offeringId && workspace.providers[0]?.providerId) {
+    workspace.offeringId = workspace.providers[0].providerId;
+  }
 
   log.debug("Fetching the jobs for the workspace");
   const jobs: ResponseTypes.JobList = await azureRequest(

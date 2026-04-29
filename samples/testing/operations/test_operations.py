@@ -3,8 +3,8 @@
 
 from pathlib import Path
 import pytest
-import qsharp
-from qsharp.utils import dump_operation
+from qdk import qsharp
+from qdk.qsharp import dump_operation
 
 
 @pytest.fixture(autouse=True)

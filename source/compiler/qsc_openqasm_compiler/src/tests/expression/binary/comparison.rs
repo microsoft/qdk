@@ -98,10 +98,10 @@ fn bit_var_comparisons_can_be_translated() -> miette::Result<(), Vec<Report>> {
             operation Test() : (Result, Result, Bool, Bool, Bool, Bool, Bool, Bool) {
                 mutable x = One;
                 mutable y = Zero;
-                mutable f = (x > y);
-                mutable e = (x >= y);
-                mutable a = (x < y);
-                mutable c = (x <= y);
+                mutable f = (Std.OpenQASM.Convert.ResultAsInt(x) > Std.OpenQASM.Convert.ResultAsInt(y));
+                mutable e = (Std.OpenQASM.Convert.ResultAsInt(x) >= Std.OpenQASM.Convert.ResultAsInt(y));
+                mutable a = (Std.OpenQASM.Convert.ResultAsInt(x) < Std.OpenQASM.Convert.ResultAsInt(y));
+                mutable c = (Std.OpenQASM.Convert.ResultAsInt(x) <= Std.OpenQASM.Convert.ResultAsInt(y));
                 mutable b = (x == y);
                 mutable d = (x != y);
                 (x, y, f, e, a, c, b, d)

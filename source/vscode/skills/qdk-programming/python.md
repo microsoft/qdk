@@ -151,7 +151,7 @@ results = qsharp.run("CNOT_Measure()", 100, seed=42)
 from pathlib import Path
 
 # Load and evaluate a .qs file
-code = Path("sample.qs").read_text()
+code = Path("sample.qs").read_text(encoding="utf-8")
 qsharp.eval(code)
 
 # Run an operation defined in that file

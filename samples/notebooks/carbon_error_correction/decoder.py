@@ -3,7 +3,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import qsharp
+from qdk import qsharp
 
 table = {
     frozenset(): "IIIIIIIIIIII",

@@ -1786,9 +1786,9 @@ impl<'a> PartialEvaluator<'a> {
                 })
             }
             .map_err(std::convert::Into::into),
-            "__quantum__qis__m__body" => Ok(self.measure_qubit(builder::m_decl(), args_value)),
+            "__quantum__qis__m__body" => Ok(self.measure_qubit(builder::m_decl(), &args_value)),
             "__quantum__qis__mresetz__body" => {
-                Ok(self.measure_qubit(builder::mresetz_decl(), args_value))
+                Ok(self.measure_qubit(builder::mresetz_decl(), &args_value))
             }
             // The following intrinsic operations and functions are no-ops.
             "BeginEstimateCaching" => Ok(Value::Bool(true)),
@@ -3034,19 +3034,18 @@ impl<'a> PartialEvaluator<'a> {
         let mut results_values = Vec::new();
 
         match args_value {
-            Value::Qubit(qubit) => {
+            Value::Qubit(_) | Value::Var(_) => {
                 input_type.push(qsc_rir::rir::Ty::Prim(rir::Prim::Qubit));
-                operands.push(self.map_eval_value_to_rir_operand(&Value::Qubit(qubit)));
+                operands.push(self.map_eval_value_to_rir_operand(&args_value));
             }
             Value::Tuple(values, _) => {
                 for value in &*values {
-                    let Value::Qubit(qubit) = value else {
-                        panic!(
-                            "by this point a qsc_pass should have checked that all arguments are Qubits"
-                        )
-                    };
+                    assert!(
+                        matches!(value, Value::Qubit(_) | Value::Var(_)),
+                        "by this point a qsc_pass should have checked that all arguments are Qubits"
+                    );
                     input_type.push(qsc_rir::rir::Ty::Prim(rir::Prim::Qubit));
-                    operands.push(self.map_eval_value_to_rir_operand(&Value::Qubit(qubit.clone())));
+                    operands.push(self.map_eval_value_to_rir_operand(value));
                 }
             }
             _ => {
@@ -3106,11 +3105,9 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
-    fn measure_qubit(&mut self, measure_callable: Callable, args_value: Value) -> Value {
+    fn measure_qubit(&mut self, measure_callable: Callable, args_value: &Value) -> Value {
         // Get the qubit and result IDs to use in the qubit measure instruction.
-        let qubit = args_value.unwrap_qubit();
-        let qubit_value = Value::Qubit(qubit);
-        let qubit_operand = self.map_eval_value_to_rir_operand(&qubit_value);
+        let qubit_operand = self.map_eval_value_to_rir_operand(args_value);
         let result_value = Value::Result(self.resource_manager.next_result_register());
         let result_operand = self.map_eval_value_to_rir_operand(&result_value);
 
