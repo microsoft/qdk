@@ -47,7 +47,7 @@ fn check_operations_are_equal() {
 #[test]
 fn check_dumpoperation_for_i() {
     let output = test_expression(
-        "Microsoft.Quantum.Diagnostics.DumpOperation(1, qs => I(qs[0]))",
+        "Std.Diagnostics.DumpOperation(1, qs => I(qs[0]))",
         &Value::unit(),
     );
     expect![[r#"
@@ -61,7 +61,7 @@ fn check_dumpoperation_for_i() {
 #[test]
 fn check_dumpoperation_for_x() {
     let output = test_expression(
-        "Microsoft.Quantum.Diagnostics.DumpOperation(1, qs => X(qs[0]))",
+        "Std.Diagnostics.DumpOperation(1, qs => X(qs[0]))",
         &Value::unit(),
     );
     expect![[r#"
@@ -75,7 +75,7 @@ fn check_dumpoperation_for_x() {
 #[test]
 fn check_dumpoperation_for_h() {
     let output = test_expression(
-        "Microsoft.Quantum.Diagnostics.DumpOperation(1, qs => H(qs[0]))",
+        "Std.Diagnostics.DumpOperation(1, qs => H(qs[0]))",
         &Value::unit(),
     );
     expect![[r#"
@@ -89,7 +89,7 @@ fn check_dumpoperation_for_h() {
 #[test]
 fn check_dumpoperation_for_y() {
     let output = test_expression(
-        "Microsoft.Quantum.Diagnostics.DumpOperation(1, qs => Y(qs[0]))",
+        "Std.Diagnostics.DumpOperation(1, qs => Y(qs[0]))",
         &Value::unit(),
     );
     expect![[r#"
@@ -103,7 +103,7 @@ fn check_dumpoperation_for_y() {
 #[test]
 fn check_dumpoperation_for_ccnot() {
     let output = test_expression(
-        "Microsoft.Quantum.Diagnostics.DumpOperation(3, qs => CCNOT(qs[0], qs[1], qs[2]))",
+        "Std.Diagnostics.DumpOperation(3, qs => CCNOT(qs[0], qs[1], qs[2]))",
         &Value::unit(),
     );
     expect![[r#"
@@ -122,7 +122,7 @@ fn check_dumpoperation_for_ccnot() {
 #[test]
 fn check_dumpoperation_with_extra_qubits_allocated() {
     let output = test_expression(
-        "{use qs = Qubit[2]; Microsoft.Quantum.Diagnostics.DumpOperation(1, qs => H(qs[0]))}",
+        "{use qs = Qubit[2]; Std.Diagnostics.DumpOperation(1, qs => H(qs[0]))}",
         &Value::unit(),
     );
     expect![[r#"
@@ -137,8 +137,8 @@ fn check_dumpoperation_with_extra_qubits_allocated() {
 fn check_start_stop_counting_operation_called_3_times() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingOperation;
-            import Microsoft.Quantum.Diagnostics.StopCountingOperation;
+            import Std.Diagnostics.StartCountingOperation;
+            import Std.Diagnostics.StopCountingOperation;
 
             operation op1() : Unit {}
             operation op2() : Unit { op1(); }
@@ -155,8 +155,8 @@ fn check_start_stop_counting_operation_called_3_times() {
 fn check_start_stop_counting_operation_called_0_times() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingOperation;
-            import Microsoft.Quantum.Diagnostics.StopCountingOperation;
+            import Std.Diagnostics.StartCountingOperation;
+            import Std.Diagnostics.StopCountingOperation;
 
             operation op1() : Unit {}
             operation op2() : Unit { op1(); }
@@ -172,8 +172,8 @@ fn check_start_stop_counting_operation_called_0_times() {
 fn check_lambda_counted_separately_from_operation() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingOperation;
-            import Microsoft.Quantum.Diagnostics.StopCountingOperation;
+            import Std.Diagnostics.StartCountingOperation;
+            import Std.Diagnostics.StopCountingOperation;
 
             operation op1() : Unit {}
             StartCountingOperation(op1);
@@ -191,8 +191,8 @@ fn check_lambda_counted_separately_from_operation() {
 fn check_multiple_controls_counted_together() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingOperation;
-            import Microsoft.Quantum.Diagnostics.StopCountingOperation;
+            import Std.Diagnostics.StartCountingOperation;
+            import Std.Diagnostics.StopCountingOperation;
 
             operation op1() : Unit is Adj + Ctl {}
             StartCountingOperation(Controlled op1);
@@ -209,8 +209,8 @@ fn check_multiple_controls_counted_together() {
 fn check_counting_operation_differentiates_between_body_adj_ctl() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingOperation;
-            import Microsoft.Quantum.Diagnostics.StopCountingOperation;
+            import Std.Diagnostics.StartCountingOperation;
+            import Std.Diagnostics.StopCountingOperation;
 
             operation op1() : Unit is Adj + Ctl {}
             StartCountingOperation(op1);
@@ -232,8 +232,8 @@ fn check_counting_operation_differentiates_between_body_adj_ctl() {
 fn check_start_stop_counting_function_called_3_times() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingFunction;
-            import Microsoft.Quantum.Diagnostics.StopCountingFunction;
+            import Std.Diagnostics.StartCountingFunction;
+            import Std.Diagnostics.StopCountingFunction;
 
             function f1() : Unit {}
             function f2() : Unit { f1(); }
@@ -250,8 +250,8 @@ fn check_start_stop_counting_function_called_3_times() {
 fn check_start_stop_counting_function_called_0_times() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingFunction;
-            import Microsoft.Quantum.Diagnostics.StopCountingFunction;
+            import Std.Diagnostics.StartCountingFunction;
+            import Std.Diagnostics.StopCountingFunction;
 
             function f1() : Unit {}
             function f2() : Unit { f1(); }
@@ -267,8 +267,8 @@ fn check_start_stop_counting_function_called_0_times() {
 fn check_start_counting_qubits_for_one_allocation() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingQubits;
-            import Microsoft.Quantum.Diagnostics.StopCountingQubits;
+            import Std.Diagnostics.StartCountingQubits;
+            import Std.Diagnostics.StopCountingQubits;
 
             StartCountingQubits();
             use q = Qubit();
@@ -282,8 +282,8 @@ fn check_start_counting_qubits_for_one_allocation() {
 fn check_start_counting_qubits_for_tuple_allocation() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingQubits;
-            import Microsoft.Quantum.Diagnostics.StopCountingQubits;
+            import Std.Diagnostics.StartCountingQubits;
+            import Std.Diagnostics.StopCountingQubits;
 
             StartCountingQubits();
             use (q0, q1) = (Qubit(), Qubit());
@@ -297,8 +297,8 @@ fn check_start_counting_qubits_for_tuple_allocation() {
 fn check_start_counting_qubits_for_array_allocation() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingQubits;
-            import Microsoft.Quantum.Diagnostics.StopCountingQubits;
+            import Std.Diagnostics.StartCountingQubits;
+            import Std.Diagnostics.StopCountingQubits;
 
             StartCountingQubits();
             use qs = Qubit[2];
@@ -312,8 +312,8 @@ fn check_start_counting_qubits_for_array_allocation() {
 fn check_start_counting_qubits_after_allocation_gives_zero() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingQubits;
-            import Microsoft.Quantum.Diagnostics.StopCountingQubits;
+            import Std.Diagnostics.StartCountingQubits;
+            import Std.Diagnostics.StopCountingQubits;
 
             use q = Qubit();
             StartCountingQubits();
@@ -327,8 +327,8 @@ fn check_start_counting_qubits_after_allocation_gives_zero() {
 fn check_start_counting_qubits_sees_same_qubit_as_single_count() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingQubits;
-            import Microsoft.Quantum.Diagnostics.StopCountingQubits;
+            import Std.Diagnostics.StartCountingQubits;
+            import Std.Diagnostics.StopCountingQubits;
 
             StartCountingQubits();
             {
@@ -347,8 +347,8 @@ fn check_start_counting_qubits_sees_same_qubit_as_single_count() {
 fn check_start_counting_qubits_works_with_manual_out_of_order_allocation_release() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingQubits;
-            import Microsoft.Quantum.Diagnostics.StopCountingQubits;
+            import Std.Diagnostics.StartCountingQubits;
+            import Std.Diagnostics.StopCountingQubits;
             import QIR.Runtime.__quantum__rt__qubit_allocate;
             import QIR.Runtime.__quantum__rt__qubit_release;
 
@@ -369,9 +369,9 @@ fn check_start_counting_qubits_works_with_manual_out_of_order_allocation_release
 fn check_counting_qubits_works_with_allocation_in_operation_calls() {
     test_expression(
         "{
-            import Microsoft.Quantum.Diagnostics.StartCountingQubits;
-            import Microsoft.Quantum.Diagnostics.StopCountingQubits;
-            import Microsoft.Quantum.Diagnostics.CheckOperationsAreEqual;
+            import Std.Diagnostics.StartCountingQubits;
+            import Std.Diagnostics.StopCountingQubits;
+            import Std.Diagnostics.CheckOperationsAreEqual;
 
             StartCountingQubits();
             let numQubits = 2;
@@ -388,7 +388,7 @@ fn check_counting_qubits_works_with_allocation_in_operation_calls() {
 #[test]
 fn check_dumpoperation_with_extra_qubits_in_superposition() {
     let output = test_expression(
-        "{use qs = Qubit[2]; H(qs[0]); Microsoft.Quantum.Diagnostics.DumpOperation(1, qs => H(qs[0])); Reset(qs[0]);}",
+        "{use qs = Qubit[2]; H(qs[0]); Std.Diagnostics.DumpOperation(1, qs => H(qs[0])); Reset(qs[0]);}",
         &Value::unit(),
     );
     expect![[r#"
@@ -402,7 +402,7 @@ fn check_dumpoperation_with_extra_qubits_in_superposition() {
 #[test]
 fn check_dumpoperation_with_extra_qubits_global_phase_reflected_in_matrix() {
     let output = test_expression(
-        "{use qs = Qubit[2]; R(PauliI, Std.Math.PI() / 2.0, qs[0]); Microsoft.Quantum.Diagnostics.DumpOperation(1, qs => H(qs[0])); Reset(qs[0]);}",
+        "{use qs = Qubit[2]; R(PauliI, Std.Math.PI() / 2.0, qs[0]); Std.Diagnostics.DumpOperation(1, qs => H(qs[0])); Reset(qs[0]);}",
         &Value::unit(),
     );
     expect![[r#"
@@ -416,7 +416,7 @@ fn check_dumpoperation_with_extra_qubits_global_phase_reflected_in_matrix() {
 #[test]
 fn check_dumpoperation_with_extra_qubits_relative_phase_not_reflected_in_matrix() {
     let output = test_expression(
-        "{use qs = Qubit[2]; R1(Std.Math.PI() / 2.0, qs[0]); Microsoft.Quantum.Diagnostics.DumpOperation(1, qs => H(qs[0])); Reset(qs[0]);}",
+        "{use qs = Qubit[2]; R1(Std.Math.PI() / 2.0, qs[0]); Std.Diagnostics.DumpOperation(1, qs => H(qs[0])); Reset(qs[0]);}",
         &Value::unit(),
     );
     expect![[r#"
@@ -430,7 +430,7 @@ fn check_dumpoperation_with_extra_qubits_relative_phase_not_reflected_in_matrix(
 #[test]
 fn check_dump_operation_for_r1_of_pi() {
     let output = test_expression(
-        "Microsoft.Quantum.Diagnostics.DumpOperation(1, qs => R1(Std.Math.PI(), qs[0]))",
+        "Std.Diagnostics.DumpOperation(1, qs => R1(Std.Math.PI(), qs[0]))",
         &Value::unit(),
     );
     expect![[r#"
@@ -444,7 +444,7 @@ fn check_dump_operation_for_r1_of_pi() {
 #[test]
 fn check_dump_operation_for_r1_of_pi_with_one_control() {
     let output = test_expression(
-        "Microsoft.Quantum.Diagnostics.DumpOperation(2, qs => Controlled R1(qs[...0], (Std.Math.PI(), qs[1])))",
+        "Std.Diagnostics.DumpOperation(2, qs => Controlled R1(qs[...0], (Std.Math.PI(), qs[1])))",
         &Value::unit(),
     );
     expect![[r#"
@@ -460,7 +460,7 @@ fn check_dump_operation_for_r1_of_pi_with_one_control() {
 #[test]
 fn check_dump_operation_for_r1_of_pi_with_two_controls() {
     let output = test_expression(
-        "Microsoft.Quantum.Diagnostics.DumpOperation(3, qs => Controlled R1(qs[...1], (Std.Math.PI(), qs[2])))",
+        "Std.Diagnostics.DumpOperation(3, qs => Controlled R1(qs[...1], (Std.Math.PI(), qs[2])))",
         &Value::unit(),
     );
     expect![[r#"

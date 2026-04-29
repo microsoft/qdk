@@ -5,14 +5,14 @@ use super::test_expression;
 use indoc::indoc;
 use qsc::interpret::Value;
 
-// Tests for Microsoft.Quantum.Measurement namespace
+// Tests for Std.Measurement namespace
 
 #[test]
 fn check_measure_all_z() {
     test_expression(
         indoc! {r#"{
             use register = Qubit[2];
-            let result = Microsoft.Quantum.Measurement.MeasureAllZ(register);
+            let result = Std.Measurement.MeasureAllZ(register);
             ResetAll(register);
             result
         }"#},
@@ -21,8 +21,8 @@ fn check_measure_all_z() {
     test_expression(
         indoc! {r#"{
             use register = Qubit[2];
-            Microsoft.Quantum.Arrays.ForEach(X, register);
-            let result = Microsoft.Quantum.Measurement.MeasureAllZ(register);
+            Std.Arrays.ForEach(X, register);
+            let result = Std.Measurement.MeasureAllZ(register);
             ResetAll(register);
             result
         }"#},
@@ -32,7 +32,7 @@ fn check_measure_all_z() {
         indoc! {r#"{
             use register = Qubit[2];
             X(register[0]);
-            let result = Microsoft.Quantum.Measurement.MeasureAllZ(register);
+            let result = Std.Measurement.MeasureAllZ(register);
             ResetAll(register);
             result
         }"#},
@@ -42,7 +42,7 @@ fn check_measure_all_z() {
         indoc! {r#"{
             use register = Qubit[2];
             X(register[1]);
-            let result = Microsoft.Quantum.Measurement.MeasureAllZ(register);
+            let result = Std.Measurement.MeasureAllZ(register);
             ResetAll(register);
             result
         }"#},
@@ -57,7 +57,7 @@ fn check_measure_each_z() {
             use register = Qubit[3];
             X(register[0]);
             X(register[2]);
-            let results = Microsoft.Quantum.Measurement.MeasureEachZ(register);
+            let results = Std.Measurement.MeasureEachZ(register);
             ResetAll(register);
             results
         }"#},
@@ -72,8 +72,8 @@ fn check_mreset_each_z() {
             use register = Qubit[3];
             X(register[0]);
             X(register[2]);
-            let resultsA = Microsoft.Quantum.Measurement.MResetEachZ(register);
-            let resultsB = Microsoft.Quantum.Measurement.MeasureEachZ(register);
+            let resultsA = Std.Measurement.MResetEachZ(register);
+            let resultsB = Std.Measurement.MeasureEachZ(register);
             (resultsA, resultsB)
         }"#},
         &Value::Tuple(
@@ -95,9 +95,9 @@ fn check_mreset_x() {
         indoc! {r#"{
             use register = Qubit[2];
             X(register[1]);
-            Microsoft.Quantum.Canon.ApplyToEach(H, register);
-            let r0 = Microsoft.Quantum.Measurement.MResetX(register[0]);
-            let r1 = Microsoft.Quantum.Measurement.MResetX(register[1]);
+            Std.Canon.ApplyToEach(H, register);
+            let r0 = Std.Measurement.MResetX(register[0]);
+            let r1 = Std.Measurement.MResetX(register[1]);
             [r0, r1]
         }"#},
         &Value::Array(vec![Value::RESULT_ZERO, Value::RESULT_ONE].into()),
@@ -110,10 +110,10 @@ fn check_mreset_y() {
         indoc! {r#"{
             use register = Qubit[2];
             X(register[1]);
-            Microsoft.Quantum.Canon.ApplyToEach(H, register);
-            Microsoft.Quantum.Canon.ApplyToEach(S, register);
-            let r0 = Microsoft.Quantum.Measurement.MResetY(register[0]);
-            let r1 = Microsoft.Quantum.Measurement.MResetY(register[1]);
+            Std.Canon.ApplyToEach(H, register);
+            Std.Canon.ApplyToEach(S, register);
+            let r0 = Std.Measurement.MResetY(register[0]);
+            let r1 = Std.Measurement.MResetY(register[1]);
             [r0, r1]
         }"#},
         &Value::Array(vec![Value::RESULT_ZERO, Value::RESULT_ONE].into()),
@@ -126,8 +126,8 @@ fn check_mreset_z() {
         indoc! {r#"{
             use register = Qubit[2];
             X(register[1]);
-            let r0 = Microsoft.Quantum.Measurement.MResetZ(register[0]);
-            let r1 = Microsoft.Quantum.Measurement.MResetZ(register[1]);
+            let r0 = Std.Measurement.MResetZ(register[0]);
+            let r1 = Std.Measurement.MResetZ(register[1]);
             [r0, r1]
         }"#},
         &Value::Array(vec![Value::RESULT_ZERO, Value::RESULT_ONE].into()),
