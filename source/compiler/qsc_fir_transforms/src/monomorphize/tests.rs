@@ -6,7 +6,7 @@ use expect_test::{Expect, expect};
 use indoc::indoc;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::NodeId;
-use std::collections::HashSet;
+use rustc_hash::FxHashSet;
 
 /// Compiles Q# source, runs monomorphization, and snapshots all callables
 /// in the user package showing name, generic-param count, input type, and
@@ -589,7 +589,7 @@ fn mono_specialized_callable_node_ids_do_not_collide_with_spec_nodes() {
     monomorphize(&mut store, pkg_id, &mut assigner);
 
     let package = store.get(pkg_id);
-    let mut seen = HashSet::new();
+    let mut seen = FxHashSet::default();
     for item in package.items.values() {
         let ItemKind::Callable(decl) = &item.kind else {
             continue;
@@ -626,7 +626,7 @@ fn mono_missing_same_package_specialization_panics() {
     rewrite_call_sites(store.get_mut(pkg_id), pkg_id, &[]);
 }
 
-fn assert_node_id_is_unique(node_id: NodeId, seen: &mut HashSet<u32>) {
+fn assert_node_id_is_unique(node_id: NodeId, seen: &mut FxHashSet<u32>) {
     assert!(
         seen.insert(u32::from(node_id)),
         "NodeId {node_id:?} should be unique after monomorphization"

@@ -586,8 +586,7 @@ mod item_dce_contracts {
                     if let qsc_fir::fir::StmtKind::Item(item_ref) = &stmt.kind {
                         assert!(
                             package.items.contains_key(*item_ref),
-                            "StmtKind::Item reference {:?} points to non-existent item after DCE",
-                            item_ref
+                            "StmtKind::Item reference {item_ref:?} points to non-existent item after DCE"
                         );
                     }
                 }

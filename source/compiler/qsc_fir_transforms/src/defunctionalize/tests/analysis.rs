@@ -1,8 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::defunctionalize::analysis::{LocalState, resolve_captures};
+
 use super::*;
 use expect_test::expect;
+use qsc_data_structures::index_map::IndexMap;
+use qsc_fir::fir::{LocalVarId, Package};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 #[test]
 fn analysis_no_callable_params() {
@@ -1104,5 +1109,27 @@ fn analysis_callable_from_tuple_destructured_array_iteration() {
             lattice states:
               callable Main:
                 5: Multi([S:Body, T:Body])"#]],
+    );
+}
+
+#[test]
+fn resolve_captures_missing_binding_returns_none() {
+    let package = Package {
+        items: IndexMap::new(),
+        entry: None,
+        entry_exec_graph: qsc_fir::fir::ExecGraph::default(),
+        blocks: IndexMap::new(),
+        exprs: IndexMap::new(),
+        pats: IndexMap::new(),
+        stmts: IndexMap::new(),
+    };
+    let locals = LocalState::default();
+    let missing_var = LocalVarId::from(99usize);
+
+    let captures = resolve_captures(&package, &locals, &[missing_var], &FxHashSet::default());
+
+    assert!(
+        captures.is_none(),
+        "missing capture bindings should degrade analysis instead of panicking"
     );
 }

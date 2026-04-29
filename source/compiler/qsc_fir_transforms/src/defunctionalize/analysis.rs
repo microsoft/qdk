@@ -43,7 +43,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// locals (both mutable and immutable). `exprs` holds raw `ExprId` bindings
 /// for all immutable locals, supporting struct field resolution and type
 /// look-ups.
-struct LocalState {
+#[derive(Default)]
+pub(super) struct LocalState {
     callable: FxHashMap<LocalVarId, CalleeLattice>,
     exprs: FxHashMap<LocalVarId, ExprId>,
 }
@@ -1254,7 +1255,7 @@ fn extract_field_value(fields: &[FieldAssign], path: &FieldPath) -> Option<ExprI
 }
 
 /// Resolves the types of captured variables in a closure expression.
-fn resolve_captures(
+pub(super) fn resolve_captures(
     pkg: &Package,
     locals: &LocalState,
     captured_vars: &[LocalVarId],
@@ -1363,37 +1364,6 @@ fn find_var_type_in_pats(pkg: &Package, var: LocalVarId) -> Option<Ty> {
         }
     }
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use qsc_data_structures::index_map::IndexMap;
-
-    #[test]
-    fn resolve_captures_missing_binding_returns_none() {
-        let package = Package {
-            items: IndexMap::new(),
-            entry: None,
-            entry_exec_graph: qsc_fir::fir::ExecGraph::default(),
-            blocks: IndexMap::new(),
-            exprs: IndexMap::new(),
-            pats: IndexMap::new(),
-            stmts: IndexMap::new(),
-        };
-        let locals = LocalState {
-            callable: FxHashMap::default(),
-            exprs: FxHashMap::default(),
-        };
-        let missing_var = LocalVarId::from(99usize);
-
-        let captures = resolve_captures(&package, &locals, &[missing_var], &FxHashSet::default());
-
-        assert!(
-            captures.is_none(),
-            "missing capture bindings should degrade analysis instead of panicking"
-        );
-    }
 }
 
 /// Builds flow-sensitive local variable state by performing a single forward

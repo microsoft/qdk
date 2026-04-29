@@ -46,7 +46,7 @@ fn compile_and_run_full_pipeline(
 // ---------------------------------------------------------------------------
 
 /// Core contract test: verifies that `run_pipeline` output on a minimal entry
-/// point satisfies the full PostAll invariant suite expected by downstream
+/// point satisfies the full `PostAll` invariant suite expected by downstream
 /// consumers (codegen, language service, RCA).
 ///
 /// Postconditions asserted by `InvariantLevel::PostAll`:
@@ -90,7 +90,7 @@ fn run_pipeline_defunctionalized_output_satisfies_post_all_invariants() {
     invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
 }
 
-/// Verifies that a program with early returns satisfies PostAll invariants --
+/// Verifies that a program with early returns satisfies `PostAll` invariants --
 /// exercises the return-unification contract specifically.
 #[test]
 fn run_pipeline_return_unified_output_satisfies_post_all_invariants() {
@@ -111,7 +111,7 @@ fn run_pipeline_return_unified_output_satisfies_post_all_invariants() {
     invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
 }
 
-/// Verifies that a program using user-defined types satisfies PostAll
+/// Verifies that a program using user-defined types satisfies `PostAll`
 /// invariants -- exercises the UDT erasure contract specifically.
 #[test]
 fn run_pipeline_udt_erased_output_satisfies_post_all_invariants() {
@@ -130,7 +130,7 @@ fn run_pipeline_udt_erased_output_satisfies_post_all_invariants() {
     invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
 }
 
-/// Verifies that a program with generic functions satisfies PostAll invariants
+/// Verifies that a program with generic functions satisfies `PostAll` invariants
 /// -- exercises the monomorphization contract specifically.
 #[test]
 fn run_pipeline_monomorphized_output_satisfies_post_all_invariants() {
