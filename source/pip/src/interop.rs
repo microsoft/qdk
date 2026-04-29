@@ -18,13 +18,13 @@ use pyo3::types::{PyDict, PyList};
 use qsc::circuit::TracerConfig;
 use qsc::hir::PackageId;
 use qsc::interpret::output::Receiver;
-use qsc::interpret::{CircuitEntryPoint, Interpreter, into_errors};
+use qsc::interpret::{CircuitEntryPoint, Interpreter, SimType, into_errors};
 use qsc::openqasm::compiler::compile_to_qsharp_ast_with_config;
 use qsc::openqasm::semantic::QasmSemanticParseResult;
 use qsc::openqasm::{OperationSignature, QubitSemantics};
 use qsc::project::ProjectType;
 use qsc::target::Profile;
-use qsc::{Backend, PackageType, PauliNoise, SparseSim};
+use qsc::{Backend, CliffordSim, PackageType, PauliNoise, SparseSim};
 use qsc::{
     LanguageFeatures, SourceMap, ast::Package, error::WithSource, interpret, project::FileSystem,
 };
@@ -97,6 +97,7 @@ pub(crate) fn run_qasm_program(
     let seed = get_seed(&kwargs);
     let shots = get_shots(&kwargs)?;
     let search_path = get_search_path(&kwargs)?;
+    let sim_type = get_sim_type(&kwargs)?;
 
     let fs = create_filesystem_from_py(py, read_file, list_directory, resolve_path, fetch_github);
     let file_path = PathBuf::from_str(&search_path)
@@ -147,6 +148,7 @@ pub(crate) fn run_qasm_program(
         noise_config.as_ref(),
         noise,
         loss,
+        sim_type,
     );
     match result {
         Ok(result) => {
@@ -160,6 +162,7 @@ pub(crate) fn run_qasm_program(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn run_ast(
     interpreter: &mut Interpreter,
     receiver: &mut impl Receiver,
@@ -168,24 +171,44 @@ pub(crate) fn run_ast(
     noise_config: Option<&qdk_simulators::noise_config::NoiseConfig<f64, f64>>,
     noise: Option<PauliNoise>,
     loss: f64,
+    sim_type: SimType,
 ) -> Result<Vec<qsc::interpret::Value>, Vec<interpret::Error>> {
     let mut results = Vec::with_capacity(shots);
     for i in 0..shots {
-        let mut sim = if let Some(noise) = noise {
-            SparseSim::new_with_noise(&noise)
-        } else {
-            match noise_config {
-                Some(noise_config) => SparseSim::new_with_noise_config(noise_config.clone().into()),
-                None => SparseSim::new(),
+        let result = match sim_type {
+            SimType::Sparse => {
+                let mut sim = if let Some(noise) = noise {
+                    SparseSim::new_with_noise(&noise)
+                } else {
+                    match noise_config {
+                        Some(noise_config) => {
+                            SparseSim::new_with_noise_config(noise_config.clone().into())
+                        }
+                        None => SparseSim::new(),
+                    }
+                };
+                if loss > 0.0 {
+                    sim.set_loss(loss);
+                }
+                // If seed is provided, we want to use a different seed for each shot
+                // so that the results are different for each shot, but still deterministic
+                sim.set_seed(seed.map(|s| s + i as u64));
+                interpreter.run_with_sim(&mut sim, receiver, None, None)?
+            }
+            SimType::Clifford(num_qubits) => {
+                let mut sim = match noise_config {
+                    None => CliffordSim::new(num_qubits),
+                    Some(noise_config) => {
+                        CliffordSim::new_with_noise_config(num_qubits, noise_config.clone().into())
+                    }
+                };
+                // If seed is provided, we want to use a different seed for each shot
+                // so that the results are different for each shot, but still deterministic
+                sim.set_seed(seed.map(|s| s + i as u64));
+                interpreter.run_with_sim(&mut sim, receiver, None, None)?
             }
         };
-        if loss > 0.0 {
-            sim.set_loss(loss);
-        }
-        // If seed is provided, we want to use a different seed for each shot
-        // so that the results are different for each shot, but still deterministic
-        sim.set_seed(seed.map(|s| s + i as u64));
-        let result = interpreter.run_with_sim(&mut sim, receiver, None, None)?;
+
         results.push(result);
     }
 
@@ -798,6 +821,28 @@ where
     match kwargs.get_item("output_semantics")? {
         Some(obj) => Ok(obj.extract::<OutputSemantics>()?),
         None => Ok(default()),
+    }
+}
+
+/// Extracts the output semantics from the kwargs dictionary.
+pub(crate) fn get_sim_type(kwargs: &Bound<'_, PyDict>) -> PyResult<SimType> {
+    match kwargs.get_item("sim_type")? {
+        Some(obj) => Ok(match obj.extract::<String>()?.as_str() {
+            "sparse" => SimType::Sparse,
+            "clifford" => {
+                // Clifford simulator needs a num_qubits, which defaults to 1000 if unspecified.
+                let num_qubits = kwargs
+                    .get_item("num_qubits")?
+                    .map_or_else(|| Ok(1000), |x| x.extract::<usize>())?;
+                SimType::Clifford(num_qubits)
+            }
+            other => {
+                return Err(PyException::new_err(format!(
+                    "Invalid sim type specified: {other}"
+                )));
+            }
+        }),
+        None => Ok(Default::default()),
     }
 }
 
