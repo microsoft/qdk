@@ -431,6 +431,7 @@ fn rewrite_field_accesses(
 ///   and a fresh `Field(.., Path([j, ...]))` wrapper. Redirecting references
 ///   instead of mutating the original projection keeps shared expression nodes
 ///   stable for sibling projections created by earlier passes.
+#[allow(clippy::too_many_lines)]
 fn rewrite_single_expr(
     package: &mut Package,
     assigner: &mut Assigner,
