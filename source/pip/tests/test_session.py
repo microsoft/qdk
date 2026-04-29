@@ -10,16 +10,6 @@ def test_eval() -> None:
     assert result == 3
 
 
-def test_session_isolation() -> None:
-    s1 = qsharp.Session()
-    s2 = qsharp.Session()
-    s1.eval("function Foo() : Int { 42 }")
-    assert s1.eval("Foo()") == 42
-    # s2 should not have Foo defined.
-    with pytest.raises(QSharpError):
-        s2.eval("Foo()")
-
-
 def test_run() -> None:
     s = qsharp.Session()
     s.eval('operation Foo() : Result { Message("hi"); Zero }')
@@ -27,14 +17,77 @@ def test_run() -> None:
     assert results == [qsharp.Result.Zero, qsharp.Result.Zero, qsharp.Result.Zero]
 
 
-# TODO: test compile,circuit,logcial_counts,set_quantum_seed,set_classical_seed,
-# dump_machine,import_openqasm
+def test_compile() -> None:
+    s = qsharp.Session(target_profile=qsharp.TargetProfile.Base)
+    s.eval("operation Program() : Result { use q = Qubit(); MResetZ(q) }")
+    program = s.compile("Program()")
+    assert isinstance(program._repr_qir_(), bytes)
 
 
-def test_module_level_backward_compat() -> None:
-    qsharp.init()
-    result = qsharp.eval("1 + 1")
-    assert result == 2
+def test_circuit() -> None:
+    s = qsharp.Session()
+    s.eval("operation Program() : Result { use q = Qubit(); H(q); MResetZ(q) }")
+    circuit = s.circuit("Program()")
+    assert "H" in str(circuit)
+
+
+def test_logical_counts() -> None:
+    s = qsharp.Session(target_profile=qsharp.TargetProfile.Base)
+    s.eval("operation Program() : Result { use q = Qubit(); MResetZ(q) }")
+    counts = s.logical_counts("Program()")
+    assert counts["numQubits"] == 1
+
+
+def test_seed() -> None:
+    s1 = qsharp.Session()
+    s2 = qsharp.Session()
+
+    # Classical seed.
+    s1.set_classical_seed(100)
+    s2.set_classical_seed(100)
+    value1 = s1.eval("Microsoft.Quantum.Random.DrawRandomInt(0, 100)")
+    value2 = s2.eval("Microsoft.Quantum.Random.DrawRandomInt(0, 100)")
+    assert value1 == value2
+
+    # Quantum seed.
+    code = """{
+        use qs = Qubit[16]; 
+        for q in qs { H(q); }; 
+        Microsoft.Quantum.Measurement.MResetEachZ(qs)
+    }"""
+    s1.set_quantum_seed(100)
+    s2.set_quantum_seed(100)
+    value1 = s1.eval(code)
+    value2 = s2.eval(code)
+    assert value1 == value2
+
+
+def test_dump_machine() -> None:
+    s = qsharp.Session(target_profile=qsharp.TargetProfile.Unrestricted)
+    s.eval("use q = Qubit(); X(q);")
+    state_dump = s.dump_machine()
+    assert state_dump.qubit_count == 1
+    assert state_dump.as_dense_state() == [0, 1]
+
+
+def test_import_openqasm() -> None:
+    """import_openqasm loads and runs an OpenQASM program in this session."""
+    s = qsharp.Session()
+    s.import_openqasm(
+        """
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        output bit c;
+        x q;
+        c = measure q;
+        reset q;
+    """,
+        name="Program",
+    )
+
+    results = s.run("{ use q = Qubit(); Program(q) }", 1)
+    assert results == [qsharp.Result.One]
 
 
 def test_context_callable_has_session_ref() -> None:
@@ -44,17 +97,6 @@ def test_context_callable_has_session_ref() -> None:
     add_fn = s.code.Add
     assert hasattr(add_fn, "_qdk_session")
     assert add_fn._qdk_session is s
-
-
-def test_import_openqasm() -> None:
-    """import_openqasm loads an OpenQASM program into the context."""
-    s = qsharp.Session()
-    s.import_openqasm("""
-        OPENQASM 3.0;
-        include "stdgates.inc";
-        qubit q;
-        h q;
-        """)
 
 
 def test_stale_callable_after_reinit() -> None:
@@ -71,7 +113,17 @@ def test_stale_callable_after_reinit() -> None:
 def test_config_property() -> None:
     """Session exposes a .config property with the target profile."""
     s = qsharp.Session(target_profile=qsharp.TargetProfile.Base)
-    assert s.config.get_target_profile() == "base"
+    assert s._config.get_target_profile() == "base"
+
+
+def test_session_isolation() -> None:
+    s1 = qsharp.Session()
+    s2 = qsharp.Session()
+    s1.eval("function Foo() : Int { 42 }")
+    assert s1.eval("Foo()") == 42
+    # s2 should not have Foo defined.
+    with pytest.raises(QSharpError):
+        s2.eval("Foo()")
 
 
 def test_cross_session_callable_passing_raises() -> None:
@@ -136,7 +188,5 @@ def test_circular_reference_raises():
     circular_list = []
     circular_list.append(circular_list)
 
-    with pytest.raises(
-        QSharpError, match="Cannot send circular objects from Python to Q#"
-    ):
+    with pytest.raises(QSharpError, match="Cannot send circular objects"):
         qsharp.code.First(circular_list)

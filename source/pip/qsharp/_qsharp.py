@@ -297,7 +297,7 @@ def init(
         _code_module=code,
         _code_prefix="qsharp.code",
     )
-    return _default_session.config
+    return _default_session._config
 
 
 class StateDump:
@@ -771,9 +771,6 @@ def _get_session(obj: Any = None) -> "Session":
     return _default_session
 
 
-import time
-
-
 class Session:
     """
     (TODO: update this comment!)
@@ -801,8 +798,6 @@ class Session:
         _code_module: Optional[types.ModuleType] = None,
         _code_prefix: Optional[str] = None,
     ):
-        t0 = time.time()
-
         self._disposed = False
 
         if _code_module is not None:
@@ -858,7 +853,6 @@ class Session:
         self._config = Config(
             target_profile, language_features, manifest_contents, project_root
         )
-        print("Session init time", time.time() - t0)
 
     def _qsharp_value_to_python_value(self, obj):
         """Converts Q# value to Python value."""
@@ -1058,19 +1052,6 @@ class Session:
             return
         if getattr(struct_type, "_qdk_session") is not self:
             raise QSharpError("This struct belongs to a different Session. ")
-
-    @property
-    def config(self) -> Config:
-        """The interpreter configuration (read-only)."""
-        return self._config
-
-    def __repr__(self) -> str:
-        return repr(self._config)
-
-    def _repr_mimebundle_(
-        self, include: Union[Any, None] = None, exclude: Union[Any, None] = None
-    ) -> Dict[str, Dict[str, Any]]:
-        return self._config._repr_mimebundle_(include, exclude)
 
     def eval(
         self,
