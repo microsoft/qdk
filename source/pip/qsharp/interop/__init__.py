@@ -1,4 +1,4 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Interoperability modules for the Q# ecosystem."""
+# Deprecated: use qdk.interop (qdk.qiskit / qdk.cirq) instead.

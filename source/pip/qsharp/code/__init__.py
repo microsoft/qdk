@@ -1,6 +1,5 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""
-Code module that receives any user-defined Q# callables as Python functions.
-"""
+# Deprecated: use qdk.code instead.
+from qdk.code import *  # noqa: F401,F403

@@ -3,6 +3,7 @@ name = "qsharp"
 version = "0.0.0"
 readme = "README.md"
 requires-python = ">= 3.10"
+dependencies = ["qdk==0.0.0"]
 classifiers = [
     "License :: OSI Approved :: MIT License",
     "Development Status :: 5 - Production/Stable",
@@ -13,7 +14,6 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python",
-    "Programming Language :: Rust",
     "Operating System :: MacOS",
     "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
@@ -27,8 +27,8 @@ cirq = ["cirq-core>=1.6.1,<1.7"]
 qre = ["cirq-core==1.6.1,<1.7", "pandas>=2.1", "ply>=3.11", "pyqir>=0.12.3,<0.13"]
 
 [build-system]
-requires = ["maturin ~= 1.10.2"]
-build-backend = "maturin"
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
 
-[tool.maturin]
-module-name = "qsharp._native"
+[tool.setuptools.packages.find]
+where = ["."]

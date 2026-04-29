@@ -1,8 +1,5 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from ._utils import dump_operation
-
-__all__ = [
-    "dump_operation",
-]
+# Deprecated: use qdk.utils instead.
+from qdk.utils import *  # noqa: F401,F403
