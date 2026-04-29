@@ -22,6 +22,7 @@ import {
   makeEvent,
 } from "../compiler/events.js";
 import { log } from "../log.js";
+import { callAndTransformExceptions } from "../diagnostics.js";
 import type { IServiceProxy, ServiceProtocol } from "../workers/types.js";
 import { toWasmProgramConfig } from "../compiler/compiler.js";
 
@@ -110,36 +111,44 @@ export class QSharpDebugService implements IDebugService {
     bps: number[],
     eventHandler: IQscEventTarget,
   ): Promise<IStructStepResult> {
-    const event_cb = (msg: string) => onCompilerEvent(msg, eventHandler);
-    const ids = new Uint32Array(bps);
-    return this.debugService.eval_continue(event_cb, ids);
+    return callAndTransformExceptions(async () => {
+      const event_cb = (msg: string) => onCompilerEvent(msg, eventHandler);
+      const ids = new Uint32Array(bps);
+      return this.debugService.eval_continue(event_cb, ids);
+    });
   }
 
   async evalNext(
     bps: number[],
     eventHandler: IQscEventTarget,
   ): Promise<IStructStepResult> {
-    const event_cb = (msg: string) => onCompilerEvent(msg, eventHandler);
-    const ids = new Uint32Array(bps);
-    return this.debugService.eval_next(event_cb, ids);
+    return callAndTransformExceptions(async () => {
+      const event_cb = (msg: string) => onCompilerEvent(msg, eventHandler);
+      const ids = new Uint32Array(bps);
+      return this.debugService.eval_next(event_cb, ids);
+    });
   }
 
   async evalStepIn(
     bps: number[],
     eventHandler: IQscEventTarget,
   ): Promise<IStructStepResult> {
-    const event_cb = (msg: string) => onCompilerEvent(msg, eventHandler);
-    const ids = new Uint32Array(bps);
-    return this.debugService.eval_step_in(event_cb, ids);
+    return callAndTransformExceptions(async () => {
+      const event_cb = (msg: string) => onCompilerEvent(msg, eventHandler);
+      const ids = new Uint32Array(bps);
+      return this.debugService.eval_step_in(event_cb, ids);
+    });
   }
 
   async evalStepOut(
     bps: number[],
     eventHandler: IQscEventTarget,
   ): Promise<IStructStepResult> {
-    const event_cb = (msg: string) => onCompilerEvent(msg, eventHandler);
-    const ids = new Uint32Array(bps);
-    return this.debugService.eval_step_out(event_cb, ids);
+    return callAndTransformExceptions(async () => {
+      const event_cb = (msg: string) => onCompilerEvent(msg, eventHandler);
+      const ids = new Uint32Array(bps);
+      return this.debugService.eval_step_out(event_cb, ids);
+    });
   }
 
   async dispose() {

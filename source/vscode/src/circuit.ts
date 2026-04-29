@@ -411,7 +411,7 @@ function hasAdaptiveComplianceOrUnsupportedRirError(errors: IQSharpError[]) {
  * @param errors The list of errors to format.
  * @returns The HTML formatted errors, to be set as the inner contents of a container element.
  */
-function errorsToHtml(errors: IQSharpError[]) {
+export function errorsToHtml(errors: IQSharpError[]) {
   let errorHtml = "";
   for (const error of errors) {
     const { document, diagnostic: diag, stack: rawStack } = error;
