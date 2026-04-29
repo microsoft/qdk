@@ -96,7 +96,7 @@ pub fn run_parallel_shots<'py>(
 
 type NativeGpuContext = gpu_context::GpuContext;
 #[derive(Debug)]
-#[pyclass(module = "qsharp._native")]
+#[pyclass(module = "qdk._native")]
 pub struct GpuContext {
     native_context: Mutex<NativeGpuContext>,
     last_set_result_count: usize, // Needed to format results

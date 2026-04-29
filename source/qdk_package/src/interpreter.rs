@@ -153,7 +153,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
 
 // This ordering must match the _native.pyi file.
 #[derive(Clone, Copy, Default, PartialEq)]
-#[pyclass(eq, eq_int, from_py_object, module = "qsharp._native")]
+#[pyclass(eq, eq_int, from_py_object, module = "qdk._native")]
 #[allow(non_camel_case_types)]
 /// A Q# target profile.
 ///
@@ -260,7 +260,7 @@ impl From<TargetProfile> for Profile {
 
 // This ordering must match the _native.pyi file.
 #[derive(Clone, Copy, Default, PartialEq)]
-#[pyclass(eq, eq_int, from_py_object, module = "qsharp._native")]
+#[pyclass(eq, eq_int, from_py_object, module = "qdk._native")]
 #[allow(non_camel_case_types)]
 /// Represents the output semantics for OpenQASM 3 compilation.
 /// Each has implications on the output of the compilation
@@ -324,7 +324,7 @@ impl From<OutputSemantics> for qsc::openqasm::OutputSemantics {
 
 // This ordering must match the _native.pyi file.
 #[derive(Clone, Copy, Default, PartialEq)]
-#[pyclass(eq, eq_int, from_py_object, module = "qsharp._native")]
+#[pyclass(eq, eq_int, from_py_object, module = "qdk._native")]
 #[allow(non_camel_case_types)]
 /// Represents the type of compilation output to create
 pub enum ProgramType {

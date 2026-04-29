@@ -101,3 +101,113 @@ For convenience, the following helpers and types are also importable directly fr
 
 This library sends telemetry. Minimal anonymous data is collected to help measure feature usage and performance.
 All telemetry events can be seen in the source file [telemetry_events.py](https://github.com/microsoft/qdk/tree/main/source/pip/qsharp/telemetry_events.py).
+
+## Target Package Structure (Migration WIP)
+
+The `qsharp` package (pip/) is being deprecated. All implementation is moving into `qdk` (qdk_package/). The `qsharp` package will become a thin deprecation shim that depends on `qdk`.
+
+```
+qdk_package/
+├── Cargo.toml
+├── pyproject.toml
+├── MANIFEST.in
+├── README.md
+├── test_requirements.txt
+│
+├── src/                                # Rust source for _native
+│   └── *.rs
+│
+├── qdk/
+│   ├── __init__.py                     # Same public API as today
+│   │
+│   │── # ——— Moved from pip/qsharp/ (implementation modules) ———
+│   ├── _native.pyd/.so                 # Built by maturin (module-name = "qdk._native")
+│   ├── _qsharp.py                      # Core interpreter
+│   ├── _simulation.py                  # QIR simulation
+│   ├── _ipython.py                     # %%qsharp cell magic
+│   ├── _http.py                        # fetch_github()
+│   ├── _fs.py                          # File system callbacks
+│   ├── _adaptive_pass.py
+│   ├── _adaptive_bytecode.py
+│   ├── telemetry.py
+│   ├── telemetry_events.py
+│   │
+│   ├── code/
+│   │   └── __init__.py                 # Dynamic Q# callables namespace
+│   │
+│   ├── estimator/                      # Direct module — no re-export shim needed
+│   │   └── __init__.py
+│   │
+│   ├── openqasm/                       # Direct module — no re-export shim needed
+│   │   └── __init__.py
+│   │
+│   ├── utils/
+│   │   └── __init__.py                 # dump_operation
+│   │
+│   ├── noisy_simulator/
+│   │   └── __init__.py
+│   │
+│   ├── qiskit/                         # Lifted out of interop/
+│   │   ├── __init__.py                 # QSharpBackend, NeutralAtomBackend, etc.
+│   │   ├── backends/__init__.py
+│   │   ├── passes/__init__.py
+│   │   ├── jobs/__init__.py
+│   │   └── execution/__init__.py
+│   │
+│   ├── cirq/                           # Lifted out of interop/
+│   │   └── __init__.py                 # NeutralAtomSampler
+│   │
+│   ├── _device/
+│   │   ├── __init__.py
+│   │   └── _atom/
+│   │       └── __init__.py             # NeutralAtomDevice
+│   │
+│   ├── qre/
+│   │   ├── __init__.py
+│   │   ├── application/__init__.py
+│   │   ├── models/__init__.py
+│   │   │   ├── qubits/__init__.py
+│   │   │   ├── qec/__init__.py
+│   │   │   └── factories/__init__.py
+│   │   ├── interop/__init__.py
+│   │   ├── property_keys.py            # Merged with custom_property helpers
+│   │   └── instruction_ids.py
+│   │
+│   ├── applications/
+│   │   ├── __init__.py
+│   │   └── magnets/
+│   │       ├── __init__.py
+│   │       ├── utilities/__init__.py
+│   │       ├── trotter/__init__.py
+│   │       ├── models/__init__.py
+│   │       └── geometry/__init__.py
+│   │
+│   │── # ——— Remaining re-export modules (to revisit later) ———
+│   ├── qsharp.py                       # Re-exports full qsharp-like API from qdk._qsharp
+│   ├── simulation.py                   # Re-exports NeutralAtomDevice, NoiseConfig
+│   │
+│   │── # ——— Unchanged ———
+│   ├── widgets.py                      # from qsharp_widgets import * (external)
+│   │
+│   └── azure/                          # Unchanged — re-exports from azure.quantum
+│       ├── __init__.py
+│       ├── job.py
+│       ├── qiskit.py
+│       ├── cirq.py
+│       ├── argument_types.py
+│       └── target/
+│           ├── __init__.py
+│           └── rigetti.py
+│
+└── tests/
+    ├── conftest.py
+    ├── mocks.py
+    ├── test_reexports.py
+    ├── test_extras.py
+    ├── test_integration/
+    │   ├── test_*.py
+    │   ├── utils.py
+    │   └── resources/
+    └── benchmarks/
+        └── bench_qre.py
+```

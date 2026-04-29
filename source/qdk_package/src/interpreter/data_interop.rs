@@ -25,7 +25,7 @@ use std::rc::Rc;
 
 /// Instances of this enum represent a Q# type. This is used
 /// to send the definitions of Q# UDTs defined by the user to Python
-/// and creating equivalent Python dataclasses in `qsharp.code.*`.
+/// and creating equivalent Python dataclasses in `qdk.code.*`.
 #[pyclass(from_py_object)]
 #[derive(Clone)]
 pub(super) enum TypeIR {

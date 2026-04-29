@@ -1,6 +1,6 @@
 [package]
-name = "qsharp"
-description = "Q# Python Bindings"
+name = "qdk"
+description = "QDK Python Bindings"
 
 version.workspace = true
 authors.workspace = true
@@ -59,4 +59,4 @@ crate-type = ["cdylib"]
 doctest = false
 
 [package.metadata.maturin]
-name = "qsharp._native"
+name = "qdk._native"
