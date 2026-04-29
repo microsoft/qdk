@@ -3,9 +3,9 @@
 
 from textwrap import dedent
 import pytest
-import qsharp
-import qsharp.code
-import qsharp.utils
+import qdk
+import qdk.code
+import qdk.utils
 from contextlib import redirect_stdout
 import io
 
@@ -13,20 +13,20 @@ import io
 
 
 def test_stdout() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
     f = io.StringIO()
     with redirect_stdout(f):
-        result = qsharp.eval('Message("Hello, world!")')
+        result = qdk.eval('Message("Hello, world!")')
 
     assert result is None
     assert f.getvalue() == "Hello, world!\n"
 
 
 def test_stdout_multiple_lines() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
     f = io.StringIO()
     with redirect_stdout(f):
-        qsharp.eval(
+        qdk.eval(
             """
         use q = Qubit();
         Microsoft.Quantum.Diagnostics.DumpMachine();
@@ -38,10 +38,10 @@ def test_stdout_multiple_lines() -> None:
 
 
 def test_captured_stdout() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
     f = io.StringIO()
     with redirect_stdout(f):
-        result = qsharp.eval(
+        result = qdk.eval(
             '{Message("Hello, world!"); Message("Goodbye!")}', save_events=True
         )
     assert f.getvalue() == ""
@@ -51,10 +51,10 @@ def test_captured_stdout() -> None:
 
 
 def test_captured_matrix() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
     f = io.StringIO()
     with redirect_stdout(f):
-        result = qsharp.eval(
+        result = qdk.eval(
             "Std.Diagnostics.DumpOperation(1, qs => H(qs[0]))",
             save_events=True,
         )
@@ -67,66 +67,66 @@ def test_captured_matrix() -> None:
 
 
 def test_quantum_seed() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    qsharp.set_quantum_seed(42)
-    value1 = qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
+    qdk.set_quantum_seed(42)
+    value1 = qdk.eval(
         "{ use qs = Qubit[32]; for q in qs { H(q); }; Microsoft.Quantum.Measurement.MResetEachZ(qs) }"
     )
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    qsharp.set_quantum_seed(42)
-    value2 = qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
+    qdk.set_quantum_seed(42)
+    value2 = qdk.eval(
         "{ use qs = Qubit[32]; for q in qs { H(q); }; Microsoft.Quantum.Measurement.MResetEachZ(qs) }"
     )
     assert value1 == value2
-    qsharp.set_quantum_seed(None)
-    value3 = qsharp.eval(
+    qdk.set_quantum_seed(None)
+    value3 = qdk.eval(
         "{ use qs = Qubit[32]; for q in qs { H(q); }; Microsoft.Quantum.Measurement.MResetEachZ(qs) }"
     )
     assert value1 != value3
 
 
 def test_classical_seed() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    qsharp.set_classical_seed(42)
-    value1 = qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
+    qdk.set_classical_seed(42)
+    value1 = qdk.eval(
         "{ mutable res = []; for _ in 0..15{ set res += [(Microsoft.Quantum.Random.DrawRandomInt(0, 100), Microsoft.Quantum.Random.DrawRandomDouble(0.0, 1.0))]; }; res }"
     )
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    qsharp.set_classical_seed(42)
-    value2 = qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
+    qdk.set_classical_seed(42)
+    value2 = qdk.eval(
         "{ mutable res = []; for _ in 0..15{ set res += [(Microsoft.Quantum.Random.DrawRandomInt(0, 100), Microsoft.Quantum.Random.DrawRandomDouble(0.0, 1.0))]; }; res }"
     )
     assert value1 == value2
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    qsharp.set_classical_seed(None)
-    value3 = qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
+    qdk.set_classical_seed(None)
+    value3 = qdk.eval(
         "{ mutable res = []; for _ in 0..15{ set res += [(Microsoft.Quantum.Random.DrawRandomInt(0, 100), Microsoft.Quantum.Random.DrawRandomDouble(0.0, 1.0))]; }; res }"
     )
     assert value1 != value3
 
 
 def test_dump_machine() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
+    qdk.eval(
         """
     use q1 = Qubit();
     use q2 = Qubit();
     X(q1);
     """
     )
-    state_dump = qsharp.dump_machine()
+    state_dump = qdk.dump_machine()
     assert state_dump.qubit_count == 2
     assert len(state_dump) == 1
     assert state_dump[2] == complex(1.0, 0.0)
     assert state_dump.as_dense_state() == [0, 0, 1, 0]
-    qsharp.eval("X(q2);")
-    state_dump = qsharp.dump_machine()
+    qdk.eval("X(q2);")
+    state_dump = qdk.dump_machine()
     assert state_dump.qubit_count == 2
     assert len(state_dump) == 1
     assert state_dump[3] == complex(1.0, 0.0)
     assert state_dump.as_dense_state() == [0, 0, 0, 1]
-    qsharp.eval("H(q1);")
-    state_dump = qsharp.dump_machine()
+    qdk.eval("H(q1);")
+    state_dump = qdk.dump_machine()
     assert state_dump.qubit_count == 2
     assert len(state_dump) == 2
     # Check that the state dump correctly supports iteration and membership checks
@@ -158,9 +158,9 @@ def test_dump_machine() -> None:
     assert not state_dump.check_eq([0.0, 0.5001, 0.0, -0.5], tolerance=1e-6)
     # Reset the qubits and apply a small rotation to q1, to confirm that tolerance applies to the dump
     # itself and not just the state.
-    qsharp.eval("ResetAll([q1, q2]);")
-    qsharp.eval("Ry(0.0001, q1);")
-    state_dump = qsharp.dump_machine()
+    qdk.eval("ResetAll([q1, q2]);")
+    qdk.eval("Ry(0.0001, q1);")
+    state_dump = qdk.dump_machine()
     assert state_dump.qubit_count == 2
     assert len(state_dump) == 2
     assert not state_dump.check_eq([1.0])
@@ -169,25 +169,25 @@ def test_dump_machine() -> None:
 
 
 def test_dump_operation() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    res = qsharp.utils.dump_operation("qs => ()", 1)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
+    res = qdk.utils.dump_operation("qs => ()", 1)
     assert res == [
         [complex(1.0, 0.0), complex(0.0, 0.0)],
         [complex(0.0, 0.0), complex(1.0, 0.0)],
     ]
-    res = qsharp.utils.dump_operation("qs => H(qs[0])", 1)
+    res = qdk.utils.dump_operation("qs => H(qs[0])", 1)
     assert res == [
         [complex(0.707107, 0.0), complex(0.707107, 0.0)],
         [complex(0.707107, 0.0), complex(-0.707107, 0.0)],
     ]
-    res = qsharp.utils.dump_operation("qs => CNOT(qs[0], qs[1])", 2)
+    res = qdk.utils.dump_operation("qs => CNOT(qs[0], qs[1])", 2)
     assert res == [
         [complex(1.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0)],
         [complex(0.0, 0.0), complex(1.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0)],
         [complex(0.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0), complex(1.0, 0.0)],
         [complex(0.0, 0.0), complex(0.0, 0.0), complex(1.0, 0.0), complex(0.0, 0.0)],
     ]
-    res = qsharp.utils.dump_operation("qs => CCNOT(qs[0], qs[1], qs[2])", 3)
+    res = qdk.utils.dump_operation("qs => CCNOT(qs[0], qs[1], qs[2])", 3)
     assert res == [
         [
             complex(1.0, 0.0),
@@ -270,17 +270,17 @@ def test_dump_operation() -> None:
             complex(0.0, 0.0),
         ],
     ]
-    qsharp.eval(
+    qdk.eval(
         "operation ApplySWAP(qs : Qubit[]) : Unit is Ctl + Adj { SWAP(qs[0], qs[1]); }"
     )
-    res = qsharp.utils.dump_operation("ApplySWAP", 2)
+    res = qdk.utils.dump_operation("ApplySWAP", 2)
     assert res == [
         [complex(1.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0)],
         [complex(0.0, 0.0), complex(0.0, 0.0), complex(1.0, 0.0), complex(0.0, 0.0)],
         [complex(0.0, 0.0), complex(1.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0)],
         [complex(0.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0), complex(1.0, 0.0)],
     ]
-    res = qsharp.utils.dump_operation("qs => ()", 8)
+    res = qdk.utils.dump_operation("qs => ()", 8)
     for i in range(8):
         for j in range(8):
             if i == j:
@@ -290,47 +290,47 @@ def test_dump_operation() -> None:
 
 
 def test_run_with_noise_produces_noisy_results() -> None:
-    qsharp.init()
-    result = qsharp.run(
+    qdk.init()
+    result = qdk.run(
         "{ mutable errors=0; for _ in 0..100 { use q1=Qubit(); use q2=Qubit(); H(q1); CNOT(q1, q2); if MResetZ(q1) != MResetZ(q2) { set errors+=1; } } errors }",
         shots=1,
-        noise=qsharp.BitFlipNoise(0.1),
+        noise=qdk.BitFlipNoise(0.1),
         seed=0,
     )
     assert result[0] > 5
-    result = qsharp.run(
+    result = qdk.run(
         "{ mutable errors=0; for _ in 0..100 { use q=Qubit(); if MResetZ(q) != Zero { set errors+=1; } } errors }",
         shots=1,
-        noise=qsharp.BitFlipNoise(0.1),
+        noise=qdk.BitFlipNoise(0.1),
         seed=0,
     )
     assert result[0] > 5
 
 
 def test_run_with_loss_produces_lossy_results() -> None:
-    qsharp.init()
-    result = qsharp.run(
+    qdk.init()
+    result = qdk.run(
         "{ use q = Qubit(); X(q); MResetZ(q) }",
         shots=1,
         qubit_loss=1.0,
         seed=0,
     )
-    assert result[0] == qsharp.Result.Loss
+    assert result[0] == qdk.Result.Loss
 
 
 def test_run_with_callable_and_seed_produces_deterministic_shot_results() -> None:
-    qsharp.init()
+    qdk.init()
     # Uses an operation that verifies both quantum and classical randomness
-    qsharp.eval(
+    qdk.eval(
         "operation Rand() : (Int, Int) { use qs = Qubit[32]; for q in qs { H(q); }; (MeasureInteger(qs), Std.Random.DrawRandomInt(0, 1_000_000)) }"
     )
-    result1 = qsharp.run(
-        qsharp.code.Rand,
+    result1 = qdk.run(
+        qdk.code.Rand,
         shots=10,
         seed=42,
     )
-    result2 = qsharp.run(
-        qsharp.code.Rand,
+    result2 = qdk.run(
+        qdk.code.Rand,
         shots=10,
         seed=42,
     )
@@ -338,8 +338,8 @@ def test_run_with_callable_and_seed_produces_deterministic_shot_results() -> Non
         result1[0] != result1[2]
     )  # Check that we actually got some randomness in the results
     assert result1 == result2
-    result3 = qsharp.run(
-        qsharp.code.Rand,
+    result3 = qdk.run(
+        qdk.code.Rand,
         shots=10,
         seed=None,
     )
@@ -347,47 +347,47 @@ def test_run_with_callable_and_seed_produces_deterministic_shot_results() -> Non
 
 
 def test_compile_qir_input_data() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval("operation Program() : Result { use q = Qubit(); return M(q) }")
-    operation = qsharp.compile("Program()")
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval("operation Program() : Result { use q = Qubit(); return M(q) }")
+    operation = qdk.compile("Program()")
     qir = operation._repr_qir_()
     assert isinstance(qir, bytes)
 
 
 def test_compile_qir_str() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")
-    operation = qsharp.compile("Program()")
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")
+    operation = qdk.compile("Program()")
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
 
 
 def test_compile_qir_str_from_python_callable() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")
-    operation = qsharp.compile(qsharp.code.Program)
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")
+    operation = qdk.compile(qdk.code.Program)
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
 
 
 def test_compile_qir_str_from_qsharp_callable() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")
-    program = qsharp.eval("Program")
-    operation = qsharp.compile(program)
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval("operation Program() : Result { use q = Qubit(); return MResetZ(q); }")
+    program = qdk.eval("Program")
+    operation = qdk.compile(program)
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
 
 
 def test_compile_qir_str_from_python_callable_with_single_arg() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval(
         "operation Program(nQubits : Int) : Result[] { use qs = Qubit[nQubits]; MResetEachZ(qs) }"
     )
-    operation = qsharp.compile(qsharp.code.Program, 5)
+    operation = qdk.compile(qdk.code.Program, 5)
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
@@ -398,12 +398,12 @@ def test_compile_qir_str_from_python_callable_with_single_arg() -> None:
 
 
 def test_compile_qir_str_from_qsharp_callable_with_single_arg() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval(
         "operation Program(nQubits : Int) : Result[] { use qs = Qubit[nQubits]; MResetEachZ(qs) }"
     )
-    program = qsharp.eval("Program")
-    operation = qsharp.compile(program, 5)
+    program = qdk.eval("Program")
+    operation = qdk.compile(program, 5)
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
@@ -414,11 +414,11 @@ def test_compile_qir_str_from_qsharp_callable_with_single_arg() -> None:
 
 
 def test_compile_qir_str_from_python_callable_with_array_arg() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval(
         "operation Program(nQubits : Int[]) : Result[] { use qs = Qubit[nQubits[1]]; MResetEachZ(qs) }"
     )
-    operation = qsharp.compile(qsharp.code.Program, [5, 3])
+    operation = qdk.compile(qdk.code.Program, [5, 3])
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
@@ -433,12 +433,12 @@ def test_compile_qir_str_from_python_callable_with_array_arg() -> None:
 
 
 def test_compile_qir_str_from_qsharp_callable_with_array_arg() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval(
         "operation Program(nQubits : Int[]) : Result[] { use qs = Qubit[nQubits[1]]; MResetEachZ(qs) }"
     )
-    program = qsharp.eval("Program")
-    operation = qsharp.compile(program, [5, 3])
+    program = qdk.eval("Program")
+    operation = qdk.compile(program, [5, 3])
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
@@ -453,11 +453,11 @@ def test_compile_qir_str_from_qsharp_callable_with_array_arg() -> None:
 
 
 def test_compile_qir_str_from_python_callable_with_multiple_args() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval(
         "operation Program(nQubits : Int, nResults : Int) : Result[] { use qs = Qubit[nQubits]; MResetEachZ(qs)[...nResults-1] }"
     )
-    operation = qsharp.compile(qsharp.code.Program, 5, 3)
+    operation = qdk.compile(qdk.code.Program, 5, 3)
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
@@ -472,12 +472,12 @@ def test_compile_qir_str_from_python_callable_with_multiple_args() -> None:
 
 
 def test_compile_qir_str_from_qsharp_callable_with_multiple_args() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval(
         "operation Program(nQubits : Int, nResults : Int) : Result[] { use qs = Qubit[nQubits]; MResetEachZ(qs)[...nResults-1] }"
     )
-    program = qsharp.eval("Program")
-    operation = qsharp.compile(program, 5, 3)
+    program = qdk.eval("Program")
+    operation = qdk.compile(program, 5, 3)
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
@@ -494,12 +494,12 @@ def test_compile_qir_str_from_qsharp_callable_with_multiple_args() -> None:
 def test_compile_qir_str_from_python_callable_with_multiple_args_passed_as_tuple() -> (
     None
 ):
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval(
         "operation Program(nQubits : Int, nResults : Int) : Result[] { use qs = Qubit[nQubits]; MResetEachZ(qs)[...nResults-1] }"
     )
     args = (5, 3)
-    operation = qsharp.compile(qsharp.code.Program, args)
+    operation = qdk.compile(qdk.code.Program, args)
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
@@ -516,13 +516,13 @@ def test_compile_qir_str_from_python_callable_with_multiple_args_passed_as_tuple
 def test_compile_qir_str_from_qsharp_callable_with_multiple_args_passed_as_tuple() -> (
     None
 ):
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval(
         "operation Program(nQubits : Int, nResults : Int) : Result[] { use qs = Qubit[nQubits]; MResetEachZ(qs)[...nResults-1] }"
     )
     args = (5, 3)
-    program = qsharp.eval("Program")
-    operation = qsharp.compile(program, args)
+    program = qdk.eval("Program")
+    operation = qdk.compile(program, args)
     qir = str(operation)
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert (
@@ -537,46 +537,46 @@ def test_compile_qir_str_from_qsharp_callable_with_multiple_args_passed_as_tuple
 
 
 def test_init_from_provider_name() -> None:
-    config = qsharp.init(target_name="ionq.simulator")
+    config = qdk.init(target_name="ionq.simulator")
     assert config._config["targetProfile"] == "base"
-    config = qsharp.init(target_name="rigetti.sim.qvm")
+    config = qdk.init(target_name="rigetti.sim.qvm")
     assert config._config["targetProfile"] == "base"
-    config = qsharp.init(target_name="quantinuum.sim")
+    config = qdk.init(target_name="quantinuum.sim")
     assert config._config["targetProfile"] == "adaptive_ri"
-    config = qsharp.init(target_name="Quantinuum")
+    config = qdk.init(target_name="Quantinuum")
     assert config._config["targetProfile"] == "adaptive_ri"
-    config = qsharp.init(target_name="IonQ")
+    config = qdk.init(target_name="IonQ")
     assert config._config["targetProfile"] == "base"
 
 
 def test_run_with_result(capsys) -> None:
-    qsharp.init()
-    qsharp.eval('operation Foo() : Result { Message("Hello, world!"); Zero }')
-    results = qsharp.run("Foo()", 3)
-    assert results == [qsharp.Result.Zero, qsharp.Result.Zero, qsharp.Result.Zero]
+    qdk.init()
+    qdk.eval('operation Foo() : Result { Message("Hello, world!"); Zero }')
+    results = qdk.run("Foo()", 3)
+    assert results == [qdk.Result.Zero, qdk.Result.Zero, qdk.Result.Zero]
     stdout = capsys.readouterr().out
     assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
 
 
 def test_run_with_result_from_python_callable(capsys) -> None:
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         'operation Foo() : Result { Message("Hello, world!"); use q = Qubit(); M(q) }'
     )
-    results = qsharp.run(qsharp.code.Foo, 3)
-    assert results == [qsharp.Result.Zero, qsharp.Result.Zero, qsharp.Result.Zero]
+    results = qdk.run(qdk.code.Foo, 3)
+    assert results == [qdk.Result.Zero, qdk.Result.Zero, qdk.Result.Zero]
     stdout = capsys.readouterr().out
     assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
 
 
 def test_run_with_result_from_qsharp_callable(capsys) -> None:
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         'operation Foo() : Result { Message("Hello, world!"); use q = Qubit(); M(q) }'
     )
-    foo = qsharp.eval("Foo")
-    results = qsharp.run(foo, 3)
-    assert results == [qsharp.Result.Zero, qsharp.Result.Zero, qsharp.Result.Zero]
+    foo = qdk.eval("Foo")
+    results = qdk.run(foo, 3)
+    assert results == [qdk.Result.Zero, qdk.Result.Zero, qdk.Result.Zero]
     stdout = capsys.readouterr().out
     assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
 
@@ -584,13 +584,13 @@ def test_run_with_result_from_qsharp_callable(capsys) -> None:
 def test_run_with_result_from_python_callable_while_global_qubits_allocated(
     capsys,
 ) -> None:
-    qsharp.init()
-    qsharp.eval("use q = Qubit();")
-    qsharp.eval(
+    qdk.init()
+    qdk.eval("use q = Qubit();")
+    qdk.eval(
         'operation Foo() : Result { Message("Hello, world!"); use q = Qubit(); M(q) }'
     )
-    results = qsharp.run(qsharp.code.Foo, 3)
-    assert results == [qsharp.Result.Zero, qsharp.Result.Zero, qsharp.Result.Zero]
+    results = qdk.run(qdk.code.Foo, 3)
+    assert results == [qdk.Result.Zero, qdk.Result.Zero, qdk.Result.Zero]
     stdout = capsys.readouterr().out
     assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
 
@@ -598,14 +598,14 @@ def test_run_with_result_from_python_callable_while_global_qubits_allocated(
 def test_run_with_result_from_qsharp_callable_while_global_qubits_allocated(
     capsys,
 ) -> None:
-    qsharp.init()
-    qsharp.eval("use q = Qubit();")
-    qsharp.eval(
+    qdk.init()
+    qdk.eval("use q = Qubit();")
+    qdk.eval(
         'operation Foo() : Result { Message("Hello, world!"); use q = Qubit(); M(q) }'
     )
-    foo = qsharp.eval("Foo")
-    results = qsharp.run(foo, 3)
-    assert results == [qsharp.Result.Zero, qsharp.Result.Zero, qsharp.Result.Zero]
+    foo = qdk.eval("Foo")
+    results = qdk.run(foo, 3)
+    assert results == [qdk.Result.Zero, qdk.Result.Zero, qdk.Result.Zero]
     stdout = capsys.readouterr().out
     assert stdout == "Hello, world!\nHello, world!\nHello, world!\n"
 
@@ -614,13 +614,13 @@ def test_run_with_result_callback(capsys) -> None:
     def on_result(result):
         nonlocal called
         called = True
-        assert result["result"] == qsharp.Result.Zero
+        assert result["result"] == qdk.Result.Zero
         assert str(result["events"]) == "[Hello, world!]"
 
     called = False
-    qsharp.init()
-    qsharp.eval('operation Foo() : Result { Message("Hello, world!"); Zero }')
-    results = qsharp.run("Foo()", 3, on_result=on_result, save_events=True)
+    qdk.init()
+    qdk.eval('operation Foo() : Result { Message("Hello, world!"); Zero }')
+    results = qdk.run("Foo()", 3, on_result=on_result, save_events=True)
     assert (
         str(results)
         == "[{'result': Zero, 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}, {'result': Zero, 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}, {'result': Zero, 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}]"
@@ -634,15 +634,15 @@ def test_run_with_result_callback_from_python_callable_with_args(capsys) -> None
     def on_result(result):
         nonlocal called
         called = True
-        assert result["result"] == [qsharp.Result.Zero, qsharp.Result.Zero]
+        assert result["result"] == [qdk.Result.Zero, qdk.Result.Zero]
         assert str(result["events"]) == "[Hello, world!]"
 
     called = False
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         'operation Foo(nResults : Int) : Result[] { Message("Hello, world!"); Repeated(Zero, nResults) }'
     )
-    results = qsharp.run(qsharp.code.Foo, 3, 2, on_result=on_result, save_events=True)
+    results = qdk.run(qdk.code.Foo, 3, 2, on_result=on_result, save_events=True)
     assert (
         str(results)
         == "[{'result': [Zero, Zero], 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}, {'result': [Zero, Zero], 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}, {'result': [Zero, Zero], 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}]"
@@ -656,16 +656,16 @@ def test_run_with_result_callback_from_qsharp_callable_with_args(capsys) -> None
     def on_result(result):
         nonlocal called
         called = True
-        assert result["result"] == [qsharp.Result.Zero, qsharp.Result.Zero]
+        assert result["result"] == [qdk.Result.Zero, qdk.Result.Zero]
         assert str(result["events"]) == "[Hello, world!]"
 
     called = False
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         'operation Foo(nResults : Int) : Result[] { Message("Hello, world!"); Repeated(Zero, nResults) }'
     )
-    foo = qsharp.eval("Foo")
-    results = qsharp.run(foo, 3, 2, on_result=on_result, save_events=True)
+    foo = qdk.eval("Foo")
+    results = qdk.run(foo, 3, 2, on_result=on_result, save_events=True)
     assert (
         str(results)
         == "[{'result': [Zero, Zero], 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}, {'result': [Zero, Zero], 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}, {'result': [Zero, Zero], 'events': [Hello, world!], 'messages': ['Hello, world!'], 'matrices': [], 'dumps': []}]"
@@ -676,17 +676,17 @@ def test_run_with_result_callback_from_qsharp_callable_with_args(capsys) -> None
 
 
 def test_run_with_invalid_shots_produces_error() -> None:
-    qsharp.init()
-    qsharp.eval('operation Foo() : Result { Message("Hello, world!"); Zero }')
+    qdk.init()
+    qdk.eval('operation Foo() : Result { Message("Hello, world!"); Zero }')
     try:
-        qsharp.run("Foo()", -1)
+        qdk.run("Foo()", -1)
     except ValueError as e:
         assert str(e) == "The number of shots must be greater than 0."
     else:
         assert False
 
     try:
-        qsharp.run("Foo()", 0)
+        qdk.run("Foo()", 0)
     except ValueError as e:
         assert str(e) == "The number of shots must be greater than 0."
     else:
@@ -694,8 +694,8 @@ def test_run_with_invalid_shots_produces_error() -> None:
 
 
 def test_run_with_complex_udt() -> None:
-    qsharp.init()
-    val = qsharp.run(
+    qdk.init()
+    val = qdk.run(
         """
         {
             new Std.Math.Complex { Real = 2., Imag = 3. }
@@ -707,14 +707,14 @@ def test_run_with_complex_udt() -> None:
 
 
 def test_identity_returning_complex_udt() -> None:
-    qsharp.init()
-    qsharp.eval("function Identity(a : Std.Math.Complex) : Std.Math.Complex { a }")
-    assert qsharp.code.Identity(2 + 3j) == 2 + 3j
+    qdk.init()
+    qdk.eval("function Identity(a : Std.Math.Complex) : Std.Math.Complex { a }")
+    assert qdk.code.Identity(2 + 3j) == 2 + 3j
 
 
 def test_run_with_udt() -> None:
-    qsharp.init()
-    val = qsharp.run(
+    qdk.init()
+    val = qdk.run(
         """
         {
             struct Data { a : Int, b : Int }
@@ -727,212 +727,212 @@ def test_run_with_udt() -> None:
 
 
 def test_callables_exposed_into_env() -> None:
-    qsharp.init()
-    qsharp.eval("function Four() : Int { 4 }")
-    assert qsharp.code.Four() == 4, "callable should be available"
-    qsharp.eval("function Add(a : Int, b : Int) : Int { a + b }")
-    assert qsharp.code.Four() == 4, "first callable should still be available"
-    assert qsharp.code.Add(2, 3) == 5, "second callable should be available"
+    qdk.init()
+    qdk.eval("function Four() : Int { 4 }")
+    assert qdk.code.Four() == 4, "callable should be available"
+    qdk.eval("function Add(a : Int, b : Int) : Int { a + b }")
+    assert qdk.code.Four() == 4, "first callable should still be available"
+    assert qdk.code.Add(2, 3) == 5, "second callable should be available"
     # After init, the callables should be cleared and no longer available
-    qsharp.init()
+    qdk.init()
     with pytest.raises(AttributeError):
-        qsharp.code.Four()
+        qdk.code.Four()
 
 
 def test_callable_exposed_into_env_complex_types() -> None:
-    qsharp.eval(
+    qdk.eval(
         "function Complicated(a : Int, b : (Double, BigInt)) : ((Double, BigInt), Int) { (b, a) }"
     )
-    assert qsharp.code.Complicated(2, (3.0, 4000000000000000000000)) == (
+    assert qdk.code.Complicated(2, (3.0, 4000000000000000000000)) == (
         (3.0, 4000000000000000000000),
         2,
     ), "callables that take complex types should marshall them correctly"
 
 
 def test_callable_exposed_into_env_with_array() -> None:
-    qsharp.init()
-    qsharp.eval("function Smallest(a : Int[]) : Int { Std.Math.Min(a)}")
+    qdk.init()
+    qdk.eval("function Smallest(a : Int[]) : Int { Std.Math.Min(a)}")
     assert (
-        qsharp.code.Smallest([1, 2, 3, 0, 4, 5]) == 0
+        qdk.code.Smallest([1, 2, 3, 0, 4, 5]) == 0
     ), "callable that takes array should work"
 
 
 def test_callable_with_int_exposed_into_env_fails_incorrect_types() -> None:
-    qsharp.init()
-    qsharp.eval("function Identity(a : Int) : Int { a }")
-    assert qsharp.code.Identity(4) == 4
+    qdk.init()
+    qdk.eval("function Identity(a : Int) : Int { a }")
+    assert qdk.code.Identity(4) == 4
     with pytest.raises(TypeError):
-        qsharp.code.Identity("4")
+        qdk.code.Identity("4")
     with pytest.raises(TypeError):
-        qsharp.code.Identity(4.0)
+        qdk.code.Identity(4.0)
     with pytest.raises(OverflowError):
-        qsharp.code.Identity(4000000000000000000000)
+        qdk.code.Identity(4000000000000000000000)
     with pytest.raises(TypeError):
-        qsharp.code.Identity([4])
+        qdk.code.Identity([4])
 
 
 def test_callable_with_double_exposed_into_env_fails_incorrect_types() -> None:
-    qsharp.init()
-    qsharp.eval("function Identity(a : Double) : Double { a }")
-    assert qsharp.code.Identity(4.0) == 4.0
-    assert qsharp.code.Identity(4) == 4.0
+    qdk.init()
+    qdk.eval("function Identity(a : Double) : Double { a }")
+    assert qdk.code.Identity(4.0) == 4.0
+    assert qdk.code.Identity(4) == 4.0
     with pytest.raises(TypeError):
-        qsharp.code.Identity("4")
+        qdk.code.Identity("4")
     with pytest.raises(TypeError):
-        qsharp.code.Identity([4])
+        qdk.code.Identity([4])
 
 
 def test_callable_with_bigint_exposed_into_env_fails_incorrect_types() -> None:
-    qsharp.init()
-    qsharp.eval("function Identity(a : BigInt) : BigInt { a }")
-    assert qsharp.code.Identity(4000000000000000000000) == 4000000000000000000000
+    qdk.init()
+    qdk.eval("function Identity(a : BigInt) : BigInt { a }")
+    assert qdk.code.Identity(4000000000000000000000) == 4000000000000000000000
     with pytest.raises(TypeError):
-        qsharp.code.Identity("4")
+        qdk.code.Identity("4")
     with pytest.raises(TypeError):
-        qsharp.code.Identity(4.0)
+        qdk.code.Identity(4.0)
 
 
 def test_callable_with_string_exposed_into_env_fails_incorrect_types() -> None:
-    qsharp.init()
-    qsharp.eval("function Identity(a : String) : String { a }")
-    assert qsharp.code.Identity("4") == "4"
+    qdk.init()
+    qdk.eval("function Identity(a : String) : String { a }")
+    assert qdk.code.Identity("4") == "4"
     with pytest.raises(TypeError):
-        qsharp.code.Identity(4)
+        qdk.code.Identity(4)
     with pytest.raises(TypeError):
-        qsharp.code.Identity(4.0)
+        qdk.code.Identity(4.0)
     with pytest.raises(TypeError):
-        qsharp.code.Identity([4])
+        qdk.code.Identity([4])
 
 
 def test_callable_with_bool_exposed_into_env_fails_incorrect_types() -> None:
-    qsharp.init()
-    qsharp.eval("function Identity(a : Bool) : Bool { a }")
-    assert qsharp.code.Identity(True) == True
+    qdk.init()
+    qdk.eval("function Identity(a : Bool) : Bool { a }")
+    assert qdk.code.Identity(True) == True
     with pytest.raises(TypeError):
-        qsharp.code.Identity("4")
+        qdk.code.Identity("4")
     with pytest.raises(TypeError):
-        qsharp.code.Identity(4)
+        qdk.code.Identity(4)
     with pytest.raises(TypeError):
-        qsharp.code.Identity(4.0)
+        qdk.code.Identity(4.0)
     with pytest.raises(TypeError):
-        qsharp.code.Identity([4])
+        qdk.code.Identity([4])
 
 
 def test_callable_with_array_exposed_into_env_fails_incorrect_types() -> None:
-    qsharp.init()
-    qsharp.eval("function Identity(a : Int[]) : Int[] { a }")
-    assert qsharp.code.Identity([4, 5, 6]) == [4, 5, 6]
-    assert qsharp.code.Identity([]) == []
-    assert qsharp.code.Identity((4, 5, 6)) == [4, 5, 6]
+    qdk.init()
+    qdk.eval("function Identity(a : Int[]) : Int[] { a }")
+    assert qdk.code.Identity([4, 5, 6]) == [4, 5, 6]
+    assert qdk.code.Identity([]) == []
+    assert qdk.code.Identity((4, 5, 6)) == [4, 5, 6]
     # This assert tests Iterables, numpy arrays fall under this category.
-    assert qsharp.code.Identity((elt for elt in range(4, 7))) == [4, 5, 6]
+    assert qdk.code.Identity((elt for elt in range(4, 7))) == [4, 5, 6]
     with pytest.raises(TypeError):
-        qsharp.code.Identity(4)
+        qdk.code.Identity(4)
     with pytest.raises(TypeError):
-        qsharp.code.Identity("4")
+        qdk.code.Identity("4")
     with pytest.raises(TypeError):
-        qsharp.code.Identity(4.0)
+        qdk.code.Identity(4.0)
     with pytest.raises(TypeError):
-        qsharp.code.Identity([1, 2, 3.0])
+        qdk.code.Identity([1, 2, 3.0])
 
 
 def test_callable_with_tuple_exposed_into_env_fails_incorrect_types() -> None:
-    qsharp.init()
-    qsharp.eval("function Identity(a : (Int, Double)) : (Int, Double) { a }")
-    assert qsharp.code.Identity((4, 5.0)) == (4, 5.0)
-    assert qsharp.code.Identity((4, 5)) == (4, 5.0)
-    assert qsharp.code.Identity([4, 5.0]) == (4, 5.0)
+    qdk.init()
+    qdk.eval("function Identity(a : (Int, Double)) : (Int, Double) { a }")
+    assert qdk.code.Identity((4, 5.0)) == (4, 5.0)
+    assert qdk.code.Identity((4, 5)) == (4, 5.0)
+    assert qdk.code.Identity([4, 5.0]) == (4, 5.0)
     with pytest.raises(TypeError):
-        qsharp.code.Identity((4, 5, 6))
+        qdk.code.Identity((4, 5, 6))
     with pytest.raises(TypeError):
-        qsharp.code.Identity(4)
+        qdk.code.Identity(4)
     with pytest.raises(TypeError):
-        qsharp.code.Identity("4")
+        qdk.code.Identity("4")
     with pytest.raises(TypeError):
-        qsharp.code.Identity(4.0)
+        qdk.code.Identity(4.0)
     with pytest.raises(TypeError):
-        qsharp.code.Identity([4.0, 5])
+        qdk.code.Identity([4.0, 5])
 
 
 def test_callables_in_namespaces_exposed_into_env_submodules_and_removed_on_reinit() -> (
     None
 ):
-    qsharp.init()
+    qdk.init()
     # callables should be created with their namespaces
-    qsharp.eval("namespace Test { function Four() : Int { 4 } }")
-    qsharp.eval("function Identity(a : Int) : Int { a }")
+    qdk.eval("namespace Test { function Four() : Int { 4 } }")
+    qdk.eval("function Identity(a : Int) : Int { a }")
     # should be able to import callables from env and namespace submodule
-    from qsharp.code import Identity
-    from qsharp.code.Test import Four
+    from qdk.code import Identity
+    from qdk.code.Test import Four
 
     assert Identity(4) == 4
     assert Four() == 4
-    qsharp.init()
+    qdk.init()
     # namespaces should be removed
     with pytest.raises(AttributeError):
-        qsharp.code.Test
+        qdk.code.Test
     with pytest.raises(AttributeError):
-        qsharp.code.Identity()
+        qdk.code.Identity()
     # imported callables should fail gracefully
-    with pytest.raises(qsharp.QSharpError):
+    with pytest.raises(qdk.QSharpError):
         Four()
 
 
 def test_callables_with_unsupported_types_raise_errors_on_call() -> None:
-    qsharp.init()
-    qsharp.eval("function Unsupported(a : Int, q : Qubit) : Unit { }")
-    with pytest.raises(qsharp.QSharpError, match="unsupported input type: `Qubit`"):
-        qsharp.code.Unsupported()
+    qdk.init()
+    qdk.eval("function Unsupported(a : Int, q : Qubit) : Unit { }")
+    with pytest.raises(qdk.QSharpError, match="unsupported input type: `Qubit`"):
+        qdk.code.Unsupported()
 
 
 def test_callables_with_unsupported_types_in_tuples_raise_errors_on_call() -> None:
-    qsharp.init()
-    qsharp.eval("function Unsupported(q : (Int, Qubit)[]) : Unit { }")
-    with pytest.raises(qsharp.QSharpError, match="unsupported input type: `Qubit`"):
-        qsharp.code.Unsupported()
+    qdk.init()
+    qdk.eval("function Unsupported(q : (Int, Qubit)[]) : Unit { }")
+    with pytest.raises(qdk.QSharpError, match="unsupported input type: `Qubit`"):
+        qdk.code.Unsupported()
 
 
 def test_callables_with_unsupported_return_types_raise_errors_on_call() -> None:
-    qsharp.init()
-    qsharp.eval('function Unsupported() : Qubit { fail "won\'t be called" }')
-    with pytest.raises(qsharp.QSharpError, match="unsupported output type: `Qubit`"):
-        qsharp.code.Unsupported()
+    qdk.init()
+    qdk.eval('function Unsupported() : Qubit { fail "won\'t be called" }')
+    with pytest.raises(qdk.QSharpError, match="unsupported output type: `Qubit`"):
+        qdk.code.Unsupported()
 
 
 def test_callable_with_unsupported_udt_type_raises_error_on_call() -> None:
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         """
         newtype Data = (Int, Double);
         function Unsupported(a : Data) : Unit { }
         """
     )
     with pytest.raises(
-        qsharp.QSharpError, match='unsupported input type: `UDT<"Data":'
+        qdk.QSharpError, match='unsupported input type: `UDT<"Data":'
     ):
-        qsharp.code.Unsupported()
+        qdk.code.Unsupported()
 
 
 def test_callable_with_unsupported_udt_return_type_raises_error_on_call() -> None:
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         """
         newtype Data = (Int, Double);
         function Unsupported() : Data { fail "won\'t be called" }
         """
     )
     with pytest.raises(
-        qsharp.QSharpError, match='unsupported output type: `UDT<"Data":'
+        qdk.QSharpError, match='unsupported output type: `UDT<"Data":'
     ):
-        qsharp.code.Unsupported()
+        qdk.code.Unsupported()
 
 
 def test_returning_unsupported_udt_from_eval_raises_error_on_call() -> None:
-    qsharp.init()
+    qdk.init()
     with pytest.raises(
         TypeError, match="structs with anonymous fields are not supported: Data"
     ):
-        qsharp.eval(
+        qdk.eval(
             """
             {
                 newtype Data = (Int, Double);
@@ -943,15 +943,15 @@ def test_returning_unsupported_udt_from_eval_raises_error_on_call() -> None:
 
 
 def test_struct_call_constructor_exposed_into_env() -> None:
-    qsharp.init()
-    qsharp.eval("struct CustomUDT { a : Int }")
-    val = qsharp.code.CustomUDT(2)
+    qdk.init()
+    qdk.eval("struct CustomUDT { a : Int }")
+    val = qdk.code.CustomUDT(2)
     assert val.a == 2
 
 
 def test_udts_are_accepted_as_input() -> None:
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         """
         struct Data { a : Int, b : Int }
         function SwapData(data : Data) : Data {
@@ -960,11 +960,11 @@ def test_udts_are_accepted_as_input() -> None:
         """
     )
     # Dict
-    val = qsharp.code.SwapData({"a": 2, "b": 3})
+    val = qdk.code.SwapData({"a": 2, "b": 3})
     assert val.a == 3 and val.b == 2
 
-    # qsharp.code class
-    val = qsharp.code.SwapData(qsharp.code.Data(2, 3))
+    # qdk.code class
+    val = qdk.code.SwapData(qdk.code.Data(2, 3))
     assert val.a == 3 and val.b == 2
 
     # Custom class
@@ -973,7 +973,7 @@ def test_udts_are_accepted_as_input() -> None:
             self.a = a
             self.b = b
 
-    val = qsharp.code.SwapData(CustomData(2, 3))
+    val = qdk.code.SwapData(CustomData(2, 3))
     assert val.a == 3 and val.b == 2
 
     # Custom class with slots
@@ -984,7 +984,7 @@ def test_udts_are_accepted_as_input() -> None:
             self.a = a
             self.b = b
 
-    val = qsharp.code.SwapData(CustomDataWithSlots(2, 3))
+    val = qdk.code.SwapData(CustomDataWithSlots(2, 3))
     assert val.a == 3 and val.b == 2
 
     # Custom class with slots and dynamic values
@@ -996,67 +996,67 @@ def test_udts_are_accepted_as_input() -> None:
 
     data = CustomDataWithSlotsAndDynValues(2)
     data.b = 3
-    val = qsharp.code.SwapData(data)
+    val = qdk.code.SwapData(data)
     assert val.a == 3 and val.b == 2
 
 
 def test_lambdas_not_exposed_into_env() -> None:
-    qsharp.init()
-    qsharp.eval("a -> a + 1")
-    assert not hasattr(qsharp.code, "<lambda>")
-    qsharp.eval("q => I(q)")
-    assert not hasattr(qsharp.code, "<lambda>")
+    qdk.init()
+    qdk.eval("a -> a + 1")
+    assert not hasattr(qdk.code, "<lambda>")
+    qdk.eval("q => I(q)")
+    assert not hasattr(qdk.code, "<lambda>")
 
 
 def test_function_defined_before_namespace_keeps_both_accessible() -> None:
-    qsharp.init()
-    qsharp.eval("function Four() : Int { 4 }")
-    qsharp.eval("namespace Four { function Two() : Int { 42 } }")
-    assert qsharp.code.Four() == 4
-    assert qsharp.code.Four.Two() == 42
-    from qsharp.code import Four
-    from qsharp.code.Four import Two
+    qdk.init()
+    qdk.eval("function Four() : Int { 4 }")
+    qdk.eval("namespace Four { function Two() : Int { 42 } }")
+    assert qdk.code.Four() == 4
+    assert qdk.code.Four.Two() == 42
+    from qdk.code import Four
+    from qdk.code.Four import Two
 
     assert Four() == 4
     assert Two() == 42
 
 
 def test_namespace_defined_before_function_keeps_both_accessible() -> None:
-    qsharp.init()
-    qsharp.eval("namespace Four { function Two() : Int { 42 } }")
-    qsharp.eval("function Four() : Int { 4 }")
-    assert qsharp.code.Four() == 4
-    assert qsharp.code.Four.Two() == 42
-    from qsharp.code import Four
-    from qsharp.code.Four import Two
+    qdk.init()
+    qdk.eval("namespace Four { function Two() : Int { 42 } }")
+    qdk.eval("function Four() : Int { 4 }")
+    assert qdk.code.Four() == 4
+    assert qdk.code.Four.Two() == 42
+    from qdk.code import Four
+    from qdk.code.Four import Two
 
     assert Four() == 4
     assert Two() == 42
 
 
 def test_callables_can_be_shadowed() -> None:
-    qsharp.init()
-    qsharp.eval("function Foo() : Int { 1 }")
-    assert qsharp.code.Foo() == 1
-    qsharp.eval("function Foo() : Int { 2 }")
-    assert qsharp.code.Foo() == 2
+    qdk.init()
+    qdk.eval("function Foo() : Int { 1 }")
+    assert qdk.code.Foo() == 1
+    qdk.eval("function Foo() : Int { 2 }")
+    assert qdk.code.Foo() == 2
 
 
 def test_qsharp_callables_are_not_shadowed() -> None:
-    qsharp.init()
-    qsharp.eval("function Foo() : Int { 1 }")
-    foo_orig = qsharp.eval("Foo")
-    assert qsharp.code.Foo() == 1
-    qsharp.eval("function Foo() : Int { 2 }")
-    foo_new = qsharp.eval("Foo")
-    assert qsharp.code.Foo() == 2
-    assert qsharp.run(foo_orig, 1)[0] == 1
-    assert qsharp.run(foo_new, 1)[0] == 2
+    qdk.init()
+    qdk.eval("function Foo() : Int { 1 }")
+    foo_orig = qdk.eval("Foo")
+    assert qdk.code.Foo() == 1
+    qdk.eval("function Foo() : Int { 2 }")
+    foo_new = qdk.eval("Foo")
+    assert qdk.code.Foo() == 2
+    assert qdk.run(foo_orig, 1)[0] == 1
+    assert qdk.run(foo_new, 1)[0] == 2
 
 
 def test_circuit_from_python_callable() -> None:
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         """
     operation Foo() : Unit {
         use q1 = Qubit();
@@ -1065,7 +1065,7 @@ def test_circuit_from_python_callable() -> None:
     }
     """
     )
-    circuit = qsharp.circuit(qsharp.code.Foo)
+    circuit = qdk.circuit(qdk.code.Foo)
     assert str(circuit) == dedent(
         """\
         q_0    ── X ──
@@ -1075,8 +1075,8 @@ def test_circuit_from_python_callable() -> None:
 
 
 def test_circuit_from_qsharp_callable() -> None:
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         """
     operation Foo() : Unit {
         use q1 = Qubit();
@@ -1085,8 +1085,8 @@ def test_circuit_from_qsharp_callable() -> None:
     }
     """
     )
-    foo = qsharp.eval("Foo")
-    circuit = qsharp.circuit(foo)
+    foo = qdk.eval("Foo")
+    circuit = qdk.circuit(foo)
     assert str(circuit) == dedent(
         """\
         q_0    ── X ──
@@ -1096,8 +1096,8 @@ def test_circuit_from_qsharp_callable() -> None:
 
 
 def test_circuit_with_generation_method() -> None:
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         """
     operation Foo() : Unit {
         use q1 = Qubit();
@@ -1107,8 +1107,8 @@ def test_circuit_with_generation_method() -> None:
     }
     """
     )
-    circuit = qsharp.circuit(
-        qsharp.code.Foo, generation_method=qsharp.CircuitGenerationMethod.Simulate
+    circuit = qdk.circuit(
+        qdk.code.Foo, generation_method=qdk.CircuitGenerationMethod.Simulate
     )
     assert str(circuit) == dedent(
         """\
@@ -1119,8 +1119,8 @@ def test_circuit_with_generation_method() -> None:
 
 
 def test_circuit_with_static_generation_method() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
-    qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Adaptive_RIF)
+    qdk.eval(
         """
     operation Foo() : Result {
         use q = Qubit();
@@ -1132,8 +1132,8 @@ def test_circuit_with_static_generation_method() -> None:
     }
     """
     )
-    circuit = qsharp.circuit(
-        "Foo()", generation_method=qsharp.CircuitGenerationMethod.Static
+    circuit = qdk.circuit(
+        "Foo()", generation_method=qdk.CircuitGenerationMethod.Static
     )
     assert str(circuit) == dedent(
         """\
@@ -1144,8 +1144,8 @@ def test_circuit_with_static_generation_method() -> None:
 
 
 def test_circuit_from_qsharp_callable_static() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
-    qsharp.eval(
+    qdk.init(target_profile=qdk.TargetProfile.Adaptive_RIF)
+    qdk.eval(
         """
     operation Foo() : Unit {
         use q = Qubit();
@@ -1156,8 +1156,8 @@ def test_circuit_from_qsharp_callable_static() -> None:
     }
     """
     )
-    circuit = qsharp.circuit(
-        qsharp.code.Foo, generation_method=qsharp.CircuitGenerationMethod.Static
+    circuit = qdk.circuit(
+        qdk.code.Foo, generation_method=qdk.CircuitGenerationMethod.Static
     )
     assert str(circuit) == dedent(
         """\
@@ -1168,8 +1168,8 @@ def test_circuit_from_qsharp_callable_static() -> None:
 
 
 def test_circuit_from_python_callable_with_args() -> None:
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         """
     operation Foo(nQubits : Int) : Unit {
         use qs = Qubit[nQubits];
@@ -1177,7 +1177,7 @@ def test_circuit_from_python_callable_with_args() -> None:
     }
     """
     )
-    circuit = qsharp.circuit(qsharp.code.Foo, 2)
+    circuit = qdk.circuit(qdk.code.Foo, 2)
     assert str(circuit) == dedent(
         """\
         q_0    ── X ──
@@ -1187,8 +1187,8 @@ def test_circuit_from_python_callable_with_args() -> None:
 
 
 def test_circuit_from_qsharp_callable_with_args() -> None:
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         """
     operation Foo(nQubits : Int) : Unit {
         use qs = Qubit[nQubits];
@@ -1196,8 +1196,8 @@ def test_circuit_from_qsharp_callable_with_args() -> None:
     }
     """
     )
-    foo = qsharp.eval("Foo")
-    circuit = qsharp.circuit(foo, 2)
+    foo = qdk.eval("Foo")
+    circuit = qdk.circuit(foo, 2)
     assert str(circuit) == dedent(
         """\
         q_0    ── X ──
@@ -1207,9 +1207,9 @@ def test_circuit_from_qsharp_callable_with_args() -> None:
 
 
 def test_circuit_with_measure_from_callable() -> None:
-    qsharp.init()
-    qsharp.eval("operation Foo() : Result { use q = Qubit(); H(q); return M(q) }")
-    circuit = qsharp.circuit(qsharp.code.Foo)
+    qdk.init()
+    qdk.eval("operation Foo() : Result { use q = Qubit(); H(q); return M(q) }")
+    circuit = qdk.circuit(qdk.code.Foo)
     assert str(circuit) == dedent(
         """\
         q_0    ── H ──── M ──
@@ -1219,11 +1219,11 @@ def test_circuit_with_measure_from_callable() -> None:
 
 
 def test_swap_label_circuit_from_callable() -> None:
-    qsharp.init()
-    qsharp.eval(
+    qdk.init()
+    qdk.eval(
         "operation Foo() : Unit { use q1 = Qubit(); use q2 = Qubit(); X(q1); Relabel([q1, q2], [q2, q1]); X(q2); }"
     )
-    circuit = qsharp.circuit(qsharp.code.Foo)
+    circuit = qdk.circuit(qdk.code.Foo)
     assert str(circuit) == dedent(
         """\
         q_0    ── X ──── X ──

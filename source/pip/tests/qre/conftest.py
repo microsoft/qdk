@@ -4,15 +4,15 @@
 from dataclasses import KW_ONLY, dataclass, field
 from typing import Generator
 
-from qsharp.qre import (
+from qdk.qre import (
     ISA,
     LOGICAL,
     ISARequirements,
     ISATransform,
     constraint,
 )
-from qsharp.qre._architecture import ISAContext
-from qsharp.qre.instruction_ids import LATTICE_SURGERY, T
+from qdk.qre._architecture import ISAContext
+from qdk.qre.instruction_ids import LATTICE_SURGERY, T
 
 
 # NOTE These classes will be generalized as part of the QRE API in the following

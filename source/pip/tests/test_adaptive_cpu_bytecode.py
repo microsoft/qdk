@@ -15,8 +15,8 @@ This is a CPU counterpart to ``test_adaptive_gpu_bytecode.py``.
 
 from collections import Counter
 import pytest
-from qsharp._simulation import run_qir, NoiseConfig, Result
-import qsharp.openqasm
+from qdk._simulation import run_qir, NoiseConfig, Result
+import qdk.openqasm
 from typing import Literal
 
 
@@ -1704,10 +1704,10 @@ def _run_openqasm(
     sim_type: Literal["clifford", "cpu"] = "cpu",
 ):
     """Compile OpenQASM source via the adaptive pass and run on the given simulator."""
-    qir = qsharp.openqasm.compile(
+    qir = qdk.openqasm.compile(
         qasm_src,
-        output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
-        target_profile=qsharp.TargetProfile.Adaptive_RIF,
+        output_semantics=qdk.openqasm.OutputSemantics.OpenQasm,
+        target_profile=qdk.TargetProfile.Adaptive_RIF,
     )
     results = run_qir(qir, shots, seed=seed, type=sim_type)
     return [map_result_list_to_str(r) for r in results]

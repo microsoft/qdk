@@ -1,14 +1,14 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import qsharp
+import qdk
 from expecttest import assert_expected_inline
 from textwrap import dedent
 
 
 def test_python_callable_passed_to_python_callable() -> None:
-    qsharp.init()
-    qsharp.eval("""
+    qdk.init()
+    qdk.eval("""
         function InvokeWithFive(f : Int -> Int) : Int {
             f(5)
         }
@@ -16,13 +16,13 @@ def test_python_callable_passed_to_python_callable() -> None:
             x + 1
         }
     """)
-    from qsharp.code import InvokeWithFive, AddOne
+    from qdk.code import InvokeWithFive, AddOne
     assert InvokeWithFive(AddOne) == 6
 
 
 def test_python_callable_passed_to_qsharp_callable() -> None:
-    qsharp.init()
-    qsharp.eval("""
+    qdk.init()
+    qdk.eval("""
         function InvokeWithFive(f : Int -> Int) : Int {
             f(5)
         }
@@ -30,14 +30,14 @@ def test_python_callable_passed_to_qsharp_callable() -> None:
             x + 1
         }
     """)
-    from qsharp.code import InvokeWithFive
-    f = qsharp.eval("AddOne")
+    from qdk.code import InvokeWithFive
+    f = qdk.eval("AddOne")
     assert InvokeWithFive(f) == 6
 
 
 def test_run_qsharp_callable_passed_to_qsharp_callable() -> None:
-    qsharp.init()
-    qsharp.eval("""
+    qdk.init()
+    qdk.eval("""
         function InvokeWithFive(f : Int -> Int) : Int {
             f(5)
         }
@@ -45,15 +45,15 @@ def test_run_qsharp_callable_passed_to_qsharp_callable() -> None:
             x + 1
         }
     """)
-    invoke_with_five = qsharp.eval("InvokeWithFive")
-    add_one = qsharp.eval("AddOne")
-    res = qsharp.run(invoke_with_five, 1, add_one)[0]
+    invoke_with_five = qdk.eval("InvokeWithFive")
+    add_one = qdk.eval("AddOne")
+    res = qdk.run(invoke_with_five, 1, add_one)[0]
     assert res == 6
 
 
 def test_run_qsharp_callable_passed_to_python_callable() -> None:
-    qsharp.init()
-    qsharp.eval("""
+    qdk.init()
+    qdk.eval("""
         function InvokeWithFive(f : Int -> Int) : Int {
             f(5)
         }
@@ -61,15 +61,15 @@ def test_run_qsharp_callable_passed_to_python_callable() -> None:
             x + 1
         }
     """)
-    from qsharp.code import InvokeWithFive
-    add_one = qsharp.eval("AddOne")
-    res = qsharp.run(InvokeWithFive, 1, add_one)[0]
+    from qdk.code import InvokeWithFive
+    add_one = qdk.eval("AddOne")
+    res = qdk.run(InvokeWithFive, 1, add_one)[0]
     assert res == 6
 
 
 def test_python_callable_with_unsupported_types_passed_to_python_callable() -> None:
-    qsharp.init()
-    qsharp.eval("""
+    qdk.init()
+    qdk.eval("""
         function MakeRange() : Range {
             1..10
         }
@@ -81,13 +81,13 @@ def test_python_callable_with_unsupported_types_passed_to_python_callable() -> N
             sum
         }
     """)
-    from qsharp.code import MakeRange, SumRangeFromMaker
+    from qdk.code import MakeRange, SumRangeFromMaker
     assert SumRangeFromMaker(MakeRange) == 55
 
 
 def test_qsharp_closure_from_python_callable_passed_to_python_callable() -> None:
-    qsharp.init()
-    qsharp.eval("""
+    qdk.init()
+    qdk.eval("""
         function InvokeWithFive(f : Int -> Int) : Int {
             f(5)
         }
@@ -95,13 +95,13 @@ def test_qsharp_closure_from_python_callable_passed_to_python_callable() -> None
             x -> x + inc
         }
     """)
-    from qsharp.code import InvokeWithFive, MakeAdd
+    from qdk.code import InvokeWithFive, MakeAdd
     assert InvokeWithFive(MakeAdd(1)) == 6
 
 
 def test_qir_from_python_callable_passed_to_python_callable() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval("""
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval("""
         operation InvokeWithQubits(nQubits : Int, f : Qubit[] => Unit) : Unit {
             use qs = Qubit[nQubits];
             f(qs)
@@ -110,8 +110,8 @@ def test_qir_from_python_callable_passed_to_python_callable() -> None:
             ApplyToEach(H, qs);
         }
     """)
-    from qsharp.code import InvokeWithQubits, AllH
-    qir = qsharp.compile(InvokeWithQubits, 3, AllH)
+    from qdk.code import InvokeWithQubits, AllH
+    qir = qdk.compile(InvokeWithQubits, 3, AllH)
     assert_expected_inline(str(qir), """\
 %Result = type opaque
 %Qubit = type opaque
@@ -149,8 +149,8 @@ attributes #1 = { "irreversible" }
 
 
 def test_qir_from_qsharp_callable_passed_to_python_callable() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval("""
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval("""
         operation InvokeWithQubits(nQubits : Int, f : Qubit[] => Unit) : Unit {
             use qs = Qubit[nQubits];
             f(qs)
@@ -159,9 +159,9 @@ def test_qir_from_qsharp_callable_passed_to_python_callable() -> None:
             ApplyToEach(H, qs);
         }
     """)
-    from qsharp.code import InvokeWithQubits
-    all_h = qsharp.eval("AllH")
-    qir = qsharp.compile(InvokeWithQubits, 3, all_h)
+    from qdk.code import InvokeWithQubits
+    all_h = qdk.eval("AllH")
+    qir = qdk.compile(InvokeWithQubits, 3, all_h)
     assert_expected_inline(str(qir), """\
 %Result = type opaque
 %Qubit = type opaque
@@ -199,16 +199,16 @@ attributes #1 = { "irreversible" }
 
 
 def test_qir_from_qsharp_closure_passed_to_python_callable() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval("""
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval("""
         operation InvokeWithQubits(nQubits : Int, f : Qubit[] => Unit) : Unit {
             use qs = Qubit[nQubits];
             f(qs)
         }
     """)
-    from qsharp.code import InvokeWithQubits
-    apply_h = qsharp.eval("ApplyToEach(H, _)")
-    qir = qsharp.compile(InvokeWithQubits, 3, apply_h)
+    from qdk.code import InvokeWithQubits
+    apply_h = qdk.eval("ApplyToEach(H, _)")
+    qir = qdk.compile(InvokeWithQubits, 3, apply_h)
     assert_expected_inline(str(qir), """\
 %Result = type opaque
 %Qubit = type opaque
@@ -246,8 +246,8 @@ attributes #1 = { "irreversible" }
 
 
 def test_circuit_from_python_callable_passed_to_python_callable() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval("""
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval("""
         operation InvokeWithQubits(nQubits : Int, f : Qubit[] => Unit) : Unit {
             use qs = Qubit[nQubits];
             f(qs)
@@ -256,8 +256,8 @@ def test_circuit_from_python_callable_passed_to_python_callable() -> None:
             ApplyToEach(H, qs);
         }
     """)
-    from qsharp.code import InvokeWithQubits, AllH
-    circuit = qsharp.circuit(InvokeWithQubits, 3, AllH)
+    from qdk.code import InvokeWithQubits, AllH
+    circuit = qdk.circuit(InvokeWithQubits, 3, AllH)
     assert_expected_inline(str(circuit), """q_0    ── H ──
 q_1    ── H ──
 q_2    ── H ──
@@ -265,8 +265,8 @@ q_2    ── H ──
 
 
 def test_circuit_from_qsharp_callable_passed_to_python_callable() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval("""
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval("""
         operation InvokeWithQubits(nQubits : Int, f : Qubit[] => Unit) : Unit {
             use qs = Qubit[nQubits];
             f(qs)
@@ -275,9 +275,9 @@ def test_circuit_from_qsharp_callable_passed_to_python_callable() -> None:
             ApplyToEach(H, qs);
         }
     """)
-    from qsharp.code import InvokeWithQubits
-    all_h = qsharp.eval("AllH")
-    circuit = qsharp.circuit(InvokeWithQubits, 3, all_h)
+    from qdk.code import InvokeWithQubits
+    all_h = qdk.eval("AllH")
+    circuit = qdk.circuit(InvokeWithQubits, 3, all_h)
     assert_expected_inline(str(circuit), """q_0    ── H ──
 q_1    ── H ──
 q_2    ── H ──
@@ -285,16 +285,16 @@ q_2    ── H ──
 
 
 def test_circuit_from_qsharp_closure_passed_to_python_callable() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qsharp.eval("""
+    qdk.init(target_profile=qdk.TargetProfile.Base)
+    qdk.eval("""
         operation InvokeWithQubits(nQubits : Int, f : Qubit[] => Unit) : Unit {
             use qs = Qubit[nQubits];
             f(qs)
         }
     """)
-    from qsharp.code import InvokeWithQubits
-    apply_h = qsharp.eval("ApplyToEach(H, _)")
-    circuit = qsharp.circuit(InvokeWithQubits, 3, apply_h)
+    from qdk.code import InvokeWithQubits
+    apply_h = qdk.eval("ApplyToEach(H, _)")
+    circuit = qdk.circuit(InvokeWithQubits, 3, apply_h)
     assert_expected_inline(str(circuit), """q_0    ── H ──
 q_1    ── H ──
 q_2    ── H ──

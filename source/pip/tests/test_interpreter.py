@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from textwrap import dedent
-from qsharp._native import (
+from qdk._native import (
     Interpreter,
     Result,
     Pauli,
@@ -10,7 +10,7 @@ from qsharp._native import (
     TargetProfile,
     CircuitConfig,
 )
-from qsharp._qsharp import qsharp_value_to_python_value
+from qdk._qsharp import qsharp_value_to_python_value
 import pytest
 from expecttest import assert_expected_inline
 

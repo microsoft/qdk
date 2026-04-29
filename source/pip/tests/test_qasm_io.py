@@ -3,17 +3,17 @@
 
 from math import pi
 import pytest
-from qsharp import (
+from qdk import (
     QSharpError,
     init,
     TargetProfile,
     Result,
 )
-from qsharp.openqasm import (
+from qdk.openqasm import (
     import_openqasm,
     ProgramType,
 )
-import qsharp.code as code
+import qdk.code as code
 
 
 def test_import_unsupported_angle_input_type() -> None:

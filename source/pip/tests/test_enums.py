@@ -3,17 +3,17 @@
 
 from textwrap import dedent
 import pytest
-import qsharp
-import qsharp.code
-import qsharp.utils
+import qdk
+import qdk.code
+import qdk.utils
 from contextlib import redirect_stdout
 import io
 
-from qsharp import TargetProfile
+from qdk import TargetProfile
 
 # pull in from native module for tests so that we don't have to install qiskit
 # using the interop module
-from qsharp._native import OutputSemantics, ProgramType
+from qdk._native import OutputSemantics, ProgramType
 
 
 def test_target_profile_int_values_match_enum_values() -> None:

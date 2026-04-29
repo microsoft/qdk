@@ -7,7 +7,7 @@ import pytest
 
 cirq = pytest.importorskip("cirq")
 
-from qsharp.applications.magnets import Pauli, PauliString, PauliX, PauliY, PauliZ
+from qdk.applications.magnets import Pauli, PauliString, PauliX, PauliY, PauliZ
 
 
 def test_pauli_init_from_int_and_string():

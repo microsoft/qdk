@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from qsharp._simulation import NoiseConfig
+from qdk._simulation import NoiseConfig
 import pytest
 
 

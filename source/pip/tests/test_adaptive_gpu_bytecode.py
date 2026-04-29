@@ -17,7 +17,7 @@ import os
 import sys
 from collections import Counter
 import pytest
-import qsharp.openqasm
+import qdk.openqasm
 
 # Skip the whole module when GPU tests aren't requested.
 if not os.environ.get("QDK_GPU_TESTS"):
@@ -27,7 +27,7 @@ SKIP_REASON = "GPU is not available"
 GPU_AVAILABLE = False
 
 try:
-    from qsharp._native import try_create_gpu_adapter
+    from qdk._native import try_create_gpu_adapter
 
     gpu_info = try_create_gpu_adapter()
     print(f"*** USING GPU: {gpu_info}", file=sys.stderr)
@@ -35,7 +35,7 @@ try:
 except OSError as e:
     SKIP_REASON = str(e)
 
-from qsharp._simulation import GpuSimulator, NoiseConfig, Result, run_qir
+from qdk._simulation import GpuSimulator, NoiseConfig, Result, run_qir
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1762,10 +1762,10 @@ def test_call_stack_overflow_guard():
 def _run_openqasm(qasm_src: str, shots: int = SHOTS, seed: int = 42):
     """Compile OpenQASM source via the adaptive pass and run on the GPU."""
     global sim
-    qir = qsharp.openqasm.compile(
+    qir = qdk.openqasm.compile(
         qasm_src,
-        output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
-        target_profile=qsharp.TargetProfile.Adaptive_RIF,
+        output_semantics=qdk.openqasm.OutputSemantics.OpenQasm,
+        target_profile=qdk.TargetProfile.Adaptive_RIF,
     )
     sim.set_program(qir)
     return sim.run_shots(shots, seed=seed)

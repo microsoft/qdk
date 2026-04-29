@@ -4,9 +4,9 @@
 from collections import Counter
 import os
 import pytest
-import qsharp
-from qsharp import compile, Result, TargetProfile
-from qsharp._simulation import (
+import qdk
+from qdk import compile, Result, TargetProfile
+from qdk._simulation import (
     GpuSimulator,
     run_qir as _run_qir,
     NoiseConfig,
@@ -25,7 +25,7 @@ def _init_base_profile():
     which means this file would inherit the interpreter state of
     another file.
     """
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
 
 
 SEED = 42

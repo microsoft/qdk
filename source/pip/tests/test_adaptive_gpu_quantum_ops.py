@@ -26,7 +26,7 @@ SKIP_REASON = "GPU is not available"
 GPU_AVAILABLE = False
 
 try:
-    from qsharp._native import try_create_gpu_adapter
+    from qdk._native import try_create_gpu_adapter
 
     gpu_info = try_create_gpu_adapter()
     print(f"*** USING GPU: {gpu_info}", file=sys.stderr)
@@ -34,7 +34,7 @@ try:
 except OSError as e:
     SKIP_REASON = str(e)
 
-from qsharp._simulation import GpuSimulator, Result
+from qdk._simulation import GpuSimulator, Result
 
 
 def map_result_list_to_str(results):

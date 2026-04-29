@@ -11,7 +11,7 @@ import random
 import pytest
 import sys
 
-from qsharp._native import Result
+from qdk._native import Result
 
 # Skip all tests in this module if QDK_GPU_TESTS is not set
 if not os.environ.get("QDK_GPU_TESTS"):
@@ -22,7 +22,7 @@ SKIP_REASON = "GPU is not available"
 gpu_info = "Unknown"
 
 try:
-    from qsharp._native import try_create_gpu_adapter
+    from qdk._native import try_create_gpu_adapter
 
     gpu_info = try_create_gpu_adapter()
     # Printing to stderr so that it is visible if CI run fails
@@ -34,11 +34,11 @@ except OSError as e:
     SKIP_REASON = str(e)
 
 
-import qsharp
-from qsharp import TargetProfile
-from qsharp import openqasm
+import qdk
+from qdk import TargetProfile
+from qdk import openqasm
 
-from qsharp._simulation import run_qir_gpu, NoiseConfig
+from qdk._simulation import run_qir_gpu, NoiseConfig
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
@@ -67,8 +67,8 @@ def result_array_to_string(results: Sequence[Result]) -> str:
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_seeding_no_noise():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(
         """
         operation BellTest() : Result[] {
             use qs = Qubit[2];
@@ -79,7 +79,7 @@ def test_gpu_seeding_no_noise():
         """
     )
 
-    qir = str(qsharp.compile("BellTest()"))
+    qir = str(qdk.compile("BellTest()"))
 
     results = [run_qir_gpu(qir, 1, None, seed)[0] for seed in range(12)]
     print(results)
@@ -99,10 +99,10 @@ def test_gpu_seeding_no_noise():
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_no_noise():
     """Simple test that GPU simulator works without noise."""
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(read_file_relative("CliffordIsing.qs"))
 
-    input = qsharp.compile(
+    input = qdk.compile(
         "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 10.0, 10)"
     )
 
@@ -115,10 +115,10 @@ def test_gpu_no_noise():
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_bitflip_noise():
     """Bitflip noise for GPU simulator."""
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(read_file_relative("CliffordIsing.qs"))
 
-    input = qsharp.compile(
+    input = qdk.compile(
         "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 10.0, 10)"
     )
 
@@ -141,10 +141,10 @@ def test_gpu_bitflip_noise():
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_mixed_noise():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(read_file_relative("CliffordIsing.qs"))
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(read_file_relative("CliffordIsing.qs"))
 
-    input = qsharp.compile(
+    input = qdk.compile(
         "IsingModel2DEvolution(5, 5, PI() / 2.0, PI() / 2.0, 4.0, 4)"
     )
 
@@ -167,7 +167,7 @@ def test_gpu_mixed_noise():
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_isolated_loss():
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
     program = """
 import Std.Math.PI;
 operation Main() : Result[] {
@@ -181,9 +181,9 @@ operation Main() : Result[] {
     MeasureEachZ(qs)
 }
     """
-    qsharp.eval(program)
+    qdk.eval(program)
 
-    input = qsharp.compile("Main()")
+    input = qdk.compile("Main()")
 
     noise = NoiseConfig()
     noise.x.loss = 0.1
@@ -213,7 +213,7 @@ operation Main() : Result[] {
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_isolated_loss_and_noise():
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
     program = """
 import Std.Math.PI;
 operation Main() : Result[] {
@@ -228,9 +228,9 @@ operation Main() : Result[] {
     MeasureEachZ(qs)
 }
     """
-    qsharp.eval(program)
+    qdk.eval(program)
 
-    input = qsharp.compile("Main()")
+    input = qdk.compile("Main()")
 
     noise = NoiseConfig()
     noise.x.set_bitflip(0.001)
@@ -270,7 +270,7 @@ def build_x_chain_qir(n_instances: int, n_x: int) -> str:
     src_parallel = prefix + infix * n_x + suffix
 
     # Compile resulting program
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
     qir_parallel = openqasm.compile(src_parallel)
     return str(qir_parallel)
 
@@ -338,7 +338,7 @@ def build_cy_noise_qir(n_cy: int) -> str:
         c = measure q;
         """
 
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
     # OpenQasm output semantics preserves order of bits in the output register.
     qir_program = openqasm.compile(
         src, output_semantics=openqasm.OutputSemantics.OpenQasm
@@ -401,7 +401,7 @@ def generate_op_sequence(
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 @pytest.mark.parametrize("noisy_gate, noise_number", [(0, 2), (1, 1), (2, 2), (3, 2)])
 def test_gpu_permuted_rotations(noisy_gate: int, noise_number: int):
-    qsharp.init(target_profile=TargetProfile.Base)
+    qdk.init(target_profile=TargetProfile.Base)
 
     n_shots = 2000
     n_qubits = 15
@@ -458,8 +458,8 @@ operation tiny_coeffs() : Result[] {{
 """
 
     program = prefix + infix + suffix
-    qsharp.eval(program)
-    input = qsharp.compile("tiny_coeffs()")
+    qdk.eval(program)
+    input = qdk.compile("tiny_coeffs()")
 
     noise = NoiseConfig()
     p_combined_loss = 1.0 - ((1.0 - p_loss) ** noise_number)
@@ -519,8 +519,8 @@ operation tiny_coeffs() : Result[] {{
 def test_gpu_mz_idempotent_noiseless():
     """MZ (measure without reset) should be idempotent: two consecutive
     measurements on the same qubit must always agree."""
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(
         """
         operation MzIdempotent() : Result[] {
             use q = Qubit();
@@ -532,7 +532,7 @@ def test_gpu_mz_idempotent_noiseless():
         """
     )
 
-    qir = str(qsharp.compile("MzIdempotent()"))
+    qir = str(qdk.compile("MzIdempotent()"))
     shots = 1000
     output = run_qir_gpu(qir, shots=shots, seed=45)
 
@@ -562,8 +562,8 @@ def test_gpu_reset_preserves_distribution():
     Rx(π/6) gives cos²(π/12) ≈ 0.933 for |0⟩ and sin²(π/12) ≈ 0.067 for |1⟩.
     After CNOT the state is cos(π/12)|00⟩ + sin(π/12)|11⟩.
     Reset on q0 collapses it, leaving q1 with the same skewed distribution."""
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(
+    qdk.init(target_profile=TargetProfile.Base)
+    qdk.eval(
         """
         operation ResetPreservesDistribution() : Result[] {
             use qs = Qubit[2];
@@ -575,7 +575,7 @@ def test_gpu_reset_preserves_distribution():
         """
     )
 
-    qir = str(qsharp.compile("ResetPreservesDistribution()"))
+    qir = str(qdk.compile("ResetPreservesDistribution()"))
     shots = 1000
     output = run_qir_gpu(qir, shots=shots, seed=239)
 

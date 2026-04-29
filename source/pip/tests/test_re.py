@@ -1,8 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import qsharp
-from qsharp.estimator import EstimatorParams, QubitParams, QECScheme, LogicalCounts
+import qdk
+from qdk.estimator import EstimatorParams, QubitParams, QECScheme, LogicalCounts
 
 
 def test_qsharp_estimation() -> None:
@@ -14,8 +14,8 @@ def test_qsharp_estimation() -> None:
              }}
              }}"""
 
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    res = qsharp.estimate(source)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
+    res = qdk.estimate(source)
     assert res["status"] == "success"
     assert res["physicalCounts"] is not None
     assert res.logical_counts == LogicalCounts(
@@ -29,7 +29,7 @@ def test_qsharp_estimation() -> None:
         }
     )
 
-    res_logical = qsharp.logical_counts(source)
+    res_logical = qdk.logical_counts(source)
     assert res_logical == res.logical_counts
 
 
@@ -43,8 +43,8 @@ def test_qsharp_estimation_from_precalculated_counts() -> None:
                  PSSPCLayout(), qubits);
              }}"""
 
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    res = qsharp.estimate(source)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
+    res = qdk.estimate(source)
 
     assert res["status"] == "success"
     assert res["physicalCounts"] is not None
@@ -59,13 +59,13 @@ def test_qsharp_estimation_from_precalculated_counts() -> None:
         }
     )
 
-    res_logical = qsharp.logical_counts(source)
+    res_logical = qdk.logical_counts(source)
 
     assert res_logical == res.logical_counts
 
 
 def test_qsharp_estimation_with_single_params() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
 
     params = EstimatorParams()
     params.error_budget = 0.333
@@ -75,7 +75,7 @@ def test_qsharp_estimation_with_single_params() -> None:
         "errorBudget": 0.333,
     }
 
-    res = qsharp.estimate(
+    res = qdk.estimate(
         """{{
         use qs = Qubit[10];
         for q in qs {{
@@ -102,7 +102,7 @@ def test_qsharp_estimation_with_single_params() -> None:
 
 
 def test_qsharp_estimation_with_multiple_params() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
 
     params = EstimatorParams(3)
     params.items[0].qubit_params.name = QubitParams.GATE_US_E3
@@ -131,7 +131,7 @@ def test_qsharp_estimation_with_multiple_params() -> None:
         "resumeAfterFailedItem": True,
     }
 
-    res = qsharp.estimate(
+    res = qdk.estimate(
         """{{
         use qs = Qubit[10];
         for q in qs {{
@@ -163,7 +163,7 @@ def test_qsharp_estimation_with_multiple_params() -> None:
 
 
 def test_qsharp_estimation_with_multiple_params_from_python_callable() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
 
     params = EstimatorParams(3)
     params.items[0].qubit_params.name = QubitParams.GATE_US_E3
@@ -192,7 +192,7 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable() -> None:
         "resumeAfterFailedItem": True,
     }
 
-    qsharp.eval(
+    qdk.eval(
         """
         operation Test() : Unit {
             use qs = Qubit[10];
@@ -204,7 +204,7 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable() -> None:
         """
     )
 
-    res = qsharp.estimate(qsharp.code.Test, params=params)
+    res = qdk.estimate(qdk.code.Test, params=params)
 
     for idx in res:
         assert res[idx]["status"] == "success"
@@ -225,12 +225,12 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable() -> None:
         )
     assert res[2]["jobParams"]["qecScheme"]["name"] == QECScheme.FLOQUET_CODE
 
-    res_logical = qsharp.logical_counts(qsharp.code.Test)
+    res_logical = qdk.logical_counts(qdk.code.Test)
     assert res_logical == res[0]["logicalCounts"]
 
 
 def test_qsharp_estimation_with_multiple_params_from_qsharp_callable() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
 
     params = EstimatorParams(3)
     params.items[0].qubit_params.name = QubitParams.GATE_US_E3
@@ -259,7 +259,7 @@ def test_qsharp_estimation_with_multiple_params_from_qsharp_callable() -> None:
         "resumeAfterFailedItem": True,
     }
 
-    qsharp.eval(
+    qdk.eval(
         """
         operation Test() : Unit {
             use qs = Qubit[10];
@@ -271,8 +271,8 @@ def test_qsharp_estimation_with_multiple_params_from_qsharp_callable() -> None:
         """
     )
 
-    test = qsharp.eval("Test")
-    res = qsharp.estimate(test, params=params)
+    test = qdk.eval("Test")
+    res = qdk.estimate(test, params=params)
 
     for idx in res:
         assert res[idx]["status"] == "success"
@@ -293,12 +293,12 @@ def test_qsharp_estimation_with_multiple_params_from_qsharp_callable() -> None:
         )
     assert res[2]["jobParams"]["qecScheme"]["name"] == QECScheme.FLOQUET_CODE
 
-    res_logical = qsharp.logical_counts(test)
+    res_logical = qdk.logical_counts(test)
     assert res_logical == res[0]["logicalCounts"]
 
 
 def test_qsharp_estimation_with_multiple_params_from_python_callable_with_arg() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
 
     params = EstimatorParams(3)
     params.items[0].qubit_params.name = QubitParams.GATE_US_E3
@@ -327,7 +327,7 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable_with_arg() 
         "resumeAfterFailedItem": True,
     }
 
-    qsharp.eval(
+    qdk.eval(
         """
         operation Test(nQubits : Int) : Unit {
             use qs = Qubit[nQubits];
@@ -339,7 +339,7 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable_with_arg() 
         """
     )
 
-    res = qsharp.estimate(qsharp.code.Test, params, 7)
+    res = qdk.estimate(qdk.code.Test, params, 7)
 
     for idx in res:
         assert res[idx]["status"] == "success"
@@ -360,12 +360,12 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable_with_arg() 
         )
     assert res[2]["jobParams"]["qecScheme"]["name"] == QECScheme.FLOQUET_CODE
 
-    res_logical = qsharp.logical_counts(qsharp.code.Test, 7)
+    res_logical = qdk.logical_counts(qdk.code.Test, 7)
     assert res_logical == res[0]["logicalCounts"]
 
 
 def test_qsharp_estimation_with_multiple_params_from_qsharp_callable_with_arg() -> None:
-    qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
+    qdk.init(target_profile=qdk.TargetProfile.Unrestricted)
 
     params = EstimatorParams(3)
     params.items[0].qubit_params.name = QubitParams.GATE_US_E3
@@ -394,7 +394,7 @@ def test_qsharp_estimation_with_multiple_params_from_qsharp_callable_with_arg() 
         "resumeAfterFailedItem": True,
     }
 
-    qsharp.eval(
+    qdk.eval(
         """
         operation Test(nQubits : Int) : Unit {
             use qs = Qubit[nQubits];
@@ -406,8 +406,8 @@ def test_qsharp_estimation_with_multiple_params_from_qsharp_callable_with_arg() 
         """
     )
 
-    test = qsharp.eval("Test")
-    res = qsharp.estimate(test, params, 7)
+    test = qdk.eval("Test")
+    res = qdk.estimate(test, params, 7)
 
     for idx in res:
         assert res[idx]["status"] == "success"
@@ -428,7 +428,7 @@ def test_qsharp_estimation_with_multiple_params_from_qsharp_callable_with_arg() 
         )
     assert res[2]["jobParams"]["qecScheme"]["name"] == QECScheme.FLOQUET_CODE
 
-    res_logical = qsharp.logical_counts(test, 7)
+    res_logical = qdk.logical_counts(test, 7)
     assert res_logical == res[0]["logicalCounts"]
 
 

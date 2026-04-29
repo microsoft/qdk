@@ -3,16 +3,16 @@
 
 import pytest
 import sys
-from qsharp._simulation import NoiseConfig, run_qir
-from qsharp import Result
-import qsharp.openqasm
+from qdk._simulation import NoiseConfig, run_qir
+from qdk import Result
+import qdk.openqasm
 
 SKIP_REASON = "GPU is not available"
 
 gpu_info = "Unknown"
 
 try:
-    from qsharp._native import try_create_gpu_adapter
+    from qdk._native import try_create_gpu_adapter
 
     gpu_info = try_create_gpu_adapter()
     # Printing to stderr so that it is visible if CI run fails
@@ -37,10 +37,10 @@ test_noise_intrinsic qs[0], qs[1], qs[2];
 bit[3] res = measure qs;
 """
 
-QIR_WITH_CORRELATED_NOISE = qsharp.openqasm.compile(
+QIR_WITH_CORRELATED_NOISE = qdk.openqasm.compile(
     QASM_WITH_CORRELATED_NOISE,
-    output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
-    target_profile=qsharp.TargetProfile.Base,
+    output_semantics=qdk.openqasm.OutputSemantics.OpenQasm,
+    target_profile=qdk.TargetProfile.Base,
 )
 
 

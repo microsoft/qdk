@@ -7,9 +7,9 @@ cirq = pytest.importorskip("cirq")
 
 from dataclasses import dataclass, field
 
-import qsharp
+import qdk
 
-from qsharp.qre import (
+from qdk.qre import (
     Application,
     ISA,
     LOGICAL,
@@ -19,11 +19,11 @@ from qsharp.qre import (
     Trace,
     linear_function,
 )
-from qsharp.qre._qre import _ProvenanceGraph
-from qsharp.qre._enumeration import _enumerate_instances
-from qsharp.qre.application import QSharpApplication
-from qsharp.qre.instruction_ids import CCX, LATTICE_SURGERY, T, RZ
-from qsharp.qre.property_keys import (
+from qdk.qre._qre import _ProvenanceGraph
+from qdk.qre._enumeration import _enumerate_instances
+from qdk.qre.application import QSharpApplication
+from qdk.qre.instruction_ids import CCX, LATTICE_SURGERY, T, RZ
+from qdk.qre.property_keys import (
     ALGORITHM_COMPUTE_QUBITS,
     ALGORITHM_MEMORY_QUBITS,
     LOGICAL_COMPUTE_QUBITS,
@@ -123,7 +123,7 @@ def test_qsharp_application():
     )
 
     # Properties from the program
-    counts = qsharp.logical_counts(code)
+    counts = qdk.logical_counts(code)
     num_ts = counts["tCount"]
     num_ccx = counts["cczCount"]
     num_rotations = counts["rotationCount"]

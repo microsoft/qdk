@@ -7,9 +7,9 @@ import pytest
 
 cirq = pytest.importorskip("cirq")
 
-import qsharp
-from qsharp.qre.application import QSharpApplication, QIRApplication
-from qsharp.qre.interop import trace_from_qir
+import qdk
+from qdk.qre.application import QSharpApplication, QIRApplication
+from qdk.qre.interop import trace_from_qir
 
 
 def _ll_files():
@@ -50,8 +50,8 @@ def test_trace_from_qir_handles_all_instruction_ids():
     """
     import pyqir
     import pyqir.qis as qis
-    from qsharp._native import QirInstructionId
-    from qsharp.qre.interop._qir import _GATE_MAP, _MEAS_MAP, _SKIP
+    from qdk._native import QirInstructionId
+    from qdk.qre.interop._qir import _GATE_MAP, _MEAS_MAP, _SKIP
 
     # -- Completeness check: every QirInstructionId must be covered --------
     handled_ids = (
@@ -198,7 +198,7 @@ def test_trace_from_qir_handles_all_instruction_ids():
 
 def test_rotation_buckets():
     """Test that rotation bucketization preserves total count and depth."""
-    from qsharp.qre.interop._qsharp import _bucketize_rotation_counts
+    from qdk.qre.interop._qsharp import _bucketize_rotation_counts
 
     r_count = 15066
     r_depth = 14756
@@ -237,7 +237,7 @@ def test_qsharp_from_string():
 
 
 def test_qsharp_from_callable():
-    qsharp.eval(
+    qdk.eval(
         """
     operation Test(numTs: Int) : Unit {{
         use (a, b, c) = (Qubit(), Qubit(), Qubit());
@@ -251,7 +251,7 @@ def test_qsharp_from_callable():
     )
 
     for num_ts in range(1, 6):
-        app = QSharpApplication(qsharp.code.Test, args=(num_ts,))  # type: ignore
+        app = QSharpApplication(qdk.code.Test, args=(num_ts,))  # type: ignore
         trace = app.get_trace()
 
         assert trace.total_qubits == 3, "unexpected number of qubits in trace"

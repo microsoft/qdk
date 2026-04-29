@@ -3,7 +3,7 @@
 
 import pytest
 
-from qsharp.qre import (
+from qdk.qre import (
     LOGICAL,
     ISARequirements,
     constraint,
@@ -11,11 +11,11 @@ from qsharp.qre import (
     property_name,
     property_name_to_key,
 )
-from qsharp.qre._qre import _ProvenanceGraph
-from qsharp.qre.models import SurfaceCode, GateBased
-from qsharp.qre._architecture import _make_instruction
-from qsharp.qre.instruction_ids import CCX, CCZ, LATTICE_SURGERY, T
-from qsharp.qre.property_keys import DISTANCE
+from qdk.qre._qre import _ProvenanceGraph
+from qdk.qre.models import SurfaceCode, GateBased
+from qdk.qre._architecture import _make_instruction
+from qdk.qre.instruction_ids import CCX, CCZ, LATTICE_SURGERY, T
+from qdk.qre.property_keys import DISTANCE
 
 
 def test_isa():
@@ -146,7 +146,7 @@ def test_property_names():
 
 def test_block_linear_function():
     """Test block_linear_function creation and behavior."""
-    from qsharp.qre._qre import block_linear_function
+    from qdk.qre._qre import block_linear_function
 
     # Test int version with offset
     int_fn = block_linear_function(block_size=4, slope=2, offset=1)
@@ -183,7 +183,7 @@ def test_block_linear_function():
 
 def test_generic_function():
     """Test generic_function wrapping for int and float return types."""
-    from qsharp.qre._qre import _IntFunction, _FloatFunction
+    from qdk.qre._qre import _IntFunction, _FloatFunction
 
     def time(x: int) -> int:
         return x * x

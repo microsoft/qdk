@@ -5,10 +5,10 @@ import pytest
 
 cirq = pytest.importorskip("cirq")
 
-from qsharp.qre import PSSPC
-from qsharp.qre.application import CirqApplication
-from qsharp.qre.interop import trace_from_cirq
-from qsharp.qre.interop._cirq import (
+from qdk.qre import PSSPC
+from qdk.qre.application import CirqApplication
+from qdk.qre.interop import trace_from_cirq
+from qdk.qre.interop._cirq import (
     TypedQubit,
     QubitType,
     read_from_memory,

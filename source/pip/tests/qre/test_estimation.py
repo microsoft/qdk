@@ -7,14 +7,14 @@ import pytest
 
 cirq = pytest.importorskip("cirq")
 
-from qsharp.estimator import LogicalCounts
-from qsharp.qre import (
+from qdk.estimator import LogicalCounts
+from qdk.qre import (
     PSSPC,
     LatticeSurgery,
     estimate,
 )
-from qsharp.qre.application import QSharpApplication
-from qsharp.qre.models import (
+from qdk.qre.application import QSharpApplication
+from qdk.qre.models import (
     SurfaceCode,
     GateBased,
     RoundBasedFactory,

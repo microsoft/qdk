@@ -6,84 +6,84 @@ import os
 
 
 @pytest.fixture
-def qsharp():
-    import qsharp
-    import qsharp._fs
-    import qsharp._http
+def qdk():
+    import qdk
+    import qdk._fs
+    import qdk._http
 
-    qsharp._fs.read_file = read_file_memfs
-    qsharp._fs.list_directory = list_directory_memfs
-    qsharp._fs.exists = exists_memfs
-    qsharp._fs.join = join_memfs
-    qsharp._fs.resolve = resolve_memfs
-    qsharp._http.fetch_github = fetch_github_test
+    qdk._fs.read_file = read_file_memfs
+    qdk._fs.list_directory = list_directory_memfs
+    qdk._fs.exists = exists_memfs
+    qdk._fs.join = join_memfs
+    qdk._fs.resolve = resolve_memfs
+    qdk._http.fetch_github = fetch_github_test
 
-    return qsharp
+    return qdk
 
 
-def test_project(qsharp) -> None:
-    qsharp.init(project_root="/good")
-    result = qsharp.eval("Test.ReturnsFour()")
+def test_project(qdk) -> None:
+    qdk.init(project_root="/good")
+    result = qdk.eval("Test.ReturnsFour()")
     assert result == 4
 
 
-def test_project_compile_error(qsharp) -> None:
+def test_project_compile_error(qdk) -> None:
     with pytest.raises(Exception) as excinfo:
-        qsharp.init(project_root="/compile_error")
+        qdk.init(project_root="/compile_error")
     assert str(excinfo.value).startswith("Qsc.TypeCk.TyMismatch")
 
 
-def test_project_bad_qsharp_json(qsharp) -> None:
+def test_project_bad_qsharp_json(qdk) -> None:
     with pytest.raises(Exception) as excinfo:
-        qsharp.init(project_root="/bad_qsharp_json")
+        qdk.init(project_root="/bad_qsharp_json")
     assert str(excinfo.value).find("Failed to parse manifest") != -1
 
 
-def test_project_unreadable_qsharp_json(qsharp) -> None:
+def test_project_unreadable_qsharp_json(qdk) -> None:
     with pytest.raises(Exception) as excinfo:
-        qsharp.init(project_root="/unreadable_qsharp_json")
+        qdk.init(project_root="/unreadable_qsharp_json")
     assert str(excinfo.value).startswith(
         "Error reading /unreadable_qsharp_json/qsharp.json."
     )
 
 
-def test_project_unreadable_source(qsharp) -> None:
+def test_project_unreadable_source(qdk) -> None:
     with pytest.raises(Exception) as excinfo:
-        qsharp.init(project_root="/unreadable_source")
+        qdk.init(project_root="/unreadable_source")
     # If this seems like a silly substring to assert on, it's
     # because the error reporting code is inserting a line break
     # between "could not" and "read test.qs"
     assert str(excinfo.value).find("OSError: could not") != -1
 
 
-def test_project_dependencies(qsharp) -> None:
-    qsharp.init(project_root="/with_deps")
-    result = qsharp.eval("Test.CallsDependency()")
+def test_project_dependencies(qdk) -> None:
+    qdk.init(project_root="/with_deps")
+    result = qdk.eval("Test.CallsDependency()")
     assert result == 4
 
 
-def test_project_circular_dependency_error(qsharp) -> None:
+def test_project_circular_dependency_error(qdk) -> None:
     with pytest.raises(Exception) as excinfo:
-        qsharp.init(project_root="/circular")
+        qdk.init(project_root="/circular")
     assert str(excinfo.value).find("Circular dependency detected between") != -1
 
 
-def test_github_dependency(qsharp) -> None:
-    qsharp.init(project_root="/with_github_dep")
-    result = qsharp.eval("Test.CallsDependency()")
+def test_github_dependency(qdk) -> None:
+    qdk.init(project_root="/with_github_dep")
+    result = qdk.eval("Test.CallsDependency()")
     assert result == 12
 
 
-def test_circuit(qsharp) -> None:
-    qsharp.init(project_root="/circuit")
-    result = qsharp.eval("Test.TestCircuit()")
-    assert result == qsharp.Result.Zero
+def test_circuit(qdk) -> None:
+    qdk.init(project_root="/circuit")
+    result = qdk.eval("Test.TestCircuit()")
+    assert result == qdk.Result.Zero
 
 
-def test_src_package_udt(qsharp) -> None:
-    qsharp.init(project_root="/src_package_udt")
-    arg = qsharp.code.Test.Data(42)
-    result = qsharp.run(qsharp.code.Test.Op, 1, arg)
+def test_src_package_udt(qdk) -> None:
+    qdk.init(project_root="/src_package_udt")
+    arg = qdk.code.Test.Data(42)
+    result = qdk.run(qdk.code.Test.Op, 1, arg)
     assert result == [42]
 
 

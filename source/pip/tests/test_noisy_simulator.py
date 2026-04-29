@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from qsharp.noisy_simulator import (
+from qdk.noisy_simulator import (
     NoisySimulatorError,
     Operation,
     Instrument,
