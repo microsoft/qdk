@@ -729,7 +729,7 @@ fn collapse_if_unnecessary(
     None
 }
 
-/// Determines whether a lambda scope should be preserved to maintain ApplyToEach structure.
+/// Determines whether a lambda scope should be preserved to maintain `ApplyToEach` structure.
 ///
 /// Preserves lambda scopes that are:
 /// - Partial lambdas created within `ApplyToEach` closures
