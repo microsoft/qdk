@@ -6,23 +6,23 @@ Below are some of the highlights for the 1.28 release of the QDK.
 
 ### Resource Estimation v3
 
-The Quantum Resource Estimation feature has been significantly re-written to be far more capable in modelling and estimating quantum resource requirements across languages, frameworks, architectures, and modalities.
+The Quantum Resource Estimation feature has been significantly rewritten to be far more capable of modeling and estimating quantum resource requirements across languages, frameworks, architectures, and modalities.
 
-The new implementation is being done in phases, and this initial release includes the Python APIs. The old QRE Python APIs and the VS Code `Estimate` CodeLens experience are now marked as deprecated.
+The new implementation is being rolled out in phases, and this initial release includes the Python APIs. The old QRE Python APIs and the VS Code `Estimate` CodeLens experience are now marked as deprecated.
 
-For more details on the new APIs and examples of their usage, see the [QREv3 wiki](https://aka.ms/qdk.QREv3).
+For more details on the new APIs and examples of their usage, see the [QREv3 wiki page](https://aka.ms/qdk.QREv3).
 
 ### Improved simulator capabilities
 
-In this release we have exposed the Python API to directly run QIR on the underlying simulators (CPU state vector, Clifford, and density matrix simulators, and the GPU state vector simulator). The simulators have also been updated to be able to handle programs generated for the `QIR Adaptive Profile`, which means the quantum programs the simulators runs may contain mid-circuit measurement, conditional branching, loops, etc.
+In this release, we have exposed Python APIs to run QIR directly on the underlying simulators (the CPU state vector, Clifford, and density matrix simulators, and the GPU state vector simulator). The simulators have also been updated to handle programs generated for the _"QIR Adaptive Profile"_, meaning the quantum programs they run may contain mid-circuit measurements, conditional branching, loops, etc.
 
-See the [QDK Simulators](https://github.com/microsoft/qdk/wiki/QDK-Python-Simulators) wiki page for more details.
+See the [QDK Simulators wiki page](https://github.com/microsoft/qdk/wiki/QDK-Python-Simulators) for more details.
 
 ### VS Code extension hosting
 
-The [VS Code extension](https://code.visualstudio.com/api/advanced-topics/extension-host) has been updated from being purely a [web extension](https://code.visualstudio.com/api/extension-guides/web-extensions) to being run in the local Node.js host when running on a desktop VS Code instance. This fixes issues that could be encountered when running in a `remote` configuration, such as when using WSL. This also lays the groundwork for future work on more `agentic` flows that require interacting with other local Node.js or Python processes (such as MCP Agents).
+The [VS Code extension hosting](https://code.visualstudio.com/api/advanced-topics/extension-host) has been updated from being purely a [web extension](https://code.visualstudio.com/api/extension-guides/web-extensions) to being run in the local Node.js host when running on a desktop VS Code instance. This fixes issues that could be encountered when running in [remote configurations](https://code.visualstudio.com/api/advanced-topics/remote-extensions), such as when using WSL. This also lays the groundwork for future work on more agentic flows that require interacting with other local Node.js or Python processes (such as MCP Agents).
 
-### Debugging "Break on entry"
+### Debugger "Break on entry"
 
 The integrated quantum debugger for Q\# and OpenQASM used to always break on the first statement when launched. This now defaults to `false`. This can be configured via `launch.json` in VS Code, e.g.
 
@@ -35,14 +35,6 @@ The integrated quantum debugger for Q\# and OpenQASM used to always break on the
   "stopOnEntry": true
 }
 ```
-
-### RIFLA code generation
-
-TODO: Worth discussing yet?
-
-### Orbital widget
-
-TODO: Worth mentioning?
 
 ## Other notable changes
 
