@@ -1165,6 +1165,11 @@ impl Trace {
         self.0.depth()
     }
 
+    pub fn runtime(&self, isa: &ISA) -> Option<u64> {
+        let locked = isa.0.lock();
+        self.0.runtime(&locked).ok()
+    }
+
     #[getter]
     pub fn num_gates(&self) -> u64 {
         self.0.num_gates()
