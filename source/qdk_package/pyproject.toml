@@ -45,6 +45,9 @@ all = [
   "qsharp-jupyterlab==0.0.0",
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.maturin]
 module-name = "qdk._native"
 

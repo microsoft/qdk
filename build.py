@@ -454,12 +454,15 @@ if build_qdk:
         install_python_test_requirements(qdk_python_src, python_bin)
 
         # Install qdk from the freshly built wheel.
+        # Use --no-deps because dependencies (pyqir, etc.) are already installed
+        # via test_requirements, and --no-index can't resolve them from PyPI.
         install_args = [
             python_bin,
             "-m",
             "pip",
             "install",
             "--force-reinstall",
+            "--no-deps",
             "--no-index",
             "--find-links=" + wheels_dir,
             "qdk",
@@ -490,10 +493,11 @@ if build_pip:
     subprocess.run(pip_build_args, check=True, text=True, cwd=pip_src, env=pip_env)
     step_end()
 
-    if run_tests:
-        step_start("Running tests for the pip package")
+    if args.integration_tests:
+        step_start("Setting up for integration tests for the pip package")
+        test_dir = os.path.join(pip_src, "tests-integration")
+        install_python_test_requirements(test_dir, python_bin, check=False)
 
-        install_python_test_requirements(pip_src, python_bin)
         # Install qdk first (qsharp depends on it)
         install_args = [
             python_bin,
@@ -505,16 +509,7 @@ if build_pip:
             "--find-links=" + wheels_dir,
             "qdk",
         ]
-        subprocess.run(install_args, check=True, text=True, cwd=pip_src)
-        install_qsharp_python_package(pip_src, wheels_dir, python_bin)
-        run_python_tests(os.path.join(pip_src, "tests"), python_bin, pip_env)
-
-        step_end()
-
-    if args.integration_tests:
-        step_start("Setting up for integration tests for the pip package")
-        test_dir = os.path.join(pip_src, "tests-integration")
-        install_python_test_requirements(test_dir, python_bin, check=False)
+        subprocess.run(install_args, check=True, text=True, cwd=test_dir)
         step_end()
 
         for version in QISKIT_VERSION_MATRIX:
