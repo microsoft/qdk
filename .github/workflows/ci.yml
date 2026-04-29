@@ -190,7 +190,10 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Prereqs
         run: python ./prereqs.py --install
-      - name: Run integration tests
+      - name:
+          Run integration tests
+          # we use xvfb-run to provide a virtual framebuffer for the VS Code tester,
+          # which requires a display to run
         run: xvfb-run -a python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests
 
   status-check:
