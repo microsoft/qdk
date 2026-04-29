@@ -1,10 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::isa::{Encoding, ISA, Instruction};
+use crate::trace::{Trace, instruction_ids::*};
+
 #[test]
 fn test_trace_iteration() {
-    use crate::trace::Trace;
-
     let mut trace = Trace::new(2);
     trace.add_operation(1, vec![0], vec![]);
     trace.add_operation(2, vec![1], vec![]);
@@ -14,8 +15,6 @@ fn test_trace_iteration() {
 
 #[test]
 fn test_nested_blocks() {
-    use crate::trace::Trace;
-
     let mut trace = Trace::new(3);
     trace.add_operation(1, vec![0], vec![]);
     let block = trace.add_block(2);
@@ -31,8 +30,6 @@ fn test_nested_blocks() {
 
 #[test]
 fn test_depth_simple() {
-    use crate::trace::Trace;
-
     let mut trace = Trace::new(2);
     trace.add_operation(1, vec![0], vec![]);
     trace.add_operation(2, vec![1], vec![]);
@@ -47,8 +44,6 @@ fn test_depth_simple() {
 
 #[test]
 fn test_depth_with_blocks() {
-    use crate::trace::Trace;
-
     let mut trace = Trace::new(2);
     trace.add_operation(1, vec![0], vec![]); // Depth 1 on q0
 
@@ -68,8 +63,6 @@ fn test_depth_with_blocks() {
 
 #[test]
 fn test_depth_parallel_blocks() {
-    use crate::trace::Trace;
-
     let mut trace = Trace::new(4);
 
     let block1 = trace.add_block(1);
@@ -89,8 +82,6 @@ fn test_depth_parallel_blocks() {
 
 #[test]
 fn test_depth_entangled() {
-    use crate::trace::Trace;
-
     let mut trace = Trace::new(2);
     trace.add_operation(1, vec![0], vec![]); // q0: 1
     trace.add_operation(2, vec![1], vec![]); // q1: 1
@@ -105,7 +96,7 @@ fn test_depth_entangled() {
 
 #[test]
 fn test_psspc_transform() {
-    use crate::trace::{PSSPC, Trace, TraceTransform, instruction_ids::*};
+    use crate::trace::{PSSPC, TraceTransform};
 
     let mut trace = Trace::new(3);
 
@@ -134,7 +125,7 @@ fn test_psspc_transform() {
 
 #[test]
 fn test_lattice_surgery_transform() {
-    use crate::trace::{LatticeSurgery, Trace, TraceTransform, instruction_ids::*};
+    use crate::trace::{LatticeSurgery, TraceTransform};
 
     let mut trace = Trace::new(3);
 
@@ -166,9 +157,6 @@ fn test_lattice_surgery_transform() {
 
 #[test]
 fn test_estimate_simple() {
-    use crate::isa::{Encoding, ISA, Instruction};
-    use crate::trace::{Trace, instruction_ids::*};
-
     let mut trace = Trace::new(1);
     trace.add_operation(T, vec![0], vec![]);
 
@@ -193,9 +181,6 @@ fn test_estimate_simple() {
 
 #[test]
 fn test_estimate_with_factory() {
-    use crate::isa::{Encoding, ISA, Instruction};
-    use crate::trace::{Trace, instruction_ids::*};
-
     let mut trace = Trace::new(1);
     // Algorithm needs 1000 T states
     trace.increment_resource_state(T, 1000);
@@ -241,9 +226,6 @@ fn test_estimate_with_factory() {
 
 #[test]
 fn test_trace_display_uses_instruction_names() {
-    use crate::trace::Trace;
-    use crate::trace::instruction_ids::{CNOT, H, MEAS_Z};
-
     let mut trace = Trace::new(2);
     trace.add_operation(H, vec![0], vec![]);
     trace.add_operation(CNOT, vec![0, 1], vec![]);
@@ -267,8 +249,6 @@ fn test_trace_display_uses_instruction_names() {
 
 #[test]
 fn test_trace_display_unknown_instruction() {
-    use crate::trace::Trace;
-
     let mut trace = Trace::new(1);
     trace.add_operation(0x9999, vec![0], vec![]);
 
@@ -282,9 +262,6 @@ fn test_trace_display_unknown_instruction() {
 
 #[test]
 fn test_block_display_with_repetitions() {
-    use crate::trace::Trace;
-    use crate::trace::instruction_ids::H;
-
     let mut trace = Trace::new(1);
     let block = trace.add_block(10);
     block.add_operation(H, vec![0], vec![]);
@@ -296,4 +273,175 @@ fn test_block_display_with_repetitions() {
         "Expected 'repeat 10' in: {display}"
     );
     assert!(display.contains('H'), "Expected 'H' in block: {display}");
+}
+
+/// Helper to create an ISA with instructions that have known time values.
+/// Each entry is (id, arity, time).
+fn isa_with_times(entries: &[(u64, u64, u64)]) -> ISA {
+    let mut isa = ISA::new();
+    for &(id, arity, time) in entries {
+        isa.add_instruction(Instruction::fixed_arity(
+            id,
+            Encoding::Logical,
+            arity,
+            time,
+            Some(1),
+            None,
+            0.0,
+        ));
+    }
+    isa
+}
+
+#[test]
+fn test_runtime_single_operation() {
+    let mut trace = Trace::new(1);
+    trace.add_operation(T, vec![0], vec![]);
+
+    let isa = isa_with_times(&[(T, 1, 100)]);
+    let locked = isa.lock();
+
+    assert_eq!(trace.runtime(&locked).unwrap(), 100);
+}
+
+#[test]
+fn test_runtime_parallel_operations() {
+    let mut trace = Trace::new(2);
+    trace.add_operation(T, vec![0], vec![]);
+    trace.add_operation(H, vec![1], vec![]);
+
+    let isa = isa_with_times(&[(T, 1, 100), (H, 1, 50)]);
+    let locked = isa.lock();
+
+    // Parallel: runtime is the max of the two = 100
+    assert_eq!(trace.runtime(&locked).unwrap(), 100);
+}
+
+#[test]
+fn test_runtime_sequential_operations() {
+    let mut trace = Trace::new(1);
+    trace.add_operation(T, vec![0], vec![]);
+    trace.add_operation(H, vec![0], vec![]);
+
+    let isa = isa_with_times(&[(T, 1, 100), (H, 1, 50)]);
+    let locked = isa.lock();
+
+    // Sequential on qubit 0: 100 + 50 = 150
+    assert_eq!(trace.runtime(&locked).unwrap(), 150);
+}
+
+#[test]
+fn test_runtime_with_repeated_block() {
+    let mut trace = Trace::new(1);
+    let block = trace.add_block(5);
+    block.add_operation(T, vec![0], vec![]);
+
+    let isa = isa_with_times(&[(T, 1, 100)]);
+    let locked = isa.lock();
+
+    // Block depth = 100, repeated 5 times = 500
+    assert_eq!(trace.runtime(&locked).unwrap(), 500);
+}
+
+#[test]
+fn test_runtime_nested_blocks() {
+    let mut trace = Trace::new(1);
+    let outer = trace.add_block(3);
+    let inner = outer.add_block(2);
+    inner.add_operation(H, vec![0], vec![]);
+
+    let isa = isa_with_times(&[(H, 1, 10)]);
+    let locked = isa.lock();
+
+    // Inner: 10 * 2 = 20, outer: 20 * 3 = 60
+    assert_eq!(trace.runtime(&locked).unwrap(), 60);
+}
+
+#[test]
+fn test_runtime_multi_qubit_gate() {
+    let mut trace = Trace::new(2);
+    trace.add_operation(CX, vec![0, 1], vec![]);
+
+    let isa = isa_with_times(&[(CX, 2, 200)]);
+    let locked = isa.lock();
+
+    assert_eq!(trace.runtime(&locked).unwrap(), 200);
+}
+
+#[test]
+fn test_runtime_sequential_after_multi_qubit() {
+    let mut trace = Trace::new(2);
+    trace.add_operation(CX, vec![0, 1], vec![]);
+    trace.add_operation(T, vec![0], vec![]);
+    trace.add_operation(H, vec![1], vec![]);
+
+    let isa = isa_with_times(&[(CX, 2, 200), (T, 1, 100), (H, 1, 50)]);
+    let locked = isa.lock();
+
+    // CX occupies both qubits to time 200
+    // T on q0: 200 + 100 = 300
+    // H on q1: 200 + 50 = 250
+    // max = 300
+    assert_eq!(trace.runtime(&locked).unwrap(), 300);
+}
+
+#[test]
+fn test_runtime_empty_trace() {
+    let trace = Trace::new(1);
+
+    let isa = ISA::new();
+    let locked = isa.lock();
+
+    assert_eq!(trace.runtime(&locked).unwrap(), 0);
+}
+
+#[test]
+fn test_runtime_block_parallel_to_operation() {
+    let mut trace = Trace::new(2);
+    // Block on q0
+    let block = trace.add_block(4);
+    block.add_operation(T, vec![0], vec![]);
+    // Operation on q1 (parallel to block)
+    trace.add_operation(H, vec![1], vec![]);
+
+    let isa = isa_with_times(&[(T, 1, 10), (H, 1, 50)]);
+    let locked = isa.lock();
+
+    // Block: 10 * 4 = 40 on q0
+    // H: 50 on q1
+    // max = 50
+    assert_eq!(trace.runtime(&locked).unwrap(), 50);
+}
+
+#[test]
+fn test_runtime_missing_instruction_returns_error() {
+    let mut trace = Trace::new(1);
+    trace.add_operation(T, vec![0], vec![]);
+
+    // ISA has no T instruction
+    let isa = ISA::new();
+    let locked = isa.lock();
+
+    assert!(trace.runtime(&locked).is_err());
+}
+
+#[test]
+fn test_runtime_mixed_sequential_and_parallel() {
+    let mut trace = Trace::new(3);
+    // q0: T(100) -> CX(200) on q0,q1
+    // q1: H(50) -> CX(200) on q0,q1
+    // q2: T(100)
+    trace.add_operation(T, vec![0], vec![]);
+    trace.add_operation(H, vec![1], vec![]);
+    trace.add_operation(T, vec![2], vec![]);
+    trace.add_operation(CX, vec![0, 1], vec![]);
+
+    let isa = isa_with_times(&[(T, 1, 100), (H, 1, 50), (CX, 2, 200)]);
+    let locked = isa.lock();
+
+    // q0: T ends at 100, CX starts at max(100, 50)=100, ends at 300
+    // q1: H ends at 50, CX starts at 100, ends at 300
+    // q2: T ends at 100
+    // max = 300
+    assert_eq!(trace.runtime(&locked).unwrap(), 300);
 }
