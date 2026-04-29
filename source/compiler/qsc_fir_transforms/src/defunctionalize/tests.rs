@@ -25,6 +25,7 @@ mod analysis;
 mod cross_package;
 mod fixpoint;
 mod invariants;
+mod prepass;
 mod specialization;
 
 fn adaptive_qirgen_capabilities() -> TargetCapabilityFlags {
@@ -136,7 +137,8 @@ fn callable_param_display_path(param: &CallableParam) -> Vec<usize> {
         .collect()
 }
 
-/// Compiles Q# source, runs analysis only, and snapshots the analysis results.
+/// Compiles Q# source, runs the defunctionalization pre-pass and analysis, and
+/// snapshots the analysis results.
 fn check_analysis(source: &str, expect: &Expect) {
     check_analysis_with_capabilities(source, TargetCapabilityFlags::empty(), expect);
 }
@@ -149,6 +151,7 @@ fn check_analysis_with_capabilities(
     let (mut fir_store, fir_pkg_id) =
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
     let reachable = collect_reachable_from_entry(&fir_store, fir_pkg_id);
+    super::prepass::run(&mut fir_store, fir_pkg_id);
     let result = defunc_analysis::analyze(&mut fir_store, fir_pkg_id, &reachable);
 
     let mut lines: Vec<String> = Vec::new();

@@ -334,11 +334,6 @@ fn qubit_array_length_is_preserved() {
                 Variable(0, Integer) = Store Integer(2)
                 Variable(0, Integer) = Store Integer(3)
                 Variable(0, Integer) = Store Integer(4)
-                Variable(1, Integer) = Store Integer(0)
-                Variable(1, Integer) = Store Integer(1)
-                Variable(1, Integer) = Store Integer(2)
-                Variable(1, Integer) = Store Integer(3)
-                Variable(1, Integer) = Store Integer(4)
                 Call id(2), args( Integer(4), Tag(0, 3), )
                 Return"#]],
     );
@@ -404,11 +399,6 @@ fn qubit_array_chunks_can_be_indexed() {
                 Variable(0, Integer) = Store Integer(4)
                 Call id(2), args( Qubit(0), )
                 Call id(2), args( Qubit(3), )
-                Variable(1, Integer) = Store Integer(0)
-                Variable(1, Integer) = Store Integer(1)
-                Variable(1, Integer) = Store Integer(2)
-                Variable(1, Integer) = Store Integer(3)
-                Variable(1, Integer) = Store Integer(4)
                 Call id(3), args( Integer(0), Tag(0, 3), )
                 Return"#]],
     );
@@ -443,11 +433,6 @@ fn qubit_array_chunk_count_is_preserved() {
                 Variable(0, Integer) = Store Integer(2)
                 Variable(0, Integer) = Store Integer(3)
                 Variable(0, Integer) = Store Integer(4)
-                Variable(1, Integer) = Store Integer(0)
-                Variable(1, Integer) = Store Integer(1)
-                Variable(1, Integer) = Store Integer(2)
-                Variable(1, Integer) = Store Integer(3)
-                Variable(1, Integer) = Store Integer(4)
                 Call id(2), args( Integer(2), Tag(0, 3), )
                 Return"#]],
     );

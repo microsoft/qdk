@@ -253,9 +253,8 @@ pub struct QasmCompileUnit {
     /// The signature of the operation created from the QASM source code.
     /// None if the program type is `ProgramType::Fragments`.
     signature: Option<OperationSignature>,
-    /// The QIR profile used for the compilation.
-    /// This is used to determine the QIR profile that the generated code
-    /// will use.
+    /// The QIR profile for compilation, derived from pragmas.
+    /// Returns `None` if no profile pragma was specified in the `OpenQASM` source.
     profile: Option<Profile>,
 }
 
@@ -293,7 +292,7 @@ impl QasmCompileUnit {
         self.errors.clone()
     }
 
-    /// Returns the QIR target profile associated with the compilation unit.
+    /// Returns the optional QIR profile from `OpenQASM` pragmas.
     #[must_use]
     pub fn profile(&self) -> Option<Profile> {
         self.profile

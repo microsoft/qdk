@@ -60,6 +60,15 @@ pub fn compile_openqasm(unit: QasmCompileUnit, package_type: PackageType) -> Com
     compile_openqasm_with_profile_override(unit, package_type, None)
 }
 
+/// Compiles `OpenQASM` to Q# with optional explicit profile override.
+///
+/// Profile precedence:
+/// 1. `profile_override` (if provided)
+/// 2. Pragma-derived profile from `OpenQASM` source
+/// 3. Default to `Profile::Unrestricted`
+///
+/// This enables cleaner profile management across `OpenQASM` compilation flows,
+/// allowing callers to explicitly control the QIR profile used for circuit/QIR generation.
 #[must_use]
 pub fn compile_openqasm_with_profile_override(
     unit: QasmCompileUnit,

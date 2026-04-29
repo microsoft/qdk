@@ -281,8 +281,7 @@ impl QasmCompiler {
         )
     }
 
-    /// Gets the profile for compilation from the first profile
-    /// pragma if present, otherwise default to `Unrestricted`.
+    /// Extracts the QIR profile from `OpenQASM` pragmas.
     fn get_profile(&self) -> Option<Profile> {
         self.pragma_config
             .pragmas

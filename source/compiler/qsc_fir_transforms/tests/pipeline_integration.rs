@@ -1632,8 +1632,7 @@ fn stage_parity_sroa_no_tuple_locals() {
         @EntryPoint()
         operation Main() : Int {
             let pair = (1, 2);
-            let x = pair.0;
-            let y = pair.1;
+            let (x, y) = pair;
             x + y
         }
     "#;

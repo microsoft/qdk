@@ -9,7 +9,7 @@ use expect_test::{Expect, expect};
 pub const BERNSTEINVAZIRANI_EXPECT: Expect = expect!["[127, 238, 512]"];
 pub const BERNSTEINVAZIRANI_EXPECT_DEBUG: Expect = expect!["[127, 238, 512]"];
 pub const BERNSTEINVAZIRANI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 27618"];
-pub const BERNSTEINVAZIRANI_EXPECT_QIR: Expect = expect!["generated QIR of length 19373"];
+pub const BERNSTEINVAZIRANI_EXPECT_QIR: Expect = expect!["generated QIR of length 19369"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_DEBUG: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_CIRCUIT: Expect =

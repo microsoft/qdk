@@ -367,7 +367,7 @@ impl Interpreter {
                     .map(|error| Error::Pass(WithSource::from_map(&source_package.sources, error)))
                     .collect::<Vec<_>>()
             })?;
-        };
+        }
 
         Ok(Self {
             compiler,

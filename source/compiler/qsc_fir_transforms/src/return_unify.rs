@@ -594,9 +594,10 @@ enum ReturnFlow {
 impl ReturnFlow {
     fn sequence_with(self, next: Self) -> Self {
         match (self, next) {
-            (Self::AlwaysReturns, _) => Self::AlwaysReturns,
             (Self::FallsThrough, flow) => flow,
-            (Self::MayReturn, Self::AlwaysReturns) => Self::AlwaysReturns,
+            (Self::AlwaysReturns, _) | (Self::MayReturn, Self::AlwaysReturns) => {
+                Self::AlwaysReturns
+            }
             (Self::MayReturn, _) => Self::MayReturn,
         }
     }

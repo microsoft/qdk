@@ -72,6 +72,7 @@
 //!   pipeline.
 
 mod analysis;
+mod prepass;
 mod rewrite;
 mod specialize;
 pub mod types;
@@ -151,6 +152,10 @@ pub fn defunctionalize(
         errors.retain(|e| !matches!(e, Error::DynamicCallable(_)));
 
         let reachable = collect_reachable_from_entry(store, package_id);
+
+        // Simplify defunctionalization analysis by eliminating callable
+        // indirection patterns and exposing direct call sites.
+        prepass::run(store, package_id);
 
         let analysis = analysis::analyze(store, package_id, &reachable);
 

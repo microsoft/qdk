@@ -269,7 +269,7 @@ fn tuple_used_in_both_field_and_whole_context() {
     // (e.g. returned), it must NOT be decomposed.
     check(
         "struct Pair { X : Int, Y : Int }
-            function Main() : (Int, Int) {
+            function Main() : Pair {
                 let p = new Pair { X = 1, Y = 2 };
                 let x = p.X;
                 p
