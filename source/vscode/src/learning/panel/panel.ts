@@ -175,6 +175,10 @@ export class KatasPanelManager {
 
   dispose(): void {
     this.panel?.dispose();
+    // Close any lingering kata editor tabs
+    if (this.service.initialized) {
+      this.closeStaleKataTabs(undefined).catch(() => {});
+    }
     for (const d of this.disposables) {
       d.dispose();
     }
@@ -222,6 +226,7 @@ export class KatasPanelManager {
   /**
    * If the current position is an exercise or example, open the
    * corresponding .qs file in the secondary editor column.
+   * Closes any previously-opened kata editor tabs that are no longer current.
    */
   private async openCurrentFile(): Promise<void> {
     if (!this.service.initialized) {
@@ -234,11 +239,43 @@ export class KatasPanelManager {
     } else if (pos.item.type === "lesson-example") {
       fileUri = this.service.getExampleFileUri();
     }
+
+    // Close stale kata editor tabs that don't match the current file
+    await this.closeStaleKataTabs(fileUri);
+
     if (fileUri) {
       await vscode.commands.executeCommand("vscode.open", fileUri, {
         viewColumn: vscode.ViewColumn.Two,
         preview: false,
       } satisfies vscode.TextDocumentShowOptions);
+    }
+  }
+
+  /**
+   * Close any open editor tabs whose URI falls under the katas root
+   * (exercises/ or examples/) that don't match {@link keepUri}.
+   * When {@link keepUri} is undefined (e.g. on lesson-text or question),
+   * all kata tabs are closed.
+   */
+  private async closeStaleKataTabs(
+    keepUri: vscode.Uri | undefined,
+  ): Promise<void> {
+    const katasRoot = this.service.getKatasRoot().toString();
+    const keepStr = keepUri?.toString();
+
+    const staleTabs: vscode.Tab[] = [];
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (tab.input instanceof vscode.TabInputText) {
+          const tabUriStr = tab.input.uri.toString();
+          if (tabUriStr.startsWith(katasRoot) && tabUriStr !== keepStr) {
+            staleTabs.push(tab);
+          }
+        }
+      }
+    }
+    if (staleTabs.length > 0) {
+      await vscode.window.tabGroups.close(staleTabs);
     }
   }
 

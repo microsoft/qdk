@@ -107,6 +107,11 @@ export class LearningService {
     return this._initialized;
   }
 
+  /** Root URI for scaffolded katas content (exercises/, examples/, etc.). */
+  getKatasRoot(): vscode.Uri {
+    return this.katasRoot;
+  }
+
   // ─── Lifecycle ───
 
   async initialize(
