@@ -2,7 +2,12 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-import { KATAS_WS_FOLDER } from "./index.js";
+
+/**
+ * Well-known workspace folder name, duplicated here to avoid a circular
+ * dependency with `./index.js` (which re-exports from this file).
+ */
+const KATAS_WS_FOLDER = "qdk-learning-ws";
 
 /**
  * Document selector that matches exercise files inside the well-known
