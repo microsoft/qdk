@@ -170,6 +170,8 @@ impl Scopes {
     }
 }
 
+/// Builds matching HIR and FIR package stores with core, dependency, and user
+/// packages for callable-origin lookup tests.
 fn compile_origin_lookup_stores() -> (PackageStore, fir::PackageStore, PackageId, PackageId) {
     let mut fir_lowerer = qsc_lowerer::Lowerer::new();
 
@@ -236,6 +238,8 @@ fn compile_origin_lookup_stores() -> (PackageStore, fir::PackageStore, PackageId
     (store, fir_store, dep_pkg_id, app_pkg_id)
 }
 
+/// Copies a named FIR callable into another package while preserving its source
+/// span, matching synthesized callables that keep their original source origin.
 fn clone_callable_into_package(
     fir_store: &mut fir::PackageStore,
     source_package: PackageId,
@@ -278,6 +282,8 @@ fn clone_callable_into_package(
     }
 }
 
+/// Creates a source-location callable scope for the given FIR callable so tests
+/// exercise origin resolution by package span instead of item id.
 fn source_scope_for_callable(fir_store: &fir::PackageStore, callable_id: StoreItemId) -> Scope {
     let callable = fir_store.get_item(callable_id);
     let fir::ItemKind::Callable(decl) = &callable.kind else {
@@ -298,6 +304,8 @@ fn synthesized_callable_scope_collapse_uses_origin_package() {
     let (store, mut fir_store, library_package_id, user_package_id) =
         compile_origin_lookup_stores();
 
+    // Move one dependency callable and one user callable into the user package
+    // with synthesized names while leaving their source spans intact.
     let library_clone = clone_callable_into_package(
         &mut fir_store,
         library_package_id,
@@ -313,6 +321,8 @@ fn synthesized_callable_scope_collapse_uses_origin_package() {
         "{H}",
     );
 
+    // Check both callable id scopes and source scopes because each path can be
+    // used when deciding whether a synthesized group should collapse.
     let library_id_scope = Scope::Callable(CallableId::Id(library_clone, FunctorApp::default()));
     let user_id_scope = Scope::Callable(CallableId::Id(user_clone, FunctorApp::default()));
     let library_source_scope = source_scope_for_callable(&fir_store, library_clone);
@@ -324,6 +334,8 @@ fn synthesized_callable_scope_collapse_uses_origin_package() {
     assert!(lookup.is_synthesized_callable_scope(&library_source_scope));
     assert!(!lookup.is_synthesized_callable_scope(&user_source_scope));
 
+    // Only synthesized callables whose origin package is outside the rendered
+    // user package set should collapse into their parent circuit group.
     assert_eq!(
         lookup.callable_scope_origin_package(&library_id_scope),
         Some(library_package_id)
@@ -738,6 +750,8 @@ fn measurement_target_propagated_to_group() {
         .expect("expected measurement result in group operation's targets");
 }
 
+/// Verifies that loop scope resolution falls back to the loop expression when a
+/// condition span cannot be mapped into the source package.
 #[test]
 fn resolve_scope_for_loop_tolerates_out_of_range_condition_span() {
     let mut fir_lowerer = qsc_lowerer::Lowerer::new();
@@ -783,6 +797,8 @@ fn resolve_scope_for_loop_tolerates_out_of_range_condition_span() {
     );
     fir_store.insert(fir_package_id, unit_fir);
 
+    // Capture the while expression and its condition separately so only the
+    // condition span is corrupted.
     let (loop_expr_id, cond_expr_id) = {
         let package = fir_store.get(fir_package_id);
         package
@@ -798,6 +814,8 @@ fn resolve_scope_for_loop_tolerates_out_of_range_condition_span() {
             .expect("expected while loop in lowered FIR")
     };
 
+    // Simulate transform-produced FIR whose condition span points beyond the
+    // source file while the enclosing loop span remains valid.
     let source_len = u32::try_from(source.len()).expect("source length should fit in u32");
     let cond_expr = fir_store
         .get_mut(fir_package_id)
@@ -806,6 +824,8 @@ fn resolve_scope_for_loop_tolerates_out_of_range_condition_span() {
         .expect("condition expr should exist");
     cond_expr.span.hi = source_len + 100;
 
+    // Resolution should tolerate the bad condition span and still produce a
+    // stable group name and source location from the loop expression itself.
     let scope = (&store, &fir_store).resolve_scope(
         &Scope::Loop(LoopId::Id(fir_package_id, loop_expr_id)),
         &mut Default::default(),

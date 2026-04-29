@@ -134,6 +134,9 @@ fn circuit_with_groups(code: &str, entry: CircuitEntryPoint) -> String {
     eval_circ.display_with_groups().to_string()
 }
 
+/// Generates a grouped circuit with source locations disabled, asserts that
+/// classical evaluation and static generation produce the same grouped display,
+/// and returns the static rendering for snapshot comparison.
 fn circuit_with_groups_without_source_locations(code: &str, entry: CircuitEntryPoint) -> String {
     let eval_circ = circuit_with_options_success(
         code,

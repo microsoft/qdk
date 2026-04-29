@@ -95,7 +95,10 @@ fn sroa_struct_value(width: usize, level: usize, offset: usize) -> String {
             let value = if level == 1 {
                 (offset + field_index).to_string()
             } else {
-                let stride = width.pow((level - 1) as u32);
+                let stride = width.pow(
+                    u32::try_from(level - 1)
+                        .expect("Depth should be small enough to avoid overflow"),
+                );
                 sroa_struct_value(width, level - 1, offset + field_index * stride)
             };
             format!("F{field_index} = {value}")
