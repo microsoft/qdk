@@ -50,8 +50,15 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Prereqs
         run: python ./prereqs.py --install
+      - name:
+          Build and Test
+          # we use xvfb-run to provide a virtual framebuffer for the VS Code tester,
+          # which requires a display to run
+        run: xvfb-run -a python ./build.py --integration-tests
+        if: runner.os == 'Linux'
       - name: Build and Test
         run: python ./build.py --integration-tests
+        if: runner.os != 'Linux'
       - name: File issue on failure
         if: ${{ failure() && github.event_name != 'workflow_dispatch' }}
         id: create-issue
