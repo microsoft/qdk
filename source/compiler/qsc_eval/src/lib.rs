@@ -1660,11 +1660,6 @@ impl State {
             }
             PatKind::Discard => {}
             PatKind::Tuple(tup) => {
-                assert!(
-                    matches!(val, Value::Tuple(_, _)),
-                    "value should be Tuple, got {}",
-                    val.type_name()
-                );
                 let val_tup = val.unwrap_tuple();
                 for (pat, val) in tup.iter().zip(val_tup.iter()) {
                     self.bind_value(env, globals, *pat, val.clone());
