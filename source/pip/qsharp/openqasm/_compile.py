@@ -8,13 +8,10 @@ from .._http import fetch_github
 
 from .._native import (  # type: ignore
     compile_qasm_program_to_qir,
-)
-from .._qsharp import (
-    QirInputData,
-    _get_session,
-    ipython_helper,
     TargetProfile,
 )
+from .._qsharp import _get_session, ipython_helper
+from .._types import QirInputData
 from .. import telemetry_events
 
 

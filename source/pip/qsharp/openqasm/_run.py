@@ -5,19 +5,21 @@ from time import monotonic
 from typing import Any, Callable, cast, Dict, List, Optional, Tuple, Union
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
-from .._native import QasmError, Output, run_qasm_program  # type: ignore
-from .._qsharp import (
+from .._native import (  # type: ignore
+    NoiseConfig,
+    Output,
+    QasmError,
+    StateDumpData,
+    run_qasm_program,
+)
+from .._noise import (
     BitFlipNoise,
     DepolarizingNoise,
     PauliNoise,
     PhaseFlipNoise,
-    ShotResult,
-    StateDump,
-    StateDumpData,
-    _get_session,
-    ipython_helper,
-    NoiseConfig,
 )
+from .._qsharp import _get_session, ipython_helper
+from .._types import ShotResult, StateDump
 from .. import telemetry_events
 from ._ipython import display_or_print
 

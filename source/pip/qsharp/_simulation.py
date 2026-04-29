@@ -8,6 +8,7 @@ import pyqir
 from ._native import (
     QirInstructionId,
     QirInstruction,
+    Result,
     run_clifford,
     run_clifford_adaptive,
     run_parallel_shots,
@@ -25,7 +26,7 @@ from pyqir import (
     Type,
     Linkage,
 )
-from ._qsharp import QirInputData, Result
+from ._types import QirInputData
 from typing import TYPE_CHECKING
 from ._adaptive_pass import (
     AdaptiveProfilePass,
