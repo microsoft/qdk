@@ -13,7 +13,7 @@ from .._native import (  # type: ignore
 from ..estimator import EstimatorParams, EstimatorResult
 
 from .._qsharp import (
-    get_interpreter,
+    _get_session,
     ipython_helper,
     python_args_to_interpreter_args,
 )
@@ -79,7 +79,7 @@ def estimate(
     start = monotonic()
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
-        res_str = get_interpreter().estimate(
+        res_str = _get_session(source)._interpreter.estimate(
             param_str, entry_expr=None, callable=source.__global_callable, args=args
         )
     elif isinstance(source, str):

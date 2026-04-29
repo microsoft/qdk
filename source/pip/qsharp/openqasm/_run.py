@@ -14,7 +14,7 @@ from .._qsharp import (
     ShotResult,
     StateDump,
     StateDumpData,
-    get_interpreter,
+    _get_session,
     ipython_helper,
     python_args_to_interpreter_args,
     NoiseConfig,
@@ -118,6 +118,7 @@ def run(
         noise = None
 
     if callable:
+        interp = _get_session(source)._interpreter
         for _ in range(shots):
             results.append(
                 {
@@ -128,7 +129,7 @@ def run(
                     "messages": [],
                 }
             )
-            run_results = get_interpreter().run(
+            run_results = interp.run(
                 source_str,
                 on_save_events if save_events else display_or_print,
                 noise_config,
@@ -136,6 +137,7 @@ def run(
                 qubit_loss=qubit_loss,
                 callable=callable,
                 args=args,
+                seed=kwargs.get("seed", None),
             )
             results[-1]["result"] = run_results
 

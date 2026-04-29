@@ -21,6 +21,7 @@ from ._qsharp import (
     BitFlipNoise,
     PhaseFlipNoise,
     CircuitGenerationMethod,
+    Session,
 )
 
 telemetry_events.on_import()
@@ -61,4 +62,5 @@ __all__ = [
     "BitFlipNoise",
     "PhaseFlipNoise",
     "CircuitGenerationMethod",
+    "Session",
 ]

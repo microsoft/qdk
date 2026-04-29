@@ -11,7 +11,7 @@ from .._native import (  # type: ignore
 )
 from .._qsharp import (
     QirInputData,
-    get_interpreter,
+    _get_session,
     ipython_helper,
     TargetProfile,
     python_args_to_interpreter_args,
@@ -68,7 +68,7 @@ def compile(
 
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
-        ll_str = get_interpreter().qir(
+        ll_str = _get_session(source)._interpreter.qir(
             entry_expr=None, callable=source.__global_callable, args=args
         )
     elif isinstance(source, str):
