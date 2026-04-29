@@ -49,74 +49,6 @@ from time import monotonic
 from dataclasses import make_dataclass
 
 
-def lower_python_obj(obj: object, visited: Optional[Set[object]] = None) -> Any:
-    if visited is None:
-        visited = set()
-
-    if id(obj) in visited:
-        raise QSharpError("Cannot send circular objects from Python to Q#.")
-
-    visited = visited.copy().add(id(obj))
-
-    # Base case: Primitive types
-    if isinstance(obj, (bool, int, float, complex, str, Pauli, Result)):
-        return obj
-
-    # Recursive case: Tuple
-    if isinstance(obj, tuple):
-        return tuple(lower_python_obj(elt, visited) for elt in obj)
-
-    # Recursive case: Dict
-    if isinstance(obj, dict):
-        return {name: lower_python_obj(val, visited) for name, val in obj.items()}
-
-    # Base case: Callable or Closure
-    if hasattr(obj, "__global_callable"):
-        return obj.__getattribute__("__global_callable")
-    if isinstance(obj, (GlobalCallable, Closure)):
-        return obj
-
-    # Recursive case: Class with slots
-    if hasattr(obj, "__slots__"):
-        fields = {}
-        for name in getattr(obj, "__slots__"):
-            if name == "__dict__":
-                for name, val in obj.__dict__.items():
-                    fields[name] = lower_python_obj(val, visited)
-            else:
-                val = getattr(obj, name)
-                fields[name] = lower_python_obj(val, visited)
-        return fields
-
-    # Recursive case: Class
-    if hasattr(obj, "__dict__"):
-        fields = {
-            name: lower_python_obj(val, visited) for name, val in obj.__dict__.items()
-        }
-        return fields
-
-    # Recursive case: Array
-    # By using `Iterable` instead of `list`, we can handle other kind of iterables
-    # like numpy arrays and generators.
-    if isinstance(obj, Iterable):
-        return [lower_python_obj(elt, visited) for elt in obj]
-
-    raise TypeError(f"unsupported type: {type(obj)}")
-
-
-def python_args_to_interpreter_args(args):
-    """
-    Helper function to turn the `*args` argument of this module
-    to the format expected by the Q# interpreter.
-    """
-    if len(args) == 0:
-        return None
-    elif len(args) == 1:
-        return lower_python_obj(args[0])
-    else:
-        return lower_python_obj(args)
-
-
 _default_session: Optional["Session"] = None
 
 # Check if we are running in a Jupyter notebook to use the IPython display function
@@ -480,39 +412,6 @@ def eval(
     return _get_session().eval(source, save_events=save_events)
 
 
-def qsharp_value_to_python_value(obj):
-    # Base case: Primitive types
-    if isinstance(obj, (bool, int, float, complex, str, Pauli, Result)):
-        return obj
-
-    # Recursive case: Tuple
-    if isinstance(obj, tuple):
-        # Special case Value::UNIT maps to None.
-        if not obj:
-            return None
-        return tuple(qsharp_value_to_python_value(elt) for elt in obj)
-
-    # Recursive case: Array
-    if isinstance(obj, list):
-        return [qsharp_value_to_python_value(elt) for elt in obj]
-
-    # Recursive case: Callable or Closure
-    if isinstance(obj, (GlobalCallable, Closure)):
-        return obj
-
-    # Recursive case: Udt
-    if isinstance(obj, UdtValue):
-        class_name = obj.name
-        fields = []
-        args = []
-        for name, value_ir in obj.fields:
-            val = qsharp_value_to_python_value(value_ir)
-            ty = type(val)
-            args.append(val)
-            fields.append((name, ty))
-        return make_dataclass(class_name, fields)(*args)
-
-
 def make_class_rec(qsharp_type: TypeIR) -> type:
     class_name = qsharp_type.unwrap_udt().name
     fields = {}
@@ -767,18 +666,20 @@ def estimate(
     param_str = json.dumps(params)
     telemetry_events.on_estimate()
     start = monotonic()
-    interpreter = _get_session(entry_expr)._interpreter
+    session = _get_session(entry_expr)
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
-        res_str = interpreter.estimate(
+        args = session._python_args_to_interpreter_args(args)
+        res_str = session._interpreter.estimate(
             param_str, callable=entry_expr.__global_callable, args=args
         )
     elif isinstance(entry_expr, (GlobalCallable, Closure)):
-        args = python_args_to_interpreter_args(args)
-        res_str = interpreter.estimate(param_str, callable=entry_expr, args=args)
+        args = session._python_args_to_interpreter_args(args)
+        res_str = session._interpreter.estimate(
+            param_str, callable=entry_expr, args=args
+        )
     else:
         assert isinstance(entry_expr, str)
-        res_str = interpreter.estimate(param_str, entry_expr=entry_expr)
+        res_str = session._interpreter.estimate(param_str, entry_expr=entry_expr)
     res = json.loads(res_str)
 
     try:
@@ -870,6 +771,9 @@ def _get_session(obj: Any = None) -> "Session":
     return _default_session
 
 
+import time
+
+
 class Session:
     """
     (TODO: update this comment!)
@@ -897,6 +801,8 @@ class Session:
         _code_module: Optional[types.ModuleType] = None,
         _code_prefix: Optional[str] = None,
     ):
+        t0 = time.time()
+
         self._disposed = False
 
         if _code_module is not None:
@@ -952,6 +858,116 @@ class Session:
         self._config = Config(
             target_profile, language_features, manifest_contents, project_root
         )
+        print("Session init time", time.time() - t0)
+
+    def _qsharp_value_to_python_value(self, obj):
+        """Converts Q# value to Python value."""
+        # Base case: Primitive types
+        if isinstance(obj, (bool, int, float, complex, str, Pauli, Result)):
+            return obj
+
+        # Recursive case: Tuple
+        if isinstance(obj, tuple):
+            # Special case Value::UNIT maps to None.
+            if not obj:
+                return None
+            return tuple(self._qsharp_value_to_python_value(elt) for elt in obj)
+
+        # Recursive case: Array
+        if isinstance(obj, list):
+            return [self._qsharp_value_to_python_value(elt) for elt in obj]
+
+        # Recursive case: Callable or Closure
+        if isinstance(obj, (GlobalCallable, Closure)):
+            return obj
+
+        # Recursive case: Udt
+        if isinstance(obj, UdtValue):
+            class_name = obj.name
+            fields = []
+            args = []
+            for name, value_ir in obj.fields:
+                val = self._qsharp_value_to_python_value(value_ir)
+                ty = type(val)
+                args.append(val)
+                fields.append((name, ty))
+            return make_dataclass(class_name, fields)(*args)
+
+    def _lower_python_obj(
+        self, obj: object, visited: Optional[Set[object]] = None
+    ) -> Any:
+        """Converts Python value to Q# value."""
+
+        # Base case: Primitive types
+        if isinstance(obj, (bool, int, float, complex, str, Pauli, Result)):
+            return obj
+
+        obj_id = id(obj)
+        if visited is None:
+            visited = set()
+        if obj_id in visited:
+            raise QSharpError("Cannot send circular objects from Python to Q#.")
+        visited.add(obj_id)
+
+        try:
+            # Recursive case: Tuple
+            if isinstance(obj, tuple):
+                return tuple(self._lower_python_obj(elt, visited) for elt in obj)
+
+            # Recursive case: Dict
+            if isinstance(obj, dict):
+                return {
+                    name: self._lower_python_obj(val, visited)
+                    for name, val in obj.items()
+                }
+
+            # Base case: Callable or Closure
+            if hasattr(obj, "__global_callable"):
+                self._check_same_session_callable(obj)
+                return obj.__getattribute__("__global_callable")
+            if isinstance(obj, (GlobalCallable, Closure)):
+                return obj
+
+            # Recursive case: Class with slots
+            if hasattr(obj, "__slots__"):
+                self._check_same_session_struct(obj)
+                fields = {}
+                for name in getattr(obj, "__slots__"):
+                    if name == "__dict__":
+                        for name, val in obj.__dict__.items():
+                            fields[name] = self._lower_python_obj(val, visited)
+                    else:
+                        val = getattr(obj, name)
+                        fields[name] = self._lower_python_obj(val, visited)
+                return fields
+
+            # Recursive case: Class
+            if hasattr(obj, "__dict__"):
+                self._check_same_session_struct(obj)
+                fields = {
+                    name: self._lower_python_obj(val, visited)
+                    for name, val in obj.__dict__.items()
+                }
+                return fields
+
+            # Recursive case: Array
+            # By using `Iterable` instead of `list`, we can handle other kind of iterables
+            # like numpy arrays and generators.
+            if isinstance(obj, Iterable):
+                return [self._lower_python_obj(elt, visited) for elt in obj]
+
+            raise TypeError(f"unsupported type: {type(obj)}")
+        finally:
+            visited.remove(obj_id)
+
+    def _python_args_to_interpreter_args(self, args: tuple[Any, ...]):
+        """Turns `args` to the format expected by the Q# interpreter."""
+        if len(args) == 0:
+            return None
+        elif len(args) == 1:
+            return self._lower_python_obj(args[0])
+        else:
+            return self._lower_python_obj(args)
 
     def _make_callable(
         self, callable: GlobalCallable, namespace: List[str], callable_name: str
@@ -989,9 +1005,9 @@ class Session:
                         pass
                 print(output, flush=True)
 
-            args = python_args_to_interpreter_args(args)
+            args = self._python_args_to_interpreter_args(args)
             output = self._interpreter.invoke(callable, args, callback)
-            return qsharp_value_to_python_value(output)
+            return self._qsharp_value_to_python_value(output)
 
         setattr(_callable_fn, "_qdk_session", self)
         setattr(_callable_fn, "__global_callable", callable)
@@ -1021,14 +1037,27 @@ class Session:
 
         QSharpClass = make_class_rec(qsharp_type)
         QSharpClass.__qsharp_class = True
+        setattr(QSharpClass, "_qdk_session", self)
         module.__setattr__(class_name, QSharpClass)
 
-    def _check_same_session(self, callable_fn: Callable) -> None:
-        """Raise if a callable belongs to a different session than *session*."""
+    def _check_same_session_callable(self, callable_fn: Any) -> None:
+        """Raise if a callable belongs to a different session."""
+        # Callable must originate from Q#, so it always has a session.
         assert hasattr(callable_fn, "_qdk_session")
         callable_session = getattr(callable_fn, "_qdk_session")
         if callable_session is not self:
             raise QSharpError("This callable belongs to a different Session. ")
+
+    def _check_same_session_struct(self, struct: Any) -> None:
+        """Raise if a struct belongs to a different session."""
+        # Struct values originating from Q# are not themselves tagged with _qdk_session,
+        # but their classes are (in _make_class).
+        struct_type = type(struct)
+        if not hasattr(struct_type, "_qdk_session"):
+            # Ignore objects not originating from Q#.
+            return
+        if getattr(struct_type, "_qdk_session") is not self:
+            raise QSharpError("This struct belongs to a different Session. ")
 
     @property
     def config(self) -> Config:
@@ -1101,7 +1130,7 @@ class Session:
         output = self._interpreter.interpret(
             source, on_save_events if save_events else callback
         )
-        results["result"] = qsharp_value_to_python_value(output)
+        results["result"] = self._qsharp_value_to_python_value(output)
 
         durationMs = (monotonic() - start_time) * 1000
         telemetry_events.on_eval_end(durationMs)
@@ -1190,11 +1219,11 @@ class Session:
         if isinstance(entry_expr, Callable) and hasattr(
             entry_expr, "__global_callable"
         ):
-            self._check_same_session(entry_expr)
-            args = python_args_to_interpreter_args(args)
+            self._check_same_session_callable(entry_expr)
+            args = self._python_args_to_interpreter_args(args)
             callable = getattr(entry_expr, "__global_callable")
         elif isinstance(entry_expr, (GlobalCallable, Closure)):
-            args = python_args_to_interpreter_args(args)
+            args = self._python_args_to_interpreter_args(args)
             callable = entry_expr
         else:
             assert isinstance(entry_expr, str)
@@ -1232,7 +1261,7 @@ class Session:
                 args,
                 shot_seed,
             )
-            run_results = qsharp_value_to_python_value(run_results)
+            run_results = self._qsharp_value_to_python_value(run_results)
             results[-1]["result"] = run_results
             if on_result:
                 on_result(results[-1])
@@ -1278,13 +1307,13 @@ class Session:
         if isinstance(entry_expr, Callable) and hasattr(
             entry_expr, "__global_callable"
         ):
-            self._check_same_session(entry_expr)
-            args = python_args_to_interpreter_args(args)
+            self._check_same_session_callable(entry_expr)
+            args = self._python_args_to_interpreter_args(args)
             ll_str = self._interpreter.qir(
                 callable=getattr(entry_expr, "__global_callable"), args=args
             )
         elif isinstance(entry_expr, (GlobalCallable, Closure)):
-            args = python_args_to_interpreter_args(args)
+            args = self._python_args_to_interpreter_args(args)
             ll_str = self._interpreter.qir(callable=entry_expr, args=args)
         else:
             assert isinstance(entry_expr, str)
@@ -1362,15 +1391,15 @@ class Session:
         if isinstance(entry_expr, Callable) and hasattr(
             entry_expr, "__global_callable"
         ):
-            self._check_same_session(entry_expr)
-            args = python_args_to_interpreter_args(args)
+            self._check_same_session_callable(entry_expr)
+            args = self._python_args_to_interpreter_args(args)
             res = self._interpreter.circuit(
                 config=config,
                 callable=getattr(entry_expr, "__global_callable"),
                 args=args,
             )
         elif isinstance(entry_expr, (GlobalCallable, Closure)):
-            args = python_args_to_interpreter_args(args)
+            args = self._python_args_to_interpreter_args(args)
             res = self._interpreter.circuit(
                 config=config, callable=entry_expr, args=args
             )
@@ -1403,13 +1432,13 @@ class Session:
         if isinstance(entry_expr, Callable) and hasattr(
             entry_expr, "__global_callable"
         ):
-            self._check_same_session(entry_expr)
-            args = python_args_to_interpreter_args(args)
+            self._check_same_session_callable(entry_expr)
+            args = self._python_args_to_interpreter_args(args)
             res_dict = self._interpreter.logical_counts(
                 callable=getattr(entry_expr, "__global_callable"), args=args
             )
         elif isinstance(entry_expr, (GlobalCallable, Closure)):
-            args = python_args_to_interpreter_args(args)
+            args = self._python_args_to_interpreter_args(args)
             res_dict = self._interpreter.logical_counts(callable=entry_expr, args=args)
         else:
             assert isinstance(entry_expr, str)

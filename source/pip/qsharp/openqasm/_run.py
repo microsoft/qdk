@@ -16,7 +16,6 @@ from .._qsharp import (
     StateDumpData,
     _get_session,
     ipython_helper,
-    python_args_to_interpreter_args,
     NoiseConfig,
 )
 from .. import telemetry_events
@@ -107,7 +106,7 @@ def run(
     callable = None
     source_str: Optional[str] = None
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
+        args = _get_session(source)._python_args_to_interpreter_args(args)
         callable = source.__global_callable
     elif isinstance(source, str):
         source_str = source

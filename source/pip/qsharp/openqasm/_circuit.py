@@ -11,7 +11,6 @@ from .._qsharp import (
     ipython_helper,
     Circuit,
     CircuitConfig,
-    python_args_to_interpreter_args,
 )
 from .. import telemetry_events
 
@@ -87,8 +86,9 @@ def circuit(
     )
 
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
-        res = _get_session(source)._interpreter.circuit(
+        session = _get_session(source)
+        args = session._python_args_to_interpreter_args(args)
+        res = session._interpreter.circuit(
             config, callable=source.__global_callable, args=args
         )
     else:

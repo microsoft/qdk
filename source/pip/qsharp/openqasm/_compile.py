@@ -14,7 +14,6 @@ from .._qsharp import (
     _get_session,
     ipython_helper,
     TargetProfile,
-    python_args_to_interpreter_args,
 )
 from .. import telemetry_events
 
@@ -67,9 +66,10 @@ def compile(
     telemetry_events.on_compile_qasm(target_profile)
 
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
-        ll_str = _get_session(source)._interpreter.qir(
-            entry_expr=None, callable=source.__global_callable, args=args
+        session = _get_session(source)
+        qsharp_args = session._python_args_to_interpreter_args(args)
+        ll_str = session._interpreter.qir(
+            entry_expr=None, callable=source.__global_callable, args=qsharp_args
         )
     elif isinstance(source, str):
         # remove any entries from kwargs with a None key or None value
