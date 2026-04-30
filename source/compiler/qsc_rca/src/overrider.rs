@@ -8,8 +8,8 @@ use crate::{
 };
 use qsc_fir::{
     fir::{
-        Block, BlockId, CallableImpl, Expr, ExprId, Global, Item, ItemKind, LocalItemId, Package,
-        PackageStore, PackageStoreLookup, Pat, PatId, Stmt, StmtId,
+        Block, BlockId, CallableImpl, Expr, ExprId, Global, ItemKind, Package, PackageStore,
+        PackageStoreLookup, Pat, PatId, Stmt, StmtId,
     },
     ty::FunctorSetValue,
     visit::{Visitor, walk_block, walk_expr, walk_stmt},
@@ -92,15 +92,6 @@ impl<'a> Overrider<'a> {
     fn get_current_package(&self) -> PackageId {
         self.current_package
             .expect("current package should be valid")
-    }
-
-    fn get_item(&self, id: LocalItemId) -> &'a Item {
-        let package_id = self.get_current_package();
-        self.package_store
-            .get(package_id)
-            .items
-            .get(id)
-            .expect("item not found")
     }
 
     fn populate_package_internal(&mut self, package_id: PackageId, package: &'a Package) {
@@ -201,7 +192,8 @@ impl<'a> Visitor<'a> for Overrider<'a> {
             let callables = namespace_items
                 .iter()
                 .filter_map(|item_id| {
-                    let item = self.get_item(*item_id);
+                    let package_id = self.get_current_package();
+                    let item = self.package_store.get(package_id).items.get(*item_id)?;
                     match &item.kind {
                         ItemKind::Callable(decl) => Some((item.id, decl.name.name.to_string())),
                         _ => None,

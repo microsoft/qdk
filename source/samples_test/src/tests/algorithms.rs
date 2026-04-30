@@ -8,8 +8,8 @@ use expect_test::{Expect, expect};
 // fail to compile until the new expect strings are added.
 pub const BERNSTEINVAZIRANI_EXPECT: Expect = expect!["[127, 238, 512]"];
 pub const BERNSTEINVAZIRANI_EXPECT_DEBUG: Expect = expect!["[127, 238, 512]"];
-pub const BERNSTEINVAZIRANI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 29822"];
-pub const BERNSTEINVAZIRANI_EXPECT_QIR: Expect = expect!["generated QIR of length 20273"];
+pub const BERNSTEINVAZIRANI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 27618"];
+pub const BERNSTEINVAZIRANI_EXPECT_QIR: Expect = expect!["generated QIR of length 19369"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_DEBUG: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_CIRCUIT: Expect =
@@ -186,9 +186,10 @@ pub const SIMPLEVQE_EXPECT_DEBUG: Expect = expect![[r#"
    Descent done. Attempts: 52, Step: 0.0009765625, Arguments: [1.5, 1.0625], Value: 0.3216.
    0.3216"#]];
 // VQE sample is not expected to produce a circuit as it is too large and complex.
-pub const SIMPLEVQE_EXPECT_CIRCUIT: Expect = expect!["circuit error: partial evaluation error"];
+pub const SIMPLEVQE_EXPECT_CIRCUIT: Expect =
+    expect!["circuit error: cannot use a dynamically-sized array"];
 pub const SIMPLEVQE_EXPECT_QIR: Expect =
-    expect!["QIR generation error for `SimpleVQE.Main()`: partial evaluation error"];
+    expect!["QIR generation error for `SimpleVQE.Main()`: cannot use a dynamically-sized array"];
 pub const SUPERDENSECODING_EXPECT: Expect = expect!["((false, true), (false, true))"];
 pub const SUPERDENSECODING_EXPECT_DEBUG: Expect = expect!["((false, true), (false, true))"];
 pub const SUPERDENSECODING_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 4891"];

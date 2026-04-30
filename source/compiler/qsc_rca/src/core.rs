@@ -1277,7 +1277,11 @@ impl<'a> Analyzer<'a> {
     }
 
     fn analyze_spec(&mut self, id: GlobalSpecId, callable_decl: &'a CallableDecl) {
-        // Only do this if the specialization has not been analyzed already.
+        // Early-return: skip re-analysis of already-analyzed specializations.
+        // With insert-if-absent at the scaffolding level, this guard is no longer
+        // required for overwrite correctness, but it remains necessary for:
+        // 1. Cycle prevention in cyclic callable analysis
+        // 2. Performance (avoids redundant analysis of already-complete specs)
         if self
             .package_store_compute_properties
             .find_specialization(id)
@@ -1569,7 +1573,7 @@ impl<'a> Analyzer<'a> {
     fn unanalyzed_stmts(&self, package_id: PackageId) -> Vec<StmtId> {
         let package = self.package_store.get(package_id);
         let mut unanalyzed_stmts = Vec::new();
-        for (stmt_id, _) in &package.stmts {
+        for (stmt_id, _stmt) in &package.stmts {
             if self
                 .package_store_compute_properties
                 .find_stmt((package_id, stmt_id).into())
@@ -1736,10 +1740,13 @@ impl<'a> Analyzer<'a> {
         let current_package = self.package_store.get(self.get_current_package_id());
         let mut stmt_collector = StmtCollector::new(current_package);
         stmt_collector.visit_block(block_id);
+        let callable_context = self.get_current_item_context().get_callable_context();
+        let default_generator_set =
+            default_application_generator_set_for_callable(callable_context);
         for stmt_id in stmt_collector.stmts {
             self.package_store_compute_properties.insert_stmt(
                 (self.get_current_package_id(), stmt_id).into(),
-                ApplicationGeneratorSet::default(),
+                default_generator_set.clone(),
             );
         }
     }
@@ -2248,6 +2255,42 @@ impl SpecContext {
 enum CallComputeKind {
     Regular(ComputeKind),
     Override(ComputeKind),
+}
+
+/// Builds a neutral, arity-matched `ApplicationGeneratorSet` for a callable whose body
+/// statements are being marked as "visited" without analysis (e.g. `@SimulatableIntrinsic`
+/// and `@Test` callable bodies in `set_all_stmts_in_block_to_default`).
+///
+/// The generator set must have `dynamic_param_applications` whose length matches the
+/// owning callable's input-parameter arity so the invariant check in
+/// `invariants.rs` (and any downstream consumer of these sentinel stmts) does not see a
+/// zero-arity entry where a non-zero arity is expected. Each entry is a conservative
+/// neutral shape: scalar parameters map to `ParamApplication::Element(ComputeKind::Static)`
+/// and array parameters map to `ParamApplication::Array` with a `Static` static-size
+/// compute kind and a conservative `Dynamic` dynamic-size compute kind.
+fn default_application_generator_set_for_callable(
+    callable_context: &CallableContext,
+) -> ApplicationGeneratorSet {
+    let mut dynamic_param_applications =
+        Vec::<ParamApplication>::with_capacity(callable_context.input_params.len());
+    for param in &callable_context.input_params {
+        let param_application = match &param.ty {
+            Ty::Array(_) => ParamApplication::Array(ArrayParamApplication {
+                static_size: ComputeKind::Static,
+                dynamic_size: ComputeKind::Dynamic {
+                    runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
+                    value_kind: ValueKind::Variable,
+                },
+            }),
+            _ => ParamApplication::Element(ComputeKind::Static),
+        };
+        dynamic_param_applications.push(param_application);
+    }
+
+    ApplicationGeneratorSet {
+        inherent: ComputeKind::Static,
+        dynamic_param_applications,
+    }
 }
 
 fn derive_intrinsic_function_application_generator_set(

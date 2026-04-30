@@ -826,6 +826,35 @@ def test_qasm_estimation() -> None:
     )
 
 
+def test_qasm_estimate_succeeds_for_dynamic_bool_program_rejected_by_compile() -> None:
+    source = """
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        qubit q;
+        bit c;
+        c = measure q;
+        if (c) { x q; }
+        """
+
+    with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfDynamicBool"):
+        compile(source)
+
+    res = estimate(source)
+
+    assert res["status"] == "success"
+    assert res["physicalCounts"] is not None
+    assert res.logical_counts == LogicalCounts(
+        {
+            "numQubits": 1,
+            "tCount": 0,
+            "rotationCount": 0,
+            "rotationDepth": 0,
+            "cczCount": 0,
+            "measurementCount": 1,
+        }
+    )
+
+
 def test_qasm_estimation_with_single_params() -> None:
     params = EstimatorParams()
     params.error_budget = 0.333

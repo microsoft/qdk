@@ -422,6 +422,7 @@ impl Range {
     }
 }
 
+#[derive(Clone)]
 pub struct Env {
     scopes: Vec<Scope>,
     qubits: FxHashSet<Rc<Qubit>>,
@@ -563,7 +564,7 @@ impl Env {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Scope {
     bindings: IndexMap<LocalVarId, Variable>,
     frame_id: usize,
@@ -1120,7 +1121,9 @@ impl State {
                 Some(var) => {
                     var.value.append_array(rhs);
                 }
-                None => return Err(Error::UnboundName(self.to_global_span(lhs.span))),
+                None => {
+                    return Err(Error::UnboundName(self.to_global_span(lhs.span)));
+                }
             },
             _ => unreachable!("unassignable array update pattern should be disallowed by compiler"),
         }
@@ -1200,6 +1203,7 @@ impl State {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn eval_call<B: Backend>(
         &mut self,
         env: &mut Env,
@@ -1228,7 +1232,9 @@ impl State {
                 self.set_val_register(arg);
                 return Ok(());
             }
-            None => return Err(Error::UnboundName(self.to_global_span(callable_span))),
+            None => {
+                return Err(Error::UnboundName(self.to_global_span(callable_span)));
+            }
         };
 
         let callee_span = self.to_global_span(callee.span);
@@ -1677,7 +1683,9 @@ impl State {
                 Some(var) => {
                     var.value = rhs;
                 }
-                None => return Err(Error::UnboundName(self.to_global_span(lhs.span))),
+                None => {
+                    return Err(Error::UnboundName(self.to_global_span(lhs.span)));
+                }
             },
             (ExprKind::Tuple(var_tup), Value::Tuple(tup, _)) => {
                 for (expr, val) in var_tup.iter().zip(tup.iter()) {

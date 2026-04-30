@@ -16,6 +16,10 @@ mod tests;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
+    codegen::qir::{
+        PreparedBackendFir, entry_from_prepared_fir, prepare_backend_fir,
+        prepare_backend_fir_from_callable_args, prepare_backend_fir_from_fir_store,
+    },
     error::{self, WithStack},
     incremental::Compiler,
     location::Location,
@@ -74,10 +78,10 @@ use qsc_lowerer::{
     map_fir_local_item_to_hir, map_fir_package_to_hir, map_hir_local_item_to_fir,
     map_hir_package_to_fir,
 };
-use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
+use qsc_partial_eval::PartialEvalConfig;
 use qsc_passes::{PackageType, PassContext};
 use qsc_rca::PackageStoreComputeProperties;
-use rustc_hash::FxHashSet;
+use rustc_hash::FxHashMap;
 use thiserror::Error;
 
 impl Error {
@@ -120,6 +124,9 @@ pub enum Error {
     #[error("partial evaluation error")]
     #[diagnostic(transparent)]
     PartialEvaluation(#[from] WithSource<qsc_partial_eval::Error>),
+    #[error("FIR transform error")]
+    #[diagnostic(transparent)]
+    FirTransform(#[from] WithSource<qsc_fir_transforms::PipelineError>),
 }
 
 /// A Q# interpreter.
@@ -128,8 +135,6 @@ pub struct Interpreter {
     compiler: Compiler,
     /// The target capabilities used for compilation.
     capabilities: TargetCapabilityFlags,
-    /// The computed properties for the package store, if any, used for code generation.
-    compute_properties: Option<PackageStoreComputeProperties>,
     /// The number of lines that have so far been compiled.
     /// This field is used to generate a unique label
     /// for each line evaluated with `eval_fragments`.
@@ -339,10 +344,14 @@ impl Interpreter {
         let package_id = compiler.package_id();
 
         let package = map_hir_package_to_fir(package_id);
-        let compute_properties = if capabilities == TargetCapabilityFlags::all() {
-            None
-        } else {
-            let compute_properties = PassContext::run_fir_passes_on_fir(
+
+        // Run RCA early to surface capability violations at interpreter construction
+        // time rather than deferring to qirgen()/circuit(). The computed properties
+        // are intentionally discarded — only the `?` error propagation is used.
+        // Caching would not help because later backend paths clone the FIR store,
+        // run the transform pipeline, and re-run RCA on the transformed store.
+        if capabilities != TargetCapabilityFlags::all() {
+            let _compute_properties = PassContext::run_fir_passes_on_fir(
                 &fir_store,
                 map_hir_package_to_fir(source_package_id),
                 capabilities,
@@ -358,15 +367,12 @@ impl Interpreter {
                     .map(|error| Error::Pass(WithSource::from_map(&source_package.sources, error)))
                     .collect::<Vec<_>>()
             })?;
-
-            Some(compute_properties)
-        };
+        }
 
         Ok(Self {
             compiler,
             lines: 0,
             capabilities,
-            compute_properties,
             fir_store,
             lowerer: qsc_lowerer::Lowerer::new(),
             expr_graph: None,
@@ -908,6 +914,155 @@ impl Interpreter {
             .snapshot(&(self.compiler.package_store(), &self.fir_store))
     }
 
+    fn prepare_backend_entry_expr(
+        &mut self,
+        expr: &str,
+    ) -> std::result::Result<PreparedBackendFir, Vec<Error>> {
+        if self.source_package_entry_expr().as_deref() == Some(expr) {
+            return self.prepare_backend_source_package();
+        }
+
+        let _ = self.compile_entry_expr(expr)?;
+
+        prepare_backend_fir_from_fir_store(
+            self.compiler.package_store(),
+            map_fir_package_to_hir(self.package),
+            &self.fir_store,
+            self.package,
+            self.capabilities,
+        )
+    }
+
+    fn prepare_backend_source_package(
+        &self,
+    ) -> std::result::Result<PreparedBackendFir, Vec<Error>> {
+        prepare_backend_fir(
+            self.compiler.package_store(),
+            map_fir_package_to_hir(self.source_package),
+            self.capabilities,
+        )
+    }
+
+    fn source_package_entry_expr(&self) -> Option<String> {
+        let source_package = self
+            .compiler
+            .package_store()
+            .get(map_fir_package_to_hir(self.source_package))
+            .expect("source package should exist in the package store");
+        let entry = source_package.package.entry.as_ref()?;
+
+        let qsc_hir::hir::ExprKind::Call(callee, args) = &entry.kind else {
+            return None;
+        };
+        let qsc_hir::hir::ExprKind::Tuple(items) = &args.kind else {
+            return None;
+        };
+        if !items.is_empty() {
+            return None;
+        }
+
+        let qsc_hir::hir::ExprKind::Var(qsc_hir::hir::Res::Item(item_id), _) = &callee.kind else {
+            return None;
+        };
+        let item = source_package.package.items.get(item_id.item)?;
+        let qsc_hir::hir::ItemKind::Callable(callable) = &item.kind else {
+            return None;
+        };
+
+        let qualified_name = item
+            .parent
+            .and_then(|parent_id| source_package.package.items.get(parent_id))
+            .and_then(|parent| match &parent.kind {
+                qsc_hir::hir::ItemKind::Namespace(namespace, _) => {
+                    Some(namespace.name().to_string())
+                }
+                _ => None,
+            })
+            .map_or_else(
+                || callable.name.name.to_string(),
+                |namespace| format!("{namespace}.{}", callable.name.name),
+            );
+
+        Some(format!("{qualified_name}()"))
+    }
+
+    fn hir_item_id_from_value(
+        callable: &Value,
+    ) -> std::result::Result<qsc_hir::hir::ItemId, Vec<Error>> {
+        let Value::Global(store_item_id, _) = callable else {
+            return Err(vec![Error::NotACallable]);
+        };
+
+        Ok(qsc_hir::hir::ItemId {
+            package: map_fir_package_to_hir(store_item_id.package),
+            item: map_fir_local_item_to_hir(store_item_id.item),
+        })
+    }
+
+    fn remap_store_item_id_for_backend(store_item_id: fir::StoreItemId) -> fir::StoreItemId {
+        fir::StoreItemId {
+            package: map_hir_package_to_fir(map_fir_package_to_hir(store_item_id.package)),
+            item: map_hir_local_item_to_fir(map_fir_local_item_to_hir(store_item_id.item)),
+        }
+    }
+
+    fn remap_value_for_backend(value: Value) -> Value {
+        match value {
+            Value::Array(values) => Value::Array(Rc::new(
+                values
+                    .iter()
+                    .cloned()
+                    .map(Self::remap_value_for_backend)
+                    .collect(),
+            )),
+            Value::Closure(inner) => Value::Closure(Box::new(Closure {
+                fixed_args: inner
+                    .fixed_args
+                    .iter()
+                    .cloned()
+                    .map(Self::remap_value_for_backend)
+                    .collect::<Vec<_>>()
+                    .into(),
+                id: Self::remap_store_item_id_for_backend(inner.id),
+                functor: inner.functor,
+            })),
+            Value::Global(store_item_id, functor_app) => Value::Global(
+                Self::remap_store_item_id_for_backend(store_item_id),
+                functor_app,
+            ),
+            Value::Tuple(values, store_item_id) => Value::Tuple(
+                values
+                    .iter()
+                    .cloned()
+                    .map(Self::remap_value_for_backend)
+                    .collect::<Vec<_>>()
+                    .into(),
+                store_item_id.map(|id| Rc::new(Self::remap_store_item_id_for_backend(*id))),
+            ),
+            other => other,
+        }
+    }
+
+    fn partial_evaluation_error(
+        &self,
+        error: qsc_partial_eval::Error,
+        fallback_package: qsc_hir::hir::PackageId,
+    ) -> Vec<Error> {
+        let hir_package_id = match error.span() {
+            Some(span) => span.package,
+            None => fallback_package,
+        };
+        let source_package = self
+            .compiler
+            .package_store()
+            .get(hir_package_id)
+            .expect("package should exist in the package store");
+        vec![Error::PartialEvaluation(WithSource::from_map(
+            &source_package.sources,
+            error,
+        ))]
+    }
+
     /// Performs QIR codegen using the given entry expression on a new instance of the environment
     /// and simulator but using the current compilation.
     pub fn qirgen(&mut self, expr: &str) -> std::result::Result<String, Vec<Error>> {
@@ -915,48 +1070,16 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        // Compile the expression. This operation will set the expression as
-        // the entry-point in the FIR store.
-        let (graph, compute_properties) = self.compile_entry_expr(expr)?;
+        let prepared_fir = self.prepare_backend_entry_expr(expr)?;
+        let entry = entry_from_prepared_fir(&prepared_fir);
+        let PreparedBackendFir {
+            fir_store,
+            fir_package_id,
+            compute_properties,
+        } = prepared_fir;
 
-        let Some(compute_properties) = compute_properties else {
-            // This can only happen if capability analysis was not run. This would be a bug
-            // and we are in a bad state and can't proceed.
-            panic!("internal error: compute properties not set after lowering entry expression");
-        };
-        let package = self.fir_store.get(self.package);
-        let entry = ProgramEntry {
-            exec_graph: graph,
-            expr: (
-                self.package,
-                package
-                    .entry
-                    .expect("package must have an entry expression"),
-            )
-                .into(),
-        };
-        // Generate QIR
-        fir_to_qir(
-            &self.fir_store,
-            self.capabilities,
-            Some(compute_properties),
-            &entry,
-        )
-        .map_err(|e| {
-            let hir_package_id = match e.span() {
-                Some(span) => span.package,
-                None => map_fir_package_to_hir(self.package),
-            };
-            let source_package = self
-                .compiler
-                .package_store()
-                .get(hir_package_id)
-                .expect("package should exist in the package store");
-            vec![Error::PartialEvaluation(WithSource::from_map(
-                &source_package.sources,
-                e,
-            ))]
-        })
+        fir_to_qir(&fir_store, self.capabilities, &compute_properties, &entry)
+            .map_err(|e| self.partial_evaluation_error(e, map_fir_package_to_hir(fir_package_id)))
     }
 
     /// Performs QIR codegen using the given callable with the given arguments on a new instance of the environment
@@ -970,32 +1093,32 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let Value::Global(store_item_id, _) = callable else {
-            return Err(vec![Error::NotACallable]);
+        let callable_id = Self::hir_item_id_from_value(callable)?;
+        let backend_args = Self::remap_value_for_backend(args);
+        let prepared_fir = prepare_backend_fir_from_callable_args(
+            self.compiler.package_store(),
+            callable_id,
+            &backend_args,
+            self.capabilities,
+        )?;
+        let backend_callable = fir::StoreItemId {
+            package: map_hir_package_to_fir(callable_id.package),
+            item: map_hir_local_item_to_fir(callable_id.item),
         };
+        let PreparedBackendFir {
+            fir_store,
+            compute_properties,
+            ..
+        } = prepared_fir;
 
         fir_to_qir_from_callable(
-            &self.fir_store,
+            &fir_store,
             self.capabilities,
-            None,
-            *store_item_id,
-            args,
+            &compute_properties,
+            backend_callable,
+            backend_args,
         )
-        .map_err(|e| {
-            let hir_package_id = match e.span() {
-                Some(span) => span.package,
-                None => map_fir_package_to_hir(self.package),
-            };
-            let source_package = self
-                .compiler
-                .package_store()
-                .get(hir_package_id)
-                .expect("package should exist in the package store");
-            vec![Error::PartialEvaluation(WithSource::from_map(
-                &source_package.sources,
-                e,
-            ))]
-        })
+        .map_err(|e| self.partial_evaluation_error(e, callable_id.package))
     }
 
     /// Generates a circuit representation for the program.
@@ -1100,12 +1223,12 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let program = self.compile_to_rir_with_debug_metadata(entry_expr)?;
+        let (program, fir_store) = self.compile_to_rir_with_debug_metadata(entry_expr)?;
         rir_to_circuit(
             &program,
             tracer_config,
             &[self.package, self.source_package],
-            &(self.compiler.package_store(), &self.fir_store),
+            &(self.compiler.package_store(), &fir_store),
         )
         .map_err(|e| vec![e.into()])
     }
@@ -1120,41 +1243,41 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let Value::Global(store_item_id, _) = callable else {
-            return Err(vec![Error::NotACallable]);
+        let callable_id = Self::hir_item_id_from_value(callable)?;
+        let backend_args = Self::remap_value_for_backend(args);
+        let prepared_fir = prepare_backend_fir_from_callable_args(
+            self.compiler.package_store(),
+            callable_id,
+            &backend_args,
+            self.capabilities,
+        )?;
+        let backend_callable = fir::StoreItemId {
+            package: map_hir_package_to_fir(callable_id.package),
+            item: map_hir_local_item_to_fir(callable_id.item),
         };
+        let PreparedBackendFir {
+            fir_store,
+            compute_properties,
+            ..
+        } = prepared_fir;
 
         let (_original, transformed) = fir_to_rir_from_callable(
-            &self.fir_store,
+            &fir_store,
             self.capabilities,
-            None,
-            *store_item_id,
-            args,
+            &compute_properties,
+            backend_callable,
+            backend_args,
             PartialEvalConfig {
                 generate_debug_metadata: true,
             },
         )
-        .map_err(|e| {
-            let hir_package_id = match e.span() {
-                Some(span) => span.package,
-                None => map_fir_package_to_hir(self.package),
-            };
-            let source_package = self
-                .compiler
-                .package_store()
-                .get(hir_package_id)
-                .expect("package should exist in the package store");
-            vec![Error::PartialEvaluation(WithSource::from_map(
-                &source_package.sources,
-                e,
-            ))]
-        })?;
+        .map_err(|e| self.partial_evaluation_error(e, callable_id.package))?;
 
         rir_to_circuit(
             &transformed,
             tracer_config,
             &[self.package, self.source_package],
-            &(self.compiler.package_store(), &self.fir_store),
+            &(self.compiler.package_store(), &fir_store),
         )
         .map_err(|e| vec![e.into()])
     }
@@ -1162,74 +1285,44 @@ impl Interpreter {
     fn compile_to_rir_with_debug_metadata(
         &mut self,
         entry_expr: Option<&str>,
-    ) -> std::result::Result<qsc_partial_eval::Program, Vec<Error>> {
-        let (entry, compute_properties) = if let Some(entry_expr) = &entry_expr {
-            // Compile the expression. This operation will set the expression as
-            // the entry-point in the FIR store.
-            let (graph, compute_properties) = self.compile_entry_expr(entry_expr)?;
-
-            let Some(compute_properties) = compute_properties else {
-                // This can only happen if capability analysis was not run.
-                panic!(
-                    "internal error: compute properties not set after lowering entry expression"
-                );
-            };
-            let package = self.fir_store.get(self.package);
-            let entry = ProgramEntry {
-                exec_graph: graph,
-                expr: (
-                    self.package,
-                    package
-                        .entry
-                        .expect("package must have an entry expression"),
-                )
-                    .into(),
-            };
-            (entry, compute_properties)
+    ) -> std::result::Result<(qsc_partial_eval::Program, qsc_fir::fir::PackageStore), Vec<Error>>
+    {
+        let source_entry_expr = if entry_expr.is_none() {
+            self.source_package_entry_expr()
         } else {
-            let package = self.fir_store.get(self.source_package);
-            let entry = ProgramEntry {
-                exec_graph: package.entry_exec_graph.clone(),
-                expr: (
-                    self.source_package,
-                    package
-                        .entry
-                        .expect("package must have an entry expression"),
-                )
-                    .into(),
-            };
-            (
-                entry,
-                self.compute_properties.clone().expect(
-                    "compute properties should be set if target profile isn't unrestricted",
-                ),
-            )
+            None
         };
+
+        let (prepared_fir, fallback_package) =
+            if let Some(entry_expr) = entry_expr.or(source_entry_expr.as_deref()) {
+                (
+                    self.prepare_backend_entry_expr(entry_expr)?,
+                    map_fir_package_to_hir(self.package),
+                )
+            } else {
+                (
+                    self.prepare_backend_source_package()?,
+                    map_fir_package_to_hir(self.source_package),
+                )
+            };
+
+        let entry = entry_from_prepared_fir(&prepared_fir);
+        let PreparedBackendFir {
+            fir_store,
+            compute_properties,
+            ..
+        } = prepared_fir;
         let (_original, transformed) = fir_to_rir(
-            &self.fir_store,
+            &fir_store,
             self.capabilities,
-            Some(compute_properties),
+            &compute_properties,
             &entry,
             PartialEvalConfig {
                 generate_debug_metadata: true,
             },
         )
-        .map_err(|e| {
-            let hir_package_id = match e.span() {
-                Some(span) => span.package,
-                None => map_fir_package_to_hir(self.package),
-            };
-            let source_package = self
-                .compiler
-                .package_store()
-                .get(hir_package_id)
-                .expect("package should exist in the package store");
-            vec![Error::PartialEvaluation(WithSource::from_map(
-                &source_package.sources,
-                e,
-            ))]
-        })?;
-        Ok(transformed)
+        .map_err(|e| self.partial_evaluation_error(e, fallback_package))?;
+        Ok((transformed, fir_store))
     }
 
     /// Sets the entry expression for the interpreter.
@@ -1405,7 +1498,9 @@ impl Interpreter {
         }
 
         self.lower_and_update_package(unit_addition);
-        Ok((self.lowerer.take_exec_graph(), None))
+        let graph = self.lowerer.take_exec_graph();
+        self.fir_store.get_mut(self.package).entry_exec_graph = graph.clone();
+        Ok((graph, None))
     }
 
     fn lower_and_update_package(&mut self, unit: &qsc_frontend::incremental::Increment) {
@@ -1446,6 +1541,7 @@ impl Interpreter {
         })?;
 
         let graph = self.lowerer.take_exec_graph();
+        self.fir_store.get_mut(self.package).entry_exec_graph = graph.clone();
         Ok((graph, Some(compute_properties)))
     }
 
@@ -1664,7 +1760,7 @@ impl Debugger {
                 self.position_encoding,
             );
             collector.visit_package(package, &self.interpreter.fir_store);
-            let mut spans: Vec<_> = collector.statements.into_iter().collect();
+            let mut spans: Vec<_> = collector.statements.into_values().collect();
 
             // Sort by start position (line first, column next)
             spans.sort_by_key(|s| (s.range.start.line, s.range.start.column));
@@ -1748,7 +1844,7 @@ pub struct BreakpointSpan {
 }
 
 struct BreakpointCollector<'a> {
-    statements: FxHashSet<BreakpointSpan>,
+    statements: FxHashMap<Range, BreakpointSpan>,
     sources: &'a SourceMap,
     offset: u32,
     package: &'a Package,
@@ -1763,7 +1859,7 @@ impl<'a> BreakpointCollector<'a> {
         position_encoding: Encoding,
     ) -> Self {
         Self {
-            statements: FxHashSet::default(),
+            statements: FxHashMap::default(),
             sources,
             offset,
             package,
@@ -1782,11 +1878,18 @@ impl<'a> BreakpointCollector<'a> {
         if source.offset == self.offset {
             let span = stmt.span - source.offset;
             if span != Span::default() {
+                let range = Range::from_span(self.position_encoding, &source.contents, &span);
                 let bps = BreakpointSpan {
                     id: stmt.id.into(),
-                    range: Range::from_span(self.position_encoding, &source.contents, &span),
+                    range,
                 };
-                self.statements.insert(bps);
+                // Keep the first statement seen for a source range so UI clients get
+                // one stable, hittable breakpoint per visual location.
+                // Multiple HIR passes (ReplaceQubitAllocation, LoopUni,
+                // conjugate_invert, spec_gen) generate statements sharing the same
+                // source span. The lowerer maps these 1:1 into FIR, so deduplication
+                // is needed here.
+                self.statements.entry(range).or_insert(bps);
             }
         }
     }

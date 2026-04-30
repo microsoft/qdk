@@ -23,6 +23,7 @@ thiserror = { workspace = true }
 [dev-dependencies]
 expect-test = { workspace = true }
 qsc = { path = "../qsc" }
+qsc_fir_transforms = { path = "../qsc_fir_transforms", features = ["testutil"] }
 qsc_passes = { path = "../qsc_passes" }
 
 [lints]

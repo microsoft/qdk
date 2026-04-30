@@ -1801,3 +1801,58 @@ fn dynamic_nested_loop() {
                 Jump(7)"#]],
     );
 }
+
+#[test]
+fn classical_while_inside_dynamic_while_folds_mutable_variable() {
+    // Verifies that a classically-unrolled while loop nested inside the body of a
+    // dynamic (emit) while loop correctly folds mutable variables to their static
+    // values instead of treating them as dynamic variables.
+    let program = get_rir_program_with_capabilities(
+        indoc! {
+            r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                mutable total = 0;
+                while MResetZ(q) == One {
+                    mutable i = 0;
+                    while i < 3 {
+                        set i += 1;
+                    }
+                    set total += i;
+                }
+                total
+            }
+        }
+        "#,
+        },
+        TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::BackwardsBranching,
+    );
+
+    // The inner `while i < 3` loop should be fully unrolled classically,
+    // and `i` should fold to 3. The outer loop emits branch instructions.
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Variable(0, Integer) = Store Integer(0)
+                Jump(1)
+            Block 1:Block:
+                Call id(2), args( Qubit(0), Result(0), )
+                Variable(1, Boolean) = Call id(3), args( Result(0), )
+                Variable(2, Boolean) = Store Variable(1, Boolean)
+                Branch Variable(2, Boolean), 3, 2
+            Block 2:Block:
+                Variable(5, Integer) = Store Variable(0, Integer)
+                Call id(4), args( Variable(5, Integer), Tag(0, 3), )
+                Return
+            Block 3:Block:
+                Variable(3, Integer) = Store Integer(0)
+                Variable(4, Integer) = Add Variable(0, Integer), Integer(3)
+                Variable(0, Integer) = Store Variable(4, Integer)
+                Jump(1)"#]],
+    );
+}

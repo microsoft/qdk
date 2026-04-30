@@ -10,11 +10,13 @@ mod calls;
 mod cycles;
 mod ifs;
 mod intrinsics;
+mod invariants_strict;
 mod lambdas;
 mod loops;
 mod measurements;
 mod overrides;
 mod qubits;
+mod return_unify_interactions;
 mod strings;
 mod structs;
 mod types;
@@ -99,6 +101,70 @@ impl Default for CompilationContext {
     fn default() -> Self {
         Self::new(Profile::AdaptiveRIF.into())
     }
+}
+
+/// A fixture that mirrors [`CompilationContext`] but runs the FIR transform
+/// pipeline over the lowered FIR store before instantiating the RCA
+/// [`Analyzer`]. Used by arity-consistency and return-unify interaction tests
+/// that need RCA results to reflect post-pipeline FIR.
+///
+/// The pipeline requires an executable package (with an entry expression), so
+/// this fixture compiles Q# source plus an explicit entry string via
+/// [`qsc_fir_transforms::test_utils::compile_to_fir_with_entry`].
+pub struct PipelineContext {
+    pub fir_store: PackageStore,
+    pub user_package_id: qsc_fir::fir::PackageId,
+    pub compute_properties: PackageStoreComputeProperties,
+}
+
+impl PipelineContext {
+    /// Builds a pipeline context from Q# `source` and an executable `entry`
+    /// expression.
+    #[must_use]
+    pub fn new(source: &str, entry: &str, capabilities: TargetCapabilityFlags) -> Self {
+        let (mut fir_store, user_package_id) =
+            qsc_fir_transforms::test_utils::compile_to_fir_with_entry(source, entry);
+        // CONTRACT: On success, `run_pipeline` produces FIR satisfying `InvariantLevel::PostAll`.
+        // The RCA `Analyzer` assumes PostAll invariants hold — in particular, no closures or
+        // unresolved type parameters remain in reachable code. See
+        // `qsc_fir_transforms::invariants::check` for the authoritative checker.
+        let errors = qsc_fir_transforms::run_pipeline(&mut fir_store, user_package_id);
+        assert!(
+            errors.is_empty(),
+            "FIR transform pipeline reported errors: {errors:?}"
+        );
+        let analyzer = Analyzer::init(&fir_store, capabilities);
+        let compute_properties = analyzer.analyze_all();
+        Self {
+            fir_store,
+            user_package_id,
+            compute_properties,
+        }
+    }
+
+    #[must_use]
+    pub fn get_compute_properties(&self) -> &PackageStoreComputeProperties {
+        &self.compute_properties
+    }
+}
+
+impl Default for PipelineContext {
+    fn default() -> Self {
+        Self::new("", "()", TargetCapabilityFlags::all())
+    }
+}
+
+#[test]
+fn pipeline_context_smoke() {
+    let context = PipelineContext::default();
+    assert!(
+        context.get_compute_properties().iter().count() > 0,
+        "pipeline context should produce compute properties for at least one package",
+    );
+    let _ = context.fir_store.get(context.user_package_id);
+    let _ = context
+        .get_compute_properties()
+        .get(context.user_package_id);
 }
 
 pub trait PackageStoreSearch {

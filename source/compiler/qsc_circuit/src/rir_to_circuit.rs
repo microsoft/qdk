@@ -27,6 +27,10 @@ use crate::{
     rir_to_circuit::control_flow::{StructuredControlFlow, reconstruct_control_flow},
 };
 
+/// Converts a Runtime Intermediate Representation (RIR) program into a visual circuit.
+///
+/// Traverses the RIR's structured control flow, collects quantum operations, tracks variable
+/// assignments, and synthesizes the final circuit with scope grouping and qubit-wire mapping.
 pub fn rir_to_circuit(
     program_rir: &Program,
     config: TracerConfig,
@@ -77,7 +81,13 @@ pub fn rir_to_circuit(
     // All operations from the program collected, finalize the circuit.
     let qubits = wire_map_builder.into_wire_map().to_qubits(source_lookup);
     let operations = builder.into_operations();
-    let circuit = finish_circuit(source_lookup, operations, qubits, config.group_by_scope);
+    let circuit = finish_circuit(
+        source_lookup,
+        operations,
+        qubits,
+        config.group_by_scope,
+        user_package_ids,
+    );
 
     Ok(circuit)
 }
@@ -355,6 +365,7 @@ fn process_variables(
         | Instruction::Fsub(operand, operand1, variable)
         | Instruction::Fmul(operand, operand1, variable)
         | Instruction::Fdiv(operand, operand1, variable)
+        | Instruction::Frem(operand, operand1, variable)
         | Instruction::LogicalAnd(operand, operand1, variable)
         | Instruction::LogicalOr(operand, operand1, variable)
         | Instruction::BitwiseAnd(operand, operand1, variable)

@@ -8,9 +8,11 @@ use indoc::indoc;
 use miette::Report;
 use qsc::{
     LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags,
-    interpret::{GenericReceiver, Interpreter},
+    interpret::{GenericReceiver, Interpreter, Value},
     target::Profile,
 };
+
+use crate::logical_counts_call;
 
 use super::LogicalCounter;
 
@@ -51,6 +53,14 @@ fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
             panic!("evaluation failed");
         }
     }
+}
+
+fn source_global(interpreter: &Interpreter, name: &str) -> Value {
+    interpreter
+        .source_globals()
+        .into_iter()
+        .find_map(|(_, global_name, value)| (global_name.as_ref() == name).then_some(value))
+        .unwrap_or_else(|| panic!("{name} should be present in source globals"))
 }
 
 #[test]
@@ -238,6 +248,59 @@ fn account_for_estimates_works() {
             }
         "]],
     );
+}
+
+#[test]
+fn logical_counts_call_counts_callable_with_udt_output() {
+    // The callable returns a UDT so stricter backend-preparation paths would
+    // impose output-shape constraints here. logical_counts_call should still
+    // count gates by invoking the live interpreter directly.
+    let source = indoc! {r#"
+        namespace Test {
+            struct Data {
+                tally : Int
+            }
+
+            operation Counted() : Data {
+                use q = Qubit();
+                T(q);
+                MResetZ(q);
+                new Data { tally = 0 }
+            }
+        }
+    "#};
+    let source_map = SourceMap::new([("test".into(), source.into())], None);
+    let (std_id, store) = qsc::compile::package_store_with_stdlib(Profile::Base.into());
+
+    let mut interpreter = Interpreter::new(
+        source_map,
+        PackageType::Lib,
+        Profile::Base.into(),
+        LanguageFeatures::default(),
+        store,
+        &[(std_id, None)],
+    )
+    .expect("compilation should succeed");
+
+    let callable = source_global(&interpreter, "Counted");
+    let counts = logical_counts_call(&mut interpreter, callable, Value::unit())
+        .expect("logical counting should stay on the live interpreter path");
+
+    expect![[r#"
+        LogicalResourceCounts {
+            num_qubits: 1,
+            t_count: 1,
+            rotation_count: 0,
+            rotation_depth: 0,
+            ccz_count: 0,
+            ccix_count: 0,
+            measurement_count: 1,
+            num_compute_qubits: None,
+            read_from_memory_count: None,
+            write_to_memory_count: None,
+        }
+    "#]]
+    .assert_debug_eq(&counts);
 }
 
 #[test]
