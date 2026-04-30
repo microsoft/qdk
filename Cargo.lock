@@ -1397,6 +1397,7 @@ dependencies = [
  "indoc",
  "num-bigint",
  "qsc",
+ "resource_estimator",
 ]
 
 [[package]]

@@ -1075,9 +1075,12 @@ where
             | Prim::Int
             | Prim::String
             | Prim::Result => None,
-            Prim::Qubit | Prim::Range | Prim::RangeTo | Prim::RangeFrom | Prim::RangeFull => {
-                Some(ty)
-            }
+            Prim::Qubit
+            | Prim::MemoryQubit
+            | Prim::Range
+            | Prim::RangeTo
+            | Prim::RangeFrom
+            | Prim::RangeFull => Some(ty),
         },
         Ty::Tuple(tup) => tup
             .iter()

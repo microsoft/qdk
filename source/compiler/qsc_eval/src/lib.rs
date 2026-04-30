@@ -1329,19 +1329,12 @@ impl State {
         self.increment_call_count(callee_id, functor);
         let name = &callee.name.name;
         let val = match name.as_ref() {
-            "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
-                let q = sim.qubit_allocate(&call_stack);
-                let q = Rc::new(Qubit(q));
-                env.track_qubit(Rc::clone(&q));
-                if let Some(counter) = &mut self.qubit_counter {
-                    counter.allocated(q.0);
-                }
-                if name.as_ref() == "__quantum__rt__qubit_borrow" {
-                    self.dirty_qubits.insert(q.0);
-                }
-                Value::Qubit(q.into())
+            "__quantum__rt__qubit_allocate"
+            | "__quantum__rt__qubit_borrow"
+            | "__quantum__rt__memory_qubit_allocate" => {
+                self.allocate_qubit(env, sim, &call_stack, name)
             }
-            "__quantum__rt__qubit_release" => {
+            "__quantum__rt__qubit_release" | "__quantum__rt__memory_qubit_release" => {
                 let qubit = arg
                     .unwrap_qubit()
                     .try_deref()
@@ -1378,6 +1371,37 @@ impl State {
         self.set_val_register(val);
         self.leave_frame();
         Ok(())
+    }
+
+    fn allocate_qubit<B: Backend>(
+        &mut self,
+        env: &mut Env,
+        sim: &mut TracingBackend<'_, B>,
+        call_stack: &[Frame],
+        name: &Rc<str>,
+    ) -> Value {
+        let is_memory_qubit = name.as_ref() == "__quantum__rt__memory_qubit_allocate";
+
+        let q = if is_memory_qubit {
+            sim.memory_qubit_allocate(call_stack)
+        } else {
+            sim.qubit_allocate(call_stack)
+        };
+
+        let q = Rc::new(Qubit(q));
+        env.track_qubit(Rc::clone(&q));
+        if let Some(counter) = &mut self.qubit_counter {
+            counter.allocated(q.0);
+        }
+        if name.as_ref() == "__quantum__rt__qubit_borrow" {
+            self.dirty_qubits.insert(q.0);
+        }
+
+        if is_memory_qubit {
+            Value::MemoryQubit(q.into())
+        } else {
+            Value::Qubit(q.into())
+        }
     }
 
     fn eval_field(&mut self, field: Field) {

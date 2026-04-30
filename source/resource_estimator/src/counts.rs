@@ -10,7 +10,7 @@ use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc::{Backend, BackendResult, interpret::Value};
 use rand::{Rng, SeedableRng, rngs::StdRng};
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::{array, cell::RefCell, f64::consts::PI, fmt::Debug, iter::Sum};
 
 use crate::{counts::memory_compute::CachingStrategy, system::LogicalResourceCounts};
@@ -53,6 +53,16 @@ pub struct LogicalCounter {
     /// Map to track any post-select measurements by their associated qubit.
     /// This value is used in a measurement, if present, before generating a random result.
     post_select_measurements: FxHashMap<usize, bool>,
+
+    // Memory qubits management.
+    /// Ids used for memory qubits (used or free).
+    memory_qubit_ids: FxHashSet<usize>,
+    /// Ids of free memory qubits. Can be reused only for allocating memory qubits.
+    free_memory_qubits: Vec<usize>,
+    /// Number of Store instructions.
+    memory_qubit_store_count: usize,
+    /// Number of Load instructions.
+    memory_qubit_load_count: usize,
 }
 
 impl Default for LogicalCounter {
@@ -73,6 +83,10 @@ impl Default for LogicalCounter {
             memory_compute: None,
             rnd: RefCell::new(StdRng::seed_from_u64(0)),
             post_select_measurements: FxHashMap::default(),
+            memory_qubit_ids: FxHashSet::default(),
+            free_memory_qubits: vec![],
+            memory_qubit_store_count: 0,
+            memory_qubit_load_count: 0,
         }
     }
 }
@@ -80,12 +94,28 @@ impl Default for LogicalCounter {
 impl LogicalCounter {
     #[must_use]
     pub fn logical_resources(&self) -> LogicalResourceCounts {
+        let uses_memory_qubits = !self.memory_qubit_ids.is_empty();
         let (num_compute_qubits, read_from_memory_count, write_to_memory_count) =
             if let Some(memory_compute) = &self.memory_compute {
+                assert!(
+                    !uses_memory_qubits,
+                    "Cannot use MemoryQubits together with MemoryComputeArchitecture"
+                );
                 (
                     Some(memory_compute.compute_size() as u64),
                     Some(memory_compute.read_from_memory_count() as u64),
                     Some(memory_compute.write_to_memory_count() as u64),
+                )
+            } else if uses_memory_qubits {
+                let memory_qubits_count = self.free_memory_qubits.len();
+                assert!(memory_qubits_count == self.memory_qubit_ids.len());
+                let compute_qubits_count = self.free_list.len();
+                let total_qubits_count = self.next_free;
+                assert!(total_qubits_count == compute_qubits_count + memory_qubits_count);
+                (
+                    Some(compute_qubits_count as u64),
+                    Some(self.memory_qubit_load_count as u64),
+                    Some(self.memory_qubit_store_count as u64),
                 )
             } else {
                 (None, None, None)
@@ -477,6 +507,14 @@ impl LogicalCounter {
             .as_ref()
             .map_or(0, memory_compute::MemoryComputeInfo::read_from_memory_count)
     }
+
+    // Returns qubit id that has never been used before.
+    fn new_qubit_id(&mut self) -> usize {
+        let index = self.next_free;
+        self.next_free += 1;
+        self.max_layer.push(self.allocation_barrier);
+        index
+    }
 }
 
 impl Backend for LogicalCounter {
@@ -605,15 +643,16 @@ impl Backend for LogicalCounter {
         if let Some(index) = self.free_list.pop() {
             index
         } else {
-            let index = self.next_free;
-            self.next_free += 1;
-            self.max_layer.push(self.allocation_barrier);
-            index
+            self.new_qubit_id()
         }
     }
 
     fn qubit_release(&mut self, q: usize) -> bool {
-        self.free_list.push(q);
+        if self.memory_qubit_ids.contains(&q) {
+            self.free_memory_qubits.push(q);
+        } else {
+            self.free_list.push(q);
+        }
         true
     }
 
@@ -638,6 +677,28 @@ impl Backend for LogicalCounter {
 
     fn qubit_is_zero(&mut self, _q: usize) -> bool {
         true
+    }
+
+    fn memory_qubit_allocate(&mut self) -> usize {
+        if let Some(index) = self.free_memory_qubits.pop() {
+            index
+        } else {
+            let index = self.new_qubit_id();
+            self.memory_qubit_ids.insert(index);
+            index
+        }
+    }
+
+    fn memory_qubit_load(&mut self, mem_qubit_id: usize, comp_qubit_id: usize) {
+        assert!(self.memory_qubit_ids.contains(&mem_qubit_id));
+        assert!(!self.memory_qubit_ids.contains(&comp_qubit_id));
+        self.memory_qubit_load_count += 1;
+    }
+
+    fn memory_qubit_store(&mut self, comp_qubit_id: usize, mem_qubit_id: usize) {
+        assert!(self.memory_qubit_ids.contains(&mem_qubit_id));
+        assert!(!self.memory_qubit_ids.contains(&comp_qubit_id));
+        self.memory_qubit_store_count += 1;
     }
 
     fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {

@@ -13,6 +13,7 @@
     "src/Std/Logical.qs",
     "src/Std/Math.qs",
     "src/Std/Measurement.qs",
+    "src/Std/MemoryQubits.qs",
     "src/Std/Random.qs",
     "src/Std/Range.qs",
     "src/Std/ResourceEstimation.qs",

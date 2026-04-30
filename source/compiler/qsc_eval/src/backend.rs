@@ -115,6 +115,22 @@ pub trait Backend {
         None
     }
     fn set_seed(&mut self, _seed: Option<u64>) {}
+    /// 3 methods below deal with memory qubits.
+    /// By default they are implemented by using compute qubits as memory qubits, which
+    /// is correct but inefficient.
+    /// Backends that distinguish between memory and compute qubits must implement these
+    /// methods.
+    fn memory_qubit_allocate(&mut self) -> usize {
+        self.qubit_allocate()
+    }
+    fn memory_qubit_load(&mut self, mem_qubit_id: usize, comp_qubit_id: usize) {
+        self.reset(comp_qubit_id);
+        self.swap(mem_qubit_id, comp_qubit_id);
+    }
+    fn memory_qubit_store(&mut self, comp_qubit_id: usize, mem_qubit_id: usize) {
+        self.reset(mem_qubit_id);
+        self.swap(mem_qubit_id, comp_qubit_id);
+    }
 }
 
 /// Trait receiving trace events for quantum execution. Each method records
@@ -435,6 +451,59 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         match &mut self.backend {
             OptionalBackend::Some(backend) => backend.qubit_is_zero(q),
             OptionalBackend::None(_) => true,
+        }
+    }
+
+    pub fn memory_qubit_allocate(&mut self, stack: &[Frame]) -> usize {
+        let q = match &mut self.backend {
+            OptionalBackend::Some(backend) => backend.memory_qubit_allocate(),
+            OptionalBackend::None(fallback) => fallback.qubit_allocate(),
+        };
+        if let Some(tracer) = &mut self.tracer {
+            tracer.qubit_allocate(stack, q);
+        }
+        q
+    }
+
+    pub fn memory_qubit_load(
+        &mut self,
+        mem_qubit_id: usize,
+        comp_qubit_id: usize,
+        stack: &[Frame],
+    ) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.memory_qubit_load(mem_qubit_id, comp_qubit_id);
+        }
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(
+                stack,
+                "Load",
+                false,
+                &[mem_qubit_id, comp_qubit_id],
+                &[],
+                None,
+            );
+        }
+    }
+
+    pub fn memory_qubit_store(
+        &mut self,
+        comp_qubit_id: usize,
+        mem_qubit_id: usize,
+        stack: &[Frame],
+    ) {
+        if let OptionalBackend::Some(backend) = &mut self.backend {
+            backend.memory_qubit_store(comp_qubit_id, mem_qubit_id);
+        }
+        if let Some(tracer) = &mut self.tracer {
+            tracer.gate(
+                stack,
+                "Store",
+                false,
+                &[comp_qubit_id, mem_qubit_id],
+                &[],
+                None,
+            );
         }
     }
 

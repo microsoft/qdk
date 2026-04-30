@@ -1216,8 +1216,12 @@ impl Display for QubitInit {
 pub enum QubitInitKind {
     /// An array of qubits: `Qubit[a]`.
     Array(Box<Expr>),
+    /// An array of memory qubits: `MemoryQubit[a]`.
+    MemoryArray(Box<Expr>),
     /// A single qubit: `Qubit()`.
     Single,
+    /// A single memory qubit: `MemoryQubit()`.
+    MemorySingle,
     /// A tuple: `(a, b, c)`.
     Tuple(Vec<QubitInit>),
     /// An invalid qubit initializer.
@@ -1233,7 +1237,13 @@ impl Display for QubitInitKind {
                 indent = set_indentation(indent, 1);
                 write!(indent, "\n{e}")?;
             }
+            QubitInitKind::MemoryArray(e) => {
+                write!(indent, "MemoryArray:")?;
+                indent = set_indentation(indent, 1);
+                write!(indent, "\n{e}")?;
+            }
             QubitInitKind::Single => write!(indent, "Single")?,
+            QubitInitKind::MemorySingle => write!(indent, "MemorySingle")?,
             QubitInitKind::Tuple(qis) => {
                 if qis.is_empty() {
                     write!(indent, "Unit")?;

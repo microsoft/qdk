@@ -1197,13 +1197,14 @@ pub(super) struct GlobalTable {
 
 impl GlobalTable {
     pub(super) fn new() -> Self {
-        let builtins: [(Rc<str>, Res); 10] = [
+        let builtins: [(Rc<str>, Res); 11] = [
             ("BigInt".into(), Res::PrimTy(Prim::BigInt)),
             ("Bool".into(), Res::PrimTy(Prim::Bool)),
             ("Double".into(), Res::PrimTy(Prim::Double)),
             ("Int".into(), Res::PrimTy(Prim::Int)),
             ("Pauli".into(), Res::PrimTy(Prim::Pauli)),
             ("Qubit".into(), Res::PrimTy(Prim::Qubit)),
+            ("MemoryQubit".into(), Res::PrimTy(Prim::MemoryQubit)),
             ("Range".into(), Res::PrimTy(Prim::Range)),
             ("Result".into(), Res::PrimTy(Prim::Result)),
             ("String".into(), Res::PrimTy(Prim::String)),

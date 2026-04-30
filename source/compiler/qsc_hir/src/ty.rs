@@ -518,6 +518,8 @@ pub enum Prim {
     Pauli,
     /// The qubit type.
     Qubit,
+    /// The memory qubit type.
+    MemoryQubit,
     /// The range type.
     Range,
     /// The range type without a lower bound.

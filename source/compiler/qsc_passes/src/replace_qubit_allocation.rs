@@ -25,6 +25,7 @@ use crate::common::{IdentTemplate, create_gen_core_ref, generated_name};
 struct QubitIdent {
     id: IdentTemplate,
     is_array: bool,
+    is_memory: bool,
 }
 
 pub(crate) struct ReplaceQubitAllocation<'a> {
@@ -53,11 +54,13 @@ impl<'a> ReplaceQubitAllocation<'a> {
         mut init: QubitInit,
         qubit_source: QubitSource,
     ) -> (Vec<QubitIdent>, Vec<Stmt>) {
-        fn is_non_tuple(init: &mut QubitInit) -> (bool, Option<Expr>) {
+        fn non_tuple_init(init: &mut QubitInit) -> Option<(bool, Option<Expr>)> {
             match &mut init.kind {
-                QubitInitKind::Array(e) => (true, Some(take(e))),
-                QubitInitKind::Single => (true, None),
-                QubitInitKind::Tuple(_) => (false, None),
+                QubitInitKind::Array(e) => Some((false, Some(take(e)))),
+                QubitInitKind::Single => Some((false, None)),
+                QubitInitKind::MemoryArray(e) => Some((true, Some(take(e)))),
+                QubitInitKind::MemorySingle => Some((true, None)),
+                QubitInitKind::Tuple(_) => None,
                 QubitInitKind::Err => panic!("QubitInitKind::Err"),
             }
         }
@@ -65,7 +68,7 @@ impl<'a> ReplaceQubitAllocation<'a> {
         let mut new_stmts: Vec<Stmt> = vec![];
         let mut new_ids: Vec<QubitIdent> = vec![];
 
-        if let (true, opt) = is_non_tuple(&mut init) {
+        if let Some((is_memory, opt)) = non_tuple_init(&mut init) {
             if let PatKind::Bind(id) = pat.kind {
                 let id = IdentTemplate {
                     id: id.id,
@@ -77,11 +80,15 @@ impl<'a> ReplaceQubitAllocation<'a> {
                 new_stmts.push(match opt {
                     Some(mut size) => {
                         self.visit_expr(&mut size);
-                        self.create_array_alloc_stmt(&id, size, qubit_source)
+                        self.create_array_alloc_stmt(&id, size, qubit_source, is_memory)
                     }
-                    None => self.create_alloc_stmt(&id, qubit_source),
+                    None => self.create_alloc_stmt(&id, qubit_source, is_memory),
                 });
-                new_ids.push(QubitIdent { id, is_array });
+                new_ids.push(QubitIdent {
+                    id,
+                    is_array,
+                    is_memory,
+                });
             } else {
                 panic!("Shape of identifier pattern doesn't match shape of initializer");
             }
@@ -89,19 +96,20 @@ impl<'a> ReplaceQubitAllocation<'a> {
             let (assignment_expr, mut ids) = self.process_qubit_init(init);
             new_stmts = ids
                 .iter_mut()
-                .map(|(id, size)| match size {
+                .map(|(id, size, is_memory)| match size {
                     Some(size) => {
                         self.visit_expr(size);
-                        self.create_array_alloc_stmt(id, size.clone(), qubit_source)
+                        self.create_array_alloc_stmt(id, size.clone(), qubit_source, *is_memory)
                     }
-                    None => self.create_alloc_stmt(id, qubit_source),
+                    None => self.create_alloc_stmt(id, qubit_source, *is_memory),
                 })
                 .collect();
             new_ids = ids
                 .into_iter()
-                .map(|(id, expr)| QubitIdent {
+                .map(|(id, expr, is_memory)| QubitIdent {
                     id,
                     is_array: expr.is_some(),
+                    is_memory,
                 })
                 .collect();
             new_stmts.push(Stmt {
@@ -157,21 +165,32 @@ impl<'a> ReplaceQubitAllocation<'a> {
     fn process_qubit_init(
         &mut self,
         init: QubitInit,
-    ) -> (Expr, Vec<(IdentTemplate, Option<Expr>)>) {
+    ) -> (Expr, Vec<(IdentTemplate, Option<Expr>, bool)>) {
         match init.kind {
             QubitInitKind::Array(size) => {
                 let gen_id = self.gen_ident(Ty::Array(Box::new(Ty::Prim(Prim::Qubit))), init.span);
                 let expr = gen_id.gen_local_ref(self.assigner);
-                (expr, vec![(gen_id, Some(*size))])
+                (expr, vec![(gen_id, Some(*size), false)])
             }
             QubitInitKind::Single => {
                 let gen_id = self.gen_ident(Ty::Prim(Prim::Qubit), init.span);
                 let expr = gen_id.gen_local_ref(self.assigner);
-                (expr, vec![(gen_id, None)])
+                (expr, vec![(gen_id, None, false)])
+            }
+            QubitInitKind::MemoryArray(size) => {
+                let gen_id =
+                    self.gen_ident(Ty::Array(Box::new(Ty::Prim(Prim::MemoryQubit))), init.span);
+                let expr = gen_id.gen_local_ref(self.assigner);
+                (expr, vec![(gen_id, Some(*size), true)])
+            }
+            QubitInitKind::MemorySingle => {
+                let gen_id = self.gen_ident(Ty::Prim(Prim::MemoryQubit), init.span);
+                let expr = gen_id.gen_local_ref(self.assigner);
+                (expr, vec![(gen_id, None, true)])
             }
             QubitInitKind::Tuple(inits) => {
                 let mut exprs: Vec<Expr> = vec![];
-                let mut ids: Vec<(IdentTemplate, Option<Expr>)> = vec![];
+                let mut ids: Vec<(IdentTemplate, Option<Expr>, bool)> = vec![];
                 for i in inits {
                     let (sub_expr, sub_ids) = self.process_qubit_init(i);
                     exprs.push(sub_expr);
@@ -217,9 +236,9 @@ impl<'a> ReplaceQubitAllocation<'a> {
 
     fn get_dealloc_stmt(&mut self, qubit: &QubitIdent) -> Stmt {
         if qubit.is_array {
-            self.create_array_dealloc_stmt(&qubit.id)
+            self.create_array_dealloc_stmt(&qubit.id, qubit.is_memory)
         } else {
-            self.create_dealloc_stmt(&qubit.id)
+            self.create_dealloc_stmt(&qubit.id, qubit.is_memory)
         }
     }
 
@@ -243,15 +262,24 @@ impl<'a> ReplaceQubitAllocation<'a> {
         stmts
     }
 
-    fn create_alloc_stmt(&mut self, ident: &IdentTemplate, qubit_source: QubitSource) -> Stmt {
+    fn create_alloc_stmt(
+        &mut self,
+        ident: &IdentTemplate,
+        qubit_source: QubitSource,
+        is_memory: bool,
+    ) -> Stmt {
         let ns = self.get_qir_runtime_namespace();
-        let api = match qubit_source {
-            QubitSource::Fresh => "__quantum__rt__qubit_allocate",
-            QubitSource::Dirty => "__quantum__rt__qubit_borrow",
+        let api = match (qubit_source, is_memory) {
+            (QubitSource::Fresh, false) => "__quantum__rt__qubit_allocate",
+            (QubitSource::Dirty, false) => "__quantum__rt__qubit_borrow",
+            (QubitSource::Fresh, true) => "__quantum__rt__memory_qubit_allocate",
+            (QubitSource::Dirty, true) => {
+                unreachable!("Borrowing MemoryQubit is rejected by parser")
+            }
         };
         let mut call_expr = create_gen_core_ref(self.core, ns, api, Vec::new(), ident.span);
         call_expr.id = self.assigner.next_node();
-        create_general_alloc_stmt(self.assigner, ident, call_expr, None)
+        create_general_alloc_stmt(self.assigner, ident, call_expr, None, is_memory)
     }
 
     fn create_array_alloc_stmt(
@@ -259,23 +287,32 @@ impl<'a> ReplaceQubitAllocation<'a> {
         ident: &IdentTemplate,
         array_size: Expr,
         qubit_source: QubitSource,
+        is_memory: bool,
     ) -> Stmt {
         let ns = self.get_qir_runtime_namespace();
-        let api = match qubit_source {
-            QubitSource::Fresh => "AllocateQubitArray",
-            QubitSource::Dirty => "BorrowQubitArray",
+        let api = match (qubit_source, is_memory) {
+            (QubitSource::Fresh, false) => "AllocateQubitArray",
+            (QubitSource::Dirty, false) => "BorrowQubitArray",
+            (QubitSource::Fresh, true) => "AllocateMemoryQubitArray",
+            (QubitSource::Dirty, true) => {
+                unreachable!("Borrowing MemoryQubit is rejected by parser")
+            }
         };
         let mut call_expr = create_gen_core_ref(self.core, ns, api, Vec::new(), ident.span);
         call_expr.id = self.assigner.next_node();
-        create_general_alloc_stmt(self.assigner, ident, call_expr, Some(array_size))
+        create_general_alloc_stmt(self.assigner, ident, call_expr, Some(array_size), is_memory)
     }
 
-    fn create_dealloc_stmt(&mut self, ident: &IdentTemplate) -> Stmt {
+    fn create_dealloc_stmt(&mut self, ident: &IdentTemplate, is_memory: bool) -> Stmt {
         let ns = self.get_qir_runtime_namespace();
         let mut call_expr = create_gen_core_ref(
             self.core,
             ns,
-            "__quantum__rt__qubit_release",
+            if is_memory {
+                "__quantum__rt__memory_qubit_release"
+            } else {
+                "__quantum__rt__qubit_release"
+            },
             Vec::new(),
             ident.span,
         );
@@ -283,10 +320,19 @@ impl<'a> ReplaceQubitAllocation<'a> {
         create_general_dealloc_stmt(self.assigner, call_expr, ident)
     }
 
-    fn create_array_dealloc_stmt(&mut self, ident: &IdentTemplate) -> Stmt {
+    fn create_array_dealloc_stmt(&mut self, ident: &IdentTemplate, is_memory: bool) -> Stmt {
         let ns = self.get_qir_runtime_namespace();
-        let mut call_expr =
-            create_gen_core_ref(self.core, ns, "ReleaseQubitArray", Vec::new(), ident.span);
+        let mut call_expr = create_gen_core_ref(
+            self.core,
+            ns,
+            if is_memory {
+                "ReleaseMemoryQubitArray"
+            } else {
+                "ReleaseQubitArray"
+            },
+            Vec::new(),
+            ident.span,
+        );
         call_expr.id = self.assigner.next_node();
         create_general_dealloc_stmt(self.assigner, call_expr, ident)
     }
@@ -446,6 +492,24 @@ fn create_qubit_global_alloc(
                     qubit_init.span,
                     call_expr,
                     Some(take(&mut expr)),
+                    Prim::Qubit,
+                )
+            }
+            QubitInitKind::MemoryArray(mut expr) => {
+                let mut call_expr = create_gen_core_ref(
+                    core,
+                    ns,
+                    "AllocateMemoryQubitArray",
+                    Vec::new(),
+                    qubit_init.span,
+                );
+                call_expr.id = assigner.next_node();
+                create_qubit_alloc_call_expr(
+                    assigner,
+                    qubit_init.span,
+                    call_expr,
+                    Some(take(&mut expr)),
+                    Prim::MemoryQubit,
                 )
             }
             QubitInitKind::Single => {
@@ -457,7 +521,30 @@ fn create_qubit_global_alloc(
                     qubit_init.span,
                 );
                 call_expr.id = assigner.next_node();
-                create_qubit_alloc_call_expr(assigner, qubit_init.span, call_expr, None)
+                create_qubit_alloc_call_expr(
+                    assigner,
+                    qubit_init.span,
+                    call_expr,
+                    None,
+                    Prim::Qubit,
+                )
+            }
+            QubitInitKind::MemorySingle => {
+                let mut call_expr = create_gen_core_ref(
+                    core,
+                    ns,
+                    "__quantum__rt__memory_qubit_allocate",
+                    Vec::new(),
+                    qubit_init.span,
+                );
+                call_expr.id = assigner.next_node();
+                create_qubit_alloc_call_expr(
+                    assigner,
+                    qubit_init.span,
+                    call_expr,
+                    None,
+                    Prim::MemoryQubit,
+                )
             }
             QubitInitKind::Tuple(tup) => Expr {
                 id: assigner.next_node(),
@@ -485,10 +572,16 @@ fn create_general_alloc_stmt(
     ident: &IdentTemplate,
     call_expr: Expr,
     array_size: Option<Expr>,
+    is_memory: bool,
 ) -> Stmt {
+    let prim = if is_memory {
+        Prim::MemoryQubit
+    } else {
+        Prim::Qubit
+    };
     ident.gen_steppable_id_init(
         Mutability::Immutable,
-        create_qubit_alloc_call_expr(assigner, ident.span, call_expr, array_size),
+        create_qubit_alloc_call_expr(assigner, ident.span, call_expr, array_size, prim),
         assigner,
     )
 }
@@ -498,11 +591,12 @@ fn create_qubit_alloc_call_expr(
     span: Span,
     call_expr: Expr,
     array_size: Option<Expr>,
+    prim: Prim,
 ) -> Expr {
     let ty = if array_size.is_none() {
-        Ty::Prim(Prim::Qubit)
+        Ty::Prim(prim)
     } else {
-        Ty::Array(Box::new(Ty::Prim(Prim::Qubit)))
+        Ty::Array(Box::new(Ty::Prim(prim)))
     };
     Expr {
         id: assigner.next_node(),

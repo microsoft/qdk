@@ -786,9 +786,17 @@ impl<W: Write> Visitor<'_> for QSharpGen<W> {
                 self.visit_expr(len);
                 self.write("]");
             }
+            QubitInitKind::MemoryArray(len) => {
+                self.write("MemoryQubit[");
+                self.visit_expr(len);
+                self.write("]");
+            }
             QubitInitKind::Paren(init) => self.visit_qubit_init(init),
             QubitInitKind::Single => {
                 self.write("Qubit()");
+            }
+            QubitInitKind::MemorySingle => {
+                self.write("MemoryQubit()");
             }
             QubitInitKind::Tuple(inits) => {
                 self.write("(");
