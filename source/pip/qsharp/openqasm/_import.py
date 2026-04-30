@@ -1,17 +1,9 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from time import monotonic
 from typing import Any
 
-from ._ipython import display_or_print
-from .._fs import read_file, list_directory, resolve
-from .._http import fetch_github
-from .._qsharp import (
-    get_interpreter,
-    ipython_helper,
-)
-from .. import telemetry_events
+from qsharp._qsharp import _get_default_session
 
 
 def import_openqasm(
@@ -44,29 +36,4 @@ def import_openqasm(
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
     :raises QSharpError: If there is an error compiling the program.
     """
-
-    ipython_helper()
-
-    telemetry_events.on_import_qasm()
-    start_time = monotonic()
-
-    # remove any entries from kwargs with a None key or None value
-    kwargs = {k: v for k, v in kwargs.items() if k is not None and v is not None}
-
-    if "search_path" not in kwargs:
-        kwargs["search_path"] = "."
-
-    res = get_interpreter().import_qasm(
-        source,
-        display_or_print,
-        read_file,
-        list_directory,
-        resolve,
-        fetch_github,
-        **kwargs,
-    )
-
-    durationMs = (monotonic() - start_time) * 1000
-    telemetry_events.on_import_qasm_end(durationMs)
-
-    return res
+    return _get_default_session().import_openqasm(source, **kwargs)

@@ -2,18 +2,16 @@
 # Licensed under the MIT License.
 
 from time import monotonic
-from typing import Any, Callable, Dict, Optional, Union
-from .._fs import read_file, list_directory, resolve
-from .._http import fetch_github
-from .._native import circuit_qasm_program  # type: ignore
-from .._qsharp import (
-    get_interpreter,
-    ipython_helper,
-    Circuit,
-    CircuitConfig,
-    python_args_to_interpreter_args,
-)
+from typing import Any, Callable, Optional, Union
+
 from .. import telemetry_events
+from .._fs import list_directory, read_file, resolve
+from .._http import fetch_github
+from .._native import Circuit, CircuitConfig, circuit_qasm_program  # type: ignore
+from .._qsharp import (
+    _get_default_session,
+    ipython_helper,
+)
 
 
 def circuit(
@@ -87,8 +85,9 @@ def circuit(
     )
 
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
-        res = get_interpreter().circuit(
+        session = _get_default_session()
+        args = session._python_args_to_interpreter_args(args)
+        res = session._interpreter.circuit(
             config, callable=source.__global_callable, args=args
         )
     else:

@@ -10,7 +10,7 @@ from qsharp._native import (
     TargetProfile,
     CircuitConfig,
 )
-from qsharp._qsharp import qsharp_value_to_python_value
+from qsharp._qsharp import _get_default_session
 import pytest
 from expecttest import assert_expected_inline
 
@@ -19,7 +19,7 @@ from expecttest import assert_expected_inline
 
 def check_interpret(source: str, expect: str):
     e = Interpreter(TargetProfile.Unrestricted)
-    value = qsharp_value_to_python_value(e.interpret(source))
+    value = _get_default_session()._qsharp_value_to_python_value(e.interpret(source))
     assert str(value) == expect
 
 
@@ -34,13 +34,13 @@ def check_invoke(source: str, callable: str, expect: str):
     e = Interpreter(TargetProfile.Unrestricted, make_callable=_make_callable)
     e.interpret(source)
     e.interpret(callable)
-    value = qsharp_value_to_python_value(e.invoke(f))
+    value = _get_default_session()._qsharp_value_to_python_value(e.invoke(f))
     assert str(value) == expect
 
 
 def check_run(entry_expr: str, expect: str):
     e = Interpreter(TargetProfile.Unrestricted)
-    value = qsharp_value_to_python_value(e.run(entry_expr))
+    value = _get_default_session()._qsharp_value_to_python_value(e.run(entry_expr))
     assert str(value) == expect
 
 
