@@ -3,15 +3,15 @@
 
 import timeit
 from dataclasses import dataclass, KW_ONLY, field
-from qsharp.qre import linear_function, generic_function
-from qsharp.qre._architecture import _make_instruction
-from qsharp.qre.models import (
+from qdk.qre import linear_function, generic_function
+from qdk.qre._architecture import _make_instruction
+from qdk.qre.models import (
     GateBased,
     SurfaceCode,
     TwoDimensionalYokedSurfaceCode,
     Litinski19Factory,
 )
-from qsharp.qre._enumeration import _enumerate_instances
+from qdk.qre._enumeration import _enumerate_instances
 
 
 def bench_enumerate_instances():
