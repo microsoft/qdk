@@ -42,13 +42,8 @@ fn guard_stmt_with_flag_rejects_non_unit_expr_stmt() {
     );
 }
 
-/// Flag-trailing fallback contract: if no trailing expression exists, the
-/// fallback else-branch uses Unit and therefore requires a Unit return type.
-/// Gated on debug builds because the contract is enforced with `debug_assert!`.
-#[cfg(debug_assertions)]
 #[test]
-#[should_panic(expected = "create_flag_trailing_expr fallback requires Unit return type")]
-fn flag_trailing_without_trailing_expr_rejects_non_unit_contract() {
+fn flag_trailing_without_trailing_expr_uses_return_slot_fallback() {
     let source = indoc! {r#"
         namespace Test {
             @EntryPoint()
@@ -61,14 +56,20 @@ fn flag_trailing_without_trailing_expr_rejects_non_unit_contract() {
     let package = store.get_mut(pkg_id);
 
     let mut stmts = Vec::new();
-    let _ = super::super::create_flag_trailing_expr(
+    let stmt_id = super::super::create_flag_trailing_expr(
         package,
         &mut assigner,
         &mut stmts,
         LocalVarId(0),
         LocalVarId(1),
         &Ty::Prim(Prim::Int),
-    );
+    )
+    .expect("trailing merge statement should be created");
+
+    let StmtKind::Expr(if_expr_id) = package.get_stmt(stmt_id).kind else {
+        panic!("expected trailing merge expression statement");
+    };
+    assert_eq!(package.get_expr(if_expr_id).ty, Ty::Prim(Prim::Int));
 }
 
 #[test]
