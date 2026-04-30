@@ -130,12 +130,18 @@ class Session:
     evaluated, compiled, and executed in isolation from other Session instances.
     Each Session maintains its own code namespace.
 
-    Create a Session using the constructor with optional configuration parameters:
+    A session has attribute `code` which is a Python module containing all Q# operations
+    and types defined in this session. This allows you to call Q# operations from
+    Python.
+
+    Example:
 
     .. code-block:: python
 
-        session = qsharp.Session(target_profile=qsharp.TargetProfile.Base)
-        result = session.eval("1 + 2")
+        s = qsharp.Session()
+        s.eval("operation Main() : Result { use q = Qubit(); X(q); MResetZ(q) }")
+        assert s.run("Main()", 2) == [qsharp.Result.One, qsharp.Result.One]
+        assert s.code.Main() == qsharp.Result.One
     """
 
     _interpreter: Interpreter
@@ -162,25 +168,27 @@ class Session:
             interpreter to generate programs that are compatible
             with a specific target. See :class:`TargetProfile`.
 
-        :keyword target_name: An optional name of the target machine to use for inferring the compatible
-            target_profile setting.
+        :keyword target_name: An optional name of the target machine to use for 
+            inferring the compatible target_profile setting.
 
-        :keyword project_root: An optional path to a root directory with a Q# project to include.
-            It must contain a qsharp.json project manifest.
+        :keyword project_root: An optional path to a root directory with a Q# project to
+            include. It must contain a qsharp.json project manifest.
 
-        :keyword language_features: An optional list of language feature flags to enable.
-            These correspond to experimental or preview Q# language features.
+        :keyword language_features: An optional list of language feature flags to 
+            enable. These correspond to experimental or preview Q# language features.
             Valid values are:
 
-            - ``"v2-preview-syntax"``: Enables Q# v2 preview syntax. This removes support for
-              the scoped qubit allocation block form (``use q = Qubit() { ... }``), requiring
-              the statement form instead (``use q = Qubit();``). It also removes the requirement
-              to use the ``set`` keyword for mutable variable assignments.
+            - ``"v2-preview-syntax"``: Enables Q# v2 preview syntax. This removes 
+              support for the scoped qubit allocation block form 
+              (``use q = Qubit() { ... }``), requiring the statement form instead 
+              (``use q = Qubit();``). It also removes the requirement to use the ``set``
+              keyword for mutable variable assignments.
 
         :keyword trace_circuit: Enables tracing of circuit during execution.
-            Passing `True` is required for the `dump_machine()` function to return a circuit trace.
-            The `circuit()` method is *not* affected by this parameter and will always generate
-            a circuit diagram.
+            Passing `True` is required for the `dump_machine()` function to return a 
+            circuit trace. 
+            The `circuit()` method is *not* affected by this parameter and will always
+            generate a circuit diagram.
         """
         self._disposed = False
 
@@ -329,8 +337,8 @@ class Session:
                 return fields
 
             # Recursive case: Array
-            # By using `Iterable` instead of `list`, we can handle other kind of iterables
-            # like numpy arrays and generators.
+            # By using `Iterable` instead of `list`, we can handle other kind of 
+            # iterables like numpy arrays and generators.
             if isinstance(obj, Iterable):
                 return [self._lower_python_obj(elt, visited) for elt in obj]
 
@@ -451,8 +459,10 @@ class Session:
         Output is printed to console.
 
         :param source: The Q# source code to evaluate.
-        :keyword save_events: If true, all output will be saved and returned. If false, they will be printed.
-        :return: The value returned by the last statement in the source code, or the saved output if ``save_events`` is true.
+        :keyword save_events: If true, all output will be saved and returned. If false,
+            they will be printed.
+        :return: The value returned by the last statement in the source code, or the
+            saved output if ``save_events`` is true.
         :rtype: Any
         :raises QSharpError: If there is an error evaluating the source code.
         """
@@ -521,17 +531,20 @@ class Session:
         Runs the given Q# expression for the given number of shots.
         Each shot uses an independent instance of the simulator.
 
-        :param entry_expr: The entry expression. Alternatively, a callable can be provided,
-            which must be a Q# callable.
+        :param entry_expr: The entry expression. Alternatively, a callable can be
+            provided, which must be a Q# callable.
         :param shots: The number of shots to run.
         :param *args: The arguments to pass to the callable, if one is provided.
         :param on_result: A callback function that will be called with each result.
-        :param save_events: If true, the output of each shot will be saved. If false, they will be printed.
+        :param save_events: If true, the output of each shot will be saved. If false, 
+            they will be printed.
         :param noise: The noise to use in simulation.
         :param qubit_loss: The probability of qubit loss in simulation.
-        :param seed: The seed to use for the random number generator in simulation, if any.
+        :param seed: The seed to use for the random number generator in simulation, if
+            any.
 
-        :return: A list of results or runtime errors. If ``save_events`` is true, a list of ``ShotResult`` is returned.
+        :return: A list of results or runtime errors. If ``save_events`` is true, a list
+            of ``ShotResult`` is returned.
         :rtype: List[Any]
         :raises QSharpError: If there is an error interpreting the input.
         :raises ValueError: If the number of shots is less than 1.
@@ -583,9 +596,9 @@ class Session:
 
         shot_seed = seed
         for shot in range(shots):
-            # We also don't want every shot to return the same results, so we update the seed for
-            # the next shot with the shot number. This keeps the behavior deterministic if a seed
-            # was provided.
+            # We also don't want every shot to return the same results, so we update the
+            # seed for the next shot with the shot number. This keeps the behavior 
+            # deterministic if a seed was provided.
             if seed is not None:
                 shot_seed = shot + seed
 
@@ -612,9 +625,9 @@ class Session:
             results[-1]["result"] = run_results
             if on_result:
                 on_result(results[-1])
-            # For every shot after the first, treat the entry expression as None to trigger
-            # a rerun of the last executed expression without paying the cost for any additional
-            # compilation.
+            # For every shot after the first, treat the entry expression as None to 
+            # trigger a rerun of the last executed expression without paying the cost 
+            # for any additional compilation.
             run_entry_expr = None
 
         durationMs = (monotonic() - start_time) * 1000
@@ -685,8 +698,8 @@ class Session:
         Synthesizes a circuit for a Q# program. Either an entry
         expression or an operation must be provided.
 
-        :param entry_expr: An entry expression. Alternatively, a callable can be provided,
-            which must be a Q# callable.
+        :param entry_expr: An entry expression. Alternatively, a callable can be 
+            provided, which must be a Q# callable.
         :type entry_expr: str or Callable
 
         :param *args: The arguments to pass to the callable, if one is provided.
@@ -706,18 +719,20 @@ class Session:
             auto-selects the generation method.
         :kwtype generation_method: :class:`~qsharp.CircuitGenerationMethod`
 
-        :keyword max_operations: The maximum number of operations to include in the circuit.
-            Defaults to ``None`` which means no limit.
+        :keyword max_operations: The maximum number of operations to include in the 
+            circuit. Defaults to ``None`` which means no limit.
         :kwtype max_operations: int
 
-        :keyword source_locations: If ``True``, annotates each gate with its source location.
+        :keyword source_locations: If ``True``, annotates each gate with its source 
+            location.
         :kwtype source_locations: bool
 
-        :keyword group_by_scope: If ``True``, groups operations by their containing scope, such as function declarations or loop blocks.
+        :keyword group_by_scope: If ``True``, groups operations by their containing 
+            scope, such as function declarations or loop blocks.
         :kwtype group_by_scope: bool
 
-        :keyword prune_classical_qubits: If ``True``, removes qubits that are never used in a quantum
-            gate (e.g. qubits only used as classical controls).
+        :keyword prune_classical_qubits: If ``True``, removes qubits that are never used
+            in a quantum gate (e.g. qubits only used as classical controls).
         :kwtype prune_classical_qubits: bool
 
         :return: The synthesized circuit.
@@ -768,8 +783,8 @@ class Session:
         Extracts logical resource counts from Q# source code.
         Either an entry expression or a callable with arguments must be provided.
 
-        :param entry_expr: The entry expression. Alternatively, a callable can be provided,
-            which must be a Q# callable.
+        :param entry_expr: The entry expression. Alternatively, a callable can be
+            provided, which must be a Q# callable.
 
         :return: Program resources in terms of logical gate counts.
         :rtype: LogicalCounts
@@ -829,31 +844,37 @@ class Session:
         **kwargs: Any,
     ) -> Any:
         """
-        Imports OpenQASM source code into this session's interpreter.
-
-        By default, import uses ``ProgramType.Operation``
-        such that the source becomes a Q# operation in the global namespace with parameters for any declared classical
-        inputs and parameters for each of the declared qubits, while any explicit or implicit output declarations become
-        the return type of the operation.
-        Alternatively, specifying ``ProgramType.File`` will treat the input source as a stand-alone program and create
-        an operation in the ``qasm_import`` namespace that only takes classical parameters, allocates the required qubits
-        internally and releases them at the end of the operation.
-        Finally, using ``ProgramType.Fragments`` executes the provided source in the current interactive interpreter,
-        defining any declared variables or operations in the current scope and returning the value of the last statement
-        in the source.
+        Imports OpenQASM source code into this session's interpreter. ABC.
 
         :param source: An OpenQASM program or fragment.
         :type source: str
         :param **kwargs: Additional keyword arguments. Common options:
 
-            - ``name`` (str): The name of the program. This is used as the entry point for the program.
-            - ``search_path`` (str): The optional search path for resolving file references.
-            - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
-            - ``program_type`` (ProgramType): The type of program compilation to perform.
-            Defaults to ``ProgramType.Operation``.
+            - ``name`` (str): The name of the program. This is used as the entry point
+              for the program.
+            - ``search_path`` (str): The optional search path for resolving file 
+              references.
+            - ``output_semantics`` (OutputSemantics): The output semantics for the
+              compilation.
+            - ``program_type`` (ProgramType): The type of program compilation to 
+              perform:
+                - ``ProgramType.Operation`` (default): the source becomes a Q# operation
+                  in the global namespace with parameters for any declared classical
+                  inputs and parameters for each of the declared qubits, while any 
+                  explicit or implicit output declarations become the return type of the
+                  operation.
+                - ``ProgramType.File``: will treat the input source as a stand-alone
+                  program and create an operation in the ``qasm_import`` namespace that
+                  only takes classical parameters, allocates the required qubits 
+                  internally and releases them at the end of the operation.
+                - ``ProgramType.Fragments``: executes the provided source in the current
+                  interactive interpreter, defining any declared variables or operations
+                  in the current scope and returning the value of the last statement in
+                  the source.
         :return: The value returned by the last statement in the source code.
         :rtype: Any
-        :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+        :raises QasmError: If there is an error generating, parsing, or analyzing the
+            OpenQASM source.
         :raises QSharpError: If there is an error compiling the program.
         """
         from ._fs import list_directory, read_file, resolve

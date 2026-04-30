@@ -116,13 +116,14 @@ class StateDump:
         self, state: Union[Dict[int, complex], List[complex]], tolerance: float = 1e-10
     ) -> bool:
         """
-        Checks if the state dump is equal to the given state. This is not mathematical equality,
-        as the check ignores global phase.
+        Checks if the state dump is equal to the given state. This is not mathematical 
+        equality, as the check ignores global phase.
 
-        :param state: The state to check against, provided either as a dictionary of state indices to complex amplitudes,
-            or as a list of real amplitudes.
+        :param state: The state to check against, provided either as a dictionary of 
+            state indices to complex amplitudes, or as a list of real amplitudes.
         :param tolerance: The tolerance for the check. Defaults to 1e-10.
-        :return: ``True`` if the state dump is equal to the given state within the given tolerance, ignoring global phase.
+        :return: ``True`` if the state dump is equal to the given state within the given
+            tolerance, ignoring global phase.
         :rtype: bool
         """
         phase = None
@@ -149,7 +150,8 @@ class StateDump:
 
     def as_dense_state(self) -> List[complex]:
         """
-        Returns the state dump as a dense list of complex amplitudes. This will include zero amplitudes.
+        Returns the state dump as a dense list of complex amplitudes. This will include
+        zero amplitudes.
 
         :return: A dense list of complex amplitudes, one per computational basis state.
         :rtype: List[complex]

@@ -12,9 +12,9 @@ def test_eval() -> None:
 
 def test_run() -> None:
     s = qsharp.Session()
-    s.eval('operation Foo() : Result { Message("hi"); Zero }')
-    results = s.run("Foo()", 3)
-    assert results == [qsharp.Result.Zero, qsharp.Result.Zero, qsharp.Result.Zero]
+    s.eval("operation Main() : Result { use q = Qubit(); X(q); MResetZ(q) }")
+    assert s.run("Main()", 2) == [qsharp.Result.One, qsharp.Result.One]
+    assert s.code.Main() == qsharp.Result.One
 
 
 def test_compile() -> None:
