@@ -53,12 +53,8 @@ from .estimator._estimator import (
 _default_session: Optional[Session] = None
 
 
-def _get_session(obj: Any = None) -> "Session":
-    """
-    Returns the global default context, lazily initializing if needed.
-    """
-    if hasattr(obj, "_qdk_session"):
-        return getattr(obj, "_qdk_session")
+def _get_default_session() -> Session:
+    """Returns the default session, lazily initializing if needed."""
     global _default_session
     if _default_session is None:
         init()
@@ -163,7 +159,7 @@ def eval(
     :rtype: Any
     :raises QSharpError: If there is an error evaluating the source code.
     """
-    return _get_session().eval(source, save_events=save_events)
+    return _get_default_session().eval(source, save_events=save_events)
 
 
 def run(
@@ -204,7 +200,7 @@ def run(
     :raises QSharpError: If there is an error interpreting the input.
     :raises ValueError: If the number of shots is less than 1.
     """
-    return _get_session(entry_expr).run(
+    return _get_default_session().run(
         entry_expr,
         shots,
         *args,
@@ -238,7 +234,7 @@ def compile(
         with open('myfile.ll', 'w') as file:
             file.write(str(program))
     """
-    return _get_session(entry_expr).compile(entry_expr, *args)
+    return _get_default_session().compile(entry_expr, *args)
 
 
 def circuit(
@@ -294,7 +290,7 @@ def circuit(
     :rtype: :class:`~qsharp._native.Circuit`
     :raises QSharpError: If there is an error synthesizing the circuit.
     """
-    return _get_session(entry_expr).circuit(
+    return _get_default_session().circuit(
         entry_expr,
         *args,
         operation=operation,
@@ -351,7 +347,7 @@ def estimate(
     param_str = json.dumps(params)
     telemetry_events.on_estimate()
     start = monotonic()
-    session = _get_session(entry_expr)
+    session = _get_default_session()
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
         args = session._python_args_to_interpreter_args(args)
         res_str = session._interpreter.estimate(
@@ -391,7 +387,7 @@ def logical_counts(
     :return: Program resources in terms of logical gate counts.
     :rtype: LogicalCounts
     """
-    return _get_session(entry_expr).logical_counts(entry_expr, *args)
+    return _get_default_session().logical_counts(entry_expr, *args)
 
 
 def set_quantum_seed(seed: Optional[int]) -> None:
@@ -402,7 +398,7 @@ def set_quantum_seed(seed: Optional[int]) -> None:
     :param seed: The seed to use for the quantum random number generator.
         If None, the seed will be generated from entropy.
     """
-    _get_session().set_quantum_seed(seed)
+    _get_default_session().set_quantum_seed(seed)
 
 
 def set_classical_seed(seed: Optional[int]) -> None:
@@ -414,7 +410,7 @@ def set_classical_seed(seed: Optional[int]) -> None:
     :param seed: The seed to use for the classical random number generator.
         If None, the seed will be generated from entropy.
     """
-    _get_session().set_classical_seed(seed)
+    _get_default_session().set_classical_seed(seed)
 
 
 def dump_machine() -> StateDump:
@@ -424,7 +420,7 @@ def dump_machine() -> StateDump:
     :return: The state of the simulator.
     :rtype: StateDump
     """
-    return _get_session().dump_machine()
+    return _get_default_session().dump_machine()
 
 
 def dump_circuit() -> Circuit:
@@ -440,4 +436,4 @@ def dump_circuit() -> Circuit:
     :rtype: Circuit
     :raises QSharpError: If the interpreter was not initialized with ``trace_circuit=True``.
     """
-    return _get_session()._interpreter.dump_circuit()
+    return _get_default_session()._interpreter.dump_circuit()

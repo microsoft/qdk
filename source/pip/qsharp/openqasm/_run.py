@@ -18,7 +18,7 @@ from .._noise import (
     PauliNoise,
     PhaseFlipNoise,
 )
-from .._qsharp import _get_session, ipython_helper
+from .._qsharp import _get_default_session, ipython_helper
 from .._types import ShotResult, StateDump
 from .. import telemetry_events
 from ._ipython import display_or_print
@@ -108,7 +108,7 @@ def run(
     callable = None
     source_str: Optional[str] = None
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
-        args = _get_session(source)._python_args_to_interpreter_args(args)
+        args = _get_default_session()._python_args_to_interpreter_args(args)
         callable = source.__global_callable
     elif isinstance(source, str):
         source_str = source
@@ -119,7 +119,7 @@ def run(
         noise = None
 
     if callable:
-        interp = _get_session(source)._interpreter
+        interp = _get_default_session()._interpreter
         for _ in range(shots):
             results.append(
                 {

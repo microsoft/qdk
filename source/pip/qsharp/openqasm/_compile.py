@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from time import monotonic
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Union
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
 
@@ -10,7 +10,7 @@ from .._native import (  # type: ignore
     compile_qasm_program_to_qir,
     TargetProfile,
 )
-from .._qsharp import _get_session, ipython_helper
+from .._qsharp import _get_default_session, ipython_helper
 from .._types import QirInputData
 from .. import telemetry_events
 
@@ -63,7 +63,7 @@ def compile(
     telemetry_events.on_compile_qasm(target_profile)
 
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
-        session = _get_session(source)
+        session = _get_default_session()
         qsharp_args = session._python_args_to_interpreter_args(args)
         ll_str = session._interpreter.qir(
             entry_expr=None, callable=source.__global_callable, args=qsharp_args

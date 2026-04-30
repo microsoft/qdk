@@ -12,7 +12,7 @@ from time import monotonic
 from IPython.display import display, clear_output
 from IPython.core.magic import register_cell_magic
 from ._native import QSharpError
-from ._qsharp import _get_session
+from ._qsharp import _get_default_session
 from . import telemetry_events
 
 
@@ -35,7 +35,7 @@ def register_magic():
         start_time = monotonic()
 
         try:
-            session = _get_session()
+            session = _get_default_session()
             results = session._qsharp_value_to_python_value(
                 session._interpreter.interpret(cell, callback)
             )

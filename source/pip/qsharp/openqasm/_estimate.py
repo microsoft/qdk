@@ -12,7 +12,7 @@ from .._native import (  # type: ignore
 )
 from ..estimator import EstimatorParams, EstimatorResult
 
-from .._qsharp import _get_session, ipython_helper
+from .._qsharp import _get_default_session, ipython_helper
 from .. import telemetry_events
 
 
@@ -74,7 +74,7 @@ def estimate(
     telemetry_events.on_estimate_qasm()
     start = monotonic()
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
-        session = _get_session(source)
+        session = _get_default_session()
         qsharp_args = session._python_args_to_interpreter_args(args)
         res_str = session._interpreter.estimate(
             param_str,

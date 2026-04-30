@@ -9,7 +9,7 @@ from .._fs import list_directory, read_file, resolve
 from .._http import fetch_github
 from .._native import Circuit, CircuitConfig, circuit_qasm_program  # type: ignore 
 from .._qsharp import (
-    _get_session,
+    _get_default_session,
     ipython_helper,
 )
 
@@ -85,7 +85,7 @@ def circuit(
     )
 
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
-        session = _get_session(source)
+        session = _get_default_session()
         args = session._python_args_to_interpreter_args(args)
         res = session._interpreter.circuit(
             config, callable=source.__global_callable, args=args

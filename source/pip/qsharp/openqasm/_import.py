@@ -3,7 +3,7 @@
 
 from typing import Any
 
-from qsharp._qsharp import _get_session
+from qsharp._qsharp import _get_default_session
 
 
 def import_openqasm(
@@ -36,4 +36,4 @@ def import_openqasm(
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
     :raises QSharpError: If there is an error compiling the program.
     """
-    return _get_session().import_openqasm(source, **kwargs)
+    return _get_default_session().import_openqasm(source, **kwargs)
