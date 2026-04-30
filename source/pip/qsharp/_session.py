@@ -168,25 +168,25 @@ class Session:
             interpreter to generate programs that are compatible
             with a specific target. See :class:`TargetProfile`.
 
-        :keyword target_name: An optional name of the target machine to use for 
+        :keyword target_name: An optional name of the target machine to use for
             inferring the compatible target_profile setting.
 
         :keyword project_root: An optional path to a root directory with a Q# project to
             include. It must contain a qsharp.json project manifest.
 
-        :keyword language_features: An optional list of language feature flags to 
+        :keyword language_features: An optional list of language feature flags to
             enable. These correspond to experimental or preview Q# language features.
             Valid values are:
 
-            - ``"v2-preview-syntax"``: Enables Q# v2 preview syntax. This removes 
-              support for the scoped qubit allocation block form 
-              (``use q = Qubit() { ... }``), requiring the statement form instead 
+            - ``"v2-preview-syntax"``: Enables Q# v2 preview syntax. This removes
+              support for the scoped qubit allocation block form
+              (``use q = Qubit() { ... }``), requiring the statement form instead
               (``use q = Qubit();``). It also removes the requirement to use the ``set``
               keyword for mutable variable assignments.
 
         :keyword trace_circuit: Enables tracing of circuit during execution.
-            Passing `True` is required for the `dump_machine()` function to return a 
-            circuit trace. 
+            Passing `True` is required for the `dump_machine()` function to return a
+            circuit trace.
             The `circuit()` method is *not* affected by this parameter and will always
             generate a circuit diagram.
         """
@@ -223,7 +223,7 @@ class Session:
                 )
 
             try:
-                (_, manifest_contents) = read_file(qsharp_json)
+                _, manifest_contents = read_file(qsharp_json)
             except Exception as e:
                 raise QSharpError(
                     f"Error reading {qsharp_json}. qsharp.json should exist at the project root and be a valid JSON file."
@@ -337,7 +337,7 @@ class Session:
                 return fields
 
             # Recursive case: Array
-            # By using `Iterable` instead of `list`, we can handle other kind of 
+            # By using `Iterable` instead of `list`, we can handle other kind of
             # iterables like numpy arrays and generators.
             if isinstance(obj, Iterable):
                 return [self._lower_python_obj(elt, visited) for elt in obj]
@@ -356,7 +356,7 @@ class Session:
             return self._lower_python_obj(args)
 
     def _display(self, output: Output) -> None:
-        """Displays output in Jupyter (if alvailable), otherwise prints."""
+        """Displays output in Jupyter (if available), otherwise prints."""
         if _in_jupyter:
             try:
                 display(output)
@@ -536,7 +536,7 @@ class Session:
         :param shots: The number of shots to run.
         :param *args: The arguments to pass to the callable, if one is provided.
         :param on_result: A callback function that will be called with each result.
-        :param save_events: If true, the output of each shot will be saved. If false, 
+        :param save_events: If true, the output of each shot will be saved. If false,
             they will be printed.
         :param noise: The noise to use in simulation.
         :param qubit_loss: The probability of qubit loss in simulation.
@@ -597,7 +597,7 @@ class Session:
         shot_seed = seed
         for shot in range(shots):
             # We also don't want every shot to return the same results, so we update the
-            # seed for the next shot with the shot number. This keeps the behavior 
+            # seed for the next shot with the shot number. This keeps the behavior
             # deterministic if a seed was provided.
             if seed is not None:
                 shot_seed = shot + seed
@@ -625,8 +625,8 @@ class Session:
             results[-1]["result"] = run_results
             if on_result:
                 on_result(results[-1])
-            # For every shot after the first, treat the entry expression as None to 
-            # trigger a rerun of the last executed expression without paying the cost 
+            # For every shot after the first, treat the entry expression as None to
+            # trigger a rerun of the last executed expression without paying the cost
             # for any additional compilation.
             run_entry_expr = None
 
@@ -698,7 +698,7 @@ class Session:
         Synthesizes a circuit for a Q# program. Either an entry
         expression or an operation must be provided.
 
-        :param entry_expr: An entry expression. Alternatively, a callable can be 
+        :param entry_expr: An entry expression. Alternatively, a callable can be
             provided, which must be a Q# callable.
         :type entry_expr: str or Callable
 
@@ -719,15 +719,15 @@ class Session:
             auto-selects the generation method.
         :kwtype generation_method: :class:`~qsharp.CircuitGenerationMethod`
 
-        :keyword max_operations: The maximum number of operations to include in the 
+        :keyword max_operations: The maximum number of operations to include in the
             circuit. Defaults to ``None`` which means no limit.
         :kwtype max_operations: int
 
-        :keyword source_locations: If ``True``, annotates each gate with its source 
+        :keyword source_locations: If ``True``, annotates each gate with its source
             location.
         :kwtype source_locations: bool
 
-        :keyword group_by_scope: If ``True``, groups operations by their containing 
+        :keyword group_by_scope: If ``True``, groups operations by their containing
             scope, such as function declarations or loop blocks.
         :kwtype group_by_scope: bool
 
@@ -844,7 +844,7 @@ class Session:
         **kwargs: Any,
     ) -> Any:
         """
-        Imports OpenQASM source code into this session's interpreter. ABC.
+        Imports OpenQASM source code into this session's interpreter.
 
         :param source: An OpenQASM program or fragment.
         :type source: str
@@ -852,20 +852,20 @@ class Session:
 
             - ``name`` (str): The name of the program. This is used as the entry point
               for the program.
-            - ``search_path`` (str): The optional search path for resolving file 
+            - ``search_path`` (str): The optional search path for resolving file
               references.
             - ``output_semantics`` (OutputSemantics): The output semantics for the
               compilation.
-            - ``program_type`` (ProgramType): The type of program compilation to 
+            - ``program_type`` (ProgramType): The type of program compilation to
               perform:
                 - ``ProgramType.Operation`` (default): the source becomes a Q# operation
                   in the global namespace with parameters for any declared classical
-                  inputs and parameters for each of the declared qubits, while any 
+                  inputs and parameters for each of the declared qubits, while any
                   explicit or implicit output declarations become the return type of the
                   operation.
                 - ``ProgramType.File``: will treat the input source as a stand-alone
                   program and create an operation in the ``qasm_import`` namespace that
-                  only takes classical parameters, allocates the required qubits 
+                  only takes classical parameters, allocates the required qubits
                   internally and releases them at the end of the operation.
                 - ``ProgramType.Fragments``: executes the provided source in the current
                   interactive interpreter, defining any declared variables or operations

@@ -7,7 +7,7 @@ from typing import Any, Callable, Optional, Union
 from .. import telemetry_events
 from .._fs import list_directory, read_file, resolve
 from .._http import fetch_github
-from .._native import Circuit, CircuitConfig, circuit_qasm_program  # type: ignore 
+from .._native import Circuit, CircuitConfig, circuit_qasm_program  # type: ignore
 from .._qsharp import (
     _get_default_session,
     ipython_helper,

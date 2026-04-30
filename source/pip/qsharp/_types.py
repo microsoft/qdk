@@ -116,10 +116,10 @@ class StateDump:
         self, state: Union[Dict[int, complex], List[complex]], tolerance: float = 1e-10
     ) -> bool:
         """
-        Checks if the state dump is equal to the given state. This is not mathematical 
+        Checks if the state dump is equal to the given state. This is not mathematical
         equality, as the check ignores global phase.
 
-        :param state: The state to check against, provided either as a dictionary of 
+        :param state: The state to check against, provided either as a dictionary of
             state indices to complex amplitudes, or as a list of real amplitudes.
         :param tolerance: The tolerance for the check. Defaults to 1e-10.
         :return: ``True`` if the state dump is equal to the given state within the given
