@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from enum import Enum
-from .._qsharp import QirInputData
+from .._types import QirInputData
 
 
 class ZoneType(Enum):

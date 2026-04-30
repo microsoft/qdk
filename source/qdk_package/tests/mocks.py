@@ -49,6 +49,7 @@ def mock_qsharp() -> List[str]:
         stub.DepolarizingNoise = _T
         stub.BitFlipNoise = _T
         stub.PhaseFlipNoise = _T
+        stub.Session = _T
         stub.__all__ = [
             "run",
             "estimate",
@@ -68,6 +69,7 @@ def mock_qsharp() -> List[str]:
             "estimator",
             "openqasm",
             "utils",
+            "Session",
         ]
         # Minimal submodules to back lifted shims
         est = types.ModuleType("qsharp.estimator")

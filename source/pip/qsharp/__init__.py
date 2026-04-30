@@ -2,30 +2,33 @@
 # Licensed under the MIT License.
 
 from . import telemetry_events
-from ._qsharp import (
-    init,
-    eval,
-    run,
-    compile,
-    circuit,
-    estimate,
-    logical_counts,
-    set_quantum_seed,
-    set_classical_seed,
-    dump_machine,
-    dump_circuit,
-    StateDump,
-    ShotResult,
-    PauliNoise,
-    DepolarizingNoise,
-    BitFlipNoise,
-    PhaseFlipNoise,
+from ._native import (
     CircuitGenerationMethod,
+    Pauli,
+    QSharpError,
+    Result,
+    TargetProfile,
+    estimate_custom,
 )
+from ._noise import BitFlipNoise, DepolarizingNoise, PauliNoise, PhaseFlipNoise
+from ._qsharp import (
+    circuit,
+    compile,
+    dump_circuit,
+    dump_machine,
+    estimate,
+    eval,
+    init,
+    logical_counts,
+    run,
+    set_classical_seed,
+    set_quantum_seed,
+)
+from ._session import Session
+from ._types import ShotResult, StateDump
 
 telemetry_events.on_import()
 
-from ._native import Result, Pauli, QSharpError, TargetProfile, estimate_custom
 
 # IPython notebook specific features
 try:
@@ -61,4 +64,5 @@ __all__ = [
     "BitFlipNoise",
     "PhaseFlipNoise",
     "CircuitGenerationMethod",
+    "Session",
 ]

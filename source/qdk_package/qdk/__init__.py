@@ -15,7 +15,6 @@ Optional extras install additional dependencies and submodules:
 
 """
 
-
 from qsharp.telemetry_events import on_qdk_import
 
 on_qdk_import()
@@ -35,6 +34,7 @@ from qsharp import (
     DepolarizingNoise,
     BitFlipNoise,
     PhaseFlipNoise,
+    Session,
 )
 
 # utilities lifted from qsharp
@@ -52,4 +52,5 @@ __all__ = [
     "DepolarizingNoise",
     "BitFlipNoise",
     "PhaseFlipNoise",
+    "Session",
 ]
