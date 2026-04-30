@@ -16,6 +16,8 @@ __pycache__/
 /source/fuzz/coverage
 /source/fuzz/Cargo.lock
 /source/pip/doc
+/source/pip/build/
+/source/pip/*.egg-info/
 /source/samples_test/src/tests/*_generated.rs
 .mypy_cache/
 .pytest_cache/
