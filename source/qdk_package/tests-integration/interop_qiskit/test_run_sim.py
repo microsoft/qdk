@@ -3,7 +3,8 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import pytest
-from qsharp import QSharpError, TargetProfile
+from qdk import TargetProfile
+from qdk._native import QSharpError
 
 from interop_qiskit import QISKIT_AVAILABLE, SKIP_REASON
 
@@ -16,7 +17,7 @@ if QISKIT_AVAILABLE:
     from qiskit.qasm3 import loads as from_qasm3
     from qiskit.providers import JobStatus
     from qiskit import ClassicalRegister
-    from qsharp.interop.qiskit import QSharpBackend
+    from qdk.qiskit import QSharpBackend
     from .test_circuits import (
         generate_repro_information,
     )

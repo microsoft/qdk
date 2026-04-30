@@ -11,9 +11,9 @@ if QISKIT_AVAILABLE:
     from qiskit import ClassicalRegister
     from qiskit.circuit import QuantumCircuit
     from qiskit.providers import JobStatus
-    from qsharp.interop.qiskit import NeutralAtomBackend
-    from qsharp._simulation import NoiseConfig
-    from qsharp._device._atom import NeutralAtomDevice
+    from qdk.qiskit import NeutralAtomBackend
+    from qdk._simulation import NoiseConfig
+    from qdk._device._atom import NeutralAtomDevice
     from .test_circuits import generate_repro_information
 
 
@@ -454,7 +454,7 @@ def test_pretranspiled_matches_backend_transpiled(backend) -> None:
 @pytest.mark.skipif(not QISKIT_AVAILABLE, reason=SKIP_REASON)
 def test_non_base_target_profile_raises(backend) -> None:
     """Passing a non-Base target_profile must raise ValueError immediately."""
-    from qsharp import TargetProfile
+    from qdk import TargetProfile
 
     circuit = create_bell_circuit()
     with pytest.raises(ValueError, match="TargetProfile.Base"):

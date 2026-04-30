@@ -7,7 +7,7 @@ from . import QISKIT_AVAILABLE, SKIP_REASON
 
 
 if QISKIT_AVAILABLE:
-    from qsharp.interop.qiskit import (
+    from qdk.qiskit import (
         OutputSemantics,
         ProgramType,
         QSharpBackend,

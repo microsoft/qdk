@@ -2,16 +2,16 @@
 # Licensed under the MIT License.
 
 import pytest
-from qsharp import TargetProfile
+from qdk import TargetProfile
 
 from interop_qiskit import QISKIT_AVAILABLE, SKIP_REASON
 
 if QISKIT_AVAILABLE:
     from qiskit import QuantumCircuit
     from qiskit.qasm3 import dumps
-    from qsharp.interop.qiskit import QSharpBackend
-    from qsharp.openqasm import run as run_qasm, OutputSemantics
-    from qsharp import set_quantum_seed, init
+    from qdk.qiskit import QSharpBackend
+    from qdk.openqasm import run as run_qasm, OutputSemantics
+    from qdk import set_quantum_seed, init
 
 from .test_circuits import (
     generate_repro_information,

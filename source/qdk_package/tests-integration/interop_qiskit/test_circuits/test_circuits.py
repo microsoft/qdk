@@ -10,7 +10,7 @@ from interop_qiskit import QISKIT_AVAILABLE, SKIP_REASON
 
 if QISKIT_AVAILABLE:
     from qiskit.circuit import QuantumCircuit
-    from qsharp.interop.qiskit import QSharpBackend
+    from qdk.qiskit import QSharpBackend
 
 
 def random_bit() -> Tuple["QuantumCircuit", List[str]]:

@@ -12,7 +12,7 @@ be shared across multiple test files.
 
 import os
 
-from qsharp._native import (
+from qdk._native import (
     Interpreter,
     TargetProfile,
     QSharpError,
@@ -121,7 +121,7 @@ def get_interpreter(
 
     manifest_descriptor = None
     language_features = None
-    from qsharp._fs import read_file, list_directory
+    from qdk._fs import read_file, list_directory
 
     interpreter = Interpreter(
         target_profile,

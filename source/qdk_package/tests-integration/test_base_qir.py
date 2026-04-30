@@ -3,8 +3,7 @@
 
 import pytest
 
-import qsharp
-
+import qdk as qsharp
 try:
     from pyqir import (
         Call,

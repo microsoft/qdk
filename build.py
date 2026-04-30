@@ -495,7 +495,7 @@ if build_pip:
 
     if args.integration_tests:
         step_start("Setting up for integration tests for the pip package")
-        test_dir = os.path.join(pip_src, "tests-integration")
+        test_dir = os.path.join(qdk_python_src, "tests-integration")
         install_python_test_requirements(test_dir, python_bin, check=False)
 
         # Install qdk first (qsharp depends on it)

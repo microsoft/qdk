@@ -4,9 +4,9 @@
 import pytest
 from expecttest import assert_expected_inline
 
-import qsharp
-from qsharp._device._atom._reorder import Reorder
-from qsharp._device._atom import NeutralAtomDevice
+import qdk as qsharp
+from qdk._device._atom._reorder import Reorder
+from qdk._device._atom import NeutralAtomDevice
 from .validation import PerQubitOrdering, check_qubit_ordering_unchanged
 
 try:

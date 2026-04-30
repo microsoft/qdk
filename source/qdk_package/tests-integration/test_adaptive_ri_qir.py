@@ -4,7 +4,7 @@
 
 import pytest
 
-from qsharp import TargetProfile
+from qdk import TargetProfile
 from utils import (
     assert_strings_equal_ignore_line_endings,
     compile_qsharp,

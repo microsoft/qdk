@@ -8,7 +8,7 @@ from interop_qiskit import QISKIT_AVAILABLE, SKIP_REASON
 
 if QISKIT_AVAILABLE:
     from qiskit import QuantumCircuit
-    from qsharp.interop.qiskit import QSharpBackend
+    from qdk.qiskit import QSharpBackend
 
 
 def run_transpile_test(

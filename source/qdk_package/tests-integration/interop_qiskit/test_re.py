@@ -4,8 +4,8 @@
 from concurrent.futures import ThreadPoolExecutor
 import pytest
 
-from qsharp import QSharpError
-from qsharp.estimator import (
+from qdk._native import QSharpError
+from qdk.estimator import (
     EstimatorParams,
     QubitParams,
     LogicalCounts,
@@ -20,7 +20,7 @@ if QISKIT_AVAILABLE:
     )
     from qiskit.circuit import QuantumCircuit, Parameter
     from qiskit.circuit.library import RGQFTMultiplier
-    from qsharp.interop.qiskit import ResourceEstimatorBackend
+    from qdk.qiskit import ResourceEstimatorBackend
     from qiskit.version import __version__ as QISKIT_VERSION
 
 

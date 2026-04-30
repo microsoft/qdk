@@ -6,9 +6,9 @@ import pytest
 cirq = pytest.importorskip("cirq")
 
 import numpy as np
-from qsharp.interop.cirq import NeutralAtomCirqResult, NeutralAtomSampler
-from qsharp._simulation import NoiseConfig
-from qsharp._device._atom import NeutralAtomDevice
+from qdk.cirq import NeutralAtomCirqResult, NeutralAtomSampler
+from qdk._simulation import NoiseConfig
+from qdk._device._atom import NeutralAtomDevice
 
 
 # ---------------------------------------------------------------------------

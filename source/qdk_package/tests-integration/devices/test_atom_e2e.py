@@ -4,8 +4,8 @@
 import pytest
 from expecttest import assert_expected_inline
 
-import qsharp
-from qsharp._device._atom import NeutralAtomDevice, NoiseConfig
+import qdk as qsharp
+from qdk._device._atom import NeutralAtomDevice, NoiseConfig
 
 try:
     import pyqir

@@ -5,7 +5,8 @@ import os
 from typing import Optional
 
 import pytest
-from qsharp import TargetProfile, QSharpError
+from qdk import TargetProfile
+from qdk._native import QSharpError
 
 from . import QISKIT_AVAILABLE, SKIP_REASON, ignore_on_failure
 
@@ -14,7 +15,7 @@ if QISKIT_AVAILABLE:
     from .test_circuits import (
         generate_repro_information,
     )
-    from qsharp.interop.qiskit import (
+    from qdk.qiskit import (
         OutputSemantics,
         QSharpBackend,
         QasmError,

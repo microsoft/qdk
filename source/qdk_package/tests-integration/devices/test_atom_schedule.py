@@ -4,9 +4,9 @@
 import pytest
 from expecttest import assert_expected_inline
 
-import qsharp
-from qsharp._device._atom import NeutralAtomDevice
-from qsharp._device._atom._scheduler import Schedule
+import qdk as qsharp
+from qdk._device._atom import NeutralAtomDevice
+from qdk._device._atom._scheduler import Schedule
 from .validation import (
     ValidateBeginEndParallel,
     PerQubitOrdering,
