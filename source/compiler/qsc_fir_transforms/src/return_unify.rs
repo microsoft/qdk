@@ -3320,10 +3320,19 @@ fn create_flag_trailing_expr(
     ret_val_var_id: LocalVarId,
     return_ty: &Ty,
 ) -> Option<StmtId> {
-    // Check if the last statement is a trailing expression (Expr, not Semi).
-    let last_is_trailing = stmts
-        .last()
-        .is_some_and(|&sid| matches!(package.get_stmt(sid).kind, StmtKind::Expr(_)));
+    // Check if the last statement is a value-producing trailing expression
+    // for this callable, not just any expression statement. The flag rewrite
+    // can turn all-returning non-Unit blocks into Unit expression statements;
+    // those must not be rebound as `__trailing_result : T`.
+    let trailing_expr = stmts.last().and_then(|&stmt_id| {
+        if let StmtKind::Expr(expr_id) = package.get_stmt(stmt_id).kind
+            && package.get_expr(expr_id).ty == *return_ty
+        {
+            Some(expr_id)
+        } else {
+            None
+        }
+    });
 
     let flag_var = create_var_expr(
         package,
@@ -3333,15 +3342,11 @@ fn create_flag_trailing_expr(
     );
     let ret_var = create_var_expr(package, assigner, ret_val_var_id, return_ty);
 
-    if last_is_trailing {
+    if let Some(original_trailing) = trailing_expr {
         // Pop the trailing expr and bind it to a local before the flag check.
         // This ensures that any flag assignments inside the trailing expression
         // evaluate before the `__has_returned` condition is tested.
-        let last_stmt = stmts.pop().expect("stmts should not be empty");
-        let original_trailing = match &package.get_stmt(last_stmt).kind {
-            StmtKind::Expr(e) => *e,
-            _ => unreachable!(),
-        };
+        stmts.pop().expect("stmts should not be empty");
 
         // let __trailing_result : T = original_trailing;
         let (trailing_var_id, trailing_decl_stmt) = create_immutable_var(
@@ -3365,19 +3370,20 @@ fn create_flag_trailing_expr(
         );
         Some(create_expr_stmt(package, assigner, if_expr))
     } else {
-        // No trailing expression — return type should be Unit.
-        debug_assert_eq!(
-            return_ty,
-            &Ty::UNIT,
-            "create_flag_trailing_expr fallback requires Unit return type"
-        );
-        let unit_expr = create_unit_expr(package, assigner);
+        // No fallthrough value survives. Unit returns can keep the previous
+        // explicit `()` fallback. For non-Unit returns, use the initialized
+        // return slot on the unreachable false branch to keep the FIR typed.
+        let fallback_expr = if return_ty == &Ty::UNIT {
+            create_unit_expr(package, assigner)
+        } else {
+            create_var_expr(package, assigner, ret_val_var_id, return_ty)
+        };
         let if_expr = create_if_expr(
             package,
             assigner,
             flag_var,
             ret_var,
-            Some(unit_expr),
+            Some(fallback_expr),
             return_ty,
         );
         Some(create_expr_stmt(package, assigner, if_expr))

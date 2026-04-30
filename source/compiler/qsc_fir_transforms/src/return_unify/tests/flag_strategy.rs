@@ -120,6 +120,63 @@ fn while_return_tuple_value_uses_flag_fallback() {
 }
 
 #[test]
+fn all_returning_nested_if_tuple_uses_return_slot_fallback() {
+    let source = indoc! {r#"
+        namespace Test {
+            function Touch() : Unit { () }
+
+            function Main() : (Bool, (Int, Int)) {
+                let value = 3;
+                if value > 0 {
+                    if value > 1 {
+                        if value > 2 {
+                            Touch();
+                            return (true, (value, value));
+                        }
+                    }
+                    Touch();
+                    return (false, (1, 1));
+                } else {
+                    Touch();
+                    return (false, (2, 2));
+                }
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let package = store.get(pkg_id);
+    let (ret_val_pat, _) = find_local_init(package, "Main", "__ret_val");
+    let ret_val_var_id = local_var_id_from_named_pat(ret_val_pat, "__ret_val");
+
+    let body_block_id = find_body_block_id(package, "Main");
+    let body_block = package.get_block(body_block_id);
+    let trailing_stmt_id = *body_block
+        .stmts
+        .last()
+        .expect("expected rewritten Main body to have a trailing expression");
+    let StmtKind::Expr(trailing_expr_id) = &package.get_stmt(trailing_stmt_id).kind else {
+        panic!("expected rewritten Main body to end with trailing Expr")
+    };
+    assert!(
+        expr_reads_local(package, *trailing_expr_id, ret_val_var_id),
+        "all-returning non-Unit block should use __ret_val as its final expression"
+    );
+
+    let has_trailing_result = body_block.stmts.iter().any(|stmt_id| {
+        let StmtKind::Local(_, pat_id, _) = package.get_stmt(*stmt_id).kind else {
+            return false;
+        };
+        let pat = package.get_pat(pat_id);
+        matches!(&pat.kind, PatKind::Bind(ident) if ident.name.as_ref() == "__trailing_result")
+    });
+    assert!(
+        !has_trailing_result,
+        "Unit trailing statements in all-returning non-Unit blocks must not be captured as __trailing_result"
+    );
+}
+
+#[test]
 fn while_return_array_value_uses_flag_fallback() {
     let source = indoc! {r#"
         namespace Test {
