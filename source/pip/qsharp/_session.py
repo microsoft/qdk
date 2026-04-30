@@ -4,8 +4,8 @@
 """
 Q# Session Management
 
-This module provides the Session class for managing Q# interpreter contexts. 
-Each Session instance has its own interpreter and code namespace, allowing multiple 
+This module provides the Session class for managing Q# interpreter contexts.
+Each Session instance has its own interpreter and code namespace, allowing multiple
 independent Q# environments to coexist.
 """
 
@@ -347,6 +347,17 @@ class Session:
         else:
             return self._lower_python_obj(args)
 
+    def _display(self, output: Output) -> None:
+        """Displays output in Jupyter (if alvailable), otherwise prints."""
+        if _in_jupyter:
+            try:
+                display(output)
+                return
+            except Exception:
+                # If IPython is not available, fall back to printing the output.
+                pass
+        print(output, flush=True)
+
     def _make_callable(
         self, callable: GlobalCallable, namespace: List[str], callable_name: str
     ):
@@ -374,17 +385,8 @@ class Session:
                 )
             ipython_helper()
 
-            def callback(output: Output) -> None:
-                if _in_jupyter:
-                    try:
-                        display(output)
-                        return
-                    except:
-                        pass
-                print(output, flush=True)
-
             args = self._python_args_to_interpreter_args(args)
-            output = self._interpreter.invoke(callable, args, callback)
+            output = self._interpreter.invoke(callable, args, self._display)
             return self._qsharp_value_to_python_value(output)
 
         setattr(_callable_fn, "_qdk_session", self)
@@ -479,21 +481,11 @@ class Session:
                 results["events"].append(stringified)
                 results["messages"].append(stringified)
 
-        def callback(output: Output) -> None:
-            if _in_jupyter:
-                try:
-                    display(output)
-                    return
-                except:
-                    # If IPython is not available, fall back to printing the output
-                    pass
-            print(output, flush=True)
-
         telemetry_events.on_eval()
         start_time = monotonic()
 
         output = self._interpreter.interpret(
-            source, on_save_events if save_events else callback
+            source, on_save_events if save_events else self._display
         )
         results["result"] = self._qsharp_value_to_python_value(output)
 
@@ -558,16 +550,6 @@ class Session:
 
         results: List[ShotResult] = []
 
-        def print_output(output: Output) -> None:
-            if _in_jupyter:
-                try:
-                    display(output)
-                    return
-                except:
-                    # If IPython is not available, fall back to printing the output
-                    pass
-            print(output, flush=True)
-
         def on_save_events(output: Output) -> None:
             # Append the output to the last shot's output list
             results[-1]["events"].append(output)
@@ -618,7 +600,7 @@ class Session:
             )
             run_results = self._interpreter.run(
                 run_entry_expr,
-                on_save_events if save_events else print_output,
+                on_save_events if save_events else self._display,
                 noise_config,
                 noise,
                 qubit_loss,
