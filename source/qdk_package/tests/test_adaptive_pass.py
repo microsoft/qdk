@@ -15,7 +15,6 @@ import pytest
 from qdk._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram, Bytecode
 from qdk._adaptive_bytecode import *
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

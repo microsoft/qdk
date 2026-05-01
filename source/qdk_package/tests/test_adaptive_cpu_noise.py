@@ -14,9 +14,9 @@ from collections import Counter
 from typing import Optional, List
 import pytest
 from qdk._simulation import run_qir, NoiseConfig, Result
+import qdk
 import qdk.openqasm
 from typing import Literal
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -231,10 +231,10 @@ test_noise_intrinsic qs[0], qs[1], qs[2];
 bit[3] res = measure qs;
 """
 
-QIR_WITH_CORRELATED_NOISE = qsharp.openqasm.compile(
+QIR_WITH_CORRELATED_NOISE = qdk.openqasm.compile(
     QASM_WITH_CORRELATED_NOISE,
-    output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
-    target_profile=qsharp.TargetProfile.Adaptive_RIF,
+    output_semantics=qdk.openqasm.OutputSemantics.OpenQasm,
+    target_profile=qdk.TargetProfile.Adaptive_RIF,
 )
 
 
@@ -335,10 +335,10 @@ noise_1q q;
 bit res = measure q;
 """
 
-QIR_NOISE_1Q = qsharp.openqasm.compile(
+QIR_NOISE_1Q = qdk.openqasm.compile(
     QASM_NOISE_1Q,
-    output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
-    target_profile=qsharp.TargetProfile.Adaptive_RIF,
+    output_semantics=qdk.openqasm.OutputSemantics.OpenQasm,
+    target_profile=qdk.TargetProfile.Adaptive_RIF,
 )
 
 
@@ -364,10 +364,10 @@ noise_2q qs[0], qs[1];
 bit[2] res = measure qs;
 """
 
-QIR_NOISE_2Q = qsharp.openqasm.compile(
+QIR_NOISE_2Q = qdk.openqasm.compile(
     QASM_NOISE_2Q,
-    output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
-    target_profile=qsharp.TargetProfile.Adaptive_RIF,
+    output_semantics=qdk.openqasm.OutputSemantics.OpenQasm,
+    target_profile=qdk.TargetProfile.Adaptive_RIF,
 )
 
 
@@ -395,10 +395,10 @@ noise_5q qs[0], qs[1], qs[2], qs[3], qs[4];
 bit[5] res = measure qs;
 """
 
-QIR_NOISE_5Q = qsharp.openqasm.compile(
+QIR_NOISE_5Q = qdk.openqasm.compile(
     QASM_NOISE_5Q,
-    output_semantics=qsharp.openqasm.OutputSemantics.OpenQasm,
-    target_profile=qsharp.TargetProfile.Adaptive_RIF,
+    output_semantics=qdk.openqasm.OutputSemantics.OpenQasm,
+    target_profile=qdk.TargetProfile.Adaptive_RIF,
 )
 
 

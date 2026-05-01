@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import warnings
 from . import telemetry_events, code
 from ._native import (  # type: ignore
     Interpreter,
@@ -1055,6 +1056,13 @@ def estimate(
     """
 
     ipython_helper()
+
+    warnings.warn(
+        "This version of QRE is deprecated and will be removed in a future release. "
+        "Please use the new version of QRE in qdk.qre. Refer to aka.ms/qdk.QREv3 for more information.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     def _coerce_estimator_params(
         params: Optional[

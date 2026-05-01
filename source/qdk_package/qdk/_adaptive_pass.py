@@ -12,10 +12,17 @@ Adaptive Profile specification.
 
 from __future__ import annotations
 from dataclasses import dataclass, astuple
+from enum import Enum
 import pyqir
 import struct
 from typing import Any, Dict, List, Optional, Tuple, TypeAlias, cast
 from ._adaptive_bytecode import *
+
+
+class Bytecode(Enum):
+    Bit32 = 32
+    Bit64 = 64
+
 
 # ---------------------------------------------------------------------------
 # Gate name → OpID mapping (must match shader_types.rs OpID enum)
@@ -48,6 +55,7 @@ GATE_MAP: Dict[str, int] = {
     "mz": 21,
     "mresetz": 22,
     "swap": 24,
+    "move": 28,
 }
 
 # Gates that take a result ID as a second argument
@@ -58,6 +66,12 @@ RESET_GATES = {"reset"}
 
 # Rotation gates that take an angle parameter as first argument
 ROTATION_GATES = {"rx", "ry", "rz", "rxx", "ryy", "rzz"}
+
+# Single-qubit gates whose QIR signature carries device-specific extra
+# arguments after the qubit pointer (e.g. ``move(qubit, i64, i64)``). The
+# extra args are scheduling metadata for hardware backends and are not
+# qubit IDs, so we resolve only ``args[0]`` and ignore the rest.
+MOVE_GATES = {"move"}
 
 # ---------------------------------------------------------------------------
 # ICmp / FCmp predicate mappings
@@ -160,7 +174,14 @@ class QuantumOp:
     q1: int
     q2: int
     q3: int
-    angle: float
+    # ``angle`` is stored as the raw bit pattern of an IEEE-754 float
+    # (encoded via ``encode_float_as_bits``) so it can be packed into the
+    # same integer-typed FFI table as the qubit indices. The Rust side
+    # reinterprets these bits as f32/f64 depending on the bytecode width.
+    #
+    # This also follows the same pattern in which floats are encoded as ints
+    # in the ``Instruction`` class.
+    angle: int
 
 
 @dataclass
@@ -192,17 +213,26 @@ RegisterType: TypeAlias = int
 
 @dataclass
 class IntOperand:
-    val: int = 0
+    val: int
+    bits: int
 
     def __post_init__(self):
-        # Mask to u32 range so negative Python ints become their
-        # two's-complement u32 representation (e.g. -7 → 0xFFFFFFF9).
-        self.val = self.val & 0xFFFFFFFF
+        # Mask to the appropriate word-width so negative Python ints and
+        # wider-than-target constants become their two's-complement
+        # representation at the target bit width
+        # (e.g. -7 → 0xFFFFFFF9 for 32-bit, 0xFFFFFFFFFFFFFFF9 for 64-bit).
+        #
+        # Note: we have no way to tell if a negative number, represented by
+        #       pyqir as an u64 is an overflow or just a negative number.
+        #       therefore we don't perform overflow checks here, and instead
+        #       default to a wrapping behavior.
+        mask = (1 << self.bits) - 1
+        self.val = self.val & mask
 
 
 class FloatOperand:
-    def __init__(self, val: float = 0.0) -> None:
-        self.val: int = encode_float_as_bits(val)
+    def __init__(self, val: float, bytecode_kind: Bytecode) -> None:
+        self.val: int = encode_float_as_bits(val, bytecode_kind)
 
 
 @dataclass
@@ -255,14 +285,24 @@ def unwrap_operands(
     return (dst, src0, src1, aux0, aux1, aux2, aux3)
 
 
-def encode_float_as_bits(val: float) -> int:
-    return struct.unpack("<I", struct.pack("<f", val))[0]
+def encode_float_as_bits(val: float, bytecode_kind: Bytecode) -> int:
+    if bytecode_kind == Bytecode.Bit32:
+        return struct.unpack("<I", struct.pack("<f", val))[0]
+    else:
+        return struct.unpack("<Q", struct.pack("<d", val))[0]
+
+
+def void_return(bytecode_kind: Bytecode):
+    if bytecode_kind == Bytecode.Bit32:
+        return 0xFFFF_FFFF
+    else:
+        return 0xFFFF_FFFF_FFFF_FFFF
 
 
 class AdaptiveProfilePass:
     """Walks Adaptive Profile QIR and emits the intermediate format for Rust."""
 
-    def __init__(self):
+    def __init__(self, bytecode_kind: Bytecode):
         # Output tables.
         self.blocks: List[Block] = []
         self.instructions: List[Instruction] = []
@@ -275,6 +315,8 @@ class AdaptiveProfilePass:
         self.register_types: List[RegisterType] = []
 
         # Internal tracking.
+        self._bytecode_kind = bytecode_kind
+        self._int_bits = bytecode_kind.value
         self._next_reg: int = 0
         self._next_block: int = 0
         self._next_qop: int = 0
@@ -401,7 +443,7 @@ class AdaptiveProfilePass:
         q1: int = 0,
         q2: int = 0,
         q3: int = 0,
-        angle: float = 0.0,
+        angle: int = 0,
     ) -> int:
         idx = self._next_qop
         self._next_qop += 1
@@ -425,11 +467,11 @@ class AdaptiveProfilePass:
 
         if isinstance(value, pyqir.IntConstant):
             val = value.value
-            return IntOperand(val)
+            return IntOperand(val, self._int_bits)
 
         if isinstance(value, pyqir.FloatConstant):
             val = value.value
-            return FloatOperand(val)
+            return FloatOperand(val, self._bytecode_kind)
 
         # Forward reference (e.g. phi incoming from a later block).
         # Pre-allocate a register; the defining instruction will reuse it
@@ -442,7 +484,7 @@ class AdaptiveProfilePass:
             # Try extracting as a qubit/result pointer constant.
             pid = pyqir.ptr_id(value)
             if pid is not None:
-                return IntOperand(pid)
+                return IntOperand(pid, self._int_bits)
             # Null pointer
             if value.is_null:
                 reg = self._alloc_reg(value, REG_TYPE_PTR)
@@ -626,8 +668,6 @@ class AdaptiveProfilePass:
                 dst = self._alloc_reg(call, REG_TYPE_BOOL)
                 result_reg = self._resolve_result_operand(call.args[0])
                 self._emit(OP_READ_RESULT, dst=dst, src0=result_reg)
-            case _ if callee.startswith("__quantum__qis__"):
-                self._emit_quantum_call(call)
             case "__quantum__rt__result_record_output":
                 result_reg = self._resolve_result_operand(call.args[0])
                 label_str = self._extract_label(call.args[1])
@@ -681,9 +721,17 @@ class AdaptiveProfilePass:
                 | "__quantum__rt__begin_parallel"
                 | "__quantum__rt__end_parallel"
                 | "__quantum__qis__barrier__body"
-                | "__quantum__rt__read_loss"
             ):
                 pass  # No-op
+            case "__quantum__rt__read_loss":
+                # Allocate a bool register and emit OP_READ_LOSS so the runtime
+                # can ask the simulator whether the given result was produced
+                # by measuring a lost qubit. Programs may branch on this value.
+                dst = self._alloc_reg(call, REG_TYPE_BOOL)
+                result_reg = self._resolve_result_operand(call.args[0])
+                self._emit(OP_READ_LOSS, dst=dst, src0=result_reg)
+            case _ if callee.startswith("__quantum__qis__"):
+                self._emit_quantum_call(call)
             case _ if callee in self._func_to_id:
                 self._emit_ir_function_call(call)
             case _ if "qdk_noise" in call.callee.attributes.func:
@@ -699,7 +747,11 @@ class AdaptiveProfilePass:
     def _resolve_qubit_operands(
         self, args: List[pyqir.Value]
     ) -> Tuple[IntOperand | Reg, IntOperand | Reg, IntOperand | Reg]:
-        qs: List[IntOperand | Reg] = [IntOperand(), IntOperand(), IntOperand()]
+        qs: List[IntOperand | Reg] = [
+            IntOperand(0, self._int_bits),
+            IntOperand(0, self._int_bits),
+            IntOperand(0, self._int_bits),
+        ]
         for i, arg in enumerate(args):
             qs[i] = self._resolve_qubit_operand(arg)
         return (qs[0], qs[1], qs[2])
@@ -744,17 +796,36 @@ class AdaptiveProfilePass:
                 aux1=q,
             )
             return
+        if gate_name in MOVE_GATES:
+            # ``move(qubit, i64, i64)``: only the first arg is a qubit; the
+            # remaining args are device-specific scheduling metadata that
+            # the simulator ignores. Emit a single-qubit OP_QUANTUM_GATE so
+            # the runtime invokes ``Simulator::mov`` (which applies the
+            # configured ``noise.mov`` faults to that qubit).
+            q1, q2, q3 = self._resolve_qubit_operands([call.args[0]])
+            angle = FloatOperand(0.0, self._bytecode_kind)
+            qop_idx = self._emit_quantum_op(op_id, q1.val, q2.val, q3.val, angle.val)
+            self._emit(
+                OP_QUANTUM_GATE,
+                src0=angle,
+                aux0=qop_idx,
+                aux1=q1,
+                aux2=q2,
+                aux3=q3,
+            )
+            return
         if gate_name in ROTATION_GATES:
             qubit_arg_offset = 1
             angle = self._resolve_angle_operand(call.args[0])
         else:
             qubit_arg_offset = 0
-            angle = FloatOperand()
+            angle = FloatOperand(0.0, self._bytecode_kind)
         qubit_arg_offset = 1 if gate_name in ROTATION_GATES else 0
         q1, q2, q3 = self._resolve_qubit_operands(call.args[qubit_arg_offset:])
         qop_idx = self._emit_quantum_op(op_id, q1.val, q2.val, q3.val, angle.val)
         self._emit(
             OP_QUANTUM_GATE,
+            src0=angle,
             aux0=qop_idx,
             aux1=q1,
             aux2=q2,
@@ -795,8 +866,8 @@ class AdaptiveProfilePass:
             self._emit(
                 OP_QUANTUM_GATE,
                 aux0=qop_idx,
-                aux1=IntOperand(qubit_count),
-                aux2=IntOperand(arg_offset),
+                aux1=IntOperand(qubit_count, self._int_bits),
+                aux2=IntOperand(arg_offset, self._int_bits),
             )
         elif self._noise_intrinsics is not None:
             raise ValueError(f"Missing noise intrinsic: {callee_name}")
@@ -860,18 +931,14 @@ class AdaptiveProfilePass:
         compilation).  ``operands`` is not affected by this behavior.
         """
         # operands layout: [cond, default_block, case_val0, case_block0, ...]
-        ops = switch_instr.operands
-        cond_reg = self._resolve_operand(ops[0])
-        default_block = self._block_to_id[ops[1]]
+        cond_reg = self._resolve_operand(switch_instr.operands[0])
+        default_block = self._block_to_id[switch_instr.default]
         case_offset = len(self.switch_cases)
-        num_case_pairs = (len(ops) - 2) // 2
-        for i in range(num_case_pairs):
-            case_val = ops[2 + 2 * i]
-            case_block = ops[2 + 2 * i + 1]
-            target_block = self._block_to_id[case_block]
+        for case_val, block in switch_instr.cases:
+            target_block = self._block_to_id[block]
             switch_case = SwitchCase(case_val.value, target_block)
             self.switch_cases.append(switch_case)
-        case_count = num_case_pairs
+        case_count = len(switch_instr.cases)
         self._emit(
             OP_SWITCH,
             src0=cond_reg,
@@ -896,7 +963,7 @@ class AdaptiveProfilePass:
                 self._emit(OP_RET, dst=ret_reg)
             else:
                 # Void return — use immediate 0 as exit code.
-                self._emit(OP_RET, dst=IntOperand(0))
+                self._emit(OP_RET, dst=IntOperand(0, self._int_bits))
 
     # ------------------------------------------------------------------
     # Comparison emitters
@@ -960,7 +1027,7 @@ class AdaptiveProfilePass:
                 self.call_args.append(reg.val)
         # Allocate return register if function has non-void return type
         if call.type.is_void:
-            return_reg = VOID_RETURN  # no return
+            return_reg = void_return(self._bytecode_kind)  # no return
         else:
             return_reg = self._alloc_reg(call, REG_TYPE_I32)
         self._emit(

@@ -48,6 +48,7 @@ Usage:
     print(result.results[0].data.counts)      # accepted shots only
     print(result.results[0].data.raw_counts)  # includes loss shots
 """
+
 from typing import Any, Dict, List, Optional, Union
 
 from ..estimator import EstimatorParams, EstimatorResult
@@ -105,4 +106,5 @@ __all__ = [
     "estimate",
     "EstimatorParams",
     "EstimatorResult",
+    "QasmError",
 ]
