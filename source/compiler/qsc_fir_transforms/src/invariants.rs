@@ -32,7 +32,9 @@ use qsc_fir::fir::{
 use qsc_fir::ty::{FunctorSet, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
+use crate::reachability::{
+    collect_reachable_from_entry, collect_reachable_package_closure, collect_reachable_with_seeds,
+};
 
 /// The level of invariant checking to perform, corresponding to which passes
 /// have already been applied.
@@ -146,16 +148,31 @@ impl InvariantLevel {
 /// Checks FIR structural invariants on entry-reachable code and, after UDT
 /// erasure, on the full reachable package closure that pass mutates.
 ///
+/// Equivalent to [`check_with_pinned_items`] with an empty `pinned_items`
+/// slice. Use [`check_with_pinned_items`] when the pipeline has pinned
+/// additional items (e.g. for callable-args codegen) so those callables are
+/// also validated.
+///
+/// # Panics
+///
+/// Panics with a descriptive message if any invariant is violated.
+pub fn check(store: &PackageStore, package_id: qsc_fir::fir::PackageId, level: InvariantLevel) {
+    check_with_pinned_items(store, package_id, level, &[]);
+}
+
+/// Checks FIR structural invariants on reachable code, including any
+/// additional `pinned_items` as extra reachability roots.
+///
 /// The invariant walk is scoped two ways. Callable-signature and
 /// callable-body checks (`check_reachable_invariants`, `check_expr_types`,
 /// `check_non_unit_block_tails`) only visit items reachable from the target
-/// package's entry expression; cross-package items referenced by those
-/// callables are not re-checked for the stage-sensitive invariants because
-/// the preceding passes only rewrote the target package. The
-/// `check_package_udt_erase_invariants` walker is the single exception: once
-/// `udt_erase` runs it must verify the UDT-erasure surface on every package
-/// in the reachable package closure, because that pass mutates types and
-/// expression kinds across packages.
+/// package's entry expression (plus pinned items when provided);
+/// cross-package items referenced by those callables are not re-checked for
+/// the stage-sensitive invariants because the preceding passes only rewrote
+/// the target package. The `check_package_udt_erase_invariants` walker is
+/// the single exception: once `udt_erase` runs it must verify the
+/// UDT-erasure surface on every package in the reachable package closure,
+/// because that pass mutates types and expression kinds across packages.
 ///
 /// The top-level dispatcher runs the invariant helpers in layers:
 /// - `check_id_references` validates raw `IndexMap` links before any
@@ -164,7 +181,7 @@ impl InvariantLevel {
 ///   surfaces for every package in the reachable package closure once
 ///   `udt_erase` has run.
 /// - `check_reachable_invariants` applies callable-signature and callable-body
-///   checks to entry-reachable items in the transformed package.
+///   checks to reachable items in the transformed package.
 /// - `check_non_unit_block_tails` verifies the single-exit block shape that
 ///   return unification promises.
 /// - `check_expr_types` revisits the entry expression tree itself, which may
@@ -175,7 +192,12 @@ impl InvariantLevel {
 /// # Panics
 ///
 /// Panics with a descriptive message if any invariant is violated.
-pub fn check(store: &PackageStore, package_id: qsc_fir::fir::PackageId, level: InvariantLevel) {
+pub fn check_with_pinned_items(
+    store: &PackageStore,
+    package_id: qsc_fir::fir::PackageId,
+    level: InvariantLevel,
+    pinned_items: &[StoreItemId],
+) {
     let package = store.get(package_id);
     check_id_references(package);
 
@@ -183,7 +205,11 @@ pub fn check(store: &PackageStore, package_id: qsc_fir::fir::PackageId, level: I
         return;
     };
 
-    let reachable = collect_reachable_from_entry(store, package_id);
+    let reachable = if pinned_items.is_empty() {
+        collect_reachable_from_entry(store, package_id)
+    } else {
+        collect_reachable_with_seeds(store, package_id, pinned_items)
+    };
     if level.is_post_udt_erase_or_later() {
         let reachable_packages = collect_reachable_package_closure(package_id, &reachable);
         for reachable_package_id in reachable_packages {
@@ -195,14 +221,14 @@ pub fn check(store: &PackageStore, package_id: qsc_fir::fir::PackageId, level: I
         }
     }
 
-    check_reachable_invariants(store, package_id, &reachable, level);
+    check_reachable_invariants(store, package_id, &reachable, level, pinned_items);
 
     if level.is_post_defunc_or_later() {
         check_expr_id_ownership(store, package_id, &reachable, entry_id);
     }
 
     if level.is_post_return_unify_or_later() {
-        check_non_unit_block_tails(store, package_id);
+        check_non_unit_block_tails(store, package_id, &reachable);
     }
 
     // Check type invariants on the entry expression tree.
@@ -314,14 +340,14 @@ fn check_type_udt_erase_invariants(ty: &Ty, context: &str) {
 pub(crate) fn check_non_unit_block_tails(
     store: &PackageStore,
     package_id: qsc_fir::fir::PackageId,
+    reachable: &FxHashSet<StoreItemId>,
 ) {
     let package = store.get(package_id);
     let Some(entry_id) = package.entry else {
         return;
     };
 
-    let reachable = collect_reachable_from_entry(store, package_id);
-    for item_id in &reachable {
+    for item_id in reachable {
         if item_id.package != package_id {
             continue;
         }
@@ -603,13 +629,15 @@ fn check_expr_sub_ids(package: &Package, parent_expr: ExprId, kind: &ExprKind) {
     }
 }
 
-/// Applies stage-gated callable checks to each entry-reachable callable in the
+/// Applies stage-gated callable checks to each reachable callable in the
 /// target package.
 ///
 /// Depending on `level`, this dispatcher invokes:
 /// - `check_type_invariants` on callable output types.
 /// - `check_no_arrow_params` once defunctionalization should have removed
-///   callable-valued parameters.
+///   callable-valued parameters. Pinned items are excluded from this check
+///   because they are specialization targets that intentionally retain
+///   arrow-typed parameters for callable-args codegen.
 /// - `check_callable_input_pattern_shapes` once SROA and argument promotion may
 ///   have synthesized tuple-shaped inputs.
 /// - `check_no_returns` once return unification should have removed
@@ -623,6 +651,7 @@ fn check_reachable_invariants(
     target_package_id: qsc_fir::fir::PackageId,
     reachable: &FxHashSet<StoreItemId>,
     level: InvariantLevel,
+    pinned_items: &[StoreItemId],
 ) {
     for item_id in reachable {
         // Only check invariants on items in the target package. Cross-package
@@ -635,46 +664,58 @@ fn check_reachable_invariants(
         let item_pkg = store.get(item_id.package);
         let item = item_pkg.get_item(item_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
-            // Check types on the callable signature.
-            check_type_invariants(&decl.output, level, "callable output type");
+            let is_pinned = pinned_items.contains(item_id);
 
-            // After defunctionalization, no Arrow-typed parameters should remain.
-            if level.is_post_defunc_or_later() {
-                check_no_arrow_params(item_pkg, decl);
-            }
+            // Pinned items are specialization targets for callable-args
+            // codegen. They were not entry-reachable when the FIR transforms
+            // ran, so they retain their original pre-transform shape
+            // (Ty::Param, Ty::Arrow, FunctorSet::Param, ExprKind::Return,
+            // etc.). Only exec graph structural integrity is validated for
+            // pinned items; all other stage-specific checks are skipped.
+            if !is_pinned {
+                // Check types on the callable signature.
+                check_type_invariants(&decl.output, level, "callable output type");
 
-            if level.is_post_arg_promote_or_later() {
-                check_callable_input_pattern_shapes(item_pkg, decl);
-            }
+                // After defunctionalization, no Arrow-typed parameters should remain.
+                if level.is_post_defunc_or_later() {
+                    check_no_arrow_params(item_pkg, decl);
+                }
 
-            // After return unification, no ExprKind::Return should remain.
-            if level.is_post_return_unify_or_later() {
-                check_no_returns(item_pkg, decl);
-            }
+                if level.is_post_arg_promote_or_later() {
+                    check_callable_input_pattern_shapes(item_pkg, decl);
+                }
 
-            // Walk the body types for every reachable callable implementation.
-            match &decl.implementation {
-                CallableImpl::Spec(spec_impl) => {
-                    check_spec_decl_types(store, item_pkg, &spec_impl.body, level);
-                    for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-                        .into_iter()
-                        .flatten()
-                    {
+                // After return unification, no ExprKind::Return should remain.
+                if level.is_post_return_unify_or_later() {
+                    check_no_returns(item_pkg, decl);
+                }
+
+                // Walk the body types for every reachable callable implementation.
+                match &decl.implementation {
+                    CallableImpl::Spec(spec_impl) => {
+                        check_spec_decl_types(store, item_pkg, &spec_impl.body, level);
+                        for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
+                            .into_iter()
+                            .flatten()
+                        {
+                            check_spec_decl_types(store, item_pkg, spec, level);
+                        }
+                    }
+                    CallableImpl::SimulatableIntrinsic(spec) => {
                         check_spec_decl_types(store, item_pkg, spec, level);
                     }
+                    CallableImpl::Intrinsic => {}
                 }
-                CallableImpl::SimulatableIntrinsic(spec) => {
-                    check_spec_decl_types(store, item_pkg, spec, level);
-                }
-                CallableImpl::Intrinsic => {}
-            }
 
-            // Check that every Res::Local reference is bound within the callable.
-            if level.is_post_mono_or_later() {
-                check_local_var_consistency(item_pkg, decl);
+                // Check that every Res::Local reference is bound within the callable.
+                if level.is_post_mono_or_later() {
+                    check_local_var_consistency(item_pkg, decl);
+                }
             }
 
             // After all passes, validate exec graph structural integrity.
+            // This applies to both entry-reachable and pinned callables,
+            // since exec_graph_rebuild rebuilds graphs for both.
             if level == InvariantLevel::PostAll {
                 let name = &decl.name.name;
                 match &decl.implementation {
