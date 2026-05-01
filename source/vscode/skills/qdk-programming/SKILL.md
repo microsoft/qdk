@@ -7,6 +7,8 @@ description: "QDK programming guide for Q#, OpenQASM, and the qsharp/qdk Python 
 
 Quantum programming with the Microsoft Quantum Development Kit (QDK).
 
+> **Looking for interactive tutorials?** If the user wants to learn quantum computing through the Quantum Katas — guided lessons and exercises with hints, checks, and a chat-embedded widget — defer to the **`quantum-katas`** skill instead. Use this `qdk-programming` skill for general Q#/OpenQASM coding, running programs, resource estimation, etc.
+
 ## Two Modes
 
 Most QDK features work in two modes:

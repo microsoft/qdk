@@ -61,6 +61,8 @@ export enum EventType {
   RemoveOldCopilotInstructions = "Qsharp.RemoveOldCopilotInstructions",
   ChangelogPromptStart = "Qsharp.ChangelogPromptStart",
   ChangelogPromptEnd = "Qsharp.ChangelogPromptEnd",
+  QuantumKatasMcpStart = "Qsharp.QuantumKatasMcpStart",
+  KatasPanelAction = "Qsharp.KatasPanelAction",
 }
 
 type Empty = { [K in any]: never };
@@ -327,6 +329,25 @@ type EventTypes = {
     properties: {
       associationId: string;
       action: "showChangelog" | "suppressChangelog";
+    };
+    measurements: Empty;
+  };
+  [EventType.QuantumKatasMcpStart]: {
+    properties: {
+      workspaceRootConfigured: string;
+    };
+    measurements: Empty;
+  };
+  [EventType.KatasPanelAction]: {
+    properties: {
+      action:
+        | "refresh"
+        | "continue"
+        | "openExercise"
+        | "openLesson"
+        | "askInChat"
+        | "navigateWidget"
+        | "setup";
     };
     measurements: Empty;
   };

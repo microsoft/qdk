@@ -200,6 +200,18 @@ export function copyKatex(destDir) {
   }
 }
 
+export function copyLearningPanelAssets() {
+  const srcDir = join(thisDir, "src", "learning", "panel");
+  const outDir = join(thisDir, "out", "learning", "panel");
+  console.log("Copying learning panel assets to: " + outDir);
+  mkdirSync(outDir, { recursive: true });
+  for (const file of readdirSync(srcDir)) {
+    if (file.endsWith(".css") || file.endsWith(".js")) {
+      copyFileSync(join(srcDir, file), join(outDir, file));
+    }
+  }
+}
+
 // ── Build functions ─────────────────────────────────────────────────
 
 /** @param {string} platform */
@@ -277,6 +289,7 @@ export async function watchVsCode() {
     } else {
       copyKatex();
       copyWasmToVsCode();
+      copyLearningPanelAssets();
 
       await Promise.all([
         buildPlatform("ui"),

@@ -16,6 +16,16 @@ import { activateDebugger } from "./debugger/activate.js";
 import { startOtherQSharpDiagnostics } from "./diagnostics.js";
 import { removeDeprecatedCopilotInstructions } from "./gh-copilot/instructions.js";
 import { registerLanguageModelTools } from "./gh-copilot/tools.js";
+import {
+  LearningService,
+  registerEditorContext,
+  registerLearningCommands,
+  createLearningCodeLensProvider,
+  exerciseDocumentSelector,
+  registerLearningDecorations,
+} from "./learning/index.js";
+import { registerKatasPanelCommand } from "./learning/panel/index.js";
+import { registerKatasProgressView } from "./learning/progress/index.js";
 import { activateLanguageService } from "./language-service/activate.js";
 import {
   Logging,
@@ -100,7 +110,20 @@ export async function activate(
   registerWebViewCommands(context);
   await initFileSystem(context);
   await initProjectCreator(context);
-  registerLanguageModelTools(context);
+  const learningService = new LearningService(context.extensionUri);
+  context.subscriptions.push({ dispose: () => learningService.dispose() });
+  registerLanguageModelTools(context, learningService);
+  registerEditorContext(context, learningService);
+  registerLearningDecorations(context, learningService);
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      exerciseDocumentSelector,
+      createLearningCodeLensProvider(),
+    ),
+  );
+  const progressWatcher = registerKatasProgressView(context, learningService);
+  registerLearningCommands(context, learningService, progressWatcher);
+  registerKatasPanelCommand(context, progressWatcher, learningService);
   // fire-and-forget
   removeDeprecatedCopilotInstructions(context);
 

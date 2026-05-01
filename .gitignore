@@ -25,3 +25,8 @@ __pycache__/
 samples/scratch/
 *.pyd
 /python_doc/
+
+# Scaffolded at runtime by the QDK Learning experience. Can appear
+# anywhere the learning tools are invoked; never source-controlled.
+qdk-learning-ws/
+qdk-learning.json
