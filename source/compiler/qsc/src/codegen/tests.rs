@@ -16,7 +16,7 @@ use qsc_frontend::compile::parse_all;
 use qsc_hir::hir::{ItemKind, PackageId};
 
 use crate::codegen::qir::{
-    get_qir, get_qir_from_ast, get_rir, prepare_backend_fir_from_callable_args,
+    get_qir, get_qir_from_ast, get_rir, prepare_codegen_fir_from_callable_args,
 };
 
 fn format_interpret_errors(errors: Vec<crate::interpret::Error>) -> String {
@@ -208,7 +208,7 @@ fn unsupported_profile_patterns_return_pass_errors() {
         errors
             .iter()
             .all(|error| matches!(error, crate::interpret::Error::Pass(_))),
-        "expected pass-derived backend readiness errors, got {errors:?}"
+        "expected pass-derived codegen readiness errors, got {errors:?}"
     );
     assert!(
         errors.iter().any(|error| error
@@ -411,7 +411,7 @@ fn explicit_return_tuple_keeps_dynamic_integer_output() {
 }
 
 #[test]
-fn result_array_helper_return_survives_adaptive_backend_prep() {
+fn result_array_helper_return_survives_adaptive_codegen_prep() {
     let source = indoc::indoc! {r#"
         namespace Test {
             import Std.Measurement.*;
@@ -599,7 +599,7 @@ fn callable_args_with_arrow_input_survives_dce() {
     // If pinned items are not threaded through, DCE removes ApplyOp and
     // the pipeline panics.
     let result =
-        prepare_backend_fir_from_callable_args(&store, apply_op_hir_id, &my_op_value, capabilities);
+        prepare_codegen_fir_from_callable_args(&store, apply_op_hir_id, &my_op_value, capabilities);
     match result {
         Ok(_) => {}
         Err(errors) => panic!(
@@ -688,7 +688,7 @@ fn callable_args_with_udt_wrapped_arrow_survives_dce() {
     );
 
     let result =
-        prepare_backend_fir_from_callable_args(&store, apply_hir_id, &config_value, capabilities);
+        prepare_codegen_fir_from_callable_args(&store, apply_hir_id, &config_value, capabilities);
     match result {
         Ok(_) => {}
         Err(errors) => panic!(

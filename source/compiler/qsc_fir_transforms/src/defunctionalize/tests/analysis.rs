@@ -7,7 +7,7 @@ use super::*;
 use expect_test::expect;
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::fir::{LocalVarId, Package};
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 
 #[test]
 fn analysis_no_callable_params() {
