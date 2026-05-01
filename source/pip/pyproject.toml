@@ -4,8 +4,8 @@ version = "0.0.0"
 readme = "README.md"
 requires-python = ">= 3.10"
 dependencies = ["qdk==0.0.0"]
+license = "MIT"
 classifiers = [
-    "License :: OSI Approved :: MIT License",
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
@@ -20,11 +20,14 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-jupyterlab = ["qsharp-jupyterlab"]
-widgets = ["qsharp-widgets"]
-qiskit = ["qiskit>=1.2.2,<3.0.0"]
-cirq = ["cirq-core>=1.6.1,<1.7"]
-qre = ["cirq-core==1.6.1,<1.7", "pandas>=2.1", "ply>=3.11", "pyqir>=0.12.3,<0.13"]
+jupyterlab = ["qdk[jupyter]"]
+widgets = ["qdk[jupyter]"]
+jupyter = ["qdk[jupyter]"]
+qiskit = ["qdk[qiskit]"]
+cirq = ["qdk[cirq]"]
+qre = ["qdk[qre]"]
+azure = ["qdk[azure]"]
+applications = ["qdk[applications]"]
 
 [build-system]
 requires = ["setuptools>=64", "wheel"]
@@ -32,3 +35,4 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]
+exclude = ["build*"]
