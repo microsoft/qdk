@@ -5,6 +5,11 @@ from qdk._simulation import NoiseConfig
 import pytest
 
 
+def test_accessing_unset_valid_pauli():
+    noise = NoiseConfig()
+    assert noise.h.x == 0
+
+
 def test_setting_1q_noise():
     noise = NoiseConfig()
     noise.h.set_pauli_noise("X", 0.01)
@@ -96,10 +101,10 @@ def test_setting_non_valid_pauli_through_attr_errors():
         noise.h.w = 0.01
 
 
-def test_accessing_non_set_pauli_attr_errors():
+def test_accessing_invalid_pauli_attr_errors():
     noise = NoiseConfig()
     with pytest.raises(AttributeError):
-        noise.h.x
+        noise.h.w
 
 
 def test_accessing_non_valid_pauli_attr_errors():

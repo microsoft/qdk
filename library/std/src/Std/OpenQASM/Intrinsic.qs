@@ -222,7 +222,7 @@ operation phase(lambda : Angle, qubit : Qubit) : Unit is Adj + Ctl {
     U(ZERO_ANGLE(), ZERO_ANGLE(), lambda, qubit);
 }
 
-operation cphase(ctrl : Qubit, lambda : Angle, qubit : Qubit) : Unit is Adj + Ctl {
+operation cphase(lambda : Angle, ctrl : Qubit, qubit : Qubit) : Unit is Adj + Ctl {
     Controlled phase([ctrl], (lambda, qubit));
 }
 

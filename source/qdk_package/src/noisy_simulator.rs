@@ -17,6 +17,8 @@ pub(crate) fn register_noisy_simulator_submodule<'a>(
     m.add_class::<Instrument>()?;
     m.add_class::<DensityMatrixSimulator>()?;
     m.add_class::<StateVectorSimulator>()?;
+    m.add_class::<DensityMatrix>()?;
+    m.add_class::<StateVector>()?;
     Ok(())
 }
 

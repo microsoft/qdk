@@ -69,39 +69,7 @@ def test_million():
     print(output)
 
 
-def test_s_noise_inherits_from_rz():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval("operation Main() : Result { use q = Qubit(); S(q); MResetZ(q) }")
-    ir = qsharp.compile("Main()")
-    noise = NoiseConfig()
-    noise.rz.x = 1.0
-    output = run_qir_clifford(str(ir), 1, noise)
-    assert output == [Result.One]
-
-
-def test_z_noise_inherits_from_rz():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval("operation Main() : Result { use q = Qubit(); Z(q); MResetZ(q) }")
-    ir = qsharp.compile("Main()")
-    noise = NoiseConfig()
-    noise.rz.x = 1.0
-    output = run_qir_clifford(str(ir), 1, noise)
-    assert output == [Result.One]
-
-
-def test_s_adj_noise_inherits_from_rz():
-    qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(
-        "operation Main() : Result { use q = Qubit(); Adjoint S(q); MResetZ(q) }"
-    )
-    ir = qsharp.compile("Main()")
-    noise = NoiseConfig()
-    noise.rz.x = 1.0
-    output = run_qir_clifford(str(ir), 1, noise)
-    assert output == [Result.One]
-
-
-def test_program_with_branching_fails():
+def test_program_with_branching_succeeds():
     qsharp.init(target_profile=TargetProfile.Adaptive_RI)
     qsharp.eval(
         """
@@ -116,14 +84,8 @@ def test_program_with_branching_fails():
         """
     )
     ir = qsharp.compile("Main()")
-    try:
-        run_qir_clifford(str(ir), 1, NoiseConfig())
-        assert False, "Expected ValueError for branching control flow"
-    except ValueError as e:
-        assert (
-            "simulation of programs with branching control flow is not supported"
-            in str(e)
-        )
+    results = run_qir_clifford(str(ir), 1, NoiseConfig())
+    assert len(results) == 1
 
 
 def test_program_with_unconditional_branching_succeeds():

@@ -680,7 +680,7 @@ if build_jupyterlab:
     subprocess.run(pip_build_args, check=True, text=True, cwd=jupyterlab_src)
     step_end()
 
-if build_pip and build_widgets and args.integration_tests:
+if build_pip and build_widgets and build_qdk and args.integration_tests:
     step_start("Running notebook samples integration tests")
     # Find all notebooks in the samples directory. Skip some of the samples since these won't run.
     notebook_files = [
@@ -694,15 +694,12 @@ if build_pip and build_widgets and args.integration_tests:
             or f.startswith("circuits.")
             or f.startswith("iterative_phase_estimation.")
             or f.startswith("repeat_until_success.")
-            or f.startswith("python-deps.")
             or f.startswith("cirq_submission_to_azure.")
             or f.startswith("neutral_atom_simulator.")
             or f.startswith("qir_circuit_submission_to_azure.")
             or f.startswith("qiskit_submission_to_azure")
             or f.startswith("pennylane_submission_to_azure.")
             or f.startswith("benzene.")
-            or f.startswith("parallel_teleport.")
-            or f.startswith("carbon.")
         )
     ]
     python_bin, pip_env = use_python_env(samples_src)
@@ -715,8 +712,10 @@ if build_pip and build_widgets and args.integration_tests:
         "install",
         "--force-reinstall",
         "--no-index",
+        "--no-deps",
         "--find-links=" + wheels_dir,
-        f"qsharp",
+        "qdk",
+        "qsharp",
     ]
     subprocess.run(pip_install_args, check=True, text=True, cwd=pip_src, env=pip_env)
 
@@ -742,6 +741,7 @@ if build_pip and build_widgets and args.integration_tests:
         "nbconvert",
         "pandas",
         "qutip",
+        "pyqir",
     ]
     subprocess.run(pip_install_args, check=True, text=True, cwd=root_dir, env=pip_env)
 

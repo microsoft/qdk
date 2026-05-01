@@ -39,6 +39,7 @@ import {
   getQuantumOsJobLink,
   getJobFiles,
   getPythonCodeForWorkspace,
+  getTenantIdForSubscription,
   parseConnectionString,
   queryWorkspaces,
   submitJob,
@@ -67,6 +68,21 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
     log.debug("Loading workspaces: ", savedWorkspaces);
     const workspaces: WorkspaceConnection[] = JSON.parse(savedWorkspaces);
     for (const workspace of workspaces) {
+      // Backfill tenant ID for workspaces saved before tenant discovery was added,
+      // or for connection-string/deep-link workspaces that didn't have it populated.
+      if (!workspace.tenantId && !workspace.apiKey) {
+        // AAD workspace with missing tenant ID — shouldn't normally happen,
+        // but recover gracefully.
+        log.warn("AAD workspace loaded without a tenant ID:", workspace.id);
+      } else if (!workspace.tenantId) {
+        const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)/;
+        const subscriptionId =
+          workspace.id.match(idRegex)?.groups?.subscriptionId;
+        if (subscriptionId) {
+          workspace.tenantId =
+            (await getTenantIdForSubscription(subscriptionId)) ?? "";
+        }
+      }
       workspaceTreeProvider.updateWorkspace(workspace);
       // Start refreshing each workspace until pending jobs are complete
       startRefreshCycle(workspaceTreeProvider, workspace);
@@ -527,6 +543,14 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       "Add Workspace",
     );
     if (confirmed === "Add Workspace") {
+      // Discover the tenant ID before saving, so portal deep links work correctly.
+      const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)/;
+      const subscriptionId =
+        workspace.id.match(idRegex)?.groups?.subscriptionId;
+      if (subscriptionId) {
+        workspace.tenantId =
+          (await getTenantIdForSubscription(subscriptionId)) ?? "";
+      }
       workspaceTreeProvider.updateWorkspace(workspace);
       await saveWorkspaceList();
       startRefreshCycle(workspaceTreeProvider, workspace);

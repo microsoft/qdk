@@ -31,7 +31,7 @@ def test_trace_from_qir(ll_file):
     # QIR output without errors, rather than checking specific properties of the
     # trace.
     try:
-        app = QIRApplication(ll_file.read_text())
+        app = QIRApplication(ll_file.read_text(encoding="utf-8"))
         _ = app.get_trace()
     except ValueError as e:
         # The only reason of failure is presence of control flow

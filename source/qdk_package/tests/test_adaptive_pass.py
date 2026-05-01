@@ -12,7 +12,7 @@ from dataclasses import astuple, asdict
 import pyqir
 import pytest
 
-from qdk._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram
+from qdk._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram, Bytecode
 from qdk._adaptive_bytecode import *
 
 
@@ -24,7 +24,7 @@ from qdk._adaptive_bytecode import *
 def _run_pass(ir: str, name: str = "test.ll") -> AdaptiveProgram:
     """Parse an LLVM IR string and run through AdaptiveProfilePass."""
     mod = pyqir.Module.from_ir(pyqir.Context(), ir, name)
-    return AdaptiveProfilePass().run(mod)
+    return AdaptiveProfilePass(Bytecode.Bit32).run(mod)
 
 
 def _primary(opcode_word: int) -> int:
@@ -970,3 +970,40 @@ def test_arrays_capability_is_rejected():
     """Only Adaptive_RIFL is supported at the moment, no arrays."""
     with pytest.raises(ValueError, match="QIR arrays are not currently supported"):
         _run_pass(ADAPTIVE_RIFLA_QIR)
+
+
+BARRIER_QIR = r"""
+%Result = type opaque
+%Qubit = type opaque
+
+@0 = internal constant [4 x i8] c"0_t\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(i8* null)
+  call void @__quantum__qis__barrier__body()
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__qis__barrier__body()
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+attributes #1 = { "irreversible" }
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !{!"i64"}}
+!5 = !{i32 5, !"float_computations", !{!"double"}}
+
+"""
+
+
+def test_pass_on_qir_with_barrier_instruction_succeeds():
+    _run_pass(BARRIER_QIR)

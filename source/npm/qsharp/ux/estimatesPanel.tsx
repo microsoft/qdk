@@ -57,6 +57,12 @@ export function EstimatesPanel(props: {
         ) : null}
         <h1>Microsoft Quantum Resource Estimator</h1>
       </div>
+      <p>
+        <b>Warning:</b> This version of QRE is deprecated and will be removed in
+        a future release. Please use the new version of QRE in qdk.qre. Refer to{" "}
+        <a href="https://aka.ms/qdk.QREv3">aka.ms/qdk.QREv3</a> for more
+        information.
+      </p>
       <EstimatesOverview
         estimatesData={props.estimatesData}
         isSimplifiedView={false}

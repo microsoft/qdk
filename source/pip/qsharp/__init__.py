@@ -52,10 +52,9 @@ telemetry_events.on_import()
 # IPython notebook specific features
 try:
     if __IPYTHON__:  # type: ignore
-        from qdk._ipython import register_magic, enable_classic_notebook_codemirror_mode
+        from qdk._ipython import register_magic
 
         register_magic()
-        enable_classic_notebook_codemirror_mode()
 except NameError:
     pass
 

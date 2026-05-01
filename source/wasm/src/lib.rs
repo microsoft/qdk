@@ -91,7 +91,8 @@ pub(crate) fn get_qir_from_openqasm(
     sources: &[(Arc<str>, Arc<str>)],
     capabilities: TargetCapabilityFlags,
 ) -> Result<String, String> {
-    let (entry_expr, mut interpreter) = get_interpreter_from_openqasm(sources, capabilities)?;
+    let (entry_expr, mut interpreter) = get_interpreter_from_openqasm(sources, capabilities)
+        .map_err(interpret_errors_into_qsharp_errors_json)?;
     interpreter
         .qirgen(&entry_expr)
         .map_err(interpret_errors_into_qsharp_errors_json)
@@ -133,7 +134,8 @@ pub(crate) fn get_estimates_from_openqasm(
     capabilities: TargetCapabilityFlags,
     params: &str,
 ) -> Result<String, String> {
-    let (_, mut interpreter) = get_interpreter_from_openqasm(sources, capabilities)?;
+    let (_, mut interpreter) = get_interpreter_from_openqasm(sources, capabilities)
+        .map_err(interpret_errors_into_qsharp_errors_json)?;
     estimate_entry(&mut interpreter, params).map_err(|e| match &e[0] {
         re::Error::Interpreter(interpret::Error::Eval(e)) => e.to_string(),
         re::Error::Interpreter(_) => {
@@ -187,7 +189,8 @@ pub fn get_circuit(
 
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);
-        let (_, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)?;
+        let (_, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)
+            .map_err(interpret_errors_into_qsharp_errors_json)?;
 
         let circuit = interpreter
             .circuit(CircuitEntryPoint::EntryPoint, method, tracer_config)
@@ -417,6 +420,35 @@ where
     }
 }
 
+fn run_interpreter<F>(
+    interpreter: &mut interpret::Interpreter,
+    out: &mut CallbackReceiver<F>,
+    shots: u32,
+    pauliNoise: &PauliNoise,
+    qubitLoss: f64,
+) where
+    F: FnMut(&str),
+{
+    for _ in 0..shots {
+        let result = {
+            let mut sim = SparseSim::new_with_noise(pauliNoise);
+            sim.set_loss(qubitLoss);
+            interpreter.eval_entry_with_sim(&mut sim, out)
+        };
+        let mut success = true;
+        let msg: serde_json::Value = match result {
+            Ok(value) => serde_json::Value::String(value.to_string()),
+            Err(errors) => {
+                success = false;
+                interpret_errors_to_run_result(&errors)
+            }
+        };
+
+        let msg_string = json!({"type": "Result", "success": success, "result": msg}).to_string();
+        (out.event_cb)(&msg_string);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_internal_with_features<F>(
     sources: SourceMap,
@@ -451,24 +483,7 @@ where
         }
     };
 
-    for _ in 0..shots {
-        let result = {
-            let mut sim = SparseSim::new_with_noise(pauliNoise);
-            sim.set_loss(qubitLoss);
-            interpreter.eval_entry_with_sim(&mut sim, &mut out)
-        };
-        let mut success = true;
-        let msg: serde_json::Value = match result {
-            Ok(value) => serde_json::Value::String(value.to_string()),
-            Err(errors) => {
-                success = false;
-                interpret_errors_to_run_result(&errors)
-            }
-        };
-
-        let msg_string = json!({"type": "Result", "success": success, "result": msg}).to_string();
-        (out.event_cb)(&msg_string);
-    }
+    run_interpreter(&mut interpreter, &mut out, shots, pauliNoise, qubitLoss);
     Ok(())
 }
 
@@ -487,6 +502,21 @@ pub fn run(
         &JsValue::null(),
         &JsValue::null(),
     )
+}
+
+/// Emits a failed `Result` event via the callback before returning the error,
+/// ensuring the caller always receives at least one `Result` event.
+fn emit_run_error(event_cb: &impl Fn(&str), errors: Vec<interpret::Error>) -> JsValue {
+    let diag = interpret_errors_to_run_result(&errors);
+    let msg = json!({"type": "Result", "success": false, "result": diag}).to_string();
+    event_cb(&msg);
+    JsError::from(
+        errors
+            .into_iter()
+            .next()
+            .expect("expected at least one error"),
+    )
+    .into()
 }
 
 #[wasm_bindgen]
@@ -537,41 +567,26 @@ pub fn runWithNoise(
 
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);
-        let (entry_expr, mut interpreter) = get_interpreter_from_openqasm(&sources, capabilities)?;
-        if let Err(err) = interpreter.set_entry_expr(&entry_expr) {
-            return Err(interpret_errors_into_qsharp_errors_json(err).into());
+        let (entry_expr, mut interpreter) =
+            match get_interpreter_from_openqasm(&sources, capabilities) {
+                Ok(result) => result,
+                Err(errors) => return Err(emit_run_error(&event_cb, errors)),
+            };
+        if let Err(errors) = interpreter.set_entry_expr(&entry_expr) {
+            return Err(emit_run_error(&event_cb, errors));
         }
-
         let mut out = CallbackReceiver { event_cb };
-        for _ in 0..shots {
-            let result = {
-                let mut sim = SparseSim::new_with_noise(&noise);
-                sim.set_loss(qubitLoss);
-                interpreter.eval_entry_with_sim(&mut sim, &mut out)
-            };
-            let mut success = true;
-            let msg: serde_json::Value = match result {
-                Ok(value) => serde_json::Value::String(value.to_string()),
-                Err(errors) => {
-                    success = false;
-                    interpret_errors_to_run_result(&errors)
-                }
-            };
-
-            let msg_string =
-                json!({"type": "Result", "success": success, "result": msg}).to_string();
-            (out.event_cb)(&msg_string);
-        }
+        run_interpreter(&mut interpreter, &mut out, shots, &noise, qubitLoss);
         Ok(true)
     } else {
         let (source_map, capabilities, language_features, store, deps) =
-            into_qsc_args(program, Some(expr.into()), false).map_err(|mut e| {
-                // Wrap in `interpret::Error` and `JsError` to match the error type
-                // `run_internal_with_features` below
-                JsError::from(qsc::interpret::Error::from(
-                    e.pop().expect("expected at least one error"),
-                ))
-            })?;
+            match into_qsc_args(program, Some(expr.into()), false) {
+                Ok(args) => args,
+                Err(errors) => {
+                    let errors = errors.into_iter().map(Into::into).collect();
+                    return Err(emit_run_error(&event_cb, errors));
+                }
+            };
 
         match run_internal_with_features(
             source_map,
@@ -694,14 +709,14 @@ pub fn get_library_summaries() -> String {
 fn get_debugger_from_openqasm(
     sources: &[(Arc<str>, Arc<str>)],
     capabilities: TargetCapabilityFlags,
-) -> Result<(String, interpret::Interpreter), String> {
+) -> Result<(String, interpret::Interpreter), Vec<interpret::Error>> {
     get_configured_interpreter_from_openqasm(sources, capabilities, true)
 }
 
 fn get_interpreter_from_openqasm(
     sources: &[(Arc<str>, Arc<str>)],
     capabilities: TargetCapabilityFlags,
-) -> Result<(String, interpret::Interpreter), String> {
+) -> Result<(String, interpret::Interpreter), Vec<interpret::Error>> {
     get_configured_interpreter_from_openqasm(sources, capabilities, false)
 }
 
@@ -709,7 +724,7 @@ fn get_configured_interpreter_from_openqasm(
     sources: &[(Arc<str>, Arc<str>)],
     capabilities: TargetCapabilityFlags,
     dbg: bool,
-) -> Result<(String, interpret::Interpreter), String> {
+) -> Result<(String, interpret::Interpreter), Vec<interpret::Error>> {
     let (file, source) = sources
         .iter()
         .next()
@@ -725,12 +740,10 @@ fn get_configured_interpreter_from_openqasm(
         );
 
     if !errors.is_empty() {
-        return Err(interpret_errors_into_qsharp_errors_json(
-            errors
-                .iter()
-                .map(|e| qsc::interpret::Error::Compile(e.clone()))
-                .collect(),
-        ));
+        return Err(errors
+            .iter()
+            .map(|e| qsc::interpret::Error::Compile(e.clone()))
+            .collect());
     }
 
     let sig = sig.expect("msg: there should be a signature");
@@ -743,8 +756,7 @@ fn get_configured_interpreter_from_openqasm(
         capabilities,
         language_features,
         &dependencies,
-    )
-    .map_err(interpret_errors_into_qsharp_errors_json)?;
+    )?;
 
     Ok((entry_expr, interpreter))
 }

@@ -17,7 +17,7 @@ fn shl() -> miette::Result<(), Vec<Report>> {
 
     let qsharp = compile_qasm_stmt_to_qsharp(source)?;
     expect![[r#"
-        mutable x = Std.OpenQASM.Angle.__AngleShl__(a, b);
+        mutable x = Std.OpenQASM.Angle.AngleShl(a, b);
     "#]]
     .assert_eq(&qsharp);
     Ok(())
