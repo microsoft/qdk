@@ -178,6 +178,9 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Fdiv(lhs, rhs, variable) => {
                 fbinop_to_qir("fdiv", lhs, rhs, *variable, program)
             }
+            rir::Instruction::Frem(lhs, rhs, variable) => {
+                fbinop_to_qir("frem", lhs, rhs, *variable, program)
+            }
             rir::Instruction::Fmul(lhs, rhs, variable) => {
                 fbinop_to_qir("fmul", lhs, rhs, *variable, program)
             }
@@ -220,8 +223,7 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Sub(lhs, rhs, variable) => {
                 binop_to_qir("sub", lhs, rhs, *variable, program)
             }
-            rir::Instruction::Frem(..)
-            | rir::Instruction::Alloca(..)
+            rir::Instruction::Alloca(..)
             | rir::Instruction::Load(..)
             | rir::Instruction::Index(..) => {
                 unimplemented!("advanced instructions are not supported in QIR v1 generation")
