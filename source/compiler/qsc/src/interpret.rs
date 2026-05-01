@@ -918,7 +918,7 @@ impl Interpreter {
         &mut self,
         expr: &str,
     ) -> std::result::Result<CodegenFir, Vec<Error>> {
-        if self.source_package_entry_expr().as_deref() == Some(expr) {
+        if self.entry_point_call_expr().as_deref() == Some(expr) {
             return self.prepare_codegen_source_package();
         }
 
@@ -941,7 +941,22 @@ impl Interpreter {
         )
     }
 
-    fn source_package_entry_expr(&self) -> Option<String> {
+    /// Reconstructs the source package's `@EntryPoint` callable as a Q# call
+    /// expression string (e.g., `"MyNamespace.MyOp()"`).
+    ///
+    /// Returns `Some` only when the entry expression is a zero-argument call to
+    /// a resolved named callable. Returns `None` if there is no entry
+    /// expression, the call has arguments, or the callee is not a simple item
+    /// reference.
+    ///
+    /// This is used in two places:
+    /// - **Codegen shortcut** (`prepare_codegen_entry_expr`): when the caller
+    ///   passes an expression string that matches the existing entry point, we
+    ///   reuse the already-compiled source package instead of recompiling.
+    /// - **Default entry fallback** (`compile_to_rir_with_debug_metadata`):
+    ///   when no explicit entry expression is provided, this supplies the
+    ///   `@EntryPoint` callable as the expression to compile.
+    fn entry_point_call_expr(&self) -> Option<String> {
         let source_package = self
             .compiler
             .package_store()
@@ -1285,14 +1300,8 @@ impl Interpreter {
         entry_expr: Option<&str>,
     ) -> std::result::Result<(qsc_partial_eval::Program, qsc_fir::fir::PackageStore), Vec<Error>>
     {
-        let source_entry_expr = if entry_expr.is_none() {
-            self.source_package_entry_expr()
-        } else {
-            None
-        };
-
         let (prepared_fir, fallback_package) =
-            if let Some(entry_expr) = entry_expr.or(source_entry_expr.as_deref()) {
+            if let Some(entry_expr) = entry_expr.or(self.entry_point_call_expr().as_deref()) {
                 (
                     self.prepare_codegen_entry_expr(entry_expr)?,
                     map_fir_package_to_hir(self.package),
