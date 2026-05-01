@@ -3,6 +3,7 @@
 
 use super::*;
 use expect_test::expect;
+use std::fmt::Write;
 
 #[test]
 fn program_without_hofs_converges_without_changes() {
@@ -601,15 +602,17 @@ fn nested_hof_source(level_count: usize) -> String {
     source.push_str("operation Level01(op : Qubit => Unit, q : Qubit) : Unit {\n    op(q);\n}\n");
 
     for level in 2..=level_count {
-        source.push_str(&format!(
+        write!(
+            &mut source,
             "operation Level{level:02}(op : Qubit => Unit, q : Qubit) : Unit {{\n    Level{previous:02}(op, q);\n}}\n",
             previous = level - 1,
-        ));
+        ).expect("failed to write source string");
     }
 
-    source.push_str(&format!(
+    write!(
+        &mut source,
         "@EntryPoint()\noperation Main() : Unit {{\n    use q = Qubit();\n    Level{level_count:02}(H, q);\n}}\n"
-    ));
+    ).expect("failed to write source string");
     source
 }
 

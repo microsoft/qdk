@@ -21,10 +21,11 @@ pub mod qir {
     use qsc_frontend::compile::{Dependencies, PackageStore};
     use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
     use qsc_passes::{PackageType, PassContext, run_fir_passes_for_callable};
+    use rustc_hash::FxHashSet;
 
     use crate::interpret::Error;
 
-    /// Prepared Flat Intermediate Representation (FIR) ready for QIR/RIR code generation.
+    /// Flat Intermediate Representation (FIR) ready for QIR/RIR code generation.
     ///
     /// Contains:
     /// - `fir_store`: Complete lowered FIR package store after all compiler passes
@@ -37,17 +38,17 @@ pub mod qir {
     /// - No arrow types or closures (defunctionalization complete)
     /// - No UDT types (UDT erasure complete)
     /// - Execution graphs fully populated
-    pub struct PreparedBackendFir {
+    pub struct CodegenFir {
         pub fir_store: qsc_fir::fir::PackageStore,
         pub fir_package_id: qsc_fir::fir::PackageId,
         pub compute_properties: qsc_rca::PackageStoreComputeProperties,
     }
 
-    /// Extracts the entry point expression from prepared FIR.
+    /// Extracts the entry point expression from codegen FIR.
     ///
     /// Forms a `ProgramEntry` suitable for downstream codegen (QIR, RIR generation)
     /// by combining the entry expression and its associated execution graph.
-    pub(crate) fn entry_from_prepared_fir(prepared_fir: &PreparedBackendFir) -> ProgramEntry {
+    pub(crate) fn entry_from_codegen_fir(prepared_fir: &CodegenFir) -> ProgramEntry {
         let package = prepared_fir.fir_store.get(prepared_fir.fir_package_id);
         ProgramEntry {
             exec_graph: package.entry_exec_graph.clone(),
@@ -81,7 +82,7 @@ pub mod qir {
         cloned_store
     }
 
-    fn lower_backend_fir(
+    fn lower_to_fir(
         package_store: &PackageStore,
         package_id: qsc_hir::hir::PackageId,
         package_override: Option<&qsc_hir::hir::Package>,
@@ -92,7 +93,7 @@ pub mod qir {
     ) {
         if let Some(package_override) = package_override {
             let mut fir_store = qsc_fir::fir::PackageStore::new();
-            let mut backend_assigner = qsc_fir::assigner::Assigner::new();
+            let mut fir_assigner = qsc_fir::assigner::Assigner::new();
 
             for (id, unit) in package_store {
                 let hir_package = if id == package_id {
@@ -119,7 +120,7 @@ pub mod qir {
                     lowerer.lower_package(hir_package, &fir_store)
                 };
                 if id == package_id {
-                    backend_assigner = lowerer.into_assigner();
+                    fir_assigner = lowerer.into_assigner();
                 }
                 fir_store.insert(qsc_lowerer::map_hir_package_to_fir(id), fir_package);
             }
@@ -127,7 +128,7 @@ pub mod qir {
             (
                 fir_store,
                 qsc_lowerer::map_hir_package_to_fir(package_id),
-                backend_assigner,
+                fir_assigner,
             )
         } else {
             qsc_passes::lower_hir_to_fir(package_store, package_id)
@@ -137,14 +138,14 @@ pub mod qir {
     /// Runs the full FIR transformation pipeline through all stages.
     ///
     /// Applies compiler passes (monomorphization, defunctionalization, UDT erasure, etc.)
-    /// to produce backend-ready FIR satisfying full invariants.
-    pub fn run_backend_pipeline(
+    /// to produce codegen-ready FIR satisfying full invariants.
+    pub fn run_codegen_pipeline(
         package_store: &PackageStore,
         package_id: qsc_hir::hir::PackageId,
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
     ) -> Result<(), Vec<Error>> {
-        run_backend_pipeline_to(
+        run_codegen_pipeline_to(
             package_store,
             package_id,
             fir_store,
@@ -164,7 +165,7 @@ pub mod qir {
     /// This is critical for higher-order function support: when a callable is passed
     /// as an argument, it may not be directly reachable from entry and would normally be
     /// removed during dead-code elimination. Pinning preserves these for specialization.
-    pub fn run_backend_pipeline_to(
+    pub fn run_codegen_pipeline_to(
         package_store: &PackageStore,
         package_id: qsc_hir::hir::PackageId,
         fir_store: &mut qsc_fir::fir::PackageStore,
@@ -342,10 +343,10 @@ pub mod qir {
         (callable_decl.span, ty)
     }
 
-    fn seed_entry_with_backend_callables(
+    fn seed_entry_with_callables(
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
-        callables: &[qsc_fir::fir::StoreItemId],
+        callables: &FxHashSet<qsc_fir::fir::StoreItemId>,
     ) {
         if callables.is_empty() {
             return;
@@ -418,7 +419,7 @@ pub mod qir {
 
     fn collect_concrete_qsharp_callables(
         value: &Value,
-        callables: &mut Vec<qsc_fir::fir::StoreItemId>,
+        callables: &mut FxHashSet<qsc_fir::fir::StoreItemId>,
     ) {
         match value {
             Value::Array(values) => values
@@ -426,7 +427,7 @@ pub mod qir {
                 .for_each(|value| collect_concrete_qsharp_callables(value, callables)),
             Value::Closure(closure) => {
                 if !callables.contains(&closure.id) {
-                    callables.push(closure.id);
+                    callables.insert(closure.id);
                 }
                 closure
                     .fixed_args
@@ -435,7 +436,7 @@ pub mod qir {
             }
             Value::Global(store_item_id, _) => {
                 if !callables.contains(store_item_id) {
-                    callables.push(*store_item_id);
+                    callables.insert(*store_item_id);
                 }
             }
             Value::Tuple(values, _) => values
@@ -454,7 +455,7 @@ pub mod qir {
         }
     }
 
-    /// Prepares backend FIR when a callable is invoked with concrete argument values.
+    /// Prepares codegen FIR when a callable is invoked with concrete argument values.
     ///
     /// This is the key enabler for higher-order function and closure support in circuit/QIR generation.
     /// When a callable receives callable arguments (e.g., `ApplyOp(op: Qubit => Unit, q: Qubit)`),
@@ -467,28 +468,28 @@ pub mod qir {
     ///
     /// This allows specialization to occur, generating concrete code for each unique callable
     /// argument combination rather than leaving abstract higher-order code.
-    pub fn prepare_backend_fir_from_callable_args(
+    pub fn prepare_codegen_fir_from_callable_args(
         package_store: &PackageStore,
         callable: qsc_hir::hir::ItemId,
         args: &Value,
         capabilities: TargetCapabilityFlags,
-    ) -> Result<PreparedBackendFir, Vec<Error>> {
+    ) -> Result<CodegenFir, Vec<Error>> {
         // Collect concrete callable args up-front to determine the code path.
         // This avoids relying on callable_has_arrow_input after the pipeline
         // has run, which can return different results after UDT erasure
         // transforms Ty::Udt into a tuple containing Ty::Arrow.
-        let mut concrete_callables = Vec::new();
+        let mut concrete_callables = FxHashSet::default();
         collect_concrete_qsharp_callables(args, &mut concrete_callables);
 
         if concrete_callables.is_empty() {
             // No callable args — standard preparation is sufficient.
-            return prepare_backend_fir_from_callable(package_store, callable, capabilities);
+            return prepare_codegen_fir_from_callable(package_store, callable, capabilities);
         }
 
         // Callable args found. Lower a fresh FIR store so we can seed
         // callables into the entry before the pipeline runs DCE.
         let (mut fir_store, fir_package_id, _assigner) =
-            lower_backend_fir(package_store, callable.package, None);
+            lower_to_fir(package_store, callable.package, None);
 
         // Separate callables into those with arrow inputs (need pinning for
         // DCE but cannot be seeded in the entry) and concrete ones (seeded).
@@ -511,12 +512,12 @@ pub mod qir {
             item: qsc_lowerer::map_hir_local_item_to_fir(callable.item),
         };
 
-        seed_entry_with_backend_callables(&mut fir_store, fir_package_id, &concrete_callables);
+        seed_entry_with_callables(&mut fir_store, fir_package_id, &concrete_callables);
         // Pin the target callable and any arrow-input callables referenced
         // by closure args so item DCE preserves them (and their transitive
         // dependencies) even though they are not seeded in the entry.
         pinned_callables.push(target_callable);
-        run_backend_pipeline_to(
+        run_codegen_pipeline_to(
             package_store,
             callable.package,
             &mut fir_store,
@@ -533,23 +534,23 @@ pub mod qir {
             capabilities,
         )?;
 
-        Ok(PreparedBackendFir {
+        Ok(CodegenFir {
             fir_store,
             fir_package_id,
             compute_properties,
         })
     }
 
-    fn prepare_backend_fir_inner(
+    fn prepare_codegen_fir_inner(
         package_store: &PackageStore,
         package_id: qsc_hir::hir::PackageId,
         package_override: Option<&qsc_hir::hir::Package>,
         capabilities: TargetCapabilityFlags,
-    ) -> Result<PreparedBackendFir, Vec<Error>> {
+    ) -> Result<CodegenFir, Vec<Error>> {
         let (fir_store, fir_package_id, _) =
-            lower_backend_fir(package_store, package_id, package_override);
+            lower_to_fir(package_store, package_id, package_override);
 
-        prepare_backend_fir_from_lowered_store(
+        prepare_codegen_fir_from_lowered_store(
             package_store,
             package_id,
             fir_store,
@@ -558,42 +559,42 @@ pub mod qir {
         )
     }
 
-    fn prepare_backend_fir_from_lowered_store(
+    fn prepare_codegen_fir_from_lowered_store(
         package_store: &PackageStore,
         package_id: qsc_hir::hir::PackageId,
         mut fir_store: qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         capabilities: TargetCapabilityFlags,
-    ) -> Result<PreparedBackendFir, Vec<Error>> {
-        run_backend_pipeline(package_store, package_id, &mut fir_store, fir_package_id)?;
+    ) -> Result<CodegenFir, Vec<Error>> {
+        run_codegen_pipeline(package_store, package_id, &mut fir_store, fir_package_id)?;
 
         let compute_properties =
             PassContext::run_fir_passes_on_fir(&fir_store, fir_package_id, capabilities)
                 .map_err(|errors| map_pass_errors(package_store, package_id, errors))?;
 
-        Ok(PreparedBackendFir {
+        Ok(CodegenFir {
             fir_store,
             fir_package_id,
             compute_properties,
         })
     }
 
-    pub fn prepare_backend_fir(
+    pub fn prepare_codegen_fir(
         package_store: &PackageStore,
         package_id: qsc_hir::hir::PackageId,
         capabilities: TargetCapabilityFlags,
-    ) -> Result<PreparedBackendFir, Vec<Error>> {
-        prepare_backend_fir_inner(package_store, package_id, None, capabilities)
+    ) -> Result<CodegenFir, Vec<Error>> {
+        prepare_codegen_fir_inner(package_store, package_id, None, capabilities)
     }
 
-    pub fn prepare_backend_fir_from_fir_store(
+    pub fn prepare_codegen_fir_from_fir_store(
         package_store: &PackageStore,
         package_id: qsc_hir::hir::PackageId,
         fir_store: &qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         capabilities: TargetCapabilityFlags,
-    ) -> Result<PreparedBackendFir, Vec<Error>> {
-        prepare_backend_fir_from_lowered_store(
+    ) -> Result<CodegenFir, Vec<Error>> {
+        prepare_codegen_fir_from_lowered_store(
             package_store,
             package_id,
             clone_fir_store(fir_store),
@@ -602,25 +603,25 @@ pub mod qir {
         )
     }
 
-    /// Prepares backend FIR for a single callable without inline arguments.
+    /// Prepares codegen FIR for a single callable without inline arguments.
     ///
     /// Used when a callable is referenced but its concrete argument values are not yet known.
     /// For callables with arrow-typed inputs, skips the full pipeline to preserve abstract
-    /// higher-order structure that will be specialized later via `prepare_backend_fir_from_callable_args`.
-    pub fn prepare_backend_fir_from_callable(
+    /// higher-order structure that will be specialized later via `prepare_codegen_fir_from_callable_args`.
+    pub fn prepare_codegen_fir_from_callable(
         package_store: &PackageStore,
         callable: qsc_hir::hir::ItemId,
         capabilities: TargetCapabilityFlags,
-    ) -> Result<PreparedBackendFir, Vec<Error>> {
+    ) -> Result<CodegenFir, Vec<Error>> {
         let (mut fir_store, fir_package_id, mut assigner) =
-            lower_backend_fir(package_store, callable.package, None);
+            lower_to_fir(package_store, callable.package, None);
 
         if callable_has_arrow_input(&fir_store, callable) {
             // Callable-based codegen receives the concrete callable arguments later through
             // partially_evaluate_call. Running the FIR transform pipeline from a bare callable
             // reference loses that higher-order call-site information and can leave functor-
             // parameterized arrow types unspecialized.
-            return Ok(PreparedBackendFir {
+            return Ok(CodegenFir {
                 compute_properties: qsc_rca::Analyzer::init(&fir_store, capabilities).analyze_all(),
                 fir_store,
                 fir_package_id,
@@ -628,7 +629,7 @@ pub mod qir {
         }
 
         seed_entry_with_callable(&mut fir_store, fir_package_id, callable, &mut assigner);
-        run_backend_pipeline(
+        run_codegen_pipeline(
             package_store,
             callable.package,
             &mut fir_store,
@@ -647,20 +648,20 @@ pub mod qir {
             capabilities,
         )?;
 
-        Ok(PreparedBackendFir {
+        Ok(CodegenFir {
             fir_store,
             fir_package_id,
             compute_properties,
         })
     }
 
-    fn compile_to_backend_fir(
+    fn compile_to_codegen_fir(
         sources: SourceMap,
         language_features: LanguageFeatures,
         capabilities: TargetCapabilityFlags,
         package_store: &mut PackageStore,
         dependencies: &Dependencies,
-    ) -> Result<(qsc_hir::hir::PackageId, PreparedBackendFir), Vec<Error>> {
+    ) -> Result<(qsc_hir::hir::PackageId, CodegenFir), Vec<Error>> {
         if capabilities == TargetCapabilityFlags::all() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
@@ -678,7 +679,7 @@ pub mod qir {
         }
 
         let package_id = package_store.insert(unit);
-        let prepared_fir = prepare_backend_fir(package_store, package_id, capabilities)?;
+        let prepared_fir = prepare_codegen_fir(package_store, package_id, capabilities)?;
         Ok((package_id, prepared_fir))
     }
 
@@ -708,9 +709,9 @@ pub mod qir {
         }
 
         let package_id = store.insert(unit);
-        let prepared_fir = prepare_backend_fir(store, package_id, capabilities)?;
-        let entry = entry_from_prepared_fir(&prepared_fir);
-        let PreparedBackendFir {
+        let prepared_fir = prepare_codegen_fir(store, package_id, capabilities)?;
+        let entry = entry_from_codegen_fir(&prepared_fir);
+        let CodegenFir {
             fir_store,
             compute_properties,
             ..
@@ -738,15 +739,15 @@ pub mod qir {
         mut package_store: PackageStore,
         dependencies: &Dependencies,
     ) -> Result<Vec<String>, Vec<Error>> {
-        let (package_id, prepared_fir) = compile_to_backend_fir(
+        let (package_id, prepared_fir) = compile_to_codegen_fir(
             sources,
             language_features,
             capabilities,
             &mut package_store,
             dependencies,
         )?;
-        let entry = entry_from_prepared_fir(&prepared_fir);
-        let PreparedBackendFir {
+        let entry = entry_from_codegen_fir(&prepared_fir);
+        let CodegenFir {
             fir_store,
             compute_properties,
             ..
@@ -784,15 +785,15 @@ pub mod qir {
         mut package_store: PackageStore,
         dependencies: &Dependencies,
     ) -> Result<String, Vec<Error>> {
-        let (package_id, prepared_fir) = compile_to_backend_fir(
+        let (package_id, prepared_fir) = compile_to_codegen_fir(
             sources,
             language_features,
             capabilities,
             &mut package_store,
             dependencies,
         )?;
-        let entry = entry_from_prepared_fir(&prepared_fir);
-        let PreparedBackendFir {
+        let entry = entry_from_codegen_fir(&prepared_fir);
+        let CodegenFir {
             fir_store,
             compute_properties,
             ..

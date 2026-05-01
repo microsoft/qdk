@@ -17,8 +17,8 @@ use std::{cell::RefCell, rc::Rc};
 
 use crate::{
     codegen::qir::{
-        PreparedBackendFir, entry_from_prepared_fir, prepare_backend_fir,
-        prepare_backend_fir_from_callable_args, prepare_backend_fir_from_fir_store,
+        CodegenFir, entry_from_codegen_fir, prepare_codegen_fir,
+        prepare_codegen_fir_from_callable_args, prepare_codegen_fir_from_fir_store,
     },
     error::{self, WithStack},
     incremental::Compiler,
@@ -914,17 +914,17 @@ impl Interpreter {
             .snapshot(&(self.compiler.package_store(), &self.fir_store))
     }
 
-    fn prepare_backend_entry_expr(
+    fn prepare_codegen_entry_expr(
         &mut self,
         expr: &str,
-    ) -> std::result::Result<PreparedBackendFir, Vec<Error>> {
+    ) -> std::result::Result<CodegenFir, Vec<Error>> {
         if self.source_package_entry_expr().as_deref() == Some(expr) {
-            return self.prepare_backend_source_package();
+            return self.prepare_codegen_source_package();
         }
 
         let _ = self.compile_entry_expr(expr)?;
 
-        prepare_backend_fir_from_fir_store(
+        prepare_codegen_fir_from_fir_store(
             self.compiler.package_store(),
             map_fir_package_to_hir(self.package),
             &self.fir_store,
@@ -933,10 +933,8 @@ impl Interpreter {
         )
     }
 
-    fn prepare_backend_source_package(
-        &self,
-    ) -> std::result::Result<PreparedBackendFir, Vec<Error>> {
-        prepare_backend_fir(
+    fn prepare_codegen_source_package(&self) -> std::result::Result<CodegenFir, Vec<Error>> {
+        prepare_codegen_fir(
             self.compiler.package_store(),
             map_fir_package_to_hir(self.source_package),
             self.capabilities,
@@ -999,20 +997,20 @@ impl Interpreter {
         })
     }
 
-    fn remap_store_item_id_for_backend(store_item_id: fir::StoreItemId) -> fir::StoreItemId {
+    fn remap_store_item_id_for_codegen(store_item_id: fir::StoreItemId) -> fir::StoreItemId {
         fir::StoreItemId {
             package: map_hir_package_to_fir(map_fir_package_to_hir(store_item_id.package)),
             item: map_hir_local_item_to_fir(map_fir_local_item_to_hir(store_item_id.item)),
         }
     }
 
-    fn remap_value_for_backend(value: Value) -> Value {
+    fn remap_value_for_codegen(value: Value) -> Value {
         match value {
             Value::Array(values) => Value::Array(Rc::new(
                 values
                     .iter()
                     .cloned()
-                    .map(Self::remap_value_for_backend)
+                    .map(Self::remap_value_for_codegen)
                     .collect(),
             )),
             Value::Closure(inner) => Value::Closure(Box::new(Closure {
@@ -1020,24 +1018,24 @@ impl Interpreter {
                     .fixed_args
                     .iter()
                     .cloned()
-                    .map(Self::remap_value_for_backend)
+                    .map(Self::remap_value_for_codegen)
                     .collect::<Vec<_>>()
                     .into(),
-                id: Self::remap_store_item_id_for_backend(inner.id),
+                id: Self::remap_store_item_id_for_codegen(inner.id),
                 functor: inner.functor,
             })),
             Value::Global(store_item_id, functor_app) => Value::Global(
-                Self::remap_store_item_id_for_backend(store_item_id),
+                Self::remap_store_item_id_for_codegen(store_item_id),
                 functor_app,
             ),
             Value::Tuple(values, store_item_id) => Value::Tuple(
                 values
                     .iter()
                     .cloned()
-                    .map(Self::remap_value_for_backend)
+                    .map(Self::remap_value_for_codegen)
                     .collect::<Vec<_>>()
                     .into(),
-                store_item_id.map(|id| Rc::new(Self::remap_store_item_id_for_backend(*id))),
+                store_item_id.map(|id| Rc::new(Self::remap_store_item_id_for_codegen(*id))),
             ),
             other => other,
         }
@@ -1070,9 +1068,9 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let prepared_fir = self.prepare_backend_entry_expr(expr)?;
-        let entry = entry_from_prepared_fir(&prepared_fir);
-        let PreparedBackendFir {
+        let prepared_fir = self.prepare_codegen_entry_expr(expr)?;
+        let entry = entry_from_codegen_fir(&prepared_fir);
+        let CodegenFir {
             fir_store,
             fir_package_id,
             compute_properties,
@@ -1094,8 +1092,8 @@ impl Interpreter {
         }
 
         let callable_id = Self::hir_item_id_from_value(callable)?;
-        let backend_args = Self::remap_value_for_backend(args);
-        let prepared_fir = prepare_backend_fir_from_callable_args(
+        let backend_args = Self::remap_value_for_codegen(args);
+        let prepared_fir = prepare_codegen_fir_from_callable_args(
             self.compiler.package_store(),
             callable_id,
             &backend_args,
@@ -1105,7 +1103,7 @@ impl Interpreter {
             package: map_hir_package_to_fir(callable_id.package),
             item: map_hir_local_item_to_fir(callable_id.item),
         };
-        let PreparedBackendFir {
+        let CodegenFir {
             fir_store,
             compute_properties,
             ..
@@ -1244,8 +1242,8 @@ impl Interpreter {
         }
 
         let callable_id = Self::hir_item_id_from_value(callable)?;
-        let backend_args = Self::remap_value_for_backend(args);
-        let prepared_fir = prepare_backend_fir_from_callable_args(
+        let backend_args = Self::remap_value_for_codegen(args);
+        let prepared_fir = prepare_codegen_fir_from_callable_args(
             self.compiler.package_store(),
             callable_id,
             &backend_args,
@@ -1255,7 +1253,7 @@ impl Interpreter {
             package: map_hir_package_to_fir(callable_id.package),
             item: map_hir_local_item_to_fir(callable_id.item),
         };
-        let PreparedBackendFir {
+        let CodegenFir {
             fir_store,
             compute_properties,
             ..
@@ -1296,18 +1294,18 @@ impl Interpreter {
         let (prepared_fir, fallback_package) =
             if let Some(entry_expr) = entry_expr.or(source_entry_expr.as_deref()) {
                 (
-                    self.prepare_backend_entry_expr(entry_expr)?,
+                    self.prepare_codegen_entry_expr(entry_expr)?,
                     map_fir_package_to_hir(self.package),
                 )
             } else {
                 (
-                    self.prepare_backend_source_package()?,
+                    self.prepare_codegen_source_package()?,
                     map_fir_package_to_hir(self.source_package),
                 )
             };
 
-        let entry = entry_from_prepared_fir(&prepared_fir);
-        let PreparedBackendFir {
+        let entry = entry_from_codegen_fir(&prepared_fir);
+        let CodegenFir {
             fir_store,
             compute_properties,
             ..

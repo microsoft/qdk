@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Contract tests that validate `run_pipeline` output satisfies the PostAll
+//! Contract tests that validate `run_pipeline` output satisfies the `PostAll`
 //! invariants expected by downstream consumers (codegen, language service, RCA).
 //!
 //! Each test compiles a representative Q# program, runs the full FIR transform
@@ -64,11 +64,11 @@ fn run_pipeline_output_satisfies_post_all_invariants() {
         "#,
     );
 
-    // Panics with a descriptive message if any PostAll invariant is violated.
+    // Panics with a descriptive message if any `PostAll` invariant is violated.
     invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
 }
 
-/// Verifies that a program using higher-order functions satisfies PostAll
+/// Verifies that a program using higher-order functions satisfies `PostAll`
 /// invariants -- exercises the defunctionalization contract specifically.
 #[test]
 fn run_pipeline_defunctionalized_output_satisfies_post_all_invariants() {
