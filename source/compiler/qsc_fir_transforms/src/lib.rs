@@ -241,12 +241,17 @@ fn run_pipeline_to_impl(
         return Vec::new();
     }
 
-    exec_graph_rebuild::rebuild_exec_graphs(store, package_id);
+    exec_graph_rebuild::rebuild_exec_graphs(store, package_id, pinned_items);
     if matches!(stage, PipelineStage::ExecGraphRebuild) {
         return Vec::new();
     }
 
-    invariants::check(store, package_id, invariants::InvariantLevel::PostAll);
+    invariants::check_with_pinned_items(
+        store,
+        package_id,
+        invariants::InvariantLevel::PostAll,
+        pinned_items,
+    );
     Vec::new()
 }
 

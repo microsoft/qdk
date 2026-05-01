@@ -232,15 +232,30 @@ pub mod qir {
         }
     }
 
-    fn ty_contains_arrow(ty: &qsc_fir::ty::Ty) -> bool {
+    fn ty_contains_arrow(ty: &qsc_fir::ty::Ty, fir_store: &qsc_fir::fir::PackageStore) -> bool {
         match ty {
-            qsc_fir::ty::Ty::Array(item) => ty_contains_arrow(item),
+            qsc_fir::ty::Ty::Array(item) => ty_contains_arrow(item, fir_store),
             qsc_fir::ty::Ty::Arrow(_) => true,
-            qsc_fir::ty::Ty::Tuple(items) => items.iter().any(ty_contains_arrow),
+            qsc_fir::ty::Ty::Tuple(items) => {
+                items.iter().any(|item| ty_contains_arrow(item, fir_store))
+            }
+            qsc_fir::ty::Ty::Udt(res) => {
+                let qsc_fir::fir::Res::Item(item_id) = res else {
+                    return false;
+                };
+                let package = fir_store.get(item_id.package);
+                let item = package
+                    .items
+                    .get(item_id.item)
+                    .expect("UDT item should exist");
+                let qsc_fir::fir::ItemKind::Ty(_, udt) = &item.kind else {
+                    return false;
+                };
+                ty_contains_arrow(&udt.get_pure_ty(), fir_store)
+            }
             qsc_fir::ty::Ty::Infer(_)
             | qsc_fir::ty::Ty::Param(_)
             | qsc_fir::ty::Ty::Prim(_)
-            | qsc_fir::ty::Ty::Udt(_)
             | qsc_fir::ty::Ty::Err => false,
         }
     }
@@ -263,7 +278,7 @@ pub mod qir {
             return false;
         };
 
-        ty_contains_arrow(&package.get_pat(callable_decl.input).ty)
+        ty_contains_arrow(&package.get_pat(callable_decl.input).ty, fir_store)
     }
 
     fn seed_entry_with_callable(

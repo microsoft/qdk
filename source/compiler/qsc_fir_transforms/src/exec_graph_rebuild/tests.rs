@@ -782,7 +782,7 @@ fn exec_graph_rebuild_is_idempotent() {
     let first = format_callable_exec_graph(&store, pkg_id, ExecGraphConfig::NoDebug);
 
     // Run rebuild a second time — the result must be identical.
-    super::rebuild_exec_graphs(&mut store, pkg_id);
+    super::rebuild_exec_graphs(&mut store, pkg_id, &[]);
     let second = format_callable_exec_graph(&store, pkg_id, ExecGraphConfig::NoDebug);
 
     assert_eq!(first, second, "exec graph rebuild is not idempotent");
@@ -837,7 +837,7 @@ fn reachable_cross_package_callables_keep_existing_exec_graphs_while_local_speci
         0
     );
 
-    super::rebuild_exec_graphs(&mut store, pkg_id);
+    super::rebuild_exec_graphs(&mut store, pkg_id, &[]);
 
     assert_eq!(
         format_store_callable_exec_graph(&store, local_specialization, ExecGraphConfig::NoDebug),
@@ -884,5 +884,5 @@ fn exec_graph_rebuild_rejects_struct_expressions() {
         }
     "};
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
-    super::rebuild_exec_graphs(&mut store, pkg_id);
+    super::rebuild_exec_graphs(&mut store, pkg_id, &[]);
 }

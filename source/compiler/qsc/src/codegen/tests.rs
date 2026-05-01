@@ -1217,6 +1217,292 @@ fn callable_args_with_udt_wrapped_arrow_survives_dce() {
     }
 }
 
+#[test]
+fn callable_with_udt_wrapped_arrow_generates_qir_via_callable_args() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype Config = (Op: Qubit => Unit, Data: Int);
+            operation Apply(cfg: Config) : Result {
+                use q = Qubit();
+                cfg::Op(q);
+                MResetZ(q)
+            }
+            operation MyOp(q: Qubit) : Unit { H(q); }
+        }
+    "#};
+
+    let capabilities = TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations;
+
+    let sources = source_map_from_source(source);
+    let language_features = LanguageFeatures::default();
+    let (std_id, mut store) = crate::compile::package_store_with_stdlib(capabilities);
+    let dependencies: Vec<(PackageId, Option<Arc<str>>)> = vec![(std_id, None)];
+
+    let (unit, errors) = crate::compile::compile(
+        &store,
+        &dependencies,
+        sources,
+        qsc_passes::PackageType::Lib,
+        capabilities,
+        language_features,
+    );
+    assert!(errors.is_empty(), "compilation failed: {errors:?}");
+    let package_id = store.insert(unit);
+
+    let hir_package = &store.get(package_id).expect("package should exist").package;
+    let mut apply_local = None;
+    let mut my_op_local = None;
+    let mut config_udt_local = None;
+    for (local_id, item) in hir_package.items.iter() {
+        match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "Apply" => {
+                apply_local = Some(local_id);
+            }
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "MyOp" => {
+                my_op_local = Some(local_id);
+            }
+            ItemKind::Ty(name, _) if name.name.as_ref() == "Config" => {
+                config_udt_local = Some(local_id);
+            }
+            _ => {}
+        }
+    }
+    let apply_local = apply_local.expect("Apply should exist in HIR");
+    let my_op_local = my_op_local.expect("MyOp should exist in HIR");
+
+    let apply_hir_id = qsc_hir::hir::ItemId {
+        package: package_id,
+        item: apply_local,
+    };
+
+    let my_op_fir_id = qsc_fir::fir::StoreItemId {
+        package: qsc_lowerer::map_hir_package_to_fir(package_id),
+        item: qsc_lowerer::map_hir_local_item_to_fir(my_op_local),
+    };
+    let my_op_value = Value::Global(my_op_fir_id, FunctorApp::default());
+
+    let config_fir_id = qsc_fir::fir::StoreItemId {
+        package: qsc_lowerer::map_hir_package_to_fir(package_id),
+        item: qsc_lowerer::map_hir_local_item_to_fir(
+            config_udt_local.expect("Config UDT should exist"),
+        ),
+    };
+    let config_value = Value::Tuple(
+        vec![my_op_value, Value::Int(42)].into(),
+        Some(Rc::new(config_fir_id)),
+    );
+
+    let codegen_fir =
+        prepare_codegen_fir_from_callable_args(&store, apply_hir_id, &config_value, capabilities)
+            .unwrap_or_else(|errors| {
+                panic!(
+                    "callable-args with UDT-wrapped arrow should produce CodegenFir, got: {}",
+                    format_interpret_errors(errors)
+                )
+            });
+
+    let backend_callable = qsc_fir::fir::StoreItemId {
+        package: qsc_lowerer::map_hir_package_to_fir(apply_hir_id.package),
+        item: qsc_lowerer::map_hir_local_item_to_fir(apply_hir_id.item),
+    };
+
+    let qir = qsc_codegen::qir::fir_to_qir_from_callable(
+        &codegen_fir.fir_store,
+        capabilities,
+        &codegen_fir.compute_properties,
+        backend_callable,
+        config_value,
+    )
+    .unwrap_or_else(|e| panic!("QIR generation from UDT-wrapped arrow should succeed: {e:?}"));
+
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_r\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__h__body(%Qubit*)
+
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+
+        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+    "#]]
+        .assert_eq(&qir);
+}
+
+#[test]
+fn callable_with_nested_udt_wrapped_arrow_generates_qir_via_callable_args() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype OpWrapper = (Op: Qubit => Unit);
+            newtype Config = (Inner: OpWrapper, Count: Int);
+            operation Apply(cfg: Config) : Result {
+                use q = Qubit();
+                cfg::Inner::Op(q);
+                MResetZ(q)
+            }
+            operation MyOp(q: Qubit) : Unit { X(q); }
+        }
+    "#};
+
+    let capabilities = TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations;
+
+    let sources = source_map_from_source(source);
+    let language_features = LanguageFeatures::default();
+    let (std_id, mut store) = crate::compile::package_store_with_stdlib(capabilities);
+    let dependencies: Vec<(PackageId, Option<Arc<str>>)> = vec![(std_id, None)];
+
+    let (unit, errors) = crate::compile::compile(
+        &store,
+        &dependencies,
+        sources,
+        qsc_passes::PackageType::Lib,
+        capabilities,
+        language_features,
+    );
+    assert!(errors.is_empty(), "compilation failed: {errors:?}");
+    let package_id = store.insert(unit);
+
+    let hir_package = &store.get(package_id).expect("package should exist").package;
+    let mut apply_local = None;
+    let mut my_op_local = None;
+    let mut config_udt_local = None;
+    for (local_id, item) in hir_package.items.iter() {
+        match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "Apply" => {
+                apply_local = Some(local_id);
+            }
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "MyOp" => {
+                my_op_local = Some(local_id);
+            }
+            ItemKind::Ty(name, _) if name.name.as_ref() == "Config" => {
+                config_udt_local = Some(local_id);
+            }
+            _ => {}
+        }
+    }
+    let apply_local = apply_local.expect("Apply should exist in HIR");
+    let my_op_local = my_op_local.expect("MyOp should exist in HIR");
+
+    let apply_hir_id = qsc_hir::hir::ItemId {
+        package: package_id,
+        item: apply_local,
+    };
+
+    let my_op_fir_id = qsc_fir::fir::StoreItemId {
+        package: qsc_lowerer::map_hir_package_to_fir(package_id),
+        item: qsc_lowerer::map_hir_local_item_to_fir(my_op_local),
+    };
+    let my_op_value = Value::Global(my_op_fir_id, FunctorApp::default());
+
+    let config_fir_id = qsc_fir::fir::StoreItemId {
+        package: qsc_lowerer::map_hir_package_to_fir(package_id),
+        item: qsc_lowerer::map_hir_local_item_to_fir(
+            config_udt_local.expect("Config UDT should exist"),
+        ),
+    };
+    let config_value = Value::Tuple(
+        vec![my_op_value, Value::Int(5)].into(),
+        Some(Rc::new(config_fir_id)),
+    );
+
+    let codegen_fir = prepare_codegen_fir_from_callable_args(
+        &store,
+        apply_hir_id,
+        &config_value,
+        capabilities,
+    )
+    .unwrap_or_else(|errors| {
+        panic!(
+            "callable-args with nested UDT-wrapped arrow should produce CodegenFir, got: {}",
+            format_interpret_errors(errors)
+        )
+    });
+
+    let backend_callable = qsc_fir::fir::StoreItemId {
+        package: qsc_lowerer::map_hir_package_to_fir(apply_hir_id.package),
+        item: qsc_lowerer::map_hir_local_item_to_fir(apply_hir_id.item),
+    };
+
+    let qir = qsc_codegen::qir::fir_to_qir_from_callable(
+        &codegen_fir.fir_store,
+        capabilities,
+        &codegen_fir.compute_properties,
+        backend_callable,
+        config_value,
+    )
+    .unwrap_or_else(|e| {
+        panic!("QIR generation from nested UDT-wrapped arrow should succeed: {e:?}")
+    });
+
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_r\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__x__body(%Qubit*)
+
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+
+        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+    "#]].assert_eq(&qir);
+}
+
 mod base_profile {
     use expect_test::expect;
     use qsc_data_structures::target::TargetCapabilityFlags;

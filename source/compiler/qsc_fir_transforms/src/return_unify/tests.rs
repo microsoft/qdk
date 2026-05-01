@@ -255,7 +255,7 @@ fn eval_qsharp_no_hoist_return_unified(source: &str) -> Result<qsc_eval::val::Va
     let NoHoistReturnUnifyResult {
         mut store, pkg_id, ..
     } = compile_no_hoist_return_unified(source);
-    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, pkg_id);
+    crate::exec_graph_rebuild::rebuild_exec_graphs(&mut store, pkg_id, &[]);
     try_eval_fir_entry(&store, pkg_id)
 }
 

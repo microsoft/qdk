@@ -53,12 +53,12 @@ use std::ops::Range;
 use qsc_fir::fir::{
     BinOp, BlockId, CallableImpl, ExecGraphDebugNode, ExecGraphIdx, ExecGraphNode, ExprId,
     ExprKind, ItemKind, LocalItemId, Package, PackageId, PackageLookup, PackageStore,
-    SpecDecl as FirSpecDecl, StmtId, StmtKind, StringComponent,
+    SpecDecl as FirSpecDecl, StmtId, StmtKind, StoreItemId, StringComponent,
 };
 use qsc_fir::ty::Ty;
 use qsc_lowerer::ExecGraphBuilder;
 
-use crate::reachability::collect_reachable_from_entry;
+use crate::reachability::{collect_reachable_from_entry, collect_reachable_with_seeds};
 
 /// Side-table collecting deferred `exec_graph_range` updates.
 /// Populated during the read-only graph-building pass, then applied in a
@@ -122,12 +122,17 @@ struct CallableSpecs {
 }
 
 /// Rebuilds exec graphs for every reachable callable and the entry expression
-/// in the given package.
+/// in the given package. When `pinned_items` is non-empty, uses seed-based
+/// reachability to include pinned callables that are not entry-reachable.
 ///
 /// This must be called after all FIR transforms have completed. The function
 /// is idempotent — calling it multiple times produces the same result.
 #[allow(clippy::too_many_lines)]
-pub fn rebuild_exec_graphs(store: &mut PackageStore, package_id: PackageId) {
+pub fn rebuild_exec_graphs(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    pinned_items: &[StoreItemId],
+) {
     // Early return if there is no entry expression — nothing to rebuild.
     {
         let package = store.get(package_id);
@@ -137,7 +142,11 @@ pub fn rebuild_exec_graphs(store: &mut PackageStore, package_id: PackageId) {
     }
 
     // Collect the set of reachable callable items.
-    let reachable = collect_reachable_from_entry(store, package_id);
+    let reachable = if pinned_items.is_empty() {
+        collect_reachable_from_entry(store, package_id)
+    } else {
+        collect_reachable_with_seeds(store, package_id, pinned_items)
+    };
 
     // Collect the block IDs for every spec in every reachable
     // callable that lives in *this* package (cross-package items are not
