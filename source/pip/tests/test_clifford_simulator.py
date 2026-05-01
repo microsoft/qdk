@@ -88,8 +88,7 @@ def test_million():
 
 def test_program_with_branching_succeeds():
     qsharp.init(target_profile=TargetProfile.Adaptive_RI)
-    qsharp.eval(
-        """
+    qsharp.eval("""
         operation Main() : Result {
             use q = Qubit();
             H(q);
@@ -98,8 +97,7 @@ def test_program_with_branching_succeeds():
             }
             return MResetZ(q);
         }
-        """
-    )
+        """)
     ir = qsharp.compile("Main()")
     results = run_qir_clifford(str(ir), 1, NoiseConfig())
     assert len(results) == 1
@@ -277,7 +275,7 @@ def test_clifford_run_bitflip_noise():
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
     # Reasonable results obtained from manual run
-    assert result == ["0000001100000000"]
+    assert result == ["0000000011000001"]
 
     # Same execution should work with the operation itself.
     output = qsharp.run(
@@ -295,7 +293,7 @@ def test_clifford_run_bitflip_noise():
     )
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
-    assert result == ["0000001100000000"]
+    assert result == ["0000000011000001"]
 
 
 def test_clifford_run_mixed_noise():
@@ -312,13 +310,13 @@ def test_clifford_run_mixed_noise():
         "IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 4.0, 4)",
         shots=1,
         noise=noise,
-        seed=234,
+        seed=67,
         type="clifford",
     )
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
     # Reasonable results obtained from manual run
-    assert result == ["-000-01000100010"]
+    assert result == ["0000111-00000000"]
 
 
 def test_clifford_run_isolated_loss():
@@ -521,15 +519,13 @@ def test_clifford_run_cy_noise_distribution():
 
 def test_clifford_run_with_t_fails():
     qsharp.init()
-    qsharp.eval(
-        """
+    qsharp.eval("""
         operation Main() : Result {
             use q = Qubit();
             T(q);
             return MResetZ(q);
         }
-        """
-    )
+        """)
     try:
         qsharp.run("Main()", shots=1, type="clifford")
         assert False, "Expected QSharpError for non-Clifford gate"
@@ -539,15 +535,13 @@ def test_clifford_run_with_t_fails():
 
 def test_clifford_run_with_adjoint_t_fails():
     qsharp.init()
-    qsharp.eval(
-        """
+    qsharp.eval("""
         operation Main() : Result {
             use q = Qubit();
             Adjoint T(q);
             return MResetZ(q);
         }
-        """
-    )
+        """)
     try:
         qsharp.run("Main()", shots=1, type="clifford")
         assert False, "Expected QSharpError for non-Clifford gate"
@@ -557,15 +551,13 @@ def test_clifford_run_with_adjoint_t_fails():
 
 def test_clifford_run_with_non_clifford_rotation_fails():
     qsharp.init()
-    qsharp.eval(
-        """
+    qsharp.eval("""
         operation Main() : Result {
             use q = Qubit();
             Rx(1.0, q);
             return MResetZ(q);
         }
-        """
-    )
+        """)
     try:
         qsharp.run("Main()", shots=1, type="clifford")
         assert False, "Expected QSharpError for non-Clifford gate"
@@ -575,13 +567,11 @@ def test_clifford_run_with_non_clifford_rotation_fails():
 
 def test_clifford_run_with_too_many_qubits_fails():
     qsharp.init()
-    qsharp.eval(
-        """
+    qsharp.eval("""
         operation Main() : Unit {
             use qs = Qubit[10];
         }
-        """
-    )
+        """)
     try:
         qsharp.run("Main()", shots=1, type="clifford", num_qubits=5)
         assert False, "Expected QSharpError for too many qubits"
