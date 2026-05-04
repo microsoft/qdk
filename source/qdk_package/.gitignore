@@ -1,2 +1,4 @@
 /build/
-/src/*.egg-info/
+/src/
+/*.egg-info/
+/doc/

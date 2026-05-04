@@ -3,6 +3,7 @@
 
 use std::f32::consts::FRAC_1_SQRT_2;
 
+use crate::bytecode;
 use bytemuck::{Pod, Zeroable};
 
 // ********** Constants used by the GPU shader code and structures *********
@@ -1094,3 +1095,59 @@ pub struct InterpreterState {
 // Total struct size = 64 u32 = 256 bytes (which is aligned to 128 bytes)
 // safety check to make sure Op is the correct size with padding at compile time
 const _: () = assert!(std::mem::size_of::<InterpreterState>() == 256);
+
+/// Build a pool of [`Op`] structs from compact `(op_id, q1, q2, q3, angle)` tuples.
+///
+/// Maps each `OpID` integer to the corresponding `Op::new_*` constructor, expanding
+/// the unitary matrix for use on the GPU.
+#[must_use]
+pub fn build_op_pool(compact_ops: &[bytecode::Op<u32>]) -> Vec<Op> {
+    compact_ops
+        .iter()
+        .map(
+            |&bytecode::Op {
+                 op_id,
+                 q1,
+                 q2,
+                 q3: _,
+                 angle,
+             }| {
+                #[allow(clippy::cast_possible_truncation)]
+                let angle_f32 = f32::from_bits(angle);
+                match op_id {
+                    ops::ID => Op::new_id_gate(q1),
+                    ops::RESETZ => Op::new_resetz_gate(q1),
+                    ops::X => Op::new_x_gate(q1),
+                    ops::Y => Op::new_y_gate(q1),
+                    ops::Z => Op::new_z_gate(q1),
+                    ops::H => Op::new_h_gate(q1),
+                    ops::S => Op::new_s_gate(q1),
+                    ops::S_ADJ => Op::new_s_adj_gate(q1),
+                    ops::T => Op::new_t_gate(q1),
+                    ops::T_ADJ => Op::new_t_adj_gate(q1),
+                    ops::SX => Op::new_sx_gate(q1),
+                    ops::SX_ADJ => Op::new_sx_adj_gate(q1),
+                    ops::RX => Op::new_rx_gate(angle_f32, q1),
+                    ops::RY => Op::new_ry_gate(angle_f32, q1),
+                    ops::RZ => Op::new_rz_gate(angle_f32, q1),
+                    ops::CX => Op::new_cx_gate(q1, q2),
+                    ops::CY => Op::new_cy_gate(q1, q2),
+                    ops::CZ => Op::new_cz_gate(q1, q2),
+                    ops::RXX => Op::new_rxx_gate(angle_f32, q1, q2),
+                    ops::RYY => Op::new_ryy_gate(angle_f32, q1, q2),
+                    ops::RZZ => Op::new_rzz_gate(angle_f32, q1, q2),
+                    ops::SWAP => Op::new_swap_gate(q1, q2),
+                    ops::MZ => Op::new_mz_gate(q1, q2),
+                    ops::MRESETZ => Op::new_mresetz_gate(q1, q2),
+                    ops::MOVE => Op::new_move_gate(q1),
+                    ops::CORRELATED_NOISE => {
+                        // For adaptive path: q1 = noise_table_idx, q2 = qubit_count.
+                        // Qubit IDs are resolved at runtime from instruction aux fields.
+                        Op::new_2q_gate(ops::CORRELATED_NOISE, q1, q2)
+                    }
+                    _ => panic!("Unknown op_id in adaptive quantum op pool: {op_id}"),
+                }
+            },
+        )
+        .collect()
+}

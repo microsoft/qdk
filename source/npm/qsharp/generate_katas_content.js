@@ -98,7 +98,7 @@ function tryParseJSON(json, errorPrefix) {
   try {
     parsed = JSON.parse(json);
   } catch (e) {
-    throw new Error(`${errorPrefix}\n${e}`);
+    throw new Error(`${errorPrefix}\n${e}`, { cause: e });
   }
   return parsed;
 }
@@ -108,7 +108,7 @@ function tryReadFile(filePath, errorPrefix) {
   try {
     content = readFileSync(filePath, "utf8");
   } catch (e) {
-    throw new Error(`${errorPrefix}\n${e}`);
+    throw new Error(`${errorPrefix}\n${e}`, { cause: e });
   }
   return content;
 }
@@ -205,7 +205,7 @@ function coalesceSegments(segments) {
   const segmentsStack = segments.reverse();
   while (segmentsStack.length > 0) {
     let currentSegment = segmentsStack.pop();
-    let coalescedSegment = null;
+    let coalescedSegment;
     if (currentSegment.type === "markdown" || currentSegment.type === "svg") {
       coalescedSegment = coalesceIntoSingleMarkdownSegment(
         currentSegment,

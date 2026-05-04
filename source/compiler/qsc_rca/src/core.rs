@@ -9,9 +9,12 @@ use crate::{
         AssignmentStmtCounter, Callee, FunctorAppExt, GlobalSpecId, Local, LocalKind,
         try_resolve_callee,
     },
+    errors::get_missing_runtime_features,
     scaffolding::{InternalItemComputeProperties, InternalPackageStoreComputeProperties},
 };
-use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap};
+use qsc_data_structures::{
+    functors::FunctorApp, index_map::IndexMap, target::TargetCapabilityFlags,
+};
 use qsc_fir::{
     extensions::InputParam,
     fir::{
@@ -22,24 +25,27 @@ use qsc_fir::{
         StringComponent,
     },
     ty::{Arrow, FunctorSetValue, Prim, Ty},
-    visit::{Visitor, walk_stmt},
+    visit::{Visitor, walk_block, walk_expr, walk_stmt},
 };
 
 pub struct Analyzer<'a> {
     package_store: &'a PackageStore,
     package_store_compute_properties: InternalPackageStoreComputeProperties,
     active_contexts: Vec<AnalysisContext>,
+    target_capabilities: TargetCapabilityFlags,
 }
 
 impl<'a> Analyzer<'a> {
     pub fn new(
         package_store: &'a PackageStore,
         package_store_compute_properties: InternalPackageStoreComputeProperties,
+        target_capabilities: TargetCapabilityFlags,
     ) -> Self {
         Self {
             package_store,
             package_store_compute_properties,
             active_contexts: Vec::<AnalysisContext>::default(),
+            target_capabilities,
         }
     }
 
@@ -753,7 +759,35 @@ impl<'a> Analyzer<'a> {
         if let ComputeKind::Dynamic { value_kind, .. } = &index_expr_compute_kind
             && *value_kind == ValueKind::Variable
         {
-            let dynamic_runtime_features = RuntimeFeatureFlags::UseOfDynamicIndex;
+            let mut dynamic_runtime_features = RuntimeFeatureFlags::UseOfDynamicIndex;
+
+            // If the array itself is variable, then we additionally need the runtime feature for a dynamic array.
+            if array_expr_compute_kind.is_variable_value_kind() {
+                dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicArray;
+            }
+
+            match expr_type {
+                Ty::Param(..) => {
+                    // For generic type parameters, we don't know what features they might require later, so we add the
+                    // `UseOfDynamicGeneric` runtime feature to cover all cases.
+                    dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicGeneric;
+                }
+                Ty::Array(..) => {
+                    // If the type of the index expression is an array, we need to add the `UseOfDynamicallySizedArray`
+                    // runtime feature since the result of the index expression can be used in a context that requires array-specific runtime features.
+                    dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicallySizedArray;
+                }
+                Ty::Tuple(..) => {
+                    // If the type of the index expression is a tuple, we need to add the `UseOfDynamicTuple`
+                    // runtime feature since the result of the index expression can be used in a context that requires tuple-specific runtime features.
+                    dynamic_runtime_features |= RuntimeFeatureFlags::UseOfDynamicTuple;
+                }
+                _ => {
+                    // Other dynamic content types are already handled by the `derive_runtime_features_for_value_kind_associated_to_type` function
+                    // called below, so we don't need to do anything else here.
+                }
+            }
+
             let dynamic_runtime_kind = ValueKind::new_variable_from_type(expr_type);
             compute_kind = compute_kind.aggregate(ComputeKind::Dynamic {
                 runtime_features: dynamic_runtime_features,
@@ -1054,61 +1088,99 @@ impl<'a> Analyzer<'a> {
     }
 
     fn analyze_expr_while(&mut self, condition_expr_id: ExprId, block_id: BlockId) -> ComputeKind {
-        // Visit the condition expression to determine its initial compute kind.
-        self.visit_expr(condition_expr_id);
-        let application_instance = self.get_current_application_instance_mut();
-        let mut condition_expr_compute_kind =
-            *application_instance.get_expr_compute_kind(condition_expr_id);
+        let mut should_emit_classical_loop = self.should_emit_classical_loops();
+        let mut cached_locals_map = if should_emit_classical_loop {
+            Some(self.get_current_application_instance().locals_map.clone())
+        } else {
+            None
+        };
 
-        // We analyze both the condition expression and the block N times, where N is the analysis stabilization limit.
-        // The reason why we need a stabilization limit is because there can be up-to N levels of indirection for the
-        // condition due to variable assignments.
-        // The number of statements with assignments in the condition expression and the loop block is a good proxy for
-        // the worst case scenario regarding the propagation of properties throughout variables. Because of this, we use
-        // it as the stabilization limit.
-        let package_id = self.get_current_package_id();
-        let package = self.package_store.get(package_id);
-        let stabilization_limit = AssignmentStmtCounter::new(package).count_in_block(block_id)
-            + AssignmentStmtCounter::new(package).count_in_expr(condition_expr_id);
-        for _ in 0..=stabilization_limit {
-            // If the condition expression is dynamic, we push a new dynamic scope before visiting the block.
-            let application_instance = self.get_current_application_instance_mut();
-            condition_expr_compute_kind =
-                *application_instance.get_expr_compute_kind(condition_expr_id);
-            let within_dynamic_scope = condition_expr_compute_kind.is_variable_value_kind();
-            if within_dynamic_scope {
-                application_instance
-                    .active_dynamic_scopes
-                    .push(condition_expr_id);
-            }
+        let (condition_expr_compute_kind, mut compute_kind) = loop {
+            // Visit the condition expression to determine its initial compute kind.
             self.visit_expr(condition_expr_id);
-            self.visit_block(block_id);
-            if within_dynamic_scope {
+            let application_instance = self.get_current_application_instance_mut();
+            let mut condition_expr_compute_kind =
+                *application_instance.get_expr_compute_kind(condition_expr_id);
+
+            let package_id = self.get_current_package_id();
+            let package = self.package_store.get(package_id);
+
+            // We analyze both the condition expression and the block N times, where N is the analysis stabilization limit.
+            // The reason why we need a stabilization limit is because there can be up-to N levels of indirection for the
+            // condition due to variable assignments.
+            // The number of statements with assignments in the condition expression and the loop block is a good proxy for
+            // the worst case scenario regarding the propagation of properties throughout variables. Because of this, we use
+            // it as the stabilization limit.
+            let stabilization_limit = AssignmentStmtCounter::new(package).count_in_block(block_id)
+                + AssignmentStmtCounter::new(package).count_in_expr(condition_expr_id);
+            for _ in 0..=stabilization_limit {
+                // If the condition expression is a variable value kind
+                // OR
+                // we are trying to emit loops and the block is dynamic,
+                // then we push a new dynamic scope before visiting the block.
                 let application_instance = self.get_current_application_instance_mut();
-                let dynamic_scope_expr_id = application_instance
-                    .active_dynamic_scopes
-                    .pop()
-                    .expect("at least one dynamic scope should exist");
-                assert!(dynamic_scope_expr_id == condition_expr_id);
+                condition_expr_compute_kind =
+                    *application_instance.get_expr_compute_kind(condition_expr_id);
+                let within_dynamic_scope = condition_expr_compute_kind.is_variable_value_kind()
+                    || (should_emit_classical_loop
+                        && application_instance
+                            .find_block_compute_kind(block_id)
+                            .is_some_and(|k| !matches!(k, ComputeKind::Static)));
+                if within_dynamic_scope {
+                    application_instance
+                        .active_dynamic_scopes
+                        .push(condition_expr_id);
+                }
+                self.visit_expr(condition_expr_id);
+                self.visit_block(block_id);
+                if within_dynamic_scope {
+                    let application_instance = self.get_current_application_instance_mut();
+                    let dynamic_scope_expr_id = application_instance
+                        .active_dynamic_scopes
+                        .pop()
+                        .expect("at least one dynamic scope should exist");
+                    assert!(dynamic_scope_expr_id == condition_expr_id);
+                }
             }
-        }
 
-        // Return the aggregated runtime features of the condition expression and the block.
-        let application_instance = self.get_current_application_instance();
-        let block_compute_kind = *application_instance.get_block_compute_kind(block_id);
-        let mut compute_kind = ComputeKind::Static;
-        compute_kind = compute_kind
-            .aggregate_runtime_features(condition_expr_compute_kind, ValueKind::Constant);
-        compute_kind =
-            compute_kind.aggregate_runtime_features(block_compute_kind, ValueKind::Constant);
+            // Return the aggregated runtime features of the condition expression and the block.
+            let application_instance = self.get_current_application_instance();
+            let block_compute_kind = *application_instance.get_block_compute_kind(block_id);
+            let default_value_kind = ValueKind::Constant;
+            let mut compute_kind = ComputeKind::Static;
+            compute_kind = compute_kind
+                .aggregate_runtime_features(condition_expr_compute_kind, default_value_kind);
+            compute_kind =
+                compute_kind.aggregate_runtime_features(block_compute_kind, default_value_kind);
 
-        // If the condition is variable, we require an additional runtime feature.
-        if condition_expr_compute_kind.is_variable_value_kind() {
+            // If the resulting compute kind with dynamic loops would produce errors with the current target capabilities,
+            // we need to fall back to marking the loop as classical and re-analyzing.
+            if should_emit_classical_loop
+                && let ComputeKind::Dynamic {
+                    runtime_features, ..
+                } = &compute_kind
+                && !get_missing_runtime_features(*runtime_features, self.target_capabilities)
+                    .is_empty()
+            {
+                // Revert the calculated compute kinds and re-analyze marking the loop.
+                ClearComputeKinds::new(self).visit_expr(condition_expr_id);
+                ClearComputeKinds::new(self).visit_block(block_id);
+                self.get_current_application_instance_mut().locals_map = cached_locals_map.take().expect(
+                    "cached locals map should exist when re-analyzing while loop with classical emission",
+                );
+                should_emit_classical_loop = false;
+            } else {
+                break (condition_expr_compute_kind, compute_kind);
+            }
+        };
+
+        // If the condition is dynamic, we require an additional runtime feature.
+        if !matches!(condition_expr_compute_kind, ComputeKind::Static) {
             let ComputeKind::Dynamic {
                 runtime_features, ..
             } = &mut compute_kind
             else {
-                panic!("if the loop condition is variable, the loop expression must be dynamic");
+                panic!("if the loop condition is quantum, the loop expression must be quantum too");
             };
             *runtime_features |= RuntimeFeatureFlags::LoopWithDynamicCondition;
         }
@@ -1680,6 +1752,11 @@ impl<'a> Analyzer<'a> {
                 if item.id == callee.item
                     && item.current_spec_context.as_ref().map(|s| s.functor_set_value) == Some(callee.functor_app.functor_set_value()))
         })
+    }
+
+    fn should_emit_classical_loops(&self) -> bool {
+        self.target_capabilities
+            .contains(TargetCapabilityFlags::BackwardsBranching)
     }
 }
 
@@ -2550,5 +2627,54 @@ fn is_any_result(t: &Ty) -> bool {
         Ty::Array(t) => is_any_result(t),
         Ty::Tuple(ts) => ts.iter().any(is_any_result),
         _ => false,
+    }
+}
+
+struct ClearComputeKinds<'a, 'b> {
+    analyzer: &'a mut Analyzer<'b>,
+}
+
+impl<'a, 'b> ClearComputeKinds<'a, 'b> {
+    pub fn new(analyzer: &'a mut Analyzer<'b>) -> Self {
+        Self { analyzer }
+    }
+}
+
+impl<'a> Visitor<'a> for ClearComputeKinds<'a, '_> {
+    fn get_block(&self, id: BlockId) -> &'a Block {
+        self.analyzer.get_block(id)
+    }
+
+    fn get_expr(&self, id: ExprId) -> &'a Expr {
+        self.analyzer.get_expr(id)
+    }
+
+    fn get_pat(&self, id: PatId) -> &'a Pat {
+        self.analyzer.get_pat(id)
+    }
+
+    fn get_stmt(&self, id: StmtId) -> &'a Stmt {
+        self.analyzer.get_stmt(id)
+    }
+
+    fn visit_expr(&mut self, expr_id: ExprId) {
+        self.analyzer
+            .get_current_application_instance_mut()
+            .reset_expr_compute_kind(expr_id);
+        walk_expr(self, expr_id);
+    }
+
+    fn visit_stmt(&mut self, stmt_id: StmtId) {
+        self.analyzer
+            .get_current_application_instance_mut()
+            .reset_stmt_compute_kind(stmt_id);
+        walk_stmt(self, stmt_id);
+    }
+
+    fn visit_block(&mut self, block: BlockId) {
+        self.analyzer
+            .get_current_application_instance_mut()
+            .reset_block_compute_kind(block);
+        walk_block(self, block);
     }
 }

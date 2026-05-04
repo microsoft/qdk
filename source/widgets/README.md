@@ -27,8 +27,8 @@ code such as that shown below:
 
 ```python
 # Cell-1 : Import the modules and generate some estimates
-import qsharp
-from qsharp_widgets import SpaceChart, EstimateDetails
+from qdk import qsharp
+from qdk.widgets import SpaceChart, EstimateDetails
 
 with open("sample.qs", "r") as f:
     contents = f.read()

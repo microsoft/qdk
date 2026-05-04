@@ -1581,8 +1581,8 @@ fn add_instruction_ids(m: &Bound<'_, PyModule>) -> PyResult<()> {
         WRITE_TO_MEMORY,
         MEMORY,
         CYCLIC_SHIFT,
-        HAND_OFF,
         PHYSICAL_MOVE,
+        HAND_OFF,
         GENERIC
     );
 

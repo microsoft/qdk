@@ -12,7 +12,7 @@ fn add_mismatched_literal_input_tys_should_panic() {
         rir::Operand::Literal(rir::Literal::Double(1.0)),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Integer,
+            ty: rir::Ty::Prim(rir::Prim::Integer),
         },
     );
     let _ = &inst.to_qir(&rir::Program::default());
@@ -26,7 +26,7 @@ fn add_mismatched_literal_input_output_tys_should_panic() {
         rir::Operand::Literal(rir::Literal::Integer(5)),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Double,
+            ty: rir::Ty::Prim(rir::Prim::Double),
         },
     );
     let _ = &inst.to_qir(&rir::Program::default());
@@ -38,15 +38,15 @@ fn add_mismatched_variable_input_tys_should_panic() {
     let inst = rir::Instruction::Add(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
-            ty: rir::Ty::Integer,
+            ty: rir::Ty::Prim(rir::Prim::Integer),
         }),
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(2),
-            ty: rir::Ty::Double,
+            ty: rir::Ty::Prim(rir::Prim::Double),
         }),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Integer,
+            ty: rir::Ty::Prim(rir::Prim::Integer),
         },
     );
     let _ = &inst.to_qir(&rir::Program::default());
@@ -58,15 +58,15 @@ fn add_mismatched_variable_input_output_tys_should_panic() {
     let inst = rir::Instruction::Add(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
-            ty: rir::Ty::Integer,
+            ty: rir::Ty::Prim(rir::Prim::Integer),
         }),
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(2),
-            ty: rir::Ty::Integer,
+            ty: rir::Ty::Prim(rir::Prim::Integer),
         }),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Double,
+            ty: rir::Ty::Prim(rir::Prim::Double),
         },
     );
     let _ = &inst.to_qir(&rir::Program::default());
@@ -80,7 +80,7 @@ fn bitwise_and_mismatched_literal_input_tys_should_panic() {
         rir::Operand::Literal(rir::Literal::Double(1.0)),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Integer,
+            ty: rir::Ty::Prim(rir::Prim::Integer),
         },
     );
     let _ = &inst.to_qir(&rir::Program::default());
@@ -94,7 +94,7 @@ fn bitwise_and_mismatched_literal_input_output_tys_should_panic() {
         rir::Operand::Literal(rir::Literal::Integer(5)),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Double,
+            ty: rir::Ty::Prim(rir::Prim::Double),
         },
     );
     let _ = &inst.to_qir(&rir::Program::default());
@@ -106,15 +106,15 @@ fn bitwise_and_mismatched_variable_input_tys_should_panic() {
     let inst = rir::Instruction::BitwiseAnd(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
-            ty: rir::Ty::Integer,
+            ty: rir::Ty::Prim(rir::Prim::Integer),
         }),
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(2),
-            ty: rir::Ty::Double,
+            ty: rir::Ty::Prim(rir::Prim::Double),
         }),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Integer,
+            ty: rir::Ty::Prim(rir::Prim::Integer),
         },
     );
     let _ = &inst.to_qir(&rir::Program::default());
@@ -126,15 +126,15 @@ fn bitwise_and_mismatched_variable_input_output_tys_should_panic() {
     let inst = rir::Instruction::BitwiseAnd(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
-            ty: rir::Ty::Integer,
+            ty: rir::Ty::Prim(rir::Prim::Integer),
         }),
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(2),
-            ty: rir::Ty::Integer,
+            ty: rir::Ty::Prim(rir::Prim::Integer),
         }),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Double,
+            ty: rir::Ty::Prim(rir::Prim::Double),
         },
     );
     let _ = &inst.to_qir(&rir::Program::default());
@@ -148,7 +148,7 @@ fn add_bool_should_panic() {
         rir::Operand::Literal(rir::Literal::Bool(false)),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         },
     );
     let _ = &inst.to_qir(&rir::Program::default());
@@ -163,7 +163,7 @@ fn icmp_with_non_boolean_result_var_should_panic() {
         rir::Operand::Literal(rir::Literal::Integer(5)),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Integer,
+            ty: rir::Ty::Prim(rir::Prim::Integer),
         },
     );
     let _ = inst.to_qir(&rir::Program::default());

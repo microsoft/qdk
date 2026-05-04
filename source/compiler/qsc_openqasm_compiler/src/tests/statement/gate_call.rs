@@ -545,7 +545,7 @@ fn custom_gate_can_be_called_with_negctrl_modifier() -> miette::Result<(), Vec<R
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Ctl {
+        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Adj + Ctl {
             h(q1);
             h(q2);
         }
@@ -751,6 +751,435 @@ fn rzz_gate_with_one_angle_can_be_called() -> miette::Result<(), Vec<Report>> {
             Value = 2867080569611330,
             Size = 53
         }, q[1], q[0]);
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+#[test]
+fn all_stdgates_inc_gates_can_be_called() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        include "stdgates.inc";
+        qubit[3] q;
+        // main gate definitions
+        p(1.0) q[0];
+        x q[0];
+        y q[0];
+        z q[0];
+        h q[0];
+        s q[0];
+        sdg q[0];
+        t q[0];
+        tdg q[0];
+        sx q[0];
+        rx(1.0) q[0];
+        ry(1.0) q[0];
+        rz(1.0) q[0];
+        cx q[0], q[1];
+        cy q[0], q[1];
+        cz q[0], q[1];
+        cp(1.0) q[0], q[1];
+        crx(1.0) q[0], q[1];
+        cry(1.0) q[0], q[1];
+        crz(1.0) q[0], q[1];
+        ch q[0], q[1];
+        swap q[0], q[1];
+        ccx q[0], q[1], q[2];
+        cswap q[0], q[1], q[2];
+        cu(1.0, 2.0, 3.0, 4.0) q[0], q[1];
+        // OpenQASM 2.0 backwards compatibility gates
+        CX q[0], q[1];
+        phase(1.0) q[0];
+        cphase(1.0) q[0], q[1];
+        id q[0];
+        u1(1.0) q[0];
+        u2(1.0, 2.0) q[0];
+        u3(1.0, 2.0, 3.0) q[0];
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        borrow q = Qubit[3];
+        p(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        x(q[0]);
+        y(q[0]);
+        z(q[0]);
+        h(q[0]);
+        s(q[0]);
+        sdg(q[0]);
+        t(q[0]);
+        tdg(q[0]);
+        sx(q[0]);
+        rx(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        ry(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        rz(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        cx(q[0], q[1]);
+        cy(q[0], q[1]);
+        cz(q[0], q[1]);
+        cp(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        crx(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        cry(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        crz(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        ch(q[0], q[1]);
+        swap(q[0], q[1]);
+        ccx(q[0], q[1], q[2]);
+        cswap(q[0], q[1], q[2]);
+        cu(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 5734161139222659,
+            Size = 53
+        }, q[0], q[1]);
+        CX(q[0], q[1]);
+        phase(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        cphase(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        id(q[0]);
+        u1(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        u2(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, q[0]);
+        u3(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, q[0]);
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+#[test]
+fn all_stdgates_inc_gates_adjoint_can_be_called() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        include "stdgates.inc";
+        qubit[3] q;
+        // main gate definitions
+        inv @ p(1.0) q[0];
+        inv @ x q[0];
+        inv @ y q[0];
+        inv @ z q[0];
+        inv @ h q[0];
+        inv @ s q[0];
+        inv @ sdg q[0];
+        inv @ t q[0];
+        inv @ tdg q[0];
+        inv @ sx q[0];
+        inv @ rx(1.0) q[0];
+        inv @ ry(1.0) q[0];
+        inv @ rz(1.0) q[0];
+        inv @ cx q[0], q[1];
+        inv @ cy q[0], q[1];
+        inv @ cz q[0], q[1];
+        inv @ cp(1.0) q[0], q[1];
+        inv @ crx(1.0) q[0], q[1];
+        inv @ cry(1.0) q[0], q[1];
+        inv @ crz(1.0) q[0], q[1];
+        inv @ ch q[0], q[1];
+        inv @ swap q[0], q[1];
+        inv @ ccx q[0], q[1], q[2];
+        inv @ cswap q[0], q[1], q[2];
+        inv @ cu(1.0, 2.0, 3.0, 4.0) q[0], q[1];
+        // OpenQASM 2.0 backwards compatibility gates
+        inv @ CX q[0], q[1];
+        inv @ phase(1.0) q[0];
+        inv @ cphase(1.0) q[0], q[1];
+        inv @ id q[0];
+        inv @ u1(1.0) q[0];
+        inv @ u2(1.0, 2.0) q[0];
+        inv @ u3(1.0, 2.0, 3.0) q[0];
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        borrow q = Qubit[3];
+        Adjoint p(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        Adjoint x(q[0]);
+        Adjoint y(q[0]);
+        Adjoint z(q[0]);
+        Adjoint h(q[0]);
+        Adjoint s(q[0]);
+        Adjoint sdg(q[0]);
+        Adjoint t(q[0]);
+        Adjoint tdg(q[0]);
+        Adjoint sx(q[0]);
+        Adjoint rx(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        Adjoint ry(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        Adjoint rz(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        Adjoint cx(q[0], q[1]);
+        Adjoint cy(q[0], q[1]);
+        Adjoint cz(q[0], q[1]);
+        Adjoint cp(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        Adjoint crx(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        Adjoint cry(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        Adjoint crz(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        Adjoint ch(q[0], q[1]);
+        Adjoint swap(q[0], q[1]);
+        Adjoint ccx(q[0], q[1], q[2]);
+        Adjoint cswap(q[0], q[1], q[2]);
+        Adjoint cu(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 5734161139222659,
+            Size = 53
+        }, q[0], q[1]);
+        Adjoint CX(q[0], q[1]);
+        Adjoint phase(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        Adjoint cphase(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        Adjoint id(q[0]);
+        Adjoint u1(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        Adjoint u2(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, q[0]);
+        Adjoint u3(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, q[0]);
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+#[test]
+fn all_stdgates_inc_gates_controlled_can_be_called() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        include "stdgates.inc";
+        qubit[4] q;
+        // main gate definitions
+        ctrl @ p(1.0) q[0], q[1];
+        ctrl @ x q[0], q[1];
+        ctrl @ y q[0], q[1];
+        ctrl @ z q[0], q[1];
+        ctrl @ h q[0], q[1];
+        ctrl @ s q[0], q[1];
+        ctrl @ sdg q[0], q[1];
+        ctrl @ t q[0], q[1];
+        ctrl @ tdg q[0], q[1];
+        ctrl @ sx q[0], q[1];
+        ctrl @ rx(1.0) q[0], q[1];
+        ctrl @ ry(1.0) q[0], q[1];
+        ctrl @ rz(1.0) q[0], q[1];
+        ctrl @ cx q[0], q[1], q[2];
+        ctrl @ cy q[0], q[1], q[2];
+        ctrl @ cz q[0], q[1], q[2];
+        ctrl @ cp(1.0) q[0], q[1], q[2];
+        ctrl @ crx(1.0) q[0], q[1], q[2];
+        ctrl @ cry(1.0) q[0], q[1], q[2];
+        ctrl @ crz(1.0) q[0], q[1], q[2];
+        ctrl @ ch q[0], q[1], q[2];
+        ctrl @ swap q[0], q[1], q[2];
+        ctrl @ ccx q[0], q[1], q[2], q[3];
+        ctrl @ cswap q[0], q[1], q[2], q[3];
+        ctrl @ cu(1.0, 2.0, 3.0, 4.0) q[0], q[1], q[2];
+        // OpenQASM 2.0 backwards compatibility gates
+        ctrl @ CX q[0], q[1], q[2];
+        ctrl @ phase(1.0) q[0], q[1];
+        ctrl @ cphase(1.0) q[0], q[1], q[2];
+        ctrl @ id q[0], q[1];
+        ctrl @ u1(1.0) q[0], q[1];
+        ctrl @ u2(1.0, 2.0) q[0], q[1];
+        ctrl @ u3(1.0, 2.0, 3.0) q[0], q[1];
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        borrow q = Qubit[4];
+        Controlled p([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1]));
+        Controlled x([q[0]], q[1]);
+        Controlled y([q[0]], q[1]);
+        Controlled z([q[0]], q[1]);
+        Controlled h([q[0]], q[1]);
+        Controlled s([q[0]], q[1]);
+        Controlled sdg([q[0]], q[1]);
+        Controlled t([q[0]], q[1]);
+        Controlled tdg([q[0]], q[1]);
+        Controlled sx([q[0]], q[1]);
+        Controlled rx([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1]));
+        Controlled ry([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1]));
+        Controlled rz([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1]));
+        Controlled cx([q[0]], (q[1], q[2]));
+        Controlled cy([q[0]], (q[1], q[2]));
+        Controlled cz([q[0]], (q[1], q[2]));
+        Controlled cp([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1], q[2]));
+        Controlled crx([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1], q[2]));
+        Controlled cry([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1], q[2]));
+        Controlled crz([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1], q[2]));
+        Controlled ch([q[0]], (q[1], q[2]));
+        Controlled swap([q[0]], (q[1], q[2]));
+        Controlled ccx([q[0]], (q[1], q[2], q[3]));
+        Controlled cswap([q[0]], (q[1], q[2], q[3]));
+        Controlled cu([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 5734161139222659,
+            Size = 53
+        }, q[1], q[2]));
+        Controlled CX([q[0]], (q[1], q[2]));
+        Controlled phase([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1]));
+        Controlled cphase([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1], q[2]));
+        Controlled id([q[0]], q[1]);
+        Controlled u1([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1]));
+        Controlled u2([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, q[1]));
+        Controlled u3([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, q[1]));
     "#]]
     .assert_eq(&qsharp);
     Ok(())

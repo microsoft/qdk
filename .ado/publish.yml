@@ -129,7 +129,7 @@ extends:
 
               - script: |
                   python build.py --npm --wasm --no-check-prereqs
-                displayName: Build VSCode Extension
+                displayName: Build npm package
 
               - script: |
                   mkdir -p $(System.DefaultWorkingDirectory)/target/npm/qsharp
@@ -179,9 +179,10 @@ extends:
                 displayName: Install Prereqs for VSCode Extension
 
               # build steps
-
+              # we use xvfb-run to provide a virtual framebuffer for the VS Code tester,
+              # which requires a display to run
               - script: |
-                  python build.py --wasm --npm --vscode --integration-tests --no-check-prereqs
+                  xvfb-run -a python build.py --wasm --npm --vscode --integration-tests --no-check-prereqs
                 displayName: Build VSCode Extension
 
               - script: |

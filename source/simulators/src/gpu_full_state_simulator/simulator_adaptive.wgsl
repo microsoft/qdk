@@ -322,6 +322,7 @@ const OP_MEASURE:       u32 = 0x11;
 const OP_RESET:         u32 = 0x12;
 const OP_READ_RESULT:   u32 = 0x13;
 const OP_RECORD_OUTPUT: u32 = 0x14;
+const OP_READ_LOSS:     u32 = 0x15;
 
 // -- Integer Arithmetic -------------------------------------------------------
 const OP_ADD:           u32 = 0x20;
@@ -484,6 +485,15 @@ fn resolve_q2(shot_idx: u32) -> u32 {
     return read_reg(shot_idx, instr.aux2);
 }
 
+// Resolves the rotation angle for the current quantum instruction.
+// The angle is stored in the instruction's src0 field (register or immediate).
+fn resolve_gate_angle(shot_idx: u32) -> f32 {
+    let state = shots[shot_idx].interp;
+    let instr = fetch_instr(state.pc - 1);
+    let flags = get_flags(instr.opcode);
+    return resolve_f32(shot_idx, instr.src0, flags, 0u);
+}
+
 fn get_measure_qubit(shot_idx: u32, op_idx: u32) -> u32 {
     return resolve_q1(shot_idx);
 }
@@ -496,6 +506,18 @@ fn get_measure_result(shot_idx: u32, op_idx: u32) -> u32 {
 // Results are stored as atomic<u32> at shot_idx * RESULT_COUNT + result_id.
 fn read_measurement_result(shot_idx: u32, result_id: u32) -> bool {
     return atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]) == 1u;
+}
+
+// Return true if the id corresponds to a rotation gate.
+fn is_rotation_gate(id: u32) -> bool {
+    return (12 <= id && id <= 14) || (17 <= id && id <= 19);
+}
+
+// Return true if the angle for the current rotation gate is dynamic.
+fn is_dynamic_angle(shot_idx: u32) -> bool {
+    let state = shots[shot_idx].interp;
+    let instr = fetch_instr(state.pc - 1);
+    return (instr.opcode | FLAG_SRC0_IMM) != 0;
 }
 
 // For every qubit, each 'execute' kernel thread will update its own workgroup storage location for accumulating probabilities
@@ -550,6 +572,13 @@ fn initialize(
         // Set the |0...0> amplitude to 1.0 from the first workgroup & thread for the shot
         stateVector[params.shot_state_vector_start] = vec2f(1.0, 0.0);
         reset_all(params.shot_idx);
+
+        // Zero the results buffer for this shot so stale exit codes from
+        // prior runs do not leak via atomicCompareExchangeWeak in OP_RET.
+        let results_base = u32(params.shot_idx) * RESULT_COUNT;
+        for (var r = 0u; r < RESULT_COUNT; r++) {
+            atomicStore(&results[results_base + r], 0u);
+        }
     }
 }
 
@@ -783,7 +812,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let arg_offset = instr.aux2;
                 let func = batch_data.program.function_table[func_id];
                 // Push return info onto the call stack
-                let sp = state.call_sp;
+                let sp = shots[shot_idx].interp.call_sp;
                 // Guard: prevent call stack overflow (max 8 frames)
                 if sp >= 8u {
                     shots[shot_idx].interp.exit_code = ERR_CALL_STACK_OVERFLOW;
@@ -817,7 +846,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // return register (not 0xFFFFFFFF), copies the return value into
             // that register.
             case OP_CALL_RETURN {
-                if state.call_sp == 0u {
+                if shots[shot_idx].interp.call_sp == 0u {
                     shots[shot_idx].interp.exit_code = ERR_CALL_STACK_UNDERFLOW;
                     let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                     atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_CALL_STACK_UNDERFLOW);
@@ -827,11 +856,11 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                     break;
                 }
 
-                let sp = state.call_sp - 1;
+                let sp = shots[shot_idx].interp.call_sp - 1;
                 shots[shot_idx].interp.call_sp = sp;
-                block_id = state.call_stack_frames[sp].block_id;  // go back to the callers block
-                pc = state.call_stack_frames[sp].return_pc;       // restore pc
-                let return_reg = state.call_stack_frames[sp].return_reg;
+                block_id = shots[shot_idx].interp.call_stack_frames[sp].block_id;
+                pc = shots[shot_idx].interp.call_stack_frames[sp].return_pc;
+                let return_reg = shots[shot_idx].interp.call_stack_frames[sp].return_reg;
                 if return_reg != VOID_RETURN {
                     write_reg(shot_idx, return_reg, read_reg(shot_idx, instr.src0));
                 }
@@ -922,6 +951,18 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // directly after all shots terminate. The instruction exists to
             // maintain compatibility with the QIR adaptive profile bytecode.
             case OP_RECORD_OUTPUT {
+                pc++;
+            }
+
+            // READ_LOSS: Reports whether the measurement that produced a
+            // result observed a lost qubit. The per-shot ``results`` buffer
+            // encodes loss as the value 2u (0u = Zero, 1u = One, 2u = Loss),
+            // so we compare against 2u and write 1u when the result was a loss,
+            // else 0u.
+            case OP_READ_LOSS {
+                let result_id = instr.src0;
+                let val = atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]);
+                write_reg(shot_idx, instr.dst, select(0u, 1u, val == 2u));
                 pc++;
             }
 
@@ -1345,6 +1386,69 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     switch op_type {
         case 0u { // Gate
+            // For rotation gates, recompute the unitary from the dynamic angle stored
+            // in the instruction's src0 field if needed. The op pool unitary was built
+            // at upload time and may not reflect a runtime-computed angle.
+            if is_rotation_gate(op.id) && is_dynamic_angle(shot_idx) {
+                if op.id == OPID_RX || op.id == OPID_RY || op.id == OPID_RZ {
+                    let angle = resolve_gate_angle(shot_idx);
+                    let half = angle * 0.5;
+                    let c = cos(half);
+                    let s = sin(half);
+                    if op.id == OPID_RX {
+                        // [[cos(θ/2), -i·sin(θ/2)], [-i·sin(θ/2), cos(θ/2)]]
+                        shot.unitary[0] = vec2f(c, 0.0);
+                        shot.unitary[1] = vec2f(0.0, -s);
+                        shot.unitary[4] = vec2f(0.0, -s);
+                        shot.unitary[5] = vec2f(c, 0.0);
+                    } else if op.id == OPID_RY {
+                        // [[cos(θ/2), -sin(θ/2)], [sin(θ/2), cos(θ/2)]]
+                        shot.unitary[0] = vec2f(c, 0.0);
+                        shot.unitary[1] = vec2f(-s, 0.0);
+                        shot.unitary[4] = vec2f(s, 0.0);
+                        shot.unitary[5] = vec2f(c, 0.0);
+                    } else {
+                        // RZ: [[1, 0], [0, e^(iθ)]]
+                        shot.unitary[0] = vec2f(1.0, 0.0);
+                        shot.unitary[1] = vec2f(0.0, 0.0);
+                        shot.unitary[4] = vec2f(0.0, 0.0);
+                        shot.unitary[5] = vec2f(cos(angle), sin(angle));
+                    }
+                } else if op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ {
+                    let angle = resolve_gate_angle(shot_idx);
+                    let half = angle * 0.5;
+                    let c = cos(half);
+                    let s = sin(half);
+                    if op.id == OPID_RXX {
+                        // exp(-i·θ/2·X⊗X)
+                        shot.unitary[0]  = vec2f(c, 0.0);
+                        shot.unitary[3]  = vec2f(0.0, -s);
+                        shot.unitary[5]  = vec2f(c, 0.0);
+                        shot.unitary[6]  = vec2f(0.0, -s);
+                        shot.unitary[9]  = vec2f(0.0, -s);
+                        shot.unitary[10] = vec2f(c, 0.0);
+                        shot.unitary[12] = vec2f(0.0, -s);
+                        shot.unitary[15] = vec2f(c, 0.0);
+                    } else if op.id == OPID_RYY {
+                        // exp(-i·θ/2·Y⊗Y)
+                        shot.unitary[0]  = vec2f(c, 0.0);
+                        shot.unitary[3]  = vec2f(0.0, s);
+                        shot.unitary[5]  = vec2f(c, 0.0);
+                        shot.unitary[6]  = vec2f(0.0, -s);
+                        shot.unitary[9]  = vec2f(0.0, -s);
+                        shot.unitary[10] = vec2f(c, 0.0);
+                        shot.unitary[12] = vec2f(0.0, s);
+                        shot.unitary[15] = vec2f(c, 0.0);
+                    } else {
+                        // RZZ: diag(1, e^(iθ), e^(iθ), 1)
+                        shot.unitary[0]  = vec2f(1.0, 0.0);
+                        shot.unitary[5]  = vec2f(cos(angle), sin(angle));
+                        shot.unitary[10] = vec2f(cos(angle), sin(angle));
+                        shot.unitary[15] = vec2f(1.0, 0.0);
+                    }
+                }
+            }
+
             shot.op_idx = op_idx;
             shot.op_type = op.id;
 

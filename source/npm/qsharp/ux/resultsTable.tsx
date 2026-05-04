@@ -321,8 +321,7 @@ export function ResultsTable(props: {
               >
                 {getColumnList().map((elem) => (
                   <div
-                    width="100px"
-                    height="20px"
+                    style="width: 100px; height: 20px;"
                     class={
                       elem.show
                         ? "qs-resultsTable-columnSelected"

@@ -228,7 +228,7 @@ def test_z_noise_on_h_i_h_yields_1():
 def test_probabilistic_x_noise():
     noise = NoiseConfig()
     noise.cx.ix = 0.5
-    counts = get_histogram(I_QIR, shots=1000, noise=noise)
+    counts = get_histogram(I_QIR, shots=1000, num_qubits=2, noise=noise)
 
     assert counts["0"] > 400, f"Expected ~500 '0' results, got {counts['0']}"
     assert counts["1"] > 400, f"Expected ~500 '1' results, got {counts['1']}"
@@ -283,7 +283,7 @@ def test_noise_intrinsics_gpu_sim_class():
     sim.load_noise_tables("./csv_dir_test")
     sim.set_program(QIR_WITH_CORRELATED_NOISE)
     output = sim.run_shots(shots=1)["shot_results"]
-    assert output == ["101"]
+    assert output == [[Result.One, Result.Zero, Result.One]]
 
 
 NOISE_INTRINSICS_WITH_REGISTERS_QIR = r"""
@@ -373,7 +373,7 @@ def test_noise_intrinsic_1q_x_flip():
     table = noise.intrinsic("noise_1q", 1)
     table.x = 1.0
     output = run_qir(QIR_NOISE_1Q, shots=1, noise=noise, type="gpu")
-    assert output == [[Result.One]]
+    assert output == [Result.One]
 
 
 QASM_NOISE_2Q = """

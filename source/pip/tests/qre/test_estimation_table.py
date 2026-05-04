@@ -2,6 +2,9 @@
 # Licensed under the MIT License.
 
 import pytest
+
+cirq = pytest.importorskip("cirq")
+
 import pandas as pd
 
 from qsharp.qre import (

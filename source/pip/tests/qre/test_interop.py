@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+cirq = pytest.importorskip("cirq")
+
 import qsharp
 from qsharp.qre.application import QSharpApplication, QIRApplication
 from qsharp.qre.interop import trace_from_qir
@@ -29,7 +31,7 @@ def test_trace_from_qir(ll_file):
     # QIR output without errors, rather than checking specific properties of the
     # trace.
     try:
-        app = QIRApplication(ll_file.read_text())
+        app = QIRApplication(ll_file.read_text(encoding="utf-8"))
         _ = app.get_trace()
     except ValueError as e:
         # The only reason of failure is presence of control flow
@@ -114,8 +116,8 @@ def test_trace_from_qir_handles_all_instruction_ids():
     r = simple.results
 
     void_ty = pyqir.Type.void(ctx)
-    qubit_ty = pyqir.qubit_type(ctx)
-    result_ty = pyqir.result_type(ctx)
+    qubit_ty = pyqir.PointerType(void_ty)
+    result_ty = pyqir.PointerType(void_ty)
     double_ty = pyqir.Type.double(ctx)
     i64_ty = pyqir.IntType(ctx, 64)
 
@@ -235,8 +237,7 @@ def test_qsharp_from_string():
 
 
 def test_qsharp_from_callable():
-    qsharp.eval(
-        """
+    qsharp.eval("""
     operation Test(numTs: Int) : Unit {{
         use (a, b, c) = (Qubit(), Qubit(), Qubit());
         for i in 1..numTs {{
@@ -245,8 +246,7 @@ def test_qsharp_from_callable():
         CCNOT(a, b, c);
         Rz(1.2345, a);
     }}
-    """
-    )
+    """)
 
     for num_ts in range(1, 6):
         app = QSharpApplication(qsharp.code.Test, args=(num_ts,))  # type: ignore

@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from pyqir import QirModuleVisitor, qubit_id, required_num_qubits
+from pyqir import QirModuleVisitor, ptr_id, required_num_qubits
 from .._device import Device
 
 
@@ -44,27 +44,27 @@ class Trace(QirModuleVisitor):
     def _on_qis_move(self, call, qubit, row, col):
         if not self.in_parallel:
             self._next_step()
-        q = qubit_id(qubit)
+        q = ptr_id(qubit)
         self.q_cols[q] = col.value
         self.trace["steps"][-1]["ops"].append(f"move({row.value}, {col.value}) {q}")
 
     def _on_qis_sx(self, call, qubit):
         if not self.in_parallel:
             self._next_step()
-        q = qubit_id(qubit)
+        q = ptr_id(qubit)
         self.trace["steps"][-1]["ops"].append(f"sx {q}")
 
     def _on_qis_rz(self, call, angle, qubit):
         if not self.in_parallel:
             self._next_step()
-        q = qubit_id(qubit)
+        q = ptr_id(qubit)
         self.trace["steps"][-1]["ops"].append(f"rz({angle.value}) {q}")
 
     def _on_qis_cz(self, call, qubit1, qubit2):
         if not self.in_parallel:
             self._next_step()
-        q1 = qubit_id(qubit1)
-        q2 = qubit_id(qubit2)
+        q1 = ptr_id(qubit1)
+        q2 = ptr_id(qubit2)
         if self.q_cols.get(q1, -1) > self.q_cols.get(q2, -1):
             q1, q2 = q2, q1
         self.trace["steps"][-1]["ops"].append(f"cz {q1}, {q2}")
@@ -72,5 +72,5 @@ class Trace(QirModuleVisitor):
     def _on_qis_mresetz(self, call, target, result):
         if not self.in_parallel:
             self._next_step()
-        q = qubit_id(target)
+        q = ptr_id(target)
         self.trace["steps"][-1]["ops"].append(f"mz {q}")

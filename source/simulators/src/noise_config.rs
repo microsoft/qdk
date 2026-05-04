@@ -269,14 +269,19 @@ impl<F> CumulativeNoiseTable<F>
 where
     F: Fault + Clone,
 {
-    /// Samples a float in the range [0, 1] and picks one of the faults
-    /// `X`, `Y`, `Z`, `Loss` based on the provided noise table.
+    /// Samples loss using the loss probability in the noise table.
     #[must_use]
-    pub fn gen_operation_fault(&self, rng: &mut impl rand::Rng) -> F {
-        let sample: f64 = rng.gen_range(0.0..1.0);
-        if sample < self.loss {
-            return F::loss();
+    pub fn sample_loss(&self, rng: &mut impl rand::Rng) -> F {
+        if rng.gen_range(0.0..1.0) < self.loss {
+            F::loss()
+        } else {
+            F::none()
         }
+    }
+
+    /// Samples loss using the noise probabilities in the noise table.
+    #[must_use]
+    pub fn sample_noise(&self, rng: &mut impl rand::Rng) -> F {
         self.sampler.sample(rng)
     }
 }

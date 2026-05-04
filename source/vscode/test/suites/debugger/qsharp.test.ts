@@ -15,11 +15,27 @@ suite("Q# Debugger Tests", function suite() {
   const fooUri = vscode.Uri.joinPath(workspaceFolder.uri, "src", "foo.qs");
   const barUri = vscode.Uri.joinPath(workspaceFolder.uri, "src", "bar.qs");
 
+  // Makes testing compatible with node and web environments
+  const separator = workspaceFolder.uri.path.endsWith("/") ? "" : "/";
+
   let tracker: Tracker | undefined;
   let disposable;
 
   this.beforeAll(async () => {
     await activateExtension();
+
+    // Ensure the Debug view opens when a debug session starts.
+    // VS Code 1.117 changed the default behavior of `debug.openDebug: openOnDebugBreak`
+    // to no longer auto-open the Debug view on the first session start (see
+    // https://github.com/microsoft/vscode/pull/309133). Without the Debug view open,
+    // VS Code won't send `variables` requests to the debug adapter, which causes
+    // the test tracker to time out waiting for the debugger to enter the paused state.
+    const config = vscode.workspace.getConfiguration("debug");
+    await config.update(
+      "openDebug",
+      "openOnSessionStart",
+      vscode.ConfigurationTarget.Global,
+    );
   });
 
   this.beforeEach(async () => {
@@ -66,7 +82,7 @@ suite("Q# Debugger Tests", function suite() {
       name: "Launch foo.qs",
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}src/foo.qs",
+      program: `\${workspaceFolder}${separator}src/foo.qs`,
       stopOnEntry: true,
     });
 
@@ -75,7 +91,7 @@ suite("Q# Debugger Tests", function suite() {
         id: 0,
         source: {
           name: "foo.qs",
-          path: "vscode-test-web://mount/src/foo.qs",
+          path: fooUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -106,7 +122,7 @@ suite("Q# Debugger Tests", function suite() {
         id: 0,
         source: {
           name: "foo.qs",
-          path: "vscode-test-web://mount/src/foo.qs",
+          path: fooUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -126,7 +142,7 @@ suite("Q# Debugger Tests", function suite() {
       name: "Launch foo.qs",
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}src/foo.qs",
+      program: `\${workspaceFolder}${separator}src/foo.qs`,
       stopOnEntry: true,
     });
 
@@ -136,7 +152,7 @@ suite("Q# Debugger Tests", function suite() {
         id: 0,
         source: {
           name: "foo.qs",
-          path: "vscode-test-web://mount/src/foo.qs",
+          path: fooUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -173,7 +189,7 @@ suite("Q# Debugger Tests", function suite() {
       name: "Launch foo.qs",
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}src/foo.qs",
+      program: `\${workspaceFolder}${separator}src/foo.qs`,
       stopOnEntry: false,
     });
 
@@ -183,7 +199,7 @@ suite("Q# Debugger Tests", function suite() {
         id: 0,
         source: {
           name: "foo.qs",
-          path: "vscode-test-web://mount/src/foo.qs",
+          path: fooUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -210,7 +226,7 @@ suite("Q# Debugger Tests", function suite() {
       name: "Launch foo.qs",
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}src/foo.qs",
+      program: `\${workspaceFolder}${separator}src/foo.qs`,
       stopOnEntry: false,
     });
 
@@ -220,7 +236,7 @@ suite("Q# Debugger Tests", function suite() {
         id: 1,
         source: {
           name: "bar.qs",
-          path: "vscode-test-web://mount/src/bar.qs",
+          path: barUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -234,7 +250,7 @@ suite("Q# Debugger Tests", function suite() {
         id: 0,
         source: {
           name: "foo.qs",
-          path: "vscode-test-web://mount/src/foo.qs",
+          path: fooUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -257,7 +273,7 @@ suite("Q# Debugger Tests", function suite() {
       name: "Launch foo.qs",
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}src/foo.qs",
+      program: `\${workspaceFolder}${separator}src/foo.qs`,
       stopOnEntry: true,
     });
 
@@ -267,7 +283,7 @@ suite("Q# Debugger Tests", function suite() {
         id: 0,
         source: {
           name: "foo.qs",
-          path: "vscode-test-web://mount/src/foo.qs",
+          path: fooUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -288,7 +304,7 @@ suite("Q# Debugger Tests", function suite() {
         id: 1,
         source: {
           name: "bar.qs",
-          path: "vscode-test-web://mount/src/bar.qs",
+          path: barUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -302,7 +318,7 @@ suite("Q# Debugger Tests", function suite() {
         id: 0,
         source: {
           name: "foo.qs",
-          path: "vscode-test-web://mount/src/foo.qs",
+          path: fooUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -333,7 +349,7 @@ suite("Q# Debugger Tests", function suite() {
       name: "Launch foo.qs",
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}src/foo.qs",
+      program: `\${workspaceFolder}${separator}src/foo.qs`,
       stopOnEntry: false,
     });
 
@@ -343,7 +359,7 @@ suite("Q# Debugger Tests", function suite() {
         id: 0,
         source: {
           name: "foo.qs",
-          path: "vscode-test-web://mount/src/foo.qs",
+          path: fooUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -378,7 +394,7 @@ suite("Q# Debugger Tests", function suite() {
         id: 0,
         source: {
           name: "foo.qs",
-          path: "vscode-test-web://mount/src/foo.qs",
+          path: fooUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -412,7 +428,7 @@ suite("Q# Debugger Tests", function suite() {
       name: "Launch foo.qs",
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}src/foo.qs",
+      program: `\${workspaceFolder}${separator}src/foo.qs`,
       stopOnEntry: false,
     });
 

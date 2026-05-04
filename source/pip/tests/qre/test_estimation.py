@@ -5,6 +5,8 @@ import os
 
 import pytest
 
+cirq = pytest.importorskip("cirq")
+
 from qsharp.estimator import LogicalCounts
 from qsharp.qre import (
     PSSPC,

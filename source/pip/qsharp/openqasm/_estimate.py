@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 import json
+import warnings
 from time import monotonic
 from typing import Any, Callable, Dict, List, Optional, Union, cast
 from .._fs import read_file, list_directory, resolve
@@ -29,23 +30,30 @@ def estimate(
     Estimates the resource requirements for executing OpenQASM source code.
     Either a full program or a callable with arguments must be provided.
 
-    Args:
-        source (str): An OpenQASM program. Alternatively, a callable can be provided,
-            which must be an already imported global callable.
-        params: The parameters to configure estimation.
-        callable: The callable to estimate resources for, if no entry expression is provided.
-        *args: The arguments to pass to the callable, if one is provided.
-        **kwargs: Additional keyword arguments to pass to the execution.
-          - name (str): The name of the circuit. This is used as the entry point for the program. Defaults to 'program'.
-          - search_path (str): The optional search path for resolving imports.
+    :param source: An OpenQASM program. Alternatively, a callable can be provided,
+        which must be an already imported global callable.
+    :type source: str or Callable
+    :param params: The parameters to configure estimation.
+    :type params: Dict, List, or EstimatorParams
+    :param *args: The arguments to pass to the callable, if one is provided.
+    :param **kwargs: Additional keyword arguments. Common options:
 
-    Returns:
-        EstimatorResult: The estimated resources.
-
-    Raises:
-        QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-        QSharpError: If there is an error compiling the program.
+        - ``name`` (str): The name of the circuit. This is used as the entry point for the program.
+          Defaults to ``'program'``.
+        - ``search_path`` (str): The optional search path for resolving imports.
+    :return: The estimated resources.
+    :rtype: EstimatorResult
+    :raises ValueError: If ``source`` is neither a string nor a callable with a
+        ``__global_callable`` attribute.
+    :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
+    :raises QSharpError: If there is an error compiling the program.
     """
+
+    warnings.warn(
+        "This version of QRE is deprecated and will be removed in a future release. Please use the new version of QRE in qdk.qre. Refer to aka.ms/qdk.QREv3 for more information.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     ipython_helper()
 

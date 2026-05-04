@@ -16,6 +16,8 @@ import {
   type ZoneLayout,
   type TraceData,
   MoleculeViewer,
+  Entanglement,
+  type EntanglementProps,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
@@ -85,6 +87,9 @@ function render({ model, el }: RenderArgs) {
       break;
     case "MoleculeViewer":
       renderMoleculeViewer({ model, el });
+      break;
+    case "Entanglement":
+      renderEntanglement({ model, el });
       break;
     default:
       throw new Error(`Unknown component type ${componentType}`);
@@ -299,6 +304,46 @@ function renderAtoms({ model, el }: RenderArgs) {
   onChange();
   model.on("change:machine_layout", onChange);
   model.on("change:trace_data", onChange);
+}
+
+function renderEntanglement({ model, el }: RenderArgs) {
+  /** Read model state and build the full props object for Entanglement. */
+  function getWidgetProps(
+    extra?: Partial<EntanglementProps>,
+  ): EntanglementProps {
+    const s1Entropies = model.get("s1_entropies") as number[];
+    const mutualInformation = model.get("mutual_information") as number[][];
+    const labels = model.get("labels") as string[];
+    const selectedIndices = model.get("selected_indices") as number[] | null;
+    const groups = model.get("groups") as Record<string, number[]> | null;
+    const opts = (model.get("options") || {}) as Record<string, unknown>;
+    const camelOpts: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(opts)) {
+      camelOpts[k.replace(/_([a-z])/g, (_, c) => c.toUpperCase())] = v;
+    }
+
+    return {
+      s1Entropies,
+      mutualInformation,
+      labels,
+      selectedIndices: selectedIndices ?? undefined,
+      groups: groups ?? undefined,
+      ...camelOpts,
+      ...extra,
+    } as EntanglementProps;
+  }
+
+  const onChange = () => {
+    prender(<Entanglement {...getWidgetProps()} />, el);
+  };
+
+  onChange();
+  model.on("change:s1_entropies", onChange);
+  model.on("change:mutual_information", onChange);
+  model.on("change:labels", onChange);
+  model.on("change:selected_indices", onChange);
+  model.on("change:groups", onChange);
+  model.on("change:options", onChange);
 }
 
 function renderMoleculeViewer({ model, el }: RenderArgs) {

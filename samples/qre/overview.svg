@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 380" font-family="Segoe UI, Arial, sans-serif" font-size="13">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#555"/>
+    </marker>
+    <linearGradient id="appGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e3f2fd"/>
+      <stop offset="100%" stop-color="#bbdefb"/>
+    </linearGradient>
+    <linearGradient id="archGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fce4ec"/>
+      <stop offset="100%" stop-color="#f8bbd0"/>
+    </linearGradient>
+    <linearGradient id="trGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8f5e9"/>
+      <stop offset="100%" stop-color="#c8e6c9"/>
+    </linearGradient>
+    <linearGradient id="isaGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff3e0"/>
+      <stop offset="100%" stop-color="#ffe0b2"/>
+    </linearGradient>
+    <linearGradient id="engGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ede7f6"/>
+      <stop offset="100%" stop-color="#d1c4e9"/>
+    </linearGradient>
+    <linearGradient id="resGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f3e5f5"/>
+      <stop offset="100%" stop-color="#e1bee7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Application box -->
+  <rect x="20" y="40" width="160" height="100" rx="10" fill="url(#appGrad)" stroke="#1565c0" stroke-width="1.5"/>
+  <text x="100" y="82" text-anchor="middle" font-weight="bold" fill="#1565c0" font-size="14">Application</text>
+  <text x="100" y="104" text-anchor="middle" fill="#666" font-size="10" font-style="italic">→ generates traces</text>
+
+  <!-- Architecture box -->
+  <rect x="20" y="260" width="160" height="100" rx="10" fill="url(#archGrad)" stroke="#c62828" stroke-width="1.5"/>
+  <text x="100" y="302" text-anchor="middle" font-weight="bold" fill="#c62828" font-size="14">Architecture</text>
+  <text x="100" y="324" text-anchor="middle" fill="#666" font-size="10" font-style="italic">→ provides physical ISA</text>
+
+  <!-- Arrow: Application → Trace Transforms -->
+  <line x1="180" y1="90" x2="230" y2="90" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Trace Transforms box -->
+  <rect x="235" y="40" width="190" height="100" rx="10" fill="url(#trGrad)" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="330" y="82" text-anchor="middle" font-weight="bold" fill="#2e7d32" font-size="14">Trace Transforms</text>
+  <text x="330" y="104" text-anchor="middle" fill="#666" font-size="10" font-style="italic">→ multiple trace variants</text>
+
+  <!-- Arrow: Architecture → ISA Transforms -->
+  <line x1="180" y1="310" x2="230" y2="310" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- ISA Transforms box -->
+  <rect x="235" y="260" width="190" height="100" rx="10" fill="url(#isaGrad)" stroke="#e65100" stroke-width="1.5"/>
+  <text x="330" y="302" text-anchor="middle" font-weight="bold" fill="#e65100" font-size="14">ISA Transforms</text>
+  <text x="330" y="324" text-anchor="middle" fill="#666" font-size="10" font-style="italic">→ multiple ISA variants</text>
+
+  <!-- Arrow: Trace Transforms → Engine -->
+  <line x1="425" y1="90" x2="495" y2="170" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Arrow: ISA Transforms → Engine -->
+  <line x1="425" y1="310" x2="495" y2="230" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Design Space Exploration engine -->
+  <rect x="500" y="140" width="210" height="120" rx="12" fill="url(#engGrad)" stroke="#4527a0" stroke-width="2"/>
+  <text x="605" y="172" text-anchor="middle" font-weight="bold" fill="#4527a0" font-size="14">Design Space</text>
+  <text x="605" y="190" text-anchor="middle" font-weight="bold" fill="#4527a0" font-size="14">Exploration</text>
+  <text x="605" y="215" text-anchor="middle" fill="#333" font-size="11">Evaluate all trace × ISA</text>
+  <text x="605" y="231" text-anchor="middle" fill="#333" font-size="11">combinations, filter by</text>
+  <text x="605" y="247" text-anchor="middle" fill="#333" font-size="11">error budget</text>
+
+  <!-- Arrow: Engine → Results -->
+  <line x1="710" y1="200" x2="745" y2="200" stroke="#555" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Results / Pareto frontier box -->
+  <rect x="750" y="120" width="150" height="170" rx="10" fill="url(#resGrad)" stroke="#6a1b9a" stroke-width="1.5"/>
+  <text x="825" y="148" text-anchor="middle" font-weight="bold" fill="#6a1b9a" font-size="14">Pareto Frontier</text>
+
+  <!-- Mini scatter plot inside results box -->
+  <!-- Axes -->
+  <line x1="772" y1="253" x2="772" y2="160" stroke="#666" stroke-width="1"/>
+  <line x1="772" y1="253" x2="878" y2="253" stroke="#666" stroke-width="1"/>
+  <text x="825" y="265" text-anchor="middle" fill="#666" font-size="9">Runtime →</text>
+  <text x="762" y="210" text-anchor="middle" fill="#666" font-size="9" transform="rotate(-90,762,210)">Qubits →</text>
+
+  <!-- Dominated points (gray, each above-right of at least one Pareto point) -->
+  <circle cx="815" cy="182" r="4" fill="#bbb" opacity="0.6"/>
+  <circle cx="828" cy="192" r="4" fill="#bbb" opacity="0.6"/>
+  <circle cx="848" cy="210" r="4" fill="#bbb" opacity="0.6"/>
+  <circle cx="858" cy="225" r="4" fill="#bbb" opacity="0.6"/>
+  <circle cx="870" cy="236" r="4" fill="#bbb" opacity="0.6"/>
+
+  <!-- Pareto-optimal points (purple, top-left to bottom-right: many qubits/fast → few qubits/slow) -->
+  <circle cx="790" cy="175" r="5" fill="#6a1b9a"/>
+  <circle cx="810" cy="205" r="5" fill="#6a1b9a"/>
+  <circle cx="840" cy="232" r="5" fill="#6a1b9a"/>
+  <circle cx="865" cy="245" r="5" fill="#6a1b9a"/>
+
+  <!-- Pareto line -->
+  <polyline points="790,175 810,205 840,232 865,245" fill="none" stroke="#6a1b9a" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+  <!-- Legend inside box -->
+  <circle cx="770" cy="275" r="3.5" fill="#6a1b9a"/>
+  <text x="778" y="278" fill="#333" font-size="9">Pareto-optimal</text>
+  <circle cx="845" cy="275" r="3.5" fill="#bbb" opacity="0.6"/>
+  <text x="853" y="278" fill="#333" font-size="9">Dominated</text>
+</svg>

@@ -92,8 +92,8 @@ MEMORY: int
 
 # Some special hardware physical instructions
 CYCLIC_SHIFT: int
-HAND_OFF: int
 PHYSICAL_MOVE: int
+HAND_OFF: int
 
 # Generic operation (for unified RE)
 GENERIC: int

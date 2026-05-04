@@ -7,4 +7,6 @@ from .._native import (
     Instrument,
     DensityMatrixSimulator,
     StateVectorSimulator,
+    DensityMatrix,
+    StateVector,
 )

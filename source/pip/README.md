@@ -17,7 +17,7 @@ pip install qsharp
 First, import the `qsharp` module:
 
 ```python
-import qsharp
+from qdk import qsharp
 ```
 
 Then, use the `%%qsharp` cell magic to run Q# directly in Jupyter notebook cells:
