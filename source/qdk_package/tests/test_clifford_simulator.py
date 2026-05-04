@@ -5,7 +5,8 @@ from pathlib import Path
 import pyqir
 
 import qdk as qsharp
-from qdk._simulation import run_qir_clifford, NoiseConfig
+from qdk.simulation import NoiseConfig
+from qdk.simulation._simulation import run_qir_clifford
 from qdk._device._atom import NeutralAtomDevice
 from qdk._device._atom._decomp import DecomposeRzAnglesToCliffordGates
 from qdk._device._atom._validate import ValidateNoConditionalBranches
@@ -71,8 +72,7 @@ def test_million():
 
 def test_program_with_branching_succeeds():
     qsharp.init(target_profile=TargetProfile.Adaptive_RI)
-    qsharp.eval(
-        """
+    qsharp.eval("""
         operation Main() : Result {
             use q = Qubit();
             H(q);
@@ -81,8 +81,7 @@ def test_program_with_branching_succeeds():
             }
             return MResetZ(q);
         }
-        """
-    )
+        """)
     ir = qsharp.compile("Main()")
     results = run_qir_clifford(str(ir), 1, NoiseConfig())
     assert len(results) == 1

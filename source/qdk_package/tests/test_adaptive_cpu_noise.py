@@ -11,9 +11,11 @@ This is a CPU counterpart to ``test_adaptive_gpu_noise.py``.
 """
 
 from collections import Counter
+from pathlib import Path
 from typing import Optional, List
 import pytest
-from qdk._simulation import run_qir, NoiseConfig, Result
+from qdk.simulation import run_qir, NoiseConfig
+from qdk.simulation._simulation import Result
 import qdk
 import qdk.openqasm
 from typing import Literal
@@ -256,7 +258,7 @@ def test_noise_intrinsics_noisy(sim_type):
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_noise_intrinsics_load_csv_dir(sim_type):
     noise = NoiseConfig()
-    noise.load_csv_dir("./csv_dir_test")
+    noise.load_csv_dir(str(Path(__file__).parent / "csv_dir_test"))
     output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type=sim_type)
     assert output == [[Result.One, Result.Zero, Result.One]]
 

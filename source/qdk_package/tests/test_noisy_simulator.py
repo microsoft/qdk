@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from qdk.noisy_simulator import (
+from qdk.simulation import (
     NoisySimulatorError,
     Operation,
     Instrument,
@@ -9,7 +9,6 @@ from qdk.noisy_simulator import (
     StateVectorSimulator,
 )
 import pytest
-
 
 # Tests for the Q# noisy simulator.
 

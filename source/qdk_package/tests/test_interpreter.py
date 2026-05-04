@@ -10,7 +10,7 @@ from qdk._native import (
     TargetProfile,
     CircuitConfig,
 )
-from qdk._qsharp import qsharp_value_to_python_value
+from qdk._interpreter import qsharp_value_to_python_value
 import pytest
 from expecttest import assert_expected_inline
 
@@ -452,41 +452,33 @@ def test_run_with_shots() -> None:
 
 def test_dump_circuit() -> None:
     e = Interpreter(TargetProfile.Unrestricted, trace_circuit=True)
-    e.interpret(
-        """
+    e.interpret("""
     use q1 = Qubit();
     use q2 = Qubit();
     X(q1);
-    """
-    )
+    """)
     circuit = e.dump_circuit()
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── X ──
         q_1    ───────
-        """
-    )
+        """)
 
     e.interpret("X(q2);")
     circuit = e.dump_circuit()
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── X ──
         q_1    ── X ──
-        """
-    )
+        """)
 
 
 def test_entry_expr_circuit() -> None:
     e = Interpreter(TargetProfile.Unrestricted)
     e.interpret("operation Foo() : Result { use q = Qubit(); H(q); return M(q) }")
     circuit = e.circuit(CircuitConfig(), "Foo()")
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── H ──── M ──
                          ╘═══
-        """
-    )
+        """)
 
 
 def test_swap_label_circuit() -> None:
@@ -495,12 +487,10 @@ def test_swap_label_circuit() -> None:
         "operation Foo() : Unit { use q1 = Qubit(); use q2 = Qubit(); X(q1); Relabel([q1, q2], [q2, q1]); X(q2); }"
     )
     circuit = e.circuit(CircuitConfig(), "Foo()")
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── X ──── X ──
         q_1    ──────────────
-        """
-    )
+        """)
 
 
 def test_callables_failing_profile_validation_are_not_registered() -> None:
@@ -581,7 +571,9 @@ def test_adaptive_ri_qir_can_be_generated() -> None:
     e = Interpreter(TargetProfile.Adaptive_RI)
     e.interpret(adaptive_input)
     qir = e.qir("Test.Main()")
-    assert_expected_inline(qir, """\
+    assert_expected_inline(
+        qir,
+        """\
 %Result = type opaque
 %Qubit = type opaque
 
@@ -618,7 +610,8 @@ attributes #1 = { "irreversible" }
 !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
 !3 = !{i32 1, !"dynamic_result_management", i1 false}
 !4 = !{i32 5, !"int_computations", !{!"i64"}}
-""")
+""",
+    )
 
 
 def test_base_qir_can_be_generated() -> None:
@@ -642,7 +635,9 @@ def test_base_qir_can_be_generated() -> None:
     e = Interpreter(TargetProfile.Base)
     e.interpret(base_input)
     qir = e.qir("Test.Main()")
-    assert_expected_inline(qir, """\
+    assert_expected_inline(
+        qir,
+        """\
 %Result = type opaque
 %Qubit = type opaque
 
@@ -678,19 +673,18 @@ attributes #1 = { "irreversible" }
 !1 = !{i32 7, !"qir_minor_version", i32 0}
 !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
 !3 = !{i32 1, !"dynamic_result_management", i1 false}
-""")
+""",
+    )
 
 
 def test_operation_circuit() -> None:
     e = Interpreter(TargetProfile.Unrestricted)
     e.interpret("operation Foo(q: Qubit) : Result { H(q); return M(q) }")
     circuit = e.circuit(CircuitConfig(), operation="Foo")
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── H ──── M ──
                          ╘═══
-        """
-    )
+        """)
 
 
 def test_unsupported_operation_circuit() -> None:

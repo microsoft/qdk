@@ -5,7 +5,7 @@ from pathlib import Path
 import random
 from typing import Callable, Literal, List, Optional, Tuple, TypeAlias, Union
 import pyqir
-from ._native import (
+from .._native import (
     QirInstructionId,
     QirInstruction,
     run_clifford,
@@ -17,6 +17,7 @@ from ._native import (
     NoiseConfig,
     GpuContext,
     try_create_gpu_adapter,
+    Result,
 )
 from pyqir import (
     Function,
@@ -25,9 +26,9 @@ from pyqir import (
     Type,
     Linkage,
 )
-from ._qsharp import QirInputData, Result
+from .._types import QirInputData
 from typing import TYPE_CHECKING
-from ._adaptive_pass import (
+from .._adaptive_pass import (
     AdaptiveProfilePass,
     AdaptiveProgram,
     Bytecode,
@@ -35,7 +36,7 @@ from ._adaptive_pass import (
 )
 
 if TYPE_CHECKING:  # This is in the pyi file only
-    from ._native import GpuShotResults
+    from .._native import GpuShotResults
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
@@ -515,9 +516,9 @@ def run_base(
     Runs a base profile program given a rust simulator. Adds output recording logic.
     """
     if noise is None:
-        (gates, num_qubits, num_results) = AggregateGatesPass().run(mod)
+        gates, num_qubits, num_results = AggregateGatesPass().run(mod)
     else:
-        (gates, num_qubits, num_results) = CorrelatedNoisePass(noise).run(mod)
+        gates, num_qubits, num_results = CorrelatedNoisePass(noise).run(mod)
     recorder = OutputRecordingPass()
     recorder.run(mod)
     return list(
@@ -551,7 +552,7 @@ def run_qir_clifford(
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
 ) -> List:
-    (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
+    mod, shots, noise, seed = preprocess_simulation_input(input, shots, noise, seed)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise)
         return run_adaptive(run_clifford_adaptive, mod, program, shots, noise, seed)
@@ -565,7 +566,7 @@ def run_qir_cpu(
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
 ) -> List:
-    (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
+    mod, shots, noise, seed = preprocess_simulation_input(input, shots, noise, seed)
     DecomposeCcxPass().run(mod)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise)
@@ -580,7 +581,7 @@ def run_qir_gpu(
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
 ) -> List:
-    (mod, shots, noise, seed) = preprocess_simulation_input(input, shots, noise, seed)
+    mod, shots, noise, seed = preprocess_simulation_input(input, shots, noise, seed)
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
     if is_adaptive(mod):
@@ -597,13 +598,13 @@ def prepare_qir_with_correlated_noise(
     noise_tables: List[Tuple[int, str, int]],
 ) -> Tuple[List[QirInstruction], int, int]:
     # Turn the input into a QIR module
-    (mod, _, _, _) = preprocess_simulation_input(input, None, None, None)
+    mod, _, _, _ = preprocess_simulation_input(input, None, None, None)
 
     # Ccx is not support in the GPU simulator, decompose it
     DecomposeCcxPass().run(mod)
 
     # Extract the gates including correlated noise instructions
-    (gates, required_num_qubits, required_num_results) = GpuCorrelatedNoisePass(
+    gates, required_num_qubits, required_num_results = GpuCorrelatedNoisePass(
         noise_tables
     ).run(mod)
 
@@ -650,7 +651,7 @@ class GpuSimulator:
         without needing to create a new simulator instance or reloading noise tables.
         """
         # Parse the QIR module to detect profile
-        (mod, _, _, _) = preprocess_simulation_input(input, None, None, None)
+        mod, _, _, _ = preprocess_simulation_input(input, None, None, None)
         if is_adaptive(mod):
             self._is_adaptive = True
             # Build noise_intrinsics dict from loaded noise tables (if any)
@@ -666,7 +667,7 @@ class GpuSimulator:
             self._recorder.run(mod)
         else:
             self._is_adaptive = False
-            (self.gates, self.required_num_qubits, self.required_num_results) = (
+            self.gates, self.required_num_qubits, self.required_num_results = (
                 prepare_qir_with_correlated_noise(
                     input, self.tables if not self.tables is None else []
                 )

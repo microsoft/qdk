@@ -5,7 +5,6 @@ from textwrap import dedent
 import pytest
 import qdk as qsharp
 import qdk.code
-import qdk.utils
 from contextlib import redirect_stdout
 import io
 
@@ -26,13 +25,11 @@ def test_stdout_multiple_lines() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
     f = io.StringIO()
     with redirect_stdout(f):
-        qsharp.eval(
-            """
+        qsharp.eval("""
         use q = Qubit();
         Microsoft.Quantum.Diagnostics.DumpMachine();
         Message("Hello!");
-        """
-        )
+        """)
 
     assert f.getvalue() == "STATE:\n|0⟩: 1.0000+0.0000𝑖\nHello!\n"
 
@@ -107,13 +104,11 @@ def test_classical_seed() -> None:
 
 def test_dump_machine() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    qsharp.eval(
-        """
+    qsharp.eval("""
     use q1 = Qubit();
     use q2 = Qubit();
     X(q1);
-    """
-    )
+    """)
     state_dump = qsharp.dump_machine()
     assert state_dump.qubit_count == 2
     assert len(state_dump) == 1
@@ -170,24 +165,24 @@ def test_dump_machine() -> None:
 
 def test_dump_operation() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Unrestricted)
-    res = qsharp.utils.dump_operation("qs => ()", 1)
+    res = qsharp.dump_operation("qs => ()", 1)
     assert res == [
         [complex(1.0, 0.0), complex(0.0, 0.0)],
         [complex(0.0, 0.0), complex(1.0, 0.0)],
     ]
-    res = qsharp.utils.dump_operation("qs => H(qs[0])", 1)
+    res = qsharp.dump_operation("qs => H(qs[0])", 1)
     assert res == [
         [complex(0.707107, 0.0), complex(0.707107, 0.0)],
         [complex(0.707107, 0.0), complex(-0.707107, 0.0)],
     ]
-    res = qsharp.utils.dump_operation("qs => CNOT(qs[0], qs[1])", 2)
+    res = qsharp.dump_operation("qs => CNOT(qs[0], qs[1])", 2)
     assert res == [
         [complex(1.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0)],
         [complex(0.0, 0.0), complex(1.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0)],
         [complex(0.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0), complex(1.0, 0.0)],
         [complex(0.0, 0.0), complex(0.0, 0.0), complex(1.0, 0.0), complex(0.0, 0.0)],
     ]
-    res = qsharp.utils.dump_operation("qs => CCNOT(qs[0], qs[1], qs[2])", 3)
+    res = qsharp.dump_operation("qs => CCNOT(qs[0], qs[1], qs[2])", 3)
     assert res == [
         [
             complex(1.0, 0.0),
@@ -273,14 +268,14 @@ def test_dump_operation() -> None:
     qsharp.eval(
         "operation ApplySWAP(qs : Qubit[]) : Unit is Ctl + Adj { SWAP(qs[0], qs[1]); }"
     )
-    res = qsharp.utils.dump_operation("ApplySWAP", 2)
+    res = qsharp.dump_operation("ApplySWAP", 2)
     assert res == [
         [complex(1.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0)],
         [complex(0.0, 0.0), complex(0.0, 0.0), complex(1.0, 0.0), complex(0.0, 0.0)],
         [complex(0.0, 0.0), complex(1.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0)],
         [complex(0.0, 0.0), complex(0.0, 0.0), complex(0.0, 0.0), complex(1.0, 0.0)],
     ]
-    res = qsharp.utils.dump_operation("qs => ()", 8)
+    res = qsharp.dump_operation("qs => ()", 8)
     for i in range(8):
         for j in range(8):
             if i == j:
@@ -901,12 +896,10 @@ def test_callables_with_unsupported_return_types_raise_errors_on_call() -> None:
 
 def test_callable_with_unsupported_udt_type_raises_error_on_call() -> None:
     qsharp.init()
-    qsharp.eval(
-        """
+    qsharp.eval("""
         newtype Data = (Int, Double);
         function Unsupported(a : Data) : Unit { }
-        """
-    )
+        """)
     with pytest.raises(
         qsharp.QSharpError, match='unsupported input type: `UDT<"Data":'
     ):
@@ -915,12 +908,10 @@ def test_callable_with_unsupported_udt_type_raises_error_on_call() -> None:
 
 def test_callable_with_unsupported_udt_return_type_raises_error_on_call() -> None:
     qsharp.init()
-    qsharp.eval(
-        """
+    qsharp.eval("""
         newtype Data = (Int, Double);
         function Unsupported() : Data { fail "won\'t be called" }
-        """
-    )
+        """)
     with pytest.raises(
         qsharp.QSharpError, match='unsupported output type: `UDT<"Data":'
     ):
@@ -932,14 +923,12 @@ def test_returning_unsupported_udt_from_eval_raises_error_on_call() -> None:
     with pytest.raises(
         TypeError, match="structs with anonymous fields are not supported: Data"
     ):
-        qsharp.eval(
-            """
+        qsharp.eval("""
             {
                 newtype Data = (Int, Double);
                 Data(2, 3.0)
             }
-            """
-        )
+            """)
 
 
 def test_struct_call_constructor_exposed_into_env() -> None:
@@ -951,14 +940,12 @@ def test_struct_call_constructor_exposed_into_env() -> None:
 
 def test_udts_are_accepted_as_input() -> None:
     qsharp.init()
-    qsharp.eval(
-        """
+    qsharp.eval("""
         struct Data { a : Int, b : Int }
         function SwapData(data : Data) : Data {
             new Data { a = data.b, b = data.a }
         }
-        """
-    )
+        """)
     # Dict
     val = qsharp.code.SwapData({"a": 2, "b": 3})
     assert val.a == 3 and val.b == 2
@@ -1056,72 +1043,59 @@ def test_qsharp_callables_are_not_shadowed() -> None:
 
 def test_circuit_from_python_callable() -> None:
     qsharp.init()
-    qsharp.eval(
-        """
+    qsharp.eval("""
     operation Foo() : Unit {
         use q1 = Qubit();
         use q2 = Qubit();
         X(q1);
     }
-    """
-    )
+    """)
     circuit = qsharp.circuit(qsharp.code.Foo)
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── X ──
         q_1    ───────
-        """
-    )
+        """)
 
 
 def test_circuit_from_qsharp_callable() -> None:
     qsharp.init()
-    qsharp.eval(
-        """
+    qsharp.eval("""
     operation Foo() : Unit {
         use q1 = Qubit();
         use q2 = Qubit();
         X(q1);
     }
-    """
-    )
+    """)
     foo = qsharp.eval("Foo")
     circuit = qsharp.circuit(foo)
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── X ──
         q_1    ───────
-        """
-    )
+        """)
 
 
 def test_circuit_with_generation_method() -> None:
     qsharp.init()
-    qsharp.eval(
-        """
+    qsharp.eval("""
     operation Foo() : Unit {
         use q1 = Qubit();
         use q2 = Qubit();
         X(q1);
         Reset(q1);
     }
-    """
-    )
+    """)
     circuit = qsharp.circuit(
         qsharp.code.Foo, generation_method=qsharp.CircuitGenerationMethod.Simulate
     )
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── X ──── |0〉 ──
         q_1    ────────────────
-        """
-    )
+        """)
 
 
 def test_circuit_with_static_generation_method() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
-    qsharp.eval(
-        """
+    qsharp.eval("""
     operation Foo() : Result {
         use q = Qubit();
         H(q);
@@ -1130,23 +1104,19 @@ def test_circuit_with_static_generation_method() -> None:
         Reset(q);
         r
     }
-    """
-    )
+    """)
     circuit = qsharp.circuit(
         "Foo()", generation_method=qsharp.CircuitGenerationMethod.Static
     )
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── H ──── M ──── if: c_0 = |1〉 ──── |0〉 ──
                          ╘═══════════ ● ═════════════════
-        """
-    )
+        """)
 
 
 def test_circuit_from_qsharp_callable_static() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
-    qsharp.eval(
-        """
+    qsharp.eval("""
     operation Foo() : Unit {
         use q = Qubit();
         H(q);
@@ -1154,68 +1124,55 @@ def test_circuit_from_qsharp_callable_static() -> None:
         if r == One { X(q); }
         Reset(q);
     }
-    """
-    )
+    """)
     circuit = qsharp.circuit(
         qsharp.code.Foo, generation_method=qsharp.CircuitGenerationMethod.Static
     )
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── H ──── M ──── if: c_0 = |1〉 ──── |0〉 ──
                          ╘═══════════ ● ═════════════════
-        """
-    )
+        """)
 
 
 def test_circuit_from_python_callable_with_args() -> None:
     qsharp.init()
-    qsharp.eval(
-        """
+    qsharp.eval("""
     operation Foo(nQubits : Int) : Unit {
         use qs = Qubit[nQubits];
         ApplyToEach(X, qs);
     }
-    """
-    )
+    """)
     circuit = qsharp.circuit(qsharp.code.Foo, 2)
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── X ──
         q_1    ── X ──
-        """
-    )
+        """)
 
 
 def test_circuit_from_qsharp_callable_with_args() -> None:
     qsharp.init()
-    qsharp.eval(
-        """
+    qsharp.eval("""
     operation Foo(nQubits : Int) : Unit {
         use qs = Qubit[nQubits];
         ApplyToEach(X, qs);
     }
-    """
-    )
+    """)
     foo = qsharp.eval("Foo")
     circuit = qsharp.circuit(foo, 2)
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── X ──
         q_1    ── X ──
-        """
-    )
+        """)
 
 
 def test_circuit_with_measure_from_callable() -> None:
     qsharp.init()
     qsharp.eval("operation Foo() : Result { use q = Qubit(); H(q); return M(q) }")
     circuit = qsharp.circuit(qsharp.code.Foo)
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── H ──── M ──
                          ╘═══
-        """
-    )
+        """)
 
 
 def test_swap_label_circuit_from_callable() -> None:
@@ -1224,9 +1181,7 @@ def test_swap_label_circuit_from_callable() -> None:
         "operation Foo() : Unit { use q1 = Qubit(); use q2 = Qubit(); X(q1); Relabel([q1, q2], [q2, q1]); X(q2); }"
     )
     circuit = qsharp.circuit(qsharp.code.Foo)
-    assert str(circuit) == dedent(
-        """\
+    assert str(circuit) == dedent("""\
         q_0    ── X ──── X ──
         q_1    ──────────────
-        """
-    )
+        """)

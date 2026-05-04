@@ -12,7 +12,7 @@ import cirq
 from ._result import NeutralAtomCirqResult, measurement_dict, to_cirq_result
 
 if TYPE_CHECKING:
-    from .._simulation import NoiseConfig
+    from ..simulation import NoiseConfig
     from .._device._atom import NeutralAtomDevice
 
 
@@ -33,7 +33,7 @@ class NeutralAtomSampler(cirq.Sampler):
 
         import cirq
         from qdk.cirq import NeutralAtomSampler
-        from qdk._simulation import NoiseConfig
+        from qdk.simulation import NoiseConfig
 
         q0, q1 = cirq.LineQubit.range(2)
         circuit = cirq.Circuit([
@@ -54,7 +54,7 @@ class NeutralAtomSampler(cirq.Sampler):
         result = sampler.run(circuit, repetitions=1000)
         print(f"Accepted: {len(result.measurements['m'])} / {len(result.raw_shots)}")
 
-    :keyword noise: Optional :class:`~qsharp._simulation.NoiseConfig` describing
+    :keyword noise: Optional :class:`~qdk.simulation.NoiseConfig` describing
         per-gate noise. The device decomposes gates to the native set
         ``{Rz, SX, CZ, MResetZ}``; configure noise on those native gates.
         For example, a Cirq ``X`` gate arriving via QASM 2.0 is decomposed
@@ -69,7 +69,7 @@ class NeutralAtomSampler(cirq.Sampler):
     :kwtype simulator_type: str
     :keyword seed: Optional integer seed for reproducibility. Defaults to ``None``.
     :kwtype seed: int
-    :keyword device: An existing :class:`~qsharp._device._atom.NeutralAtomDevice`
+    :keyword device: An existing :class:`~qdk._device._atom.NeutralAtomDevice`
         instance to reuse across calls. A default-configured device is
         created lazily on the first call when not provided.
     :kwtype device: NeutralAtomDevice
@@ -130,7 +130,7 @@ class NeutralAtomSampler(cirq.Sampler):
         from .._native import compile_qasm_program_to_qir
         from .._fs import read_file, list_directory, resolve
         from .._http import fetch_github
-        from .._qsharp import TargetProfile
+        from .._native import TargetProfile
 
         # Resolve parameters
         resolved_circuit = cirq.resolve_parameters(circuit, param_resolver)

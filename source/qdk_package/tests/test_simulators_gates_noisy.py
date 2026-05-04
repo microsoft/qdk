@@ -5,9 +5,10 @@ from collections import Counter
 import os
 import pytest
 import qdk as qsharp
-from qdk._qsharp import compile
+from qdk._interpreter import compile
 from qdk import Result, TargetProfile
-from qdk._simulation import run_qir as _run_qir, NoiseConfig, try_create_gpu_adapter
+from qdk.simulation import run_qir as _run_qir, NoiseConfig
+from qdk.simulation._simulation import try_create_gpu_adapter
 from typing import Literal, List, Optional, TypeAlias
 
 

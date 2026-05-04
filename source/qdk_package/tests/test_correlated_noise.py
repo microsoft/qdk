@@ -3,7 +3,8 @@
 
 import pytest
 import sys
-from qdk._simulation import NoiseConfig, run_qir
+from pathlib import Path
+from qdk.simulation import NoiseConfig, run_qir
 from qdk import Result
 import qdk.openqasm
 
@@ -76,7 +77,7 @@ def test_noisy_simulation_gpu():
 
 def test_load_csv_dir():
     noise = NoiseConfig()
-    noise.load_csv_dir("./csv_dir_test")
+    noise.load_csv_dir(str(Path(__file__).parent / "csv_dir_test"))
     for type in CPU_SIMULATORS:
         output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type=type)
         assert output == [[Result.One, Result.Zero, Result.One]]
@@ -85,7 +86,7 @@ def test_load_csv_dir():
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_load_csv_dir_gpu():
     noise = NoiseConfig()
-    noise.load_csv_dir("./csv_dir_test")
+    noise.load_csv_dir(str(Path(__file__).parent / "csv_dir_test"))
     output = run_qir(QIR_WITH_CORRELATED_NOISE, shots=1, noise=noise, type="gpu")
     assert output == [[Result.One, Result.Zero, Result.One]]
 

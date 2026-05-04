@@ -17,17 +17,16 @@
 # This is test infrastructure only – it does not affect the public package.
 # ---------------------------------------------------------------------------
 import qdk
-from qdk._qsharp import (  # noqa: E402
+from qdk._interpreter import (  # noqa: E402
     eval,
     run,
     compile,
     circuit,
     estimate,
     logical_counts,
-    QSharpError,
-    CircuitGenerationMethod,
+    dump_operation,
 )
-from qdk._native import estimate_custom  # type: ignore  # noqa: E402
+from qdk._native import QSharpError, CircuitGenerationMethod, estimate_custom  # type: ignore  # noqa: E402
 
 qdk.eval = eval
 qdk.run = run
@@ -38,3 +37,4 @@ qdk.logical_counts = logical_counts
 qdk.QSharpError = QSharpError
 qdk.CircuitGenerationMethod = CircuitGenerationMethod
 qdk.estimate_custom = estimate_custom
+qdk.dump_operation = dump_operation

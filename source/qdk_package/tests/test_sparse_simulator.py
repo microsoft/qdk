@@ -15,7 +15,7 @@ import qdk as qsharp
 from qdk import TargetProfile
 from qdk import openqasm, run
 
-from qdk._simulation import NoiseConfig
+from qdk.simulation import NoiseConfig
 
 current_file_path = Path(__file__)
 # Get the directory of the current file

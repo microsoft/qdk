@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Optional, Sequence
 import cirq
 import numpy as np
 
-
 # ---------------------------------------------------------------------------
 # Result type
 # ---------------------------------------------------------------------------
@@ -156,7 +155,7 @@ def _qir_display_to_bitstring(obj: Any) -> str:
     """
     # Handle qsharp.Result enum values produced by the local simulator.
     try:
-        from qdk._qsharp import Result as _Result
+        from qdk._native import Result as _Result
 
         if obj == _Result.One:
             return "1"

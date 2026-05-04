@@ -7,7 +7,7 @@ cirq = pytest.importorskip("cirq")
 
 import numpy as np
 from qdk.cirq import NeutralAtomCirqResult, NeutralAtomSampler
-from qdk._simulation import NoiseConfig
+from qdk.simulation import NoiseConfig
 from qdk._device._atom import NeutralAtomDevice
 
 

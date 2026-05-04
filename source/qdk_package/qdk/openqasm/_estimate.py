@@ -12,7 +12,7 @@ from .._native import (  # type: ignore
 )
 from ..estimator import EstimatorParams, EstimatorResult
 
-from .._qsharp import (
+from .._interpreter import (
     get_interpreter,
     ipython_helper,
     python_args_to_interpreter_args,

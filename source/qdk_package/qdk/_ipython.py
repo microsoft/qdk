@@ -12,7 +12,7 @@ from time import monotonic
 from IPython.display import display, clear_output
 from IPython.core.magic import register_cell_magic
 from ._native import QSharpError
-from ._qsharp import get_interpreter, qsharp_value_to_python_value
+from ._interpreter import get_interpreter, qsharp_value_to_python_value
 from . import telemetry_events
 
 

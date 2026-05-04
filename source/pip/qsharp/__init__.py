@@ -22,7 +22,15 @@ _warnings.warn(
 )
 
 # Re-export the full public API from qdk so that existing code keeps working.
-from qdk._qsharp import (
+from qdk._types import (
+    StateDump,
+    ShotResult,
+    PauliNoise,
+    DepolarizingNoise,
+    BitFlipNoise,
+    PhaseFlipNoise,
+)
+from qdk._interpreter import (
     init,
     eval,
     run,
@@ -34,16 +42,16 @@ from qdk._qsharp import (
     set_classical_seed,
     dump_machine,
     dump_circuit,
-    StateDump,
-    ShotResult,
-    PauliNoise,
-    DepolarizingNoise,
-    BitFlipNoise,
-    PhaseFlipNoise,
-    CircuitGenerationMethod,
 )
 
-from qdk._native import Result, Pauli, QSharpError, TargetProfile, estimate_custom
+from qdk._native import (
+    Result,
+    Pauli,
+    QSharpError,
+    TargetProfile,
+    estimate_custom,
+    CircuitGenerationMethod,
+)
 
 from qdk import telemetry_events
 

@@ -7,7 +7,7 @@ from pathlib import Path
 import time
 from typing import Callable, Optional
 
-from ..._qsharp import logical_counts
+from ..._interpreter import logical_counts
 from ...estimator import LogicalCounts
 from .._qre import Trace
 from ..instruction_ids import CCX, MEAS_Z, RZ, T, READ_FROM_MEMORY, WRITE_TO_MEMORY

@@ -15,7 +15,8 @@ import qdk as qsharp
 from qdk import TargetProfile
 from qdk import openqasm
 
-from qdk._simulation import run_qir_cpu, NoiseConfig
+from qdk.simulation import NoiseConfig
+from qdk.simulation._simulation import run_qir_cpu
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
@@ -44,16 +45,14 @@ def result_array_to_string(results: Sequence[Result]) -> str:
 
 def test_cpu_seeding_no_noise():
     qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(
-        """
+    qsharp.eval("""
         operation BellTest() : Result[] {
             use qs = Qubit[2];
             H(qs[0]);
             CNOT(qs[0], qs[1]);
             MResetEachZ(qs)
         }
-        """
-    )
+        """)
 
     qir = str(qsharp.compile("BellTest()"))
 

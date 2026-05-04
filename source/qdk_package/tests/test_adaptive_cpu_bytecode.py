@@ -15,7 +15,8 @@ This is a CPU counterpart to ``test_adaptive_gpu_bytecode.py``.
 
 from collections import Counter
 import pytest
-from qdk._simulation import run_qir, NoiseConfig, Result
+from qdk.simulation import run_qir, NoiseConfig
+from qdk.simulation._simulation import Result
 import qdk
 import qdk.openqasm
 from typing import Literal

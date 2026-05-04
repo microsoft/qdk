@@ -5,7 +5,6 @@ from textwrap import dedent
 import pytest
 import qdk as qsharp
 import qdk.code
-import qdk.utils
 from contextlib import redirect_stdout
 import io
 

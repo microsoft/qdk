@@ -7,7 +7,7 @@ from typing import Any
 from ._ipython import display_or_print
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
-from .._qsharp import (
+from .._interpreter import (
     get_interpreter,
     ipython_helper,
 )

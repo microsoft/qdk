@@ -14,7 +14,8 @@ see ``test_adaptive_cpu_bytecode.py``.
 
 from collections import Counter
 import pytest
-from qdk._simulation import run_qir, Result
+from qdk.simulation import run_qir
+from qdk.simulation._simulation import Result
 from typing import Literal
 
 SIM_TYPES = ["cpu", "clifford"]

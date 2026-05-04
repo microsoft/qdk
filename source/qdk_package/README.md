@@ -73,6 +73,7 @@ Submodules:
 - `qdk.qsharp` – exports the same APIs as the `qsharp` Python package
 - `qdk.openqasm` – exports the same APIs as the `openqasm` submodule of the `qsharp` Python package.
 - `qdk.estimator` – exports the same APIs as the `estimator` submodule of the `qsharp` Python package.
+- `qdk.simulation` – noise-aware simulation utilities: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types.
 - `qdk.widgets` – exports the Jupyter widgets available from the `qsharp-widgets` Python package (requires the `qdk[jupyter]` extra to be installed).
 - `qdk.azure` – exports the Python APIs available from the `azure-quantum` Python package (requires the `qdk[azure]` extra to be installed).
 - `qdk.qiskit` – exports the same APIs as the `interop.qiskit` submodule of the `qsharp` Python package (requires the `qdk[qiskit]` extra to be installed).
@@ -122,8 +123,8 @@ qdk_package/
 │   │
 │   │── # ——— Moved from pip/qsharp/ (implementation modules) ———
 │   ├── _native.pyd/.so                 # Built by maturin (module-name = "qdk._native")
-│   ├── _qsharp.py                      # Core interpreter
-│   ├── _simulation.py                  # QIR simulation
+│   ├── _types.py                       # Pure Python types (PauliNoise, StateDump, etc.)
+│   ├── _interpreter.py                 # Interpreter lifecycle & operations
 │   ├── _ipython.py                     # %%qsharp cell magic
 │   ├── _http.py                        # fetch_github()
 │   ├── _fs.py                          # File system callbacks
@@ -141,11 +142,6 @@ qdk_package/
 │   ├── openqasm/                       # Direct module — no re-export shim needed
 │   │   └── __init__.py
 │   │
-│   ├── utils/
-│   │   └── __init__.py                 # dump_operation
-│   │
-│   ├── noisy_simulator/
-│   │   └── __init__.py
 │   │
 │   ├── qiskit/                         # Lifted out of interop/
 │   │   ├── __init__.py                 # QSharpBackend, NeutralAtomBackend, etc.
@@ -182,9 +178,14 @@ qdk_package/
 │   │       ├── models/__init__.py
 │   │       └── geometry/__init__.py
 │   │
-│   │── # ——— Remaining re-export modules (to revisit later) ———
-│   ├── qsharp.py                       # Re-exports full qsharp-like API from qdk._qsharp
-│   ├── simulation.py                   # Re-exports NeutralAtomDevice, NoiseConfig
+│   │── # ——— Re-export / facade modules ———
+│   ├── qsharp.py                       # Re-exports full qsharp-like API from _types + _interpreter
+│   │
+│   ├── simulation/                     # Simulation facade package
+│   │   ├── __init__.py                 # Public API: NeutralAtomDevice, NoiseConfig, run_qir, etc.
+│   │   ├── _simulation.py             # QIR simulation implementation (internal)
+│   │   ├── _noisy_simulator.py         # Private wrapper for noisy simulator types
+│   │   └── _noisy_simulator.pyi        # Type stubs
 │   │
 │   │── # ——— Unchanged ———
 │   ├── widgets.py                      # from qsharp_widgets import * (external)

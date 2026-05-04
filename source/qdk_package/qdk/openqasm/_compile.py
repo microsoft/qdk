@@ -9,13 +9,13 @@ from .._http import fetch_github
 from .._native import (  # type: ignore
     compile_qasm_program_to_qir,
 )
-from .._qsharp import (
-    QirInputData,
+from .._types import QirInputData
+from .._interpreter import (
     get_interpreter,
     ipython_helper,
-    TargetProfile,
     python_args_to_interpreter_args,
 )
+from .._native import TargetProfile
 from .. import telemetry_events
 
 

@@ -36,7 +36,8 @@ try:
 except OSError as e:
     SKIP_REASON = str(e)
 
-from qdk._simulation import run_qir, GpuSimulator, NoiseConfig, Result
+from qdk.simulation import run_qir, NoiseConfig
+from qdk.simulation._simulation import GpuSimulator, Result
 
 # ---------------------------------------------------------------------------
 # Helpers

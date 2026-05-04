@@ -6,13 +6,12 @@ from typing import Any, Callable, Dict, Optional, Union
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
 from .._native import circuit_qasm_program  # type: ignore
-from .._qsharp import (
+from .._interpreter import (
     get_interpreter,
     ipython_helper,
-    Circuit,
-    CircuitConfig,
     python_args_to_interpreter_args,
 )
+from .._native import Circuit, CircuitConfig
 from .. import telemetry_events
 
 

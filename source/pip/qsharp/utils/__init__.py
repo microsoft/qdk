@@ -1,5 +1,9 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-# Deprecated: use qdk.utils instead.
-from qdk.utils import *  # noqa: F401,F403
+# Deprecated: use qdk.qsharp.dump_operation instead.
+from qdk.qsharp import dump_operation  # noqa: F401
+
+__all__ = [
+    "dump_operation",
+]

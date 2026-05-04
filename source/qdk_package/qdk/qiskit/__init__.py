@@ -32,7 +32,7 @@ Usage:
 
     from qiskit import QuantumCircuit
     from qsharp.interop.qiskit import NeutralAtomBackend
-    from qsharp._simulation import NoiseConfig
+    from qdk.simulation import NoiseConfig
 
     circuit = QuantumCircuit(2, 2)
     circuit.h(0)
@@ -86,7 +86,7 @@ def estimate(
     :return: The estimated resources.
     :rtype: EstimatorResult
     """
-    from .._qsharp import ipython_helper
+    from .._interpreter import ipython_helper
 
     ipython_helper()
     backend = ResourceEstimatorBackend()

@@ -12,7 +12,7 @@ if QISKIT_AVAILABLE:
     from qiskit.circuit import QuantumCircuit
     from qiskit.providers import JobStatus
     from qdk.qiskit import NeutralAtomBackend
-    from qdk._simulation import NoiseConfig
+    from qdk.simulation import NoiseConfig
     from qdk._device._atom import NeutralAtomDevice
     from .test_circuits import generate_repro_information
 

@@ -34,7 +34,7 @@ try:
 except OSError as e:
     SKIP_REASON = str(e)
 
-from qdk._simulation import GpuSimulator, Result
+from qdk.simulation._simulation import GpuSimulator, Result
 
 
 def map_result_list_to_str(results):

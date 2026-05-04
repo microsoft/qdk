@@ -6,7 +6,7 @@ from __future__ import annotations
 import pyqir
 
 from ..._native import QirInstructionId
-from ..._simulation import AggregateGatesPass
+from ...simulation._simulation import AggregateGatesPass
 from .. import instruction_ids as ids
 from .._qre import Trace
 

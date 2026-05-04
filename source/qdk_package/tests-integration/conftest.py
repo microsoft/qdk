@@ -17,17 +17,15 @@ be shared across multiple test files.
 # used throughout tests via the ``import qdk as qsharp`` alias.
 # ---------------------------------------------------------------------------
 import qdk
-from qdk._qsharp import (  # noqa: E402
+from qdk._interpreter import (  # noqa: E402
     eval,
     run,
     compile,
     circuit,
     estimate,
     logical_counts,
-    QSharpError,
-    CircuitGenerationMethod,
 )
-from qdk._native import estimate_custom  # type: ignore  # noqa: E402
+from qdk._native import QSharpError, CircuitGenerationMethod, estimate_custom  # type: ignore  # noqa: E402
 
 qdk.eval = eval
 qdk.run = run

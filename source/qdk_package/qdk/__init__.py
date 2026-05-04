@@ -15,26 +15,26 @@ Optional extras install additional dependencies and submodules:
 
 """
 
-
 from .telemetry_events import on_qdk_import
 
 on_qdk_import()
 
 # Some common utilities are lifted to the qdk root.
 from . import code
-from ._qsharp import (
-    set_quantum_seed,
-    set_classical_seed,
-    dump_machine,
-    init,
-    Result,
-    TargetProfile,
+from ._native import Result, TargetProfile
+from ._types import (
     StateDump,
     ShotResult,
     PauliNoise,
     DepolarizingNoise,
     BitFlipNoise,
     PhaseFlipNoise,
+)
+from ._interpreter import (
+    set_quantum_seed,
+    set_classical_seed,
+    dump_machine,
+    init,
 )
 
 # utilities lifted from qsharp

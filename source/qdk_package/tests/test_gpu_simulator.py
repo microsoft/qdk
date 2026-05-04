@@ -38,7 +38,8 @@ import qdk as qsharp
 from qdk import TargetProfile
 from qdk import openqasm
 
-from qdk._simulation import run_qir_gpu, NoiseConfig
+from qdk.simulation import NoiseConfig
+from qdk.simulation._simulation import run_qir_gpu
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
@@ -68,16 +69,14 @@ def result_array_to_string(results: Sequence[Result]) -> str:
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_gpu_seeding_no_noise():
     qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(
-        """
+    qsharp.eval("""
         operation BellTest() : Result[] {
             use qs = Qubit[2];
             H(qs[0]);
             CNOT(qs[0], qs[1]);
             MResetEachZ(qs)
         }
-        """
-    )
+        """)
 
     qir = str(qsharp.compile("BellTest()"))
 
@@ -520,8 +519,7 @@ def test_gpu_mz_idempotent_noiseless():
     """MZ (measure without reset) should be idempotent: two consecutive
     measurements on the same qubit must always agree."""
     qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(
-        """
+    qsharp.eval("""
         operation MzIdempotent() : Result[] {
             use q = Qubit();
             H(q);
@@ -529,8 +527,7 @@ def test_gpu_mz_idempotent_noiseless():
             let r1 = M(q);
             [r0, r1]
         }
-        """
-    )
+        """)
 
     qir = str(qsharp.compile("MzIdempotent()"))
     shots = 1000
@@ -563,8 +560,7 @@ def test_gpu_reset_preserves_distribution():
     After CNOT the state is cos(π/12)|00⟩ + sin(π/12)|11⟩.
     Reset on q0 collapses it, leaving q1 with the same skewed distribution."""
     qsharp.init(target_profile=TargetProfile.Base)
-    qsharp.eval(
-        """
+    qsharp.eval("""
         operation ResetPreservesDistribution() : Result[] {
             use qs = Qubit[2];
             Rx(Std.Math.PI() / 6.0, qs[0]);
@@ -572,8 +568,7 @@ def test_gpu_reset_preserves_distribution():
             Reset(qs[0]);
             MResetEachZ(qs)
         }
-        """
-    )
+        """)
 
     qir = str(qsharp.compile("ResetPreservesDistribution()"))
     shots = 1000

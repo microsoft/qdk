@@ -1,5 +1,13 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-# Deprecated: use qdk.noisy_simulator instead.
-from qdk.noisy_simulator import *  # noqa: F401,F403
+# Deprecated: use qdk.simulation instead.
+from qdk.simulation import (  # noqa: F401
+    NoisySimulatorError,
+    Operation,
+    Instrument,
+    DensityMatrixSimulator,
+    StateVectorSimulator,
+    DensityMatrix,
+    StateVector,
+)

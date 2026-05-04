@@ -1,6 +1,20 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+"""Q# interpreter lifecycle and core operations.
+
+This module manages the singleton Q# interpreter instance and exposes the
+public functions that drive it: :func:`init`, :func:`eval`, :func:`run`,
+:func:`compile`, :func:`circuit`, :func:`estimate`, :func:`logical_counts`,
+:func:`set_quantum_seed`, :func:`set_classical_seed`, :func:`dump_machine`,
+and :func:`dump_circuit`.
+
+Internal helpers such as :func:`get_interpreter`, :func:`ipython_helper`,
+:func:`python_args_to_interpreter_args`, and
+:func:`qsharp_value_to_python_value` are also defined here for use by other
+submodules.
+"""
+
 import warnings
 from . import telemetry_events, code
 from ._native import (  # type: ignore
@@ -26,12 +40,11 @@ from typing import (
     Any,
     Callable,
     Dict,
-    Optional,
-    Tuple,
-    TypedDict,
-    Union,
     List,
+    Optional,
     Set,
+    Tuple,
+    Union,
     Iterable,
     cast,
 )
@@ -40,13 +53,25 @@ from .estimator._estimator import (
     EstimatorParams,
     LogicalCounts,
 )
+from ._types import (
+    PauliNoise,
+    DepolarizingNoise,
+    BitFlipNoise,
+    PhaseFlipNoise,
+    StateDump,
+    ShotResult,
+    Config,
+    QirInputData,
+)
 import json
-import os
 import sys
 import types
-from pathlib import Path
 from time import monotonic
 from dataclasses import make_dataclass
+
+# ---------------------------------------------------------------------------
+# Value conversion helpers
+# ---------------------------------------------------------------------------
 
 
 def lower_python_obj(obj: object, visited: Optional[Set[object]] = None) -> Any:
@@ -115,537 +140,6 @@ def python_args_to_interpreter_args(args):
         return lower_python_obj(args[0])
     else:
         return lower_python_obj(args)
-
-
-_interpreter: Union["Interpreter", None] = None
-_config: Union["Config", None] = None
-
-# Check if we are running in a Jupyter notebook to use the IPython display function
-_in_jupyter = False
-try:
-    from IPython.display import display
-
-    if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # type: ignore
-        _in_jupyter = True  # Jupyter notebook or qtconsole
-except:
-    pass
-
-
-# Reporting execution time during IPython cells requires that IPython
-# gets pinged to ensure it understands the cell is active. This is done by
-# simply importing the display function, which it turns out is enough to begin timing
-# while avoiding any UI changes that would be visible to the user.
-def ipython_helper():
-    try:
-        if __IPYTHON__:  # type: ignore
-            from IPython.display import display
-    except NameError:
-        pass
-
-
-class Config:
-    """
-    Configuration hints for the language service.
-    """
-
-    _config: Dict[str, Any]
-
-    def __init__(
-        self,
-        target_profile: TargetProfile,
-        language_features: Optional[List[str]],
-        manifest: Optional[str],
-        project_root: Optional[str],
-    ):
-        if target_profile == TargetProfile.Adaptive_RI:
-            self._config = {"targetProfile": "adaptive_ri"}
-        elif target_profile == TargetProfile.Adaptive_RIF:
-            self._config = {"targetProfile": "adaptive_rif"}
-        elif target_profile == TargetProfile.Adaptive_RIFLA:
-            self._config = {"targetProfile": "adaptive_rifla"}
-        elif target_profile == TargetProfile.Base:
-            self._config = {"targetProfile": "base"}
-        elif target_profile == TargetProfile.Unrestricted:
-            self._config = {"targetProfile": "unrestricted"}
-
-        if language_features is not None:
-            self._config["languageFeatures"] = language_features
-        if manifest is not None:
-            self._config["manifest"] = manifest
-        if project_root:
-            # For now, we only support local project roots, so use a file schema in the URI.
-            # In the future, we may support other schemes, such as github, if/when
-            # we have VS Code Web + Jupyter support.
-            self._config["projectRoot"] = Path(os.getcwd(), project_root).as_uri()
-
-    def __repr__(self) -> str:
-        return "Q# initialized with configuration: " + str(self._config)
-
-    # See https://ipython.readthedocs.io/en/stable/config/integrating.html#rich-display
-    # See https://ipython.org/ipython-doc/3/notebook/nbformat.html#display-data
-    # This returns a custom MIME-type representation of the Q# configuration.
-    # This data will be available in the cell output, but will not be displayed
-    # to the user, as frontends would not know how to render the custom MIME type.
-    # Editor services that interact with the notebook frontend
-    # (i.e. the language service) can read and interpret the data.
-    def _repr_mimebundle_(
-        self, include: Union[Any, None] = None, exclude: Union[Any, None] = None
-    ) -> Dict[str, Dict[str, Any]]:
-        return {"application/x.qsharp-config": self._config}
-
-    def get_target_profile(self) -> str:
-        """
-        Returns the target profile as a string, or "unspecified" if not set.
-        """
-        return self._config.get("targetProfile", "unspecified")
-
-
-class PauliNoise(Tuple[float, float, float]):
-    """
-    The Pauli noise to use in simulation represented
-    as probabilities of Pauli-X, Pauli-Y, and Pauli-Z errors
-    """
-
-    def __new__(cls, x: float, y: float, z: float):
-        """
-        Creates a new :class:`PauliNoise` instance with the given error probabilities.
-
-        :param x: Probability of a Pauli-X (bit flip) error. Must be non-negative.
-        :type x: float
-        :param y: Probability of a Pauli-Y error. Must be non-negative.
-        :type y: float
-        :param z: Probability of a Pauli-Z (phase flip) error. Must be non-negative.
-        :type z: float
-        :return: A new :class:`PauliNoise` tuple ``(x, y, z)``.
-        :rtype: PauliNoise
-        :raises ValueError: If any probability is negative or if ``x + y + z > 1``.
-        """
-        if x < 0 or y < 0 or z < 0:
-            raise ValueError("Pauli noise probabilities must be non-negative.")
-        if x + y + z > 1:
-            raise ValueError("The sum of Pauli noise probabilities must be at most 1.")
-        return super().__new__(cls, (x, y, z))
-
-
-class DepolarizingNoise(PauliNoise):
-    """
-    The depolarizing noise to use in simulation.
-    """
-
-    def __new__(cls, p: float):
-        """
-        Creates a new :class:`DepolarizingNoise` instance.
-
-        The depolarizing channel applies Pauli-X, Pauli-Y, or Pauli-Z errors each with
-        probability ``p / 3``.
-
-        :param p: Total depolarizing error probability. Must satisfy ``0 ≤ p ≤ 1``.
-        :type p: float
-        :return: A new :class:`DepolarizingNoise` with equal X, Y, and Z error probabilities.
-        :rtype: DepolarizingNoise
-        :raises ValueError: If ``p`` is negative or ``p > 1``.
-        """
-        return super().__new__(cls, p / 3, p / 3, p / 3)
-
-
-class BitFlipNoise(PauliNoise):
-    """
-    The bit flip noise to use in simulation.
-    """
-
-    def __new__(cls, p: float):
-        """
-        Creates a new :class:`BitFlipNoise` instance.
-
-        The bit flip channel applies a Pauli-X error with probability ``p``.
-
-        :param p: Probability of a bit flip (Pauli-X) error. Must satisfy ``0 ≤ p ≤ 1``.
-        :type p: float
-        :return: A new :class:`BitFlipNoise` with X error probability ``p``.
-        :rtype: BitFlipNoise
-        :raises ValueError: If ``p`` is negative or ``p > 1``.
-        """
-        return super().__new__(cls, p, 0, 0)
-
-
-class PhaseFlipNoise(PauliNoise):
-    """
-    The phase flip noise to use in simulation.
-    """
-
-    def __new__(cls, p: float):
-        """
-        Creates a new :class:`PhaseFlipNoise` instance.
-
-        The phase flip channel applies a Pauli-Z error with probability ``p``.
-
-        :param p: Probability of a phase flip (Pauli-Z) error. Must satisfy ``0 ≤ p ≤ 1``.
-        :type p: float
-        :return: A new :class:`PhaseFlipNoise` with Z error probability ``p``.
-        :rtype: PhaseFlipNoise
-        :raises ValueError: If ``p`` is negative or ``p > 1``.
-        """
-        return super().__new__(cls, 0, 0, p)
-
-
-def init(
-    *,
-    target_profile: TargetProfile = TargetProfile.Unrestricted,
-    target_name: Optional[str] = None,
-    project_root: Optional[str] = None,
-    language_features: Optional[List[str]] = None,
-    trace_circuit: Optional[bool] = None,
-) -> Config:
-    """
-    Initializes the Q# interpreter.
-
-    :keyword target_profile: Setting the target profile allows the Q#
-        interpreter to generate programs that are compatible
-        with a specific target. See :class:`TargetProfile`.
-
-    :keyword target_name: An optional name of the target machine to use for inferring the compatible
-        target_profile setting.
-
-    :keyword project_root: An optional path to a root directory with a Q# project to include.
-        It must contain a qsharp.json project manifest.
-
-    :keyword language_features: An optional list of language feature flags to enable.
-        These correspond to experimental or preview Q# language features.
-        Valid values are:
-
-        - ``"v2-preview-syntax"``: Enables Q# v2 preview syntax. This removes support for
-          the scoped qubit allocation block form (``use q = Qubit() { ... }``), requiring
-          the statement form instead (``use q = Qubit();``). It also removes the requirement
-          to use the ``set`` keyword for mutable variable assignments.
-
-    :keyword trace_circuit: Enables tracing of circuit during execution.
-        Passing `True` is required for the `dump_circuit` function to return a circuit.
-        The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
-    :return: The Q# interpreter configuration.
-    :rtype: Config
-    """
-    from ._fs import read_file, list_directory, exists, join, resolve
-    from ._http import fetch_github
-
-    global _interpreter
-    global _config
-
-    if isinstance(target_name, str):
-        target = target_name.split(".")[0].lower()
-        if target == "ionq" or target == "rigetti":
-            target_profile = TargetProfile.Base
-        elif target == "quantinuum":
-            target_profile = TargetProfile.Adaptive_RI
-        else:
-            raise QSharpError(
-                f'target_name "{target_name}" not recognized. Please set target_profile directly.'
-            )
-
-    manifest_contents = None
-    if project_root is not None:
-        # Normalize the project path (i.e. fix file separators and remove unnecessary '.' and '..')
-        project_root = resolve(".", project_root)
-        qsharp_json = join(project_root, "qsharp.json")
-        if not exists(qsharp_json):
-            raise QSharpError(
-                f"{qsharp_json} not found. qsharp.json should exist at the project root and be a valid JSON file."
-            )
-
-        try:
-            (_, manifest_contents) = read_file(qsharp_json)
-        except Exception as e:
-            raise QSharpError(
-                f"Error reading {qsharp_json}. qsharp.json should exist at the project root and be a valid JSON file."
-            ) from e
-
-    # Loop through the environment module and remove any dynamically added attributes that represent
-    # Q# callables or structs. This is necessary to avoid conflicts with the new interpreter instance.
-    keys_to_remove = []
-    for key, val in code.__dict__.items():
-        if (
-            hasattr(val, "__global_callable")
-            or hasattr(val, "__qsharp_class")
-            or isinstance(val, types.ModuleType)
-        ):
-            keys_to_remove.append(key)
-    for key in keys_to_remove:
-        code.__delattr__(key)
-
-    # Also remove any namespace modules dynamically added to the system.
-    keys_to_remove = []
-    for key in sys.modules:
-        if key.startswith("qdk.code."):
-            keys_to_remove.append(key)
-    for key in keys_to_remove:
-        sys.modules.__delitem__(key)
-
-    _interpreter = Interpreter(
-        target_profile,
-        language_features,
-        project_root,
-        read_file,
-        list_directory,
-        resolve,
-        fetch_github,
-        _make_callable,
-        _make_class,
-        trace_circuit,
-    )
-
-    _config = Config(target_profile, language_features, manifest_contents, project_root)
-    # Return the configuration information to provide a hint to the
-    # language service through the cell output.
-    return _config
-
-
-def get_interpreter() -> Interpreter:
-    """
-    Returns the Q# interpreter.
-
-    :return: The Q# interpreter.
-    :rtype: Interpreter
-    """
-    global _interpreter
-    if _interpreter is None:
-        init()
-        assert _interpreter is not None, "Failed to initialize the Q# interpreter."
-    return _interpreter
-
-
-def get_config() -> Config:
-    """
-    Returns the Q# interpreter configuration.
-
-    :return: The Q# interpreter configuration.
-    :rtype: Config
-    """
-    global _config
-    if _config is None:
-        init()
-        assert _config is not None, "Failed to initialize the Q# interpreter."
-    return _config
-
-
-class StateDump:
-    """
-    A state dump returned from the Q# interpreter.
-    """
-
-    """
-    The number of allocated qubits at the time of the dump.
-    """
-    qubit_count: int
-
-    __inner: dict
-    __data: StateDumpData
-
-    def __init__(self, data: StateDumpData):
-        self.__data = data
-        self.__inner = data.get_dict()
-        self.qubit_count = data.qubit_count
-
-    def __getitem__(self, index: int) -> complex:
-        return self.__inner.__getitem__(index)
-
-    def __iter__(self):
-        return self.__inner.__iter__()
-
-    def __len__(self) -> int:
-        return len(self.__inner)
-
-    def __repr__(self) -> str:
-        return self.__data.__repr__()
-
-    def __str__(self) -> str:
-        return self.__data.__str__()
-
-    def _repr_markdown_(self) -> str:
-        return self.__data._repr_markdown_()
-
-    def check_eq(
-        self, state: Union[Dict[int, complex], List[complex]], tolerance: float = 1e-10
-    ) -> bool:
-        """
-        Checks if the state dump is equal to the given state. This is not mathematical equality,
-        as the check ignores global phase.
-
-        :param state: The state to check against, provided either as a dictionary of state indices to complex amplitudes,
-            or as a list of real amplitudes.
-        :param tolerance: The tolerance for the check. Defaults to 1e-10.
-        :return: ``True`` if the state dump is equal to the given state within the given tolerance, ignoring global phase.
-        :rtype: bool
-        """
-        phase = None
-        # Convert a dense list of real amplitudes to a dictionary of state indices to complex amplitudes
-        if isinstance(state, list):
-            state = {i: val for i, val in enumerate(state)}
-        # Filter out zero states from the state dump and the given state based on tolerance
-        state = {k: v for k, v in state.items() if abs(v) > tolerance}
-        inner_state = {k: v for k, v in self.__inner.items() if abs(v) > tolerance}
-        if len(state) != len(inner_state):
-            return False
-        for key in state:
-            if key not in inner_state:
-                return False
-            if phase is None:
-                # Calculate the phase based on the first state pair encountered.
-                # Every pair of states after this must have the same phase for the states to be equivalent.
-                phase = inner_state[key] / state[key]
-            elif abs(phase - inner_state[key] / state[key]) > tolerance:
-                # This pair of states does not have the same phase,
-                # within tolerance, so the equivalence check fails.
-                return False
-        return True
-
-    def as_dense_state(self) -> List[complex]:
-        """
-        Returns the state dump as a dense list of complex amplitudes. This will include zero amplitudes.
-
-        :return: A dense list of complex amplitudes, one per computational basis state.
-        :rtype: List[complex]
-        """
-        return [self.__inner.get(i, complex(0)) for i in range(2**self.qubit_count)]
-
-
-class ShotResult(TypedDict):
-    """
-    A single result of a shot.
-    """
-
-    events: List[Output | StateDump | str]
-    result: Any
-    messages: List[str]
-    matrices: List[Output]
-    dumps: List[StateDump]
-
-
-def eval(
-    source: str,
-    *,
-    save_events: bool = False,
-) -> Any:
-    """
-    Evaluates Q# source code.
-
-    Output is printed to console.
-
-    :param source: The Q# source code to evaluate.
-    :keyword save_events: If true, all output will be saved and returned. If false, they will be printed.
-    :return: The value returned by the last statement in the source code, or the saved output if ``save_events`` is true.
-    :rtype: Any
-    :raises QSharpError: If there is an error evaluating the source code.
-    """
-    ipython_helper()
-
-    results: ShotResult = {
-        "events": [],
-        "result": None,
-        "messages": [],
-        "matrices": [],
-        "dumps": [],
-    }
-
-    def on_save_events(output: Output) -> None:
-        # Append the output to the last shot's output list
-        if output.is_matrix():
-            results["events"].append(output)
-            results["matrices"].append(output)
-        elif output.is_state_dump():
-            dump_data = cast(StateDumpData, output.state_dump())
-            state_dump = StateDump(dump_data)
-            results["events"].append(state_dump)
-            results["dumps"].append(state_dump)
-        elif output.is_message():
-            stringified = str(output)
-            results["events"].append(stringified)
-            results["messages"].append(stringified)
-
-    def callback(output: Output) -> None:
-        if _in_jupyter:
-            try:
-                display(output)
-                return
-            except:
-                # If IPython is not available, fall back to printing the output
-                pass
-        print(output, flush=True)
-
-    telemetry_events.on_eval()
-    start_time = monotonic()
-
-    output = get_interpreter().interpret(
-        source, on_save_events if save_events else callback
-    )
-    results["result"] = qsharp_value_to_python_value(output)
-
-    durationMs = (monotonic() - start_time) * 1000
-    telemetry_events.on_eval_end(durationMs)
-
-    if save_events:
-        return results
-    else:
-        return results["result"]
-
-
-# Helper function that knows how to create a function that invokes a callable. This will be
-# used by the underlying native code to create functions for callables on the fly that know
-# how to get the currently initialized global interpreter instance.
-def _make_callable(callable: GlobalCallable, namespace: List[str], callable_name: str):
-    module = code
-    # Create a name that will be used to collect the hierarchy of namespace identifiers if they exist and use that
-    # to register created modules with the system.
-    accumulated_namespace = "qdk.code"
-    accumulated_namespace += "."
-    for name in namespace:
-        accumulated_namespace += name
-        # Use the existing entry, which should already be a module.
-        if hasattr(module, name):
-            module = module.__getattribute__(name)
-            if sys.modules.get(accumulated_namespace) is None:
-                # This is an existing entry that is not yet registered in sys.modules, so add it.
-                # This can happen if a callable with the same name as this namespace is already
-                # defined.
-                sys.modules[accumulated_namespace] = module
-        else:
-            # This namespace entry doesn't exist as a module yet, so create it, add it to the environment, and
-            # add it to sys.modules so it supports import properly.
-            new_module = types.ModuleType(accumulated_namespace)
-            module.__setattr__(name, new_module)
-            sys.modules[accumulated_namespace] = new_module
-            module = new_module
-        accumulated_namespace += "."
-
-    def _callable(*args):
-        ipython_helper()
-
-        def callback(output: Output) -> None:
-            if _in_jupyter:
-                try:
-                    display(output)
-                    return
-                except:
-                    # If IPython is not available, fall back to printing the output
-                    pass
-            print(output, flush=True)
-
-        args = python_args_to_interpreter_args(args)
-
-        output = get_interpreter().invoke(callable, args, callback)
-        return qsharp_value_to_python_value(output)
-
-    # Each callable is annotated so that we know it is auto-generated and can be removed on a re-init of the interpreter.
-    _callable.__global_callable = callable
-
-    # Add the callable to the module.
-    if module.__dict__.get(callable_name) is None:
-        module.__setattr__(callable_name, _callable)
-    else:
-        # Preserve any existing attributes on the attribute with the matching name,
-        # since this could be a collision with an existing namespace/module.
-        for key, val in module.__dict__.get(callable_name).__dict__.items():
-            if key != "__global_callable":
-                _callable.__dict__[key] = val
-        module.__setattr__(callable_name, _callable)
 
 
 def qsharp_value_to_python_value(obj):
@@ -726,6 +220,241 @@ def make_class_rec(qsharp_type: TypeIR) -> type:
     )
 
 
+# ---------------------------------------------------------------------------
+# Interpreter singleton
+# ---------------------------------------------------------------------------
+
+
+_interpreter: Union["Interpreter", None] = None
+_config: Union["Config", None] = None
+
+# Check if we are running in a Jupyter notebook to use the IPython display function
+_in_jupyter = False
+try:
+    from IPython.display import display
+
+    if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # type: ignore
+        _in_jupyter = True  # Jupyter notebook or qtconsole
+except:
+    pass
+
+
+# Reporting execution time during IPython cells requires that IPython
+# gets pinged to ensure it understands the cell is active. This is done by
+# simply importing the display function, which it turns out is enough to begin timing
+# while avoiding any UI changes that would be visible to the user.
+def ipython_helper():
+    try:
+        if __IPYTHON__:  # type: ignore
+            from IPython.display import display
+    except NameError:
+        pass
+
+
+def init(
+    *,
+    target_profile: TargetProfile = TargetProfile.Unrestricted,
+    target_name: Optional[str] = None,
+    project_root: Optional[str] = None,
+    language_features: Optional[List[str]] = None,
+    trace_circuit: Optional[bool] = None,
+) -> Config:
+    """
+    Initializes the Q# interpreter.
+
+    :keyword target_profile: Setting the target profile allows the Q#
+        interpreter to generate programs that are compatible
+        with a specific target. See :class:`TargetProfile`.
+
+    :keyword target_name: An optional name of the target machine to use for inferring the compatible
+        target_profile setting.
+
+    :keyword project_root: An optional path to a root directory with a Q# project to include.
+        It must contain a qsharp.json project manifest.
+
+    :keyword language_features: An optional list of language feature flags to enable.
+        These correspond to experimental or preview Q# language features.
+        Valid values are:
+
+        - ``"v2-preview-syntax"``: Enables Q# v2 preview syntax. This removes support for
+          the scoped qubit allocation block form (``use q = Qubit() { ... }``), requiring
+          the statement form instead (``use q = Qubit();``). It also removes the requirement
+          to use the ``set`` keyword for mutable variable assignments.
+
+    :keyword trace_circuit: Enables tracing of circuit during execution.
+        Passing `True` is required for the `dump_circuit` function to return a circuit.
+        The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
+    :return: The Q# interpreter configuration.
+    :rtype: Config
+    """
+    from ._fs import read_file, list_directory, exists, join, resolve
+    from ._http import fetch_github
+
+    global _interpreter
+    global _config
+
+    if isinstance(target_name, str):
+        target = target_name.split(".")[0].lower()
+        if target == "ionq" or target == "rigetti":
+            target_profile = TargetProfile.Base
+        elif target == "quantinuum":
+            target_profile = TargetProfile.Adaptive_RI
+        else:
+            raise QSharpError(
+                f'target_name "{target_name}" not recognized. Please set target_profile directly.'
+            )
+
+    manifest_contents = None
+    if project_root is not None:
+        # Normalize the project path (i.e. fix file separators and remove unnecessary '.' and '..')
+        project_root = resolve(".", project_root)
+        qsharp_json = join(project_root, "qsharp.json")
+        if not exists(qsharp_json):
+            raise QSharpError(
+                f"{qsharp_json} not found. qsharp.json should exist at the project root and be a valid JSON file."
+            )
+
+        try:
+            _, manifest_contents = read_file(qsharp_json)
+        except Exception as e:
+            raise QSharpError(
+                f"Error reading {qsharp_json}. qsharp.json should exist at the project root and be a valid JSON file."
+            ) from e
+
+    # Loop through the environment module and remove any dynamically added attributes that represent
+    # Q# callables or structs. This is necessary to avoid conflicts with the new interpreter instance.
+    keys_to_remove = []
+    for key, val in code.__dict__.items():
+        if (
+            hasattr(val, "__global_callable")
+            or hasattr(val, "__qsharp_class")
+            or isinstance(val, types.ModuleType)
+        ):
+            keys_to_remove.append(key)
+    for key in keys_to_remove:
+        code.__delattr__(key)
+
+    # Also remove any namespace modules dynamically added to the system.
+    keys_to_remove = []
+    for key in sys.modules:
+        if key.startswith("qdk.code."):
+            keys_to_remove.append(key)
+    for key in keys_to_remove:
+        sys.modules.__delitem__(key)
+
+    _interpreter = Interpreter(
+        target_profile,
+        language_features,
+        project_root,
+        read_file,
+        list_directory,
+        resolve,
+        fetch_github,
+        _make_callable,
+        _make_class,
+        trace_circuit,
+    )
+
+    _config = Config(target_profile, language_features, manifest_contents, project_root)
+    # Return the configuration information to provide a hint to the
+    # language service through the cell output.
+    return _config
+
+
+def get_interpreter() -> Interpreter:
+    """
+    Returns the Q# interpreter.
+
+    :return: The Q# interpreter.
+    :rtype: Interpreter
+    """
+    global _interpreter
+    if _interpreter is None:
+        init()
+        assert _interpreter is not None, "Failed to initialize the Q# interpreter."
+    return _interpreter
+
+
+def get_config() -> Config:
+    """
+    Returns the Q# interpreter configuration.
+
+    :return: The Q# interpreter configuration.
+    :rtype: Config
+    """
+    global _config
+    if _config is None:
+        init()
+        assert _config is not None, "Failed to initialize the Q# interpreter."
+    return _config
+
+
+# ---------------------------------------------------------------------------
+# Callable / class factory helpers (used by native code)
+# ---------------------------------------------------------------------------
+
+
+# Helper function that knows how to create a function that invokes a callable. This will be
+# used by the underlying native code to create functions for callables on the fly that know
+# how to get the currently initialized global interpreter instance.
+def _make_callable(callable: GlobalCallable, namespace: List[str], callable_name: str):
+    module = code
+    # Create a name that will be used to collect the hierarchy of namespace identifiers if they exist and use that
+    # to register created modules with the system.
+    accumulated_namespace = "qdk.code"
+    accumulated_namespace += "."
+    for name in namespace:
+        accumulated_namespace += name
+        # Use the existing entry, which should already be a module.
+        if hasattr(module, name):
+            module = module.__getattribute__(name)
+            if sys.modules.get(accumulated_namespace) is None:
+                # This is an existing entry that is not yet registered in sys.modules, so add it.
+                # This can happen if a callable with the same name as this namespace is already
+                # defined.
+                sys.modules[accumulated_namespace] = module
+        else:
+            # This namespace entry doesn't exist as a module yet, so create it, add it to the environment, and
+            # add it to sys.modules so it supports import properly.
+            new_module = types.ModuleType(accumulated_namespace)
+            module.__setattr__(name, new_module)
+            sys.modules[accumulated_namespace] = new_module
+            module = new_module
+        accumulated_namespace += "."
+
+    def _callable(*args):
+        ipython_helper()
+
+        def callback(output: Output) -> None:
+            if _in_jupyter:
+                try:
+                    display(output)
+                    return
+                except:
+                    # If IPython is not available, fall back to printing the output
+                    pass
+            print(output, flush=True)
+
+        args = python_args_to_interpreter_args(args)
+
+        output = get_interpreter().invoke(callable, args, callback)
+        return qsharp_value_to_python_value(output)
+
+    # Each callable is annotated so that we know it is auto-generated and can be removed on a re-init of the interpreter.
+    _callable.__global_callable = callable
+
+    # Add the callable to the module.
+    if module.__dict__.get(callable_name) is None:
+        module.__setattr__(callable_name, _callable)
+    else:
+        # Preserve any existing attributes on the attribute with the matching name,
+        # since this could be a collision with an existing namespace/module.
+        for key, val in module.__dict__.get(callable_name).__dict__.items():
+            if key != "__global_callable":
+                _callable.__dict__[key] = val
+        module.__setattr__(callable_name, _callable)
+
+
 def _make_class(qsharp_type: TypeIR, namespace: List[str], class_name: str):
     """
     Helper function to create a python class given a description of it. This will be
@@ -759,6 +488,79 @@ def _make_class(qsharp_type: TypeIR, namespace: List[str], class_name: str):
 
     # Add the class to the module.
     module.__setattr__(class_name, QSharpClass)
+
+
+# ---------------------------------------------------------------------------
+# Public API functions
+# ---------------------------------------------------------------------------
+
+
+def eval(
+    source: str,
+    *,
+    save_events: bool = False,
+) -> Any:
+    """
+    Evaluates Q# source code.
+
+    Output is printed to console.
+
+    :param source: The Q# source code to evaluate.
+    :keyword save_events: If true, all output will be saved and returned. If false, they will be printed.
+    :return: The value returned by the last statement in the source code, or the saved output if ``save_events`` is true.
+    :rtype: Any
+    :raises QSharpError: If there is an error evaluating the source code.
+    """
+    ipython_helper()
+
+    results: ShotResult = {
+        "events": [],
+        "result": None,
+        "messages": [],
+        "matrices": [],
+        "dumps": [],
+    }
+
+    def on_save_events(output: Output) -> None:
+        # Append the output to the last shot's output list
+        if output.is_matrix():
+            results["events"].append(output)
+            results["matrices"].append(output)
+        elif output.is_state_dump():
+            dump_data = cast(StateDumpData, output.state_dump())
+            state_dump = StateDump(dump_data)
+            results["events"].append(state_dump)
+            results["dumps"].append(state_dump)
+        elif output.is_message():
+            stringified = str(output)
+            results["events"].append(stringified)
+            results["messages"].append(stringified)
+
+    def callback(output: Output) -> None:
+        if _in_jupyter:
+            try:
+                display(output)
+                return
+            except:
+                # If IPython is not available, fall back to printing the output
+                pass
+        print(output, flush=True)
+
+    telemetry_events.on_eval()
+    start_time = monotonic()
+
+    output = get_interpreter().interpret(
+        source, on_save_events if save_events else callback
+    )
+    results["result"] = qsharp_value_to_python_value(output)
+
+    durationMs = (monotonic() - start_time) * 1000
+    telemetry_events.on_eval_end(durationMs)
+
+    if save_events:
+        return results
+    else:
+        return results["result"]
 
 
 def run(
@@ -888,30 +690,6 @@ def run(
         return results
     else:
         return [shot["result"] for shot in results]
-
-
-# Class that wraps generated QIR, which can be used by
-# azure-quantum as input data.
-#
-# This class must implement the QirRepresentable protocol
-# that is defined by the azure-quantum package.
-# See: https://github.com/microsoft/qdk-python/blob/fcd63c04aa871e49206703bbaa792329ffed13c4/azure-quantum/azure/quantum/target/target.py#L21
-class QirInputData:
-    # The name of this variable is defined
-    # by the protocol and must remain unchanged.
-    _name: str
-
-    def __init__(self, name: str, ll_str: str):
-        self._name = name
-        self._ll_str = ll_str
-
-    # The name of this method is defined
-    # by the protocol and must remain unchanged.
-    def _repr_qir_(self, **kwargs) -> bytes:
-        return self._ll_str.encode("utf-8")
-
-    def __str__(self) -> str:
-        return self._ll_str
 
 
 def compile(
@@ -1187,3 +965,96 @@ def dump_circuit() -> Circuit:
     """
     ipython_helper()
     return get_interpreter().dump_circuit()
+
+
+def dump_operation(operation: str, num_qubits: int) -> List[List[complex]]:
+    """
+    Returns a square matrix of complex numbers representing the operation performed.
+
+    :param operation: The operation to be performed, which must operate on a list of qubits.
+    :param num_qubits: The number of qubits to be used.
+
+    :return: The matrix representing the operation.
+    :rtype: List[List[complex]]
+    """
+    import math
+
+    code_str = f"""{{\n        let op = {operation};\n        use (targets, extra) = (Qubit[{num_qubits}], Qubit[{num_qubits}]);\n            for i in 0..{num_qubits}-1 {{\n                H(targets[i]);\n                CNOT(targets[i], extra[i]);\n            }}\n            operation ApplyOp (op : (Qubit[] => Unit), targets : Qubit[]) : Unit {{ op(targets); }}\n            ApplyOp(op, targets);\n            Microsoft.Quantum.Diagnostics.DumpMachine();\n            ResetAll(targets + extra);\n    }}"""
+    result = run(code_str, shots=1, save_events=True)[0]
+    state = result["events"][-1].state_dump().get_dict()
+    num_entries = pow(2, num_qubits)
+    factor = math.sqrt(num_entries)
+    ndigits = 6
+    matrix = []
+    for i in range(num_entries):
+        matrix += [[]]
+        for j in range(num_entries):
+            entry = state.get(i * num_entries + j)
+            if entry is None:
+                matrix[i] += [complex(0, 0)]
+            else:
+                matrix[i] += [
+                    complex(
+                        round(factor * entry.real, ndigits),
+                        round(factor * entry.imag, ndigits),
+                    )
+                ]
+    return matrix
+
+
+# ---------------------------------------------------------------------------
+# __all__
+# ---------------------------------------------------------------------------
+
+__all__ = [
+    # Types (re-exported from _types for convenience)
+    "PauliNoise",
+    "DepolarizingNoise",
+    "BitFlipNoise",
+    "PhaseFlipNoise",
+    "StateDump",
+    "ShotResult",
+    "Config",
+    "QirInputData",
+    # Native types re-exported
+    "Interpreter",
+    "TargetProfile",
+    "QSharpError",
+    "Output",
+    "Circuit",
+    "GlobalCallable",
+    "Closure",
+    "Pauli",
+    "Result",
+    "CircuitConfig",
+    "CircuitGenerationMethod",
+    "NoiseConfig",
+    "StateDumpData",
+    # Estimator types
+    "EstimatorResult",
+    "EstimatorParams",
+    "LogicalCounts",
+    # Interpreter lifecycle
+    "init",
+    "get_interpreter",
+    "get_config",
+    # Core operations
+    "eval",
+    "run",
+    "compile",
+    "circuit",
+    "estimate",
+    "logical_counts",
+    # Seed / state
+    "set_quantum_seed",
+    "set_classical_seed",
+    "dump_machine",
+    "dump_circuit",
+    "dump_operation",
+    # Helpers (used by other submodules)
+    "ipython_helper",
+    "python_args_to_interpreter_args",
+    "qsharp_value_to_python_value",
+    "lower_python_obj",
+    "make_class_rec",
+]
