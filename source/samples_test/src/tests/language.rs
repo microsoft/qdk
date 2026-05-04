@@ -304,6 +304,12 @@ pub const QUANTUMMEMORY_EXPECT: Expect = expect!["()"];
 pub const QUANTUMMEMORY_EXPECT_DEBUG: Expect = expect!["()"];
 pub const QUANTUMMEMORY_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 40"];
 pub const QUANTUMMEMORY_EXPECT_QIR: Expect = expect!["generated QIR of length 961"];
+pub const MEMORYQUBIT_EXPECT: Expect = expect!["One"];
+pub const MEMORYQUBIT_EXPECT_DEBUG: Expect = expect!["One"];
+pub const MEMORYQUBIT_EXPECT_CIRCUIT: Expect =
+    expect!["generated circuit of length 434"];
+pub const MEMORYQUBIT_EXPECT_QIR: Expect =
+    expect!["generated QIR of length 1806"];
 pub const QUBIT_EXPECT: Expect = expect![[r#"
     STATE:
     |1000⟩: 0.0000+0.5000𝑖

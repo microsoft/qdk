@@ -1745,10 +1745,14 @@ impl<'a> PartialEvaluator<'a> {
         // There are a few special cases regarding intrinsic callables. Identify them and handle them properly.
         match callable_decl.name.name.as_ref() {
             // Qubit allocations and measurements have special handling.
-            "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
+            "__quantum__rt__qubit_allocate"
+            | "__quantum__rt__qubit_borrow"
+            | "__quantum__rt__memory_qubit_allocate" => {
                 Ok(self.allocate_qubit())
             }
-            "__quantum__rt__qubit_release" => Ok(self.release_qubit(args_value)),
+            "__quantum__rt__qubit_release" | "__quantum__rt__memory_qubit_release" => {
+                Ok(self.release_qubit(args_value))
+            }
             "PermuteLabels" => {
                 if self.eval_context.is_currently_evaluating_any_branch() {
                     // If we are in a dynamic branch anywhere up the call stack, we cannot support relabel,
@@ -1765,6 +1769,56 @@ impl<'a> PartialEvaluator<'a> {
             "__quantum__qis__m__body" => Ok(self.measure_qubit(builder::m_decl(), args_value)),
             "__quantum__qis__mresetz__body" => {
                 Ok(self.measure_qubit(builder::mresetz_decl(), args_value))
+            }
+            "__quantum__qis__memory_qubit_load" | "__quantum__qis__memory_qubit_load__body" => {
+                let [memory_qubit, qubit] = val::unwrap_tuple::<2>(args_value);
+                let reset_callable_id = self.get_reset_callable();
+                let swap_callable_id = self.get_swap_callable();
+
+                let reset_instruction = Instruction::Call(
+                    reset_callable_id,
+                    vec![self.map_eval_value_to_rir_operand(&qubit)],
+                    None,
+                    self.metadata_from_current_dbg_location(),
+                );
+                let swap_instruction = Instruction::Call(
+                    swap_callable_id,
+                    vec![
+                        self.map_eval_value_to_rir_operand(&memory_qubit),
+                        self.map_eval_value_to_rir_operand(&qubit),
+                    ],
+                    None,
+                    self.metadata_from_current_dbg_location(),
+                );
+                let current_block = self.get_current_rir_block_mut();
+                current_block.0.push(reset_instruction);
+                current_block.0.push(swap_instruction);
+                Ok(Value::unit())
+            }
+            "__quantum__qis__memory_qubit_store" | "__quantum__qis__memory_qubit_store__body" => {
+                let [qubit, memory_qubit] = val::unwrap_tuple::<2>(args_value);
+                let reset_callable_id = self.get_reset_callable();
+                let swap_callable_id = self.get_swap_callable();
+
+                let reset_instruction = Instruction::Call(
+                    reset_callable_id,
+                    vec![self.map_eval_value_to_rir_operand(&memory_qubit)],
+                    None,
+                    self.metadata_from_current_dbg_location(),
+                );
+                let swap_instruction = Instruction::Call(
+                    swap_callable_id,
+                    vec![
+                        self.map_eval_value_to_rir_operand(&qubit),
+                        self.map_eval_value_to_rir_operand(&memory_qubit),
+                    ],
+                    None,
+                    self.metadata_from_current_dbg_location(),
+                );
+                let current_block = self.get_current_rir_block_mut();
+                current_block.0.push(reset_instruction);
+                current_block.0.push(swap_instruction);
+                Ok(Value::unit())
             }
             // The following intrinsic operations and functions are no-ops.
             "BeginEstimateCaching" => Ok(Value::Bool(true)),
@@ -3714,12 +3768,50 @@ impl<'a> PartialEvaluator<'a> {
         callable_id
     }
 
+    fn get_reset_callable(&mut self) -> CallableId {
+        if let Some(id) = self.callables_map.get("__quantum__qis__reset__body") {
+            return *id;
+        }
+
+        let callable = builder::reset_decl();
+        let callable_id = self.resource_manager.next_callable();
+        self.callables_map
+            .insert("__quantum__qis__reset__body".into(), callable_id);
+        self.program.callables.insert(callable_id, callable);
+        callable_id
+    }
+
+    fn get_swap_callable(&mut self) -> CallableId {
+        if let Some(id) = self.callables_map.get("__quantum__qis__swap__body") {
+            return *id;
+        }
+
+        let callable = Callable {
+            name: "__quantum__qis__swap__body".to_string(),
+            input_type: vec![rir::Ty::Prim(rir::Prim::Qubit), rir::Ty::Prim(rir::Prim::Qubit)],
+            output_type: None,
+            body: None,
+            call_type: CallableType::Regular,
+        };
+        let callable_id = self.resource_manager.next_callable();
+        self.callables_map
+            .insert("__quantum__qis__swap__body".into(), callable_id);
+        self.program.callables.insert(callable_id, callable);
+        callable_id
+    }
+
     fn map_eval_value_to_rir_operand(&self, value: &Value) -> Operand {
         match value {
             Value::Bool(b) => Operand::Literal(Literal::Bool(*b)),
             Value::Double(d) => Operand::Literal(Literal::Double(*d)),
             Value::Int(i) => Operand::Literal(Literal::Integer(*i)),
             Value::Qubit(q) => Operand::Literal(Literal::Qubit(
+                self.resource_manager
+                    .map_qubit(q)
+                    .try_into()
+                    .expect("could not convert qubit ID to u32"),
+            )),
+            Value::MemoryQubit(q) => Operand::Literal(Literal::Qubit(
                 self.resource_manager
                     .map_qubit(q)
                     .try_into()
@@ -4225,7 +4317,9 @@ fn map_fir_type_to_rir_type(ty: &Ty) -> Result<rir::Ty, String> {
         Ty::Prim(Prim::Bool) => Ok(rir::Ty::Prim(rir::Prim::Boolean)),
         Ty::Prim(Prim::Double) => Ok(rir::Ty::Prim(rir::Prim::Double)),
         Ty::Prim(Prim::Int) => Ok(rir::Ty::Prim(rir::Prim::Integer)),
-        Ty::Prim(Prim::Qubit) => Ok(rir::Ty::Prim(rir::Prim::Qubit)),
+        Ty::Prim(Prim::Qubit) | Ty::Prim(Prim::MemoryQubit) => {
+            Ok(rir::Ty::Prim(rir::Prim::Qubit))
+        }
         Ty::Prim(Prim::Result) => Ok(rir::Ty::Prim(rir::Prim::Result)),
         _ => Err(format!("{ty}")),
     }

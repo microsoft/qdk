@@ -2311,9 +2311,11 @@ fn derive_instrinsic_operation_application_generator_set(
 ) -> ApplicationGeneratorSet {
     assert!(matches!(callable_context.kind, CallableKind::Operation));
 
-    // The value kind of intrinsic operations is inherently dynamic if their output is not `Unit` or `Qubit`.
+    // The value kind of intrinsic operations is inherently dynamic if their output is
+    // not `Unit`, `Qubit` or `MemoryQubit`.
     let runtime_kind = if callable_context.output_type == Ty::UNIT
         || callable_context.output_type == Ty::Prim(Prim::Qubit)
+        || callable_context.output_type == Ty::Prim(Prim::MemoryQubit)
     {
         ValueKind::Constant
     } else {
