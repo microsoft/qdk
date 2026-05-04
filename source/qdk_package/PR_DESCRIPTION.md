@@ -125,3 +125,9 @@ Due to the large number of file moves, GitHub's diff may be hard to follow. Sugg
 - 338 integration tests pass per Qiskit version (`source/qdk_package/tests-integration/`), run against both Qiskit v1 (`>=1.3,<2`) and v2 (`>=2,<3`)
 - Widgets build successfully
 - `qsharp` shim wheel builds successfully
+
+## Follow-up Work
+
+- **Move noise types to `qdk.simulation`**: The `PauliNoise`, `DepolarizingNoise`, `BitFlipNoise`, and `PhaseFlipNoise` classes currently live in `qdk._types` and are re-exported through `qdk.qsharp`. These are simulation concepts and should canonically live in `qdk.simulation`, with backward-compatible re-exports from `qdk.qsharp` and `qdk._types`. Deferred from this PR to avoid additional circular import complexity.
+- **`NoiseConfig` in `qdk.qsharp`**: Similarly, `NoiseConfig` (from `_native`) is re-exported in `qdk.qsharp.__all__` but semantically belongs in `qdk.simulation` (where it's already exported). The `qdk.qsharp` re-export should be removed in a follow-up.
+- **Audit and rewrite docstrings**: Module and function docstrings throughout the package still reference the old `qsharp` import paths and naming conventions. These need to be audited and updated to reflect the new `qdk.*` namespace for accurate generated documentation.
