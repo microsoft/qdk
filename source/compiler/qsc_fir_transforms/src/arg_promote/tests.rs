@@ -900,7 +900,7 @@ fn before_after_param_decomposition() {
             BEFORE:
             // namespace test
             newtype Pair = (Int, Int);
-            function Foop : (Int, Int) : Int {
+            function Foo(p : (Int, Int)) : Int {
                 body {
                     p::Item < 0 > + p::Item < 1 >
                 }
@@ -933,7 +933,7 @@ fn before_after_param_decomposition() {
 }
 
 #[test]
-fn round_trip_arg_promote_compiles() {
+fn pretty_print_after_arg_promote_is_non_empty() {
     let source = indoc! {r#"
         namespace Test {
             function Add(pair : (Int, Int)) : Int {

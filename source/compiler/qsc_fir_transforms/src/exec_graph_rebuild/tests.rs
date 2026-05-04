@@ -19,6 +19,8 @@ use rustc_hash::FxHashMap;
 
 #[derive(Clone, Copy)]
 enum CallableSpecKind {
+    Body,
+    Adj,
     Ctl,
     CtlAdj,
     SimulatableIntrinsic,
@@ -188,6 +190,10 @@ fn format_callable_spec_exec_graph(
     let callable = find_callable(package, callable_name);
     let local_names = callable_local_names(package, callable);
     let spec = match (spec_kind, &callable.implementation) {
+        (CallableSpecKind::Body, CallableImpl::Spec(spec_impl)) => &spec_impl.body,
+        (CallableSpecKind::Adj, CallableImpl::Spec(spec_impl)) => {
+            spec_impl.adj.as_ref().expect("adjoint spec should exist")
+        }
         (CallableSpecKind::Ctl, CallableImpl::Spec(spec_impl)) => spec_impl
             .ctl
             .as_ref()
@@ -637,30 +643,31 @@ fn exec_graph_update_index_emits_store() {
 }
 
 #[test]
-fn exec_graph_callable_with_adjoint_spec_rebuilds_both() {
-    check_exec_graph(
-        "operation Foo(q : Qubit) : Unit is Adj { body ... { H(q); } adjoint ... { H(q); } } operation Main() : Unit { use q = Qubit(); Foo(q); Adjoint Foo(q); }",
+fn exec_graph_callable_with_adjoint_spec_rebuilds_body_and_adj_independently() {
+    let source = "operation Foo(q : Qubit) : Unit is Adj { body ... { H(q); } adjoint ... { X(q); } } operation Main() : Unit { use q = Qubit(); Foo(q); Adjoint Foo(q); }";
+    check_callable_spec_exec_graph(
+        source,
+        "Foo",
+        CallableSpecKind::Body,
         &expect![[r#"
-            0: Expr(ExprId(10)) [Var]
+            0: H
             1: Store
-            2: Expr(ExprId(11)) [Tuple(len=0)]
-            3: Expr(ExprId(9)) [Call]
-            4: Bind(PatId(2))
-            5: Expr(ExprId(13)) [Var]
-            6: Store
-            7: Expr(ExprId(14)) [Var]
-            8: Expr(ExprId(12)) [Call]
-            9: Expr(ExprId(22)) [Var]
-            10: Expr(ExprId(16)) [UnOp(Functor(Adj))]
-            11: Store
-            12: Expr(ExprId(18)) [Var]
-            13: Expr(ExprId(15)) [Call]
-            14: Expr(ExprId(20)) [Var]
-            15: Store
-            16: Expr(ExprId(21)) [Var]
-            17: Expr(ExprId(19)) [Call]
-            18: Unit
-            19: Ret"#]],
+            2: Var(q)
+            3: Call
+            4: Unit
+            5: Ret"#]],
+    );
+    check_callable_spec_exec_graph(
+        source,
+        "Foo",
+        CallableSpecKind::Adj,
+        &expect![[r#"
+            0: X
+            1: Store
+            2: Var(q)
+            3: Call
+            4: Unit
+            5: Ret"#]],
     );
 }
 

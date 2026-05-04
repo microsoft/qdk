@@ -35,6 +35,7 @@ qsc_eval = { path = "../qsc_eval" }
 qsc_frontend = { path = "../qsc_frontend" }
 qsc_hir = { path = "../qsc_hir" }
 qsc_partial_eval = { path = "../qsc_partial_eval" }
+qsc_parse = { path = "../qsc_parse" }
 qsc_passes = { path = "../qsc_passes" }
 qsc_rca = { path = "../qsc_rca" }
 

@@ -454,6 +454,7 @@ pub(crate) fn stmt_kind_short(package: &Package, stmt_id: StmtId) -> String {
 /// simulator seed for determinism. Returns `Ok(value)` on success, or
 /// `Err(error_string)` on evaluation failure.
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn try_eval_fir_entry(
     store: &fir::PackageStore,
     pkg_id: fir::PackageId,
@@ -487,6 +488,7 @@ pub(crate) fn try_eval_fir_entry(
 /// The FIR has no transforms applied — this captures the original program
 /// semantics.
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn eval_qsharp_original(source: &str) -> Result<qsc_eval::val::Value, String> {
     let mut lowerer = qsc_lowerer::Lowerer::new();
     let mut core = frontend_compile::core();
@@ -526,6 +528,7 @@ pub(crate) fn eval_qsharp_original(source: &str) -> Result<qsc_eval::val::Value,
 /// Compiles Q# source, runs the full FIR transform pipeline, and evaluates
 /// the entry exec graph.
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn eval_qsharp_transformed(source: &str) -> Result<qsc_eval::val::Value, String> {
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
     try_eval_fir_entry(&store, pkg_id)
@@ -541,6 +544,7 @@ pub(crate) fn eval_qsharp_transformed(source: &str) -> Result<qsc_eval::val::Val
 /// 3. Asserts the two results match (both succeed with equal values, or
 ///    both fail).
 #[cfg(test)]
+#[allow(dead_code)]
 pub(crate) fn check_semantic_equivalence(source: &str) {
     let expected = eval_qsharp_original(source);
     let actual = eval_qsharp_transformed(source);
@@ -553,8 +557,11 @@ pub(crate) fn check_semantic_equivalence(source: &str) {
                  transformed returned {act_val}"
             );
         }
-        (Err(_), Err(_)) => {
-            // Both failed — the transform preserves the error behavior.
+        (Err(exp_err), Err(act_err)) => {
+            assert_eq!(
+                exp_err, act_err,
+                "semantic equivalence violated: original failed with {exp_err}, transformed failed with {act_err}"
+            );
         }
         (Ok(exp_val), Err(err)) => {
             panic!("original succeeded with {exp_val} but transformed failed: {err}");

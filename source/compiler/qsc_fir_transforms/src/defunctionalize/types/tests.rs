@@ -30,8 +30,9 @@ fn join_with_condition_single_multi_inserts_into_set() {
 
     match result {
         CalleeLattice::Multi(entries) => {
-            assert!(entries.iter().any(|(cc, _)| *cc == a));
-            assert!(entries.iter().any(|(cc, _)| *cc == b));
+            assert_eq!(entries.len(), 2);
+            assert_eq!(entries[0], (a, Some(cond())));
+            assert_eq!(entries[1], (b, Some(ExprId::from(50u32))));
         }
         other => panic!("expected Multi, got {other:?}"),
     }
@@ -48,8 +49,9 @@ fn join_with_condition_multi_single_inserts_into_set() {
 
     match result {
         CalleeLattice::Multi(entries) => {
-            assert!(entries.iter().any(|(cc, _)| *cc == a));
-            assert!(entries.iter().any(|(cc, _)| *cc == b));
+            assert_eq!(entries.len(), 2);
+            assert_eq!(entries[0], (a, Some(ExprId::from(50u32))));
+            assert_eq!(entries[1], (b, None));
         }
         other => panic!("expected Multi, got {other:?}"),
     }

@@ -1085,7 +1085,7 @@ fn before_after_generic_specialization() {
         &expect![[r#"
             BEFORE:
             // namespace test
-            operation Identity<''T > x : 'T0 : 'T0 {
+            operation Identity<''T > (x : 'T0) : 'T0 {
                 body {
                     x
                 }
@@ -1100,7 +1100,7 @@ fn before_after_generic_specialization() {
 
             AFTER:
             // namespace test
-            operation Identity<''T > x : 'T0 : 'T0 {
+            operation Identity<''T > (x : 'T0) : 'T0 {
                 body {
                     x
                 }
@@ -1110,7 +1110,7 @@ fn before_after_generic_specialization() {
                     Identity < Int > (42)
                 }
             }
-            operation Identity<Int> x : Int : Int {
+            operation Identity<Int>(x : Int) : Int {
                 body {
                     x
                 }
@@ -1139,14 +1139,14 @@ fn shared_input_and_arrow_generic_param_specializes() {
         &expect![[r#"
             BEFORE:
             // namespace test
-            function double<''T > x : 'T0 : 'T0 {
+            function double<''T > (x : 'T0) : 'T0 {
                 body {
-                    q + q
+                    x + x
                 }
             }
             function doDouble<''T > (a : 'T0, doubler : ('T0 -> 'T0)) : 'T0 {
                 body {
-                    @generated_ident_64(q)
+                    doubler(a)
                 }
             }
             operation Main() : Unit {
@@ -1167,51 +1167,51 @@ fn shared_input_and_arrow_generic_param_specializes() {
 
             AFTER:
             // namespace test
-            function double<''T > x : 'T0 : 'T0 {
+            function double<''T > (x : 'T0) : 'T0 {
                 body {
-                    doubler + doubler
+                    x + x
                 }
             }
             function doDouble<''T > (a : 'T0, doubler : ('T0 -> 'T0)) : 'T0 {
                 body {
-                    @generated_ident_64(doubler)
+                    doubler(a)
                 }
             }
             operation Main() : Unit {
                 body {
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     let
-                    @generated_ident_64 : Unit = if M(doubler) == One {
+                    @generated_ident_64 : Unit = if M(q) == One {
                         doDouble < Int > (3, double < Int >);
                     } else {
                         doDouble < Double > (3., double < Double >);
                     };
-                    __quantum__rt__qubit_release(doubler);
+                    __quantum__rt__qubit_release(q);
                     @generated_ident_64
                 }
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
             function doDouble<Int>(a : Int, doubler : (Int -> Int)) : Int {
                 body {
-                    doubler(x)
+                    doubler(a)
                 }
             }
-            function double<Int> x : Int : Int {
+            function double<Int>(x : Int) : Int {
                 body {
                     x + x
                 }
             }
             function doDouble<Double>(a : Double, doubler : (Double -> Double)) : Double {
                 body {
-                    doubler(x)
+                    doubler(a)
                 }
             }
-            function double<Double> x : Double : Double {
+            function double<Double>(x : Double) : Double {
                 body {
                     x + x
                 }

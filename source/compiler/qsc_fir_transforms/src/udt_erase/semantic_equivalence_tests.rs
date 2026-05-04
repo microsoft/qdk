@@ -57,7 +57,7 @@ fn nested_udt_preserves_semantics() {
 }
 
 #[test]
-fn round_trip_udt_erase_compiles() {
+fn pretty_print_after_udt_erase_is_non_empty() {
     let source = indoc! {r#"
         namespace Test {
             struct Pair { X : Int, Y : Int }

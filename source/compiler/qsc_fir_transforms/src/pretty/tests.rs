@@ -67,7 +67,7 @@ fn operation_with_specializations_renders() {
         "#},
         &expect![[r#"
             // namespace Test
-            operation Opq : Qubit : Unit is Adj + Ctl {
+            operation Op(q : Qubit) : Unit is Adj + Ctl {
                 body {
                     X(q);
                 }
@@ -75,10 +75,10 @@ fn operation_with_specializations_renders() {
                     X(q);
                 }
                 controlled {
-                    Controlled X(ctls, q);
+                    Controlled X(_local2, q);
                 }
                 controlled adjoint {
-                    Controlled X(ctls, q);
+                    Controlled X(_local3, q);
                 }
             }
             operation Main() : Unit {
@@ -88,7 +88,7 @@ fn operation_with_specializations_renders() {
                     __quantum__rt__qubit_release(q);
                 }
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry

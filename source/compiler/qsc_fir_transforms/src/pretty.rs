@@ -45,10 +45,27 @@ use rustc_hash::FxHashMap;
 use std::fmt::Write as _;
 use std::rc::Rc;
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum RenderMode {
+    Debug,
+    Parseable,
+}
+
 /// Renders the full FIR package as Q# source.
 #[must_use]
 pub fn write_package_qsharp(store: &PackageStore, package_id: PackageId) -> String {
     let mut emitter = FirQSharpGen::new(store, package_id);
+    emitter.emit_package();
+    format_str(&emitter.output)
+}
+
+#[cfg(test)]
+#[must_use]
+pub(crate) fn write_package_qsharp_parseable(
+    store: &PackageStore,
+    package_id: PackageId,
+) -> String {
+    let mut emitter = FirQSharpGen::new_with_mode(store, package_id, RenderMode::Parseable);
     emitter.emit_package();
     format_str(&emitter.output)
 }
@@ -100,37 +117,26 @@ struct FirQSharpGen<'a> {
     store: &'a PackageStore,
     package_id: PackageId,
     local_names: FxHashMap<LocalVarId, Rc<str>>,
+    mode: RenderMode,
 }
 
 impl<'a> FirQSharpGen<'a> {
     fn new(store: &'a PackageStore, package_id: PackageId) -> Self {
-        let mut this = Self {
+        Self::new_with_mode(store, package_id, RenderMode::Debug)
+    }
+
+    fn new_with_mode(store: &'a PackageStore, package_id: PackageId, mode: RenderMode) -> Self {
+        Self {
             output: String::new(),
             store,
             package_id,
             local_names: FxHashMap::default(),
-        };
-        this.collect_local_names();
-        this
+            mode,
+        }
     }
 
     fn package(&self) -> &Package {
         self.store.get(self.package_id)
-    }
-
-    fn collect_local_names(&mut self) {
-        let pkg = self.package();
-        let entries: Vec<(LocalVarId, Rc<str>)> = pkg
-            .pats
-            .values()
-            .filter_map(|pat| match &pat.kind {
-                PatKind::Bind(ident) => Some((ident.id, ident.name.clone())),
-                PatKind::Discard | PatKind::Tuple(_) => None,
-            })
-            .collect();
-        for (id, name) in entries {
-            self.local_names.insert(id, name);
-        }
     }
 
     fn write(&mut self, s: &str) {
@@ -183,11 +189,14 @@ impl<'a> FirQSharpGen<'a> {
     }
 
     fn emit_callable_decl(&mut self, decl: &CallableDecl) {
+        let local_names = self.local_names_for_callable(decl);
+        let previous_local_names = std::mem::replace(&mut self.local_names, local_names);
+
         match decl.kind {
             CallableKind::Function => self.write("function "),
             CallableKind::Operation => self.write("operation "),
         }
-        self.write(&decl.name.name);
+        self.write(&self.render_ident(&decl.name.name));
         if !decl.generics.is_empty() {
             self.write("<");
             for (i, g) in decl.generics.iter().enumerate() {
@@ -198,7 +207,7 @@ impl<'a> FirQSharpGen<'a> {
             }
             self.write(">");
         }
-        self.emit_pat(decl.input);
+        self.emit_callable_input_pat(decl.input);
         self.write(" : ");
         self.emit_ty(&decl.output);
         if decl.functors != FunctorSetValue::Empty {
@@ -217,6 +226,15 @@ impl<'a> FirQSharpGen<'a> {
                 let adj = spec.adj.clone();
                 let ctl = spec.ctl.clone();
                 let ctl_adj = spec.ctl_adj.clone();
+                if self.mode == RenderMode::Parseable
+                    && adj.is_none()
+                    && ctl.is_none()
+                    && ctl_adj.is_none()
+                {
+                    self.emit_block(body.block);
+                    self.local_names = previous_local_names;
+                    return;
+                }
                 self.writeln(" {");
                 self.emit_spec_decl("body", &body);
                 if let Some(s) = adj {
@@ -237,11 +255,208 @@ impl<'a> FirQSharpGen<'a> {
                 self.writeln("}");
             }
         }
+
+        self.local_names = previous_local_names;
+    }
+
+    fn local_names_for_callable(&self, decl: &CallableDecl) -> FxHashMap<LocalVarId, Rc<str>> {
+        let mut local_names = FxHashMap::default();
+        self.collect_pat_names(decl.input, &mut local_names);
+        if self.mode == RenderMode::Parseable {
+            match &decl.implementation {
+                CallableImpl::Intrinsic => {}
+                CallableImpl::Spec(spec) => {
+                    for spec in std::iter::once(&spec.body)
+                        .chain(spec.adj.iter())
+                        .chain(spec.ctl.iter())
+                        .chain(spec.ctl_adj.iter())
+                    {
+                        if let Some(input_pat) = spec.input {
+                            self.collect_pat_names(input_pat, &mut local_names);
+                        }
+                    }
+                }
+                CallableImpl::SimulatableIntrinsic(spec) => {
+                    if let Some(input_pat) = spec.input {
+                        self.collect_pat_names(input_pat, &mut local_names);
+                    }
+                }
+            }
+        }
+        self.collect_impl_local_names(&decl.implementation, &mut local_names);
+        local_names
+    }
+
+    fn collect_impl_local_names(
+        &self,
+        implementation: &CallableImpl,
+        local_names: &mut FxHashMap<LocalVarId, Rc<str>>,
+    ) {
+        match implementation {
+            CallableImpl::Intrinsic => {}
+            CallableImpl::Spec(spec) => {
+                self.collect_spec_decl_local_names(&spec.body, local_names);
+                if let Some(adj) = &spec.adj {
+                    self.collect_spec_decl_local_names(adj, local_names);
+                }
+                if let Some(ctl) = &spec.ctl {
+                    self.collect_spec_decl_local_names(ctl, local_names);
+                }
+                if let Some(ctl_adj) = &spec.ctl_adj {
+                    self.collect_spec_decl_local_names(ctl_adj, local_names);
+                }
+            }
+            CallableImpl::SimulatableIntrinsic(spec) => {
+                self.collect_spec_decl_local_names(spec, local_names);
+            }
+        }
+    }
+
+    fn collect_spec_decl_local_names(
+        &self,
+        spec: &SpecDecl,
+        local_names: &mut FxHashMap<LocalVarId, Rc<str>>,
+    ) {
+        self.collect_block_local_names(spec.block, local_names);
+    }
+
+    fn collect_block_local_names(
+        &self,
+        block_id: BlockId,
+        local_names: &mut FxHashMap<LocalVarId, Rc<str>>,
+    ) {
+        for &stmt_id in &self.package().get_block(block_id).stmts {
+            let stmt = self.package().get_stmt(stmt_id);
+            match &stmt.kind {
+                StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
+                    self.collect_expr_local_names(*expr, local_names);
+                }
+                StmtKind::Local(_, pat_id, expr) => {
+                    self.collect_pat_names(*pat_id, local_names);
+                    self.collect_expr_local_names(*expr, local_names);
+                }
+                StmtKind::Item(_) => {}
+            }
+        }
+    }
+
+    fn collect_expr_local_names(
+        &self,
+        expr_id: ExprId,
+        local_names: &mut FxHashMap<LocalVarId, Rc<str>>,
+    ) {
+        let kind = &self.package().get_expr(expr_id).kind;
+        match kind {
+            ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
+                for &expr in exprs {
+                    self.collect_expr_local_names(expr, local_names);
+                }
+            }
+            ExprKind::ArrayRepeat(item, size)
+            | ExprKind::Assign(item, size)
+            | ExprKind::AssignOp(_, item, size)
+            | ExprKind::BinOp(_, item, size)
+            | ExprKind::Call(item, size)
+            | ExprKind::Index(item, size)
+            | ExprKind::AssignField(item, _, size)
+            | ExprKind::UpdateField(item, _, size) => {
+                self.collect_expr_local_names(*item, local_names);
+                self.collect_expr_local_names(*size, local_names);
+            }
+            ExprKind::AssignIndex(array, index, value)
+            | ExprKind::UpdateIndex(array, index, value) => {
+                self.collect_expr_local_names(*array, local_names);
+                self.collect_expr_local_names(*index, local_names);
+                self.collect_expr_local_names(*value, local_names);
+            }
+            ExprKind::Block(block) => self.collect_block_local_names(*block, local_names),
+            ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
+            ExprKind::Fail(expr)
+            | ExprKind::Field(expr, _)
+            | ExprKind::Return(expr)
+            | ExprKind::UnOp(_, expr) => self.collect_expr_local_names(*expr, local_names),
+            ExprKind::If(cond, body, otherwise) => {
+                self.collect_expr_local_names(*cond, local_names);
+                self.collect_expr_local_names(*body, local_names);
+                if let Some(otherwise) = otherwise {
+                    self.collect_expr_local_names(*otherwise, local_names);
+                }
+            }
+            ExprKind::Range(start, step, end) => {
+                for expr in [start, step, end].into_iter().flatten() {
+                    self.collect_expr_local_names(*expr, local_names);
+                }
+            }
+            ExprKind::Struct(_, copy, fields) => {
+                if let Some(copy) = copy {
+                    self.collect_expr_local_names(*copy, local_names);
+                }
+                for field in fields {
+                    self.collect_expr_local_names(field.value, local_names);
+                }
+            }
+            ExprKind::String(components) => {
+                for component in components {
+                    if let StringComponent::Expr(expr) = component {
+                        self.collect_expr_local_names(*expr, local_names);
+                    }
+                }
+            }
+            ExprKind::While(cond, block) => {
+                self.collect_expr_local_names(*cond, local_names);
+                self.collect_block_local_names(*block, local_names);
+            }
+        }
+    }
+
+    fn collect_pat_names(&self, pat_id: PatId, local_names: &mut FxHashMap<LocalVarId, Rc<str>>) {
+        let pat = self.package().get_pat(pat_id);
+        match &pat.kind {
+            PatKind::Bind(ident) => {
+                local_names.insert(ident.id, Rc::from(self.render_ident(&ident.name)));
+            }
+            PatKind::Tuple(pats) => {
+                for &pat in pats {
+                    self.collect_pat_names(pat, local_names);
+                }
+            }
+            PatKind::Discard => {}
+        }
     }
 
     fn emit_spec_decl(&mut self, label: &str, spec: &SpecDecl) {
+        if self.mode == RenderMode::Parseable {
+            self.emit_parseable_spec_decl(label, spec);
+            return;
+        }
         self.write(label);
         self.emit_block(spec.block);
+    }
+
+    fn emit_parseable_spec_decl(&mut self, label: &str, spec: &SpecDecl) {
+        self.write(label);
+        match label {
+            "body" | "adjoint" => {
+                self.write(" ...");
+            }
+            "controlled" | "controlled adjoint" => {
+                if let Some(input_pat) = spec.input {
+                    self.write(" (");
+                    self.emit_pat_bindings(self.control_pat(input_pat));
+                    self.write(", ...)");
+                }
+            }
+            _ => {}
+        }
+        self.emit_block(spec.block);
+    }
+
+    fn control_pat(&self, input_pat: PatId) -> PatId {
+        let pat = self.package().get_pat(input_pat);
+        match &pat.kind {
+            PatKind::Tuple(pats) => pats.first().copied().unwrap_or(input_pat),
+            PatKind::Bind(_) | PatKind::Discard => input_pat,
+        }
     }
 
     fn emit_block(&mut self, block_id: BlockId) {
@@ -377,15 +592,24 @@ impl<'a> FirQSharpGen<'a> {
                 self.write("if ");
                 self.emit_expr(*cond);
                 self.write(" ");
-                self.emit_expr(*body);
+                self.emit_if_branch(*body);
                 if let Some(e) = otherwise {
-                    let is_elif = matches!(self.package().get_expr(*e).kind, ExprKind::If(..));
-                    if is_elif {
-                        self.write(" el");
-                    } else {
+                    if self.mode == RenderMode::Parseable {
                         self.write(" else ");
+                        if matches!(self.package().get_expr(*e).kind, ExprKind::If(..)) {
+                            self.emit_expr(*e);
+                        } else {
+                            self.emit_if_branch(*e);
+                        }
+                    } else {
+                        let is_elif = matches!(self.package().get_expr(*e).kind, ExprKind::If(..));
+                        if is_elif {
+                            self.write(" el");
+                        } else {
+                            self.write(" else ");
+                        }
+                        self.emit_expr(*e);
                     }
-                    self.emit_expr(*e);
                 }
             }
             ExprKind::Index(array, index) => {
@@ -596,11 +820,21 @@ impl<'a> FirQSharpGen<'a> {
         }
     }
 
+    fn emit_callable_input_pat(&mut self, pat_id: PatId) {
+        if matches!(self.package().get_pat(pat_id).kind, PatKind::Tuple(_)) {
+            self.emit_pat(pat_id);
+        } else {
+            self.write("(");
+            self.emit_pat(pat_id);
+            self.write(")");
+        }
+    }
+
     fn emit_pat(&mut self, pat_id: PatId) {
         let pat = self.package().get_pat(pat_id).clone();
         match pat.kind {
             PatKind::Bind(ident) => {
-                self.write(&ident.name);
+                self.write(&self.render_ident(&ident.name));
                 self.write(" : ");
                 self.emit_ty(&pat.ty);
             }
@@ -637,6 +871,62 @@ impl<'a> FirQSharpGen<'a> {
                 self.write(&name);
             }
         }
+    }
+
+    fn emit_if_branch(&mut self, expr_id: ExprId) {
+        if self.mode != RenderMode::Parseable
+            || matches!(self.package().get_expr(expr_id).kind, ExprKind::Block(_))
+        {
+            self.emit_expr(expr_id);
+            return;
+        }
+
+        self.writeln(" {");
+        self.emit_expr(expr_id);
+        self.writeln("");
+        self.write("}");
+    }
+
+    fn emit_pat_bindings(&mut self, pat_id: PatId) {
+        let pat = self.package().get_pat(pat_id).clone();
+        match pat.kind {
+            PatKind::Bind(ident) => self.write(&self.render_ident(&ident.name)),
+            PatKind::Discard => self.write("_"),
+            PatKind::Tuple(pats) => {
+                self.write("(");
+                if let Some((last, most)) = pats.split_last() {
+                    for p in most {
+                        self.emit_pat_bindings(*p);
+                        self.write(", ");
+                    }
+                    self.emit_pat_bindings(*last);
+                    if most.is_empty() {
+                        self.write(",");
+                    }
+                }
+                self.write(")");
+            }
+        }
+    }
+
+    fn render_ident(&self, name: &str) -> String {
+        if self.mode != RenderMode::Parseable {
+            return name.to_string();
+        }
+
+        let mut rendered = String::with_capacity(name.len());
+        for (index, ch) in name.chars().enumerate() {
+            let is_valid = if index == 0 {
+                ch == '_' || ch.is_ascii_alphabetic()
+            } else {
+                ch == '_' || ch.is_ascii_alphanumeric()
+            };
+            rendered.push(if is_valid { ch } else { '_' });
+        }
+        if rendered.is_empty() {
+            rendered.push('_');
+        }
+        rendered
     }
 
     fn local_display(&self, local: LocalVarId) -> String {

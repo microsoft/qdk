@@ -41,7 +41,7 @@ fn adjoint_spec_hoist_in_call_arg() {
             }
             operation Outer(n : Int, q : Qubit) : Unit is Adj {
                 body {
-                    Inner(q, q);
+                    Inner(n, q);
                 }
                 adjoint {
                     let _ : ((Int, Qubit) => Unit is Adj) = Inner;
@@ -55,7 +55,7 @@ fn adjoint_spec_hoist_in_call_arg() {
                     __quantum__rt__qubit_release(q);
                 }
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -89,13 +89,11 @@ fn controlled_spec_hoist_in_call_arg() {
             // namespace Test
             operation Outer(n : Int, q : Qubit) : Unit is Ctl {
                 body {
-                    H(
-                        @generated_ident_55
-                    );
+                    H(q);
                 }
                 controlled {
                     let _ : ((Qubit[], Qubit) => Unit is Adj + Ctl) = Controlled H;
-                    let _ : Qubit[] = c;
+                    let _ : Qubit[] = _local3;
                     ()
                 }
             }
@@ -118,7 +116,7 @@ fn controlled_spec_hoist_in_call_arg() {
                     );
                 }
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -153,21 +151,17 @@ fn controlled_adjoint_spec_hoist_in_call_arg() {
             // namespace Test
             operation Outer(n : Int, q : Qubit) : Unit is Adj + Ctl {
                 body {
-                    H(
-                        @generated_ident_73
-                    );
+                    H(q);
                 }
                 adjoint {
-                    H(
-                        @generated_ident_73
-                    );
+                    H(q);
                 }
                 controlled {
-                    Controlled H(c, @generated_ident_73);
+                    Controlled H(_local3, q);
                 }
                 controlled adjoint {
                     let _ : ((Qubit[], Qubit) => Unit is Adj + Ctl) = Controlled H;
-                    let _ : Qubit[] = q;
+                    let _ : Qubit[] = _local4;
                     ()
                 }
             }
@@ -190,7 +184,7 @@ fn controlled_adjoint_spec_hoist_in_call_arg() {
                     );
                 }
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -224,7 +218,7 @@ fn while_body_with_call_arg_return() {
             // namespace Test
             function Add(a : Int, b : Int) : Int {
                 body {
-                    i + b
+                    a + b
                 }
             }
             function Main() : Int {
@@ -272,9 +266,9 @@ fn local_init_retype_in_call_arg_fix() {
     "#},
         &expect![[r#"
             // namespace Test
-            function Identityx : Int : Int {
+            function Identity(x : Int) : Int {
                 body {
-                    c
+                    x
                 }
             }
             function Main() : Int {
@@ -382,13 +376,13 @@ fn flag_fallback_handles_arrow_return() {
         source,
         &expect![[r#"
             // namespace Test
-            function MakeAddern : Int : (Int -> Int) {
+            function MakeAdder(n : Int) : (Int -> Int) {
                 body {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : (Int -> Int) = __return_unify_nop_5;
                     mutable i : Int = 0;
                     while not __has_returned and i < 3 {
-                        if i == x {
+                        if i == n {
                             {
                                 __ret_val = / * closure item = 3 captures = [] * / < lambda >;
                                 __has_returned = true;
@@ -407,7 +401,7 @@ fn flag_fallback_handles_arrow_return() {
             function Main() : Int {
                 body {
                     let f : (Int -> Int) = MakeAdder(1);
-                    x(10)
+                    f(10)
                 }
             }
             function < lambda > (x : Int, ) : Int {
@@ -420,7 +414,7 @@ fn flag_fallback_handles_arrow_return() {
                     x
                 }
             }
-            function __return_unify_nop_5_ : Int : Int {
+            function __return_unify_nop_5(_ : Int) : Int {
                 body {
                     0
                 }

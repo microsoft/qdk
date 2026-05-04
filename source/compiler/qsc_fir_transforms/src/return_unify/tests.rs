@@ -98,7 +98,7 @@ impl NoHoistReturnUnifyResult {
     }
 }
 
-fn assert_no_reachable_returns(store: &PackageStore, pkg_id: PackageId) {
+pub(crate) fn assert_no_reachable_returns(store: &PackageStore, pkg_id: PackageId) {
     let package = store.get(pkg_id);
     let reachable = collect_reachable_from_entry(store, pkg_id);
 
@@ -270,7 +270,12 @@ fn check_no_hoist_semantic_equivalence(source: &str) {
                 "direct no-hoist return_unify semantic equivalence violated: original returned {exp_val}, transformed returned {act_val}"
             );
         }
-        (Err(_), Err(_)) => {}
+        (Err(exp_err), Err(act_err)) => {
+            assert_eq!(
+                exp_err, act_err,
+                "direct no-hoist return_unify semantic equivalence violated: original failed with {exp_err}, transformed failed with {act_err}"
+            );
+        }
         (Ok(exp_val), Err(err)) => {
             panic!(
                 "original succeeded with {exp_val} but direct no-hoist return_unify failed: {err}"
@@ -783,8 +788,11 @@ fn check_semantic_equivalence(source: &str) {
                  transformed returned {act_val}"
             );
         }
-        (Err(_), Err(_)) => {
-            // Both failed — the transform preserves the error behavior.
+        (Err(exp_err), Err(act_err)) => {
+            assert_eq!(
+                exp_err, act_err,
+                "semantic equivalence violated: original failed with {exp_err}, transformed failed with {act_err}"
+            );
         }
         (Ok(exp_val), Err(err)) => {
             panic!("original succeeded with {exp_val} but transformed failed: {err}");

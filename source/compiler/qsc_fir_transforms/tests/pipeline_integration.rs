@@ -177,6 +177,18 @@ fn callable_body_summary(
     lines.join("\n")
 }
 
+fn package_has_callable_named(
+    store: &qsc_fir::fir::PackageStore,
+    pkg_id: qsc_fir::fir::PackageId,
+    callable_name: &str,
+) -> bool {
+    let package = store.get(pkg_id);
+    package.items.values().any(|item| match &item.kind {
+        ItemKind::Callable(decl) => decl.name.name.as_ref() == callable_name,
+        _ => false,
+    })
+}
+
 fn expr_targets_callable(
     package: &qsc_fir::fir::Package,
     pkg_id: qsc_fir::fir::PackageId,
@@ -1321,13 +1333,12 @@ fn stage_parity_tuple_comp_lower_lowers_tuple_equality() {
 }
 
 #[test]
-fn stage_parity_sroa_scalarizes_tuple_locals_and_parameters() {
+fn stage_parity_sroa_body_shape_matches_full_pipeline() {
     // Stage-parity check after Scalar Replacement of Aggregates (SROA).
     //
-    // Invariant: After SROA, tuple locals and callable parameters are
-    // scalarized into individual scalar locals. Callable count remains
-    // stable as SROA does not create new callables. Callable body structures
-    // should match full pipeline output.
+    // Invariant: After SROA, the reachable callable set, signature surface,
+    // and callable body shape for this source program should already match
+    // the later full-pipeline result.
     //
     // Importance: SROA is a data-flow optimization that rewrites local
     // patterns and parameter decomposition. Validating parity ensures that
@@ -1383,13 +1394,12 @@ fn stage_parity_sroa_scalarizes_tuple_locals_and_parameters() {
 }
 
 #[test]
-fn stage_parity_item_dce_eliminates_unreachable_items() {
+fn stage_parity_item_dce_reachable_surface_matches_full_pipeline() {
     // Stage-parity check after item-level dead code elimination.
     //
-    // Invariant: After ItemDce, unreachable callables and types are removed
-    // from the package. The reachable callable set should be identical to
-    // the full pipeline output. Statement references should not dangle
-    // (reachable callables only reference reachable items).
+    // Invariant: After ItemDce, the reachable callable surface should match
+    // the full pipeline output for this program. A separate regression test
+    // below asserts direct removal of an unreachable callable item.
     //
     // Importance: ItemDce is a critical pass that removes dead code. This
     // test validates that DCE correctly identifies and preserves reachable
@@ -1623,47 +1633,11 @@ fn stage_parity_tuple_comp_lower_no_residual() {
 }
 
 #[test]
-fn stage_parity_sroa_no_tuple_locals() {
-    // Regression test for SROA (Scalar Replacement of Aggregates) at PostSroa.
+fn stage_parity_item_dce_removes_unreachable_callable_items() {
+    // Regression test for item DCE removing dead callable items.
     //
-    // Invariant: After SROA, tuple-typed local variables have been scalarized.
-    // No tuple-typed locals should remain in reachable callable bodies.
-    let source = r#"
-        @EntryPoint()
-        operation Main() : Int {
-            let pair = (1, 2);
-            let (x, y) = pair;
-            x + y
-        }
-    "#;
-
-    let (mut post_sroa_store, post_sroa_pkg_id, _) = compile_and_lower(source);
-    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
-
-    run_pipeline_to_successfully(&mut post_sroa_store, post_sroa_pkg_id, PipelineStage::Sroa);
-    run_pipeline_successfully(&mut full_store, full_pkg_id);
-
-    invariants::check(
-        &post_sroa_store,
-        post_sroa_pkg_id,
-        invariants::InvariantLevel::PostSroa,
-    );
-
-    let post_sroa_callables = reachable_callable_names(&post_sroa_store, post_sroa_pkg_id);
-    let full_callables = reachable_callable_names(&full_store, full_pkg_id);
-
-    assert_eq!(
-        post_sroa_callables, full_callables,
-        "SROA should not introduce or remove callables"
-    );
-}
-
-#[test]
-fn stage_parity_item_dce_node_count() {
-    // Regression test for item DCE reducing item count on dead code.
-    //
-    // Invariant: After item DCE, unreachable items (dead code) have been removed.
-    // Dead callables should be eliminated, and reachable callables should match the full pipeline.
+    // Invariant: After item DCE, callable items that are not reachable from
+    // the entry expression are removed from the package item table.
     let source = r#"
         operation Unused() : Unit { }
         operation Used() : Unit { }
@@ -1680,58 +1654,30 @@ fn stage_parity_item_dce_node_count() {
     let pre_dce_callables = reachable_callable_names(&pre_dce_store, pre_dce_pkg_id);
     let post_dce_callables = reachable_callable_names(&post_dce_store, post_dce_pkg_id);
 
-    // After DCE, the only reachable callable should be Main (Used is not directly called from Main)
+    assert!(
+        package_has_callable_named(&pre_dce_store, pre_dce_pkg_id, "Unused"),
+        "pre-ItemDce package should still contain dead callable item 'Unused'"
+    );
     assert!(
         post_dce_callables.len() <= pre_dce_callables.len(),
         "item DCE should not increase reachable callable count"
     );
+    assert!(
+        !package_has_callable_named(&post_dce_store, post_dce_pkg_id, "Unused"),
+        "ItemDce should remove unreachable callable item 'Unused'"
+    );
+    assert!(
+        package_has_callable_named(&post_dce_store, post_dce_pkg_id, "Used"),
+        "ItemDce should keep reachable callable item 'Used'"
+    );
+    assert!(
+        package_has_callable_named(&post_dce_store, post_dce_pkg_id, "Main"),
+        "ItemDce should keep the entry callable item 'Main'"
+    );
 
-    // Verify postcondition holds
     invariants::check(
         &post_dce_store,
         post_dce_pkg_id,
-        invariants::InvariantLevel::PostAll,
-    );
-}
-
-#[test]
-fn stage_parity_exec_graph_no_empty_ranges() {
-    // Regression test for execution graph rebuild eliminating empty ranges.
-    //
-    // Invariant: After execution graph rebuild, EMPTY_EXEC_RANGE sentinels
-    // used by synthesis passes have been replaced with valid execution graph ranges.
-    // No empty-range artifacts should remain in the final graph.
-    let source = r#"
-        operation Identity<'T>(x : 'T) : 'T { x }
-        @EntryPoint()
-        operation Main() : Int {
-            let a = Identity(42);
-            let b = Identity(1.5);
-            a
-        }
-    "#;
-
-    let (mut post_rebuild_store, post_rebuild_pkg_id, _) = compile_and_lower(source);
-    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
-
-    run_pipeline_to_successfully(
-        &mut post_rebuild_store,
-        post_rebuild_pkg_id,
-        PipelineStage::ExecGraphRebuild,
-    );
-    run_pipeline_successfully(&mut full_store, full_pkg_id);
-
-    invariants::check(
-        &post_rebuild_store,
-        post_rebuild_pkg_id,
-        invariants::InvariantLevel::PostAll,
-    );
-
-    let post_rebuild_callables = reachable_callable_names(&post_rebuild_store, post_rebuild_pkg_id);
-    let full_callables = reachable_callable_names(&full_store, full_pkg_id);
-
-    assert_eq!(
-        post_rebuild_callables, full_callables,
-        "execution graph rebuild should preserve callable structure"
+        invariants::InvariantLevel::PostGc,
     );
 }

@@ -155,7 +155,7 @@ fn nested_field_access_classified_as_field_use() {
 }
 
 #[test]
-fn walker_visits_all_expression_kinds_in_program() {
+fn walker_visits_nested_expression_kinds_in_program() {
     let (store, pkg_id) = compile_to_fir(
         "function Main() : Int {
                  let x = 1 + 2;
