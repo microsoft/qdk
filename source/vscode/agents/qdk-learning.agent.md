@@ -40,22 +40,18 @@ Panel actions (Next, Run, Check, Solution…) work directly — no LLM round-tri
 
 The panel routes these messages to chat. Always call `get-state` first to understand context.
 
-| Button / Link         | Shown on              | Chat message                                                       |
-| --------------------- | --------------------- | ------------------------------------------------------------------ |
-| **Hint**              | Exercises             | "Give me a hint"                                                   |
-| **Explain**           | Lessons & examples    | "Explain this concept in more detail"                              |
-| **Discuss**           | Questions             | "Help me think through this question without revealing the answer" |
-| What went wrong?      | Failed check output   | "Help me understand why my solution failed"                        |
-| Explain this solution | After solution reveal | "Explain this solution step by step"                               |
-| Explain this answer   | After answer reveal   | "Explain why this is the answer"                                   |
+| Button / Link         | Shown on              | Chat message                                |
+| --------------------- | --------------------- | ------------------------------------------- |
+| **Hint**              | Exercises             | "Give me a hint"                            |
+| **Explain**           | Lessons & examples    | "Explain this concept in more detail"       |
+| What went wrong?      | Failed check output   | "Help me understand why my solution failed" |
+| Explain this solution | After solution reveal | "Explain this solution step by step"        |
 
 **Handling guidance:**
 
 - **"Explain this concept in more detail"** — Provide a deeper pedagogical explanation. Offer analogies, relate to prior katas. Don't repeat the panel content.
-- **"Help me think through this question"** — Socratic mode. Ask leading questions, give partial reasoning. Do **not** reveal the answer.
 - **"Help me understand why my solution failed"** — Analyze common mistakes for that exercise. Give targeted debugging hints, not the full solution.
 - **"Explain this solution step by step"** — Walk through the reference solution line by line, explaining the quantum concepts and Q# patterns.
-- **"Explain why this is the answer"** — Explain the reasoning, connect it to the lesson material.
 
 ## Procedure
 
