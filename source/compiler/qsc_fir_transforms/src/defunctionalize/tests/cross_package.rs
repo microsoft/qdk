@@ -22,9 +22,27 @@ fn analysis_apply_operation_power_ca_consumer() {
         }
                 "#,
         adaptive_qirgen_capabilities(),
-        &expect![
-            "callable_params: 3\n  param: callable_id=4, path=[0], ty=((Qubit)[] => Unit is Adj + Ctl)\n  param: callable_id=6, path=[1], ty=((Qubit)[] => Unit is Adj + Ctl)\n  param: callable_id=7, path=[0], ty=((Int, (Qubit)[]) => Unit is Adj + Ctl)\ncall_sites: 5\n  site: hof=ApplyOperationPowerCA<(Qubit)[], AdjCtl>, arg=Dynamic\n  site: hof=ApplyOperationPowerCA<(Qubit)[], AdjCtl>, arg=Dynamic\n  site: hof=ApplyOperationPowerCA<(Qubit)[], AdjCtl>, arg=Dynamic\n  site: hof=ApplyOperationPowerCA<(Qubit)[], AdjCtl>, arg=Dynamic\n  site: hof=Consume<AdjCtl>, arg=Closure(target=4, Body)\nlattice states:\n  callable ApplyOperationPowerCA<(Qubit)[], AdjCtl>:\n    3: Dynamic\n    8: Dynamic\n    15: Dynamic\n    21: Dynamic"
-        ],
+        &expect![[r#"
+            callable_params: 3
+              param: callable_id=4, path=[0], ty=((Qubit)[] => Unit is Adj + Ctl)
+              param: callable_id=6, path=[1], ty=((Qubit)[] => Unit is Adj + Ctl)
+              param: callable_id=7, path=[0], ty=((Int, (Qubit)[]) => Unit is Adj + Ctl)
+            call_sites: 5
+              site: hof=ApplyOperationPowerCA<(Qubit)[], AdjCtl>, arg=Dynamic
+              site: hof=ApplyOperationPowerCA<(Qubit)[], AdjCtl>, arg=Dynamic
+              site: hof=ApplyOperationPowerCA<(Qubit)[], AdjCtl>, arg=Dynamic
+              site: hof=ApplyOperationPowerCA<(Qubit)[], AdjCtl>, arg=Dynamic
+              site: hof=Consume<AdjCtl>, arg=Closure(target=4, Body)
+            direct_call_sites: 3
+              site: callee=H:Adj, default
+              site: callee=H:Ctl, default
+              site: callee=H:CtlAdj, default
+            lattice states:
+              callable ApplyOperationPowerCA<(Qubit)[], AdjCtl>:
+                3: Dynamic
+                8: Dynamic
+                15: Dynamic
+                21: Dynamic"#]],
     );
 }
 
@@ -78,9 +96,17 @@ fn analysis_bernstein_vazirani_sample_shape() {
         }
                 "#,
         adaptive_qirgen_capabilities(),
-        &expect![
-            "callable_params: 2\n  param: callable_id=10, path=[0], ty=(((Qubit)[], Qubit) => Unit)\n  param: callable_id=6, path=[0], ty=(Qubit => Unit is Adj + Ctl)\ncall_sites: 3\n  site: hof=ApplyToEachA<Qubit, AdjCtl>, arg=Global(H, Body)\n  site: hof=ApplyToEachA<Qubit, AdjCtl>, arg=Global(H, Body)\n  site: hof=BernsteinVazirani<Empty>, arg=Closure(target=5, Body)\nlattice states:\n  callable Main:\n    7: Single(Closure(5):Body)"
-        ],
+        &expect![[r#"
+            callable_params: 2
+              param: callable_id=10, path=[0], ty=(((Qubit)[], Qubit) => Unit)
+              param: callable_id=6, path=[0], ty=(Qubit => Unit is Adj + Ctl)
+            call_sites: 3
+              site: hof=ApplyToEachA<Qubit, AdjCtl>, arg=Global(H, Body)
+              site: hof=ApplyToEachA<Qubit, AdjCtl>, arg=Global(H, Body)
+              site: hof=BernsteinVazirani<Empty>, arg=Closure(target=5, Body)
+            lattice states:
+              callable Main:
+                7: Single(Closure(5):Body)"#]],
     );
 }
 
@@ -142,9 +168,26 @@ fn analysis_deutsch_jozsa_sample_shape() {
         }
                 "#,
         adaptive_qirgen_capabilities(),
-        &expect![
-            "callable_params: 2\n  param: callable_id=8, path=[1], ty=(Qubit => Unit is Adj + Ctl)\n  param: callable_id=10, path=[0], ty=(((Qubit)[], Qubit) => Unit)\ncall_sites: 6\n  site: hof=ApplyControlledOnInt<Qubit, AdjCtl>, arg=Global(X, Body)\n  site: hof=ApplyControlledOnInt<Qubit, AdjCtl>, arg=Global(X, Body)\n  site: hof=DeutschJozsa<Empty>, arg=Global(SimpleConstantBoolF, Body)\n  site: hof=DeutschJozsa<Empty>, arg=Global(SimpleBalancedBoolF, Body)\n  site: hof=DeutschJozsa<Empty>, arg=Global(ConstantBoolF, Body)\n  site: hof=DeutschJozsa<Empty>, arg=Global(BalancedBoolF, Body)\nlattice states:\n  callable Main:\n    5: Multi([SimpleConstantBoolF:Body, SimpleBalancedBoolF:Body, ConstantBoolF:Body, BalancedBoolF:Body])"
-        ],
+        &expect![[r#"
+            callable_params: 2
+              param: callable_id=8, path=[1], ty=(Qubit => Unit is Adj + Ctl)
+              param: callable_id=10, path=[0], ty=(((Qubit)[], Qubit) => Unit)
+            call_sites: 6
+              site: hof=ApplyControlledOnInt<Qubit, AdjCtl>, arg=Global(X, Body)
+              site: hof=ApplyControlledOnInt<Qubit, AdjCtl>, arg=Global(X, Body)
+              site: hof=DeutschJozsa<Empty>, arg=Global(SimpleConstantBoolF, Body)
+              site: hof=DeutschJozsa<Empty>, arg=Global(SimpleBalancedBoolF, Body)
+              site: hof=DeutschJozsa<Empty>, arg=Global(ConstantBoolF, Body)
+              site: hof=DeutschJozsa<Empty>, arg=Global(BalancedBoolF, Body)
+            direct_call_sites: 5
+              site: callee=ApplyPauliFromInt:Adj, default
+              site: callee=ApplyPauliFromInt:Adj, default
+              site: callee=ApplyPauliFromInt:Adj, default
+              site: callee=ApplyPauliFromInt:Adj, default
+              site: callee=H:Adj, default
+            lattice states:
+              callable Main:
+                5: Multi([SimpleConstantBoolF:Body, SimpleBalancedBoolF:Body, ConstantBoolF:Body, BalancedBoolF:Body])"#]],
     );
 }
 

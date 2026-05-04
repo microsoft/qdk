@@ -1,7 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::{PipelineStage, return_unify::unify_returns, test_utils::compile_and_run_pipeline_to};
+use crate::{
+    PipelineStage,
+    return_unify::{tests::assert_no_reachable_returns, unify_returns},
+    test_utils::compile_and_run_pipeline_to,
+};
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use qsc_fir::assigner::Assigner;
@@ -17,7 +21,12 @@ fn check_before_after(source: &str, expect: &Expect) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
     let before = crate::pretty::write_package_qsharp(&store, pkg_id);
     let mut assigner = Assigner::from_package(store.get(pkg_id));
-    unify_returns(&mut store, pkg_id, &mut assigner);
+    let errors = unify_returns(&mut store, pkg_id, &mut assigner);
+    assert!(
+        errors.is_empty(),
+        "return_unify shape test produced errors: {errors:?}"
+    );
+    assert_no_reachable_returns(&store, pkg_id);
     let after = crate::pretty::write_package_qsharp(&store, pkg_id);
     let combined = format!("BEFORE:\n{before}\nAFTER:\n{after}");
     expect.assert_eq(&combined);
@@ -44,7 +53,7 @@ fn hoist_return_in_call_argument_shape_snapshot() {
             // namespace Test
             function Add(a : Int, b : Int) : Int {
                 body {
-                    x + b
+                    a + b
                 }
             }
             function Main() : Int {
@@ -60,7 +69,7 @@ fn hoist_return_in_call_argument_shape_snapshot() {
             // namespace Test
             function Add(a : Int, b : Int) : Int {
                 body {
-                    x + b
+                    a + b
                 }
             }
             function Main() : Int {
@@ -180,7 +189,7 @@ fn while_local_initializer_return_shape_snapshot() {
             // namespace Test
             function Add(a : Int, b : Int) : Int {
                 body {
-                    i + b
+                    a + b
                 }
             }
             function Main() : Int {
@@ -203,7 +212,7 @@ fn while_local_initializer_return_shape_snapshot() {
             // namespace Test
             function Add(a : Int, b : Int) : Int {
                 body {
-                    i + b
+                    a + b
                 }
             }
             function Main() : Int {

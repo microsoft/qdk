@@ -969,15 +969,13 @@ fn all_four_specializations_with_return_in_loop() {
     "#},
         &expect![[r#"
             // namespace Test
-            operation Opq : Qubit : Unit is Adj + Ctl {
+            operation Op(q : Qubit) : Unit is Adj + Ctl {
                 body {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable i : Int = 0;
-                    while not __has_returned and
-                    @generated_ident_142 < 5 {
-                        if
-                        @generated_ident_142 == 3 {
+                    while not __has_returned and i < 5 {
+                        if i == 3 {
                             {
                                 __ret_val = ();
                                 __has_returned = true;
@@ -985,7 +983,7 @@ fn all_four_specializations_with_return_in_loop() {
                         }
 
                         if not __has_returned {
-                            @generated_ident_142 += 1;
+                            i += 1;
                         };
                     }
 

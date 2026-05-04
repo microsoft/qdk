@@ -99,10 +99,10 @@ fn three_level_block_block_if_returns_at_each_level() {
                     if __has_returned __ret_val else __trailing_result
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -186,10 +186,10 @@ fn three_level_qubit_scopes_with_deep_return() {
                     if __has_returned __ret_val else __trailing_result
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -292,10 +292,10 @@ fn three_level_nested_returns_at_every_level() {
                     if __has_returned __ret_val else __trailing_result
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -334,8 +334,7 @@ fn three_level_hoist_return_in_call_arg_deep() {
             // namespace Test
             function Add(a : Int, b : Int) : Int {
                 body {
-                    total +
-                    @range_id_70
+                    a + b
                 }
             }
             operation Main() : Int {
@@ -463,10 +462,10 @@ fn three_level_outer_return_wraps_three_deep_block() {
 
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry

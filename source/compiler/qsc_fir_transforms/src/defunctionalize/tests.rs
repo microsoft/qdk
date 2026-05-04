@@ -67,10 +67,7 @@ fn panic_message(panic: Box<dyn Any + Send>) -> String {
 /// Compiles Q# source, runs defunctionalization, and snapshots the reachable
 /// callable names and their input pattern types from the user package.
 fn check(source: &str, expect: &Expect) {
-    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
-    let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
-    assert_no_defunctionalization_errors("defunctionalization", &errors);
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
     let package = fir_store.get(fir_pkg_id);
     let reachable = collect_reachable_from_entry(&fir_store, fir_pkg_id);
 
@@ -87,6 +84,91 @@ fn check(source: &str, expect: &Expect) {
     }
     lines.sort();
     expect.assert_eq(&lines.join("\n"));
+}
+
+fn compile_and_defunctionalize(source: &str) -> (fir::PackageStore, fir::PackageId) {
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+    let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
+    assert_no_defunctionalization_errors("defunctionalization", &errors);
+    (fir_store, fir_pkg_id)
+}
+
+fn callable_decl<'a>(package: &'a fir::Package, callable_name: &str) -> &'a fir::CallableDecl {
+    package
+        .items
+        .values()
+        .find_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == callable_name => {
+                Some(decl.as_ref())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("callable '{callable_name}' not found"))
+}
+
+fn call_arg_tuple_lengths_after_defunc(source: &str, callee_name: &str) -> Vec<usize> {
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let mut lengths = Vec::new();
+    for expr in package.exprs.values() {
+        let fir::ExprKind::Call(callee_id, args_id) = &expr.kind else {
+            continue;
+        };
+        let callee = package.get_expr(*callee_id);
+        let fir::ExprKind::Var(fir::Res::Item(item_id), _) = &callee.kind else {
+            continue;
+        };
+        if resolve_item_name(&fir_store, item_id) != callee_name {
+            continue;
+        }
+        let args = package.get_expr(*args_id);
+        let len = match &args.kind {
+            fir::ExprKind::Tuple(elements) => elements.len(),
+            _ => 1,
+        };
+        lengths.push(len);
+    }
+    lengths.sort_unstable();
+    lengths
+}
+
+fn callable_call_targets_after_defunc(source: &str, callable_name: &str) -> Vec<String> {
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let decl = callable_decl(package, callable_name);
+    let mut targets = Vec::new();
+    crate::walk_utils::for_each_expr_in_callable_impl(
+        package,
+        &decl.implementation,
+        &mut |_expr_id, expr| {
+            if let fir::ExprKind::Call(callee_id, _) = &expr.kind
+                && let Some(target) = call_target_name(&fir_store, package, *callee_id)
+            {
+                targets.push(target);
+            }
+        },
+    );
+    targets.sort();
+    targets
+}
+
+fn call_target_name(
+    store: &fir::PackageStore,
+    package: &fir::Package,
+    expr_id: fir::ExprId,
+) -> Option<String> {
+    let expr = package.get_expr(expr_id);
+    match &expr.kind {
+        fir::ExprKind::Var(fir::Res::Item(item_id), _) => Some(resolve_item_name(store, item_id)),
+        fir::ExprKind::UnOp(fir::UnOp::Functor(fir::Functor::Adj), inner) => {
+            call_target_name(store, package, *inner).map(|name| format!("Adjoint {name}"))
+        }
+        fir::ExprKind::UnOp(fir::UnOp::Functor(fir::Functor::Ctl), inner) => {
+            call_target_name(store, package, *inner).map(|name| format!("Controlled {name}"))
+        }
+        _ => None,
+    }
 }
 
 /// Resolves an `ItemId` to its callable name, falling back to the raw display.
@@ -182,6 +264,29 @@ fn check_analysis_with_capabilities(
             ConcreteCallable::Dynamic => "Dynamic".to_string(),
         };
         lines.push(format!("  site: hof={hof_name}, arg={arg_desc}"));
+    }
+
+    let mut direct_call_site_lines: Vec<_> = result
+        .direct_call_sites
+        .iter()
+        .map(|site| {
+            let condition = site.condition.map_or_else(
+                || "default".to_string(),
+                |expr| format!("condition={expr:?}"),
+            );
+            format!(
+                "  site: callee={}, {condition}",
+                format_concrete_callable(&site.callable, &fir_store)
+            )
+        })
+        .collect();
+    if !direct_call_site_lines.is_empty() {
+        lines.push(format!(
+            "direct_call_sites: {}",
+            direct_call_site_lines.len()
+        ));
+        direct_call_site_lines.sort();
+        lines.extend(direct_call_site_lines);
     }
 
     let mut lattice_items: Vec<_> = result.lattice_states.iter().collect();

@@ -7,12 +7,8 @@ pub(super) use crate::return_unify::tests::{
 pub(super) use expect_test::{Expect, expect};
 pub(super) use indoc::indoc;
 
-use qsc_data_structures::{
-    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
-};
-use qsc_frontend::compile::{self as frontend_compile};
-use qsc_hir::hir::PackageId;
-use qsc_passes::{PackageType, run_default_passes};
+use qsc_data_structures::language_features::LanguageFeatures;
+use qsc_parse::namespaces;
 
 mod fixpoint;
 mod flag_strategy;
@@ -27,38 +23,22 @@ mod three_level_mixed;
 // invariant `check_no_returns` asserts that the combined hoist + transform
 // produces PostReturnUnify-clean FIR (no `ExprKind::Return` survives).
 
-fn rendered_qsharp_compile_diagnostics(rendered: &str) -> Vec<String> {
-    let entry_expr = rendered
-        .lines()
-        .map(str::trim)
-        .collect::<Vec<_>>()
-        .windows(2)
-        .find_map(|window| {
-            if window[0] == "// entry" && !window[1].is_empty() {
-                Some(window[1].to_string())
-            } else {
-                None
-            }
-        });
+fn rendered_qsharp_parse_diagnostics(rendered: &str) -> Vec<String> {
+    let rendered_without_entry = if let Some((before_entry, _)) = rendered.split_once("// entry\n")
+    {
+        before_entry.trim_end().to_string()
+    } else {
+        rendered.to_string()
+    };
 
-    let capabilities = TargetCapabilityFlags::empty();
-    let store = crate::test_utils::package_store_with_stdlib(capabilities);
-    let std_id = PackageId::CORE.successor();
-    let sources = SourceMap::new(
-        vec![("roundtrip.qs".into(), rendered.into())],
-        entry_expr.map(Into::into),
-    );
-    let mut unit = frontend_compile::compile(
-        &store,
-        &[(PackageId::CORE, None), (std_id, None)],
-        sources,
-        capabilities,
+    let (_namespaces, errors) = namespaces(
+        &rendered_without_entry,
+        Some("roundtrip.qs"),
         LanguageFeatures::default(),
     );
-
-    run_default_passes(store.core(), &mut unit, PackageType::Exe)
+    errors
         .into_iter()
-        .map(|error| error.to_string())
+        .map(|error| format!("{error:?}"))
         .collect()
 }
 
@@ -66,12 +46,12 @@ pub(super) fn check_no_returns_q_roundtrip(source: &str, expect: &Expect) {
     check_no_returns_q(source, expect);
 
     let (store, pkg_id) = compile_return_unified(source);
-    let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
-    let diagnostics = rendered_qsharp_compile_diagnostics(&rendered);
+    let rendered = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
+    let diagnostics = rendered_qsharp_parse_diagnostics(&rendered);
 
     assert!(
         diagnostics.is_empty(),
-        "generated Q# should recompile without diagnostics:\n{}\n\nrendered:\n{rendered}",
+        "generated Q# should parse without diagnostics:\n{}\n\nrendered:\n{rendered}",
         diagnostics.join("\n")
     );
 }

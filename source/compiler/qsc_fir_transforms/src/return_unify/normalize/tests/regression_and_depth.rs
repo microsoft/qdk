@@ -123,10 +123,10 @@ fn nested_while_inner_only_exit_is_return_terminates() {
                     if __has_returned __ret_val else __trailing_result
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -248,10 +248,10 @@ fn nested_for_inner_body_hits_return() {
                     if __has_returned __ret_val else __trailing_result
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -319,10 +319,10 @@ fn continuation_value_is_observed_when_inner_return_not_taken() {
                     if __has_returned __ret_val else __trailing_result
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -399,10 +399,10 @@ fn four_level_if_if_if_if_return_deepest() {
                     if __has_returned __ret_val else __trailing_result
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -504,10 +504,10 @@ fn four_level_while_while_while_while_return_deepest() {
                     if __has_returned __ret_val else __trailing_result
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -614,10 +614,10 @@ fn four_level_if_while_for_if_return_deepest() {
                     if __has_returned __ret_val else __trailing_result
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -684,10 +684,10 @@ fn use_scope_wraps_nested_if_return_deep() {
                     if __has_returned __ret_val else __trailing_result
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -746,10 +746,10 @@ fn if_elseif_elseif_else_return_in_last_arm() {
 
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -819,10 +819,10 @@ fn nested_use_scope_return_in_inner_body() {
                     if __has_returned __ret_val else __trailing_result
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry

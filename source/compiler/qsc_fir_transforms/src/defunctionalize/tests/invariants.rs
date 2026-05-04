@@ -142,11 +142,16 @@ fn error_multiple_dynamic_sites_collected() {
     );
     let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(package_id));
     let errors = defunctionalize(&mut store, package_id, &mut assigner);
-    assert!(
-        !errors.is_empty(),
-        "expected errors to be collected in the returned vector"
+    assert_eq!(
+        errors.len(),
+        2,
+        "expected both dynamic callable sites to be collected"
     );
     for error in &errors {
+        assert!(
+            matches!(error, super::super::Error::DynamicCallable(_)),
+            "expected DynamicCallable error, got {error:?}"
+        );
         assert!(
             !error.to_string().is_empty(),
             "each error should have a display message"

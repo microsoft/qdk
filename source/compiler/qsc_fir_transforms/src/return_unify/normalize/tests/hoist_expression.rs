@@ -194,7 +194,7 @@ fn hoist_return_in_call_argument() {
             // namespace Test
             function Add(a : Int, b : Int) : Int {
                 body {
-                    x + b
+                    a + b
                 }
             }
             function Main() : Int {
@@ -768,7 +768,7 @@ fn hoist_return_chained() {
             // namespace Test
             function Add(a : Int, b : Int) : Int {
                 body {
-                    x + b
+                    a + b
                 }
             }
             function Main() : Int {

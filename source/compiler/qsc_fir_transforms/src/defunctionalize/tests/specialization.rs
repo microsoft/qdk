@@ -326,8 +326,7 @@ fn specialize_single_assignment_local() {
 
 #[test]
 fn defunctionalized_call_site_drops_callable_argument() {
-    check(
-        r#"
+    let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
@@ -335,17 +334,23 @@ fn defunctionalized_call_site_drops_callable_argument() {
             use q = Qubit();
             ApplyOp(H, q);
         }
-        "#,
+        "#;
+    check(
+        source,
         &expect![[r#"
             ApplyOp<AdjCtl>{H}: input_ty=Qubit
             Main: input_ty=Unit"#]],
+    );
+    assert_eq!(
+        call_arg_tuple_lengths_after_defunc(source, "ApplyOp<AdjCtl>{H}"),
+        vec![1],
+        "defunctionalized ApplyOp call should pass only the qubit argument"
     );
 }
 
 #[test]
 fn rewrite_closure_capture_args_inserted() {
-    check(
-        r#"
+    let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
@@ -354,11 +359,18 @@ fn rewrite_closure_capture_args_inserted() {
             let angle = 1.0;
             ApplyOp(q1 => Rx(angle, q1), q);
         }
-        "#,
+        "#;
+    check(
+        source,
         &expect![[r#"
             <lambda>: input_ty=(Double, Qubit)
             ApplyOp<Empty>{closure}: input_ty=(Qubit, Double)
             Main: input_ty=Unit"#]],
+    );
+    assert_eq!(
+        call_arg_tuple_lengths_after_defunc(source, "ApplyOp<Empty>{closure}"),
+        vec![2],
+        "rewritten closure call should pass the qubit and captured angle"
     );
 }
 
@@ -952,8 +964,7 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
 
 #[test]
 fn three_branch_conditional_callable_generates_branch_split() {
-    check_errors(
-        r#"
+    let source = r#"
         operation Apply(op : Qubit => Unit, q : Qubit) : Unit {
             op(q);
         }
@@ -971,8 +982,14 @@ fn three_branch_conditional_callable_generates_branch_split() {
             }
             Apply(op, q);
         }
-        "#,
-        &expect!["(no error)"],
+        "#;
+    check_errors(source, &expect!["(no error)"]);
+    let targets = callable_call_targets_after_defunc(source, "Main");
+    assert!(
+        targets.contains(&"Apply<AdjCtl>{X}".to_string())
+            && targets.contains(&"Apply<AdjCtl>{Y}".to_string())
+            && targets.contains(&"Apply<AdjCtl>{Z}".to_string()),
+        "branch split should call X, Y, and Z specializations, got {targets:?}"
     );
 }
 
@@ -1094,19 +1111,25 @@ fn excessive_specializations_warning_does_not_block_compilation() {
 
 #[test]
 fn zero_capture_conditional_alias_dispatches_correctly() {
-    check(
-        r#"
+    let source = r#"
         operation ZeroCaptureConditionalAlias(q : Qubit, useAdj : Bool) : Unit {
-            let u = if useAdj { Adjoint H } else { H };
+            let u = if useAdj { Adjoint S } else { S };
             u(q);
         }
         operation Main() : Unit {
             use q = Qubit();
             ZeroCaptureConditionalAlias(q, true);
         }
-        "#,
+        "#;
+    check(
+        source,
         &expect![[r#"
             Main: input_ty=Unit
             ZeroCaptureConditionalAlias: input_ty=(Qubit, Bool)"#]],
+    );
+    let targets = callable_call_targets_after_defunc(source, "ZeroCaptureConditionalAlias");
+    assert!(
+        targets.contains(&"Adjoint S".to_string()) && targets.contains(&"S".to_string()),
+        "conditional alias should preserve both S and Adjoint S dispatch targets, got {targets:?}"
     );
 }

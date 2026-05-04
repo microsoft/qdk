@@ -385,20 +385,67 @@ fn item_dce_is_idempotent() {
 mod item_dce_contracts {
     use super::*;
 
+    fn dangling_item_refs(package: &qsc_fir::fir::Package) -> Vec<qsc_fir::fir::LocalItemId> {
+        let mut refs = Vec::new();
+        for stmt in package.stmts.values() {
+            if let qsc_fir::fir::StmtKind::Item(item_id) = &stmt.kind
+                && package.items.get(*item_id).is_none()
+            {
+                refs.push(*item_id);
+            }
+        }
+        refs.sort();
+        refs
+    }
+
+    fn insert_item_stmt_in_main(
+        store: &mut qsc_fir::fir::PackageStore,
+        pkg_id: qsc_fir::fir::PackageId,
+        assigner: &mut Assigner,
+        item_id: qsc_fir::fir::LocalItemId,
+    ) {
+        let stmt_id = assigner.next_stmt();
+        let package = store.get_mut(pkg_id);
+        package.stmts.insert(
+            stmt_id,
+            qsc_fir::fir::Stmt {
+                id: stmt_id,
+                span: Span::default(),
+                kind: qsc_fir::fir::StmtKind::Item(item_id),
+                exec_graph_range: crate::EMPTY_EXEC_RANGE,
+            },
+        );
+
+        let main_id = callable_id_by_name(package, "Main");
+        let main_item = package.get_item(main_id);
+        let ItemKind::Callable(main_decl) = &main_item.kind else {
+            panic!("Main should be callable");
+        };
+        let qsc_fir::fir::CallableImpl::Spec(spec) = &main_decl.implementation else {
+            panic!("Main should have a body spec");
+        };
+        let main_block = spec.body.block;
+        package
+            .blocks
+            .get_mut(main_block)
+            .expect("Main body block should exist")
+            .stmts
+            .insert(0, stmt_id);
+    }
+
     /// Validates that `item_dce` removes dead callables while preserving the
     /// pipeline's ability to handle temporary dangling `StmtKind::Item` references.
     ///
     /// # Contract Being Tested
     ///
     /// - Dead callables are removed from `Package::items`.
-    /// - If the dead callable was declared via `StmtKind::Item` in a reachable block,
-    ///   that statement becomes a dangling reference temporarily.
+    /// - A dead callable declared via `StmtKind::Item` in a reachable block
+    ///   becomes a dangling reference temporarily.
     /// - The dangling reference is safe: `check_id_references` post-DCE allows it, and
     ///   `exec_graph_rebuild` ignores `StmtKind::Item` statements.
     /// - The pipeline repairs it by cascading `gc_unreachable` after `item_dce`.
     #[test]
     fn test_temporary_dangling_refs_allowed() {
-        // Compile through monomorphization to set up a simple dead-callable scenario.
         let source = indoc! {"
             namespace Test {
                 function Dead() : Int { 0 }
@@ -407,13 +454,17 @@ mod item_dce_contracts {
             }
         "};
 
-        // Compile to FIR and monomorphize.
         let (mut store, pkg_id) = compile_to_fir(source);
         let mut assigner = Assigner::from_package(store.get(pkg_id));
         crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigner);
+        let dead_id = callable_id_by_name(store.get(pkg_id), "Dead");
+        insert_item_stmt_in_main(&mut store, pkg_id, &mut assigner, dead_id);
+        assert!(
+            dangling_item_refs(store.get(pkg_id)).is_empty(),
+            "pre-DCE package should not yet contain dangling item refs"
+        );
 
         // Directly invoke item_dce without cascading gc_unreachable.
-        // This demonstrates that dangling refs may exist post-DCE.
         let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
         let removed =
             crate::item_dce::eliminate_dead_items(pkg_id, store.get_mut(pkg_id), &reachable);
@@ -424,16 +475,13 @@ mod item_dce_contracts {
             "dead callable should have been removed by item_dce"
         );
 
-        let package = store.get(pkg_id);
-        let has_dead = package.items.iter().any(|(_, item)| {
-            matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "Dead")
-        });
         assert!(
-            !has_dead,
-            "dead callable 'Dead' should not remain in package after item_dce"
+            !dangling_item_refs(store.get(pkg_id)).is_empty(),
+            "direct item_dce should leave a temporary dangling StmtKind::Item ref"
         );
 
         // Verify that reachable items (Main) still exist.
+        let package = store.get(pkg_id);
         let has_main = package.items.iter().any(|(_, item)| {
             matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "Main")
         });
@@ -442,12 +490,7 @@ mod item_dce_contracts {
             "reachable callable 'Main' should survive item_dce"
         );
 
-        // Contract validation: This test demonstrates that item_dce is safe to run
-        // directly without immediate gc_unreachable. If the dead callable were declared
-        // via StmtKind::Item, temporary dangling refs would exist until gc_unreachable
-        // runs. The fact that we can run item_dce, inspect the package, and still have
-        // valid reachability proves the contract: dead items are removed cleanly and
-        // the package remains consistent for downstream invariant checks.
+        crate::invariants::check(&store, pkg_id, crate::invariants::InvariantLevel::PostGc);
     }
 
     /// Validates that `item_dce` preserves exports and marks their resolution targets as

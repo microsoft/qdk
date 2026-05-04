@@ -187,7 +187,7 @@ fn if_both_return_release_suffix_before_after_qsharp() {
         &expect![[r#"
             // before fir transforms
             // namespace Test
-            operation Fooflag : Bool : Int {
+            operation Foo(flag : Bool) : Int {
                 body {
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     let
@@ -222,7 +222,7 @@ fn if_both_return_release_suffix_before_after_qsharp() {
 
             // post return_unify
             // namespace Test
-            operation Fooflag : Bool : Int {
+            operation Foo(flag : Bool) : Int {
                 body {
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     if flag {

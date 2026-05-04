@@ -369,9 +369,8 @@ fn tuple_passed_to_function_as_arg() {
 #[test]
 fn sroa_candidate_in_while_loop_decomposes() {
     // Struct binding inside a while loop body: SROA should handle
-    // control-flow nested bindings without panicking.
-    check(
-        "struct Pair { A : Int, B : Int }
+    // control-flow nested bindings and decompose the nested local.
+    let source = "struct Pair { A : Int, B : Int }
             function Main() : Int {
                 mutable sum = 0;
                 mutable i = 0;
@@ -381,12 +380,132 @@ fn sroa_candidate_in_while_loop_decomposes() {
                     i += 1;
                 }
                 sum
-            }",
+            }";
+    check(
+        source,
         &expect![[r#"
-                Callable Main: input=Tuple()
-                  local: mutable Bind(sum: Int)
-                  local: mutable Bind(i: Int)"#]],
+            Callable Main: input=Tuple()
+              local: mutable Bind(sum: Int)
+              local: mutable Bind(i: Int)"#]],
     );
+
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
+    let mut assigner = Assigner::from_package(store.get(pkg_id));
+    sroa(&mut store, pkg_id, &mut assigner);
+    let local_patterns = collect_local_patterns_recursive(store.get(pkg_id));
+    assert!(
+        local_patterns
+            .iter()
+            .any(|pat| pat == "Tuple(Bind(p_0: Int), Bind(p_1: Int))"),
+        "loop-local Pair binding should be decomposed, got {local_patterns:?}"
+    );
+    assert!(
+        !local_patterns
+            .iter()
+            .any(|pat| pat == "Bind(p: (Int, Int))"),
+        "loop-local Pair binding should not remain whole, got {local_patterns:?}"
+    );
+}
+
+fn collect_local_patterns_recursive(package: &qsc_fir::fir::Package) -> Vec<String> {
+    let mut patterns = Vec::new();
+    for item in package.items.values() {
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        if let CallableImpl::Spec(spec) = &decl.implementation {
+            collect_local_patterns_in_block(package, spec.body.block, &mut patterns);
+        }
+    }
+    patterns.sort();
+    patterns
+}
+
+fn collect_local_patterns_in_block(
+    package: &qsc_fir::fir::Package,
+    block_id: qsc_fir::fir::BlockId,
+    patterns: &mut Vec<String>,
+) {
+    for &stmt_id in &package.get_block(block_id).stmts {
+        let stmt = package.get_stmt(stmt_id);
+        match &stmt.kind {
+            StmtKind::Expr(expr) | StmtKind::Semi(expr) => {
+                collect_local_patterns_in_expr(package, *expr, patterns);
+            }
+            StmtKind::Local(_, pat_id, expr) => {
+                patterns.push(format_pat(package, *pat_id));
+                collect_local_patterns_in_expr(package, *expr, patterns);
+            }
+            StmtKind::Item(_) => {}
+        }
+    }
+}
+
+fn collect_local_patterns_in_expr(
+    package: &qsc_fir::fir::Package,
+    expr_id: ExprId,
+    patterns: &mut Vec<String>,
+) {
+    match &package.get_expr(expr_id).kind {
+        ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
+            for &expr in exprs {
+                collect_local_patterns_in_expr(package, expr, patterns);
+            }
+        }
+        ExprKind::ArrayRepeat(item, size)
+        | ExprKind::Assign(item, size)
+        | ExprKind::AssignOp(_, item, size)
+        | ExprKind::BinOp(_, item, size)
+        | ExprKind::Call(item, size)
+        | ExprKind::Index(item, size)
+        | ExprKind::AssignField(item, _, size)
+        | ExprKind::UpdateField(item, _, size) => {
+            collect_local_patterns_in_expr(package, *item, patterns);
+            collect_local_patterns_in_expr(package, *size, patterns);
+        }
+        ExprKind::AssignIndex(array, index, value) | ExprKind::UpdateIndex(array, index, value) => {
+            collect_local_patterns_in_expr(package, *array, patterns);
+            collect_local_patterns_in_expr(package, *index, patterns);
+            collect_local_patterns_in_expr(package, *value, patterns);
+        }
+        ExprKind::Block(block) => collect_local_patterns_in_block(package, *block, patterns),
+        ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
+        ExprKind::Fail(expr)
+        | ExprKind::Field(expr, _)
+        | ExprKind::Return(expr)
+        | ExprKind::UnOp(_, expr) => collect_local_patterns_in_expr(package, *expr, patterns),
+        ExprKind::If(cond, body, otherwise) => {
+            collect_local_patterns_in_expr(package, *cond, patterns);
+            collect_local_patterns_in_expr(package, *body, patterns);
+            if let Some(otherwise) = otherwise {
+                collect_local_patterns_in_expr(package, *otherwise, patterns);
+            }
+        }
+        ExprKind::Range(start, step, end) => {
+            for expr in [start, step, end].into_iter().flatten() {
+                collect_local_patterns_in_expr(package, *expr, patterns);
+            }
+        }
+        ExprKind::Struct(_, copy, fields) => {
+            if let Some(copy) = copy {
+                collect_local_patterns_in_expr(package, *copy, patterns);
+            }
+            for field in fields {
+                collect_local_patterns_in_expr(package, field.value, patterns);
+            }
+        }
+        ExprKind::String(components) => {
+            for component in components {
+                if let qsc_fir::fir::StringComponent::Expr(expr) = component {
+                    collect_local_patterns_in_expr(package, *expr, patterns);
+                }
+            }
+        }
+        ExprKind::While(cond, block) => {
+            collect_local_patterns_in_expr(package, *cond, patterns);
+            collect_local_patterns_in_block(package, *block, patterns);
+        }
+    }
 }
 
 #[test]
@@ -764,7 +883,7 @@ fn before_after_struct_field_decomposition() {
 }
 
 #[test]
-fn round_trip_sroa_compiles() {
+fn pretty_print_after_sroa_is_non_empty() {
     let source = indoc! {r#"
         namespace Test {
             @EntryPoint()

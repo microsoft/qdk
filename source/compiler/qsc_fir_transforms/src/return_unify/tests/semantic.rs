@@ -579,9 +579,11 @@ fn return_in_nested_block_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
             function Main() : Int {
-                if true {
-                    return 10;
-                }
+                {
+                    {
+                        return 10;
+                    }
+                };
                 5
             }
         }

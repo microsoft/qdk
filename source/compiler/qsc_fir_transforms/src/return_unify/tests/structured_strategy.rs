@@ -212,10 +212,10 @@ fn both_branches_return_with_qubit_scope() {
 
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -231,9 +231,11 @@ fn return_in_nested_block() {
         indoc! {r#"
         namespace Test {
             function Main() : Int {
-                if true {
-                    return 10;
-                }
+                {
+                    {
+                        return 10;
+                    }
+                };
                 5
             }
         }
@@ -242,10 +244,11 @@ fn return_in_nested_block() {
             // namespace Test
             function Main() : Int {
                 body {
-                    if true {
-                        10
-                    } else {
-                        5
+                    {
+                        {
+                            10
+                        }
+
                     }
 
                 }
@@ -524,10 +527,10 @@ fn return_bool_in_dynamic_branch() {
 
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -558,7 +561,7 @@ fn multiple_returns_in_helper_function() {
     "#},
         &expect![[r#"
             // namespace Test
-            function Classifyx : Int : Int {
+            function Classify(x : Int) : Int {
                 body {
                     if x > 0 {
                         1
@@ -622,10 +625,10 @@ fn return_unit_after_side_effects() {
 
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -665,7 +668,7 @@ fn bare_return_with_dead_code() {
 
                 }
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -880,10 +883,10 @@ fn return_after_dynamic_branch_with_dead_code() {
 
                 }
             }
-            function Lengtha : Pauli[] : Int {
+            function Length(a : Pauli[]) : Int {
                 body intrinsic;
             }
-            function Lengtha : Qubit[] : Int {
+            function Length(a : Qubit[]) : Int {
                 body intrinsic;
             }
             // entry
@@ -1134,7 +1137,7 @@ fn recursive_function_with_return() {
     "#},
         &expect![[r#"
             // namespace Test
-            function Factorialn : Int : Int {
+            function Factorial(n : Int) : Int {
                 body {
                     if n <= 1 {
                         1
@@ -1210,9 +1213,9 @@ fn arrow_typed_return_in_structured_path() {
     "#},
         &expect![[r#"
             // namespace Test
-            function Chooseflag : Bool : (Int -> Int) {
+            function Choose(flag : Bool) : (Int -> Int) {
                 body {
-                    if x {
+                    if flag {
                         / * closure item = 3 captures = [] * / < lambda >
                     } else {
                         / * closure item = 4 captures = [] * / < lambda >
@@ -1223,7 +1226,7 @@ fn arrow_typed_return_in_structured_path() {
             function Main() : Int {
                 body {
                     let f : (Int -> Int) = Choose(true);
-                    x(10)
+                    f(10)
                 }
             }
             function < lambda > (x : Int, ) : Int {

@@ -563,12 +563,12 @@ fn describe_expr(
     }
 }
 
-fn main_local_summaries_after_erasure(source: &str) -> String {
+fn callable_local_summaries_after_erasure(source: &str, callable_name: &str) -> String {
     use crate::test_utils::{PipelineStage, compile_and_run_pipeline_to};
 
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
     let package = store.get(pkg_id);
-    let block = package.get_block(find_callable_body_block(package, "Main"));
+    let block = package.get_block(find_callable_body_block(package, callable_name));
     let local_names = local_names(package);
 
     block
@@ -589,12 +589,12 @@ fn main_local_summaries_after_erasure(source: &str) -> String {
         .join("\n")
 }
 
-fn main_body_summary_after_erasure(source: &str) -> String {
+fn callable_body_summary_after_erasure(source: &str, callable_name: &str) -> String {
     use crate::test_utils::{PipelineStage, compile_and_run_pipeline_to};
 
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
     let package = store.get(pkg_id);
-    let block = package.get_block(find_callable_body_block(package, "Main"));
+    let block = package.get_block(find_callable_body_block(package, callable_name));
     let local_names = local_names(package);
 
     block
@@ -622,6 +622,18 @@ fn main_body_summary_after_erasure(source: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn main_local_summaries_after_erasure(source: &str) -> String {
+    callable_local_summaries_after_erasure(source, "Main")
+}
+
+fn main_body_summary_after_erasure(source: &str) -> String {
+    callable_body_summary_after_erasure(source, "Main")
+}
+
+fn check_callable_body_summary_after_erasure(source: &str, callable_name: &str, expect: &Expect) {
+    expect.assert_eq(&callable_body_summary_after_erasure(source, callable_name));
 }
 
 fn check_main_local_summaries_after_erasure(source: &str, expect: &Expect) {
@@ -1062,8 +1074,8 @@ fn udt_copy_update_multiple_fields() {
     );
 }
 
-/// Verifies that `w w/ val <- 10` on a single-field UDT
-/// is lowered to the scalar replacement value directly.
+/// Verifies that copy-update on a single-field UDT is lowered to the scalar
+/// replacement value directly.
 #[test]
 fn udt_copy_update_single_field_udt() {
     check_main_local_summaries_after_erasure(
@@ -1360,7 +1372,7 @@ fn single_field_struct_constructor_passes_post_all_invariant() {
 /// UDT erase keeps the tuple wrapper.
 #[test]
 fn single_field_struct_erased_to_tuple() {
-    check_erasure(
+    check_main_local_summaries_after_erasure(
         indoc! {"
             namespace Test {
                 struct Wrapper { Value : Int }
@@ -1371,7 +1383,7 @@ fn single_field_struct_erased_to_tuple() {
             }
         "},
         &expect![[r#"
-            Main: input=Unit, output=Unit"#]],
+            Immutable w = Tuple(Lit(Int(42)))"#]],
     );
 }
 
@@ -1427,7 +1439,7 @@ fn scalar_erased_newtype_field_read_lowered() {
     // - After UDT erasure: `w: Prim(Int)` and `w::x` should become just `w`
     // - The PostUdtErase invariant requires Field::Path only on Ty::Tuple,
     //   so this lowering is necessary to satisfy the invariant.
-    check_erasure(
+    check_callable_body_summary_after_erasure(
         indoc! {"
             namespace Test {
                 newtype Wrapper = (Value : Int);
@@ -1439,9 +1451,9 @@ fn scalar_erased_newtype_field_read_lowered() {
                 }
             }
         "},
+        "Extract",
         &expect![[r#"
-            Extract: input=Int, output=Int
-            Main: input=Unit, output=Unit"#]],
+            [0] Expr Var(x)"#]],
     );
 }
 

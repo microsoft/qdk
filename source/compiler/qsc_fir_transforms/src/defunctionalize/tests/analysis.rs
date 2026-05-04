@@ -1055,7 +1055,9 @@ fn identity_closure_adjoint_wrapped_collapses() {
             callable_params: 1
               param: callable_id=4, path=[0], ty=(Qubit => Unit)
             call_sites: 1
-              site: hof=ApplyOp<Empty>, arg=Global(S, Adj)"#]],
+              site: hof=ApplyOp<Empty>, arg=Global(S, Adj)
+            direct_call_sites: 1
+              site: callee=S:Adj, default"#]],
     );
 }
 
@@ -1152,6 +1154,9 @@ fn analysis_conditional_callable_binding_produces_multi_lattice() {
         &expect![[r#"
             callable_params: 0
             call_sites: 0
+            direct_call_sites: 2
+              site: callee=S:Adj, default
+              site: callee=S:Body, condition=ExprId(4)
             lattice states:
               callable ApplyConditional:
                 3: Multi([S:Body, S:Adj])"#]],
@@ -1176,6 +1181,9 @@ fn analysis_callable_from_tuple_destructured_array_iteration() {
         &expect![[r#"
             callable_params: 0
             call_sites: 0
+            direct_call_sites: 2
+              site: callee=S:Body, default
+              site: callee=T:Body, default
             lattice states:
               callable Main:
                 5: Multi([S:Body, T:Body])"#]],
