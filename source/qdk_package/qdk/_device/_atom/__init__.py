@@ -2,7 +2,12 @@
 # Licensed under the MIT License.
 
 from .._device import Device, Zone, ZoneType
-from ...simulation._simulation import NoiseConfig, run_qir_clifford, run_qir_cpu, run_qir_gpu
+from ...simulation._simulation import (
+    NoiseConfig,
+    run_qir_clifford,
+    run_qir_cpu,
+    run_qir_gpu,
+)
 from ..._native import try_create_gpu_adapter
 from ..._types import QirInputData
 from ... import telemetry_events
