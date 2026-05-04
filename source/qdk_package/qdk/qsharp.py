@@ -19,3 +19,14 @@ For full API documentation see [qsharp](:mod:`qsharp`).
 
 from ._types import *  # pyright: ignore[reportWildcardImportFromLibrary]
 from ._interpreter import *  # pyright: ignore[reportWildcardImportFromLibrary]
+
+# Register the %%qsharp cell magic when running inside IPython/Jupyter.
+# This mirrors the registration in the ``qsharp`` compatibility shim so that
+# notebooks using ``from qdk import qsharp`` get the magic automatically.
+try:
+    if __IPYTHON__:  # type: ignore
+        from ._ipython import register_magic
+
+        register_magic()
+except NameError:
+    pass
