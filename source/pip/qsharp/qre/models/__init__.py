@@ -8,13 +8,14 @@ from .qec import (
     OneDimensionalYokedSurfaceCode,
     TwoDimensionalYokedSurfaceCode,
 )
-from .qubits import GateBased, Majorana
+from .qubits import GateBased, Majorana, NeutralAtom
 
 __all__ = [
     "GateBased",
     "Litinski19Factory",
     "Majorana",
     "MagicUpToClifford",
+    "NeutralAtom",
     "RoundBasedFactory",
     "SurfaceCode",
     "ThreeAux",

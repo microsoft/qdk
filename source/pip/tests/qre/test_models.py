@@ -11,6 +11,7 @@ from qsharp.qre.instruction_ids import (
     CZ,
     H,
     MEAS_Z,
+    PHYSICAL_MOVE,
     MEAS_X,
     MEAS_XX,
     MEAS_ZZ,
@@ -19,6 +20,9 @@ from qsharp.qre.instruction_ids import (
     PREP_Z,
     LATTICE_SURGERY,
     MEMORY,
+    MEAS_RESET_Z,
+    RZ,
+    SQRT_X,
     SQRT_SQRT_X,
     SQRT_SQRT_X_DAG,
     SQRT_SQRT_Y,
@@ -29,6 +33,7 @@ from qsharp.qre.instruction_ids import (
 from qsharp.qre.models import (
     GateBased,
     Majorana,
+    NeutralAtom,
     RoundBasedFactory,
     MagicUpToClifford,
     Litinski19Factory,
@@ -36,8 +41,7 @@ from qsharp.qre.models import (
     ThreeAux,
     TwoDimensionalYokedSurfaceCode,
 )
-from qsharp.qre.property_keys import DISTANCE
-
+from qsharp.qre.property_keys import ACCELERATION, ATOM_SPACING, DISTANCE, VELOCITY
 
 # ---------------------------------------------------------------------------
 # GateBased architecture tests
@@ -176,6 +180,56 @@ class TestMajorana:
 
         assert isa[MEAS_XX].arity == 2
         assert isa[MEAS_ZZ].arity == 2
+
+
+# ---------------------------------------------------------------------------
+# NeutralAtom architecture tests
+# ---------------------------------------------------------------------------
+
+
+class TestNeutralAtom:
+    def test_default_parameters(self):
+        arch = NeutralAtom()
+
+        assert arch.rydberg_time == 500
+        assert arch.rydberg_error == 1e-3
+        assert arch.one_qubit_time == 1000
+        assert arch.one_qubit_error == 1e-4
+        assert arch.measurement_time == 5000
+        assert arch.measurement_error == 1e-4
+        assert arch.handoff_time == 0
+        assert arch.atom_spacing == 3
+        assert arch.max_velocity == 1
+        assert arch.max_acceleration == 5000
+
+    def test_provided_isa_contains_expected_instructions(self):
+        arch = NeutralAtom()
+        isa = arch.context().isa
+
+        for instr_id in [RZ, SQRT_X, CZ, MEAS_Z, MEAS_RESET_Z, PHYSICAL_MOVE]:
+            assert instr_id in isa
+
+    def test_rz_is_free(self):
+        arch = NeutralAtom()
+        isa = arch.context().isa
+
+        assert isa[RZ].expect_time() == 0
+        assert isa[RZ].expect_error_rate() == 0.0
+
+    def test_physical_move_has_motion_properties(self):
+        arch = NeutralAtom(atom_spacing=8, max_velocity=17, max_acceleration=9000)
+        isa = arch.context().isa
+        move = isa[PHYSICAL_MOVE]
+
+        assert move.get_property(ATOM_SPACING) == 8
+        assert move.get_property(VELOCITY) == 17
+        assert move.get_property(ACCELERATION) == 9000
+
+    def test_physical_move_has_expected_time(self):
+        arch = NeutralAtom(atom_spacing=8, handoff_time=17)
+        isa = arch.context().isa
+
+        assert isa[PHYSICAL_MOVE].expect_time() == 34
 
 
 # ---------------------------------------------------------------------------

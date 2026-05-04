@@ -15,7 +15,7 @@ from qsharp.qre._qre import _ProvenanceGraph
 from qsharp.qre.models import SurfaceCode, GateBased
 from qsharp.qre._architecture import _make_instruction
 from qsharp.qre.instruction_ids import CCX, CCZ, LATTICE_SURGERY, T
-from qsharp.qre.property_keys import DISTANCE
+from qsharp.qre.property_keys import ACCELERATION, ATOM_SPACING, DISTANCE, VELOCITY
 
 
 def test_isa():
@@ -128,6 +128,9 @@ def test_instruction_constraints():
 def test_property_names():
     """Test property name lookup and case-insensitive key resolution."""
     assert property_name(DISTANCE) == "DISTANCE"
+    assert property_name(ACCELERATION) == "ACCELERATION"
+    assert property_name(ATOM_SPACING) == "ATOM_SPACING"
+    assert property_name(VELOCITY) == "VELOCITY"
 
     # An unregistered property
     UNKNOWN = 10_000
@@ -139,9 +142,15 @@ def test_property_names():
     assert property_name(UNKNOWN) == "DISTANCE"
 
     assert property_name_to_key("DISTANCE") == DISTANCE
+    assert property_name_to_key("ACCELERATION") == ACCELERATION
+    assert property_name_to_key("ATOM_SPACING") == ATOM_SPACING
+    assert property_name_to_key("VELOCITY") == VELOCITY
 
     # But we also allow case-insensitive lookup
     assert property_name_to_key("distance") == DISTANCE
+    assert property_name_to_key("acceleration") == ACCELERATION
+    assert property_name_to_key("atom_spacing") == ATOM_SPACING
+    assert property_name_to_key("velocity") == VELOCITY
 
 
 def test_block_linear_function():

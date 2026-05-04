@@ -1582,6 +1582,7 @@ fn add_instruction_ids(m: &Bound<'_, PyModule>) -> PyResult<()> {
         MEMORY,
         CYCLIC_SHIFT,
         HAND_OFF,
+        PHYSICAL_MOVE,
         GENERIC
     );
 
@@ -1617,6 +1618,8 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         SURFACE_CODE_ONE_QUBIT_TIME_FACTOR,
         SURFACE_CODE_TWO_QUBIT_TIME_FACTOR,
         ACCELERATION,
+        ATOM_SPACING,
+        VELOCITY,
         NUM_TS_PER_ROTATION,
         EXPECTED_SHOTS,
         RUNTIME_SINGLE_SHOT,
