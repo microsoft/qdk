@@ -5,9 +5,9 @@ import * as vscode from "vscode";
 import {
   LearningService,
   KATAS_WS_FOLDER,
-  detectKatasWorkspace,
+  detectLearningWorkspace,
   type HintContext,
-  type KataSummary,
+  type UnitSummary,
   type OverallProgress,
   type Position,
   type RunResult,
@@ -25,9 +25,9 @@ import { CopilotToolError } from "./types.js";
 export interface SerializedLearningState {
   position: Position;
   progress: {
-    stats: { totalSections: number; completedSections: number };
-    currentKataCompleted: number;
-    currentKataTotal: number;
+    stats: { totalActivities: number; completedActivities: number };
+    currentUnitCompleted: number;
+    currentUnitTotal: number;
   };
 }
 
@@ -54,7 +54,7 @@ export class LearningTools {
 
     // If the progress file already exists on disk, skip confirmation —
     // the workspace was previously set up and we just need to re-load state.
-    const detected = await detectKatasWorkspace();
+    const detected = await detectLearningWorkspace();
     if (detected) {
       return undefined;
     }
@@ -123,15 +123,15 @@ export class LearningTools {
   }
 
   /**
-   * List all available katas with completion status.
+   * List all available units with completion status.
    */
-  async listKatas(): Promise<{
-    katas: KataSummary[];
+  async listUnits(): Promise<{
+    units: UnitSummary[];
     state: SerializedLearningState;
   }> {
     await this.ensureInitialized();
     return {
-      katas: this.service.listKatas(),
+      units: this.service.listUnits(),
       state: this.serializeState(),
     };
   }
@@ -160,15 +160,14 @@ export class LearningTools {
   }
 
   /**
-   * Jump to a specific kata/section.
+   * Jump to a specific unit/activity.
    */
   async goTo(input: {
-    kataId: string;
-    sectionId?: string;
-    itemIndex?: number;
+    unitId: string;
+    activityId?: string;
   }): Promise<{ state: SerializedLearningState }> {
     await this.ensureInitialized();
-    this.service.goTo(input.kataId, input.sectionId, input.itemIndex ?? 0);
+    this.service.goTo(input.unitId, input.activityId);
     await this.openPanel();
     return { state: this.serializeState() };
   }
@@ -198,7 +197,7 @@ export class LearningTools {
     const uri = this.getCurrentFileUri();
     const pos = this.service.getPosition();
     const code =
-      pos.item.type === "exercise"
+      pos.content.type === "exercise"
         ? await this.service.readUserCode()
         : new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
     return { code, filePath: uri.fsPath, state: this.serializeState() };
@@ -261,30 +260,30 @@ export class LearningTools {
 
   private getCurrentFileUri(): vscode.Uri {
     const pos = this.service.getPosition();
-    if (pos.item.type === "exercise") {
+    if (pos.content.type === "exercise") {
       return this.service.getExerciseFileUri();
-    } else if (pos.item.type === "lesson-example") {
+    } else if (pos.content.type === "lesson-example") {
       return this.service.getExampleFileUri();
     }
     throw new CopilotToolError(
-      "Current item is not an exercise or example — there is no code to read.",
+      "Current activity is not an exercise or example — there is no code to read.",
     );
   }
 
   private serializeState(): SerializedLearningState {
     const state = this.service.getState();
     const progress = state.progress;
-    const cur = progress.currentPosition?.kataId;
-    const currentKata = cur
-      ? progress.katas.find((k) => k.id === cur)
+    const cur = progress.currentPosition?.unitId;
+    const currentUnit = cur
+      ? progress.units.find((u) => u.id === cur)
       : undefined;
 
     return {
       position: state.position,
       progress: {
         stats: progress.stats,
-        currentKataCompleted: currentKata?.completed ?? 0,
-        currentKataTotal: currentKata?.total ?? 0,
+        currentUnitCompleted: currentUnit?.completed ?? 0,
+        currentUnitTotal: currentUnit?.total ?? 0,
       },
     };
   }

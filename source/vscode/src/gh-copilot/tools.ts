@@ -122,8 +122,8 @@ const toolDefinitions: {
     confirm: async () => learningTools!.confirmInit(),
   },
   {
-    name: "qdk-learning-list-katas",
-    tool: async () => await learningTools!.listKatas(),
+    name: "qdk-learning-list-units",
+    tool: async () => await learningTools!.listUnits(),
     confirm: async () => learningTools!.confirmInit(),
   },
   {
