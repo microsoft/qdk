@@ -6,18 +6,23 @@ import * as vscode from "vscode";
 import { EventType, sendTelemetryEvent, UserFlowStatus } from "../telemetry";
 import { getRandomGuid } from "../utils";
 import * as azqTools from "./azureQuantumTools";
+import { LearningTools } from "./learningTools";
 import { QSharpTools } from "./qsharpTools";
 import { CopilotToolError } from "./types";
 import { ToolState } from "./azureQuantumTools";
+import type { LearningService } from "../learning/index";
 
 // state
 const workspaceState: ToolState = {};
 let qsharpTools: QSharpTools | undefined;
+let learningTools: LearningTools | undefined;
 
 const toolDefinitions: {
   name: string;
   tool: (input: any) => Promise<any>;
-  confirm?: (input: any) => vscode.PreparedToolInvocation;
+  confirm?: (
+    input: any,
+  ) => vscode.ProviderResult<vscode.PreparedToolInvocation>;
 }[] = [
   // match these to the "languageModelTools" entries in package.json
   {
@@ -100,10 +105,92 @@ const toolDefinitions: {
     name: "qsharp-get-library-descriptions",
     tool: async () => await qsharpTools!.qsharpGetLibraryDescriptions(),
   },
+  // ─── QDK Learning tools ───
+  {
+    name: "qdk-learning-show-panel",
+    tool: async () => await learningTools!.showPanel(),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-get-state",
+    tool: async () => await learningTools!.getState(),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-get-progress",
+    tool: async () => await learningTools!.getProgress(),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-list-katas",
+    tool: async () => await learningTools!.listKatas(),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-next",
+    tool: async () => await learningTools!.next(),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-previous",
+    tool: async () => await learningTools!.previous(),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-goto",
+    tool: async (input) => await learningTools!.goTo(input),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-run",
+    tool: async (input) => await learningTools!.run(input),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-read-code",
+    tool: async () => await learningTools!.readCode(),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-check",
+    tool: async () => await learningTools!.check(),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-hint",
+    tool: async () => await learningTools!.hint(),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-solution",
+    tool: async () => await learningTools!.solution(),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-reset",
+    tool: async () => await learningTools!.resetExercise(),
+    confirm: async () => {
+      // If the service is not yet initialized, show the init confirmation
+      // first. Otherwise show the reset-specific confirmation.
+      const initConfirm = await learningTools!.confirmInit();
+      if (initConfirm) return initConfirm;
+      return {
+        confirmationMessages: {
+          title: "Reset Exercise",
+          message:
+            "Reset the current exercise to the original placeholder? Your code will be lost.",
+        },
+      };
+    },
+  },
 ];
 
-export function registerLanguageModelTools(context: vscode.ExtensionContext) {
+export function registerLanguageModelTools(
+  context: vscode.ExtensionContext,
+  learningService: LearningService,
+) {
   qsharpTools = new QSharpTools(context.extensionUri);
+  learningTools = new LearningTools(learningService);
   for (const { name, tool: fn, confirm: confirmFn } of toolDefinitions) {
     context.subscriptions.push(
       vscode.lm.registerTool(name, tool(context, name, fn, confirmFn)),
@@ -115,15 +202,17 @@ function tool<T>(
   context: vscode.ExtensionContext,
   toolName: string,
   toolFn: (input: T) => Promise<any>,
-  confirmFn?: (input: T) => vscode.PreparedToolInvocation,
+  confirmFn?: (
+    input: T,
+  ) => vscode.ProviderResult<vscode.PreparedToolInvocation>,
 ): vscode.LanguageModelTool<any> {
   return {
     invoke: (options: vscode.LanguageModelToolInvocationOptions<T>) =>
       invokeTool(context, toolName, options, toolFn),
-    prepareInvocation:
-      confirmFn &&
-      ((options: vscode.LanguageModelToolInvocationPrepareOptions<T>) =>
-        confirmFn(options.input)),
+    prepareInvocation: confirmFn
+      ? (options: vscode.LanguageModelToolInvocationPrepareOptions<T>) =>
+          confirmFn(options.input)
+      : undefined,
   };
 }
 
