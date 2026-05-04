@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 from dataclasses import KW_ONLY, dataclass, field
+import math
 from typing import Generator, Optional
 from ..._instruction import (
     ISA,
@@ -15,9 +16,7 @@ from ..._instruction import (
 from ..._isa_enumeration import ISAContext
 from ..._qre import linear_function
 from ...instruction_ids import (
-    CNOT,
     CZ,
-    H,
     LATTICE_SURGERY,
     MEAS_RESET_Z,
     MEAS_Z,
@@ -28,6 +27,9 @@ from ...instruction_ids import (
 from ...property_keys import (
     SURFACE_CODE_ONE_QUBIT_TIME_FACTOR,
     SURFACE_CODE_TWO_QUBIT_TIME_FACTOR,
+    VELOCITY,
+    ACCELERATION,
+    ATOM_SPACING,
 )
 
 
@@ -89,7 +91,7 @@ class SurfaceCodeLowMove(ISATransform):
         return ISARequirements(
             constraint(RZ, error_rate=ConstraintBound.lt(0.01)),
             constraint(SQRT_X, error_rate=ConstraintBound.lt(0.01)),
-            constraint(CZ, error_rate=ConstraintBound.lt(0.01)),
+            constraint(CZ, arity=2, error_rate=ConstraintBound.lt(0.01)),
             constraint(MEAS_Z, error_rate=ConstraintBound.lt(0.01)),
             constraint(MEAS_RESET_Z, error_rate=ConstraintBound.lt(0.01)),
             constraint(PHYSICAL_MOVE, error_rate=ConstraintBound.lt(0.01)),
@@ -98,46 +100,75 @@ class SurfaceCodeLowMove(ISATransform):
     def provided_isa(
         self, impl_isa: ISA, ctx: ISAContext
     ) -> Generator[ISA, None, None]:
-        cnot = impl_isa[CNOT]
-        h = impl_isa[H]
+        cz = impl_isa[CZ]
+        rz = impl_isa[RZ]
+        sqrt_x = impl_isa[SQRT_X]
+        reset = impl_isa[MEAS_RESET_Z]
         meas_z = impl_isa[MEAS_Z]
 
-        cnot_time = cnot.expect_time()
-        h_time = h.expect_time()
+        move = impl_isa[PHYSICAL_MOVE]
+        if (
+            move.has_property(VELOCITY)
+            and move.has_property(ACCELERATION)
+            and move.has_property(ATOM_SPACING)
+        ):
+            max_vel = move.get_property_or(VELOCITY, 0)
+            max_accel = move.get_property_or(ACCELERATION, 0)
+            atom_spacing = move.get_property_or(ATOM_SPACING, 0)
+            if atom_spacing < max_vel**2 / max_accel:
+                hor_seg_time = math.sqrt(atom_spacing / max_accel)
+            else:
+                extra_distance = atom_spacing - max_vel**2 / max_accel
+                hor_seg_time = max_vel / max_accel + extra_distance / max_vel
+            if math.sqrt(2) * atom_spacing < max_vel**2 / max_accel:
+                diag_seg_time = math.sqrt(math.sqrt(2) * atom_spacing / max_accel)
+            else:
+                extra_distance = math.sqrt(2) * atom_spacing - max_vel**2 / max_accel
+                diag_seg_time = max_vel / max_accel + extra_distance / max_vel
+            move_time = 3 * move.expect_time() + 2 * hor_seg_time + diag_seg_time
+        else:
+            move_time = move.expect_time()
+
+        four_cz_time = math.ceil(4 * cz.expect_time() + move_time)
+        h_time = sqrt_x.expect_time() + 2 * rz.expect_time()
         meas_time = meas_z.expect_time()
+        reset_time = reset.expect_time()
 
         physical_error_rate = max(
-            cnot.expect_error_rate(),
-            h.expect_error_rate(),
+            rz.expect_error_rate(),
+            cz.expect_error_rate(),
+            sqrt_x.expect_error_rate(),
+            reset.expect_error_rate(),
             meas_z.expect_error_rate(),
         )
 
         # There are d^2 data qubits and (d^2 - 1) ancilla qubits in the rotated
         # surface code.  (See Section 7.1 in arXiv:1111.4022)
+        # Unchanged from the original SurfaceCode.
         space_formula = linear_function(2 * self.distance**2 - 1)
 
-        # Each syndrome extraction cycle consists of ancilla preparation, 4
-        # rounds of CNOTs, and measurement.  (See Fig. 2 in arXiv:1009.3686);
-        # these may be modified by the one_qubit_gate_depth and
-        # two_qubit_gate_depth parameters, or scaled by the time factors
-        # provided in the instruction properties.  The syndrome extraction cycle
+        # Each standard syndrome extraction cycle consists of ancilla preparation, 4
+        # rounds of CNOTs, and measurement.  (See Fig. 2 in arXiv:1009.3686).
+        # But this must be modified to acount for the fact that the CNOTs are
+        # implemented as CZ+sqrt(X). The syndrome extraction cycle
         # is repeated d times for a distance-d code.
-        one_qubit_gate_depth = self.one_qubit_gate_depth * h.get_property_or(
-            SURFACE_CODE_ONE_QUBIT_TIME_FACTOR, 1
-        )
-        two_qubit_gate_depth = self.two_qubit_gate_depth * cnot.get_property_or(
-            SURFACE_CODE_TWO_QUBIT_TIME_FACTOR, 1
-        )
-
         if self.code_cycle_override is not None:
-            code_cycle_time = self.code_cycle_override
+            code_cycle_time = self.code_cycle_override + self.code_cycle_offset
         else:
-            code_cycle_time = (
-                one_qubit_gate_depth * h_time
-                + two_qubit_gate_depth * cnot_time
-                + meas_time
-            )
-        code_cycle_time += self.code_cycle_offset
+            if reset_time > four_cz_time:
+                code_cycle_time = (
+                    max(reset_time, h_time)
+                    + (self.distance + 1)
+                    * (reset_time + h_time + self.code_cycle_offset)
+                    + meas_time
+                )
+            else:
+                code_cycle_time = (
+                    max(reset_time, h_time)
+                    + (self.distance + 1)
+                    * (four_cz_time + h_time + self.code_cycle_offset)
+                    + meas_time
+                )
         time_value = code_cycle_time * self.distance
 
         # See Eqs. (10) and (11) in arXiv:1208.0928
@@ -160,7 +191,7 @@ class SurfaceCodeLowMove(ISATransform):
                 time=time_value,
                 error_rate=error_formula,
                 transform=self,
-                source=[cnot, h, meas_z],
+                source=[cz, rz, sqrt_x, reset, meas_z, move],
                 distance=self.distance,
                 code_cycle_time=code_cycle_time,
             ),

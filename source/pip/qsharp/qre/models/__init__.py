@@ -4,6 +4,7 @@
 from .factories import Litinski19Factory, MagicUpToClifford, RoundBasedFactory
 from .qec import (
     SurfaceCode,
+    SurfaceCodeLowMove,
     ThreeAux,
     OneDimensionalYokedSurfaceCode,
     TwoDimensionalYokedSurfaceCode,
@@ -18,6 +19,7 @@ __all__ = [
     "NeutralAtom",
     "RoundBasedFactory",
     "SurfaceCode",
+    "SurfaceCodeLowMove",
     "ThreeAux",
     "OneDimensionalYokedSurfaceCode",
     "TwoDimensionalYokedSurfaceCode",

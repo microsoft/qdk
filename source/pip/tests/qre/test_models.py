@@ -38,10 +38,17 @@ from qsharp.qre.models import (
     MagicUpToClifford,
     Litinski19Factory,
     SurfaceCode,
+    SurfaceCodeLowMove,
     ThreeAux,
     TwoDimensionalYokedSurfaceCode,
 )
-from qsharp.qre.property_keys import ACCELERATION, ATOM_SPACING, DISTANCE, VELOCITY
+from qsharp.qre.property_keys import (
+    ACCELERATION,
+    ATOM_SPACING,
+    CODE_CYCLE_TIME,
+    DISTANCE,
+    VELOCITY,
+)
 
 # ---------------------------------------------------------------------------
 # GateBased architecture tests
@@ -195,7 +202,7 @@ class TestNeutralAtom:
         assert arch.rydberg_error == 1e-3
         assert arch.one_qubit_time == 1000
         assert arch.one_qubit_error == 1e-4
-        assert arch.measurement_time == 5000
+        assert arch.measurement_time == 10000
         assert arch.measurement_error == 1e-4
         assert arch.handoff_time == 0
         assert arch.atom_spacing == 3
@@ -354,6 +361,36 @@ class TestSurfaceCode:
 
         # Lower threshold means worse ratio => higher logical error
         assert error_low > error_high
+
+
+class TestSurfaceCodeLowMove:
+    def test_required_isa_is_satisfied_by_neutral_atom(self):
+        arch = NeutralAtom()
+
+        assert arch.context().isa.satisfies(SurfaceCodeLowMove.required_isa())
+
+    def test_provides_lattice_surgery(self):
+        arch = NeutralAtom()
+        ctx = arch.context()
+        sc = SurfaceCodeLowMove(distance=3)
+
+        isas = list(sc.provided_isa(ctx.isa, ctx))
+
+        assert len(isas) == 1
+        assert LATTICE_SURGERY in isas[0]
+        assert isas[0][LATTICE_SURGERY].encoding == LOGICAL
+
+    def test_time_scales_from_code_cycle_time(self):
+        arch = NeutralAtom()
+        ctx = arch.context()
+        sc = SurfaceCodeLowMove(distance=3)
+
+        lattice_surgery = list(sc.provided_isa(ctx.isa, ctx))[0][LATTICE_SURGERY]
+
+        assert lattice_surgery.get_property(CODE_CYCLE_TIME) > 0
+        assert lattice_surgery.expect_time(1) == (
+            lattice_surgery.get_property(CODE_CYCLE_TIME) * sc.distance
+        )
 
 
 # ---------------------------------------------------------------------------
