@@ -289,11 +289,10 @@ extends:
                   python ./prereqs.py --skip-wasm && python ./version.py
                 displayName: Install Prereqs and set version
 
-              # The jupyterlab and widgets packages have no tests. The qdk package has minimal tests but
-              # they also depend on the qsharp package which is platform-dependent. So we skip tests here
-              # and rely on the GitHub CI to run the few `qdk` tests on every PR.
+              # Build platform-agnostic Python wheels: jupyterlab, widgets, and the
+              # qsharp shim (pure Python). The qdk native wheel is built per-platform.
               - script: |
-                  python ./build.py --jupyterlab --widgets --qdk --no-check --no-test --no-check-prereqs
+                  python ./build.py --jupyterlab --widgets --pip --no-check --no-test --no-check-prereqs
                 displayName: Build Platform-Agnostic Packages
 
               - script: |
@@ -398,13 +397,13 @@ extends:
 
                   # Windows arm64
                   - script: |
-                      python build.py --pip --no-check-prereqs --no-integration-tests --no-optional-dependencies
+                      python build.py --qdk --no-check-prereqs --no-integration-tests --no-optional-dependencies
                     displayName: Build Platform-Dependent Py Packages
                     condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
 
                   # every other platform
                   - script: |
-                      python build.py --pip --no-check-prereqs --integration-tests
+                      python build.py --qdk --no-check-prereqs --integration-tests
                     displayName: Build Platform-Dependent Py Packages
                     condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
 

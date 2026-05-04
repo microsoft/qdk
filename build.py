@@ -300,21 +300,6 @@ if build_cli:
         step_end()
 
 
-def install_qsharp_python_package(cwd, wheelhouse, interpreter):
-    command_args = [
-        interpreter,
-        "-m",
-        "pip",
-        "install",
-        "--force-reinstall",
-        "--no-deps",
-        "--no-index",
-        "--find-links=" + wheelhouse,
-        "qsharp",
-    ]
-    subprocess.run(command_args, check=True, text=True, cwd=cwd)
-
-
 # If any package fails to install when using a requirements file, the entire
 # process will fail with unpredicatable state of installed packages. To avoid
 # this, we install each package individually from the requirements file.
@@ -474,6 +459,46 @@ if build_qdk:
         run_python_tests(os.path.join(qdk_python_src, "tests"), python_bin, pip_env)
         step_end()
 
+    if args.integration_tests:
+        step_start("Setting up for integration tests for the qdk package")
+        test_dir = os.path.join(qdk_python_src, "tests-integration")
+        install_python_test_requirements(test_dir, python_bin, check=False)
+
+        # Install qdk from the freshly built wheel.
+        install_args = [
+            python_bin,
+            "-m",
+            "pip",
+            "install",
+            "--force-reinstall",
+            "--no-deps",
+            "--no-index",
+            "--find-links=" + wheels_dir,
+            "qdk",
+        ]
+        subprocess.run(install_args, check=True, text=True, cwd=test_dir)
+        step_end()
+
+        for version in QISKIT_VERSION_MATRIX:
+            step_start(
+                f"Running integration tests for the qdk package ({version['label']})"
+            )
+
+            version_install_args = [
+                python_bin,
+                "-m",
+                "pip",
+                "install",
+                "--upgrade",
+                "--upgrade-strategy",
+                "eager",
+            ] + version["requirements"]
+            subprocess.run(version_install_args, check=True, text=True, cwd=test_dir)
+
+            run_python_integration_tests(test_dir, python_bin)
+
+            step_end()
+
 if build_pip:
     step_start("Building the pip package")
 
@@ -493,48 +518,6 @@ if build_pip:
     ]
     subprocess.run(pip_build_args, check=True, text=True, cwd=pip_src, env=pip_env)
     step_end()
-
-    if args.integration_tests:
-        step_start("Setting up for integration tests for the pip package")
-        test_dir = os.path.join(qdk_python_src, "tests-integration")
-        install_python_test_requirements(test_dir, python_bin, check=False)
-
-        # Install qdk first (qsharp depends on it)
-        install_args = [
-            python_bin,
-            "-m",
-            "pip",
-            "install",
-            "--force-reinstall",
-            "--no-deps",
-            "--no-index",
-            "--find-links=" + wheels_dir,
-            "qdk",
-        ]
-        subprocess.run(install_args, check=True, text=True, cwd=test_dir)
-        step_end()
-
-        for version in QISKIT_VERSION_MATRIX:
-            step_start(
-                f"Running integration tests for the pip package ({version['label']})"
-            )
-
-            version_install_args = [
-                python_bin,
-                "-m",
-                "pip",
-                "install",
-                "--upgrade",
-                "--upgrade-strategy",
-                "eager",
-            ] + version["requirements"]
-            subprocess.run(version_install_args, check=True, text=True, cwd=test_dir)
-
-            install_qsharp_python_package(pip_src, wheels_dir, python_bin)
-
-            run_python_integration_tests(test_dir, python_bin)
-
-            step_end()
 
 
 if build_widgets:
