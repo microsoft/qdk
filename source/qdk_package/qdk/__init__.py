@@ -37,6 +37,15 @@ from ._interpreter import (
     init,
 )
 
+# Register the %%qsharp cell magic when running inside IPython/Jupyter.
+try:
+    if __IPYTHON__:  # type: ignore
+        from ._ipython import register_magic
+
+        register_magic()
+except NameError:
+    pass
+
 # utilities lifted from qsharp
 __all__ = [
     "code",
