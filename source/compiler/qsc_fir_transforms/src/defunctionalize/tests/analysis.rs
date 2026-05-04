@@ -299,10 +299,56 @@ fn udt_field_in_hof_body() {
         }
         "#,
         &expect![[r#"
-            callable_params: 1
+            callable_params: 2
               param: callable_id=6, path=[0], ty=(Qubit => Unit)
-            call_sites: 1
+              param: callable_id=3, path=[0, 0], ty=(Qubit => Unit)
+            call_sites: 2
+              site: hof=RunWithConfig, arg=Global(H, Body)
               site: hof=ApplyOp<Empty>, arg=Dynamic"#]],
+    );
+}
+
+#[test]
+fn udt_field_in_hof_body_defunctionalizes_end_to_end() {
+    check(
+        r#"
+        struct Config { Op : Qubit => Unit }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation RunWithConfig(config : Config, q : Qubit) : Unit {
+            ApplyOp(config.Op, q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let config = new Config { Op = H };
+            RunWithConfig(config, q);
+        }
+        "#,
+        &expect![[r#"
+            ApplyOp<Empty>{H}: input_ty=Qubit
+            Main: input_ty=Unit
+            RunWithConfig{H}: input_ty=(Unit, Qubit)"#]],
+    );
+}
+
+#[test]
+fn udt_field_in_hof_body_full_pipeline_invariants() {
+    check_pipeline(
+        r#"
+        struct Config { Op : Qubit => Unit }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation RunWithConfig(config : Config, q : Qubit) : Unit {
+            ApplyOp(config.Op, q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let config = new Config { Op = H };
+            RunWithConfig(config, q);
+        }
+        "#,
     );
 }
 
@@ -329,6 +375,30 @@ fn udt_field_nested_two_level() {
               param: callable_id=6, path=[0], ty=(Qubit => Unit)
             call_sites: 1
               site: hof=ApplyOp<Empty>, arg=Global(H, Body)"#]],
+    );
+}
+
+#[test]
+fn udt_field_nested_two_level_defunctionalizes_end_to_end() {
+    check(
+        r#"
+        struct InnerConfig { Apply : Qubit => Unit }
+        struct OuterConfig { Inner : InnerConfig, Label : Int }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let outer = new OuterConfig {
+                Inner = new InnerConfig { Apply = H },
+                Label = 0,
+            };
+            ApplyOp(outer.Inner.Apply, q);
+        }
+        "#,
+        &expect![[r#"
+            ApplyOp<Empty>{H}: input_ty=Qubit
+            Main: input_ty=Unit"#]],
     );
 }
 

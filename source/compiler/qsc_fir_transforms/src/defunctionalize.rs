@@ -375,7 +375,7 @@ fn remaining_callable_value_info(
         let item = package.get_item(store_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
             let input_pat = package.get_pat(decl.input);
-            if ty_contains_arrow(&input_pat.ty) {
+            if ty_contains_arrow_through_udts(store, &input_pat.ty) {
                 record_remaining(input_pat.span);
             }
 
@@ -456,6 +456,30 @@ pub(crate) fn ty_contains_arrow(ty: &Ty) -> bool {
     match ty {
         Ty::Arrow(_) => true,
         Ty::Tuple(tys) => tys.iter().any(ty_contains_arrow),
+        _ => false,
+    }
+}
+
+/// Checks whether a type contains an arrow, expanding UDT pure types recursively.
+///
+/// The defunctionalization fixpoint uses this for reachable callable inputs so a
+/// callable whose parameter is a UDT containing a callable field keeps the loop
+/// running until that nested callable field is specialized. The rewrite helpers
+/// still use `ty_contains_arrow`, where UDTs intentionally remain opaque.
+fn ty_contains_arrow_through_udts(store: &PackageStore, ty: &Ty) -> bool {
+    match ty {
+        Ty::Arrow(_) => true,
+        Ty::Tuple(tys) => tys
+            .iter()
+            .any(|ty| ty_contains_arrow_through_udts(store, ty)),
+        Ty::Udt(Res::Item(item_id)) => {
+            let package = store.get(item_id.package);
+            let item = package.get_item(item_id.item);
+            let ItemKind::Ty(_, udt) = &item.kind else {
+                return false;
+            };
+            ty_contains_arrow_through_udts(store, &udt.get_pure_ty())
+        }
         _ => false,
     }
 }

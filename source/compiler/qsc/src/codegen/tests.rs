@@ -16,6 +16,7 @@ use qsc_data_structures::{
 use qsc_eval::val::Value;
 use qsc_frontend::compile::parse_all;
 use qsc_hir::hir::{ItemKind, PackageId};
+use rustc_hash::FxHashMap;
 
 use crate::codegen::qir::{
     get_qir, get_qir_from_ast, get_rir, prepare_codegen_fir_from_callable_args,
@@ -1060,7 +1061,11 @@ fn two_callable_hof_closure_preserves_array_arg_threading() {
 fn callable_args_with_arrow_input_survives_dce() {
     let source = indoc::indoc! {r#"
         namespace Test {
-            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
+            operation ApplyOp(op : Qubit => Unit) : Result {
+                use q = Qubit();
+                op(q);
+                MResetZ(q)
+            }
             operation MyOp(q : Qubit) : Unit { H(q); }
         }
     "#};
@@ -1113,19 +1118,71 @@ fn callable_args_with_arrow_input_survives_dce() {
     };
     let my_op_value = Value::Global(my_op_fir_id, FunctorApp::default());
 
-    // The callable-args path pins ApplyOp (arrow-input target) and seeds
-    // MyOp into the entry, then runs the full pipeline including DCE.
-    // If pinned items are not threaded through, DCE removes ApplyOp and
-    // the pipeline panics.
-    let result =
-        prepare_codegen_fir_from_callable_args(&store, apply_op_hir_id, &my_op_value, capabilities);
-    match result {
-        Ok(_) => {}
-        Err(errors) => panic!(
-            "callable-args with arrow-input should survive DCE, got: {}",
-            format_interpret_errors(errors)
-        ),
-    }
+    // The synthetic Call path makes ApplyOp entry-reachable. Defunc specializes
+    // it to ApplyOp{MyOp}, and the pipeline transforms it fully. The original
+    // ApplyOp is pinned for DCE survival so fir_to_qir_from_callable can use
+    // the original ID with the original-shaped args.
+    let codegen_fir =
+        prepare_codegen_fir_from_callable_args(&store, apply_op_hir_id, &my_op_value, capabilities)
+            .unwrap_or_else(|errors| {
+                panic!(
+                    "callable-args with arrow-input should survive DCE, got: {}",
+                    format_interpret_errors(errors)
+                )
+            });
+
+    let backend_callable = qsc_fir::fir::StoreItemId {
+        package: qsc_lowerer::map_hir_package_to_fir(apply_op_hir_id.package),
+        item: qsc_lowerer::map_hir_local_item_to_fir(apply_op_hir_id.item),
+    };
+
+    let qir = qsc_codegen::qir::fir_to_qir_from_callable(
+        &codegen_fir.fir_store,
+        capabilities,
+        &codegen_fir.compute_properties,
+        backend_callable,
+        my_op_value,
+    )
+    .unwrap_or_else(|e| panic!("QIR generation from arrow-input callable should succeed: {e:?}"));
+
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_r\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__h__body(%Qubit*)
+
+        declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+
+        declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+    "#]]
+    .assert_eq(&qir);
 }
 
 #[test]
@@ -1501,6 +1558,885 @@ fn callable_with_nested_udt_wrapped_arrow_generates_qir_via_callable_args() {
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
         !5 = !{i32 5, !"float_computations", !{!"double"}}
     "#]].assert_eq(&qir);
+}
+
+// ---------------------------------------------------------------------------
+// Synthetic-path and fallback-path coverage for callable-args codegen
+// ---------------------------------------------------------------------------
+
+/// Helper: compile a lib package, locate named items, and return (`store`, `package_id`, `items_map`).
+/// `item_names` maps display names to a bool: true = Callable, false = Ty (UDT).
+fn compile_and_locate_items(
+    source: &str,
+    item_names: &[(&str, bool)],
+    capabilities: TargetCapabilityFlags,
+) -> (
+    crate::PackageStore,
+    PackageId,
+    FxHashMap<String, qsc_hir::hir::LocalItemId>,
+) {
+    let sources = source_map_from_source(source);
+    let language_features = LanguageFeatures::default();
+    let (std_id, mut store) = crate::compile::package_store_with_stdlib(capabilities);
+    let dependencies: Vec<(PackageId, Option<Arc<str>>)> = vec![(std_id, None)];
+    let (unit, errors) = crate::compile::compile(
+        &store,
+        &dependencies,
+        sources,
+        qsc_passes::PackageType::Lib,
+        capabilities,
+        language_features,
+    );
+    assert!(errors.is_empty(), "compilation failed: {errors:?}");
+    let package_id = store.insert(unit);
+
+    let hir_package = &store.get(package_id).expect("package should exist").package;
+    let mut found = FxHashMap::default();
+    for (local_id, item) in hir_package.items.iter() {
+        match &item.kind {
+            ItemKind::Callable(decl) => {
+                for &(name, is_callable) in item_names {
+                    if is_callable && decl.name.name.as_ref() == name {
+                        found.insert(name.to_string(), local_id);
+                    }
+                }
+            }
+            ItemKind::Ty(name, _) => {
+                for &(item_name, is_callable) in item_names {
+                    if !is_callable && name.name.as_ref() == item_name {
+                        found.insert(item_name.to_string(), local_id);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    for &(name, _) in item_names {
+        assert!(
+            found.contains_key(name),
+            "{name} should exist in HIR package"
+        );
+    }
+    (store, package_id, found)
+}
+
+/// Returns the target capabilities used by callable-args synthetic path tests.
+fn adaptive_capabilities() -> TargetCapabilityFlags {
+    TargetCapabilityFlags::Adaptive
+        | TargetCapabilityFlags::IntegerComputations
+        | TargetCapabilityFlags::FloatingPointComputations
+}
+
+/// Maps a HIR local item ID in the test package to its corresponding FIR item ID.
+fn fir_id_for(
+    package_id: PackageId,
+    local_id: qsc_hir::hir::LocalItemId,
+) -> qsc_fir::fir::StoreItemId {
+    qsc_fir::fir::StoreItemId {
+        package: qsc_lowerer::map_hir_package_to_fir(package_id),
+        item: qsc_lowerer::map_hir_local_item_to_fir(local_id),
+    }
+}
+
+/// Builds a HIR item ID from a test package ID and local item ID.
+fn hir_id_for(package_id: PackageId, local_id: qsc_hir::hir::LocalItemId) -> qsc_hir::hir::ItemId {
+    qsc_hir::hir::ItemId {
+        package: package_id,
+        item: local_id,
+    }
+}
+
+/// Runs `prepare_codegen_fir_from_callable_args` and then `fir_to_qir_from_callable`,
+/// returning the QIR string.
+fn callable_args_to_qir(
+    store: &crate::PackageStore,
+    package_id: PackageId,
+    target_local: qsc_hir::hir::LocalItemId,
+    args: &Value,
+    capabilities: TargetCapabilityFlags,
+) -> String {
+    let target_hir = hir_id_for(package_id, target_local);
+    let codegen_fir = prepare_codegen_fir_from_callable_args(store, target_hir, args, capabilities)
+        .unwrap_or_else(|errors| {
+            panic!(
+                "prepare_codegen_fir_from_callable_args failed: {}",
+                format_interpret_errors(errors)
+            )
+        });
+    let backend_callable = fir_id_for(package_id, target_local);
+    qsc_codegen::qir::fir_to_qir_from_callable(
+        &codegen_fir.fir_store,
+        capabilities,
+        &codegen_fir.compute_properties,
+        backend_callable,
+        args.clone(),
+    )
+    .unwrap_or_else(|e| panic!("fir_to_qir_from_callable failed: {e:?}"))
+}
+
+// ---- Synthetic path: arrow + non-callable params (tuple input) ----
+
+#[test]
+fn synthetic_path_arrow_and_int_tuple_generates_qir() {
+    // Target takes (op: Qubit => Unit, count: Int). Only the callable flows
+    // through `args`; count is provided as a plain Int value.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation RunOp(op : Qubit => Unit, count : Int) : Result {
+                use q = Qubit();
+                for _ in 0..count - 1 {
+                    op(q);
+                }
+                MResetZ(q)
+            }
+            operation MyH(q : Qubit) : Unit { H(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("RunOp", true), ("MyH", true)], caps);
+
+    let my_h = Value::Global(fir_id_for(pkg, items["MyH"]), FunctorApp::default());
+    let args = Value::Tuple(vec![my_h, Value::Int(3)].into(), None);
+
+    let qir = callable_args_to_qir(&store, pkg, items["RunOp"], &args, caps);
+    // The QIR must contain an h__body call from the loop body.
+    assert!(
+        qir.contains("__quantum__qis__h__body"),
+        "expected h gate in QIR:\n{qir}"
+    );
+    assert!(
+        qir.contains("__quantum__qis__mresetz__body"),
+        "expected mresetz in QIR:\n{qir}"
+    );
+}
+
+// ---- Synthetic path: two callable args in a tuple ----
+
+#[test]
+fn synthetic_path_two_arrow_args_generates_qir() {
+    // Target takes (op1: Qubit => Unit, op2: Qubit => Unit). Both are
+    // Global values — the synthetic Call must place both at their respective
+    // tuple positions.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyBoth(op1 : Qubit => Unit, op2 : Qubit => Unit) : Result {
+                use q = Qubit();
+                op1(q);
+                op2(q);
+                MResetZ(q)
+            }
+            operation DoH(q : Qubit) : Unit { H(q); }
+            operation DoX(q : Qubit) : Unit { X(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[("ApplyBoth", true), ("DoH", true), ("DoX", true)],
+        caps,
+    );
+
+    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let args = Value::Tuple(vec![do_h, do_x].into(), None);
+
+    let qir = callable_args_to_qir(&store, pkg, items["ApplyBoth"], &args, caps);
+    assert!(
+        qir.contains("__quantum__qis__h__body"),
+        "expected H gate in QIR:\n{qir}"
+    );
+    assert!(
+        qir.contains("__quantum__qis__x__body"),
+        "expected X gate in QIR:\n{qir}"
+    );
+}
+
+// ---- Synthetic path: arrow sandwiched between non-callable params ----
+
+#[test]
+fn synthetic_path_int_arrow_bool_tuple_generates_qir() {
+    // Target takes (n: Int, op: Qubit => Unit, flag: Bool). The callable is
+    // in the middle of the tuple — exercises the element-wise matching logic
+    // in `build_synthetic_args`.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation Middle(n : Int, op : Qubit => Unit, flag : Bool) : Result {
+                use q = Qubit();
+                if flag {
+                    for _ in 0..n - 1 { op(q); }
+                }
+                MResetZ(q)
+            }
+            operation DoX(q : Qubit) : Unit { X(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("Middle", true), ("DoX", true)], caps);
+
+    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let args = Value::Tuple(vec![Value::Int(2), do_x, Value::Bool(true)].into(), None);
+
+    let qir = callable_args_to_qir(&store, pkg, items["Middle"], &args, caps);
+    assert!(
+        qir.contains("__quantum__qis__x__body"),
+        "expected X gate in QIR:\n{qir}"
+    );
+}
+
+// ---- Synthetic path: no callable args (pure values) ----
+
+#[test]
+fn no_callable_args_takes_early_return_path() {
+    // When args contain no callable values, `prepare_codegen_fir_from_callable_args`
+    // takes the `concrete_callables.is_empty()` early return to `prepare_codegen_fir_from_callable`.
+    // This exercises that branch.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation Simple(n : Int) : Result {
+                use q = Qubit();
+                for _ in 0..n - 1 { H(q); }
+                MResetZ(q)
+            }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) = compile_and_locate_items(source, &[("Simple", true)], caps);
+
+    let args = Value::Int(3);
+    let target_hir = hir_id_for(pkg, items["Simple"]);
+
+    // Should succeed without error — takes the no-callable early path.
+    let result = prepare_codegen_fir_from_callable_args(&store, target_hir, &args, caps);
+    assert!(
+        result.is_ok(),
+        "no-callable args should succeed: {:?}",
+        result.err().map(format_interpret_errors)
+    );
+}
+
+// ---- Synthetic path: struct with callable and non-callable fields ----
+
+#[test]
+fn synthetic_path_struct_with_callable_field_generates_qir() {
+    // `Config` is a newtype wrapping (Op: Qubit => Unit, Data: Int).
+    // The synthetic Call builder resolves the UDT's pure tuple shape so defunc
+    // can discover and specialize the callable field.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype Config = (Op: Qubit => Unit, Data: Int);
+            operation Apply(cfg: Config) : Result {
+                use q = Qubit();
+                cfg::Op(q);
+                MResetZ(q)
+            }
+            operation DoH(q: Qubit) : Unit { H(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[("Apply", true), ("DoH", true), ("Config", false)],
+        caps,
+    );
+
+    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let config = Value::Tuple(
+        vec![do_h, Value::Int(42)].into(),
+        Some(Rc::new(fir_id_for(pkg, items["Config"]))),
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["Apply"], &config, caps);
+    assert!(
+        qir.contains("__quantum__qis__h__body"),
+        "expected H gate in QIR:\n{qir}"
+    );
+}
+
+// ---- No-callable path: struct with only non-callable fields ----
+
+#[test]
+fn struct_with_no_callable_fields_takes_early_return_path() {
+    // A UDT that contains no callable fields takes the `concrete_callables.is_empty()`
+    // early return.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype Pair = (First: Int, Second: Int);
+            operation Sum(p: Pair) : Result {
+                use q = Qubit();
+                let total = p::First + p::Second;
+                if total > 0 { H(q); }
+                MResetZ(q)
+            }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("Sum", true), ("Pair", false)], caps);
+
+    let pair = Value::Tuple(
+        vec![Value::Int(3), Value::Int(5)].into(),
+        Some(Rc::new(fir_id_for(pkg, items["Pair"]))),
+    );
+    let target_hir = hir_id_for(pkg, items["Sum"]);
+
+    let result = prepare_codegen_fir_from_callable_args(&store, target_hir, &pair, caps);
+    assert!(
+        result.is_ok(),
+        "struct with no callable fields should succeed: {:?}",
+        result.err().map(format_interpret_errors)
+    );
+}
+
+// ---- Synthetic path: single Global arg (not in a tuple) ----
+
+#[test]
+fn synthetic_path_single_global_arg_generates_qir() {
+    // The simplest synthetic path: a single callable arg, not wrapped in a tuple.
+    // `build_synthetic_args` hits the `Ty::Arrow` branch directly.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation Invoke(op : Qubit => Unit) : Result {
+                use q = Qubit();
+                op(q);
+                MResetZ(q)
+            }
+            operation DoX(q : Qubit) : Unit { X(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("Invoke", true), ("DoX", true)], caps);
+
+    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+
+    let qir = callable_args_to_qir(&store, pkg, items["Invoke"], &do_x, caps);
+    assert!(
+        qir.contains("__quantum__qis__x__body"),
+        "expected X gate in QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn synthetic_path_captureless_closure_adjoint_preserves_functor() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation Invoke(op : Qubit => Unit is Adj) : Result {
+                use q = Qubit();
+                op(q);
+                MResetZ(q)
+            }
+            operation DoS(q : Qubit) : Unit is Adj { S(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("Invoke", true), ("DoS", true)], caps);
+
+    let adjoint_do_s = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: Vec::<Value>::new().into(),
+        id: fir_id_for(pkg, items["DoS"]),
+        functor: FunctorApp {
+            adjoint: true,
+            controlled: 0,
+        },
+    }));
+
+    let target_hir = hir_id_for(pkg, items["Invoke"]);
+    let codegen_fir =
+        prepare_codegen_fir_from_callable_args(&store, target_hir, &adjoint_do_s, caps)
+            .unwrap_or_else(|errors| {
+                panic!(
+                    "adjoint captureless closure should produce CodegenFir, got: {}",
+                    format_interpret_errors(errors)
+                )
+            });
+    let entry = crate::codegen::qir::entry_from_codegen_fir(&codegen_fir);
+    let qir = qsc_codegen::qir::fir_to_qir(
+        &codegen_fir.fir_store,
+        caps,
+        &codegen_fir.compute_properties,
+        &entry,
+    )
+    .unwrap_or_else(|e| panic!("synthetic entry QIR generation should succeed: {e:?}"));
+    assert!(
+        qir.contains("__quantum__qis__s__adj"),
+        "expected adjoint S gate in QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn synthetic_path_udt_wrapped_controlled_callable_preserves_functor() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype CtlBox = (Op: ((Qubit[], Qubit) => Unit), Tag: Int);
+            operation Invoke(b : CtlBox) : Result {
+                use (control, target) = (Qubit(), Qubit());
+                b::Op([control], target);
+                Reset(control);
+                MResetZ(target)
+            }
+            operation DoX(q : Qubit) : Unit is Ctl { X(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[("Invoke", true), ("DoX", true), ("CtlBox", false)],
+        caps,
+    );
+
+    let controlled_do_x = Value::Global(
+        fir_id_for(pkg, items["DoX"]),
+        FunctorApp {
+            adjoint: false,
+            controlled: 1,
+        },
+    );
+    let boxed = Value::Tuple(
+        vec![controlled_do_x, Value::Int(0)].into(),
+        Some(Rc::new(fir_id_for(pkg, items["CtlBox"]))),
+    );
+
+    let target_hir = hir_id_for(pkg, items["Invoke"]);
+    let codegen_fir = prepare_codegen_fir_from_callable_args(&store, target_hir, &boxed, caps)
+        .unwrap_or_else(|errors| {
+            panic!(
+                "controlled UDT-wrapped callable should produce CodegenFir, got: {}",
+                format_interpret_errors(errors)
+            )
+        });
+    let entry = crate::codegen::qir::entry_from_codegen_fir(&codegen_fir);
+    let qir = qsc_codegen::qir::fir_to_qir(
+        &codegen_fir.fir_store,
+        caps,
+        &codegen_fir.compute_properties,
+        &entry,
+    )
+    .unwrap_or_else(|e| panic!("synthetic entry QIR generation should succeed: {e:?}"));
+    assert!(
+        qir.contains("__quantum__qis__cx__body"),
+        "expected controlled X gate in QIR:\n{qir}"
+    );
+}
+
+// ---- Synthetic path: struct wrapping a callable field ----
+
+#[test]
+fn synthetic_path_single_field_struct_wrapping_callable_generates_qir() {
+    // Single-field UDT constructors are transparent in Value form: OpBox(DoH)
+    // is represented as the bare Global callable value.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype OpBox = (Op: Qubit => Unit);
+            operation RunBoxed(b: OpBox) : Result {
+                use q = Qubit();
+                b::Op(q);
+                MResetZ(q)
+            }
+            operation DoH(q: Qubit) : Unit { H(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("RunBoxed", true), ("DoH", true)], caps);
+
+    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+
+    let qir = callable_args_to_qir(&store, pkg, items["RunBoxed"], &do_h, caps);
+    assert!(
+        qir.contains("__quantum__qis__h__body"),
+        "expected H gate in QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn synthetic_path_struct_wrapping_callable_and_tag_generates_qir() {
+    // A newtype that wraps a callable and a non-callable field.
+    // This keeps tuple structure in the runtime Value while still exercising
+    // UDT pure-type discovery.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype OpBox = (Op: Qubit => Unit, Tag: Int);
+            operation RunBoxed(b: OpBox) : Result {
+                use q = Qubit();
+                b::Op(q);
+                MResetZ(q)
+            }
+            operation DoH(q: Qubit) : Unit { H(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[("RunBoxed", true), ("DoH", true), ("OpBox", false)],
+        caps,
+    );
+
+    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let boxed = Value::Tuple(
+        vec![do_h, Value::Int(0)].into(),
+        Some(Rc::new(fir_id_for(pkg, items["OpBox"]))),
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["RunBoxed"], &boxed, caps);
+    assert!(
+        qir.contains("__quantum__qis__h__body"),
+        "expected H gate in QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn synthetic_path_udt_wrapped_adjoint_callable_preserves_functor() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype OpBox = (Op: Qubit => Unit is Adj, Tag: Int);
+            operation RunBoxed(b: OpBox) : Result {
+                use q = Qubit();
+                b::Op(q);
+                MResetZ(q)
+            }
+            operation DoS(q: Qubit) : Unit is Adj { S(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[("RunBoxed", true), ("DoS", true), ("OpBox", false)],
+        caps,
+    );
+
+    let adjoint_do_s = Value::Global(
+        fir_id_for(pkg, items["DoS"]),
+        FunctorApp {
+            adjoint: true,
+            controlled: 0,
+        },
+    );
+    let boxed = Value::Tuple(
+        vec![adjoint_do_s, Value::Int(0)].into(),
+        Some(Rc::new(fir_id_for(pkg, items["OpBox"]))),
+    );
+
+    let target_hir = hir_id_for(pkg, items["RunBoxed"]);
+    let codegen_fir = prepare_codegen_fir_from_callable_args(&store, target_hir, &boxed, caps)
+        .unwrap_or_else(|errors| {
+            panic!(
+                "adjoint UDT-wrapped callable should produce CodegenFir, got: {}",
+                format_interpret_errors(errors)
+            )
+        });
+    let entry = crate::codegen::qir::entry_from_codegen_fir(&codegen_fir);
+    let qir = qsc_codegen::qir::fir_to_qir(
+        &codegen_fir.fir_store,
+        caps,
+        &codegen_fir.compute_properties,
+        &entry,
+    )
+    .unwrap_or_else(|e| panic!("synthetic entry QIR generation should succeed: {e:?}"));
+    assert!(
+        qir.contains("__quantum__qis__s__adj"),
+        "expected adjoint S gate in QIR:\n{qir}"
+    );
+}
+
+// ---- Synthetic path: callable arg with additional non-callable tuple values ----
+
+#[test]
+fn synthetic_path_callable_with_double_and_string_generates_qir() {
+    // Target takes (factor: Double, op: Qubit => Unit, label: String).
+    // All three value types exercise different branches in `lower_value_to_expr`.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation Tagged(factor : Double, op : Qubit => Unit, label : String) : Result {
+                use q = Qubit();
+                op(q);
+                MResetZ(q)
+            }
+            operation DoH(q : Qubit) : Unit { H(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("Tagged", true), ("DoH", true)], caps);
+
+    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let args = Value::Tuple(
+        vec![Value::Double(1.5), do_h, Value::String("test".into())].into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["Tagged"], &args, caps);
+    assert!(
+        qir.contains("__quantum__qis__h__body"),
+        "expected H gate in QIR:\n{qir}"
+    );
+}
+
+// ---- Synthetic path: nested struct (UDT inside UDT) with callable ----
+
+#[test]
+fn synthetic_path_nested_struct_with_callable_generates_qir() {
+    // Two levels of UDT wrapping: Config(Inner: OpBox, N: Int) where
+    // OpBox(Op: Qubit => Unit, Id: Int). This exercises UDT pure-type descent
+    // and nested field-chain replacement in defunctionalization.
+    // Inner UDTs need 2+ fields to avoid the single-field-UDT unwrap issue
+    // where the Value::Tuple shape misaligns with the erased type.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype OpBox = (Op: Qubit => Unit, Id: Int);
+            newtype Config = (Inner: OpBox, N: Int);
+            operation RunConfig(cfg: Config) : Result {
+                use q = Qubit();
+                cfg::Inner::Op(q);
+                MResetZ(q)
+            }
+            operation DoX(q: Qubit) : Unit { X(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[
+            ("RunConfig", true),
+            ("DoX", true),
+            ("Config", false),
+            ("OpBox", false),
+        ],
+        caps,
+    );
+
+    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let inner = Value::Tuple(
+        vec![do_x, Value::Int(1)].into(),
+        Some(Rc::new(fir_id_for(pkg, items["OpBox"]))),
+    );
+    let config = Value::Tuple(
+        vec![inner, Value::Int(5)].into(),
+        Some(Rc::new(fir_id_for(pkg, items["Config"]))),
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["RunConfig"], &config, caps);
+    assert!(
+        qir.contains("__quantum__qis__x__body"),
+        "expected X gate in QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn synthetic_path_callable_field_taking_udt_with_callable_generates_qir() {
+    // Outer wraps a callable whose input is Inner, and Inner itself wraps a
+    // callable. This exercises UDT expansion through arrow input types, not
+    // just nested UDT fields that directly contain callable values.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype Inner = (NestedOp: Qubit => Unit, Id: Int);
+            newtype Outer = (ApplyInner: Inner => Result, Id: Int);
+
+            operation Invoke(outer: Outer) : Result {
+                let inner = Inner(DoH, 2);
+                outer::ApplyInner(inner)
+            }
+
+            operation UseInner(inner: Inner) : Result {
+                use q = Qubit();
+                inner::NestedOp(q);
+                MResetZ(q)
+            }
+
+            operation DoH(q: Qubit) : Unit { H(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[
+            ("Invoke", true),
+            ("UseInner", true),
+            ("DoH", true),
+            ("Inner", false),
+            ("Outer", false),
+        ],
+        caps,
+    );
+
+    let use_inner = Value::Global(fir_id_for(pkg, items["UseInner"]), FunctorApp::default());
+    let outer = Value::Tuple(
+        vec![use_inner, Value::Int(1)].into(),
+        Some(Rc::new(fir_id_for(pkg, items["Outer"]))),
+    );
+
+    let target_hir = hir_id_for(pkg, items["Invoke"]);
+    let codegen_fir = prepare_codegen_fir_from_callable_args(&store, target_hir, &outer, caps)
+        .unwrap_or_else(|errors| {
+            panic!(
+                "callable field taking a UDT with a callable should produce CodegenFir, got: {}",
+                format_interpret_errors(errors)
+            )
+        });
+    let entry = crate::codegen::qir::entry_from_codegen_fir(&codegen_fir);
+    let qir = qsc_codegen::qir::fir_to_qir(
+        &codegen_fir.fir_store,
+        caps,
+        &codegen_fir.compute_properties,
+        &entry,
+    )
+    .unwrap_or_else(|e| panic!("synthetic entry QIR generation should succeed: {e:?}"));
+    assert!(
+        qir.contains("__quantum__qis__h__body"),
+        "expected H gate in QIR:\n{qir}"
+    );
+}
+
+// ---- Synthetic path: tuple arg where only one element is callable ----
+
+#[test]
+fn synthetic_path_tuple_with_one_callable_among_many_scalars() {
+    // (Int, Int, Qubit => Unit, Bool, Int) — callable buried deep in a wide tuple.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation Wide(a : Int, b : Int, op : Qubit => Unit, flag : Bool, c : Int) : Result {
+                use q = Qubit();
+                if flag { op(q); }
+                MResetZ(q)
+            }
+            operation DoH(q : Qubit) : Unit { H(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("Wide", true), ("DoH", true)], caps);
+
+    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let args = Value::Tuple(
+        vec![
+            Value::Int(1),
+            Value::Int(2),
+            do_h,
+            Value::Bool(true),
+            Value::Int(4),
+        ]
+        .into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["Wide"], &args, caps);
+    assert!(
+        qir.contains("__quantum__qis__h__body"),
+        "expected H gate in QIR:\n{qir}"
+    );
+}
+
+// ---- Synthetic path: plain tuple with callable ----
+
+#[test]
+fn plain_tuple_with_callable_takes_synthetic_path() {
+    // A plain `Value::Tuple(_, None)` (no UDT tag) containing a callable takes
+    // the same synthetic path as UDT values.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation RunPair(op : Qubit => Unit, n : Int) : Result {
+                use q = Qubit();
+                for _ in 0..n - 1 { op(q); }
+                MResetZ(q)
+            }
+            operation DoH(q : Qubit) : Unit { H(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("RunPair", true), ("DoH", true)], caps);
+
+    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    // Plain tuple — no UDT tag.
+    let args = Value::Tuple(vec![do_h, Value::Int(2)].into(), None);
+
+    let qir = callable_args_to_qir(&store, pkg, items["RunPair"], &args, caps);
+    assert!(
+        qir.contains("__quantum__qis__h__body"),
+        "expected H gate in QIR:\n{qir}"
+    );
+}
+
+// ---- Synthetic path: struct with two callable fields ----
+
+#[test]
+fn synthetic_path_struct_with_two_callable_fields_generates_qir() {
+    // A newtype with two arrow fields. Both are wrapped in the UDT.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            newtype Ops = (First: Qubit => Unit, Second: Qubit => Unit);
+            operation RunOps(ops: Ops) : Result {
+                use q = Qubit();
+                ops::First(q);
+                ops::Second(q);
+                MResetZ(q)
+            }
+            operation DoH(q: Qubit) : Unit { H(q); }
+            operation DoX(q: Qubit) : Unit { X(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) = compile_and_locate_items(
+        source,
+        &[
+            ("RunOps", true),
+            ("DoH", true),
+            ("DoX", true),
+            ("Ops", false),
+        ],
+        caps,
+    );
+
+    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let do_x = Value::Global(fir_id_for(pkg, items["DoX"]), FunctorApp::default());
+    let ops = Value::Tuple(
+        vec![do_h, do_x].into(),
+        Some(Rc::new(fir_id_for(pkg, items["Ops"]))),
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["RunOps"], &ops, caps);
+    assert!(
+        qir.contains("__quantum__qis__h__body"),
+        "expected H gate in QIR:\n{qir}"
+    );
+    assert!(
+        qir.contains("__quantum__qis__x__body"),
+        "expected X gate in QIR:\n{qir}"
+    );
+}
+
+// ---- Synthetic path: callable with Pauli and Result args ----
+
+#[test]
+fn synthetic_path_callable_with_pauli_and_result_values() {
+    // Exercises the Pauli and Result branches of `lower_value_to_expr`.
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation Measure(op : Qubit => Unit, basis : Pauli) : Result {
+                use q = Qubit();
+                op(q);
+                MResetZ(q)
+            }
+            operation DoH(q : Qubit) : Unit { H(q); }
+        }
+    "#};
+    let caps = adaptive_capabilities();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("Measure", true), ("DoH", true)], caps);
+
+    let do_h = Value::Global(fir_id_for(pkg, items["DoH"]), FunctorApp::default());
+    let args = Value::Tuple(
+        vec![do_h, Value::Pauli(qsc_fir::fir::Pauli::Z)].into(),
+        None,
+    );
+
+    let qir = callable_args_to_qir(&store, pkg, items["Measure"], &args, caps);
+    assert!(
+        qir.contains("__quantum__qis__h__body"),
+        "expected H gate in QIR:\n{qir}"
+    );
 }
 
 mod base_profile {

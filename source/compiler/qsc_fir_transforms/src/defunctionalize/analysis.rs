@@ -83,7 +83,7 @@ fn find_callable_params(
         let pkg = store.get(store_id.package);
         let item = pkg.get_item(store_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
-            let params = extract_arrow_params(pkg, store_id.item, decl.input);
+            let params = extract_arrow_params(store, pkg, store_id.item, decl.input);
             if !params.is_empty() {
                 result.insert(store_id, params);
             }
@@ -95,6 +95,7 @@ fn find_callable_params(
 
 /// Extracts arrow-typed parameters from a callable's input pattern.
 fn extract_arrow_params(
+    store: &PackageStore,
     pkg: &Package,
     callable_id: qsc_fir::fir::LocalItemId,
     input_pat_id: qsc_fir::fir::PatId,
@@ -108,12 +109,16 @@ fn extract_arrow_params(
                 let sub_pat = pkg.get_pat(sub_pat_id);
                 if let PatKind::Bind(ident) = &sub_pat.kind {
                     let mut field_path = Vec::new();
-                    extract_arrow_params_from_ty(
+                    let context = ArrowParamExtraction {
+                        store,
                         callable_id,
-                        sub_pat_id,
-                        ident.id,
+                        param_pat_id: sub_pat_id,
+                        param_var: ident.id,
+                        top_level_param: index,
+                    };
+                    extract_arrow_params_from_ty(
+                        &context,
                         &sub_pat.ty,
-                        index,
                         &mut field_path,
                         &mut params,
                     );
@@ -122,15 +127,14 @@ fn extract_arrow_params(
         }
         PatKind::Bind(ident) => {
             let mut field_path = Vec::new();
-            extract_arrow_params_from_ty(
+            let context = ArrowParamExtraction {
+                store,
                 callable_id,
-                input_pat_id,
-                ident.id,
-                &pat.ty,
-                0,
-                &mut field_path,
-                &mut params,
-            );
+                param_pat_id: input_pat_id,
+                param_var: ident.id,
+                top_level_param: 0,
+            };
+            extract_arrow_params_from_ty(&context, &pat.ty, &mut field_path, &mut params);
         }
         PatKind::Discard => {}
     }
@@ -138,42 +142,49 @@ fn extract_arrow_params(
     params
 }
 
-/// Recursively descends into the structural layers of a callable parameter
-/// type, recording every `Ty::Arrow` leaf as a [`CallableParam`] tagged
-/// with its enclosing `top_level_param` slot and accumulated `field_path`
-/// through any `Ty::Tuple` wrappers.
-fn extract_arrow_params_from_ty(
+/// Carries the invariant metadata needed while extracting callable parameters.
+struct ArrowParamExtraction<'a> {
+    store: &'a PackageStore,
     callable_id: qsc_fir::fir::LocalItemId,
     param_pat_id: PatId,
     param_var: LocalVarId,
-    param_ty: &Ty,
     top_level_param: usize,
+}
+
+/// Recursively descends into the structural layers of a callable parameter
+/// type and records every `Ty::Arrow` leaf as a `CallableParam`.
+///
+/// UDTs are expanded to their pure type so callable fields inside nested
+/// newtypes are treated the same way as tuple fields.
+fn extract_arrow_params_from_ty(
+    context: &ArrowParamExtraction<'_>,
+    param_ty: &Ty,
     field_path: &mut Vec<usize>,
     params: &mut Vec<CallableParam>,
 ) {
     match param_ty {
         Ty::Arrow(_) => params.push(CallableParam::new(
-            callable_id,
-            param_pat_id,
-            top_level_param,
+            context.callable_id,
+            context.param_pat_id,
+            context.top_level_param,
             field_path.clone(),
-            param_var,
+            context.param_var,
             param_ty.clone(),
         )),
         Ty::Tuple(items) => {
             for (index, item_ty) in items.iter().enumerate() {
                 field_path.push(index);
-                extract_arrow_params_from_ty(
-                    callable_id,
-                    param_pat_id,
-                    param_var,
-                    item_ty,
-                    top_level_param,
-                    field_path,
-                    params,
-                );
+                extract_arrow_params_from_ty(context, item_ty, field_path, params);
                 field_path.pop();
             }
+        }
+        Ty::Udt(Res::Item(item_id)) => {
+            let package = context.store.get(item_id.package);
+            let item = package.get_item(item_id.item);
+            let ItemKind::Ty(_, udt) = &item.kind else {
+                return;
+            };
+            extract_arrow_params_from_ty(context, &udt.get_pure_ty(), field_path, params);
         }
         _ => {}
     }
@@ -311,11 +322,12 @@ fn inspect_call_expr(
                 pkg.get_expr(resolved_arg_id).kind,
                 ExprKind::Block(_) | ExprKind::If(_, _, _)
             );
-            let resolved = resolve_callee(
+            let resolved = resolve_callee_at_path(
                 pkg,
                 store,
                 locals,
-                resolved_arg_id,
+                *args_expr_id,
+                &input_path,
                 0,
                 allow_scoped_capture_exprs,
                 &FxHashSet::default(),
@@ -521,6 +533,82 @@ fn extract_arg_at_path(pkg: &Package, args_expr_id: ExprId, path: &[usize]) -> E
         // Single-parameter callable: the args expression IS the argument.
         args_expr_id
     }
+}
+
+/// Resolves a callable argument selected by `path`, following local UDT/tuple
+/// initializers when the selected value is nested inside a single argument.
+#[allow(clippy::too_many_arguments)]
+fn resolve_callee_at_path(
+    pkg: &Package,
+    store: &PackageStore,
+    locals: &LocalState,
+    args_expr_id: ExprId,
+    path: &[usize],
+    depth: usize,
+    allow_scoped_capture_exprs: bool,
+    scoped_capture_vars: &FxHashSet<LocalVarId>,
+    package_id: PackageId,
+) -> CalleeLattice {
+    if depth > MAX_RESOLVE_DEPTH {
+        return CalleeLattice::Dynamic;
+    }
+
+    if path.is_empty() {
+        return resolve_callee(
+            pkg,
+            store,
+            locals,
+            args_expr_id,
+            depth + 1,
+            allow_scoped_capture_exprs,
+            scoped_capture_vars,
+            package_id,
+        );
+    }
+
+    let args_expr = pkg.get_expr(args_expr_id);
+    if let ExprKind::Tuple(elements) = &args_expr.kind
+        && let Some(&element_id) = elements.get(path[0])
+    {
+        return resolve_callee_at_path(
+            pkg,
+            store,
+            locals,
+            element_id,
+            &path[1..],
+            depth + 1,
+            allow_scoped_capture_exprs,
+            scoped_capture_vars,
+            package_id,
+        );
+    }
+
+    let field_path = FieldPath {
+        indices: path.to_vec(),
+    };
+    if let Some(field_value_id) = resolve_struct_field(pkg, locals, args_expr_id, &field_path, 0) {
+        return resolve_callee(
+            pkg,
+            store,
+            locals,
+            field_value_id,
+            depth + 1,
+            allow_scoped_capture_exprs,
+            scoped_capture_vars,
+            package_id,
+        );
+    }
+
+    resolve_callee(
+        pkg,
+        store,
+        locals,
+        args_expr_id,
+        depth + 1,
+        allow_scoped_capture_exprs,
+        scoped_capture_vars,
+        package_id,
+    )
 }
 
 /// Resolves an expression to a [`CalleeLattice`] by peeling functor
@@ -1019,7 +1107,25 @@ fn resolve_struct_field(
     }
     let inner_expr = pkg.get_expr(inner_expr_id);
     match &inner_expr.kind {
+        ExprKind::Tuple(elements) => {
+            let (&field_index, rest) = path.indices.split_first()?;
+            let &field_expr_id = elements.get(field_index)?;
+            if rest.is_empty() {
+                Some(field_expr_id)
+            } else {
+                resolve_struct_field(
+                    pkg,
+                    locals,
+                    field_expr_id,
+                    &FieldPath {
+                        indices: rest.to_vec(),
+                    },
+                    depth + 1,
+                )
+            }
+        }
         ExprKind::Struct(_, _, fields) => extract_field_value(fields, path),
+        ExprKind::Call(_, args_id) => resolve_struct_field(pkg, locals, *args_id, path, depth + 1),
         ExprKind::Var(Res::Local(var), _) => {
             let &init_id = locals.exprs.get(var)?;
             resolve_struct_field(pkg, locals, init_id, path, depth + 1)

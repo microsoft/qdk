@@ -427,7 +427,6 @@ impl Range {
     }
 }
 
-#[derive(Clone)]
 pub struct Env {
     scopes: Vec<Scope>,
     qubits: FxHashSet<Rc<Qubit>>,

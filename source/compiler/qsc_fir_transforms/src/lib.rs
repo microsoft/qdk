@@ -222,9 +222,12 @@ fn run_pipeline_to_impl(
     }
 
     // Item DCE: remove unreachable callable items and dead type items.
-    // Runs as part of the Full pipeline after GC and before exec_graph_rebuild.
     // Callers may pin items via `pinned_items` to keep them (and their
-    // transitive dependencies) alive through DCE.
+    // transitive dependencies) alive through DCE and exec-graph-rebuild.
+    // Pinned items are NOT invariant-checked — PostAll uses entry-only
+    // reachability. Pinning is needed when the original target ID is used
+    // by `fir_to_qir_from_callable` after defunc rewrites the entry Call
+    // to reference the specialized callable.
     if store.get(package_id).entry.is_some() {
         let reachable = if pinned_items.is_empty() {
             reachability::collect_reachable_from_entry(store, package_id)
@@ -246,12 +249,9 @@ fn run_pipeline_to_impl(
         return Vec::new();
     }
 
-    invariants::check_with_pinned_items(
-        store,
-        package_id,
-        invariants::InvariantLevel::PostAll,
-        pinned_items,
-    );
+    // PostAll uses entry-only reachability. Pinned items (original target kept
+    // for fir_to_qir_from_callable) retain pre-transform types and are not checked.
+    invariants::check(store, package_id, invariants::InvariantLevel::PostAll);
     Vec::new()
 }
 

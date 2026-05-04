@@ -651,7 +651,7 @@ fn check_reachable_invariants(
     target_package_id: qsc_fir::fir::PackageId,
     reachable: &FxHashSet<StoreItemId>,
     level: InvariantLevel,
-    pinned_items: &[StoreItemId],
+    _pinned_items: &[StoreItemId],
 ) {
     for item_id in reachable {
         // Only check invariants on items in the target package. Cross-package
@@ -664,58 +664,44 @@ fn check_reachable_invariants(
         let item_pkg = store.get(item_id.package);
         let item = item_pkg.get_item(item_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
-            let is_pinned = pinned_items.contains(item_id);
+            // All reachable callables have been through the full pipeline
+            // via the entry expression and should pass all stage-specific
+            // invariant checks.
+            check_type_invariants(&decl.output, level, "callable output type");
 
-            // Pinned items are specialization targets for callable-args
-            // codegen. They were not entry-reachable when the FIR transforms
-            // ran, so they retain their original pre-transform shape
-            // (Ty::Param, Ty::Arrow, FunctorSet::Param, ExprKind::Return,
-            // etc.). Only exec graph structural integrity is validated for
-            // pinned items; all other stage-specific checks are skipped.
-            if !is_pinned {
-                // Check types on the callable signature.
-                check_type_invariants(&decl.output, level, "callable output type");
+            if level.is_post_defunc_or_later() {
+                check_no_arrow_params(item_pkg, decl);
+            }
 
-                // After defunctionalization, no Arrow-typed parameters should remain.
-                if level.is_post_defunc_or_later() {
-                    check_no_arrow_params(item_pkg, decl);
-                }
+            if level.is_post_arg_promote_or_later() {
+                check_callable_input_pattern_shapes(item_pkg, decl);
+            }
 
-                if level.is_post_arg_promote_or_later() {
-                    check_callable_input_pattern_shapes(item_pkg, decl);
-                }
+            if level.is_post_return_unify_or_later() {
+                check_no_returns(item_pkg, decl);
+            }
 
-                // After return unification, no ExprKind::Return should remain.
-                if level.is_post_return_unify_or_later() {
-                    check_no_returns(item_pkg, decl);
-                }
-
-                // Walk the body types for every reachable callable implementation.
-                match &decl.implementation {
-                    CallableImpl::Spec(spec_impl) => {
-                        check_spec_decl_types(store, item_pkg, &spec_impl.body, level);
-                        for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-                            .into_iter()
-                            .flatten()
-                        {
-                            check_spec_decl_types(store, item_pkg, spec, level);
-                        }
-                    }
-                    CallableImpl::SimulatableIntrinsic(spec) => {
+            match &decl.implementation {
+                CallableImpl::Spec(spec_impl) => {
+                    check_spec_decl_types(store, item_pkg, &spec_impl.body, level);
+                    for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
+                        .into_iter()
+                        .flatten()
+                    {
                         check_spec_decl_types(store, item_pkg, spec, level);
                     }
-                    CallableImpl::Intrinsic => {}
                 }
+                CallableImpl::SimulatableIntrinsic(spec) => {
+                    check_spec_decl_types(store, item_pkg, spec, level);
+                }
+                CallableImpl::Intrinsic => {}
+            }
 
-                // Check that every Res::Local reference is bound within the callable.
-                if level.is_post_mono_or_later() {
-                    check_local_var_consistency(item_pkg, decl);
-                }
+            if level.is_post_mono_or_later() {
+                check_local_var_consistency(item_pkg, decl);
             }
 
             // After all passes, validate exec graph structural integrity.
-            // This applies to both entry-reachable and pinned callables,
-            // since exec_graph_rebuild rebuilds graphs for both.
             if level == InvariantLevel::PostAll {
                 let name = &decl.name.name;
                 match &decl.implementation {

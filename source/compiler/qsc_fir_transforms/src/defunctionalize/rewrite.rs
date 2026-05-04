@@ -47,7 +47,7 @@ use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BinOp, Expr, ExprId, ExprKind, Functor, ItemId, ItemKind, Lit, LocalItemId, LocalVarId,
+    BinOp, Expr, ExprId, ExprKind, Field, Functor, ItemId, ItemKind, Lit, LocalItemId, LocalVarId,
     Mutability, Package, PackageId, PackageLookup, PatId, PatKind, Res, StmtKind, UnOp,
 };
 use qsc_fir::ty::{Arrow, Prim, Ty};
@@ -126,6 +126,7 @@ pub(super) fn rewrite(
                 call_site,
                 param,
                 spec_local_id,
+                &expr_owner_lookup,
                 assigner,
             );
         } else {
@@ -1008,7 +1009,7 @@ fn prune_dead_callable_locals_in_block(package: &mut Package, block_id: qsc_fir:
             let remove_stmt = match stmt.kind {
                 StmtKind::Local(Mutability::Immutable, pat_id, _) => {
                     let pat = package.get_pat(pat_id);
-                    if ty_contains_arrow(&pat.ty) {
+                    if local_ty_contains_arrow_through_udts(package, &pat.ty) {
                         let mut bound_vars = Vec::new();
                         collect_bound_pat_vars(package, pat_id, &mut bound_vars);
                         !bound_vars.is_empty()
@@ -1061,7 +1062,7 @@ fn remove_dead_callable_local_from_block(
     for stmt_id in stmt_ids {
         let stmt = package.get_stmt(stmt_id);
         let remove_stmt = if let StmtKind::Local(Mutability::Immutable, pat_id, _) = stmt.kind
-            && ty_contains_arrow(&package.get_pat(pat_id).ty)
+            && local_ty_contains_arrow_through_udts(package, &package.get_pat(pat_id).ty)
             && pat_binds_local_var(package, pat_id, local_var)
         {
             // Only remove when ALL bound variables in the pattern are
@@ -1770,6 +1771,7 @@ fn rewrite_one(
     call_site: &CallSite,
     param: &CallableParam,
     spec_local_id: LocalItemId,
+    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
     assigner: &mut Assigner,
 ) {
     let call_expr = package.get_expr(call_site.call_expr_id).clone();
@@ -1798,16 +1800,26 @@ fn rewrite_one(
         }
         _ => Vec::new(),
     };
-    rewrite_args(package, args_id, &input_path, &captures, assigner);
+    rewrite_args(
+        package,
+        call_site.call_expr_id,
+        args_id,
+        &input_path,
+        &captures,
+        expr_owner_lookup,
+        assigner,
+    );
 }
 
 /// Removes the callable argument selected by `param` from the call arguments
 /// and appends closure captures when needed.
 fn rewrite_args(
     package: &mut Package,
+    call_expr_id: ExprId,
     args_id: ExprId,
     input_path: &[usize],
     captures: &[CapturedVar],
+    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
     assigner: &mut Assigner,
 ) {
     let args_expr = package
@@ -1819,11 +1831,13 @@ fn rewrite_args(
     if input_path.is_empty() {
         rewrite_single_arg_root(package, args_id, captures, assigner);
     } else if matches!(args_expr.kind, ExprKind::Tuple(_)) {
+        let owner_callable = expr_owner_lookup.get(&call_expr_id).copied();
         if input_path.len() == 1 {
             rewrite_args_remove_tuple_element(package, args_id, input_path[0], captures, assigner);
         } else {
             rewrite_args_nested_tuple_input(
                 package,
+                owner_callable,
                 args_id,
                 input_path[0],
                 &input_path[1..],
@@ -1831,10 +1845,16 @@ fn rewrite_args(
                 assigner,
             );
         }
-    } else if input_path.len() == 1 {
-        rewrite_args_remove_tuple_element(package, args_id, input_path[0], captures, assigner);
     } else {
-        rewrite_single_arg_nested(package, args_id, input_path, captures, assigner);
+        rewrite_single_arg_nested(
+            package,
+            call_expr_id,
+            args_id,
+            input_path,
+            captures,
+            expr_owner_lookup,
+            assigner,
+        );
     }
 }
 
@@ -1867,7 +1887,8 @@ fn rewrite_args_remove_tuple_element(
             new_elements.extend(capture_ids);
 
             // Rebuild the type.
-            let new_ty = build_tuple_ty_without_path(&args_expr.ty, &[param_index], captures);
+            let new_ty =
+                build_tuple_ty_without_path(package, &args_expr.ty, &[param_index], captures);
 
             if new_elements.len() == 1 && captures.is_empty() {
                 // Flatten single-element tuple to match remove_callable_param
@@ -1897,6 +1918,7 @@ fn rewrite_args_remove_tuple_element(
 /// Captures are appended to the top-level args tuple.
 fn rewrite_args_nested_tuple_input(
     package: &mut Package,
+    owner_callable: Option<LocalItemId>,
     args_id: ExprId,
     top_level_param: usize,
     field_path: &[usize],
@@ -1911,8 +1933,17 @@ fn rewrite_args_nested_tuple_input(
 
     if let ExprKind::Tuple(elements) = &args_expr.kind {
         let inner_id = elements[top_level_param];
-        // Remove the nested element from the inner tuple.
-        remove_element_at_path(package, inner_id, field_path);
+        if !rewrite_local_single_arg_nested(
+            package,
+            owner_callable,
+            inner_id,
+            field_path,
+            &[],
+            assigner,
+        ) {
+            // Remove the nested element from the inner tuple.
+            remove_element_at_path(package, inner_id, field_path);
+        }
 
         // Read the updated inner type before mutably borrowing the outer.
         let inner_ty = package
@@ -1947,11 +1978,24 @@ fn rewrite_args_nested_tuple_input(
 /// Rewrites args when the callable is nested inside the single argument value.
 fn rewrite_single_arg_nested(
     package: &mut Package,
+    call_expr_id: ExprId,
     args_id: ExprId,
     field_path: &[usize],
     captures: &[CapturedVar],
+    expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
     assigner: &mut Assigner,
 ) {
+    if rewrite_local_single_arg_nested(
+        package,
+        expr_owner_lookup.get(&call_expr_id).copied(),
+        args_id,
+        field_path,
+        captures,
+        assigner,
+    ) {
+        return;
+    }
+
     remove_element_at_path(package, args_id, field_path);
     if !captures.is_empty() {
         let span = package.get_expr(args_id).span;
@@ -1971,6 +2015,106 @@ fn rewrite_single_arg_nested(
         let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
         args_mut.kind = ExprKind::Tuple(new_elements);
         args_mut.ty = Ty::Tuple(new_tys);
+    }
+}
+
+/// Rewrites a single local UDT/tuple argument by replacing the argument use with
+/// the local initializer after removing the specialized callable field.
+fn rewrite_local_single_arg_nested(
+    package: &mut Package,
+    owner_callable: Option<LocalItemId>,
+    args_id: ExprId,
+    field_path: &[usize],
+    captures: &[CapturedVar],
+    assigner: &mut Assigner,
+) -> bool {
+    if field_path.len() != 1 {
+        return false;
+    }
+
+    let ExprKind::Var(Res::Local(local_var), _) = package.get_expr(args_id).kind else {
+        return false;
+    };
+    let Some(owner_callable) = owner_callable else {
+        return false;
+    };
+    let Some(init_expr_id) = find_local_init_expr_in_callable(package, owner_callable, local_var)
+    else {
+        return false;
+    };
+    let Some((kind, ty)) = remove_top_level_field_from_expr_data(
+        package,
+        init_expr_id,
+        field_path[0],
+        captures,
+        assigner,
+    ) else {
+        return false;
+    };
+
+    let args_expr = package.exprs.get_mut(args_id).expect("args expr not found");
+    args_expr.kind = kind;
+    args_expr.ty = ty;
+    true
+}
+
+fn remove_top_level_field_from_expr_data(
+    package: &mut Package,
+    expr_id: ExprId,
+    field_index: usize,
+    captures: &[CapturedVar],
+    assigner: &mut Assigner,
+) -> Option<(ExprKind, Ty)> {
+    let expr = package.get_expr(expr_id).clone();
+    let mut remaining = match &expr.kind {
+        ExprKind::Call(_, args_id) => {
+            return remove_top_level_field_from_expr_data(
+                package,
+                *args_id,
+                field_index,
+                captures,
+                assigner,
+            );
+        }
+        ExprKind::Tuple(elements) => elements
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| *idx != field_index)
+            .map(|(_, &expr_id)| expr_id)
+            .collect::<Vec<_>>(),
+        ExprKind::Struct(_, _, fields) => fields
+            .iter()
+            .filter_map(|field| match &field.field {
+                Field::Path(path) if path.indices.first() != Some(&field_index) => {
+                    Some(field.value)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>(),
+        _ => return None,
+    };
+
+    remaining.extend(allocate_capture_exprs(
+        package, expr.span, captures, assigner,
+    ));
+
+    Some(build_expr_data_from_elements(package, remaining))
+}
+
+fn build_expr_data_from_elements(package: &Package, elements: Vec<ExprId>) -> (ExprKind, Ty) {
+    match elements.as_slice() {
+        [] => (ExprKind::Tuple(Vec::new()), Ty::UNIT),
+        [single] => {
+            let expr = package.get_expr(*single);
+            (expr.kind.clone(), expr.ty.clone())
+        }
+        _ => {
+            let tys = elements
+                .iter()
+                .map(|&expr_id| package.get_expr(expr_id).ty.clone())
+                .collect();
+            (ExprKind::Tuple(elements), Ty::Tuple(tys))
+        }
     }
 }
 
@@ -2112,7 +2256,7 @@ fn build_specialized_callee_ty(
         _ => &[],
     };
 
-    let new_input = remove_ty_at_path(&arrow.input, input_path, captures);
+    let new_input = remove_ty_at_path(package, &arrow.input, input_path, captures);
     Some(Ty::Arrow(Box::new(Arrow {
         kind: arrow.kind,
         input: Box::new(new_input),
@@ -2127,7 +2271,7 @@ fn build_specialized_callee_ty(
 /// An empty path removes the entire root value. If the type is not a tuple,
 /// it represents the single callable-param case, so the result is either Unit
 /// or a tuple of capture types.
-fn remove_ty_at_path(ty: &Ty, path: &[usize], captures: &[CapturedVar]) -> Ty {
+fn remove_ty_at_path(package: &Package, ty: &Ty, path: &[usize], captures: &[CapturedVar]) -> Ty {
     let capture_tys: Vec<Ty> = captures.iter().map(|c| c.ty.clone()).collect();
 
     if path.is_empty() {
@@ -2138,8 +2282,10 @@ fn remove_ty_at_path(ty: &Ty, path: &[usize], captures: &[CapturedVar]) -> Ty {
         };
     }
 
+    let ty = resolve_udt_ty(package, ty);
+
     if path.len() == 1 {
-        if let Ty::Tuple(tys) = ty {
+        if let Ty::Tuple(tys) = &ty {
             let mut remaining: Vec<Ty> = tys
                 .iter()
                 .enumerate()
@@ -2168,16 +2314,16 @@ fn remove_ty_at_path(ty: &Ty, path: &[usize], captures: &[CapturedVar]) -> Ty {
         }
     } else {
         // Navigate deeper: modify the sub-type at path[0], then rebuild.
-        if let Ty::Tuple(tys) = ty {
+        if let Ty::Tuple(tys) = &ty {
             let mut new_tys = tys.clone();
             // Remove nested element without captures at inner level.
-            new_tys[path[0]] = remove_ty_at_path(&tys[path[0]], &path[1..], &[]);
+            new_tys[path[0]] = remove_ty_at_path(package, &tys[path[0]], &path[1..], &[]);
             // Append captures at the top level.
             new_tys.extend(capture_tys);
             Ty::Tuple(new_tys)
         } else {
             // Single param that is a tuple type — remove from within.
-            let modified = remove_ty_at_path(ty, &path[1..], &[]);
+            let modified = remove_ty_at_path(package, &ty, &path[1..], &[]);
             if capture_tys.is_empty() {
                 modified
             } else {
@@ -2191,8 +2337,45 @@ fn remove_ty_at_path(ty: &Ty, path: &[usize], captures: &[CapturedVar]) -> Ty {
 
 /// Builds the tuple type for the args expression after removing the element at
 /// `param_path` and appending capture types.
-fn build_tuple_ty_without_path(ty: &Ty, param_path: &[usize], captures: &[CapturedVar]) -> Ty {
-    remove_ty_at_path(ty, param_path, captures)
+fn build_tuple_ty_without_path(
+    package: &Package,
+    ty: &Ty,
+    param_path: &[usize],
+    captures: &[CapturedVar],
+) -> Ty {
+    remove_ty_at_path(package, ty, param_path, captures)
+}
+
+fn local_ty_contains_arrow_through_udts(package: &Package, ty: &Ty) -> bool {
+    ty_contains_arrow(&resolve_udt_ty(package, ty))
+}
+
+fn resolve_udt_ty(package: &Package, ty: &Ty) -> Ty {
+    match ty {
+        Ty::Udt(Res::Item(item_id)) => {
+            let Some(item) = package.items.get(item_id.item) else {
+                return ty.clone();
+            };
+            let ItemKind::Ty(_, udt) = &item.kind else {
+                return ty.clone();
+            };
+            resolve_udt_ty(package, &udt.get_pure_ty())
+        }
+        Ty::Tuple(elems) => Ty::Tuple(
+            elems
+                .iter()
+                .map(|elem| resolve_udt_ty(package, elem))
+                .collect(),
+        ),
+        Ty::Array(elem) => Ty::Array(Box::new(resolve_udt_ty(package, elem))),
+        Ty::Arrow(arrow) => Ty::Arrow(Box::new(Arrow {
+            kind: arrow.kind,
+            input: Box::new(resolve_udt_ty(package, &arrow.input)),
+            output: Box::new(resolve_udt_ty(package, &arrow.output)),
+            functors: arrow.functors,
+        })),
+        _ => ty.clone(),
+    }
 }
 
 fn callable_uses_tuple_input_pattern(package: &Package, callable_id: LocalItemId) -> bool {
@@ -2313,6 +2496,7 @@ fn rewrite_item_callee_with_functor(
 /// Rewrites a call site that has multiple callee candidates (from branch-split
 /// analysis) into an if/elif/else dispatch chain where each branch calls the
 /// appropriate specialization.
+#[allow(clippy::too_many_lines)]
 fn branch_split_rewrite(
     package: &mut Package,
     package_id: PackageId,
@@ -2321,7 +2505,6 @@ fn branch_split_rewrite(
     expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
     assigner: &mut Assigner,
 ) {
-    // Save original call info before any modifications.
     let orig_call = package.get_expr(call_expr_id).clone();
     let ExprKind::Call(orig_callee_id, orig_args_id) = orig_call.kind else {
         return;
@@ -2329,7 +2512,6 @@ fn branch_split_rewrite(
     let span = orig_call.span;
     let result_ty = orig_call.ty.clone();
 
-    // Separate conditioned entries (if branches) from the default (else).
     let mut conditioned: Vec<((&CallSite, LocalItemId, &CallableParam), ExprId)> = Vec::new();
     let mut default: Option<(&CallSite, LocalItemId, &CallableParam)> = None;
     for &entry in entries {
@@ -2376,6 +2558,7 @@ fn branch_split_rewrite(
             default_entry.0,
             default_entry.2,
             default_entry.1,
+            expr_owner_lookup,
             assigner,
         );
         return;
@@ -2462,8 +2645,12 @@ fn create_branch_call(
 
     // Specialised callee type.
     let input_path = callable_param_input_path(package, orig_callee.id, param);
-    let new_callee_ty =
-        build_specialized_callee_ty_from_expr(orig_callee, &input_path, &call_site.callable_arg);
+    let new_callee_ty = build_specialized_callee_ty_from_expr(
+        package,
+        orig_callee,
+        &input_path,
+        &call_site.callable_arg,
+    );
     let callee_id = alloc_specialized_callee_expr(
         package,
         orig_callee,
@@ -2641,7 +2828,8 @@ fn build_branch_args_data(
                         .collect();
                     let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
                     new_elements.extend(capture_ids);
-                    let new_ty = build_tuple_ty_without_path(&orig_args.ty, input_path, captures);
+                    let new_ty =
+                        build_tuple_ty_without_path(package, &orig_args.ty, input_path, captures);
                     // Flatten single-element tuple to match the flattening in
                     // rewrite_args_remove_tuple_element so the partial evaluator
                     // receives a scalar expression rather than a malformed 1-tuple.
@@ -2653,7 +2841,8 @@ fn build_branch_args_data(
                         (ExprKind::Tuple(new_elements), new_ty)
                     }
                 } else {
-                    let new_ty = build_tuple_ty_without_path(&orig_args.ty, input_path, captures);
+                    let new_ty =
+                        build_tuple_ty_without_path(package, &orig_args.ty, input_path, captures);
                     let mut new_kind = orig_args.kind.clone();
                     if let ExprKind::Tuple(ref mut elems) = new_kind {
                         if let Some(outer_elem_id) = elems.get(input_path[0]).copied() {
@@ -2667,7 +2856,7 @@ fn build_branch_args_data(
             }
             _ => (
                 orig_args.kind.clone(),
-                build_tuple_ty_without_path(&orig_args.ty, input_path, captures),
+                build_tuple_ty_without_path(package, &orig_args.ty, input_path, captures),
             ),
         }
     } else if input_path.len() == 1 {
@@ -2682,7 +2871,8 @@ fn build_branch_args_data(
                     .collect();
                 let capture_ids = allocate_capture_exprs(package, span, captures, assigner);
                 new_elements.extend(capture_ids);
-                let new_ty = build_tuple_ty_without_path(&orig_args.ty, input_path, captures);
+                let new_ty =
+                    build_tuple_ty_without_path(package, &orig_args.ty, input_path, captures);
                 // Flatten single-element tuple to match the flattening in
                 // rewrite_args_remove_tuple_element so the partial evaluator
                 // receives a scalar expression rather than a malformed 1-tuple.
@@ -2696,14 +2886,14 @@ fn build_branch_args_data(
             }
             _ => (
                 orig_args.kind.clone(),
-                build_tuple_ty_without_path(&orig_args.ty, input_path, captures),
+                build_tuple_ty_without_path(package, &orig_args.ty, input_path, captures),
             ),
         }
     } else {
         // Nested path: rebuild both the args type and expression with the
         // nested element removed.
         remove_element_at_path(package, orig_args.id, input_path);
-        let new_ty = build_tuple_ty_without_path(&orig_args.ty, input_path, captures);
+        let new_ty = build_tuple_ty_without_path(package, &orig_args.ty, input_path, captures);
         let modified_args = package.get_expr(orig_args.id).clone();
         let new_kind = if captures.is_empty() {
             modified_args.kind
@@ -2823,6 +3013,7 @@ fn alloc_if_expr(
 
 /// Builds the specialised callee type from a saved callee expression snapshot.
 fn build_specialized_callee_ty_from_expr(
+    package: &Package,
     callee_expr: &Expr,
     input_path: &[usize],
     concrete: &ConcreteCallable,
@@ -2834,7 +3025,7 @@ fn build_specialized_callee_ty_from_expr(
         ConcreteCallable::Closure { captures, .. } => captures.as_slice(),
         _ => &[],
     };
-    let new_input = remove_ty_at_path(&arrow.input, input_path, captures);
+    let new_input = remove_ty_at_path(package, &arrow.input, input_path, captures);
     Some(Ty::Arrow(Box::new(Arrow {
         kind: arrow.kind,
         input: Box::new(new_input),
