@@ -307,6 +307,7 @@ def install_qsharp_python_package(cwd, wheelhouse, interpreter):
         "pip",
         "install",
         "--force-reinstall",
+        "--no-deps",
         "--no-index",
         "--find-links=" + wheelhouse,
         "qsharp",
