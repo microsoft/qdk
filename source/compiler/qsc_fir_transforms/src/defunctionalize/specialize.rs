@@ -695,30 +695,23 @@ fn transform_expr(
                     assigner,
                 );
                 true
-            } else if !param.field_path.is_empty() {
-                // Nested param: check if callee is Field(Var(param_var), Path(tail)).
-                if let ExprKind::Field(field_inner, Field::Path(FieldPath { indices })) = &base_kind
-                {
-                    let inner_expr = package.get_expr(*field_inner);
-                    if let ExprKind::Var(Res::Local(var), _) = &inner_expr.kind
-                        && *var == param.param_var
-                        && indices == &param.field_path
-                    {
-                        replace_callee(
-                            package,
-                            package_id,
-                            callee_id,
-                            body_functor,
-                            concrete,
-                            assigner,
-                        );
-                        true
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
+            } else if !param.field_path.is_empty()
+                && expr_matches_param_field_path(
+                    package,
+                    base_id,
+                    param.param_var,
+                    &param.field_path,
+                )
+            {
+                replace_callee(
+                    package,
+                    package_id,
+                    callee_id,
+                    body_functor,
+                    concrete,
+                    assigner,
+                );
+                true
             } else {
                 false
             };
@@ -820,27 +813,26 @@ fn transform_expr(
                 package, package_id, *inner, param, concrete, alias_set, assigner,
             );
         }
-        ExprKind::Field(inner_id, field) => {
+        ExprKind::Field(inner_id, _) => {
             // For nested callable params, check if this Field expression
             // accesses the arrow element within the param variable.
             if !param.field_path.is_empty()
-                && let Field::Path(FieldPath { indices }) = field
+                && expr_matches_param_field_path(
+                    package,
+                    expr_id,
+                    param.param_var,
+                    &param.field_path,
+                )
             {
-                let inner_expr = package.get_expr(*inner_id);
-                if let ExprKind::Var(Res::Local(var), _) = &inner_expr.kind
-                    && *var == param.param_var
-                    && indices == &param.field_path
-                {
-                    replace_callee(
-                        package,
-                        package_id,
-                        expr_id,
-                        FunctorApp::default(),
-                        concrete,
-                        assigner,
-                    );
-                    return;
-                }
+                replace_callee(
+                    package,
+                    package_id,
+                    expr_id,
+                    FunctorApp::default(),
+                    concrete,
+                    assigner,
+                );
+                return;
             }
             transform_expr(
                 package, package_id, *inner_id, param, concrete, alias_set, assigner,
@@ -923,6 +915,36 @@ fn transform_expr(
         }
         // Terminals with no sub-expressions.
         ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
+    }
+}
+
+/// Returns true when an expression is a field chain rooted at `param_var`
+/// and its collected field path exactly matches `field_path`.
+fn expr_matches_param_field_path(
+    package: &Package,
+    expr_id: ExprId,
+    param_var: LocalVarId,
+    field_path: &[usize],
+) -> bool {
+    collect_field_path_from_param(package, expr_id, param_var)
+        .is_some_and(|path| path == field_path)
+}
+
+/// Collects field indices from nested `Field(Path)` expressions rooted at `param_var`.
+fn collect_field_path_from_param(
+    package: &Package,
+    expr_id: ExprId,
+    param_var: LocalVarId,
+) -> Option<Vec<usize>> {
+    let expr = package.get_expr(expr_id);
+    match &expr.kind {
+        ExprKind::Var(Res::Local(var), _) if *var == param_var => Some(Vec::new()),
+        ExprKind::Field(inner_id, Field::Path(FieldPath { indices })) => {
+            let mut path = collect_field_path_from_param(package, *inner_id, param_var)?;
+            path.extend(indices.iter().copied());
+            Some(path)
+        }
+        _ => None,
     }
 }
 
@@ -1850,7 +1872,7 @@ fn remove_nested_callable_param(
             // Navigate to the sub-pattern at outer_idx and modify its type.
             let sub_pat_id = pats[outer_idx];
             let sub_pat = package.pats.get(sub_pat_id).expect("pat not found").clone();
-            let new_ty = remove_ty_at_nested_path(&sub_pat.ty, inner_path);
+            let new_ty = remove_ty_at_nested_path(package, &sub_pat.ty, inner_path);
             let sub_pat_mut = package.pats.get_mut(sub_pat_id).expect("pat not found");
             sub_pat_mut.ty = new_ty.clone();
 
@@ -1862,7 +1884,7 @@ fn remove_nested_callable_param(
         }
         PatKind::Bind(_) => {
             // Single param that is a tuple type — modify the type directly.
-            let new_ty = remove_ty_at_nested_path(&input_pat.ty, inner_path);
+            let new_ty = remove_ty_at_nested_path(package, &input_pat.ty, inner_path);
             let input_pat_mut = package.pats.get_mut(decl.input).expect("pat not found");
             input_pat_mut.ty = new_ty;
         }
@@ -2004,10 +2026,11 @@ fn flattened_tuple_pat(package: &Package, sub_pats: &[PatId]) -> (PatKind, Ty) {
 /// Removes the element at `path` from a nested tuple type structure.
 /// For single-element paths, removes the element at that index from the tuple.
 /// For multi-element paths, navigates into the tuple and recursively removes.
-fn remove_ty_at_nested_path(ty: &Ty, path: &[usize]) -> Ty {
+fn remove_ty_at_nested_path(package: &Package, ty: &Ty, path: &[usize]) -> Ty {
     if path.is_empty() {
         return Ty::UNIT;
     }
+    let ty = resolve_udt_ty(package, ty);
     if let Ty::Tuple(tys) = ty {
         if path.len() == 1 {
             let remaining: Vec<Ty> = tys
@@ -2025,7 +2048,7 @@ fn remove_ty_at_nested_path(ty: &Ty, path: &[usize]) -> Ty {
             }
         } else {
             let mut new_tys = tys.clone();
-            new_tys[path[0]] = remove_ty_at_nested_path(&tys[path[0]], &path[1..]);
+            new_tys[path[0]] = remove_ty_at_nested_path(package, &tys[path[0]], &path[1..]);
             Ty::Tuple(new_tys)
         }
     } else {
@@ -2033,17 +2056,39 @@ fn remove_ty_at_nested_path(ty: &Ty, path: &[usize]) -> Ty {
     }
 }
 
-/// Constructs an empty `Package` used as a scratch container for body
-/// extraction during HOF cloning.
-fn empty_package() -> Package {
-    Package {
-        items: qsc_data_structures::index_map::IndexMap::new(),
-        entry: None,
-        entry_exec_graph: qsc_fir::fir::ExecGraph::default(),
-        blocks: qsc_data_structures::index_map::IndexMap::new(),
-        exprs: qsc_data_structures::index_map::IndexMap::new(),
-        pats: qsc_data_structures::index_map::IndexMap::new(),
-        stmts: qsc_data_structures::index_map::IndexMap::new(),
+/// Expands UDT wrappers to the tuple/array/arrow structure that defunctionalization tracks.
+///
+/// `CallableParam::field_path` is recorded against the pure structural shape of a parameter,
+/// but specialization removes the callable parameter before UDT erasure has necessarily run.
+/// When the input pattern still has a `Ty::Udt`, `remove_ty_at_nested_path` needs the same
+/// structural view that analysis used so a path like `cfg::Inner::Op` can remove the arrow
+/// field from the specialized callable's input type. Non-UDT leaves are preserved, and nested
+/// tuples, arrays, and arrows are rebuilt with any UDTs inside them expanded as well.
+fn resolve_udt_ty(package: &Package, ty: &Ty) -> Ty {
+    match ty {
+        Ty::Udt(Res::Item(item_id)) => {
+            let Some(item) = package.items.get(item_id.item) else {
+                return ty.clone();
+            };
+            let ItemKind::Ty(_, udt) = &item.kind else {
+                return ty.clone();
+            };
+            resolve_udt_ty(package, &udt.get_pure_ty())
+        }
+        Ty::Tuple(elems) => Ty::Tuple(
+            elems
+                .iter()
+                .map(|elem| resolve_udt_ty(package, elem))
+                .collect(),
+        ),
+        Ty::Array(elem) => Ty::Array(Box::new(resolve_udt_ty(package, elem))),
+        Ty::Arrow(arrow) => Ty::Arrow(Box::new(qsc_fir::ty::Arrow {
+            kind: arrow.kind,
+            input: Box::new(resolve_udt_ty(package, &arrow.input)),
+            output: Box::new(resolve_udt_ty(package, &arrow.output)),
+            functors: arrow.functors,
+        })),
+        _ => ty.clone(),
     }
 }
 
@@ -2051,7 +2096,7 @@ fn empty_package() -> Package {
 /// callable body so the cloner can read from a disjoint source while the
 /// target package is mutated.
 fn extract_callable_body(source_pkg: &Package, decl: &CallableDecl) -> Package {
-    let mut body_pkg = empty_package();
+    let mut body_pkg = Package::default();
 
     extract_pat(source_pkg, decl.input, &mut body_pkg);
 
