@@ -81,6 +81,16 @@ const platformBuildOptions = {
       __PLATFORM__: JSON.stringify("node"),
     },
   },
+  learning: {
+    ...commonBuildOptions,
+    platform: "browser",
+    outdir: join(thisDir, "out", "learning", "webview"),
+    entryPoints: [join(thisDir, "src", "learning/webview/webview-client.tsx")],
+    define: {
+      "import.meta.url": "undefined",
+      __PLATFORM__: JSON.stringify("browser"),
+    },
+  },
 };
 
 // ── Inline worker plugin ────────────────────────────────────────────
@@ -200,6 +210,18 @@ export function copyKatex(destDir) {
   }
 }
 
+export function copyLearningPanelAssets() {
+  const srcDir = join(thisDir, "src", "learning", "webview");
+  const outDir = join(thisDir, "out", "learning", "webview");
+  console.log("Copying learning panel assets to: " + outDir);
+  mkdirSync(outDir, { recursive: true });
+  for (const file of readdirSync(srcDir)) {
+    if (file.endsWith(".css")) {
+      copyFileSync(join(srcDir, file), join(outDir, file));
+    }
+  }
+}
+
 // ── Build functions ─────────────────────────────────────────────────
 
 /** @param {string} platform */
@@ -277,12 +299,14 @@ export async function watchVsCode() {
     } else {
       copyKatex();
       copyWasmToVsCode();
+      copyLearningPanelAssets();
 
       await Promise.all([
         buildPlatform("ui"),
         buildPlatform("browser"),
         buildPlatform("node"),
         buildPlatform("node-worker"),
+        buildPlatform("learning"),
       ]);
     }
   }
