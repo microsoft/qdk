@@ -255,7 +255,7 @@ export class LearningTools {
   // ─── Helpers ───
 
   private async openPanel(): Promise<void> {
-    await vscode.commands.executeCommand("qsharp-vscode.showKatas");
+    await vscode.commands.executeCommand("qsharp-vscode.learningOpenPanel");
   }
 
   private getCurrentFileUri(): vscode.Uri {
