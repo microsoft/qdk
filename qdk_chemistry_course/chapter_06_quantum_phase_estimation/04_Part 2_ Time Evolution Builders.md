@@ -1,0 +1,7 @@
+<h2 style="color:#D30982;">Part 2: Time Evolution Builders</h2>
+
+The time evolution step decomposes <code>U = e<sup>−iHt</sup></code> into native 2-qubit gate sequences. Three strategies are available, each producing a `TimeEvolutionUnitary` container with a list of `step_terms`:
+
+- **`trotter`** — Suzuki-Trotter product formula. Order 1 makes one forward pass through all Pauli terms; order 2 adds a symmetric backward pass, halving the Trotter error at twice the step count. Error is deterministic and analyzable via commutator bounds. See <a href="https://cloudblogs.microsoft.com/quantum/2023/06/08/microsoft-quantum-researchers-make-algorithmic-advances-to-tackle-intractable-problems-in-physics-and-materials-science/" target="_blank">Microsoft Research (2023)</a> for recent advances in recursive Trotter steps that further reduce implementation cost.
+- **`qdrift`** — randomly samples Pauli terms weighted by |h_j|. Produces fewer step terms for large Hamiltonians; error scales with λ²t²/N rather than with term count alone.
+- **`partially_randomized`** — hybrid: deterministic Trotter for heavy Pauli terms, qDRIFT sampling for light ones. Reduces both step count and systematic Trotter error relative to pure Trotter.

@@ -1,0 +1,5 @@
+Now, let's test that you fully understand this interoperability feature and its strengths. In addition to easily moving between QDK and other quantum software types, you could also bring in your fermionic or qubit Hamiltonian from other frameworks, and use the Microsoft QDK to calculate energies and properties. 
+
+In the code snippet below, the Qiskit code defines the Qubit Hamiltonian for the hydrogen molecule, in the ground state, with a STO-3G basis. It also has been mapped with parity in mind, so it only needs 2 qubits. We see in this example how you can calculate the energy of the molecule using iterative QPE, which is unique to the Microsoft QDK. Right now, the QPE code is provided for you, but we will learn about each component in this course. 
+
+Fill in the ```???```, and then answer the question below on qBook with the final energy you get. 
