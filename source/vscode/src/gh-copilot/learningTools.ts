@@ -9,7 +9,7 @@ import {
   type HintContext,
   type UnitSummary,
   type OverallProgress,
-  type Position,
+  type CurrentActivity,
   type RunResult,
   type SolutionCheckResult,
 } from "../learning/index.js";
@@ -23,7 +23,7 @@ import { CopilotToolError } from "./types.js";
  * curriculum without needing a separate round-trip.
  */
 export interface SerializedLearningState {
-  position: Position;
+  position: CurrentActivity;
   progress: {
     stats: { totalActivities: number; completedActivities: number };
     currentUnitCompleted: number;
