@@ -2479,6 +2479,14 @@ fn transform_while_in_expr(
     }
 }
 
+/// Builds the expression that should execute when an `if` condition falls
+/// through instead of returning.
+///
+/// Before, the original `else` arm and the statements that continue after the
+/// `if` live as separate IR fragments. After, they are combined into one
+/// expression or block whose internal `Return` nodes have already been lowered
+/// to flag writes, letting later normalization treat the entire fallthrough path
+/// as a single else branch.
 fn create_fallthrough_continuation_expr(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -3126,6 +3134,13 @@ fn replace_returns_in_condition_expr(
     }
 }
 
+/// Rewrites a `Return(inner_id)` that appears inside a condition expression into
+/// a block that records the return and yields `false`.
+///
+/// Before, evaluating the condition exits the callable directly. After, the
+/// enclosing expression tree stays well-typed as `Bool`, but the block stores
+/// the return value in `ret_val_var_id`, sets `has_returned_var_id`, and leaves
+/// later guards to skip the rest of the computation.
 fn replace_condition_return_with_flags(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -3149,6 +3164,8 @@ fn replace_condition_return_with_flags(
     );
     let assign_flag_semi = create_semi_stmt(package, assigner, assign_flag);
 
+    // Condition contexts still need a boolean value after the return is lowered
+    // into side-effecting flag writes.
     let false_lit = create_bool_lit(package, assigner, false);
     let false_stmt = create_expr_stmt(package, assigner, false_lit);
 

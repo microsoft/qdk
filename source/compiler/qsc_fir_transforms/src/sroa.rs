@@ -343,6 +343,22 @@ fn all_uses_are_field_access(package: &Package, block_id: BlockId, local_id: Loc
 }
 
 /// Decomposes a single SROA candidate in-place.
+///
+/// # Before
+/// ```text
+/// let t : (A, B) = (a, b);   // single tuple binding
+/// use(t.0); use(t.1);        // only field accesses
+/// ```
+/// # After
+/// ```text
+/// let (t_0, t_1) : (A, B) = (a, b);   // binding split to scalars
+/// use(t_0); use(t_1);                  // field accesses → direct vars
+/// ```
+///
+/// # Mutations
+/// - Rewrites the binding `Pat` from `Bind` to `Tuple` of per-element `Bind`s.
+/// - Allocates new `LocalVarId`, `PatId` nodes through `assigner`.
+/// - Delegates to [`rewrite_field_accesses`] and [`rewrite_assign_tuples`].
 fn decompose_candidate(package: &mut Package, assigner: &mut Assigner, candidate: &SroaCandidate) {
     let n = candidate.elem_types.len();
 
@@ -403,6 +419,20 @@ fn decompose_candidate(package: &mut Package, assigner: &mut Assigner, candidate
 /// `ExprKind::AssignField(Var(Local(old)), Path([i, ...]), value)` uses across
 /// the entire package so they target the decomposed scalar or nested aggregate
 /// for the first path segment.
+///
+/// # Before
+/// ```text
+/// Field(Var(Local(old)), Path([1]))   // tuple.1
+/// ```
+/// # After
+/// ```text
+/// Var(Local(old_1))   // direct scalar reference
+/// ```
+///
+/// # Mutations
+/// - Allocates replacement `Var` and `Field` `Expr` nodes through `assigner`.
+/// - Redirects all parent references from old to new via
+///   [`replace_expr_references`].
 fn rewrite_field_accesses(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -547,6 +577,12 @@ fn rewrite_single_expr(
     }
 }
 
+/// Allocates a fresh `Var(Local(_))` expression for one scalarized replacement
+/// local.
+///
+/// Before, only the replacement local id exists. After, the returned expression
+/// can be wired into rewritten assignments and field reads so parents reference
+/// the scalarized value instead of the original aggregate local.
 fn create_var_expr(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -568,6 +604,12 @@ fn create_var_expr(
     expr_id
 }
 
+/// Rewrites every reference to `old_expr_id` in the package to point at
+/// `new_expr_id`.
+///
+/// Before, entry, statements, and parent expressions still point at the
+/// aggregate expression that SROA wants to replace. After, every such edge
+/// points at the scalarized replacement, allowing the old node to become dead.
 fn replace_expr_references(package: &mut Package, old_expr_id: ExprId, new_expr_id: ExprId) {
     if package.entry == Some(old_expr_id) {
         package.entry = Some(new_expr_id);
@@ -678,10 +720,20 @@ fn build_stmt_block_map(package: &Package) -> FxHashMap<StmtId, BlockId> {
 /// Splits `Assign(Var(Local(old)), Tuple([e0, e1, ...]))` into per-element
 /// assignments across the containing block.
 ///
-/// For each matching expression:
-/// - Rewrites the original `Assign` in-place to `Assign(Var(Local(new_0)), e0)`
-/// - Allocates new `Expr` and `Stmt` nodes for elements 1..n-1
-/// - Inserts the new stmts into the containing block after the original stmt
+/// # Before
+/// ```text
+/// set old = (a, b);   // single Semi(Assign(..)) statement
+/// ```
+/// # After
+/// ```text
+/// set old_0 = a;   // original stmt rewritten in-place
+/// set old_1 = b;   // new stmt inserted after
+/// ```
+///
+/// # Mutations
+/// - Rewrites the original `Assign` `ExprKind` in-place for element 0.
+/// - Allocates new `Expr` and `Stmt` nodes for elements 1..n-1.
+/// - Inserts new statements into the containing block after the original.
 fn rewrite_assign_tuples(
     package: &mut Package,
     assigner: &mut Assigner,

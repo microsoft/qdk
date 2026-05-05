@@ -140,6 +140,11 @@ impl<'a> Visitor<'a> for ReachabilityCollector<'a> {
     }
 }
 
+/// Deletes every arena node that was not marked live during `mark`.
+///
+/// Before, dead blocks, statements, expressions, and patterns still occupy the
+/// package arenas and can keep stale ids addressable. After, only the nodes in
+/// `live` remain and the returned count records how many entries were purged.
 fn sweep(package: &mut Package, live: &LiveSets) -> usize {
     let mut removed = 0;
 
