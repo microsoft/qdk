@@ -213,7 +213,17 @@ class TestNeutralAtom:
         arch = NeutralAtom()
         isa = arch.context().isa
 
-        for instr_id in [RZ, SQRT_X, CZ, MEAS_Z, MEAS_RESET_Z, PHYSICAL_MOVE]:
+        for instr_id in [
+            RZ,
+            T,
+            SQRT_X,
+            H,
+            CZ,
+            CNOT,
+            MEAS_Z,
+            MEAS_RESET_Z,
+            PHYSICAL_MOVE,
+        ]:
             assert instr_id in isa
 
     def test_rz_is_free(self):

@@ -49,7 +49,7 @@ class NeutralAtom(Architecture):
                 encoding=Encoding.PHYSICAL,
                 arity=1,
                 time=0,
-                error_rate=0.0001,
+                error_rate=0.00001,
             ),
             ctx.add_instruction(
                 SQRT_X,
