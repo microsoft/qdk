@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use super::*;
+use crate::fir_builder::functored_specs;
 
 #[test]
 fn return_inside_while_loop() {
@@ -580,10 +581,7 @@ fn lowered_reachable_callables_do_not_emit_while_local_initializers() {
         match &decl.implementation {
             CallableImpl::Spec(spec_impl) => {
                 block_ids.push(spec_impl.body.block);
-                for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-                    .into_iter()
-                    .flatten()
-                {
+                for spec in functored_specs(spec_impl) {
                     block_ids.push(spec.block);
                 }
             }

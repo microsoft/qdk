@@ -24,6 +24,7 @@
 #[cfg(test)]
 mod tests;
 
+use crate::fir_builder::functored_specs;
 use qsc_fir::fir::{
     BinOp, BlockId, CallableDecl, CallableImpl, ExecGraphConfig, ExecGraphDebugNode, ExecGraphNode,
     ExprId, ExprKind, Field, ItemKind, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
@@ -684,10 +685,7 @@ fn check_reachable_invariants(
             match &decl.implementation {
                 CallableImpl::Spec(spec_impl) => {
                     check_spec_decl_types(store, item_pkg, &spec_impl.body, level);
-                    for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-                        .into_iter()
-                        .flatten()
-                    {
+                    for spec in functored_specs(spec_impl) {
                         check_spec_decl_types(store, item_pkg, spec, level);
                     }
                 }

@@ -598,10 +598,7 @@ fn mono_specialized_callable_node_ids_do_not_collide_with_spec_nodes() {
         match &decl.implementation {
             CallableImpl::Spec(spec_impl) => {
                 assert_node_id_is_unique(spec_impl.body.id, &mut seen);
-                for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-                    .into_iter()
-                    .flatten()
-                {
+                for spec in crate::fir_builder::functored_specs(spec_impl) {
                     assert_node_id_is_unique(spec.id, &mut seen);
                 }
             }

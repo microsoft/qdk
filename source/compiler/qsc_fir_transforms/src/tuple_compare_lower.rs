@@ -48,14 +48,11 @@ mod tests;
 #[cfg(all(test, feature = "slow-proptest-tests"))]
 mod semantic_equivalence_tests;
 
-use crate::EMPTY_EXEC_RANGE;
+use crate::fir_builder::{alloc_bin_op_expr, alloc_field_expr, reachable_local_callables};
 use crate::reachability::collect_reachable_from_entry;
 use crate::walk_utils::for_each_expr_in_callable_impl;
 use qsc_fir::assigner::Assigner;
-use qsc_fir::fir::{
-    BinOp, Expr, ExprId, ExprKind, Field, FieldPath, ItemKind, Package, PackageId, PackageLookup,
-    PackageStore,
-};
+use qsc_fir::fir::{BinOp, ExprId, ExprKind, Package, PackageId, PackageLookup, PackageStore};
 use qsc_fir::ty::{Prim, Ty};
 
 /// Rewrites `BinOp(Eq/Neq)` on non-empty tuple-typed operands into
@@ -85,16 +82,10 @@ pub fn lower_tuple_comparisons(
 
     // Collect all ExprIds in reachable callables.
     let mut expr_ids: Vec<ExprId> = Vec::new();
-    for item_id in &reachable {
-        if item_id.package != package_id {
-            continue;
-        }
-        let item = package.get_item(item_id.item);
-        if let ItemKind::Callable(decl) = &item.kind {
-            for_each_expr_in_callable_impl(package, &decl.implementation, &mut |id, _| {
-                expr_ids.push(id);
-            });
-        }
+    for (_item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
+        for_each_expr_in_callable_impl(package, &decl.implementation, &mut |id, _| {
+            expr_ids.push(id);
+        });
     }
 
     let package = store.get_mut(package_id);
@@ -152,15 +143,12 @@ fn lower_single_cmp(package: &mut Package, assigner: &mut Assigner, expr_id: Exp
     // Build element-wise comparisons.
     let mut cmp_ids: Vec<ExprId> = Vec::with_capacity(elem_tys.len());
     for i in 0..elem_tys.len() {
-        let elem_cmp = make_bin_op(
-            package,
-            assigner,
-            op,
-            lhs_elems[i],
-            rhs_elems[i],
-            Ty::Prim(Prim::Bool),
-            span,
-        );
+        let elem_cmp = {
+            let lhs = lhs_elems[i];
+            let rhs = rhs_elems[i];
+            let ty = Ty::Prim(Prim::Bool);
+            alloc_bin_op_expr(package, assigner, op, lhs, rhs, ty, span)
+        };
         // Recursively lower nested tuple comparisons.
         lower_single_cmp(package, assigner, elem_cmp);
         cmp_ids.push(elem_cmp);
@@ -201,60 +189,11 @@ fn extract_or_field(
     elem_tys
         .iter()
         .enumerate()
-        .map(|(i, ty)| make_field_access(package, assigner, tuple_expr_id, i, ty.clone(), span))
+        .map(|(i, ty)| {
+            let elem_ty = ty.clone();
+            alloc_field_expr(package, assigner, tuple_expr_id, i, elem_ty, span)
+        })
         .collect()
-}
-
-/// Allocates a `Field(tuple_expr, Path([index]))` expression.
-fn make_field_access(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    tuple_expr_id: ExprId,
-    index: usize,
-    elem_ty: Ty,
-    span: qsc_data_structures::span::Span,
-) -> ExprId {
-    let id = assigner.next_expr();
-    package.exprs.insert(
-        id,
-        Expr {
-            id,
-            span,
-            ty: elem_ty,
-            kind: ExprKind::Field(
-                tuple_expr_id,
-                Field::Path(FieldPath {
-                    indices: vec![index],
-                }),
-            ),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    id
-}
-
-/// Allocates a `BinOp(op, lhs, rhs)` expression.
-fn make_bin_op(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    op: BinOp,
-    lhs: ExprId,
-    rhs: ExprId,
-    ty: Ty,
-    span: qsc_data_structures::span::Span,
-) -> ExprId {
-    let id = assigner.next_expr();
-    package.exprs.insert(
-        id,
-        Expr {
-            id,
-            span,
-            ty,
-            kind: ExprKind::BinOp(op, lhs, rhs),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    id
 }
 
 /// Folds expressions left-to-right with a joiner operator.
@@ -270,15 +209,10 @@ fn fold_left(
     assert!(!exprs.is_empty(), "fold_left requires at least one expr");
     let mut acc = exprs[0];
     for &e in &exprs[1..] {
-        acc = make_bin_op(
-            package,
-            assigner,
-            joiner,
-            acc,
-            e,
-            Ty::Prim(Prim::Bool),
-            span,
-        );
+        acc = {
+            let ty = Ty::Prim(Prim::Bool);
+            alloc_bin_op_expr(package, assigner, joiner, acc, e, ty, span)
+        };
     }
     acc
 }

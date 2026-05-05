@@ -64,7 +64,10 @@ use qsc_fir::{
     ty::Ty,
 };
 
-use crate::EMPTY_EXEC_RANGE;
+use crate::{
+    EMPTY_EXEC_RANGE,
+    fir_builder::{alloc_block, alloc_bool_lit, alloc_expr_stmt, alloc_semi_stmt},
+};
 use qsc_data_structures::span::Span;
 use std::rc::Rc;
 
@@ -353,7 +356,7 @@ fn hoist_in_expr(
                 return Some(inner_stmts);
             }
             // Re-use the existing Return expression as a Semi statement.
-            let stmt = super::create_semi_stmt(package, assigner, expr_id);
+            let stmt = alloc_semi_stmt(package, assigner, expr_id, Span::default());
             Some(vec![stmt])
         }
 
@@ -501,7 +504,10 @@ fn hoist_short_circuit(
     if !contains_return_in_expr(package, b) {
         return None;
     }
-    let lit_expr = super::create_bool_lit(package, assigner, !is_and);
+    let lit_expr = {
+        let value = !is_and;
+        alloc_bool_lit(package, assigner, value, Span::default())
+    };
     let (then_id, else_id) = if is_and { (b, lit_expr) } else { (lit_expr, b) };
     let expr = package.exprs.get_mut(expr_id).expect("expr not found");
     expr.kind = ExprKind::If(a, then_id, Some(else_id));
@@ -538,9 +544,12 @@ fn hoist_in_cond(
         .unwrap_or_else(|| {
             panic!("return_unify: unsupported return type in hoisted condition: {orig_ty:?}")
         });
-        block_stmts.push(super::create_expr_stmt(package, assigner, default));
+        block_stmts.push(alloc_expr_stmt(package, assigner, default, Span::default()));
     }
-    let block_id = super::create_block(package, assigner, block_stmts, &orig_ty);
+    let block_id = {
+        let ty: &Ty = &orig_ty;
+        alloc_block(package, assigner, block_stmts, ty.clone(), Span::default())
+    };
     let expr = package.exprs.get_mut(expr_id).expect("expr not found");
     expr.kind = ExprKind::Block(block_id);
     // `expr.ty` already matches `orig_ty`; leave it as-is.
@@ -650,7 +659,7 @@ fn bind_inner_and_return(
         .get_mut(return_expr)
         .expect("return expr not found");
     ret.kind = ExprKind::Return(var_expr_id);
-    let return_stmt_id = super::create_semi_stmt(package, assigner, return_expr);
+    let return_stmt_id = alloc_semi_stmt(package, assigner, return_expr, Span::default());
 
     vec![local_stmt_id, return_stmt_id]
 }

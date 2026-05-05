@@ -110,6 +110,7 @@ pub enum PipelineStage {
 }
 
 pub mod cloner;
+pub(crate) mod fir_builder;
 pub mod invariants;
 pub mod pretty;
 pub mod reachability;

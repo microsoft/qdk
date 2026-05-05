@@ -74,14 +74,18 @@ mod tests;
 #[cfg(all(test, feature = "slow-proptest-tests"))]
 mod semantic_equivalence_tests;
 
+use crate::fir_builder::{
+    alloc_local_var_expr, decompose_binding, functored_specs, reachable_local_callables,
+    resolve_udt_element_types,
+};
 use crate::reachability::collect_reachable_from_entry;
 use crate::walk_utils::collect_uses_in_block;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, Ident, ItemId,
-    ItemKind, LocalVarId, Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind,
-    Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
+    BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, LocalVarId,
+    Package, PackageId, PackageLookup, PackageStore, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt,
+    StmtId, StmtKind,
 };
 use qsc_fir::ty::Ty;
 use rustc_hash::FxHashMap;
@@ -107,15 +111,7 @@ pub fn sroa(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assi
         // Collect candidates across all reachable callables.
         let mut all_candidates: Vec<SroaCandidate> = Vec::new();
 
-        for item_id in &reachable {
-            if item_id.package != package_id {
-                continue;
-            }
-            let item = package.get_item(item_id.item);
-            let decl = match &item.kind {
-                ItemKind::Callable(decl) => decl.as_ref(),
-                _ => continue,
-            };
+        for (_item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
             collect_candidates_in_callable(store, package_id, decl, &mut all_candidates);
         }
 
@@ -170,10 +166,7 @@ fn collect_candidates_in_spec_impl(
     candidates: &mut Vec<SroaCandidate>,
 ) {
     collect_candidates_in_spec(store, package_id, &spec_impl.body, candidates);
-    for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-        .into_iter()
-        .flatten()
-    {
+    for spec in functored_specs(spec_impl) {
         collect_candidates_in_spec(store, package_id, spec, candidates);
     }
 }
@@ -210,24 +203,6 @@ struct TupleBinding {
     pat_id: PatId,
     elem_types: Vec<Ty>,
     name: Rc<str>,
-}
-
-/// Resolves a UDT's element types from the package store.
-///
-/// Returns `Some(elems)` when the UDT has multiple fields (i.e. `get_pure_ty()`
-/// returns `Ty::Tuple(elems)` with at least one element). Returns `None` for
-/// single-field UDTs or if the item is not a type definition.
-fn resolve_udt_element_types(store: &PackageStore, item_id: &ItemId) -> Option<Vec<Ty>> {
-    let package = store.get(item_id.package);
-    let item = package.get_item(item_id.item);
-    if let ItemKind::Ty(_, udt) = &item.kind {
-        match udt.get_pure_ty() {
-            Ty::Tuple(elems) if !elems.is_empty() => Some(elems),
-            _ => None,
-        }
-    } else {
-        None
-    }
 }
 
 /// Recursively walks a pattern to find `PatKind::Bind` nodes with tuple or
@@ -360,38 +335,13 @@ fn all_uses_are_field_access(package: &Package, block_id: BlockId, local_id: Loc
 /// - Allocates new `LocalVarId`, `PatId` nodes through `assigner`.
 /// - Delegates to [`rewrite_field_accesses`] and [`rewrite_assign_tuples`].
 fn decompose_candidate(package: &mut Package, assigner: &mut Assigner, candidate: &SroaCandidate) {
-    let n = candidate.elem_types.len();
-
-    // Allocate new LocalVarIds and PatIds for each element.
-    let mut new_locals: Vec<LocalVarId> = Vec::with_capacity(n);
-    let mut new_pat_ids: Vec<PatId> = Vec::with_capacity(n);
-    for i in 0..n {
-        let new_local = assigner.next_local();
-        new_locals.push(new_local);
-
-        let new_pat_id = assigner.next_pat();
-        let elem_name: Rc<str> = Rc::from(format!("{}_{i}", candidate.name));
-        let new_pat = Pat {
-            id: new_pat_id,
-            span: Span::default(),
-            ty: candidate.elem_types[i].clone(),
-            kind: PatKind::Bind(Ident {
-                id: new_local,
-                span: Span::default(),
-                name: elem_name,
-            }),
-        };
-        package.pats.insert(new_pat_id, new_pat);
-        new_pat_ids.push(new_pat_id);
-    }
-
-    // Rewrite the binding pattern in-place: Bind(t) → Tuple([Bind(t_0), ...])
-    let pat = package
-        .pats
-        .get_mut(candidate.pat_id)
-        .expect("candidate pat should exist");
-    pat.kind = PatKind::Tuple(new_pat_ids);
-    // The pattern type stays as Ty::Tuple(...) — it's already correct.
+    let new_locals = decompose_binding(
+        package,
+        assigner,
+        candidate.pat_id,
+        &candidate.name,
+        &candidate.elem_types,
+    );
 
     // Rewrite all field accesses and assign-field expressions.
     rewrite_field_accesses(
@@ -487,25 +437,19 @@ fn rewrite_single_expr(
                 if idx < new_locals.len() {
                     let new_local = new_locals[idx];
                     if path.indices.len() == 1 {
-                        let replacement_id = create_var_expr(
-                            package,
-                            assigner,
-                            new_local,
-                            elem_types[idx].clone(),
-                            span,
-                        );
+                        let replacement_id = {
+                            let ty = elem_types[idx].clone();
+                            alloc_local_var_expr(package, assigner, new_local, ty, span)
+                        };
                         replace_expr_references(package, expr_id, replacement_id);
                     } else {
                         // Nested: t.i.j... -> Field(Var(t_i), Path([j, ...]))
                         let remaining: Vec<usize> = path.indices[1..].to_vec();
 
-                        let new_inner_id = create_var_expr(
-                            package,
-                            assigner,
-                            new_local,
-                            elem_types[idx].clone(),
-                            span,
-                        );
+                        let new_inner_id = {
+                            let ty = elem_types[idx].clone();
+                            alloc_local_var_expr(package, assigner, new_local, ty, span)
+                        };
                         let replacement_id = assigner.next_expr();
                         package.exprs.insert(
                             replacement_id,
@@ -539,13 +483,10 @@ fn rewrite_single_expr(
                 let idx = path.indices[0];
                 if idx < new_locals.len() {
                     let new_local = new_locals[idx];
-                    let new_record_id = create_var_expr(
-                        package,
-                        assigner,
-                        new_local,
-                        elem_types[idx].clone(),
-                        span,
-                    );
+                    let new_record_id = {
+                        let ty = elem_types[idx].clone();
+                        alloc_local_var_expr(package, assigner, new_local, ty, span)
+                    };
 
                     let replacement_id = assigner.next_expr();
                     let replacement_kind = if path.indices.len() == 1 {
@@ -575,33 +516,6 @@ fn rewrite_single_expr(
         }
         _ => {}
     }
-}
-
-/// Allocates a fresh `Var(Local(_))` expression for one scalarized replacement
-/// local.
-///
-/// Before, only the replacement local id exists. After, the returned expression
-/// can be wired into rewritten assignments and field reads so parents reference
-/// the scalarized value instead of the original aggregate local.
-fn create_var_expr(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    local_id: LocalVarId,
-    ty: Ty,
-    span: Span,
-) -> ExprId {
-    let expr_id = assigner.next_expr();
-    package.exprs.insert(
-        expr_id,
-        Expr {
-            id: expr_id,
-            span,
-            ty,
-            kind: ExprKind::Var(Res::Local(local_id), vec![]),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    expr_id
 }
 
 /// Rewrites every reference to `old_expr_id` in the package to point at

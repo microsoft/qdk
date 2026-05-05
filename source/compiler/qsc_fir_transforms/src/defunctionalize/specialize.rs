@@ -29,6 +29,7 @@ use super::types::{
 };
 use crate::EMPTY_EXEC_RANGE;
 use crate::cloner::FirCloner;
+use crate::fir_builder::functored_specs;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
@@ -200,10 +201,7 @@ fn refresh_rewritten_value_types(package: &mut Package, callable_impl: &Callable
         CallableImpl::Intrinsic => {}
         CallableImpl::Spec(spec_impl) => {
             refresh_block_types(package, spec_impl.body.block);
-            for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-                .into_iter()
-                .flatten()
-            {
+            for spec in functored_specs(spec_impl) {
                 refresh_block_types(package, spec.block);
             }
         }
@@ -2323,10 +2321,7 @@ fn extract_callable_body(source_pkg: &Package, decl: &CallableDecl) -> Package {
         CallableImpl::Intrinsic => {}
         CallableImpl::Spec(spec_impl) => {
             extract_spec_decl_body(source_pkg, &spec_impl.body, &mut body_pkg);
-            for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-                .into_iter()
-                .flatten()
-            {
+            for spec in functored_specs(spec_impl) {
                 extract_spec_decl_body(source_pkg, spec, &mut body_pkg);
             }
         }
@@ -2376,13 +2371,27 @@ fn extract_stmt(source: &Package, stmt_id: qsc_fir::fir::StmtId, target: &mut Pa
             extract_pat(source, *pat, target);
             extract_expr(source, *expr, target);
         }
-        qsc_fir::fir::StmtKind::Item(_) => {}
+        qsc_fir::fir::StmtKind::Item(item_id) => {
+            extract_item(source, *item_id, target);
+        }
     }
 }
 
 #[allow(clippy::too_many_lines)]
 /// Recursively copies an expression and its transitive references into the
 /// extraction target.
+///
+/// NOTE: This is intentionally a separate implementation from the nearly
+/// identical `extract_expr` in `monomorphize.rs`. The key difference is the
+/// `ExprKind::Closure` arm: defunctionalize treats it as a leaf because
+/// lambda-lifted items already live at package level and the
+/// [`FirCloner`](crate::cloner::FirCloner) resolves them via its fallback
+/// path (keeping the original `LocalItemId` in the target package).
+/// Defunctionalize does not perform type substitution on cloned bodies, so
+/// duplicating the lambda item would be wasteful.
+///
+/// However, `StmtKind::Item` (named nested functions declared inside the
+/// HOF body) MUST be followed here
 fn extract_expr(source: &Package, expr_id: ExprId, target: &mut Package) {
     if target.exprs.contains_key(expr_id) {
         return;
@@ -2447,6 +2456,33 @@ fn extract_expr(source: &Package, expr_id: ExprId, target: &mut Package) {
             extract_block(source, *block, target);
         }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
+    }
+}
+
+/// Recursively copies a nested item (named function declared inside a block)
+/// and its callable body into the extraction target so that
+/// [`FirCloner::clone_nested_item`](crate::cloner::FirCloner) can find it
+/// during specialization.
+fn extract_item(source: &Package, item_id: LocalItemId, target: &mut Package) {
+    if target.items.contains_key(item_id) {
+        return;
+    }
+    let item = source.get_item(item_id);
+    target.items.insert(item_id, item.clone());
+    if let ItemKind::Callable(decl) = &item.kind {
+        extract_pat(source, decl.input, target);
+        match &decl.implementation {
+            CallableImpl::Intrinsic => {}
+            CallableImpl::Spec(spec_impl) => {
+                extract_spec_decl_body(source, &spec_impl.body, target);
+                for spec in functored_specs(spec_impl) {
+                    extract_spec_decl_body(source, spec, target);
+                }
+            }
+            CallableImpl::SimulatableIntrinsic(spec) => {
+                extract_spec_decl_body(source, spec, target);
+            }
+        }
     }
 }
 

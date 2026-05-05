@@ -1,6 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use qsc_data_structures::span::Span;
+
+use crate::fir_builder::alloc_expr_stmt;
+
 use super::*;
 
 #[test]
@@ -29,7 +33,10 @@ fn guard_stmt_with_flag_rejects_non_unit_expr_stmt() {
         },
     );
 
-    let stmt_id = super::super::create_expr_stmt(package, &mut assigner, lit_expr_id);
+    let stmt_id = {
+        let assigner: &mut Assigner = &mut assigner;
+        alloc_expr_stmt(package, assigner, lit_expr_id, Span::default())
+    };
     let udt_pure_tys = super::super::build_udt_pure_ty_cache(&store);
     let package = store.get_mut(pkg_id);
     let _ = super::super::guard_stmt_with_flag(
