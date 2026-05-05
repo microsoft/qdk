@@ -101,6 +101,11 @@ pub fn check_supported_capabilities(
     checker.check_all()
 }
 
+/// Checks whether a single callable's runtime features are supported by the target capabilities.
+///
+/// Returns capability-check errors for any expressions within the callable that require
+/// runtime features exceeding `capabilities`. Returns an empty vector if the callable
+/// was removed by DCE, is not a callable item, or uses no unsupported features.
 #[must_use]
 pub fn check_supported_capabilities_for_callable(
     package: &Package,

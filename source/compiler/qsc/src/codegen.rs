@@ -20,7 +20,7 @@ pub mod qir {
     };
     use qsc_frontend::compile::{Dependencies, PackageStore};
     use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
-    use qsc_passes::{PackageType, PassContext, run_fir_passes_for_callable};
+    use qsc_passes::{PackageType, PassContext, run_rca_for_callable};
     use rustc_hash::FxHashSet;
 
     use crate::interpret::Error;
@@ -219,8 +219,7 @@ pub mod qir {
         callable: qsc_fir::fir::StoreItemId,
         capabilities: TargetCapabilityFlags,
     ) -> Result<(), Vec<Error>> {
-        let errors =
-            run_fir_passes_for_callable(fir_store, compute_properties, callable, capabilities);
+        let errors = run_rca_for_callable(fir_store, compute_properties, callable, capabilities);
         if errors.is_empty() {
             Ok(())
         } else {
@@ -278,8 +277,7 @@ pub mod qir {
         let package = fir_store.get(callable_store_id.package);
         let Some(Global::Callable(callable_decl)) = package.get_global(callable_store_id.item)
         else {
-            // Item removed by DCE or not a callable — treat as not having arrow input.
-            return false;
+            panic!("callable should exist in lowered package");
         };
 
         ty_contains_arrow(&package.get_pat(callable_decl.input).ty, fir_store)

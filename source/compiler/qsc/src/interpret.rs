@@ -999,6 +999,14 @@ impl Interpreter {
         Some(format!("{qualified_name}()"))
     }
 
+    /// Extracts an HIR `ItemId` from a runtime `Value::Global`.
+    ///
+    /// Maps the FIR-domain package and item IDs back to their HIR equivalents
+    /// for use with the HIR package store in codegen preparation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::NotACallable` if the value is not a `Value::Global`.
     fn hir_item_id_from_value(
         callable: &Value,
     ) -> std::result::Result<qsc_hir::hir::ItemId, Vec<Error>> {
@@ -1012,6 +1020,12 @@ impl Interpreter {
         })
     }
 
+    /// Normalizes a `StoreItemId` through the HIR↔FIR mapping round-trip.
+    ///
+    /// The interpreter's FIR store may use package/item IDs from a different
+    /// lowering pass than the freshly-lowered codegen store. Round-tripping
+    /// through `map_fir→hir→fir` ensures IDs align with the codegen store's
+    /// ID space.
     fn remap_store_item_id_for_codegen(store_item_id: fir::StoreItemId) -> fir::StoreItemId {
         fir::StoreItemId {
             package: map_hir_package_to_fir(map_fir_package_to_hir(store_item_id.package)),
@@ -1019,6 +1033,12 @@ impl Interpreter {
         }
     }
 
+    /// Recursively remaps all `StoreItemId` references within a runtime `Value`
+    /// to the codegen FIR store's ID space.
+    ///
+    /// Applies `remap_store_item_id_for_codegen` to every callable reference
+    /// (`Global`, `Closure`, and UDT-tagged `Tuple`) so the value tree is
+    /// compatible with the freshly-lowered codegen package store.
     fn remap_value_for_codegen(value: Value) -> Value {
         match value {
             Value::Array(values) => Value::Array(Rc::new(
