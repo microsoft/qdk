@@ -121,7 +121,9 @@ export class LearningProgressTreeProvider implements vscode.TreeDataProvider<Lea
         node.title,
         vscode.TreeItemCollapsibleState.Expanded,
       );
-      item.iconPath = new vscode.ThemeIcon("book");
+      item.iconPath = node.iconPath
+        ? vscode.Uri.file(node.iconPath)
+        : new vscode.ThemeIcon("book");
       item.contextValue = "course";
       item.tooltip = node.title;
       item.id = `course:${node.courseId}`;
@@ -203,6 +205,7 @@ export class LearningProgressTreeProvider implements vscode.TreeDataProvider<Lea
             kind: "course",
             courseId: course.id,
             title: course.title,
+            iconPath: course.iconPath,
           });
         }
       } else {
@@ -283,6 +286,7 @@ type LearningProgressNode =
       kind: "course";
       courseId: string;
       title: string;
+      iconPath?: string;
     }
   | {
       /** Unit node (expandable). */

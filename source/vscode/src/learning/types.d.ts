@@ -266,6 +266,8 @@ export interface CatalogCourse {
   id: string;
   title: string;
   units: CatalogUnit[];
+  /** Optional absolute path to an SVG icon for the course. */
+  iconPath?: string;
 }
 
 export interface UnitSummary {

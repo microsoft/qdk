@@ -39,10 +39,15 @@ export async function scanForCourses(): Promise<CatalogCourse[]> {
       const courseUri = vscode.Uri.joinPath(contentRoot, name);
       const units = await scanCourseFolder(courseUri);
       if (units.length > 0) {
+        const iconUri = vscode.Uri.joinPath(courseUri, "icon.svg");
+        const iconPath = (await uriExists(iconUri))
+          ? iconUri.fsPath
+          : undefined;
         courses.push({
           id: name,
           title: name,
           units,
+          iconPath,
         });
       }
     }

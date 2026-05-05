@@ -172,6 +172,11 @@ export class LearningService {
 
     // Load the built-in Quantum Katas course.
     const katasCourse = await loadKatasCourse();
+    katasCourse.iconPath = vscode.Uri.joinPath(
+      this.extensionUri,
+      "resources",
+      "course-katas.svg",
+    ).fsPath;
 
     // Discover filesystem courses from qdk-learning-content folders.
     const fsCourses = await scanForCourses();
