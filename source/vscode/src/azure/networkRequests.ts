@@ -144,24 +144,21 @@ class AzureError extends Error {
 }
 
 async function getAzureQuantumError(response: Response): Promise<AzureError> {
-  let error: { code: string; message: string } | undefined = undefined;
+  const requestId = response.headers.get("x-ms-request-id") || "";
+  let detail = "";
+
   try {
     const json = await response.json();
-    // Extract the error data if it conforms to the Azure Quantum error schema defined in
-    // https://github.com/Azure/azure-rest-api-specs/blob/957fd518388828b31126417415b04f859b95c586/specification/quantum/data-plane/Microsoft.Quantum/preview/2022-09-12-preview/quantum.json#L1186
-    if (json && json.error && json.error.code && json.error.message) {
-      error = json.error;
+    if (json.errorCode && json.message) {
+      detail = `${json.errorCode}: ${json.message}`;
     }
   } catch {
-    /* empty */
+    /* body wasn't readable or wasn't JSON — detail stays empty */
   }
 
-  let message;
-  if (error) {
-    message = `Azure Quantum request failed with status ${response.status}.\n${error.code}: ${error.message}`;
-  } else {
-    message = `Azure Quantum request failed with status ${response.status}.`;
-  }
+  let message = `Azure Quantum request failed with status ${response.status}.`;
+  if (detail) message += `\n${detail}`;
+  if (requestId) message += `\nRequest ID: ${requestId}`;
   return new AzureError(message);
 }
 
