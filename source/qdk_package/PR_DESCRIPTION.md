@@ -126,6 +126,124 @@ Due to the large number of file moves, GitHub's diff may be hard to follow. Sugg
 - Widgets build successfully
 - `qsharp` shim wheel builds successfully
 
+## `qdk` Package Structure
+
+```
+qdk_package/
+├── Cargo.toml
+├── pyproject.toml
+├── MANIFEST.in
+├── README.md
+├── test_requirements.txt
+│
+├── src/                                # Rust source for _native
+│   └── *.rs
+│
+├── qdk/
+│   ├── __init__.py                     # Package root; exposes common utilities
+│   │
+│   ├── _native.pyd/.so                 # Built by maturin (module-name = "qdk._native")
+│   ├── _types.py                       # Pure Python types (PauliNoise, StateDump, etc.)
+│   ├── _interpreter.py                 # Interpreter lifecycle & operations
+│   ├── _ipython.py                     # %%qsharp cell magic
+│   ├── _http.py                        # fetch_github()
+│   ├── _fs.py                          # File system callbacks
+│   ├── _adaptive_pass.py
+│   ├── _adaptive_bytecode.py
+│   ├── telemetry.py
+│   ├── telemetry_events.py
+│   │
+│   ├── code/
+│   │   └── __init__.py                 # Dynamic Q# callables namespace
+│   │
+│   ├── estimator/
+│   │   └── __init__.py
+│   │
+│   ├── openqasm/
+│   │   └── __init__.py
+│   │
+│   ├── qiskit/                         # Lifted out of interop/
+│   │   ├── __init__.py
+│   │   ├── backends/__init__.py
+│   │   ├── passes/__init__.py
+│   │   ├── jobs/__init__.py
+│   │   └── execution/__init__.py
+│   │
+│   ├── cirq/                           # Lifted out of interop/
+│   │   └── __init__.py
+│   │
+│   ├── _device/
+│   │   ├── __init__.py
+│   │   ├── _device.py
+│   │   └── _atom/
+│   │       └── __init__.py             # NeutralAtomDevice
+│   │
+│   ├── qre/
+│   │   ├── __init__.py
+│   │   ├── application/__init__.py
+│   │   ├── models/__init__.py
+│   │   │   ├── qubits/__init__.py
+│   │   │   ├── qec/__init__.py
+│   │   │   └── factories/__init__.py
+│   │   ├── interop/__init__.py
+│   │   ├── property_keys.py
+│   │   └── instruction_ids.py
+│   │
+│   ├── applications/
+│   │   ├── __init__.py
+│   │   └── magnets/
+│   │       ├── __init__.py
+│   │       ├── utilities/
+│   │       ├── trotter/
+│   │       ├── models/
+│   │       └── geometry/
+│   │
+│   ├── qsharp.py                       # Re-exports full qsharp-like API from _types + _interpreter
+│   │
+│   ├── simulation/                     # Simulation facade package
+│   │   ├── __init__.py                 # Public API: NeutralAtomDevice, NoiseConfig, run_qir, etc.
+│   │   ├── _simulation.py              # QIR simulation implementation (internal)
+│   │   ├── _noisy_simulator.py         # Private wrapper for noisy simulator types
+│   │   └── _noisy_simulator.pyi        # Type stubs
+│   │
+│   ├── widgets.py                      # from qsharp_widgets import * (external)
+│   │
+│   └── azure/                          # Re-exports from azure.quantum
+│       ├── __init__.py
+│       ├── job.py
+│       ├── qiskit.py
+│       ├── cirq.py
+│       ├── argument_types.py
+│       └── target/
+│           ├── __init__.py
+│           └── rigetti.py
+│
+├── tests/                              # Unit tests (run with --qdk)
+│   ├── conftest.py
+│   ├── test_qsharp.py
+│   ├── test_interpreter.py
+│   ├── test_re.py
+│   ├── test_qasm.py
+│   ├── ... (30+ test modules)
+│   ├── reexports/                      # Re-export verification tests
+│   ├── qre/                            # QRE-specific tests
+│   └── applications/                   # Application-specific tests
+│
+└── tests-integration/                  # Integration tests (run with --qdk --integration-tests)
+    ├── conftest.py
+    ├── utils.py
+    ├── test_adaptive_ri_qir.py
+    ├── test_adaptive_rif_qir.py
+    ├── test_adaptive_rifla_qir.py
+    ├── test_base_qir.py
+    ├── devices/                        # Device integration tests
+    ├── interop_qiskit/                 # Qiskit interop tests
+    ├── interop_cirq/                   # Cirq interop tests
+    └── resources/                      # Test resource files (QIR, etc.)
+```
+
+For a detailed breakdown of every public symbol exported by each `qdk` submodule, see [API_SURFACE.md](API_SURFACE.md).
+
 ## Follow-up Work
 
 - **Move noise types to `qdk.simulation`**: The `PauliNoise`, `DepolarizingNoise`, `BitFlipNoise`, and `PhaseFlipNoise` classes currently live in `qdk._types` and are re-exported through `qdk.qsharp`. These are simulation concepts and should canonically live in `qdk.simulation`, with backward-compatible re-exports from `qdk.qsharp` and `qdk._types`. Deferred from this PR to avoid additional circular import complexity.

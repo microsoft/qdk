@@ -28,7 +28,7 @@ For Qiskit integration, which exposes Qiskit interop utilities in the `qdk.qiski
 pip install "qdk[qiskit]"
 ```
 
-For Cirq integration, which exposes Cirq interop utilities in the `qdk.azure.cirq` submodule:
+For Cirq integration, which exposes Cirq interop utilities in the `qdk.cirq` submodule:
 
 ```bash
 pip install "qdk[cirq]"
@@ -70,13 +70,17 @@ Histogram(results)
 
 Submodules:
 
-- `qdk.qsharp` – exports the same APIs as the `qsharp` Python package
-- `qdk.openqasm` – exports the same APIs as the `openqasm` submodule of the `qsharp` Python package.
-- `qdk.estimator` – exports the same APIs as the `estimator` submodule of the `qsharp` Python package.
+- `qdk.qsharp` – Q# interpreter functions: `init`, `eval`, `run`, `compile`, `circuit`, `estimate`, and related types.
+- `qdk.openqasm` – OpenQASM compilation and execution.
+- `qdk.estimator` – resource estimation utilities.
 - `qdk.simulation` – noise-aware simulation utilities: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types.
-- `qdk.widgets` – exports the Jupyter widgets available from the `qsharp-widgets` Python package (requires the `qdk[jupyter]` extra to be installed).
-- `qdk.azure` – exports the Python APIs available from the `azure-quantum` Python package (requires the `qdk[azure]` extra to be installed).
-- `qdk.qiskit` – exports the same APIs as the `interop.qiskit` submodule of the `qsharp` Python package (requires the `qdk[qiskit]` extra to be installed).
+- `qdk.code` – dynamic namespace populated at runtime with user-defined Q# and OpenQASM callables.
+- `qdk.qre` – quantum resource estimation v3: `estimate`, `Application`, `Architecture`, `ISA`, `ISATransform`, and related types.
+- `qdk.applications` – domain-specific quantum applications (e.g. `qdk.applications.magnets`).
+- `qdk.widgets` – Jupyter widgets for visualization (requires the `qdk[jupyter]` extra).
+- `qdk.azure` – Azure Quantum service integration (requires the `qdk[azure]` extra).
+- `qdk.qiskit` – Qiskit interop: `QSharpBackend`, `NeutralAtomBackend`, and related types (requires the `qdk[qiskit]` extra).
+- `qdk.cirq` – Cirq interop: `NeutralAtomSampler` (requires the `qdk[cirq]` extra).
 
 ### Top level exports
 
@@ -101,114 +105,14 @@ For convenience, the following helpers and types are also importable directly fr
 ## Telemetry
 
 This library sends telemetry. Minimal anonymous data is collected to help measure feature usage and performance.
-All telemetry events can be seen in the source file [telemetry_events.py](https://github.com/microsoft/qdk/tree/main/source/pip/qsharp/telemetry_events.py).
+All telemetry events can be seen in the source file [telemetry_events.py](https://github.com/microsoft/qdk/tree/main/source/qdk_package/qdk/telemetry_events.py).
 
-## Target Package Structure (Migration WIP)
+To disable sending telemetry from this package, set the environment variable `QDK_PYTHON_TELEMETRY=none`
 
-The `qsharp` package (pip/) is being deprecated. All implementation is moving into `qdk` (qdk_package/). The `qsharp` package will become a thin deprecation shim that depends on `qdk`.
+## Support
 
-```
-qdk_package/
-├── Cargo.toml
-├── pyproject.toml
-├── MANIFEST.in
-├── README.md
-├── test_requirements.txt
-│
-├── src/                                # Rust source for _native
-│   └── *.rs
-│
-├── qdk/
-│   ├── __init__.py                     # Same public API as today
-│   │
-│   │── # ——— Moved from pip/qsharp/ (implementation modules) ———
-│   ├── _native.pyd/.so                 # Built by maturin (module-name = "qdk._native")
-│   ├── _types.py                       # Pure Python types (PauliNoise, StateDump, etc.)
-│   ├── _interpreter.py                 # Interpreter lifecycle & operations
-│   ├── _ipython.py                     # %%qsharp cell magic
-│   ├── _http.py                        # fetch_github()
-│   ├── _fs.py                          # File system callbacks
-│   ├── _adaptive_pass.py
-│   ├── _adaptive_bytecode.py
-│   ├── telemetry.py
-│   ├── telemetry_events.py
-│   │
-│   ├── code/
-│   │   └── __init__.py                 # Dynamic Q# callables namespace
-│   │
-│   ├── estimator/                      # Direct module — no re-export shim needed
-│   │   └── __init__.py
-│   │
-│   ├── openqasm/                       # Direct module — no re-export shim needed
-│   │   └── __init__.py
-│   │
-│   │
-│   ├── qiskit/                         # Lifted out of interop/
-│   │   ├── __init__.py                 # QSharpBackend, NeutralAtomBackend, etc.
-│   │   ├── backends/__init__.py
-│   │   ├── passes/__init__.py
-│   │   ├── jobs/__init__.py
-│   │   └── execution/__init__.py
-│   │
-│   ├── cirq/                           # Lifted out of interop/
-│   │   └── __init__.py                 # NeutralAtomSampler
-│   │
-│   ├── _device/
-│   │   ├── __init__.py
-│   │   └── _atom/
-│   │       └── __init__.py             # NeutralAtomDevice
-│   │
-│   ├── qre/
-│   │   ├── __init__.py
-│   │   ├── application/__init__.py
-│   │   ├── models/__init__.py
-│   │   │   ├── qubits/__init__.py
-│   │   │   ├── qec/__init__.py
-│   │   │   └── factories/__init__.py
-│   │   ├── interop/__init__.py
-│   │   ├── property_keys.py            # Merged with custom_property helpers
-│   │   └── instruction_ids.py
-│   │
-│   ├── applications/
-│   │   ├── __init__.py
-│   │   └── magnets/
-│   │       ├── __init__.py
-│   │       ├── utilities/__init__.py
-│   │       ├── trotter/__init__.py
-│   │       ├── models/__init__.py
-│   │       └── geometry/__init__.py
-│   │
-│   │── # ——— Re-export / facade modules ———
-│   ├── qsharp.py                       # Re-exports full qsharp-like API from _types + _interpreter
-│   │
-│   ├── simulation/                     # Simulation facade package
-│   │   ├── __init__.py                 # Public API: NeutralAtomDevice, NoiseConfig, run_qir, etc.
-│   │   ├── _simulation.py             # QIR simulation implementation (internal)
-│   │   ├── _noisy_simulator.py         # Private wrapper for noisy simulator types
-│   │   └── _noisy_simulator.pyi        # Type stubs
-│   │
-│   │── # ——— Unchanged ———
-│   ├── widgets.py                      # from qsharp_widgets import * (external)
-│   │
-│   └── azure/                          # Unchanged — re-exports from azure.quantum
-│       ├── __init__.py
-│       ├── job.py
-│       ├── qiskit.py
-│       ├── cirq.py
-│       ├── argument_types.py
-│       └── target/
-│           ├── __init__.py
-│           └── rigetti.py
-│
-└── tests/
-    ├── conftest.py
-    ├── mocks.py
-    ├── test_reexports.py
-    ├── test_extras.py
-    ├── test_integration/
-    │   ├── test_*.py
-    │   ├── utils.py
-    │   └── resources/
-    └── benchmarks/
-        └── bench_qre.py
-```
+For more information about the Microsoft Quantum Development Kit, visit [https://aka.ms/qdk](https://aka.ms/qdk).
+
+## Contributing
+
+Q# welcomes your contributions! Visit the Q# GitHub repository at [https://github.com/microsoft/qdk] to find out more about the project.
