@@ -982,6 +982,7 @@ impl State {
             ExprKind::ArrayRepeat(..) => self.eval_arr_repeat(expr.span)?,
             ExprKind::Assign(lhs, _) => self.eval_assign(env, globals, *lhs)?,
             ExprKind::AssignOp(op, lhs, rhs) => {
+                let lhs_span = globals.get_expr((self.package, *lhs).into()).span;
                 let rhs_span = globals.get_expr((self.package, *rhs).into()).span;
                 let (is_array, is_unique) =
                     is_updatable_in_place(env, globals.get_expr((self.package, *lhs).into()));
@@ -995,7 +996,7 @@ impl State {
                     self.push_val();
                     self.set_val_register(rhs_val);
                 }
-                self.eval_binop(*op, rhs_span)?;
+                self.eval_binop(*op, lhs_span, rhs_span)?;
                 self.eval_assign(env, globals, *lhs)?;
             }
             ExprKind::AssignField(record, field, _) => {
@@ -1015,9 +1016,10 @@ impl State {
                 self.eval_update_index(mid_span)?;
                 self.eval_assign(env, globals, *lhs)?;
             }
-            ExprKind::BinOp(op, _, rhs) => {
+            ExprKind::BinOp(op, lhs, rhs) => {
+                let lhs_span = globals.get_expr((self.package, *lhs).into()).span;
                 let rhs_span = globals.get_expr((self.package, *rhs).into()).span;
-                self.eval_binop(*op, rhs_span)?;
+                self.eval_binop(*op, lhs_span, rhs_span)?;
             }
             ExprKind::Block(..) => panic!("block expr should be handled by control flow"),
             ExprKind::Call(callee_expr, args_expr) => {
@@ -1161,23 +1163,23 @@ impl State {
         self.bind_value(env, globals, pat, val);
     }
 
-    fn eval_binop(&mut self, op: BinOp, span: Span) -> Result<(), Error> {
+    fn eval_binop(&mut self, op: BinOp, lhs_span: Span, rhs_span: Span) -> Result<(), Error> {
         match op {
             BinOp::Add => self.eval_binop_simple(eval_binop_add),
             BinOp::AndB => self.eval_binop_simple(eval_binop_andb),
-            BinOp::Div => self.eval_binop_with_error(span, eval_binop_div)?,
-            BinOp::Eq => self.eval_binop_with_error(span, eval_binop_eq)?,
-            BinOp::Exp => self.eval_binop_with_error(span, eval_binop_exp)?,
+            BinOp::Div => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_div)?,
+            BinOp::Eq => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_eq)?,
+            BinOp::Exp => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_exp)?,
             BinOp::Gt => self.eval_binop_simple(eval_binop_gt),
             BinOp::Gte => self.eval_binop_simple(eval_binop_gte),
             BinOp::Lt => self.eval_binop_simple(eval_binop_lt),
             BinOp::Lte => self.eval_binop_simple(eval_binop_lte),
-            BinOp::Mod => self.eval_binop_with_error(span, eval_binop_mod)?,
+            BinOp::Mod => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_mod)?,
             BinOp::Mul => self.eval_binop_simple(eval_binop_mul),
-            BinOp::Neq => self.eval_binop_with_error(span, eval_binop_neq)?,
+            BinOp::Neq => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_neq)?,
             BinOp::OrB => self.eval_binop_simple(eval_binop_orb),
-            BinOp::Shl => self.eval_binop_with_error(span, eval_binop_shl)?,
-            BinOp::Shr => self.eval_binop_with_error(span, eval_binop_shr)?,
+            BinOp::Shl => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_shl)?,
+            BinOp::Shr => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_shr)?,
             BinOp::Sub => self.eval_binop_simple(eval_binop_sub),
             BinOp::XorB => self.eval_binop_simple(eval_binop_xorb),
 
@@ -1195,13 +1197,15 @@ impl State {
 
     fn eval_binop_with_error(
         &mut self,
-        span: Span,
-        binop_func: impl FnOnce(Value, Value, PackageSpan) -> Result<Value, Error>,
+        lhs_span: Span,
+        rhs_span: Span,
+        binop_func: impl FnOnce(Value, Value, PackageSpan, PackageSpan) -> Result<Value, Error>,
     ) -> Result<(), Error> {
-        let span = self.to_global_span(span);
+        let lhs_span: PackageSpan = self.to_global_span(lhs_span);
+        let rhs_span: PackageSpan = self.to_global_span(rhs_span);
         let rhs_val = self.take_val_register();
         let lhs_val = self.pop_val();
-        self.set_val_register(binop_func(lhs_val, rhs_val, span)?);
+        self.set_val_register(binop_func(lhs_val, rhs_val, lhs_span, rhs_span)?);
         Ok(())
     }
 
@@ -1963,16 +1967,33 @@ fn lit_to_val(lit: &Lit) -> Value {
     }
 }
 
-fn eval_binop_eq(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_eq(
+    lhs_val: Value,
+    rhs_val: Value,
+    lhs_span: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     match (lhs_val, rhs_val) {
-        (Value::Result(val::Result::Id(_)), _) | (_, Value::Result(val::Result::Id(_))) => {
+        (Value::Result(val::Result::Id(_)), _) => {
+            // Comparison of result ids is nonsensical, so we prevent it.
+            // This code path is reachable when using the circuit builder backend
+            // since we don't currently do runtime capability analysis
+            // to prevent executing programs that do result comparisons.
+            Err(Error::ResultComparisonUnsupported(lhs_span))
+        }
+        (Value::Result(val::Result::Loss), _) => {
+            // Loss is not comparable and should be checked ahead of time, so treat this as a runtime
+            // failure.
+            Err(Error::ResultLossComparisonUnsupported(lhs_span))
+        }
+        (_, Value::Result(val::Result::Id(_))) => {
             // Comparison of result ids is nonsensical, so we prevent it.
             // This code path is reachable when using the circuit builder backend
             // since we don't currently do runtime capability analysis
             // to prevent executing programs that do result comparisons.
             Err(Error::ResultComparisonUnsupported(rhs_span))
         }
-        (Value::Result(val::Result::Loss), _) | (_, Value::Result(val::Result::Loss)) => {
+        (_, Value::Result(val::Result::Loss)) => {
             // Loss is not comparable and should be checked ahead of time, so treat this as a runtime
             // failure.
             Err(Error::ResultLossComparisonUnsupported(rhs_span))
@@ -1981,20 +2002,38 @@ fn eval_binop_eq(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Resul
     }
 }
 
-fn eval_binop_neq(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_neq(
+    lhs_val: Value,
+    rhs_val: Value,
+    lhs_span: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     match (lhs_val, rhs_val) {
-        (Value::Result(val::Result::Id(_)), _) | (_, Value::Result(val::Result::Id(_))) => {
+        (Value::Result(val::Result::Id(_)), _) => {
+            // Comparison of result ids is nonsensical, so we prevent it.
+            // This code path is reachable when using the circuit builder backend
+            // since we don't currently do runtime capability analysis
+            // to prevent executing programs that do result comparisons.
+            Err(Error::ResultComparisonUnsupported(lhs_span))
+        }
+        (Value::Result(val::Result::Loss), _) => {
+            // Loss is not comparable and should be checked ahead of time, so treat this as a runtime
+            // failure.
+            Err(Error::ResultLossComparisonUnsupported(lhs_span))
+        }
+        (_, Value::Result(val::Result::Id(_))) => {
             // Comparison of result ids is nonsensical, so we prevent it.
             // This code path is reachable when using the circuit builder backend
             // since we don't currently do runtime capability analysis
             // to prevent executing programs that do result comparisons.
             Err(Error::ResultComparisonUnsupported(rhs_span))
         }
-        (Value::Result(val::Result::Loss), _) | (_, Value::Result(val::Result::Loss)) => {
+        (_, Value::Result(val::Result::Loss)) => {
             // Loss is not comparable and should be checked ahead of time, so treat this as a runtime
             // failure.
             Err(Error::ResultLossComparisonUnsupported(rhs_span))
         }
+
         (lhs, rhs) => Ok(Value::Bool(lhs != rhs)),
     }
 }
@@ -2078,7 +2117,12 @@ fn eval_binop_andb(lhs_val: Value, rhs_val: Value) -> Value {
     }
 }
 
-fn eval_binop_div(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_div(
+    lhs_val: Value,
+    rhs_val: Value,
+    _: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     match lhs_val {
         Value::BigInt(val) => {
             let rhs = rhs_val.unwrap_big_int();
@@ -2130,7 +2174,12 @@ fn eval_binop_div(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Resu
     }
 }
 
-fn eval_binop_exp(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_exp(
+    lhs_val: Value,
+    rhs_val: Value,
+    _: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     match lhs_val {
         Value::BigInt(val) => {
             let rhs_val = rhs_val.unwrap_int();
@@ -2261,7 +2310,12 @@ fn eval_binop_lte(lhs_val: Value, rhs_val: Value) -> Value {
     }
 }
 
-fn eval_binop_mod(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_mod(
+    lhs_val: Value,
+    rhs_val: Value,
+    _: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     match lhs_val {
         Value::BigInt(val) => {
             let rhs = rhs_val.unwrap_big_int();
@@ -2345,7 +2399,12 @@ fn eval_binop_orb(lhs_val: Value, rhs_val: Value) -> Value {
     }
 }
 
-fn eval_binop_shl(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_shl(
+    lhs_val: Value,
+    rhs_val: Value,
+    _: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     Ok(match lhs_val {
         Value::BigInt(val) => {
             let rhs = rhs_val.unwrap_int();
@@ -2375,7 +2434,12 @@ fn eval_binop_shl(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Resu
     })
 }
 
-fn eval_binop_shr(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_shr(
+    lhs_val: Value,
+    rhs_val: Value,
+    _: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     Ok(match lhs_val {
         Value::BigInt(val) => {
             let rhs = rhs_val.unwrap_int();
