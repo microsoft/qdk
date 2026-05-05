@@ -14,7 +14,13 @@ use rustc_hash::FxHashMap;
 use std::{array, cell::RefCell, f64::consts::PI, fmt::Debug, iter::Sum};
 
 use crate::{counts::memory_compute::CachingStrategy, system::LogicalResourceCounts};
-use memory_compute::MemoryComputeInfo;
+use memory_compute::{MemoryComputeInfo, QubitPool};
+
+#[derive(Clone, Copy)]
+enum TypedQubit {
+    Compute(usize),
+    Memory(usize),
+}
 
 /// Resource counter implementation
 ///
@@ -53,6 +59,19 @@ pub struct LogicalCounter {
     /// Map to track any post-select measurements by their associated qubit.
     /// This value is used in a measurement, if present, before generating a random result.
     post_select_measurements: FxHashMap<usize, bool>,
+
+    /// Pool of typed compute qubits used by manual MemoryQubitStore/Load.
+    compute_qubit_pool: QubitPool,
+    /// Pool of typed memory qubits used by manual MemoryQubitStore/Load.
+    memory_qubit_pool: QubitPool,
+    /// Mapping from untyped allocated qubit id to its typed counterpart/state.
+    typed_qubit_map: FxHashMap<usize, TypedQubit>,
+    /// Peak number of typed qubits alive at once in manual memory-qubit mode.
+    typed_qubit_peak: usize,
+
+    manual_memory_reads: usize,
+    manual_memory_writes: usize,
+    manual_memory_mode: bool,
 }
 
 impl Default for LogicalCounter {
@@ -73,6 +92,13 @@ impl Default for LogicalCounter {
             memory_compute: None,
             rnd: RefCell::new(StdRng::seed_from_u64(0)),
             post_select_measurements: FxHashMap::default(),
+            compute_qubit_pool: QubitPool::default(),
+            memory_qubit_pool: QubitPool::default(),
+            typed_qubit_map: FxHashMap::default(),
+            typed_qubit_peak: 0,
+            manual_memory_reads: 0,
+            manual_memory_writes: 0,
+            manual_memory_mode: false,
         }
     }
 }
@@ -87,12 +113,24 @@ impl LogicalCounter {
                     Some(memory_compute.read_from_memory_count() as u64),
                     Some(memory_compute.write_to_memory_count() as u64),
                 )
+            } else if self.manual_memory_mode {
+                (
+                    Some(self.compute_qubit_pool.max_in_use() as u64),
+                    Some(self.manual_memory_reads as u64),
+                    Some(self.manual_memory_writes as u64),
+                )
             } else {
                 (None, None, None)
             };
 
+        let extra_manual_typed_qubits = if self.manual_memory_mode {
+            self.typed_qubit_peak
+        } else {
+            0
+        };
+
         LogicalResourceCounts {
-            num_qubits: self.next_free as _,
+            num_qubits: (self.next_free + extra_manual_typed_qubits) as _,
             t_count: self.t_count as _,
             rotation_count: self.r_count as _,
             rotation_depth: self.layers.iter().filter(|layer| layer.r != 0).count() as _,
@@ -461,8 +499,15 @@ impl LogicalCounter {
     }
 
     fn assert_compute_qubits(&mut self, qubits: impl IntoIterator<Item = usize>) {
+        let qubits: Vec<_> = qubits.into_iter().collect();
         if let Some(memory_compute) = &mut self.memory_compute {
-            memory_compute.assert_compute_qubits(qubits);
+            memory_compute.assert_compute_qubits(qubits.iter().copied());
+        }
+
+        for qubit in qubits {
+            if let Some(TypedQubit::Memory(_)) = self.typed_qubit_map.get(&qubit) {
+                panic!("cannot apply compute operation to a memory qubit");
+            }
         }
     }
 
@@ -602,17 +647,32 @@ impl Backend for LogicalCounter {
     fn z(&mut self, _q: usize) {}
 
     fn qubit_allocate(&mut self) -> usize {
-        if let Some(index) = self.free_list.pop() {
+        let index = if let Some(index) = self.free_list.pop() {
             index
         } else {
             let index = self.next_free;
             self.next_free += 1;
             self.max_layer.push(self.allocation_barrier);
             index
-        }
+        };
+
+        let compute_index = self.compute_qubit_pool.allocate();
+        self.typed_qubit_map
+            .insert(index, TypedQubit::Compute(compute_index));
+        self.typed_qubit_peak = self.typed_qubit_peak.max(self.typed_qubit_map.len());
+
+        index
     }
 
     fn qubit_release(&mut self, q: usize) -> bool {
+        if let Some(typed) = self.typed_qubit_map.remove(&q) {
+            match typed {
+                TypedQubit::Compute(compute_index) => {
+                    self.compute_qubit_pool.release(compute_index)
+                }
+                TypedQubit::Memory(memory_index) => self.memory_qubit_pool.release(memory_index),
+            }
+        }
         self.free_list.push(q);
         true
     }
@@ -629,6 +689,15 @@ impl Backend for LogicalCounter {
         }
         if let Some(val) = q1_post_select {
             self.post_select_measurements.insert(q0, val);
+        }
+
+        let q0_typed = self.typed_qubit_map.remove(&q0);
+        let q1_typed = self.typed_qubit_map.remove(&q1);
+        if let Some(typed) = q0_typed {
+            self.typed_qubit_map.insert(q1, typed);
+        }
+        if let Some(typed) = q1_typed {
+            self.typed_qubit_map.insert(q0, typed);
         }
     }
 
@@ -704,6 +773,39 @@ impl Backend for LogicalCounter {
                 let qubit = qubit.unwrap_qubit().deref().0;
                 self.post_select_measurements.insert(qubit, val);
 
+                Some(Ok(Value::unit()))
+            }
+            "MemoryQubitLoad" => {
+                self.manual_memory_mode = true;
+                let q = arg.unwrap_qubit().deref().0;
+                let Some(TypedQubit::Memory(memory_index)) = self.typed_qubit_map.get(&q).copied()
+                else {
+                    return Some(Err(
+                        "MemoryQubitLoad can only be applied to a memory qubit".to_string()
+                    ));
+                };
+                self.memory_qubit_pool.release(memory_index);
+                let compute_index = self.compute_qubit_pool.allocate();
+                self.typed_qubit_map
+                    .insert(q, TypedQubit::Compute(compute_index));
+                self.manual_memory_reads += 1;
+                Some(Ok(Value::unit()))
+            }
+            "MemoryQubitStore" => {
+                self.manual_memory_mode = true;
+                let q = arg.unwrap_qubit().deref().0;
+                let Some(TypedQubit::Compute(compute_index)) =
+                    self.typed_qubit_map.get(&q).copied()
+                else {
+                    return Some(Err(
+                        "MemoryQubitStore can only be applied to a compute qubit".to_string(),
+                    ));
+                };
+                self.compute_qubit_pool.release(compute_index);
+                let memory_index = self.memory_qubit_pool.allocate();
+                self.typed_qubit_map
+                    .insert(q, TypedQubit::Memory(memory_index));
+                self.manual_memory_writes += 1;
                 Some(Ok(Value::unit()))
             }
             _ => None,
