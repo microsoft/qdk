@@ -14,7 +14,7 @@ import { QscEventTarget } from "qsharp-lang";
 import { loadCompilerWorker, qsharpExtensionId } from "../common.js";
 import { getExerciseSourceFiles } from "./catalog.js";
 import { runExerciseInTerminal } from "../run.js";
-import { LEARNING_FILE } from "./constants.js";
+import { LEARNING_FILE, LEARNING_CONTENT_FOLDER } from "./constants.js";
 import type { LearningService } from "./index.js";
 import type {
   SolutionCheckResult,
@@ -74,9 +74,13 @@ export class KatasPanelManager {
    * If the panel already exists, it's revealed; otherwise a new one is created.
    */
   async show(): Promise<void> {
-    if (this.panel) {
-      this.panel.reveal(vscode.ViewColumn.One);
-      return;
+    // Reveal existing panel immediately if present and not on an example.
+    if (this.panel && this.service.initialized) {
+      const pos = this.service.getPosition();
+      if (pos.content.type !== "example") {
+        this.panel.reveal(vscode.ViewColumn.One);
+        return;
+      }
     }
 
     // Initialize the shared service (detects workspace from disk).
@@ -85,6 +89,25 @@ export class KatasPanelManager {
       vscode.window.showWarningMessage(
         `No Quantum Katas workspace detected. Open a folder containing ${LEARNING_FILE} first.`,
       );
+      return;
+    }
+
+    // Example activities open the file directly — no panel needed.
+    const pos = this.service.getPosition();
+    if (pos.content.type === "example") {
+      this.panel?.dispose();
+      this.closeStaleLearningTabs(undefined).catch(() => {});
+      const fileUri = vscode.Uri.file(pos.content.filePath);
+      await vscode.commands.executeCommand("vscode.open", fileUri, {
+        viewColumn: vscode.ViewColumn.One,
+        preview: false,
+      } satisfies vscode.TextDocumentShowOptions);
+      return;
+    }
+
+    // Reveal existing panel if we already have one.
+    if (this.panel) {
+      this.panel.reveal(vscode.ViewColumn.One);
       return;
     }
 
@@ -181,6 +204,24 @@ export class KatasPanelManager {
     // Listen for state changes from LM tools (navigation, check, etc.)
     this.disposables.push(
       this.service.onDidChangeState(() => {
+        if (!this.service.initialized) {
+          return;
+        }
+
+        const pos = this.service.getPosition();
+        if (pos.content.type === "example") {
+          // Example activities don't use the lesson panel — close it and
+          // open the file directly in the primary editor column.
+          this.panel?.dispose();
+          this.closeStaleLearningTabs(undefined).catch(() => {});
+          const fileUri = vscode.Uri.file(pos.content.filePath);
+          vscode.commands.executeCommand("vscode.open", fileUri, {
+            viewColumn: vscode.ViewColumn.One,
+            preview: false,
+          } satisfies vscode.TextDocumentShowOptions);
+          return;
+        }
+
         if (this.panel) {
           this.sendState();
           this.openCurrentFile().catch(() => {});
@@ -191,9 +232,9 @@ export class KatasPanelManager {
 
   dispose(): void {
     this.panel?.dispose();
-    // Close any lingering kata editor tabs
+    // Close any lingering learning editor tabs
     if (this.service.initialized) {
-      this.closeStaleKataTabs(undefined).catch(() => {});
+      this.closeStaleLearningTabs(undefined).catch(() => {});
     }
     for (const d of this.disposables) {
       d.dispose();
@@ -251,8 +292,8 @@ export class KatasPanelManager {
       fileUri = this.service.getExampleFileUri();
     }
 
-    // Close stale kata editor tabs that don't match the current file
-    await this.closeStaleKataTabs(fileUri);
+    // Close stale learning editor tabs that don't match the current file
+    await this.closeStaleLearningTabs(fileUri);
 
     if (fileUri) {
       await vscode.commands.executeCommand("vscode.open", fileUri, {
@@ -263,15 +304,23 @@ export class KatasPanelManager {
   }
 
   /**
-   * Close any open editor tabs whose URI falls under the katas root
-   * (exercises/ or examples/) that don't match {@link keepUri}.
-   * When {@link keepUri} is undefined (e.g. on lesson-text or question),
-   * all kata tabs are closed.
+   * Close any open editor tabs managed by the learning feature (under the
+   * katas workspace root or any `qdk-learning-content` folder) that don't
+   * match {@link keepUri}. When {@link keepUri} is undefined (e.g. on
+   * lesson-text or question), all managed tabs are closed.
    */
-  private async closeStaleKataTabs(
+  private async closeStaleLearningTabs(
     keepUri: vscode.Uri | undefined,
   ): Promise<void> {
-    const katasRoot = this.service.getKatasRoot().toString();
+    const managedRoots: string[] = [this.service.getKatasRoot().toString()];
+
+    // Also treat files under qdk-learning-content folders as managed tabs.
+    for (const folder of vscode.workspace.workspaceFolders ?? []) {
+      managedRoots.push(
+        vscode.Uri.joinPath(folder.uri, LEARNING_CONTENT_FOLDER).toString(),
+      );
+    }
+
     const keepStr = keepUri?.toString();
 
     const staleTabs: vscode.Tab[] = [];
@@ -279,7 +328,10 @@ export class KatasPanelManager {
       for (const tab of group.tabs) {
         if (tab.input instanceof vscode.TabInputText) {
           const tabUriStr = tab.input.uri.toString();
-          if (tabUriStr.startsWith(katasRoot) && tabUriStr !== keepStr) {
+          const isManaged = managedRoots.some((root) =>
+            tabUriStr.startsWith(root),
+          );
+          if (isManaged && tabUriStr !== keepStr) {
             staleTabs.push(tab);
           }
         }
@@ -511,7 +563,7 @@ export class KatasPanelManager {
       }
 
       if (passed) {
-        await this.service.markExerciseComplete(pos.unitId, pos.activityId);
+        await this.service.markExerciseComplete(pos);
       }
 
       return {

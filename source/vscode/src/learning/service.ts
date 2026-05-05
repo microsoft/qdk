@@ -16,20 +16,29 @@
 import * as vscode from "vscode";
 import { QscEventTarget } from "qsharp-lang";
 import { loadCompilerWorker } from "../common.js";
-import { loadKatas, getExerciseSourceFiles } from "./catalog.js";
+import { loadKatasCourse, getExerciseSourceFiles } from "./catalog.js";
+import { scanForCourses } from "./courseScanner.js";
 import {
   LEARNING_WORKSPACE_FOLDER,
   LEARNING_WORKSPACE_RELATIVE_PATH,
   LEARNING_FILE,
   KATAS_DETECTED_CONTEXT,
+  KATAS_COURSE_ID,
 } from "./constants.js";
 import { computeOverallProgress } from "./computeProgress.js";
+import {
+  activityLocationKey,
+  activityLocationsEqual,
+  findCompletion,
+} from "./activityLocation.js";
 import type {
+  ActivityLocation,
   CurrentActivity,
   ActivityContent,
   LessonTextContent,
   LessonExampleContent,
   ExerciseContent,
+  ExampleContent,
   PrimaryAction,
   ActionGroup,
   LearningState,
@@ -41,6 +50,7 @@ import type {
   RunResult,
   UnitSummary,
   OutputEvent,
+  CatalogCourse,
   CatalogUnit,
   CatalogExercise,
 } from "./types.js";
@@ -95,17 +105,12 @@ export async function detectLearningWorkspace(): Promise<
   return undefined;
 }
 
-interface FlatPosition {
-  unitId: string;
-  activityId: string;
-}
-
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8");
 
 export class LearningService {
-  private catalog: CatalogUnit[] = [];
-  private flatPositions: FlatPosition[] = [];
+  private courses: CatalogCourse[] = [];
+  private flatPositions: ActivityLocation[] = [];
   private currentFlatIndex = 0;
   private ranExamples = new Set<string>();
 
@@ -165,34 +170,31 @@ export class LearningService {
     this.katasRoot = katasRoot;
     this.learningFile = vscode.Uri.joinPath(workspaceRoot, LEARNING_FILE);
 
-    // Load all katas (HTML format for webview rendering).
-    // getAllKatas() returns them in the canonical order from katas/content/index.json.
-    const allKatas = await loadKatas();
-    this.catalog = [...allKatas];
+    // Load the built-in Quantum Katas course.
+    const katasCourse = await loadKatasCourse();
 
-    // Build flat position list
+    // Discover filesystem courses from qdk-learning-content folders.
+    const fsCourses = await scanForCourses();
+
+    this.courses = [katasCourse, ...fsCourses];
+
+    // Build flat position list across all courses
     this.flatPositions = [];
-    for (const kata of this.catalog) {
-      for (const section of kata.sections) {
-        if (section.type === "lesson") {
-          // Lessons collapse to a single flat position
+    for (const course of this.courses) {
+      for (const unit of course.units) {
+        for (const section of unit.sections) {
           this.flatPositions.push({
-            unitId: kata.id,
-            activityId: section.id,
-          });
-        } else {
-          // Exercise is a single item
-          this.flatPositions.push({
-            unitId: kata.id,
+            courseId: course.id,
+            unitId: unit.id,
             activityId: section.id,
           });
         }
       }
     }
 
-    // Scaffold exercise and example files
-    await this.scaffoldExercises();
-    await this.scaffoldExamples();
+    // Scaffold exercise and example files (only for built-in katas)
+    await this.scaffoldExercises(katasCourse);
+    await this.scaffoldExamples(katasCourse);
 
     // Load progress
     await this.loadProgress();
@@ -200,10 +202,13 @@ export class LearningService {
     // Restore position from progress
     const savedPos = this.progressData.position;
     if (savedPos.unitId) {
-      const idx = this.flatPositions.findIndex(
-        (fp) =>
-          fp.unitId === savedPos.unitId &&
-          fp.activityId === savedPos.activityId,
+      const target: ActivityLocation = {
+        courseId: savedPos.courseId ?? KATAS_COURSE_ID,
+        unitId: savedPos.unitId,
+        activityId: savedPos.activityId,
+      };
+      const idx = this.flatPositions.findIndex((fp) =>
+        activityLocationsEqual(fp, target),
       );
       if (idx >= 0) {
         this.currentFlatIndex = idx;
@@ -300,11 +305,12 @@ export class LearningService {
     if (!fp) {
       throw new Error("No position available — have you called initialize()?");
     }
-    const kata = this.findUnit(fp.unitId);
-    const section = kata.sections.find((s) => s.id === fp.activityId)!;
+    const unit = this.findUnit(fp.courseId, fp.unitId);
+    const section = unit.sections.find((s) => s.id === fp.activityId)!;
     return {
+      courseId: fp.courseId,
       unitId: fp.unitId,
-      unitTitle: kata.title,
+      unitTitle: unit.title,
       activityId: fp.activityId,
       activityTitle: section.title,
       content: this.resolveActivityContent(fp),
@@ -328,17 +334,17 @@ export class LearningService {
     this.currentFlatIndex++;
     const newFp = this.flatPositions[this.currentFlatIndex];
 
-    // Auto-mark lesson sections complete when crossing section boundary
+    // Auto-mark lesson/example sections complete when crossing section boundary
     if (
       oldFp.unitId !== newFp.unitId ||
       oldFp.activityId !== newFp.activityId
     ) {
-      const oldKata = this.findUnit(oldFp.unitId);
-      const oldSection = oldKata.sections.find(
+      const oldUnit = this.findUnit(oldFp.courseId, oldFp.unitId);
+      const oldSection = oldUnit.sections.find(
         (s) => s.id === oldFp.activityId,
       );
-      if (oldSection?.type === "lesson") {
-        this.markComplete(oldFp.unitId, oldFp.activityId);
+      if (oldSection?.type === "lesson" || oldSection?.type === "example") {
+        this.markComplete(oldFp);
       }
     }
 
@@ -360,13 +366,13 @@ export class LearningService {
     return { moved: true, state };
   }
 
-  goTo(unitId: string, activityId?: string): LearningState {
+  goTo(courseId: string, unitId: string, activityId?: string): LearningState {
     if (!activityId) {
       const firstIdx = this.flatPositions.findIndex(
-        (fp) => fp.unitId === unitId,
+        (fp) => fp.courseId === courseId && fp.unitId === unitId,
       );
       if (firstIdx < 0) {
-        throw new Error(`Unit not found: ${unitId}`);
+        throw new Error(`Unit not found: ${courseId}/${unitId}`);
       }
       this.currentFlatIndex = firstIdx;
       this.syncPosition();
@@ -375,11 +381,14 @@ export class LearningService {
       return state;
     }
 
-    const idx = this.flatPositions.findIndex(
-      (fp) => fp.unitId === unitId && fp.activityId === activityId,
+    const target: ActivityLocation = { courseId, unitId, activityId };
+    const idx = this.flatPositions.findIndex((fp) =>
+      activityLocationsEqual(fp, target),
     );
     if (idx < 0) {
-      throw new Error(`Position not found: ${unitId} activity ${activityId}`);
+      throw new Error(
+        `Position not found: ${courseId}/${unitId} activity ${activityId}`,
+      );
     }
     this.currentFlatIndex = idx;
     this.syncPosition();
@@ -399,6 +408,8 @@ export class LearningService {
         return this.ranExamples.has(pos.content.id) ? "next" : "run";
       case "exercise":
         return pos.content.isComplete ? "next" : "check";
+      case "example":
+        return "next";
     }
   }
 
@@ -471,6 +482,10 @@ export class LearningService {
             ];
         return [primaryGroup, codeTools, helpGroup, navGroup];
       }
+      case "example": {
+        // Example activities: primary is Next, no code tools / hints.
+        return [primaryGroup, navGroup];
+      }
     }
   }
 
@@ -515,15 +530,18 @@ export class LearningService {
 
   getExampleFileUri(): vscode.Uri {
     const pos = this.getPosition();
-    if (pos.content.type !== "lesson-example") {
-      throw new Error("Current activity is not an example");
+    if (pos.content.type === "lesson-example") {
+      return vscode.Uri.joinPath(
+        this.katasRoot,
+        "examples",
+        pos.unitId,
+        `${pos.content.id}.qs`,
+      );
     }
-    return vscode.Uri.joinPath(
-      this.katasRoot,
-      "examples",
-      pos.unitId,
-      `${pos.content.id}.qs`,
-    );
+    if (pos.content.type === "example") {
+      return vscode.Uri.file(pos.content.filePath);
+    }
+    throw new Error("Current activity is not an example");
   }
 
   async readUserCode(): Promise<string> {
@@ -548,16 +566,13 @@ export class LearningService {
       encoder.encode(exercise.placeholderCode),
     );
     const pos = this.getPosition();
-    this.markIncomplete(pos.unitId, pos.activityId);
+    this.markIncomplete(pos);
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
   }
 
-  async markExerciseComplete(
-    unitId: string,
-    activityId: string,
-  ): Promise<void> {
-    this.markComplete(unitId, activityId);
+  async markExerciseComplete(location: ActivityLocation): Promise<void> {
+    this.markComplete(location);
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
   }
@@ -640,7 +655,7 @@ export class LearningService {
       const events = this.extractEvents(eventTarget);
 
       if (passed) {
-        await this.markExerciseComplete(pos.unitId, pos.activityId);
+        await this.markExerciseComplete(pos);
       }
 
       return {
@@ -671,44 +686,62 @@ export class LearningService {
 
   // ─── Catalog ───
 
-  listUnits(): UnitSummary[] {
+  /** Return the list of loaded courses (for tree view display). */
+  getCourses(): CatalogCourse[] {
+    return this.courses;
+  }
+
+  listUnits(courseId?: string): UnitSummary[] {
     const progress = this.getProgress();
     let foundFirstIncomplete = false;
 
-    return this.catalog.map((kata) => {
-      const unitProgress = progress.units.find((u) => u.id === kata.id);
-      const completedCount = unitProgress?.completed ?? 0;
-      const activityCount = unitProgress?.total ?? kata.sections.length;
-      const allComplete = completedCount === activityCount && activityCount > 0;
+    const targetCourses = courseId
+      ? this.courses.filter((c) => c.id === courseId)
+      : this.courses;
 
-      let recommended = false;
-      if (!allComplete && !foundFirstIncomplete) {
-        foundFirstIncomplete = true;
-        recommended = true;
+    const allUnits: UnitSummary[] = [];
+    for (const course of targetCourses) {
+      for (const unit of course.units) {
+        const unitProgress = progress.units.find((u) => u.id === unit.id);
+        const completedCount = unitProgress?.completed ?? 0;
+        const activityCount = unitProgress?.total ?? unit.sections.length;
+        const allComplete =
+          completedCount === activityCount && activityCount > 0;
+
+        let recommended = false;
+        if (!allComplete && !foundFirstIncomplete) {
+          foundFirstIncomplete = true;
+          recommended = true;
+        }
+
+        allUnits.push({
+          id: unit.id,
+          title: unit.title,
+          courseId: course.id,
+          activityCount,
+          completedCount,
+          recommended,
+        });
       }
-
-      return {
-        id: kata.id,
-        title: kata.title,
-        activityCount,
-        completedCount,
-        recommended,
-      };
-    });
+    }
+    return allUnits;
   }
 
   // ─── Progress ───
 
   getProgress(): OverallProgress {
-    const catalog = this.catalog.map((k) => ({
-      id: k.id,
-      title: k.title,
-      activities: k.sections.map((s) => ({
-        id: s.id,
-        title: s.title,
-        type: s.type,
+    const catalog = this.courses.flatMap((course) =>
+      course.units.map((k) => ({
+        courseId: course.id,
+        id: k.id,
+        title: k.title,
+        activities: k.sections.map((s) => ({
+          id: s.id,
+          title: s.title,
+          type: s.type,
+        })),
       })),
-    }));
+    );
     return computeOverallProgress(catalog, this.progressData);
   }
 
@@ -718,10 +751,13 @@ export class LearningService {
     // Restore position
     const savedPos = this.progressData.position;
     if (savedPos.unitId) {
-      const idx = this.flatPositions.findIndex(
-        (fp) =>
-          fp.unitId === savedPos.unitId &&
-          fp.activityId === savedPos.activityId,
+      const target: ActivityLocation = {
+        courseId: savedPos.courseId ?? KATAS_COURSE_ID,
+        unitId: savedPos.unitId,
+        activityId: savedPos.activityId,
+      };
+      const idx = this.flatPositions.findIndex((fp) =>
+        activityLocationsEqual(fp, target),
       );
       if (idx >= 0) {
         this.currentFlatIndex = idx;
@@ -808,6 +844,8 @@ export class LearningService {
       return this.getExerciseFileUri();
     } else if (pos.content.type === "lesson-example") {
       return this.getExampleFileUri();
+    } else if (pos.content.type === "example") {
+      return vscode.Uri.file(pos.content.filePath);
     }
     throw new Error("Current activity cannot be run.");
   }
@@ -881,8 +919,9 @@ export class LearningService {
     return {
       version: 1,
       position: {
-        unitId: this.catalog[0]?.id ?? "",
-        activityId: this.catalog[0]?.sections[0]?.id ?? "",
+        courseId: KATAS_COURSE_ID,
+        unitId: this.courses[0]?.units[0]?.id ?? "",
+        activityId: this.courses[0]?.units[0]?.sections[0]?.id ?? "",
       },
       completions: {},
       startedAt: new Date().toISOString(),
@@ -896,13 +935,19 @@ export class LearningService {
       if (parsed.version === 1) {
         this.progressData = parsed;
         // Validate position references a known unit
+        const courseId = parsed.position.courseId ?? KATAS_COURSE_ID;
+        const course = this.courses.find((c) => c.id === courseId);
         if (
-          this.catalog.length > 0 &&
-          !this.catalog.find((k) => k.id === this.progressData.position.unitId)
+          this.courses.length > 0 &&
+          (!course ||
+            !course.units.find(
+              (u) => u.id === this.progressData.position.unitId,
+            ))
         ) {
           this.progressData.position = {
-            unitId: this.catalog[0].id,
-            activityId: this.catalog[0].sections[0]?.id ?? "",
+            courseId: KATAS_COURSE_ID,
+            unitId: this.courses[0]?.units[0]?.id ?? "",
+            activityId: this.courses[0]?.units[0]?.sections[0]?.id ?? "",
           };
         }
         return;
@@ -927,18 +972,16 @@ export class LearningService {
     this.emitProgress();
   }
 
-  private completionKey(unitId: string, activityId: string): string {
-    return `${unitId}__${activityId}`;
+  private completionKey(loc: ActivityLocation): string {
+    return activityLocationKey(loc);
   }
 
-  private isComplete(unitId: string, activityId: string): boolean {
-    return (
-      this.completionKey(unitId, activityId) in this.progressData.completions
-    );
+  private isComplete(loc: ActivityLocation): boolean {
+    return findCompletion(this.progressData.completions, loc) != null;
   }
 
-  private markComplete(unitId: string, activityId: string): void {
-    const key = this.completionKey(unitId, activityId);
+  private markComplete(loc: ActivityLocation): void {
+    const key = this.completionKey(loc);
     if (!(key in this.progressData.completions)) {
       this.progressData.completions[key] = {
         completedAt: new Date().toISOString(),
@@ -946,8 +989,8 @@ export class LearningService {
     }
   }
 
-  private markIncomplete(unitId: string, activityId: string): void {
-    const key = this.completionKey(unitId, activityId);
+  private markIncomplete(loc: ActivityLocation): void {
+    const key = this.completionKey(loc);
     delete this.progressData.completions[key];
   }
 
@@ -955,6 +998,7 @@ export class LearningService {
     const fp = this.flatPositions[this.currentFlatIndex];
     if (fp) {
       this.progressData.position = {
+        courseId: fp.courseId,
         unitId: fp.unitId,
         activityId: fp.activityId,
       };
@@ -964,8 +1008,8 @@ export class LearningService {
 
   // ─── Private: scaffolding via vscode.workspace.fs ───
 
-  private async scaffoldExercises(): Promise<void> {
-    for (const kata of this.catalog) {
+  private async scaffoldExercises(course: CatalogCourse): Promise<void> {
+    for (const kata of course.units) {
       for (const section of kata.sections) {
         if (section.type !== "exercise") {
           continue;
@@ -988,8 +1032,8 @@ export class LearningService {
     }
   }
 
-  private async scaffoldExamples(): Promise<void> {
-    for (const kata of this.catalog) {
+  private async scaffoldExamples(course: CatalogCourse): Promise<void> {
+    for (const kata of course.units) {
       for (const section of kata.sections) {
         if (section.type !== "lesson" || !section.example) {
           continue;
@@ -1029,33 +1073,37 @@ export class LearningService {
 
   // ─── Private: navigation part resolution ───
 
-  private findUnit(unitId: string): CatalogUnit {
-    const kata = this.catalog.find((k) => k.id === unitId);
-    if (!kata) {
-      throw new Error(`Unit not found: ${unitId}`);
+  private findUnit(courseId: string, unitId: string): CatalogUnit {
+    const course = this.courses.find((c) => c.id === courseId);
+    if (!course) {
+      throw new Error(`Course not found: ${courseId}`);
     }
-    return kata;
+    const unit = course.units.find((k) => k.id === unitId);
+    if (!unit) {
+      throw new Error(`Unit not found: ${courseId}/${unitId}`);
+    }
+    return unit;
   }
 
   resolveExercise(): CatalogExercise {
     const pos = this.getPosition();
-    const kata = this.findUnit(pos.unitId);
-    const section = kata.sections.find((s) => s.id === pos.activityId);
+    const unit = this.findUnit(pos.courseId, pos.unitId);
+    const section = unit.sections.find((s) => s.id === pos.activityId);
     if (!section || section.type !== "exercise") {
       throw new Error("Current activity is not an exercise");
     }
     return section;
   }
 
-  private resolveActivityContent(fp: FlatPosition): ActivityContent {
-    const kata = this.findUnit(fp.unitId);
-    const section = kata.sections.find((s) => s.id === fp.activityId)!;
+  private resolveActivityContent(fp: ActivityLocation): ActivityContent {
+    const unit = this.findUnit(fp.courseId, fp.unitId);
+    const section = unit.sections.find((s) => s.id === fp.activityId)!;
 
     if (section.type === "exercise") {
       const fileUri = vscode.Uri.joinPath(
         this.katasRoot,
         "exercises",
-        kata.id,
+        unit.id,
         `${section.id}.qs`,
       );
       return {
@@ -1064,9 +1112,17 @@ export class LearningService {
         title: section.title,
         description: section.description,
         filePath: fileUri.fsPath,
-        isComplete: this.isComplete(kata.id, fp.activityId),
+        isComplete: this.isComplete(fp),
         hintCount: section.hints.length + (section.solutionExplanation ? 1 : 0),
       } satisfies ExerciseContent;
+    }
+
+    if (section.type === "example") {
+      return {
+        type: "example",
+        filePath: section.filePath,
+        activityTitle: section.title,
+      } satisfies ExampleContent;
     }
 
     // Lesson with a code example
@@ -1074,7 +1130,7 @@ export class LearningService {
       const fileUri = vscode.Uri.joinPath(
         this.katasRoot,
         "examples",
-        kata.id,
+        unit.id,
         `${section.example.id}.qs`,
       );
       return {

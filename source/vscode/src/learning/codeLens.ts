@@ -36,7 +36,7 @@ export function createLearningCodeLensProvider(): vscode.CodeLensProvider {
         }),
         new vscode.CodeLens(range, {
           title: "$(mortar-board) Show in Quantum Katas",
-          command: "qsharp-vscode.learningOpenPanel",
+          command: "qsharp-vscode.learningShowActivity",
           tooltip: "Open the Quantum Katas panel for this exercise",
         }),
       ];

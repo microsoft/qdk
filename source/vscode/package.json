@@ -315,7 +315,7 @@
           "when": "false"
         },
         {
-          "command": "qsharp-vscode.learningOpenPanel",
+          "command": "qsharp-vscode.learningShowActivity",
           "when": "false"
         }
       ],
@@ -341,7 +341,7 @@
           "group": "navigation"
         },
         {
-          "command": "qsharp-vscode.learningOpenPanel",
+          "command": "qsharp-vscode.learningShowActivity",
           "when": "view == qsharp-vscode.learningTree && qsharp-vscode.katasDetected",
           "group": "navigation"
         }
@@ -671,8 +671,8 @@
         "icon": "$(discard)"
       },
       {
-        "command": "qsharp-vscode.learningOpenPanel",
-        "title": "Open in Katas Panel",
+        "command": "qsharp-vscode.learningShowActivity",
+        "title": "Show Current Activity",
         "category": "QDK Learning",
         "icon": "$(mortar-board)"
       }
@@ -1195,15 +1195,15 @@
         }
       },
       {
-        "name": "qdk-learning-show-panel",
+        "name": "qdk-learning-show",
         "tags": [
           "qdk",
           "qdk-learning",
           "quantum-katas"
         ],
-        "toolReferenceName": "qdkLearningShowPanel",
-        "displayName": "QDK Learning: Show Panel",
-        "modelDescription": "Open the Quantum Katas panel at the current position. Use to start or resume a learning session.",
+        "toolReferenceName": "qdkLearningShow",
+        "displayName": "QDK Learning: Show Activity",
+        "modelDescription": "Show the current learning activity. Opens the interactive Katas panel for lessons and exercises, or the source file for examples. Use to start or resume a learning session.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {
@@ -1260,12 +1260,17 @@
         ],
         "toolReferenceName": "qdkLearningListUnits",
         "displayName": "QDK Learning: List Units",
-        "modelDescription": "List all available units with completion status and a recommended flag for the next suggested unit.",
+        "modelDescription": "List all available units with completion status and a recommended flag for the next suggested unit. Optionally filter by courseId.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {
           "type": "object",
-          "properties": {},
+          "properties": {
+            "courseId": {
+              "type": "string",
+              "description": "Optional course ID to filter units. Omit to list units across all courses."
+            }
+          },
           "required": [],
           "additionalProperties": false
         }
@@ -1317,12 +1322,16 @@
         ],
         "toolReferenceName": "qdkLearningGoto",
         "displayName": "QDK Learning: Go To",
-        "modelDescription": "Jump to a specific unit and optionally an activity. Use unitId from list-units or get-state.",
+        "modelDescription": "Jump to a specific course, unit, and optionally an activity. Use courseId + unitId from list-units or get-state. courseId defaults to 'katas' (Quantum Katas).",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {
           "type": "object",
           "properties": {
+            "courseId": {
+              "type": "string",
+              "description": "ID of the course. Defaults to 'katas' (built-in Quantum Katas). Use a folder name from qdk-learning-content for filesystem courses."
+            },
             "unitId": {
               "type": "string",
               "description": "ID of the unit (e.g. 'getting_started')"

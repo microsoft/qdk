@@ -107,8 +107,8 @@ const toolDefinitions: {
   },
   // ─── QDK Learning tools ───
   {
-    name: "qdk-learning-show-panel",
-    tool: async () => await learningTools!.showPanel(),
+    name: "qdk-learning-show",
+    tool: async () => await learningTools!.show(),
     confirm: async () => learningTools!.confirmInit(),
   },
   {
@@ -123,7 +123,7 @@ const toolDefinitions: {
   },
   {
     name: "qdk-learning-list-units",
-    tool: async () => await learningTools!.listUnits(),
+    tool: async (input) => await learningTools!.listUnits(input),
     confirm: async () => learningTools!.confirmInit(),
   },
   {
@@ -173,7 +173,9 @@ const toolDefinitions: {
       // If the service is not yet initialized, show the init confirmation
       // first. Otherwise show the reset-specific confirmation.
       const initConfirm = await learningTools!.confirmInit();
-      if (initConfirm) return initConfirm;
+      if (initConfirm) {
+        return initConfirm;
+      }
       return {
         confirmationMessages: {
           title: "Reset Exercise",

@@ -3,7 +3,10 @@
 
 import * as vscode from "vscode";
 import type { LearningService } from "./service.js";
-import { LEARNING_WORKSPACE_FOLDER } from "./constants.js";
+import {
+  LEARNING_WORKSPACE_FOLDER,
+  LEARNING_CONTENT_FOLDER,
+} from "./constants.js";
 
 // Context keys set on the VS Code context for use in `when` clauses.
 const CTX_IS_EXERCISE = "qsharp-vscode.activeEditorIsExercise";
@@ -27,9 +30,9 @@ export function registerEditorContext(
     const isExercise = normalized.includes(
       `/${LEARNING_WORKSPACE_FOLDER}/exercises/`,
     );
-    const isExample = normalized.includes(
-      `/${LEARNING_WORKSPACE_FOLDER}/examples/`,
-    );
+    const isExample =
+      normalized.includes(`/${LEARNING_WORKSPACE_FOLDER}/examples/`) ||
+      normalized.includes(`/${LEARNING_CONTENT_FOLDER}/`);
 
     let exercisePassed = false;
     if (isExercise && service.initialized) {

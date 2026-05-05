@@ -5,7 +5,8 @@ import * as vscode from "vscode";
 import { EventType, sendTelemetryEvent } from "../telemetry.js";
 import { KatasPanelManager } from "./panel.js";
 import type { LearningService } from "./service.js";
-import type { ActivityKind, OverallProgress } from "./types.js";
+import type { ActivityLocation, OverallProgress } from "./types.js";
+import { KATAS_COURSE_ID } from "./constants.js";
 
 /**
  * These are typically commands that will be wired up to the progress
@@ -16,13 +17,16 @@ export function registerLearningCommands(
   service: LearningService,
 ): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand("qsharp-vscode.learningOpenPanel", () => {
-      const manager = KatasPanelManager.getInstance(
-        context.extensionUri,
-        service,
-      );
-      return manager.show();
-    }),
+    vscode.commands.registerCommand(
+      "qsharp-vscode.learningShowActivity",
+      () => {
+        const manager = KatasPanelManager.getInstance(
+          context.extensionUri,
+          service,
+        );
+        return manager.show();
+      },
+    ),
 
     vscode.commands.registerCommand(
       "qsharp-vscode.learningCheckSolution",
@@ -101,10 +105,10 @@ export function registerLearningCommands(
       if (snap && pos && pos.unitId) {
         const found = findActivity(snap, pos.unitId, pos.activityId);
         if (found) {
-          await openSection(service, {
+          await openSection(context, service, {
+            courseId: pos.courseId,
             unitId: pos.unitId,
             activityId: pos.activityId,
-            kind: found.activity.type,
           });
           return;
         }
@@ -123,7 +127,7 @@ export function registerLearningCommands(
         if (!args) {
           return;
         }
-        await openSection(service, args);
+        await openSection(context, service, args);
       },
     ),
 
@@ -138,12 +142,6 @@ export function registerLearningCommands(
       },
     ),
   );
-}
-
-interface OpenSectionArgs {
-  unitId: string;
-  activityId: string;
-  kind: ActivityKind;
 }
 
 function findActivity(
@@ -166,15 +164,16 @@ function findActivity(
 }
 
 /**
- * Open a unit activity. Shows the panel (initializing the service if needed),
- * then navigates directly via `LearningService.goTo()`.
+ * Navigate to a unit activity and show it.
  */
 async function openSection(
+  context: vscode.ExtensionContext,
   learningService: LearningService,
-  args: OpenSectionArgs,
+  args: ActivityLocation,
 ): Promise<void> {
-  await vscode.commands.executeCommand("qsharp-vscode.learningOpenPanel");
-  learningService.goTo(args.unitId, args.activityId);
+  await learningService.ensureInitialized();
+  learningService.goTo(args.courseId, args.unitId, args.activityId);
+  await vscode.commands.executeCommand("qsharp-vscode.learningShowActivity");
   sendTelemetryEvent(
     EventType.KatasPanelAction,
     { action: "navigateWidget" },
@@ -184,7 +183,7 @@ async function openSection(
 
 async function askInChat(
   service: LearningService,
-  args: OpenSectionArgs,
+  args: ActivityLocation,
 ): Promise<void> {
   const found = findActivity(
     service.lastSnapshot,
@@ -197,10 +196,12 @@ async function askInChat(
   // Include #goto with precise IDs so the agent can call the
   // tool without fuzzy matching.
   const location = activityTitle
-    ? `the "${activityTitle}" ${args.kind} in "${unitTitle}"`
+    ? `the "${activityTitle}" activity in "${unitTitle}"`
     : `"${unitTitle}"`;
 
-  const prompt = `/qdk-learning #goto ${args.unitId} ${args.activityId} — Go to ${location}`;
+  const courseArg =
+    args.courseId !== KATAS_COURSE_ID ? ` courseId=${args.courseId}` : "";
+  const prompt = `/qdk-learning #goto${courseArg} ${args.unitId} ${args.activityId} — Go to ${location}`;
   await vscode.commands.executeCommand("workbench.action.chat.open", {
     query: prompt,
     isPartialQuery: false,
@@ -208,7 +209,7 @@ async function askInChat(
   sendTelemetryEvent(EventType.KatasPanelAction, { action: "askInChat" }, {});
 }
 
-function normalizeSectionArgs(input: unknown): OpenSectionArgs | undefined {
+function normalizeSectionArgs(input: unknown): ActivityLocation | undefined {
   if (!input || typeof input !== "object") {
     return undefined;
   }
@@ -216,35 +217,32 @@ function normalizeSectionArgs(input: unknown): OpenSectionArgs | undefined {
 
   // Tree node shape — see progressTreeView.ts `LearningProgressNode`.
   if (obj.kind === "continue") {
+    const courseId = (obj.courseId as string | undefined) ?? KATAS_COURSE_ID;
     const unitId = obj.unitId as string | undefined;
     const activityId = obj.activityId as string | undefined;
-    const activityKind = obj.activityKind as ActivityKind | undefined;
-    if (unitId && activityId && activityKind) {
-      return { unitId, activityId, kind: activityKind };
+    if (unitId && activityId) {
+      return { courseId, unitId, activityId };
     }
   }
   if (obj.kind === "activity") {
+    const courseId = (obj.courseId as string | undefined) ?? KATAS_COURSE_ID;
     const unitId = obj.unitId as string | undefined;
-    const activity = obj.activity as
-      | { id?: string; type?: ActivityKind }
-      | undefined;
-    if (unitId && activity && activity.id && activity.type) {
-      return { unitId, activityId: activity.id, kind: activity.type };
+    const activity = obj.activity as { id?: string } | undefined;
+    if (unitId && activity?.id) {
+      return { courseId, unitId, activityId: activity.id };
     }
   }
   if (obj.kind === "unit") {
+    const courseId = (obj.courseId as string | undefined) ?? KATAS_COURSE_ID;
     const unit = obj.unit as
-      | {
-          id?: string;
-          activities?: Array<{ id?: string; type?: ActivityKind }>;
-        }
+      | { id?: string; activities?: Array<{ id?: string }> }
       | undefined;
     if (unit?.id && unit.activities && unit.activities.length > 0) {
       const first = unit.activities[0];
       return {
+        courseId,
         unitId: unit.id,
         activityId: first.id ?? "",
-        kind: first.type ?? "lesson",
       };
     }
   }

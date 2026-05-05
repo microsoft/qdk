@@ -17,6 +17,8 @@ export {
   LEARNING_WORKSPACE_FOLDER as KATAS_WS_FOLDER,
   LEARNING_WORKSPACE_RELATIVE_PATH as KATAS_WS_FOLDER_REL,
   LEARNING_FILE,
+  LEARNING_CONTENT_FOLDER,
+  KATAS_COURSE_ID,
 } from "./constants.js";
 
 export { LearningService } from "./service.js";
@@ -29,6 +31,7 @@ export {
   exerciseDocumentSelector,
 } from "./codeLens.js";
 export { registerLearningDecorations } from "./decorations.js";
+export { scanForCourses } from "./courseScanner.js";
 
 export function initLearning(
   context: vscode.ExtensionContext,
@@ -50,10 +53,12 @@ export function initLearning(
 }
 
 export type {
+  ActivityLocation,
   CurrentActivity,
   ActivityContent,
   LessonTextContent,
   LessonExampleContent,
+  ExampleContent,
   ExerciseContent,
   PrimaryAction,
   ActionGroup,
@@ -67,4 +72,7 @@ export type {
   SolutionCheckResult,
   RunResult,
   UnitSummary,
+  CatalogCourse,
+  CatalogUnit,
+  CatalogExample,
 } from "./types.js";

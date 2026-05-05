@@ -2,7 +2,13 @@
 // Licensed under the MIT License.
 
 import { getAllKatas, getExerciseSources } from "qsharp-lang/katas-md";
-import type { CatalogUnit, CatalogSection, CatalogExercise } from "./types.js";
+import { KATAS_COURSE_ID } from "./constants.js";
+import type {
+  CatalogUnit,
+  CatalogCourse,
+  CatalogSection,
+  CatalogExercise,
+} from "./types.js";
 
 /**
  * Adapter boundary between the raw `qsharp-lang/katas-md` types and the
@@ -98,4 +104,16 @@ export async function getExerciseSourceFiles(
 ): Promise<string[]> {
   // `getExerciseSources` only reads `sourceIds` on its argument.
   return getExerciseSources(exercise as never);
+}
+
+/**
+ * Load the built-in Quantum Katas as a single `CatalogCourse`.
+ */
+export async function loadKatasCourse(): Promise<CatalogCourse> {
+  const units = await loadKatas();
+  return {
+    id: KATAS_COURSE_ID,
+    title: "Quantum Katas",
+    units,
+  };
 }

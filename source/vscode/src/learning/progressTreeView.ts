@@ -3,10 +3,12 @@
 
 import * as vscode from "vscode";
 import type {
+  ActivityLocation,
   UnitProgress,
   OverallProgress,
   ActivityProgress,
   ActivityKind,
+  CatalogCourse,
 } from "./types.js";
 import type { LearningService } from "./service.js";
 
@@ -25,7 +27,7 @@ export function registerLearningProgressView(
   });
   context.subscriptions.push(
     service.onDidChangeProgress((snapshot) => {
-      treeDataProvider.update(snapshot);
+      treeDataProvider.update(snapshot, service.getCourses());
       treeView.message = buildTreeMessage(snapshot);
     }),
     treeView.onDidChangeVisibility((e) => {
@@ -87,9 +89,16 @@ export class LearningProgressTreeProvider implements vscode.TreeDataProvider<Lea
   readonly onDidChangeTreeData = this.emitter.event;
 
   private snapshot: OverallProgress | undefined;
+  private courses: CatalogCourse[] = [];
 
-  update(snapshot: OverallProgress | undefined): void {
+  update(
+    snapshot: OverallProgress | undefined,
+    courses?: CatalogCourse[],
+  ): void {
     this.snapshot = snapshot;
+    if (courses) {
+      this.courses = courses;
+    }
     this.emitter.fire(undefined);
   }
 
@@ -104,6 +113,18 @@ export class LearningProgressTreeProvider implements vscode.TreeDataProvider<Lea
       item.contextValue = "continue";
       item.tooltip = `Continue learning — ${node.unitTitle}: ${node.activityTitle}`;
       item.id = "continue";
+      return item;
+    }
+
+    if (node.kind === "course") {
+      const item = new vscode.TreeItem(
+        node.title,
+        vscode.TreeItemCollapsibleState.Expanded,
+      );
+      item.iconPath = new vscode.ThemeIcon("book");
+      item.contextValue = "course";
+      item.tooltip = node.title;
+      item.id = `course:${node.courseId}`;
       return item;
     }
 
@@ -133,16 +154,20 @@ export class LearningProgressTreeProvider implements vscode.TreeDataProvider<Lea
     item.description =
       activity.type === "exercise"
         ? "exercise"
-        : activity.hasExample
-          ? "lesson · example"
-          : "lesson";
+        : activity.type === "example"
+          ? "example"
+          : activity.hasExample
+            ? "lesson · example"
+            : "lesson";
     item.iconPath = activityIcon(activity, isCurrent);
     item.contextValue = activity.type;
     item.tooltip = activity.isComplete
       ? `Completed${activity.completedAt ? ` \u00b7 ${new Date(activity.completedAt).toLocaleString()}` : ""}`
       : activity.type === "exercise"
         ? "Exercise \u2014 click the action icon to open"
-        : "Lesson \u2014 click the action icon to open";
+        : activity.type === "example"
+          ? "Example \u2014 click the action icon to open"
+          : "Lesson \u2014 click the action icon to open";
     item.id = `activity:${unitId}:${activity.id}`;
     return item;
   }
@@ -155,13 +180,14 @@ export class LearningProgressTreeProvider implements vscode.TreeDataProvider<Lea
 
     if (!node) {
       const children: LearningProgressNode[] = [];
-      const { unitId, activityId } = snap.currentPosition;
+      const { courseId, unitId, activityId } = snap.currentPosition;
 
       const unit = snap.units.find((u) => u.id === unitId);
       const activity = unit?.activities.find((a) => a.id === activityId);
       if (unit && activity) {
         children.push({
           kind: "continue",
+          courseId,
           unitId: unit.id,
           unitTitle: unit.title,
           activityId: activity.id,
@@ -170,25 +196,65 @@ export class LearningProgressTreeProvider implements vscode.TreeDataProvider<Lea
         });
       }
 
-      for (const u of snap.units) {
-        children.push({
-          kind: "unit",
-          unit: u,
-          isCurrent: u.id === unitId,
-        });
+      // If there are multiple courses, show course-level grouping nodes.
+      if (this.courses.length > 1) {
+        for (const course of this.courses) {
+          children.push({
+            kind: "course",
+            courseId: course.id,
+            title: course.title,
+          });
+        }
+      } else {
+        // Single course — flat unit list (preserves existing katas-only UX)
+        for (const u of snap.units) {
+          children.push({
+            kind: "unit",
+            courseId: this.courses[0]?.id ?? "katas",
+            unit: u,
+            isCurrent: u.id === unitId,
+          });
+        }
       }
 
       return children;
     }
 
+    if (node.kind === "course") {
+      const { courseId } = node;
+      const course = this.courses.find((c) => c.id === courseId);
+      if (!course) {
+        return [];
+      }
+      const { unitId } = snap.currentPosition;
+
+      const unitNodes: LearningProgressNode[] = [];
+      for (const cu of course.units) {
+        const unitProgress = snap.units.find((u) => u.id === cu.id);
+        if (unitProgress) {
+          unitNodes.push({
+            kind: "unit" as const,
+            courseId,
+            unit: unitProgress,
+            isCurrent: unitProgress.id === unitId,
+          });
+        }
+      }
+      return unitNodes;
+    }
+
     if (node.kind === "unit") {
-      const { unitId, activityId } = snap.currentPosition;
+      const { courseId, unitId, activityId } = snap.currentPosition;
       return node.unit.activities.map<LearningProgressNode>((activity) => ({
         kind: "activity",
+        courseId: node.courseId,
         unitId: node.unit.id,
         unitTitle: node.unit.title,
         activity,
-        isCurrent: node.unit.id === unitId && activity.id === activityId,
+        isCurrent:
+          node.courseId === courseId &&
+          node.unit.id === unitId &&
+          activity.id === activityId,
       }));
     }
 
@@ -205,24 +271,30 @@ export class LearningProgressTreeProvider implements vscode.TreeDataProvider<Lea
  * carry the parent's `unitId` plus the `ActivityProgress` for quick lookups.
  */
 type LearningProgressNode =
-  | {
+  | ({
       /** Pinned "Up next" shortcut at the top of the tree. */
       kind: "continue";
-      unitId: string;
       unitTitle: string;
-      activityId: string;
       activityTitle: string;
       activityKind: ActivityKind;
+    } & ActivityLocation)
+  | {
+      /** Top-level course grouping node (when multiple courses exist). */
+      kind: "course";
+      courseId: string;
+      title: string;
     }
   | {
-      /** Top-level kata unit node (expandable). */
+      /** Unit node (expandable). */
       kind: "unit";
+      courseId: string;
       unit: UnitProgress;
       isCurrent: boolean;
     }
   | {
-      /** Leaf node representing a lesson or exercise within a unit. */
+      /** Leaf node representing a lesson, exercise, or example within a unit. */
       kind: "activity";
+      courseId: string;
       unitId: string;
       unitTitle: string;
       activity: ActivityProgress;

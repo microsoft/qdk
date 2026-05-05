@@ -13,6 +13,7 @@ import {
   type RunResult,
   type SolutionCheckResult,
 } from "../learning/index.js";
+import { KATAS_COURSE_ID } from "../learning/constants.js";
 import { CopilotToolError } from "./types.js";
 
 /**
@@ -91,11 +92,12 @@ export class LearningTools {
   }
 
   /**
-   * Open the full-size Quantum Katas panel at the current position.
+   * Show the current learning activity. Opens the Katas panel for
+   * lessons/exercises, or the source file for examples.
    */
-  async showPanel(): Promise<{ state: SerializedLearningState }> {
+  async show(): Promise<{ state: SerializedLearningState }> {
     await this.ensureInitialized();
-    await this.openPanel();
+    await this.showActivity();
     return { state: this.serializeState() };
   }
 
@@ -125,13 +127,13 @@ export class LearningTools {
   /**
    * List all available units with completion status.
    */
-  async listUnits(): Promise<{
+  async listUnits(input: { courseId?: string }): Promise<{
     units: UnitSummary[];
     state: SerializedLearningState;
   }> {
     await this.ensureInitialized();
     return {
-      units: this.service.listUnits(),
+      units: this.service.listUnits(input.courseId),
       state: this.serializeState(),
     };
   }
@@ -142,7 +144,7 @@ export class LearningTools {
   async next(): Promise<{ moved: boolean; state: SerializedLearningState }> {
     await this.ensureInitialized();
     const r = this.service.next();
-    await this.openPanel();
+    await this.showActivity();
     return { moved: r.moved, state: this.serializeState() };
   }
 
@@ -155,7 +157,7 @@ export class LearningTools {
   }> {
     await this.ensureInitialized();
     const r = this.service.previous();
-    await this.openPanel();
+    await this.showActivity();
     return { moved: r.moved, state: this.serializeState() };
   }
 
@@ -163,12 +165,47 @@ export class LearningTools {
    * Jump to a specific unit/activity.
    */
   async goTo(input: {
+    courseId?: string;
     unitId: string;
     activityId?: string;
   }): Promise<{ state: SerializedLearningState }> {
     await this.ensureInitialized();
-    this.service.goTo(input.unitId, input.activityId);
-    await this.openPanel();
+    const courseId = input.courseId ?? KATAS_COURSE_ID;
+
+    // Try the requested course first. On failure, search all courses
+    // and provide a helpful error message.
+    try {
+      this.service.goTo(courseId, input.unitId, input.activityId);
+    } catch {
+      // Search other courses for the unit.
+      const courses = this.service.getCourses();
+      const matches: string[] = [];
+      for (const c of courses) {
+        if (c.id === courseId) {
+          continue;
+        }
+        const hasUnit = c.units.some((u) => u.id === input.unitId);
+        if (hasUnit) {
+          matches.push(c.id);
+        }
+      }
+
+      if (matches.length > 0) {
+        throw new CopilotToolError(
+          `Unit '${input.unitId}' was not found in course '${courseId}'. ` +
+            `It exists in: ${matches.map((m) => `'${m}'`).join(", ")}. ` +
+            `Retry with the correct courseId.`,
+        );
+      }
+
+      const available = courses.map((c) => `'${c.id}'`).join(", ");
+      throw new CopilotToolError(
+        `Unit '${input.unitId}' was not found in course '${courseId}'. ` +
+          `Available courses: ${available}.`,
+      );
+    }
+
+    await this.showActivity();
     return { state: this.serializeState() };
   }
 
@@ -180,7 +217,7 @@ export class LearningTools {
   }): Promise<{ result: RunResult; state: SerializedLearningState }> {
     await this.ensureInitialized();
     const r = await this.service.run(input.shots ?? 1);
-    await this.openPanel();
+    await this.showActivity();
     return { result: r.result, state: this.serializeState() };
   }
 
@@ -209,8 +246,9 @@ export class LearningTools {
    */
   async resetExercise(): Promise<{ state: SerializedLearningState }> {
     await this.ensureInitialized();
+    this.assertNotExample();
     await this.service.resetExercise();
-    await this.openPanel();
+    await this.showActivity();
     return { state: this.serializeState() };
   }
 
@@ -222,8 +260,9 @@ export class LearningTools {
     state: SerializedLearningState;
   }> {
     await this.ensureInitialized();
+    this.assertNotExample();
     const r = await this.service.checkSolution();
-    await this.openPanel();
+    await this.showActivity();
     return { result: r.result, state: this.serializeState() };
   }
 
@@ -235,6 +274,7 @@ export class LearningTools {
     state: SerializedLearningState;
   }> {
     await this.ensureInitialized();
+    this.assertNotExample();
     const r = this.service.getHintContext();
     return { result: r.result, state: this.serializeState() };
   }
@@ -247,15 +287,25 @@ export class LearningTools {
     state: SerializedLearningState;
   }> {
     await this.ensureInitialized();
+    this.assertNotExample();
     const result = this.service.getFullSolution();
-    await this.openPanel();
+    await this.showActivity();
     return { result, state: this.serializeState() };
   }
 
   // ─── Helpers ───
 
-  private async openPanel(): Promise<void> {
-    await vscode.commands.executeCommand("qsharp-vscode.learningOpenPanel");
+  private assertNotExample(): void {
+    const pos = this.service.getPosition();
+    if (pos.content.type === "example") {
+      throw new CopilotToolError(
+        "This action is not applicable to example activities. Navigate to an exercise first.",
+      );
+    }
+  }
+
+  private async showActivity(): Promise<void> {
+    await vscode.commands.executeCommand("qsharp-vscode.learningShowActivity");
   }
 
   private getCurrentFileUri(): vscode.Uri {
@@ -264,6 +314,8 @@ export class LearningTools {
       return this.service.getExerciseFileUri();
     } else if (pos.content.type === "lesson-example") {
       return this.service.getExampleFileUri();
+    } else if (pos.content.type === "example") {
+      return vscode.Uri.file(pos.content.filePath);
     }
     throw new CopilotToolError(
       "Current activity is not an exercise or example — there is no code to read.",

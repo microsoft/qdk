@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import { KATAS_COURSE_ID } from "./constants.js";
+import { findCompletion } from "./activityLocation.js";
 import type {
   UnitProgress,
   OverallProgress,
@@ -13,13 +15,10 @@ import type {
  * Minimal catalog shape needed for progress computation.
  */
 export interface ProgressCatalogEntry {
+  courseId: string;
   id: string;
   title: string;
   activities: { id: string; title: string; type: ActivityKind }[];
-}
-
-function completionKey(unitId: string, activityId: string): string {
-  return `${unitId}__${activityId}`;
 }
 
 /**
@@ -36,8 +35,11 @@ export function computeOverallProgress(
 
   const units: UnitProgress[] = catalog.map((unit) => {
     const activities: ActivityProgress[] = unit.activities.map((a) => {
-      const key = completionKey(unit.id, a.id);
-      const completion = data.completions[key];
+      const completion = findCompletion(data.completions, {
+        courseId: unit.courseId,
+        unitId: unit.id,
+        activityId: a.id,
+      });
       return {
         id: a.id,
         title: a.title,
@@ -58,6 +60,7 @@ export function computeOverallProgress(
     };
   });
 
+  const courseId = data.position.courseId ?? KATAS_COURSE_ID;
   const currentUnitId = data.position.unitId;
   const currentUnit = currentUnitId
     ? catalog.find((u) => u.id === currentUnitId)
@@ -66,6 +69,7 @@ export function computeOverallProgress(
   return {
     units,
     currentPosition: {
+      courseId,
       unitId: data.position.unitId,
       activityId: data.position.activityId,
       unitTitle: (currentUnit?.title ?? currentUnitId) || undefined,

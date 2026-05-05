@@ -12,3 +12,9 @@ export const LEARNING_FILE = "qdk-learning.json";
 
 /** Context key set when a katas workspace is detected. */
 export const KATAS_DETECTED_CONTEXT = "qsharp-vscode.katasDetected";
+
+/** Well-known folder name for filesystem-discovered learning courses. */
+export const LEARNING_CONTENT_FOLDER = "qdk-learning-content";
+
+/** The built-in course ID for the Quantum Katas. */
+export const KATAS_COURSE_ID = "katas";

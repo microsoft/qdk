@@ -16,10 +16,15 @@
 
 // ─── Navigation ───
 
-export interface CurrentActivity {
+/** Identifies a specific activity within the course hierarchy. */
+export interface ActivityLocation {
+  courseId: string;
   unitId: string;
-  unitTitle: string;
   activityId: string;
+}
+
+export interface CurrentActivity extends ActivityLocation {
+  unitTitle: string;
   activityTitle: string;
   content: ActivityContent;
 }
@@ -27,7 +32,8 @@ export interface CurrentActivity {
 export type ActivityContent =
   | LessonTextContent
   | LessonExampleContent
-  | ExerciseContent;
+  | ExerciseContent
+  | ExampleContent;
 
 export interface LessonTextContent {
   type: "lesson-text";
@@ -55,6 +61,13 @@ export interface ExerciseContent {
   filePath: string;
   isComplete: boolean;
   hintCount: number;
+}
+
+export interface ExampleContent {
+  type: "example";
+  /** Absolute file path of the code asset (ipynb, .qs, .py, etc.) */
+  filePath: string;
+  activityTitle: string;
 }
 
 // ─── Actions ───
@@ -86,7 +99,7 @@ export type ActionGroup = ActionBinding[];
 
 // ─── Progress ───
 
-export type ActivityKind = "lesson" | "exercise";
+export type ActivityKind = "lesson" | "exercise" | "example";
 
 export interface ActivityProgress {
   id: string;
@@ -110,11 +123,7 @@ export interface UnitProgress {
 
 export interface OverallProgress {
   units: UnitProgress[];
-  currentPosition: {
-    unitId: string;
-    unitTitle?: string;
-    activityId: string;
-  };
+  currentPosition: ActivityLocation & { unitTitle?: string };
   stats: { totalActivities: number; completedActivities: number };
 }
 
@@ -122,7 +131,8 @@ export interface OverallProgress {
 
 export interface ProgressFileData {
   version: 1;
-  position: { unitId: string; activityId: string };
+  position: Partial<Pick<ActivityLocation, "courseId">> &
+    Omit<ActivityLocation, "courseId">;
   completions: Record<string, { completedAt: string }>;
   startedAt: string;
 }
@@ -236,7 +246,15 @@ export interface CatalogLesson {
   content?: string;
 }
 
-export type CatalogSection = CatalogExercise | CatalogLesson;
+export interface CatalogExample {
+  type: "example";
+  id: string;
+  title: string;
+  /** Absolute file path of the code asset on disk. */
+  filePath: string;
+}
+
+export type CatalogSection = CatalogExercise | CatalogLesson | CatalogExample;
 
 export interface CatalogUnit {
   id: string;
@@ -244,9 +262,16 @@ export interface CatalogUnit {
   sections: CatalogSection[];
 }
 
+export interface CatalogCourse {
+  id: string;
+  title: string;
+  units: CatalogUnit[];
+}
+
 export interface UnitSummary {
   id: string;
   title: string;
+  courseId: string;
   activityCount: number;
   completedCount: number;
   /** True if this unit is the next recommended one in learning order */
