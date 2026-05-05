@@ -393,12 +393,12 @@
         {
           "command": "qsharp-vscode.katasOpenSection",
           "group": "inline",
-          "when": "view == qsharp-vscode.learningTree && (viewItem == continue || viewItem == lesson || viewItem == exercise)"
+          "when": "view == qsharp-vscode.learningTree && (viewItem == continue || viewItem == unit || viewItem == lesson || viewItem == exercise || viewItem == example)"
         },
         {
           "command": "qsharp-vscode.katasAskInChat",
           "group": "inline",
-          "when": "view == qsharp-vscode.learningTree && (viewItem == continue || viewItem == unit || viewItem == lesson || viewItem == exercise)"
+          "when": "view == qsharp-vscode.learningTree && (viewItem == continue || viewItem == unit || viewItem == lesson || viewItem == exercise || viewItem == example)"
         }
       ],
       "explorer/context": [
