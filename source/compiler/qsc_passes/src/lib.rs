@@ -197,7 +197,7 @@ pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {
     borrow_errors.into_iter().map(Error::BorrowCk).collect()
 }
 
-pub fn run_fir_passes(
+pub fn run_rca(
     package: &fir::Package,
     compute_properties: &PackageComputeProperties,
     capabilities: TargetCapabilityFlags,
@@ -211,7 +211,7 @@ pub fn run_fir_passes(
         .collect()
 }
 
-pub fn run_fir_passes_for_callable(
+pub fn run_rca_for_callable(
     fir_store: &fir::PackageStore,
     compute_properties: &PackageStoreComputeProperties,
     callable: fir::StoreItemId,
