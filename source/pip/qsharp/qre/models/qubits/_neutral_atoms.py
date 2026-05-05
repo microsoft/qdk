@@ -5,7 +5,17 @@ from dataclasses import KW_ONLY, dataclass, field
 
 from ..._architecture import Architecture, ISAContext
 from ..._instruction import ISA, Encoding
-from ...instruction_ids import CZ, MEAS_RESET_Z, MEAS_Z, PHYSICAL_MOVE, RZ, SQRT_X
+from ...instruction_ids import (
+    CZ,
+    MEAS_RESET_Z,
+    MEAS_Z,
+    PHYSICAL_MOVE,
+    RZ,
+    SQRT_X,
+    H,
+    CNOT,
+    T,
+)
 from ...property_keys import ACCELERATION, ATOM_SPACING, VELOCITY
 
 
@@ -35,7 +45,21 @@ class NeutralAtom(Architecture):
                 error_rate=0.0,
             ),
             ctx.add_instruction(
+                T,
+                encoding=Encoding.PHYSICAL,
+                arity=1,
+                time=0,
+                error_rate=0.0001,
+            ),
+            ctx.add_instruction(
                 SQRT_X,
+                encoding=Encoding.PHYSICAL,
+                arity=1,
+                time=self.one_qubit_time,
+                error_rate=self.one_qubit_error,
+            ),
+            ctx.add_instruction(
+                H,
                 encoding=Encoding.PHYSICAL,
                 arity=1,
                 time=self.one_qubit_time,
@@ -46,6 +70,13 @@ class NeutralAtom(Architecture):
                 encoding=Encoding.PHYSICAL,
                 arity=2,
                 time=self.rydberg_time,
+                error_rate=self.rydberg_error,
+            ),
+            ctx.add_instruction(
+                CNOT,
+                encoding=Encoding.PHYSICAL,
+                arity=2,
+                time=self.rydberg_time + 2 * self.one_qubit_time,
                 error_rate=self.rydberg_error,
             ),
             ctx.add_instruction(
