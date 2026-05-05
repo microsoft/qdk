@@ -1,0 +1,399 @@
+/* Copyright (c) Microsoft Corporation.
+   Licensed under the MIT License. */
+
+:root {
+  color-scheme: light dark;
+  --bg: var(--vscode-editor-background, transparent);
+  --fg: var(--vscode-editor-foreground, #1a1a1a);
+  --muted: var(--vscode-descriptionForeground, #6a6a6a);
+  --accent: var(--vscode-textLink-foreground, #0066cc);
+  --accent-hover: var(--vscode-textLink-activeForeground, var(--accent));
+  --border: var(--vscode-widget-border, var(--vscode-panel-border, #e0e0e0));
+  --success: var(
+    --vscode-charts-green,
+    var(--vscode-testing-iconPassed, #1a7f37)
+  );
+  --fail: var(--vscode-errorForeground, var(--vscode-charts-red, #cf222e));
+  --hint: var(
+    --vscode-charts-yellow,
+    var(--vscode-editorWarning-foreground, #825d00)
+  );
+  --code-bg: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.08));
+  --btn-bg: var(--vscode-button-background, var(--accent));
+  --btn-fg: var(--vscode-button-foreground, #fff);
+  --btn-hover-bg: var(--vscode-button-hoverBackground, var(--accent));
+  --btn-secondary-bg: var(--vscode-button-secondaryBackground, transparent);
+  --btn-secondary-fg: var(--vscode-button-secondaryForeground, var(--fg));
+  --btn-secondary-hover-bg: var(
+    --vscode-button-secondaryHoverBackground,
+    transparent
+  );
+  --focus-border: var(--vscode-focusBorder, var(--accent));
+  --ui-font: var(
+    --vscode-font-family,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif
+  );
+  --ui-font-size: var(--vscode-font-size, 13px);
+  --mono-font: var(
+    --vscode-editor-font-family,
+    ui-monospace,
+    "Cascadia Mono",
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace
+  );
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: var(--vscode-editor-foreground, #e6e6e6);
+    --muted: var(--vscode-descriptionForeground, #999);
+    --accent: var(--vscode-textLink-foreground, #5599ff);
+    --border: var(--vscode-widget-border, var(--vscode-panel-border, #333));
+    --success: var(--vscode-charts-green, #3fb950);
+    --fail: var(--vscode-errorForeground, #ff6b6b);
+    --hint: var(--vscode-charts-yellow, #e3b341);
+  }
+}
+
+body {
+  font: var(--ui-font-size) / 1.45 var(--ui-font);
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+math {
+  font-size: 1.25em;
+}
+math[display="block"] {
+  font-size: 1.35em;
+}
+
+/* Branding header */
+.branding {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg);
+}
+.branding-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.branding-text {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fg);
+  opacity: 0.85;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.header .crumb {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.header .badge {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--code-bg);
+  color: var(--fg);
+}
+.header .badge.exercise {
+  background: var(--vscode-badge-background, var(--accent));
+  color: var(--vscode-badge-foreground, #fff);
+}
+.header .badge.complete {
+  background: var(--success);
+  color: var(--btn-fg, #fff);
+}
+
+/* Content — full panel, scrollable (no max-height cap) */
+.content {
+  padding: 0.75rem 1rem;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.content h1,
+.content h2,
+.content h3 {
+  margin: 0.4rem 0 0.3rem;
+}
+.content h1 {
+  font-size: 1.05rem;
+}
+.content h2 {
+  font-size: 1rem;
+}
+.content h3 {
+  font-size: 0.95rem;
+}
+.content p {
+  margin: 0.35rem 0;
+}
+.content ul,
+.content ol {
+  margin: 0.35rem 0;
+  padding-left: 1.3rem;
+}
+.content pre {
+  background: var(--code-bg);
+  padding: 0.4rem 0.5rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 12px;
+  margin: 0.3rem 0;
+}
+.content code {
+  font-family: var(--mono-font);
+}
+.content table {
+  border-collapse: collapse;
+  margin: 0.25rem 0;
+  font-size: 12px;
+}
+.content th,
+.content td {
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  text-align: left;
+}
+.content .file-path {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.content .file-path-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.content .file-path-link:hover {
+  text-decoration: underline;
+}
+
+/* Completion banner (inline in exercise body) */
+.content .completion-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+  font-size: 12px;
+  font-weight: 600;
+}
+.completion-banner .completion-icon {
+  font-size: 14px;
+}
+
+/* Output slot */
+.output {
+  margin: 0 1rem 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 4px;
+  background: var(--code-bg);
+  font-size: 12px;
+  border-left: 3px solid var(--accent);
+  position: relative;
+  flex-shrink: 0;
+}
+.output.pass {
+  border-left-color: var(--success);
+}
+.output.fail {
+  border-left-color: var(--fail);
+}
+.output .out-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+.output .out-dismiss {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 5px;
+}
+.output .out-dismiss:hover {
+  color: var(--fg);
+}
+.output pre {
+  background: rgba(127, 127, 127, 0.12);
+  padding: 0.4rem 0.5rem;
+  border-radius: 3px;
+  font-size: 11px;
+  margin: 0.25rem 0;
+  overflow-x: auto;
+}
+.output table {
+  border-collapse: collapse;
+  margin: 0.25rem 0;
+  font-size: 11px;
+}
+.output th,
+.output td {
+  border: 1px solid var(--border);
+  padding: 1px 5px;
+  text-align: left;
+}
+.output .success {
+  color: var(--success);
+  white-space: pre-wrap;
+}
+.output .fail {
+  color: var(--fail);
+  white-space: pre-wrap;
+}
+.output .message {
+  color: var(--muted);
+  font-style: italic;
+  white-space: pre-wrap;
+}
+
+/* Action bar */
+.action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.4rem 0.75rem;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.action-group {
+  display: flex;
+  gap: 0.25rem;
+  padding-right: 0.4rem;
+  border-right: 1px solid var(--border);
+}
+.action-group:last-child {
+  border-right: none;
+  padding-right: 0;
+}
+.action-bar button {
+  font: inherit;
+  font-size: 12px;
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-fg);
+  border: 1px solid var(--border);
+  padding: 3px 9px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.action-bar button:hover {
+  background: var(--btn-secondary-hover-bg);
+  border-color: var(--accent);
+}
+.action-bar button:focus-visible {
+  outline: 1px solid var(--focus-border);
+  outline-offset: 1px;
+}
+.action-bar button.primary {
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border-color: var(--btn-bg);
+}
+.action-bar button.primary:hover {
+  background: var(--btn-hover-bg);
+  border-color: var(--btn-hover-bg);
+}
+.action-bar button:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+/* Progress bar footer */
+.progress-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 11px;
+  padding: 0.3rem 0.75rem;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.progress-bar:hover {
+  background: var(--btn-secondary-hover-bg);
+}
+.pb-segments {
+  display: inline-flex;
+  gap: 2px;
+}
+.pb-seg {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.pb-seg.done {
+  background: var(--success);
+}
+.pb-seg.current {
+  background: var(--accent);
+}
+
+/* Chat entry-point links (inline in output area) */
+.chat-link {
+  display: inline-block;
+  margin-top: 0.45rem;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+}
+.chat-link:hover {
+  text-decoration: underline;
+  color: var(--accent-hover);
+}
+
+.loading {
+  color: var(--muted);
+  font-style: italic;
+}
