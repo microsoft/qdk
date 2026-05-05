@@ -32,6 +32,7 @@ from typing import (
     List,
     Set,
     Iterable,
+    Literal,
     cast,
 )
 from .estimator._estimator import (
@@ -352,7 +353,7 @@ def init(
             )
 
         try:
-            (_, manifest_contents) = read_file(qsharp_json)
+            _, manifest_contents = read_file(qsharp_json)
         except Exception as e:
             raise QSharpError(
                 f"Error reading {qsharp_json}. qsharp.json should exist at the project root and be a valid JSON file."
@@ -779,6 +780,8 @@ def run(
     ] = None,
     qubit_loss: Optional[float] = None,
     seed: Optional[int] = None,
+    type: Optional[Literal["sparse", "clifford"]] = None,
+    num_qubits: Optional[int] = None,
 ) -> List[Any]:
     """
     Runs the given Q# expression for the given number of shots.
@@ -793,6 +796,9 @@ def run(
     :param noise: The noise to use in simulation.
     :param qubit_loss: The probability of qubit loss in simulation.
     :param seed: The seed to use for the random number generator in simulation, if any.
+    :param type: The type of simulator to use. If not specified, the default sparse state vector simulation will be used.
+    :param num_qubits: The number of qubits to use for the simulation type "clifford".
+        If not specified, the Clifford simulator assumes a default of 1000 qubits.
 
     :return: A list of results or runtime errors. If ``save_events`` is true, a list of ``ShotResult`` is returned.
     :rtype: List[Any]
@@ -834,6 +840,12 @@ def run(
         elif output.is_message():
             results[-1]["messages"].append(str(output))
 
+    if type == "clifford":
+        if noise is not None and not isinstance(noise, NoiseConfig):
+            raise ValueError(
+                "only `NoiseConfig` is supported when using noise with the clifford simulator."
+            )
+
     callable = None
     run_entry_expr = None
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
@@ -871,6 +883,8 @@ def run(
             callable,
             args,
             shot_seed,
+            type,
+            num_qubits,
         )
         run_results = qsharp_value_to_python_value(run_results)
         results[-1]["result"] = run_results

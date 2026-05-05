@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use std::f64::consts::{FRAC_PI_2, PI, TAU};
+
 use crate::debug::Frame;
 use crate::val::{self, Value};
 use crate::{noise::PauliNoise, val::unwrap_tuple};
@@ -8,105 +10,109 @@ use ndarray::Array2;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use num_traits::Zero;
-use qdk_simulators::SparseStateSim;
 use qdk_simulators::cpu_full_state_simulator::noise::{Fault, PauliFault};
 use qdk_simulators::noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable};
+use qdk_simulators::stabilizer_simulator::{self, StabilizerSimulator};
+use qdk_simulators::{MeasurementResult, NearlyZero, Simulator as _, SparseStateSim};
+use qsc_data_structures::index_map::IndexMap;
 use rand::{Rng, RngCore};
 use rand::{SeedableRng, rngs::StdRng};
 
 #[cfg(test)]
 mod noise_tests;
 
+type StateDump = (Vec<(BigUint, Complex<f64>)>, usize);
+
 /// The trait that must be implemented by a quantum backend, whose functions will be invoked when
 /// quantum intrinsics are called.
 pub trait Backend {
-    fn ccx(&mut self, _ctl0: usize, _ctl1: usize, _q: usize) {
-        unimplemented!("ccx gate");
+    fn ccx(&mut self, _ctl0: usize, _ctl1: usize, _q: usize) -> Result<(), String> {
+        Err("ccx gate not implemented".to_string())
     }
-    fn cx(&mut self, _ctl: usize, _q: usize) {
-        unimplemented!("cx gate");
+    fn cx(&mut self, _ctl: usize, _q: usize) -> Result<(), String> {
+        Err("cx gate not implemented".to_string())
     }
-    fn cy(&mut self, _ctl: usize, _q: usize) {
-        unimplemented!("cy gate");
+    fn cy(&mut self, _ctl: usize, _q: usize) -> Result<(), String> {
+        Err("cy gate not implemented".to_string())
     }
-    fn cz(&mut self, _ctl: usize, _q: usize) {
-        unimplemented!("cz gate");
+    fn cz(&mut self, _ctl: usize, _q: usize) -> Result<(), String> {
+        Err("cz gate not implemented".to_string())
     }
-    fn h(&mut self, _q: usize) {
-        unimplemented!("h gate");
+    fn h(&mut self, _q: usize) -> Result<(), String> {
+        Err("h gate not implemented".to_string())
     }
-    fn m(&mut self, _q: usize) -> val::Result {
-        unimplemented!("m operation");
+    fn m(&mut self, _q: usize) -> Result<val::Result, String> {
+        Err("m operation not implemented".to_string())
     }
-    fn mresetz(&mut self, _q: usize) -> val::Result {
-        unimplemented!("mresetz operation");
+    fn mresetz(&mut self, _q: usize) -> Result<val::Result, String> {
+        Err("mresetz operation not implemented".to_string())
     }
-    fn reset(&mut self, _q: usize) {
-        unimplemented!("reset gate");
+    fn reset(&mut self, _q: usize) -> Result<(), String> {
+        Err("reset gate not implemented".to_string())
     }
-    fn rx(&mut self, _theta: f64, _q: usize) {
-        unimplemented!("rx gate");
+    fn rx(&mut self, _theta: f64, _q: usize) -> Result<(), String> {
+        Err("rx gate not implemented".to_string())
     }
-    fn rxx(&mut self, _theta: f64, _q0: usize, _q1: usize) {
-        unimplemented!("rxx gate");
+    fn rxx(&mut self, _theta: f64, _q0: usize, _q1: usize) -> Result<(), String> {
+        Err("rxx gate not implemented".to_string())
     }
-    fn ry(&mut self, _theta: f64, _q: usize) {
-        unimplemented!("ry gate");
+    fn ry(&mut self, _theta: f64, _q: usize) -> Result<(), String> {
+        Err("ry gate not implemented".to_string())
     }
-    fn ryy(&mut self, _theta: f64, _q0: usize, _q1: usize) {
-        unimplemented!("ryy gate");
+    fn ryy(&mut self, _theta: f64, _q0: usize, _q1: usize) -> Result<(), String> {
+        Err("ryy gate not implemented".to_string())
     }
-    fn rz(&mut self, _theta: f64, _q: usize) {
-        unimplemented!("rz gate");
+    fn rz(&mut self, _theta: f64, _q: usize) -> Result<(), String> {
+        Err("rz gate not implemented".to_string())
     }
-    fn rzz(&mut self, _theta: f64, _q0: usize, _q1: usize) {
-        unimplemented!("rzz gate");
+    fn rzz(&mut self, _theta: f64, _q0: usize, _q1: usize) -> Result<(), String> {
+        Err("rzz gate not implemented".to_string())
     }
-    fn sadj(&mut self, _q: usize) {
-        unimplemented!("sadj gate");
+    fn sadj(&mut self, _q: usize) -> Result<(), String> {
+        Err("sadj gate not implemented".to_string())
     }
-    fn s(&mut self, _q: usize) {
-        unimplemented!("s gate");
+    fn s(&mut self, _q: usize) -> Result<(), String> {
+        Err("s gate not implemented".to_string())
     }
-    fn sx(&mut self, _q: usize) {
-        unimplemented!("sx gate");
+    fn sx(&mut self, _q: usize) -> Result<(), String> {
+        Err("sx gate not implemented".to_string())
     }
-    fn swap(&mut self, _q0: usize, _q1: usize) {
-        unimplemented!("swap gate");
+    fn swap(&mut self, _q0: usize, _q1: usize) -> Result<(), String> {
+        Err("swap gate not implemented".to_string())
     }
-    fn tadj(&mut self, _q: usize) {
-        unimplemented!("tadj gate");
+    fn tadj(&mut self, _q: usize) -> Result<(), String> {
+        Err("tadj gate not implemented".to_string())
     }
-    fn t(&mut self, _q: usize) {
-        unimplemented!("t gate");
+    fn t(&mut self, _q: usize) -> Result<(), String> {
+        Err("t gate not implemented".to_string())
     }
-    fn x(&mut self, _q: usize) {
-        unimplemented!("x gate");
+    fn x(&mut self, _q: usize) -> Result<(), String> {
+        Err("x gate not implemented".to_string())
     }
-    fn y(&mut self, _q: usize) {
-        unimplemented!("y gate");
+    fn y(&mut self, _q: usize) -> Result<(), String> {
+        Err("y gate not implemented".to_string())
     }
-    fn z(&mut self, _q: usize) {
-        unimplemented!("z gate");
+    fn z(&mut self, _q: usize) -> Result<(), String> {
+        Err("z gate not implemented".to_string())
     }
-    fn qubit_allocate(&mut self) -> usize {
-        unimplemented!("qubit_allocate operation");
+    fn qubit_allocate(&mut self) -> Result<usize, String> {
+        Err("qubit_allocate operation not implemented".to_string())
     }
     /// `false` indicates that the qubit was in a non-zero state before the release,
     /// but should have been in the zero state.
     /// `true` otherwise. This includes the case when the qubit was in
     /// a non-zero state during a noisy simulation, which is allowed.
-    fn qubit_release(&mut self, _q: usize) -> bool {
-        unimplemented!("qubit_release operation");
+    fn qubit_release(&mut self, _q: usize) -> Result<bool, String> {
+        Err("qubit_release operation not implemented".to_string())
     }
-    fn qubit_swap_id(&mut self, _q0: usize, _q1: usize) {
-        unimplemented!("qubit_swap_id operation");
+    fn qubit_swap_id(&mut self, _q0: usize, _q1: usize) -> Result<(), String> {
+        Err("qubit_swap_id operation not implemented".to_string())
     }
-    fn capture_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
-        unimplemented!("capture_quantum_state operation");
+    fn capture_quantum_state(&mut self) -> Result<StateDump, String> {
+        Err("capture_quantum_state operation not implemented".to_string())
     }
-    fn qubit_is_zero(&mut self, _q: usize) -> bool {
-        unimplemented!("qubit_is_zero operation");
+    fn qubit_is_zero(&mut self, _q: usize) -> Result<bool, String> {
+        Err("qubit_is_zero operation not implemented".to_string())
     }
     /// Executes custom intrinsic specified by `_name`.
     /// Returns None if this intrinsic is unknown.
@@ -180,261 +186,287 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
-    pub fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize, stack: &[Frame]) {
+    pub fn ccx(
+        &mut self,
+        ctl0: usize,
+        ctl1: usize,
+        q: usize,
+        stack: &[Frame],
+    ) -> Result<(), String> {
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.ccx(ctl0, ctl1, q);
+            backend.ccx(ctl0, ctl1, q)?;
         }
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "X", false, &[q], &[ctl0, ctl1], None);
         }
+        Ok(())
     }
 
-    pub fn cx(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
+    pub fn cx(&mut self, ctl: usize, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.cx(ctl, q);
+            backend.cx(ctl, q)?;
         }
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "X", false, &[q], &[ctl], None);
         }
+        Ok(())
     }
 
-    pub fn cy(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
+    pub fn cy(&mut self, ctl: usize, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.cy(ctl, q);
+            backend.cy(ctl, q)?;
         }
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Y", false, &[q], &[ctl], None);
         }
+        Ok(())
     }
 
-    pub fn cz(&mut self, ctl: usize, q: usize, stack: &[Frame]) {
+    pub fn cz(&mut self, ctl: usize, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.cz(ctl, q);
+            backend.cz(ctl, q)?;
         }
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Z", false, &[q], &[ctl], None);
         }
+        Ok(())
     }
 
-    pub fn h(&mut self, q: usize, stack: &[Frame]) {
+    pub fn h(&mut self, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.h(q);
+            backend.h(q)?;
         }
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "H", false, &[q], &[], None);
         }
+        Ok(())
     }
 
-    pub fn m(&mut self, q: usize, stack: &[Frame]) -> val::Result {
+    pub fn m(&mut self, q: usize, stack: &[Frame]) -> Result<val::Result, String> {
         let r = match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.m(q),
+            OptionalBackend::Some(backend) => backend.m(q)?,
             OptionalBackend::None(fallback) => fallback.result_allocate(),
         };
         if let Some(tracer) = &mut self.tracer {
             tracer.measure(stack, "M", q, &r);
         }
-        r
+        Ok(r)
     }
 
-    pub fn mresetz(&mut self, q: usize, stack: &[Frame]) -> val::Result {
+    pub fn mresetz(&mut self, q: usize, stack: &[Frame]) -> Result<val::Result, String> {
         let r = match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.mresetz(q),
+            OptionalBackend::Some(backend) => backend.mresetz(q)?,
             OptionalBackend::None(fallback) => fallback.result_allocate(),
         };
         if let Some(tracer) = &mut self.tracer {
             tracer.measure(stack, "MResetZ", q, &r);
         }
-        r
+        Ok(r)
     }
 
-    pub fn reset(&mut self, q: usize, stack: &[Frame]) {
+    pub fn reset(&mut self, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.reset(stack, q);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.reset(q);
+            backend.reset(q)?;
         }
+        Ok(())
     }
 
-    pub fn rx(&mut self, theta: f64, q: usize, stack: &[Frame]) {
+    pub fn rx(&mut self, theta: f64, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Rx", false, &[q], &[], Some(theta));
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.rx(theta, q);
+            backend.rx(theta, q)?;
         }
+        Ok(())
     }
 
-    pub fn rxx(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
+    pub fn rxx(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Rxx", false, &[q0, q1], &[], Some(theta));
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.rxx(theta, q0, q1);
+            backend.rxx(theta, q0, q1)?;
         }
+        Ok(())
     }
 
-    pub fn ry(&mut self, theta: f64, q: usize, stack: &[Frame]) {
+    pub fn ry(&mut self, theta: f64, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Ry", false, &[q], &[], Some(theta));
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.ry(theta, q);
+            backend.ry(theta, q)?;
         }
+        Ok(())
     }
 
-    pub fn ryy(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
+    pub fn ryy(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Ryy", false, &[q0, q1], &[], Some(theta));
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.ryy(theta, q0, q1);
+            backend.ryy(theta, q0, q1)?;
         }
+        Ok(())
     }
 
-    pub fn rz(&mut self, theta: f64, q: usize, stack: &[Frame]) {
+    pub fn rz(&mut self, theta: f64, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Rz", false, &[q], &[], Some(theta));
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.rz(theta, q);
+            backend.rz(theta, q)?;
         }
+        Ok(())
     }
 
-    pub fn rzz(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) {
+    pub fn rzz(&mut self, theta: f64, q0: usize, q1: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Rzz", false, &[q0, q1], &[], Some(theta));
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.rzz(theta, q0, q1);
+            backend.rzz(theta, q0, q1)?;
         }
+        Ok(())
     }
 
-    pub fn sadj(&mut self, q: usize, stack: &[Frame]) {
+    pub fn sadj(&mut self, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "S", true, &[q], &[], None);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.sadj(q);
+            backend.sadj(q)?;
         }
+        Ok(())
     }
 
-    pub fn s(&mut self, q: usize, stack: &[Frame]) {
+    pub fn s(&mut self, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "S", false, &[q], &[], None);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.s(q);
+            backend.s(q)?;
         }
+        Ok(())
     }
 
-    pub fn sx(&mut self, q: usize, stack: &[Frame]) {
+    pub fn sx(&mut self, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "SX", false, &[q], &[], None);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.sx(q);
+            backend.sx(q)?;
         }
+        Ok(())
     }
 
-    pub fn swap(&mut self, q0: usize, q1: usize, stack: &[Frame]) {
+    pub fn swap(&mut self, q0: usize, q1: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "SWAP", false, &[q0, q1], &[], None);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.swap(q0, q1);
+            backend.swap(q0, q1)?;
         }
+        Ok(())
     }
 
-    pub fn tadj(&mut self, q: usize, stack: &[Frame]) {
+    pub fn tadj(&mut self, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "T", true, &[q], &[], None);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.tadj(q);
+            backend.tadj(q)?;
         }
+        Ok(())
     }
 
-    pub fn t(&mut self, q: usize, stack: &[Frame]) {
+    pub fn t(&mut self, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "T", false, &[q], &[], None);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.t(q);
+            backend.t(q)?;
         }
+        Ok(())
     }
 
-    pub fn x(&mut self, q: usize, stack: &[Frame]) {
+    pub fn x(&mut self, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "X", false, &[q], &[], None);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.x(q);
+            backend.x(q)?;
         }
+        Ok(())
     }
 
-    pub fn y(&mut self, q: usize, stack: &[Frame]) {
+    pub fn y(&mut self, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Y", false, &[q], &[], None);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.y(q);
+            backend.y(q)?;
         }
+        Ok(())
     }
 
-    pub fn z(&mut self, q: usize, stack: &[Frame]) {
+    pub fn z(&mut self, q: usize, stack: &[Frame]) -> Result<(), String> {
         if let Some(tracer) = &mut self.tracer {
             tracer.gate(stack, "Z", false, &[q], &[], None);
         }
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.z(q);
+            backend.z(q)?;
         }
+        Ok(())
     }
 
-    pub fn qubit_allocate(&mut self, stack: &[Frame]) -> usize {
+    pub fn qubit_allocate(&mut self, stack: &[Frame]) -> Result<usize, String> {
         let q = match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.qubit_allocate(),
+            OptionalBackend::Some(backend) => backend.qubit_allocate()?,
             OptionalBackend::None(fallback) => fallback.qubit_allocate(),
         };
         if let Some(tracer) = &mut self.tracer {
             tracer.qubit_allocate(stack, q);
         }
-        q
+        Ok(q)
     }
 
-    pub fn qubit_release(&mut self, q: usize, stack: &[Frame]) -> bool {
+    pub fn qubit_release(&mut self, q: usize, stack: &[Frame]) -> Result<bool, String> {
         let b = match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.qubit_release(q),
+            OptionalBackend::Some(backend) => backend.qubit_release(q)?,
             OptionalBackend::None(fallback) => fallback.qubit_release(q),
         };
         if let Some(tracer) = &mut self.tracer {
             tracer.qubit_release(stack, q);
         }
-        b
+        Ok(b)
     }
 
-    pub fn qubit_swap_id(&mut self, q0: usize, q1: usize, stack: &[Frame]) {
+    pub fn qubit_swap_id(&mut self, q0: usize, q1: usize, stack: &[Frame]) -> Result<(), String> {
         if let OptionalBackend::Some(backend) = &mut self.backend {
-            backend.qubit_swap_id(q0, q1);
+            backend.qubit_swap_id(q0, q1)?;
         }
         if let Some(tracer) = &mut self.tracer {
             tracer.qubit_swap_id(stack, q0, q1);
         }
+        Ok(())
     }
 
-    pub fn capture_quantum_state(
-        &mut self,
-    ) -> (Vec<(num_bigint::BigUint, num_complex::Complex<f64>)>, usize) {
+    pub fn capture_quantum_state(&mut self) -> Result<StateDump, String> {
         match &mut self.backend {
             OptionalBackend::Some(backend) => backend.capture_quantum_state(),
-            OptionalBackend::None(_) => (Vec::new(), 0),
+            OptionalBackend::None(_) => Ok((Vec::new(), 0)),
         }
     }
 
-    pub fn qubit_is_zero(&mut self, q: usize) -> bool {
+    pub fn qubit_is_zero(&mut self, q: usize) -> Result<bool, String> {
         match &mut self.backend {
             OptionalBackend::Some(backend) => backend.qubit_is_zero(q),
-            OptionalBackend::None(_) => true,
+            OptionalBackend::None(_) => Ok(true),
         }
     }
 
@@ -698,7 +730,7 @@ impl SparseSim {
 }
 
 impl Backend for SparseSim {
-    fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
+    fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) -> Result<(), String> {
         match (
             self.is_qubit_lost(ctl0),
             self.is_qubit_lost(ctl1),
@@ -722,77 +754,84 @@ impl Backend for SparseSim {
             }
         }
         self.apply_faults(|noise| &noise.ccx, &[ctl0, ctl1, q]);
+        Ok(())
     }
 
-    fn cx(&mut self, ctl: usize, q: usize) {
+    fn cx(&mut self, ctl: usize, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(ctl) && !self.is_qubit_lost(q) {
             self.sim.mcx(&[ctl], q);
         }
         self.apply_faults(|noise| &noise.cx, &[ctl, q]);
+        Ok(())
     }
 
-    fn cy(&mut self, ctl: usize, q: usize) {
+    fn cy(&mut self, ctl: usize, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(ctl) && !self.is_qubit_lost(q) {
             self.sim.mcy(&[ctl], q);
         }
         self.apply_faults(|noise| &noise.cy, &[ctl, q]);
+        Ok(())
     }
 
-    fn cz(&mut self, ctl: usize, q: usize) {
+    fn cz(&mut self, ctl: usize, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(ctl) && !self.is_qubit_lost(q) {
             self.sim.mcz(&[ctl], q);
         }
         self.apply_faults(|noise| &noise.cz, &[ctl, q]);
+        Ok(())
     }
 
-    fn h(&mut self, q: usize) {
+    fn h(&mut self, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q) {
             self.sim.h(q);
         }
         self.apply_faults(|noise| &noise.h, &[q]);
+        Ok(())
     }
 
-    fn m(&mut self, q: usize) -> val::Result {
+    fn m(&mut self, q: usize) -> Result<val::Result, String> {
         self.apply_faults(|noise| &noise.mz, &[q]);
         if self.is_qubit_lost(q) {
             // If the qubit is lost, we cannot measure it.
             // Mark it as no longer lost so it becomes usable again, since
             // measurement will "reload" the qubit.
             self.lost_qubits.set_bit(q as u64, false);
-            return val::Result::Loss;
+            return Ok(val::Result::Loss);
         }
-        val::Result::Val(self.sim.measure(q))
+        Ok(val::Result::Val(self.sim.measure(q)))
     }
 
-    fn mresetz(&mut self, q: usize) -> val::Result {
+    fn mresetz(&mut self, q: usize) -> Result<val::Result, String> {
         self.apply_faults(|noise| &noise.mresetz, &[q]);
         if self.is_qubit_lost(q) {
             // If the qubit is lost, we cannot measure it.
             // Mark it as no longer lost so it becomes usable again, since
             // measurement will "reload" the qubit.
             self.lost_qubits.set_bit(q as u64, false);
-            return val::Result::Loss;
+            return Ok(val::Result::Loss);
         }
         let res = self.sim.measure(q);
         if res {
             self.sim.x(q);
         }
-        val::Result::Val(res)
+        Ok(val::Result::Val(res))
     }
 
-    fn reset(&mut self, q: usize) {
-        self.mresetz(q);
+    fn reset(&mut self, q: usize) -> Result<(), String> {
+        self.mresetz(q)?;
         // Noise applied in mresetz.
+        Ok(())
     }
 
-    fn rx(&mut self, theta: f64, q: usize) {
+    fn rx(&mut self, theta: f64, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q) {
             self.sim.rx(theta, q);
         }
         self.apply_faults(|noise| &noise.rx, &[q]);
+        Ok(())
     }
 
-    fn rxx(&mut self, theta: f64, q0: usize, q1: usize) {
+    fn rxx(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
         // If only one qubit is lost, we can apply a single qubit rotation.
         // If both are lost, return without performing any operation.
         match (self.is_qubit_lost(q0), self.is_qubit_lost(q1)) {
@@ -814,16 +853,18 @@ impl Backend for SparseSim {
             }
         }
         self.apply_faults(|noise| &noise.rxx, &[q0, q1]);
+        Ok(())
     }
 
-    fn ry(&mut self, theta: f64, q: usize) {
+    fn ry(&mut self, theta: f64, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q) {
             self.sim.ry(theta, q);
         }
         self.apply_faults(|noise| &noise.ry, &[q]);
+        Ok(())
     }
 
-    fn ryy(&mut self, theta: f64, q0: usize, q1: usize) {
+    fn ryy(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
         // If only one qubit is lost, we can apply a single qubit rotation.
         // If both are lost, return without performing any operation.
         match (self.is_qubit_lost(q0), self.is_qubit_lost(q1)) {
@@ -853,16 +894,18 @@ impl Backend for SparseSim {
             }
         }
         self.apply_faults(|noise| &noise.ryy, &[q0, q1]);
+        Ok(())
     }
 
-    fn rz(&mut self, theta: f64, q: usize) {
+    fn rz(&mut self, theta: f64, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q) {
             self.sim.rz(theta, q);
         }
         self.apply_faults(|noise| &noise.rz, &[q]);
+        Ok(())
     }
 
-    fn rzz(&mut self, theta: f64, q0: usize, q1: usize) {
+    fn rzz(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
         // If only one qubit is lost, we can apply a single qubit rotation.
         // If both are lost, return without performing any operation.
         match (self.is_qubit_lost(q0), self.is_qubit_lost(q1)) {
@@ -880,90 +923,100 @@ impl Backend for SparseSim {
             }
         }
         self.apply_faults(|noise| &noise.rzz, &[q0, q1]);
+        Ok(())
     }
 
-    fn sadj(&mut self, q: usize) {
+    fn sadj(&mut self, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q) {
             self.sim.sadj(q);
         }
         self.apply_faults(|noise| &noise.s_adj, &[q]);
+        Ok(())
     }
 
-    fn s(&mut self, q: usize) {
+    fn s(&mut self, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q) {
             self.sim.s(q);
         }
         self.apply_faults(|noise| &noise.s, &[q]);
+        Ok(())
     }
 
-    fn sx(&mut self, q: usize) {
+    fn sx(&mut self, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q) {
             self.sim.h(q);
             self.sim.s(q);
             self.sim.h(q);
         }
         self.apply_faults(|noise| &noise.sx, &[q]);
+        Ok(())
     }
 
-    fn swap(&mut self, q0: usize, q1: usize) {
+    fn swap(&mut self, q0: usize, q1: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q0) && !self.is_qubit_lost(q1) {
             self.sim.swap_qubit_ids(q0, q1);
         }
         self.apply_faults(|noise| &noise.swap, &[q0, q1]);
+        Ok(())
     }
 
-    fn tadj(&mut self, q: usize) {
+    fn tadj(&mut self, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q) {
             self.sim.tadj(q);
         }
         self.apply_faults(|noise| &noise.t_adj, &[q]);
+        Ok(())
     }
 
-    fn t(&mut self, q: usize) {
+    fn t(&mut self, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q) {
             self.sim.t(q);
         }
         self.apply_faults(|noise| &noise.t, &[q]);
+        Ok(())
     }
 
-    fn x(&mut self, q: usize) {
+    fn x(&mut self, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q) {
             self.sim.x(q);
         }
         self.apply_faults(|noise| &noise.x, &[q]);
+        Ok(())
     }
 
-    fn y(&mut self, q: usize) {
+    fn y(&mut self, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q) {
             self.sim.y(q);
         }
         self.apply_faults(|noise| &noise.y, &[q]);
+        Ok(())
     }
 
-    fn z(&mut self, q: usize) {
+    fn z(&mut self, q: usize) -> Result<(), String> {
         if !self.is_qubit_lost(q) {
             self.sim.z(q);
         }
         self.apply_faults(|noise| &noise.z, &[q]);
+        Ok(())
     }
 
-    fn qubit_allocate(&mut self) -> usize {
+    fn qubit_allocate(&mut self) -> Result<usize, String> {
         // Fresh qubit start in ground state even with noise.
-        self.sim.allocate()
+        Ok(self.sim.allocate())
     }
 
-    fn qubit_release(&mut self, q: usize) -> bool {
+    fn qubit_release(&mut self, q: usize) -> Result<bool, String> {
         if self.is_noiseless() {
             let was_zero = self.sim.qubit_is_zero(q);
             self.sim.release(q);
-            was_zero
+            Ok(was_zero)
         } else {
             self.sim.release(q);
-            true
+            Ok(true)
         }
     }
 
-    fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize) -> Result<(), String> {
         // This is a service function rather than a gate so it doesn't incur noise.
         self.sim.swap_qubit_ids(q0, q1);
         // We must also swap any loss bits for the qubits.
@@ -976,9 +1029,10 @@ impl Backend for SparseSim {
             self.lost_qubits.set_bit(q0 as u64, q1_lost);
             self.lost_qubits.set_bit(q1 as u64, q0_lost);
         }
+        Ok(())
     }
 
-    fn capture_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
+    fn capture_quantum_state(&mut self) -> Result<(Vec<(BigUint, Complex<f64>)>, usize), String> {
         let (state, count) = self.sim.get_state();
         // Because the simulator returns the state indices with opposite endianness from the
         // expected one, we need to reverse the bit order of the indices.
@@ -995,12 +1049,12 @@ impl Backend for SparseSim {
             })
             .collect::<Vec<_>>();
         new_state.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-        (new_state, count)
+        Ok((new_state, count))
     }
 
-    fn qubit_is_zero(&mut self, q: usize) -> bool {
+    fn qubit_is_zero(&mut self, q: usize) -> Result<bool, String> {
         // This is a service function rather than a measurement so it doesn't incur noise.
-        self.sim.qubit_is_zero(q)
+        Ok(self.sim.qubit_is_zero(q))
     }
 
     fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
@@ -1123,6 +1177,274 @@ impl Backend for SparseSim {
     }
 }
 
+/// Default backend used when targeting Clifford simulation.
+pub struct CliffordSim {
+    sim: StabilizerSimulator,
+    num_qubits: usize,
+    qubit_id_map: IndexMap<usize, usize>,
+    is_noisy: bool,
+}
+
+impl CliffordSim {
+    #[must_use]
+    pub fn new(num_qubits: usize) -> Self {
+        let seed = rand::thread_rng().next_u32();
+        Self {
+            sim: StabilizerSimulator::new(
+                num_qubits,
+                1,
+                seed,
+                CumulativeNoiseConfig::default().into(),
+            ),
+            num_qubits,
+            qubit_id_map: IndexMap::new(),
+            is_noisy: false,
+        }
+    }
+
+    #[must_use]
+    pub fn new_with_noise_config(
+        num_qubits: usize,
+        noise_config: CumulativeNoiseConfig<stabilizer_simulator::Fault>,
+    ) -> Self {
+        let seed = rand::thread_rng().next_u32();
+        Self {
+            sim: StabilizerSimulator::new(num_qubits, 1, seed, noise_config.into()),
+            num_qubits,
+            qubit_id_map: IndexMap::new(),
+            is_noisy: true,
+        }
+    }
+}
+
+impl Backend for CliffordSim {
+    fn cx(&mut self, ctl: usize, q: usize) -> Result<(), String> {
+        let (ctl_id, q_id) = (self.qubit_id_map[ctl], self.qubit_id_map[q]);
+        self.sim.cx(ctl_id, q_id);
+        Ok(())
+    }
+
+    fn cy(&mut self, ctl: usize, q: usize) -> Result<(), String> {
+        let (ctl_id, q_id) = (self.qubit_id_map[ctl], self.qubit_id_map[q]);
+        self.sim.cy(ctl_id, q_id);
+        Ok(())
+    }
+
+    fn cz(&mut self, ctl: usize, q: usize) -> Result<(), String> {
+        let (ctl_id, q_id) = (self.qubit_id_map[ctl], self.qubit_id_map[q]);
+        self.sim.cz(ctl_id, q_id);
+        Ok(())
+    }
+
+    fn h(&mut self, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.h(q_id);
+        Ok(())
+    }
+
+    fn m(&mut self, q: usize) -> Result<val::Result, String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.mz(q_id, 0);
+        let res = self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement");
+        match res {
+            MeasurementResult::Zero => Ok(val::Result::Val(false)),
+            MeasurementResult::One => Ok(val::Result::Val(true)),
+            MeasurementResult::Loss => Ok(val::Result::Loss),
+        }
+    }
+
+    fn mresetz(&mut self, q: usize) -> Result<val::Result, String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.mresetz(q_id, 0);
+        let res = self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement");
+        match res {
+            MeasurementResult::Zero => Ok(val::Result::Val(false)),
+            MeasurementResult::One => Ok(val::Result::Val(true)),
+            MeasurementResult::Loss => Ok(val::Result::Loss),
+        }
+    }
+
+    fn reset(&mut self, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.resetz(q_id);
+        Ok(())
+    }
+
+    fn rx(&mut self, theta: f64, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        check_normalized_angle(theta)?;
+        self.sim.rx(theta, q_id);
+        Ok(())
+    }
+
+    fn rxx(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
+        let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
+        check_normalized_angle(theta)?;
+        self.sim.rxx(theta, q0_id, q1_id);
+        Ok(())
+    }
+
+    fn ry(&mut self, theta: f64, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        check_normalized_angle(theta)?;
+        self.sim.ry(theta, q_id);
+        Ok(())
+    }
+
+    fn ryy(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
+        let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
+        check_normalized_angle(theta)?;
+        self.sim.ryy(theta, q0_id, q1_id);
+        Ok(())
+    }
+
+    fn rz(&mut self, theta: f64, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        check_normalized_angle(theta)?;
+        self.sim.rz(theta, q_id);
+        Ok(())
+    }
+
+    fn rzz(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
+        let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
+        check_normalized_angle(theta)?;
+        self.sim.rzz(theta, q0_id, q1_id);
+        Ok(())
+    }
+
+    fn sadj(&mut self, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.s_adj(q_id);
+        Ok(())
+    }
+
+    fn s(&mut self, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.s(q_id);
+        Ok(())
+    }
+
+    fn sx(&mut self, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.sx(q_id);
+        Ok(())
+    }
+
+    fn swap(&mut self, q0: usize, q1: usize) -> Result<(), String> {
+        let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
+        self.sim.swap(q0_id, q1_id);
+        Ok(())
+    }
+
+    fn x(&mut self, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.x(q_id);
+        Ok(())
+    }
+
+    fn y(&mut self, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.y(q_id);
+        Ok(())
+    }
+
+    fn z(&mut self, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.z(q_id);
+        Ok(())
+    }
+
+    fn qubit_allocate(&mut self) -> Result<usize, String> {
+        let sorted_keys: Vec<usize> = self.qubit_id_map.iter().map(|(k, _)| k).collect();
+        if sorted_keys.len() >= self.num_qubits {
+            return Err("qubit limit exceeded".to_string());
+        }
+        let mut sorted_vals: Vec<&usize> = self.qubit_id_map.values().collect();
+        sorted_vals.sort_unstable();
+        let new_key = sorted_keys
+            .iter()
+            .enumerate()
+            .take_while(|(index, key)| index == *key)
+            .last()
+            .map_or(0_usize, |(_, &key)| key + 1);
+        let new_val = sorted_vals
+            .iter()
+            .enumerate()
+            .take_while(|(index, val)| index == **val)
+            .last()
+            .map_or(0_usize, |(_, &&val)| val + 1);
+        self.qubit_id_map.insert(new_key, new_val);
+        Ok(new_key)
+    }
+
+    fn qubit_release(&mut self, q: usize) -> Result<bool, String> {
+        let is_zero = self.mresetz(q).expect("mresetz should not fail");
+        self.qubit_id_map.remove(q);
+        // We return true for released qubits if simulation is noisy or if the qubit is known to be in the zero state.
+        Ok(self.is_noisy || !matches!(is_zero, val::Result::Val(true)))
+    }
+
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize) -> Result<(), String> {
+        let q0_id = self.qubit_id_map[q0];
+        let q1_id = self.qubit_id_map[q1];
+        self.qubit_id_map.insert(q0, q1_id);
+        self.qubit_id_map.insert(q1, q0_id);
+        Ok(())
+    }
+
+    fn t(&mut self, _q: usize) -> Result<(), String> {
+        Err("T gate is not supported in Clifford simulation".to_string())
+    }
+
+    fn tadj(&mut self, _q: usize) -> Result<(), String> {
+        Err("adjoint T gate is not supported in Clifford simulation".to_string())
+    }
+
+    fn custom_intrinsic(&mut self, name: &str, _arg: Value) -> Option<Result<Value, String>> {
+        match name {
+            "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
+            "GlobalPhase"
+            | "EndEstimateCaching"
+            | "AccountForEstimatesInternal"
+            | "BeginRepeatEstimatesInternal"
+            | "EndRepeatEstimatesInternal"
+            | "EnableMemoryComputeArchitecture" => Some(Ok(Value::unit())),
+            "ConfigurePauliNoise" => Some(Err(
+                "dynamic noise configuration not supported in Clifford simulation".to_string(),
+            )),
+            "ConfigureQubitLoss" => Some(Err(
+                "dynamic qubit loss configuration not supported in Clifford simulation".to_string(),
+            )),
+            "ApplyIdleNoise" => Some(Err(
+                "idle noise application not supported in Clifford simulation".to_string(),
+            )),
+            "Apply" => Some(Err(
+                "arbitrary unitary application not supported in Clifford simulation".to_string(),
+            )),
+            "PostSelectZ" => Some(Err(
+                "post-selection not supported in Clifford simulation".to_string()
+            )),
+            _ => None,
+        }
+    }
+
+    fn set_seed(&mut self, seed: Option<u64>) {
+        if let Some(seed) = seed {
+            self.sim.set_seed(seed);
+        } else {
+            self.sim.set_seed(rand::thread_rng().next_u64());
+        }
+    }
+}
+
 fn unwrap_matrix_as_array2(matrix: Value, qubits: &[usize]) -> Array2<Complex<f64>> {
     let matrix: Vec<Vec<Complex<f64>>> = matrix
         .unwrap_array()
@@ -1142,4 +1464,21 @@ fn unwrap_matrix_as_array2(matrix: Value, qubits: &[usize]) -> Array2<Complex<f6
     Array2::from_shape_fn((1 << qubits.len(), 1 << qubits.len()), |(i, j)| {
         matrix[i][j]
     })
+}
+
+fn check_normalized_angle(theta: f64) -> Result<(), String> {
+    let mut normalized_angle = theta % (TAU);
+    if normalized_angle < 0.0 {
+        normalized_angle += TAU;
+    }
+    if normalized_angle.is_nearly_zero()
+        || (normalized_angle - TAU).is_nearly_zero()
+        || (normalized_angle - FRAC_PI_2).is_nearly_zero()
+        || (normalized_angle - PI).is_nearly_zero()
+        || (normalized_angle - 3.0 * FRAC_PI_2).is_nearly_zero()
+    {
+        Ok(())
+    } else {
+        Err("angle must be a multiple of PI/2 in Clifford simulation".to_string())
+    }
 }
