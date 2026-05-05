@@ -604,3 +604,43 @@ fn test_helpers_surface_defunctionalization_errors() {
         "unexpected check_pipeline panic: {pipeline_message}"
     );
 }
+
+/// A HOF whose body defines a nested lambda (lifted to a
+/// `StmtKind::Item` in FIR) must have that item included in the extracted
+/// body package so that `FirCloner::clone_nested_item` can find it during
+/// specialization.
+#[test]
+fn hof_with_nested_lambda_in_body_specializes_correctly() {
+    // `Transform` is a HOF (takes `f : Int -> Int`).  Its body defines
+    // `helper` as a local lambda — the compiler lifts this to a nested
+    // item and references it via `StmtKind::Item` + `ExprKind::Closure`.
+    // When `Transform` is specialized for `x -> x + 1`, the body extraction
+    // must include the nested item or FirCloner will panic.
+    let source = r#"
+        function Transform(f : Int -> Int, x : Int) : Int {
+            let helper = y -> y * 2;
+            helper(f(x))
+        }
+        function Main() : Int {
+            Transform(x -> x + 1, 5)
+        }
+    "#;
+    check_pipeline(source);
+}
+
+/// A HOF whose body defines a *named* nested function
+/// (which appears as `StmtKind::Item` in FIR) must have that item included
+/// in the extracted body package for specialization to succeed.
+#[test]
+fn hof_with_nested_named_function_specializes_correctly() {
+    let source = r#"
+        function Transform(f : Int -> Int, x : Int) : Int {
+            function Helper(y : Int) : Int { y * 2 }
+            Helper(f(x))
+        }
+        function Main() : Int {
+            Transform(x -> x + 1, 5)
+        }
+    "#;
+    check_pipeline(source);
+}

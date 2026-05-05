@@ -176,15 +176,20 @@ mod tests;
 #[cfg(all(test, feature = "slow-proptest-tests"))]
 mod semantic_equivalence_tests;
 
+use crate::fir_builder::{
+    alloc_assign_expr, alloc_bin_op_expr, alloc_block, alloc_block_expr, alloc_bool_lit,
+    alloc_expr_stmt, alloc_if_expr, alloc_local_var, alloc_local_var_expr, alloc_not_expr,
+    alloc_semi_stmt, alloc_unit_expr, functored_specs,
+};
 use miette::Diagnostic;
 use num_bigint::BigInt;
 use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        BinOp, Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Ident, ItemKind,
-        Lit, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore,
-        Pat, PatId, PatKind, Res, Result, Stmt, StmtId, StmtKind, UnOp,
+        BinOp, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Ident, ItemKind, Lit,
+        LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore, Pat,
+        PatId, PatKind, Res, Result, StmtId, StmtKind, UnOp,
     },
     ty::{Prim, Ty},
 };
@@ -369,10 +374,7 @@ fn get_callable_body_blocks(callable: &CallableDecl) -> Vec<BlockId> {
         CallableImpl::Intrinsic => Vec::new(),
         CallableImpl::Spec(spec_impl) => {
             let mut blocks = vec![spec_impl.body.block];
-            for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-                .into_iter()
-                .flatten()
-            {
+            for spec in functored_specs(spec_impl) {
                 blocks.push(spec.block);
             }
             blocks
@@ -958,7 +960,7 @@ fn transform_if_else_return(
     else_expr: ExprId,
 ) {
     // Convert to IfThenReturn by negating the condition and swapping branches.
-    let neg_cond = create_not_expr(package, assigner, cond);
+    let neg_cond = alloc_not_expr(package, assigner, cond, Span::default());
     apply_if_then_return(
         package,
         assigner,
@@ -1012,7 +1014,7 @@ fn transform_local_init(
         // Everything after this let is dead code.
         strip_returns_from_expr(package, assigner, init_expr_id, return_ty);
         let new_init_ty = package.get_expr(init_expr_id).ty.clone();
-        let new_stmt_id = create_expr_stmt(package, assigner, init_expr_id);
+        let new_stmt_id = alloc_expr_stmt(package, assigner, init_expr_id, Span::default());
         let block = package.blocks.get_mut(block_id).expect("block not found");
         block.stmts.truncate(idx);
         block.stmts.push(new_stmt_id);
@@ -1112,7 +1114,7 @@ fn decompose_returning_init(
                 (ReturnFlow::FallsThrough, ReturnFlow::AlwaysReturns | ReturnFlow::MayReturn) => {
                     // Else branch returns, then is the fallthrough value.
                     // Negate condition and swap.
-                    let neg_cond = create_not_expr(package, assigner, cond_id);
+                    let neg_cond = alloc_not_expr(package, assigner, cond_id, Span::default());
                     extract_guard_and_replace_init(
                         package,
                         assigner,
@@ -1187,15 +1189,19 @@ fn extract_guard_and_replace_init(
     value_branch_id: ExprId,
 ) {
     // Create the guard: if cond { return_branch } (no else — it's a guard)
-    let guard_if = create_if_expr(
-        package,
-        assigner,
-        cond_id,
-        return_branch_id,
-        None,
-        &Ty::UNIT,
-    );
-    let guard_stmt = create_semi_stmt(package, assigner, guard_if);
+    let guard_if = {
+        let ty: &Ty = &Ty::UNIT;
+        alloc_if_expr(
+            package,
+            assigner,
+            cond_id,
+            return_branch_id,
+            None,
+            ty.clone(),
+            Span::default(),
+        )
+    };
+    let guard_stmt = alloc_semi_stmt(package, assigner, guard_if, Span::default());
 
     // Replace the init expression with the fallthrough value.
     let value_expr = package.get_expr(value_branch_id).clone();
@@ -1443,7 +1449,7 @@ fn apply_bare_return(
     let inner_ty = package.get_expr(inner_expr_id).ty.clone();
 
     // Create a new trailing-expression statement for the inner value.
-    let new_stmt_id = create_expr_stmt(package, assigner, inner_expr_id);
+    let new_stmt_id = alloc_expr_stmt(package, assigner, inner_expr_id, Span::default());
 
     let block = package.blocks.get_mut(block_id).expect("block not found");
     block.stmts.truncate(idx);
@@ -1474,6 +1480,7 @@ fn apply_bare_return(
 /// }
 /// ```
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 fn apply_if_then_return(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -1500,15 +1507,19 @@ fn apply_if_then_return(
             remaining_stmts,
             return_ty,
         );
-        let new_if_expr_id = create_if_expr(
-            package,
-            assigner,
-            cond,
-            then_expr,
-            Some(new_else_expr_id),
-            return_ty,
-        );
-        let new_tail = create_expr_stmt(package, assigner, new_if_expr_id);
+        let new_if_expr_id = {
+            let else_expr = Some(new_else_expr_id);
+            alloc_if_expr(
+                package,
+                assigner,
+                cond,
+                then_expr,
+                else_expr,
+                return_ty.clone(),
+                Span::default(),
+            )
+        };
+        let new_tail = alloc_expr_stmt(package, assigner, new_if_expr_id, Span::default());
 
         let block = package.blocks.get_mut(block_id).expect("block not found");
         block.stmts.truncate(idx);
@@ -1522,15 +1533,19 @@ fn apply_if_then_return(
         strip_returns_from_expr(package, assigner, else_expr_id, return_ty);
 
         // Create the new if expression using the existing else.
-        let new_if_expr_id = create_if_expr(
-            package,
-            assigner,
-            cond,
-            then_expr,
-            Some(else_expr_id),
-            return_ty,
-        );
-        let new_tail = create_expr_stmt(package, assigner, new_if_expr_id);
+        let new_if_expr_id = {
+            let else_expr = Some(else_expr_id);
+            alloc_if_expr(
+                package,
+                assigner,
+                cond,
+                then_expr,
+                else_expr,
+                return_ty.clone(),
+                Span::default(),
+            )
+        };
+        let new_tail = alloc_expr_stmt(package, assigner, new_if_expr_id, Span::default());
 
         let block = package.blocks.get_mut(block_id).expect("block not found");
         block.stmts.truncate(idx);
@@ -1542,10 +1557,16 @@ fn apply_if_then_return(
     // Build a new block from the remaining statements (plus any existing else content).
     let new_else_block_id = if let Some(else_expr_id) = else_opt {
         // Prepend the existing else as a Semi statement in the new continuation block.
-        let else_semi = create_semi_stmt(package, assigner, else_expr_id);
+        let else_semi = alloc_semi_stmt(package, assigner, else_expr_id, Span::default());
         let mut new_stmts = vec![else_semi];
         new_stmts.extend(remaining_stmts);
-        create_block(package, assigner, new_stmts, return_ty)
+        alloc_block(
+            package,
+            assigner,
+            new_stmts,
+            return_ty.clone(),
+            Span::default(),
+        )
     } else {
         if remaining_stmts.is_empty() {
             // Invariant: `should_use_flag_strategy` routes non-Unit leaky
@@ -1557,25 +1578,41 @@ fn apply_if_then_return(
                  should have been routed through transform_block_with_flags"
             );
         }
-        create_block(package, assigner, remaining_stmts, return_ty)
+        alloc_block(
+            package,
+            assigner,
+            remaining_stmts,
+            return_ty.clone(),
+            Span::default(),
+        )
     };
 
     // Recursively transform the new else block (it may contain more returns).
     transform_block_if_else(package, assigner, new_else_block_id, return_ty);
 
     // Create new else expression wrapping the block.
-    let new_else_expr_id = create_block_expr(package, assigner, new_else_block_id, return_ty);
-
-    // Create the new if expression.
-    let new_if_expr_id = create_if_expr(
+    let new_else_expr_id = alloc_block_expr(
         package,
         assigner,
-        cond,
-        then_expr,
-        Some(new_else_expr_id),
-        return_ty,
+        new_else_block_id,
+        return_ty.clone(),
+        Span::default(),
     );
-    let new_tail = create_expr_stmt(package, assigner, new_if_expr_id);
+
+    // Create the new if expression.
+    let new_if_expr_id = {
+        let else_expr = Some(new_else_expr_id);
+        alloc_if_expr(
+            package,
+            assigner,
+            cond,
+            then_expr,
+            else_expr,
+            return_ty.clone(),
+            Span::default(),
+        )
+    };
+    let new_tail = alloc_expr_stmt(package, assigner, new_if_expr_id, Span::default());
 
     let block = package.blocks.get_mut(block_id).expect("block not found");
     block.stmts.truncate(idx);
@@ -1619,17 +1656,21 @@ fn apply_if_both_return(
     strip_returns_from_expr(package, assigner, then_expr, return_ty);
     strip_returns_from_expr(package, assigner, else_expr, return_ty);
 
-    let new_if_expr_id = create_if_expr(
-        package,
-        assigner,
-        cond,
-        then_expr,
-        Some(else_expr),
-        return_ty,
-    );
+    let new_if_expr_id = {
+        let else_expr = Some(else_expr);
+        alloc_if_expr(
+            package,
+            assigner,
+            cond,
+            then_expr,
+            else_expr,
+            return_ty.clone(),
+            Span::default(),
+        )
+    };
 
     // Both branches contain returns, so any statements after the if are dead.
-    let new_tail = create_expr_stmt(package, assigner, new_if_expr_id);
+    let new_tail = alloc_expr_stmt(package, assigner, new_if_expr_id, Span::default());
 
     let block = package.blocks.get_mut(block_id).expect("block not found");
     block.stmts.truncate(idx);
@@ -2031,8 +2072,17 @@ fn transform_block_with_flags(
         udt_pure_tys,
         UnsupportedDefaultSite::ReturnSlot,
     );
-    let (ret_val_var_id, ret_val_decl_stmt) =
-        create_mutable_var(package, assigner, "__ret_val", return_ty, default_val);
+    let (ret_val_var_id, ret_val_decl_stmt) = {
+        let mutability = Mutability::Mutable;
+        alloc_local_var(
+            package,
+            assigner,
+            "__ret_val",
+            return_ty,
+            default_val,
+            mutability,
+        )
+    };
 
     let original_stmts = package.get_block(block_id).stmts.clone();
     let mut new_stmts: Vec<StmtId> = Vec::new();
@@ -2397,14 +2447,19 @@ fn transform_while_in_expr(
             // LHS must be the flag guard so that AndL short-circuits and
             // skips the original condition once a return has fired.
             let not_flag = create_not_var_expr(package, assigner, has_returned_var_id);
-            let new_cond = create_bin_op_expr(
-                package,
-                assigner,
-                BinOp::AndL,
-                not_flag,
-                cond_id,
-                &Ty::Prim(Prim::Bool),
-            );
+            let new_cond = {
+                let op = BinOp::AndL;
+                let ty: &Ty = &Ty::Prim(Prim::Bool);
+                alloc_bin_op_expr(
+                    package,
+                    assigner,
+                    op,
+                    not_flag,
+                    cond_id,
+                    ty.clone(),
+                    Span::default(),
+                )
+            };
 
             // Replace returns inside the body.
             if contains_return_in_block(package, body_block_id) {
@@ -2500,13 +2555,25 @@ fn create_fallthrough_continuation_expr(
             return else_expr_id;
         }
 
-        let else_semi = create_semi_stmt(package, assigner, else_expr_id);
+        let else_semi = alloc_semi_stmt(package, assigner, else_expr_id, Span::default());
         let mut new_stmts = Vec::with_capacity(continuation_stmts.len() + 1);
         new_stmts.push(else_semi);
         new_stmts.extend(continuation_stmts);
-        let block_id = create_block(package, assigner, new_stmts, return_ty);
+        let block_id = alloc_block(
+            package,
+            assigner,
+            new_stmts,
+            return_ty.clone(),
+            Span::default(),
+        );
         transform_block_if_else(package, assigner, block_id, return_ty);
-        return create_block_expr(package, assigner, block_id, return_ty);
+        return alloc_block_expr(
+            package,
+            assigner,
+            block_id,
+            return_ty.clone(),
+            Span::default(),
+        );
     }
 
     if continuation_stmts.is_empty() {
@@ -2516,9 +2583,21 @@ fn create_fallthrough_continuation_expr(
         );
     }
 
-    let block_id = create_block(package, assigner, continuation_stmts, return_ty);
+    let block_id = alloc_block(
+        package,
+        assigner,
+        continuation_stmts,
+        return_ty.clone(),
+        Span::default(),
+    );
     transform_block_if_else(package, assigner, block_id, return_ty);
-    create_block_expr(package, assigner, block_id, return_ty)
+    alloc_block_expr(
+        package,
+        assigner,
+        block_id,
+        return_ty.clone(),
+        Span::default(),
+    )
 }
 
 /// Walk every statement in a block and rewrite `Return(val)` subexpressions
@@ -2698,9 +2777,9 @@ fn replace_returns_in_expr(
             // Build: { __ret_val = val; __has_returned = true; }
             let assign_val =
                 create_assign_expr(package, assigner, ret_val_var_id, inner_id, &inner_ty);
-            let assign_val_semi = create_semi_stmt(package, assigner, assign_val);
+            let assign_val_semi = alloc_semi_stmt(package, assigner, assign_val, Span::default());
 
-            let true_lit = create_bool_lit(package, assigner, true);
+            let true_lit = alloc_bool_lit(package, assigner, true, Span::default());
             let assign_flag = create_assign_expr(
                 package,
                 assigner,
@@ -2708,15 +2787,17 @@ fn replace_returns_in_expr(
                 true_lit,
                 &Ty::Prim(Prim::Bool),
             );
-            let assign_flag_semi = create_semi_stmt(package, assigner, assign_flag);
+            let assign_flag_semi = alloc_semi_stmt(package, assigner, assign_flag, Span::default());
 
-            let flag_block = create_block(
-                package,
-                assigner,
-                vec![assign_val_semi, assign_flag_semi],
-                &Ty::UNIT,
-            );
-            let flag_block_expr = create_block_expr(package, assigner, flag_block, &Ty::UNIT);
+            let flag_block = {
+                let stmts = vec![assign_val_semi, assign_flag_semi];
+                let ty: &Ty = &Ty::UNIT;
+                alloc_block(package, assigner, stmts, ty.clone(), Span::default())
+            };
+            let flag_block_expr = {
+                let ty: &Ty = &Ty::UNIT;
+                alloc_block_expr(package, assigner, flag_block, ty.clone(), Span::default())
+            };
 
             // Replace the Return expression in-place with the block expression.
             let replacement = package.get_expr(flag_block_expr).clone();
@@ -3152,9 +3233,9 @@ fn replace_condition_return_with_flags(
 ) {
     let inner_ty = package.get_expr(inner_id).ty.clone();
     let assign_val = create_assign_expr(package, assigner, ret_val_var_id, inner_id, &inner_ty);
-    let assign_val_semi = create_semi_stmt(package, assigner, assign_val);
+    let assign_val_semi = alloc_semi_stmt(package, assigner, assign_val, Span::default());
 
-    let true_lit = create_bool_lit(package, assigner, true);
+    let true_lit = alloc_bool_lit(package, assigner, true, Span::default());
     let assign_flag = create_assign_expr(
         package,
         assigner,
@@ -3162,20 +3243,22 @@ fn replace_condition_return_with_flags(
         true_lit,
         &Ty::Prim(Prim::Bool),
     );
-    let assign_flag_semi = create_semi_stmt(package, assigner, assign_flag);
+    let assign_flag_semi = alloc_semi_stmt(package, assigner, assign_flag, Span::default());
 
     // Condition contexts still need a boolean value after the return is lowered
     // into side-effecting flag writes.
-    let false_lit = create_bool_lit(package, assigner, false);
-    let false_stmt = create_expr_stmt(package, assigner, false_lit);
+    let false_lit = alloc_bool_lit(package, assigner, false, Span::default());
+    let false_stmt = alloc_expr_stmt(package, assigner, false_lit, Span::default());
 
-    let flag_block = create_block(
-        package,
-        assigner,
-        vec![assign_val_semi, assign_flag_semi, false_stmt],
-        &Ty::Prim(Prim::Bool),
-    );
-    let flag_block_expr = create_block_expr(package, assigner, flag_block, &Ty::Prim(Prim::Bool));
+    let flag_block = {
+        let stmts = vec![assign_val_semi, assign_flag_semi, false_stmt];
+        let ty: &Ty = &Ty::Prim(Prim::Bool);
+        alloc_block(package, assigner, stmts, ty.clone(), Span::default())
+    };
+    let flag_block_expr = {
+        let ty: &Ty = &Ty::Prim(Prim::Bool);
+        alloc_block_expr(package, assigner, flag_block, ty.clone(), Span::default())
+    };
 
     let replacement = package.get_expr(flag_block_expr).clone();
     let e = package
@@ -3261,22 +3344,41 @@ fn guard_stmt_with_flag(
 
         let not_flag = create_not_var_expr(package, assigner, has_returned_var_id);
 
-        let then_trailing = create_expr_stmt(package, assigner, init_expr_id);
-        let then_block = create_block(package, assigner, vec![then_trailing], &init_ty);
-        let then_expr = create_block_expr(package, assigner, then_block, &init_ty);
+        let then_trailing = alloc_expr_stmt(package, assigner, init_expr_id, Span::default());
+        let then_block = {
+            let stmts = vec![then_trailing];
+            let ty: &Ty = &init_ty;
+            alloc_block(package, assigner, stmts, ty.clone(), Span::default())
+        };
+        let then_expr = {
+            let ty: &Ty = &init_ty;
+            alloc_block_expr(package, assigner, then_block, ty.clone(), Span::default())
+        };
 
-        let else_trailing = create_expr_stmt(package, assigner, default_val);
-        let else_block = create_block(package, assigner, vec![else_trailing], &init_ty);
-        let else_expr = create_block_expr(package, assigner, else_block, &init_ty);
+        let else_trailing = alloc_expr_stmt(package, assigner, default_val, Span::default());
+        let else_block = {
+            let stmts = vec![else_trailing];
+            let ty: &Ty = &init_ty;
+            alloc_block(package, assigner, stmts, ty.clone(), Span::default())
+        };
+        let else_expr = {
+            let ty: &Ty = &init_ty;
+            alloc_block_expr(package, assigner, else_block, ty.clone(), Span::default())
+        };
 
-        let if_expr = create_if_expr(
-            package,
-            assigner,
-            not_flag,
-            then_expr,
-            Some(else_expr),
-            &init_ty,
-        );
+        let if_expr = {
+            let else_expr = Some(else_expr);
+            let ty: &Ty = &init_ty;
+            alloc_if_expr(
+                package,
+                assigner,
+                not_flag,
+                then_expr,
+                else_expr,
+                ty.clone(),
+                Span::default(),
+            )
+        };
 
         let stmt = package.stmts.get_mut(stmt_id).expect("stmt not found");
         stmt.kind = StmtKind::Local(mutability, pat_id, if_expr);
@@ -3292,17 +3394,28 @@ fn guard_stmt_with_flag(
         "guard_stmt_with_flag requires Unit-typed inner stmt"
     );
     let not_flag = create_not_var_expr(package, assigner, has_returned_var_id);
-    let guard_block = create_block(package, assigner, vec![stmt_id], &Ty::UNIT);
-    let guard_block_expr = create_block_expr(package, assigner, guard_block, &Ty::UNIT);
-    let if_expr = create_if_expr(
-        package,
-        assigner,
-        not_flag,
-        guard_block_expr,
-        None,
-        &Ty::UNIT,
-    );
-    create_semi_stmt(package, assigner, if_expr)
+    let guard_block = {
+        let stmts = vec![stmt_id];
+        let ty: &Ty = &Ty::UNIT;
+        alloc_block(package, assigner, stmts, ty.clone(), Span::default())
+    };
+    let guard_block_expr = {
+        let ty: &Ty = &Ty::UNIT;
+        alloc_block_expr(package, assigner, guard_block, ty.clone(), Span::default())
+    };
+    let if_expr = {
+        let ty: &Ty = &Ty::UNIT;
+        alloc_if_expr(
+            package,
+            assigner,
+            not_flag,
+            guard_block_expr,
+            None,
+            ty.clone(),
+            Span::default(),
+        )
+    };
+    alloc_semi_stmt(package, assigner, if_expr, Span::default())
 }
 
 /// Synthesize the trailing expression that finalizes the flag-based
@@ -3351,13 +3464,23 @@ fn create_flag_trailing_expr(
         }
     });
 
-    let flag_var = create_var_expr(
+    let flag_var = {
+        let ty: &Ty = &Ty::Prim(Prim::Bool);
+        alloc_local_var_expr(
+            package,
+            assigner,
+            has_returned_var_id,
+            ty.clone(),
+            Span::default(),
+        )
+    };
+    let ret_var = alloc_local_var_expr(
         package,
         assigner,
-        has_returned_var_id,
-        &Ty::Prim(Prim::Bool),
+        ret_val_var_id,
+        return_ty.clone(),
+        Span::default(),
     );
-    let ret_var = create_var_expr(package, assigner, ret_val_var_id, return_ty);
 
     if let Some(original_trailing) = trailing_expr {
         // Pop the trailing expr and bind it to a local before the flag check.
@@ -3366,44 +3489,68 @@ fn create_flag_trailing_expr(
         stmts.pop().expect("stmts should not be empty");
 
         // let __trailing_result : T = original_trailing;
-        let (trailing_var_id, trailing_decl_stmt) = create_immutable_var(
-            package,
-            assigner,
-            "__trailing_result",
-            return_ty,
-            original_trailing,
-        );
+        let (trailing_var_id, trailing_decl_stmt) = {
+            let mutability = Mutability::Immutable;
+            alloc_local_var(
+                package,
+                assigner,
+                "__trailing_result",
+                return_ty,
+                original_trailing,
+                mutability,
+            )
+        };
         stmts.push(trailing_decl_stmt);
 
         // if __has_returned { __ret_val } else { __trailing_result }
-        let trailing_var_expr = create_var_expr(package, assigner, trailing_var_id, return_ty);
-        let if_expr = create_if_expr(
+        let trailing_var_expr = alloc_local_var_expr(
             package,
             assigner,
-            flag_var,
-            ret_var,
-            Some(trailing_var_expr),
-            return_ty,
+            trailing_var_id,
+            return_ty.clone(),
+            Span::default(),
         );
-        Some(create_expr_stmt(package, assigner, if_expr))
+        let if_expr = {
+            let else_expr = Some(trailing_var_expr);
+            alloc_if_expr(
+                package,
+                assigner,
+                flag_var,
+                ret_var,
+                else_expr,
+                return_ty.clone(),
+                Span::default(),
+            )
+        };
+        Some(alloc_expr_stmt(package, assigner, if_expr, Span::default()))
     } else {
         // No fallthrough value survives. Unit returns can keep the previous
         // explicit `()` fallback. For non-Unit returns, use the initialized
         // return slot on the unreachable false branch to keep the FIR typed.
         let fallback_expr = if return_ty == &Ty::UNIT {
-            create_unit_expr(package, assigner)
+            alloc_unit_expr(package, assigner, Span::default())
         } else {
-            create_var_expr(package, assigner, ret_val_var_id, return_ty)
+            alloc_local_var_expr(
+                package,
+                assigner,
+                ret_val_var_id,
+                return_ty.clone(),
+                Span::default(),
+            )
         };
-        let if_expr = create_if_expr(
-            package,
-            assigner,
-            flag_var,
-            ret_var,
-            Some(fallback_expr),
-            return_ty,
-        );
-        Some(create_expr_stmt(package, assigner, if_expr))
+        let if_expr = {
+            let else_expr = Some(fallback_expr);
+            alloc_if_expr(
+                package,
+                assigner,
+                flag_var,
+                ret_var,
+                else_expr,
+                return_ty.clone(),
+                Span::default(),
+            )
+        };
+        Some(alloc_expr_stmt(package, assigner, if_expr, Span::default()))
     }
 }
 
@@ -3634,8 +3781,12 @@ fn create_nop_callable_var(
     // Build the nop body's default-of-output trailing expression.
     let output_default =
         create_default_value(package, assigner, package_id, &arrow.output, udt_pure_tys)?;
-    let trailing_stmt = create_expr_stmt(package, assigner, output_default);
-    let body_block = create_block(package, assigner, vec![trailing_stmt], &arrow.output);
+    let trailing_stmt = alloc_expr_stmt(package, assigner, output_default, Span::default());
+    let body_block = {
+        let stmts = vec![trailing_stmt];
+        let ty: &Ty = &arrow.output;
+        alloc_block(package, assigner, stmts, ty.clone(), Span::default())
+    };
 
     // Input pattern: a typed Discard matching the arrow's input type.
     let input_pat_id = assigner.next_pat();
@@ -3709,168 +3860,17 @@ fn create_nop_callable_var(
     ))
 }
 
-/// Create a new `Block` and insert it into the package.
-fn create_block(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    stmts: Vec<StmtId>,
-    ty: &Ty,
-) -> BlockId {
-    let block_id = assigner.next_block();
-    package.blocks.insert(
-        block_id,
-        Block {
-            id: block_id,
-            span: Span::default(),
-            ty: ty.clone(),
-            stmts,
-        },
-    );
-    block_id
-}
-
-/// Create an `Expr` statement (trailing expression, no semicolon).
-fn create_expr_stmt(package: &mut Package, assigner: &mut Assigner, expr_id: ExprId) -> StmtId {
-    let stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        stmt_id,
-        Stmt {
-            id: stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Expr(expr_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    stmt_id
-}
-
-/// Create a `Semi` statement (expression with trailing semicolon).
-fn create_semi_stmt(package: &mut Package, assigner: &mut Assigner, expr_id: ExprId) -> StmtId {
-    let stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        stmt_id,
-        Stmt {
-            id: stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Semi(expr_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    stmt_id
-}
-
-/// Create a `Block` expression.
-fn create_block_expr(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    block_id: BlockId,
-    ty: &Ty,
-) -> ExprId {
-    let expr_id = assigner.next_expr();
-    package.exprs.insert(
-        expr_id,
-        Expr {
-            id: expr_id,
-            span: Span::default(),
-            ty: ty.clone(),
-            kind: ExprKind::Block(block_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    expr_id
-}
-
-/// Create an `If` expression.
-fn create_if_expr(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    cond: ExprId,
-    then_expr: ExprId,
-    else_expr: Option<ExprId>,
-    ty: &Ty,
-) -> ExprId {
-    let expr_id = assigner.next_expr();
-    package.exprs.insert(
-        expr_id,
-        Expr {
-            id: expr_id,
-            span: Span::default(),
-            ty: ty.clone(),
-            kind: ExprKind::If(cond, then_expr, else_expr),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    expr_id
-}
-
-/// Create a `UnOp::NotL` expression.
-fn create_not_expr(package: &mut Package, assigner: &mut Assigner, operand: ExprId) -> ExprId {
-    let expr_id = assigner.next_expr();
-    package.exprs.insert(
-        expr_id,
-        Expr {
-            id: expr_id,
-            span: Span::default(),
-            ty: Ty::Prim(Prim::Bool),
-            kind: ExprKind::UnOp(UnOp::NotL, operand),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    expr_id
-}
-
-/// Create a `BinOp` expression.
-fn create_bin_op_expr(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    op: BinOp,
-    lhs: ExprId,
-    rhs: ExprId,
-    ty: &Ty,
-) -> ExprId {
-    let expr_id = assigner.next_expr();
-    package.exprs.insert(
-        expr_id,
-        Expr {
-            id: expr_id,
-            span: Span::default(),
-            ty: ty.clone(),
-            kind: ExprKind::BinOp(op, lhs, rhs),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    expr_id
-}
-
-/// Create a `Var(Res::Local(var_id))` expression.
-fn create_var_expr(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    var_id: LocalVarId,
-    ty: &Ty,
-) -> ExprId {
-    let expr_id = assigner.next_expr();
-    package.exprs.insert(
-        expr_id,
-        Expr {
-            id: expr_id,
-            span: Span::default(),
-            ty: ty.clone(),
-            kind: ExprKind::Var(Res::Local(var_id), Vec::new()),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    expr_id
-}
-
 /// Create `not Var(__has_returned)`.
 fn create_not_var_expr(
     package: &mut Package,
     assigner: &mut Assigner,
     var_id: LocalVarId,
 ) -> ExprId {
-    let var = create_var_expr(package, assigner, var_id, &Ty::Prim(Prim::Bool));
-    create_not_expr(package, assigner, var)
+    let var = {
+        let ty: &Ty = &Ty::Prim(Prim::Bool);
+        alloc_local_var_expr(package, assigner, var_id, ty.clone(), Span::default())
+    };
+    alloc_not_expr(package, assigner, var, Span::default())
 }
 
 /// Create `Assign(Var(var_id), value)`.
@@ -3881,51 +3881,8 @@ fn create_assign_expr(
     value: ExprId,
     ty: &Ty,
 ) -> ExprId {
-    let var_expr = create_var_expr(package, assigner, var_id, ty);
-    let expr_id = assigner.next_expr();
-    package.exprs.insert(
-        expr_id,
-        Expr {
-            id: expr_id,
-            span: Span::default(),
-            ty: Ty::UNIT,
-            kind: ExprKind::Assign(var_expr, value),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    expr_id
-}
-
-/// Create a boolean literal expression.
-fn create_bool_lit(package: &mut Package, assigner: &mut Assigner, value: bool) -> ExprId {
-    let expr_id = assigner.next_expr();
-    package.exprs.insert(
-        expr_id,
-        Expr {
-            id: expr_id,
-            span: Span::default(),
-            ty: Ty::Prim(Prim::Bool),
-            kind: ExprKind::Lit(Lit::Bool(value)),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    expr_id
-}
-
-/// Create a Unit `()` expression.
-fn create_unit_expr(package: &mut Package, assigner: &mut Assigner) -> ExprId {
-    let expr_id = assigner.next_expr();
-    package.exprs.insert(
-        expr_id,
-        Expr {
-            id: expr_id,
-            span: Span::default(),
-            ty: Ty::UNIT,
-            kind: ExprKind::Tuple(Vec::new()),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    expr_id
+    let var_expr = alloc_local_var_expr(package, assigner, var_id, ty.clone(), Span::default());
+    alloc_assign_expr(package, assigner, var_expr, value, Span::default())
 }
 
 /// Create a mutable boolean variable declaration: `mutable name = value`.
@@ -3936,77 +3893,12 @@ fn create_mutable_bool_var(
     name: &str,
     value: bool,
 ) -> (LocalVarId, StmtId) {
-    let init_expr = create_bool_lit(package, assigner, value);
-    create_mutable_var(package, assigner, name, &Ty::Prim(Prim::Bool), init_expr)
-}
-
-/// Create a mutable variable declaration: `mutable name: ty = init_expr`.
-/// Returns `(LocalVarId, StmtId)`.
-fn create_mutable_var(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    name: &str,
-    ty: &Ty,
-    init_expr: ExprId,
-) -> (LocalVarId, StmtId) {
-    create_local_var(package, assigner, name, ty, init_expr, Mutability::Mutable)
-}
-
-/// Create an immutable variable declaration: `let name: ty = init_expr`.
-/// Returns `(LocalVarId, StmtId)`.
-fn create_immutable_var(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    name: &str,
-    ty: &Ty,
-    init_expr: ExprId,
-) -> (LocalVarId, StmtId) {
-    create_local_var(
-        package,
-        assigner,
-        name,
-        ty,
-        init_expr,
-        Mutability::Immutable,
-    )
-}
-
-/// Create a local variable declaration with the given mutability.
-/// Returns `(LocalVarId, StmtId)`.
-fn create_local_var(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    name: &str,
-    ty: &Ty,
-    init_expr: ExprId,
-    mutability: Mutability,
-) -> (LocalVarId, StmtId) {
-    let local_var_id = assigner.next_local();
-    let pat_id = assigner.next_pat();
-    package.pats.insert(
-        pat_id,
-        Pat {
-            id: pat_id,
-            span: Span::default(),
-            ty: ty.clone(),
-            kind: PatKind::Bind(Ident {
-                id: local_var_id,
-                span: Span::default(),
-                name: Rc::from(name),
-            }),
-        },
-    );
-
-    let stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        stmt_id,
-        Stmt {
-            id: stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Local(mutability, pat_id, init_expr),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-
-    (local_var_id, stmt_id)
+    let init_expr = alloc_bool_lit(package, assigner, value, Span::default());
+    {
+        let ty: &Ty = &Ty::Prim(Prim::Bool);
+        {
+            let mutability = Mutability::Mutable;
+            alloc_local_var(package, assigner, name, ty, init_expr, mutability)
+        }
+    }
 }

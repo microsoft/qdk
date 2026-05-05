@@ -30,6 +30,7 @@
 #[cfg(test)]
 mod tests;
 
+use crate::fir_builder::functored_specs;
 use qsc_fir::fir::{
     BlockId, CallableImpl, Expr, ExprId, ExprKind, Field, LocalVarId, Package, PackageLookup, Res,
     SpecDecl, SpecImpl, StmtKind, StringComponent,
@@ -91,10 +92,7 @@ where
     F: FnMut(ExprId, &Expr),
 {
     for_each_expr_in_spec_decl(pkg, &spec_impl.body, visit);
-    for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-        .into_iter()
-        .flatten()
-    {
+    for spec in functored_specs(spec_impl) {
         for_each_expr_in_spec_decl(pkg, spec, visit);
     }
 }

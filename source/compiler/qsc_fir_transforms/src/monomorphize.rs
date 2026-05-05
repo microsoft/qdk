@@ -58,6 +58,7 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::cloner::FirCloner;
+use crate::fir_builder::functored_specs;
 use crate::reachability::collect_reachable_from_entry;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
@@ -480,10 +481,7 @@ fn extract_callable_body(source_pkg: &Package, decl: &CallableDecl) -> Package {
         CallableImpl::Intrinsic => {}
         CallableImpl::Spec(spec_impl) => {
             extract_spec_decl_body(source_pkg, &spec_impl.body, &mut body_pkg);
-            for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-                .into_iter()
-                .flatten()
-            {
+            for spec in functored_specs(spec_impl) {
                 extract_spec_decl_body(source_pkg, spec, &mut body_pkg);
             }
         }
@@ -537,6 +535,14 @@ fn extract_stmt(source: &Package, stmt_id: StmtId, target: &mut Package) {
 }
 
 /// Recursively copies an expression and its transitive references.
+///
+/// NOTE: This is intentionally a separate implementation from the nearly
+/// identical `extract_expr` in `defunctionalize/specialize.rs`. The key
+/// difference is the `ExprKind::Closure` arm: monomorphize follows the
+/// closure's lifted item via [`extract_item`] because type substitution
+/// (`Ty::Param` → concrete) must be applied to the lambda body when a
+/// generic callable is monomorphized. Without extracting the item,
+/// `substitute_types_in_cloned_nodes` would miss it.
 fn extract_expr(source: &Package, expr_id: ExprId, target: &mut Package) {
     if target.exprs.contains_key(expr_id) {
         return;
@@ -624,10 +630,7 @@ fn extract_item(source: &Package, item_id: LocalItemId, target: &mut Package) {
             CallableImpl::Intrinsic => {}
             CallableImpl::Spec(spec_impl) => {
                 extract_spec_decl_body(source, &spec_impl.body, target);
-                for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-                    .into_iter()
-                    .flatten()
-                {
+                for spec in functored_specs(spec_impl) {
                     extract_spec_decl_body(source, spec, target);
                 }
             }

@@ -165,10 +165,7 @@ fn collect_stmt_expr_roots(pkg: &Package) -> Vec<ExprId> {
             && let CallableImpl::Spec(spec_impl) = &decl.implementation
         {
             collect_stmt_expr_roots_in_block(pkg, spec_impl.body.block, &mut roots);
-            for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-                .into_iter()
-                .flatten()
-            {
+            for spec in crate::fir_builder::functored_specs(spec_impl) {
                 collect_stmt_expr_roots_in_block(pkg, spec.block, &mut roots);
             }
         }

@@ -141,15 +141,17 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::EMPTY_EXEC_RANGE;
+use crate::fir_builder::{
+    decompose_binding, functored_specs, reachable_local_callables, resolve_udt_element_types,
+};
 use crate::reachability::collect_reachable_from_entry;
 use crate::walk_utils::{collect_uses_in_block, for_each_expr, for_each_expr_in_callable_impl};
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, Ident,
-    ItemId, ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup,
-    PackageStore, Pat, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
-    StoreItemId,
+    ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore,
+    Pat, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId,
 };
 use qsc_fir::ty::Ty;
 use rustc_hash::FxHashSet;
@@ -200,28 +202,13 @@ pub fn arg_promote(store: &mut PackageStore, package_id: PackageId, assigner: &m
         // Identify candidates.
         let mut candidates: Vec<ArgPromoCandidate> = Vec::new();
 
-        for item_id in &reachable {
-            if item_id.package != package_id {
-                continue;
-            }
-            let item = package.get_item(item_id.item);
-            let decl = match &item.kind {
-                ItemKind::Callable(decl) => decl.as_ref(),
-                _ => continue,
-            };
-
+        for (item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
             // Skip callables used as first-class values or partially applied.
-            if first_class.contains(&item_id.item) || closure_targets.contains(&item_id.item) {
+            if first_class.contains(&item_id) || closure_targets.contains(&item_id) {
                 continue;
             }
 
-            candidates.extend(check_candidates(
-                store,
-                package,
-                package_id,
-                item_id.item,
-                decl,
-            ));
+            candidates.extend(check_candidates(store, package, package_id, item_id, decl));
         }
 
         if candidates.is_empty() {
@@ -275,21 +262,6 @@ struct PromotionResult {
     item_id: LocalItemId,
     /// Element types.
     elem_types: Vec<Ty>,
-}
-
-/// Resolves a `Ty::Udt(Res::Item(item_id))` to its constituent field types
-/// via `get_pure_ty()`. Returns `None` for single-field UDTs or non-UDT items.
-fn resolve_udt_element_types(store: &PackageStore, item_id: &ItemId) -> Option<Vec<Ty>> {
-    let package = store.get(item_id.package);
-    let item = package.get_item(item_id.item);
-    if let ItemKind::Ty(_, udt) = &item.kind {
-        match udt.get_pure_ty() {
-            Ty::Tuple(elems) if !elems.is_empty() => Some(elems),
-            _ => None,
-        }
-    } else {
-        None
-    }
 }
 
 /// Checks whether a callable's input parameter is a single tuple-typed or
@@ -384,10 +356,7 @@ fn all_uses_in_spec_impl(package: &Package, spec_impl: &SpecImpl, local_id: Loca
     if !all_uses_in_spec(package, &spec_impl.body, local_id) {
         return false;
     }
-    for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-        .into_iter()
-        .flatten()
-    {
+    for spec in functored_specs(spec_impl) {
         if !all_uses_in_spec(package, spec, local_id) {
             return false;
         }
@@ -442,10 +411,7 @@ fn scan_first_class_in_callable(
         CallableImpl::Intrinsic => {}
         CallableImpl::Spec(spec_impl) => {
             scan_first_class_in_block(package, package_id, spec_impl.body.block, first_class);
-            for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-                .into_iter()
-                .flatten()
-            {
+            for spec in functored_specs(spec_impl) {
                 scan_first_class_in_block(package, package_id, spec.block, first_class);
             }
         }
@@ -638,36 +604,13 @@ fn promote_candidate(
     assigner: &mut Assigner,
     candidate: &ArgPromoCandidate,
 ) -> Option<PromotionResult> {
-    let n = candidate.elem_types.len();
-    let mut new_locals: Vec<LocalVarId> = Vec::with_capacity(n);
-    let mut new_pat_ids: Vec<PatId> = Vec::with_capacity(n);
-
-    for i in 0..n {
-        let new_local = assigner.next_local();
-        new_locals.push(new_local);
-
-        let new_pat_id = assigner.next_pat();
-        let elem_name: Rc<str> = Rc::from(format!("{}_{i}", candidate.name));
-        let new_pat = Pat {
-            id: new_pat_id,
-            span: Span::default(),
-            ty: candidate.elem_types[i].clone(),
-            kind: PatKind::Bind(Ident {
-                id: new_local,
-                span: Span::default(),
-                name: elem_name,
-            }),
-        };
-        package.pats.insert(new_pat_id, new_pat);
-        new_pat_ids.push(new_pat_id);
-    }
-
-    // Rewrite the input pattern: Bind(p) → Tuple([Bind(p_0), ...])
-    let pat = package
-        .pats
-        .get_mut(candidate.pat_id)
-        .expect("candidate pat should exist");
-    pat.kind = PatKind::Tuple(new_pat_ids);
+    let new_locals = decompose_binding(
+        package,
+        assigner,
+        candidate.pat_id,
+        &candidate.name,
+        &candidate.elem_types,
+    );
 
     // Rewrite all field accesses across the entire package.
     rewrite_field_accesses(

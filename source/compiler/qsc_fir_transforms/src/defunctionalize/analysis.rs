@@ -28,6 +28,7 @@ use super::types::{
     AnalysisResult, CallSite, CallableParam, CalleeLattice, CapturedVar, ConcreteCallable,
     DirectCallSite, LatticeStates, compose_functors, peel_body_functors,
 };
+use crate::fir_builder::functored_specs;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_fir::fir::{
     BlockId, CallableImpl, ExprId, ExprKind, Field, FieldAssign, FieldPath, ItemId, ItemKind, Lit,
@@ -1513,10 +1514,7 @@ fn analyze_spec_flow(
     package_id: PackageId,
 ) {
     analyze_block_flow(pkg, store, spec_impl.body.block, state, package_id);
-    for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
-        .into_iter()
-        .flatten()
-    {
+    for spec in functored_specs(spec_impl) {
         analyze_block_flow(pkg, store, spec.block, state, package_id);
     }
 }
