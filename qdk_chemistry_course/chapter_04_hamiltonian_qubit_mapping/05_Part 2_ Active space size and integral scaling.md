@@ -1,3 +1,0 @@
-<h2 style="color:#D30982;">Part 2: Active space size and integral scaling</h2>
-
-Two-body integrals $h_{pqrs}$ have four orbital indices and scale as $n^4$ in the number of active orbitals. Going from 8 to 4 orbitals reduces the two-body table from 4096 to 256 entries — a 16× reduction. After qubit mapping, this translates directly into fewer Pauli terms and a shallower circuit. Let's build Hamiltonians for the full valence space and the autoCAS-EOS space. Compare the integral statistics in `get_summary()`.

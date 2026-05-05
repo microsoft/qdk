@@ -1,7 +1,0 @@
-<h2 style="color:#D30982;">Part 6: Accuracy vs Phase Bits</h2>
-
-QPE energy resolution is $\Delta \varepsilon = \frac{2\pi}{T \cdot 2^n}$. Each added bit halves the grid spacing. Chemical accuracy is **1.6 mHa** (= 1 kcal/mol) — the threshold below which quantum chemistry predictions are considered reliable enough to guide experiment.
-
-The sweep shows: 4 bits → ~401 mHa; 6 bits → ~97 mHa; 8 bits → ~21 mHa; 10 bits → ~1.7 mHa (quantization error approaching chemical accuracy — Trotter and gate errors are independent and can dominate). In practice, three independent error sources stack: **Trotter error** (systematic; reduce with higher order or more steps), **shot noise** (statistical; reduce with more `shots_per_bit`), and **gate noise** (hardware decoherence; irreducible without error correction). For classical simulation, 8–10 bits with `shots_per_bit ≥ 10` is a reasonable starting point. On near-term quantum hardware, gate noise makes this many phase bits impractical without error correction.
-
-One active research direction for reducing QPE resource requirements is basis set optimization: choosing a more compact orbital basis can reduce the Schatten norm by up to 80%, directly reducing the time parameter T — at fixed target accuracy, a smaller T requires fewer Trotter steps and correspondingly shallower circuits (<a href="https://arxiv.org/abs/2509.05733" target="_blank">Kottmann et al., 2025</a>).

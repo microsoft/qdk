@@ -1,5 +1,0 @@
-<h2 style="color:#D30982;">Part 4: Comparing basis sets</h2>
-
-Basis set choice determines how many orbitals are in the problem. A larger basis produces more molecular orbitals, which increases the size of the one- and two-body integral tables, raises the computational cost of SCF, and increases the number of orbitals available for downstream steps.
-
-The `cc-pVDZ` basis is a standard double-zeta basis that is significantly larger than STO-3G and more chemically descriptive. It is the default choice for the rest of this course. A comprehensive catalog of basis sets, exponents, and contraction coefficients is available at <a href="https://www.basissetexchange.org/" target="_blank">Basis Set Exchange</a>. Now let's run SCF again with `cc-pvdz`. Compare the HF energies and orbital counts from both runs.
