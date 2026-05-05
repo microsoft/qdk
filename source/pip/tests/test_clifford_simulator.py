@@ -310,13 +310,13 @@ def test_clifford_run_mixed_noise():
         "IsingModel2DEvolution(4, 4, PI() / 2.0, PI() / 2.0, 4.0, 4)",
         shots=1,
         noise=noise,
-        seed=67,
+        seed=228,
         type="clifford",
     )
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     print(result)
     # Reasonable results obtained from manual run
-    assert result == ["0000111-00000000"]
+    assert result == ["00000-0000000001"]
 
 
 def test_clifford_run_isolated_loss():
@@ -515,6 +515,33 @@ def test_clifford_run_cy_noise_distribution():
         f"actual={actual_p1:.3f}, tol={tolerance:.3f}"
     )
     assert abs(actual_p1 - expected_p1) <= tolerance, "CY noise rate outside tolerance."
+
+
+def test_clifford_run_with_rotation_by_clifford_angles_succeeds():
+    qsharp.init()
+    qsharp.eval("""
+        operation Main() : Result {
+            import Std.Math.PI;
+            use q = Qubit();
+            Rx(PI(), q); // X equivalent
+            Rz(PI(), q); // Z equivalent
+            Ry(PI(), q); // Y equivalent, qubit back to |0>
+            Rx(PI() / 2.0, q); // Sqrt(X) equivalent, basis change to Y
+            Rz(PI() / 2.0, q); // Sqrt(Z) equivalent, basis change to X
+            Ry(PI() / 2.0, q); // Undo basis change, should end in |1>
+            Rz(2.0 * PI(), q); // Full rotation around Z, should have no effect
+            Rz(-2.0 * PI(), q); // Full rotation around Z, should have no effect
+            Ry(4.0 * PI(), q); // Full rotation around Y, should have no effect
+            Ry(-4.0 * PI(), q); // Full rotation around Y, should have no effect
+            Rx(-4.0 * PI(), q); // Full rotation around X, should have no effect
+            Rx(4.0 * PI(), q); // Full rotation around X, should have no effect
+            Rx(PI(), q); // Another X equivalent, should flip back to |0>
+            return MResetZ(q);
+        }
+        """)
+    output = qsharp.run("Main()", shots=1, type="clifford")
+    print(output)
+    assert output == [Result.Zero], "Expected result of 0 with Clifford rotations."
 
 
 def test_clifford_run_with_t_fails():

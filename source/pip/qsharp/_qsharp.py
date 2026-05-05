@@ -353,7 +353,7 @@ def init(
             )
 
         try:
-            (_, manifest_contents) = read_file(qsharp_json)
+            _, manifest_contents = read_file(qsharp_json)
         except Exception as e:
             raise QSharpError(
                 f"Error reading {qsharp_json}. qsharp.json should exist at the project root and be a valid JSON file."
@@ -840,7 +840,7 @@ def run(
         elif output.is_message():
             results[-1]["messages"].append(str(output))
 
-    if type is not None and type == "clifford":
+    if type == "clifford":
         if noise is not None and not isinstance(noise, NoiseConfig):
             raise ValueError(
                 "only `NoiseConfig` is supported when using noise with the clifford simulator."

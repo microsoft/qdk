@@ -452,78 +452,93 @@ impl Simulator for StabilizerSimulator {
     }
 
     fn rxx(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
-        if !self.loss[q1] && !self.loss[q2] {
-            self.apply_idle_noise(q1);
-            self.apply_idle_noise(q2);
+        match (self.loss[q1], self.loss[q2]) {
+            (true, true) => (),
+            (true, false) => self.rx(angle, q2),
+            (false, true) => self.rx(angle, q1),
+            (false, false) => {
+                self.apply_idle_noise(q1);
+                self.apply_idle_noise(q2);
 
-            // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
-            // and check to see if it is supported.
-            let unitary = unitary_from_normalized_angle(
-                angle,
-                UnitaryOp::ControlledX,
-                UnitaryOp::SqrtX,
-                UnitaryOp::SqrtXInv,
-            );
-            // NOTE: We perform the Rxx gate by changing basis to Y and performing the decomposition of Rzz.
-            self.state.apply_unitary(UnitaryOp::SqrtY, &[q1]);
-            self.state.apply_unitary(UnitaryOp::SqrtY, &[q2]);
-            self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-            self.state.apply_unitary(unitary, &[q1]);
-            self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-            self.state.apply_unitary(UnitaryOp::SqrtYInv, &[q1]);
-            self.state.apply_unitary(UnitaryOp::SqrtYInv, &[q2]);
+                // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
+                // and check to see if it is supported.
+                let unitary = unitary_from_normalized_angle(
+                    angle,
+                    UnitaryOp::Z,
+                    UnitaryOp::SqrtZ,
+                    UnitaryOp::SqrtZInv,
+                );
+                // NOTE: We perform the Rxx gate by changing basis to Y and performing the decomposition of Rzz.
+                self.state.apply_unitary(UnitaryOp::Hadamard, &[q1]);
+                self.state.apply_unitary(UnitaryOp::Hadamard, &[q2]);
+                self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
+                self.state.apply_unitary(unitary, &[q1]);
+                self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
+                self.state.apply_unitary(UnitaryOp::Hadamard, &[q1]);
+                self.state.apply_unitary(UnitaryOp::Hadamard, &[q2]);
 
-            apply_loss!(self, rxx, &[q1, q2]);
-            apply_noise!(self, rxx, &[q1, q2]);
+                apply_loss!(self, rxx, &[q1, q2]);
+                apply_noise!(self, rxx, &[q1, q2]);
+            }
         }
     }
 
     fn ryy(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
-        if !self.loss[q1] && !self.loss[q2] {
-            self.apply_idle_noise(q1);
-            self.apply_idle_noise(q2);
+        match (self.loss[q1], self.loss[q2]) {
+            (true, true) => (),
+            (true, false) => self.ry(angle, q2),
+            (false, true) => self.ry(angle, q1),
+            (false, false) => {
+                self.apply_idle_noise(q1);
+                self.apply_idle_noise(q2);
 
-            // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
-            // and check to see if it is supported.
-            let unitary = unitary_from_normalized_angle(
-                angle,
-                UnitaryOp::ControlledZ,
-                UnitaryOp::SqrtZ,
-                UnitaryOp::SqrtZInv,
-            );
-            // NOTE: We perform the Ryy gate by changing basis to Z and performing the decomposition of Rzz.
-            self.state.apply_unitary(UnitaryOp::SqrtX, &[q1]);
-            self.state.apply_unitary(UnitaryOp::SqrtX, &[q2]);
-            self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-            self.state.apply_unitary(unitary, &[q1]);
-            self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-            self.state.apply_unitary(UnitaryOp::SqrtXInv, &[q1]);
-            self.state.apply_unitary(UnitaryOp::SqrtXInv, &[q2]);
+                // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
+                // and check to see if it is supported.
+                let unitary = unitary_from_normalized_angle(
+                    angle,
+                    UnitaryOp::Z,
+                    UnitaryOp::SqrtZ,
+                    UnitaryOp::SqrtZInv,
+                );
+                // NOTE: We perform the Ryy gate by changing basis to Z and performing the decomposition of Rzz.
+                self.state.apply_unitary(UnitaryOp::SqrtX, &[q1]);
+                self.state.apply_unitary(UnitaryOp::SqrtX, &[q2]);
+                self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
+                self.state.apply_unitary(unitary, &[q1]);
+                self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
+                self.state.apply_unitary(UnitaryOp::SqrtXInv, &[q1]);
+                self.state.apply_unitary(UnitaryOp::SqrtXInv, &[q2]);
 
-            apply_loss!(self, ryy, &[q1, q2]);
-            apply_noise!(self, ryy, &[q1, q2]);
+                apply_loss!(self, ryy, &[q1, q2]);
+                apply_noise!(self, ryy, &[q1, q2]);
+            }
         }
     }
 
     fn rzz(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
-        if !self.loss[q1] && !self.loss[q2] {
-            self.apply_idle_noise(q1);
-            self.apply_idle_noise(q2);
+        match (self.loss[q1], self.loss[q2]) {
+            (true, true) => (),
+            (true, false) => self.rz(angle, q2),
+            (false, true) => self.rz(angle, q1),
+            (false, false) => {
+                self.apply_idle_noise(q1);
+                self.apply_idle_noise(q2);
 
-            // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
-            // and check to see if it is supported.
-            let unitary = unitary_from_normalized_angle(
-                angle,
-                UnitaryOp::ControlledZ,
-                UnitaryOp::SqrtZ,
-                UnitaryOp::SqrtZInv,
-            );
-            self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-            self.state.apply_unitary(unitary, &[q1]);
-            self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
+                // We can only perform rotations by multiples of PI / 2 in the stabilizer, so normalize the angle
+                // and check to see if it is supported.
+                let unitary = unitary_from_normalized_angle(
+                    angle,
+                    UnitaryOp::Z,
+                    UnitaryOp::SqrtZ,
+                    UnitaryOp::SqrtZInv,
+                );
+                self.state.apply_unitary(UnitaryOp::ControlledZ, &[q2, q1]);
+                self.state.apply_unitary(unitary, &[q1]);
+                self.state.apply_unitary(UnitaryOp::ControlledZ, &[q2, q1]);
 
-            apply_loss!(self, rzz, &[q1, q2]);
-            apply_noise!(self, rzz, &[q1, q2]);
+                apply_loss!(self, rzz, &[q1, q2]);
+                apply_noise!(self, rzz, &[q1, q2]);
+            }
         }
     }
 
@@ -628,7 +643,7 @@ fn unitary_from_normalized_angle(
     if normalized_angle < 0.0 {
         normalized_angle += TAU;
     }
-    if normalized_angle.is_nearly_zero() || (normalized_angle - TAU / 2.0).is_nearly_zero() {
+    if normalized_angle.is_nearly_zero() || (normalized_angle - TAU).is_nearly_zero() {
         // The angle is a multiple of 2 * PI, so the operation is effectively an identity.
         UnitaryOp::I
     } else if (normalized_angle - PI).is_nearly_zero() {
