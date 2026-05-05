@@ -115,7 +115,7 @@ export function registerLearningCommands(
       }
       // No position recorded yet — open chat with a generic start prompt.
       await vscode.commands.executeCommand("workbench.action.chat.open", {
-        query: "/qdk-learning Let's start the Quantum Katas.",
+        query: "/qdk-learning Let's get started.",
         isPartialQuery: false,
       });
     }),
@@ -193,15 +193,13 @@ async function askInChat(
   const unitTitle = found?.unit.title ?? args.unitId;
   const activityTitle = found?.activity.title;
 
-  // Include #goto with precise IDs so the agent can call the
+  const location = activityTitle ?? unitTitle;
+  // Include #qdkLearningGoto with precise IDs so the agent can call the
   // tool without fuzzy matching.
-  const location = activityTitle
-    ? `the "${activityTitle}" activity in "${unitTitle}"`
-    : `"${unitTitle}"`;
 
   const courseArg =
     args.courseId !== KATAS_COURSE_ID ? ` courseId=${args.courseId}` : "";
-  const prompt = `/qdk-learning #goto${courseArg} ${args.unitId} ${args.activityId} — Go to ${location}`;
+  const prompt = `/qdk-learning #qdkLearningGoto${courseArg} ${args.unitId} ${args.activityId} — Go to ${location}`;
   await vscode.commands.executeCommand("workbench.action.chat.open", {
     query: prompt,
     isPartialQuery: false,
