@@ -544,6 +544,60 @@ def test_clifford_run_with_rotation_by_clifford_angles_succeeds():
     assert output == [Result.Zero], "Expected result of 0 with Clifford rotations."
 
 
+def test_clifford_run_joint_rotations_by_clifford_angles_succeeds():
+    qsharp.init()
+    qsharp.eval("""
+        operation Main() : Result[] {
+            import Std.Math.PI;
+            use qs = Qubit[2];
+            within {
+                H(qs[0]);
+                H(qs[1]);
+            } apply {
+                Rzz(PI() / 2.0, qs[0], qs[1]);
+                {
+                    CNOT(qs[1], qs[0]);
+                    Rz(-PI() / 2.0, qs[0]);
+                    CNOT(qs[1], qs[0]);
+                }
+                Rxx(PI() / 2.0, qs[0], qs[1]);
+                {
+                    within {
+                        H(qs[0]);
+                        H(qs[1]);
+                    } apply {
+                        CNOT(qs[1], qs[0]);
+                        Rz(-PI() / 2.0, qs[0]);
+                        CNOT(qs[1], qs[0]);
+                    }
+                }
+                Ryy(PI() / 2.0, qs[0], qs[1]);
+                {
+                    within {
+                        Adjoint S(qs[0]);
+                        H(qs[0]);
+                        Adjoint S(qs[1]);
+                        H(qs[1]);
+                    } apply {
+                        CNOT(qs[1], qs[0]);
+                        Rz(-PI() / 2.0, qs[0]);
+                        CNOT(qs[1], qs[0]);
+                    }
+                }
+            }
+            MResetEachZ(qs)
+        }
+        """)
+    output = qsharp.run("Main()", shots=1, type="clifford")
+    print(output)
+    assert output == [
+        [
+            Result.Zero,
+            Result.Zero,
+        ]
+    ], "Expected result of 00 with Clifford rotations."
+
+
 def test_clifford_run_with_t_fails():
     qsharp.init()
     qsharp.eval("""

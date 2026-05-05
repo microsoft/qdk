@@ -532,9 +532,9 @@ impl Simulator for StabilizerSimulator {
                     UnitaryOp::SqrtZ,
                     UnitaryOp::SqrtZInv,
                 );
-                self.state.apply_unitary(UnitaryOp::ControlledZ, &[q2, q1]);
+                self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
                 self.state.apply_unitary(unitary, &[q1]);
-                self.state.apply_unitary(UnitaryOp::ControlledZ, &[q2, q1]);
+                self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
 
                 apply_loss!(self, rzz, &[q1, q2]);
                 apply_noise!(self, rzz, &[q1, q2]);
