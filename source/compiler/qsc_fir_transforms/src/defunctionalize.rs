@@ -245,7 +245,9 @@ pub fn defunctionalize(
     errors
 }
 
-/// Replaces consumed closure expressions with empty-tuple Unit literals.
+/// Replaces all remaining closure expressions whose target callable was
+/// consumed by specialization with Unit values, clearing references so
+/// subsequent iterations do not count them as work remaining.
 ///
 /// A closure is "consumed" when its target callable has been specialized —
 /// meaning the HOF call site that passed this closure as an argument has been
@@ -258,6 +260,19 @@ pub fn defunctionalize(
 /// are eligible for cleanup. Closures that are still live as arguments to a
 /// call expression (e.g., in a multi-param HOF where only one param has been
 /// specialized so far) must survive to the next iteration.
+///
+/// # Before
+/// ```text
+/// Closure([captures], consumed_target) : Arrow
+/// ```
+/// # After
+/// ```text
+/// Tuple([]) : Unit   // closure replaced with unit
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Expr.kind` to `Tuple(Vec::new())` and `Expr.ty` to `Unit`
+///   for consumed closure expressions outside call-argument subtrees.
 fn cleanup_consumed_closures(
     package: &mut Package,
     specialized_targets: &FxHashSet<LocalItemId>,

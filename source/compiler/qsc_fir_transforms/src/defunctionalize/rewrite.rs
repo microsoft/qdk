@@ -700,6 +700,18 @@ fn resolve_expr_to_concrete_callable(
 
 /// Allocates a `BinOp(Eq, index_expr, Int(index_value))` expression used as
 /// the condition guard for index-dispatch branches.
+///
+/// # Before
+/// ```text
+/// (no expression)
+/// ```
+/// # After
+/// ```text
+/// Expr { BinOp(Eq, index_expr, Lit(Int(index_value))) : Bool }
+/// ```
+///
+/// # Mutations
+/// - Inserts two new `Expr` nodes (literal + comparison) through `assigner`.
 fn alloc_index_eq_expr(
     package: &mut Package,
     index_expr_id: ExprId,
@@ -877,6 +889,20 @@ fn find_local_init_expr_in_expr(
 
 /// Removes callable-typed argument locals whose only remaining uses were
 /// rewritten into direct dispatch calls, leaving no arrow-typed residue.
+///
+/// # Before
+/// ```text
+/// { let f = some_callable; specialized_call(args); }
+/// ```
+/// # After
+/// ```text
+/// { specialized_call(args); }   // dead `let f` removed
+/// ```
+///
+/// # Mutations
+/// - Removes `Local` binding statements and `Var` references for dead locals
+///   via [`remove_dead_callable_local_from_callable`] and
+///   [`prune_dead_top_level_callable_locals`].
 fn prune_dead_callable_arg_locals(
     package: &mut Package,
     rewritten_callable_arg_locals: &FxHashSet<(LocalItemId, LocalVarId)>,
@@ -933,6 +959,19 @@ fn local_var_is_used_in_callable(
 
 /// Removes a specific dead callable local from the given callable's body
 /// by deleting its `Local` binding and any references that remain.
+///
+/// # Before
+/// ```text
+/// body { let f : Arrow = init; ... /* no uses of f */ ... }
+/// ```
+/// # After
+/// ```text
+/// body { ... }
+/// ```
+///
+/// # Mutations
+/// - Filters `Block.stmts` to remove the `Local` binding for `local_var`.
+/// - Recurses into nested blocks via [`remove_dead_callable_local_from_block`].
 fn remove_dead_callable_local_from_callable(
     package: &mut Package,
     callable_id: LocalItemId,
@@ -963,6 +1002,18 @@ fn remove_dead_callable_local_from_callable(
 
 /// Removes top-level callable-typed locals whose only uses were direct
 /// dispatch rewrites, scoped to the package-level entry expression.
+///
+/// # Before
+/// ```text
+/// body { let g : Arrow = ...; /* no remaining uses of g */ ... }
+/// ```
+/// # After
+/// ```text
+/// body { ... }   // dead binding removed
+/// ```
+///
+/// # Mutations
+/// - Filters `Block.stmts` across all callable bodies in the package.
 fn prune_dead_top_level_callable_locals(package: &mut Package) {
     let callable_items: Vec<(LocalItemId, qsc_fir::fir::CallableImpl)> = package
         .items
@@ -998,6 +1049,19 @@ fn prune_dead_top_level_callable_locals(package: &mut Package) {
 /// Iterates until no more removals occur so that cascading dead-local chains
 /// (e.g. `let a = closure; let b = a;`) are fully pruned in a single call
 /// rather than requiring multiple outer fixpoint iterations.
+///
+/// # Before
+/// ```text
+/// { let a : Arrow = closure; let b : Arrow = a; specialized_call(args); }
+/// ```
+/// # After
+/// ```text
+/// { specialized_call(args); }   // both dead bindings removed
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Block.stmts` to drop unused `Local` bindings in a fixpoint
+///   loop, then recurses into nested blocks.
 fn prune_dead_callable_locals_in_block(package: &mut Package, block_id: qsc_fir::fir::BlockId) {
     loop {
         let stmt_ids = package.get_block(block_id).stmts.clone();
@@ -1051,6 +1115,19 @@ fn prune_dead_callable_locals_in_block(package: &mut Package, block_id: qsc_fir:
 
 /// Removes a dead callable local scoped to a specific block, including its
 /// `Local` binding and any remaining references.
+///
+/// # Before
+/// ```text
+/// { let f : Arrow = init; stmt1; stmt2; }
+/// ```
+/// # After
+/// ```text
+/// { stmt1; stmt2; }   // binding removed when f is unused
+/// ```
+///
+/// # Mutations
+/// - Filters `Block.stmts` to remove the dead binding.
+/// - Recurses into nested blocks via [`remove_dead_callable_local_from_stmt`].
 fn remove_dead_callable_local_from_block(
     package: &mut Package,
     block_id: qsc_fir::fir::BlockId,
@@ -1097,6 +1174,10 @@ fn remove_dead_callable_local_from_block(
 
 /// Inspects a single statement for dead callable-local bindings and
 /// deletes them when safe.
+///
+/// # Mutations
+/// - Delegates to [`prune_dead_callable_locals_in_expr`] for the
+///   statement's inner expression.
 fn prune_dead_callable_locals_in_stmt(package: &mut Package, stmt_id: qsc_fir::fir::StmtId) {
     let stmt = package.get_stmt(stmt_id).clone();
     match stmt.kind {
@@ -1109,6 +1190,11 @@ fn prune_dead_callable_locals_in_stmt(package: &mut Package, stmt_id: qsc_fir::f
 
 /// Descends into an expression subtree looking for dead callable-local
 /// bindings introduced by direct-call rewrites.
+///
+/// # Mutations
+/// - Delegates to [`prune_dead_callable_locals_in_block`] for nested
+///   `Block` and `While` bodies, recursing until all dead bindings are
+///   removed.
 fn prune_dead_callable_locals_in_expr(package: &mut Package, expr_id: ExprId) {
     let expr = package.get_expr(expr_id).clone();
     match expr.kind {
@@ -1174,6 +1260,10 @@ fn prune_dead_callable_locals_in_expr(package: &mut Package, expr_id: ExprId) {
 }
 
 /// Removes a specific dead callable local scoped to a single statement.
+///
+/// # Mutations
+/// - Delegates to [`remove_dead_callable_local_from_expr`] for the
+///   statement's inner expression.
 fn remove_dead_callable_local_from_stmt(
     package: &mut Package,
     stmt_id: qsc_fir::fir::StmtId,
@@ -1190,6 +1280,11 @@ fn remove_dead_callable_local_from_stmt(
 
 /// Removes references to a dead callable local inside a given expression
 /// subtree.
+///
+/// # Mutations
+/// - Recurses through `Block`, `If`, `While`, and compound expressions
+///   to reach every nested block via
+///   [`remove_dead_callable_local_from_block`].
 fn remove_dead_callable_local_from_expr(
     package: &mut Package,
     expr_id: ExprId,
@@ -1395,6 +1490,20 @@ fn find_var_field_path_in_pat(
 
 /// Rewrites the callee expression of a direct call to reference the
 /// specialized target callable and updates its type accordingly.
+///
+/// # Before
+/// ```text
+/// Var(original_item) : OldArrow   // callee expr
+/// ```
+/// # After
+/// ```text
+/// Var(specialized_item) : NewArrow   // callee replaced and retyped
+/// ```
+///
+/// # Mutations
+/// - Overwrites the callee `Expr` node in place via
+///   [`rewrite_item_callee_with_functor`].
+/// - May allocate functor-wrapper `Expr` nodes through `assigner`.
 fn rewrite_direct_callee(
     package: &mut Package,
     package_id: PackageId,
@@ -1439,6 +1548,21 @@ fn rewrite_direct_callee(
 
 /// Rewrites the argument tuple of a direct call whose callable argument
 /// was a closure, splicing captured values into the argument layout.
+///
+/// # Before
+/// ```text
+/// original_args : OriginalInputTy
+/// ```
+/// # After
+/// ```text
+/// (capture_0, ..., capture_n, original_args) : (CaptureTys..., OriginalInputTy)
+/// ```
+///
+/// # Mutations
+/// - Rewrites `args_id`'s `ExprKind` and `Ty` in place to a `Tuple`
+///   containing capture expressions followed by the original args.
+/// - Allocates capture `Expr` nodes through `assigner`.
+/// - For controlled operations, recurses through control-qubit layers.
 fn rewrite_direct_closure_args(
     package: &mut Package,
     args_id: ExprId,
@@ -1569,6 +1693,18 @@ fn direct_lambda_packaged_input(package: &Package, item_id: LocalItemId) -> Opti
 /// Builds a single direct-call branch for index-dispatch synthesis by
 /// materializing the callee expression, argument tuple, and capture
 /// splicing for one specialized callable.
+///
+/// # Before
+/// ```text
+/// (no expression — branch does not yet exist)
+/// ```
+/// # After
+/// ```text
+/// Call(Var(specialized_item), (captures..., args)) : result_ty
+/// ```
+///
+/// # Mutations
+/// - Allocates callee, args, and call `Expr` nodes through `assigner`.
 #[allow(clippy::too_many_arguments)]
 fn create_direct_branch_call(
     package: &mut Package,
@@ -1765,6 +1901,20 @@ fn build_direct_branch_args_data(
 }
 
 /// Rewrites a single call site to use the specialized callable.
+///
+/// # Before
+/// ```text
+/// Call(Var(hof_item), (callable_arg, other_args))
+/// ```
+/// # After
+/// ```text
+/// Call(Var(specialized_item), (other_args, captures...))
+/// ```
+///
+/// # Mutations
+/// - Rewrites the callee via [`rewrite_specialized_callee`].
+/// - Rewrites args via [`rewrite_args`], removing the callable parameter
+///   and appending closure captures.
 fn rewrite_one(
     package: &mut Package,
     package_id: PackageId,
@@ -1813,6 +1963,19 @@ fn rewrite_one(
 
 /// Removes the callable argument selected by `param` from the call arguments
 /// and appends closure captures when needed.
+///
+/// # Before
+/// ```text
+/// (callable_arg, arg1, arg2)
+/// ```
+/// # After
+/// ```text
+/// (arg1, arg2, capture0, ..., captureN)   // callable_arg removed, captures appended
+/// ```
+///
+/// # Mutations
+/// - Rewrites `args_id`'s `ExprKind` and `Ty` in place.
+/// - Allocates capture `Expr` nodes through `assigner`.
 fn rewrite_args(
     package: &mut Package,
     call_expr_id: ExprId,
@@ -1860,6 +2023,20 @@ fn rewrite_args(
 
 /// Removes a top-level element from a tuple-structured args expression and
 /// appends any closure captures.
+///
+/// # Before
+/// ```text
+/// (arg0, callable_arg, arg2)   // param_index = 1
+/// ```
+/// # After
+/// ```text
+/// (arg0, arg2, capture0, ...)   // element removed, captures appended
+/// ```
+///
+/// # Mutations
+/// - Rewrites `args_id`'s `ExprKind` and `Ty` in place.
+/// - Flattens single-element tuples to scalars.
+/// - Allocates capture `Expr` nodes through `assigner`.
 fn rewrite_args_remove_tuple_element(
     package: &mut Package,
     args_id: ExprId,
@@ -1916,6 +2093,20 @@ fn rewrite_args_remove_tuple_element(
 
 /// Rewrites args for a nested callable inside a top-level tuple input slot.
 /// Captures are appended to the top-level args tuple.
+///
+/// # Before
+/// ```text
+/// (ctrl_qubits, (callable_arg, inner_arg))   // field_path = [0]
+/// ```
+/// # After
+/// ```text
+/// (ctrl_qubits, (inner_arg), capture0, ...)   // nested element removed
+/// ```
+///
+/// # Mutations
+/// - Rewrites the inner element via [`rewrite_local_single_arg_nested`] or
+///   [`remove_element_at_path`], then updates the outer tuple's type.
+/// - Allocates capture `Expr` nodes through `assigner`.
 fn rewrite_args_nested_tuple_input(
     package: &mut Package,
     owner_callable: Option<LocalItemId>,
@@ -1976,6 +2167,21 @@ fn rewrite_args_nested_tuple_input(
 }
 
 /// Rewrites args when the callable is nested inside the single argument value.
+///
+/// # Before
+/// ```text
+/// args = local_udt   // UDT/tuple containing callable at field_path
+/// ```
+/// # After
+/// ```text
+/// args = (remaining_fields, captures...)   // callable field removed
+/// ```
+///
+/// # Mutations
+/// - Delegates to [`rewrite_local_single_arg_nested`] when the arg is a
+///   local whose initializer can be decomposed, otherwise falls back to
+///   [`remove_element_at_path`].
+/// - Allocates capture `Expr` nodes through `assigner`.
 fn rewrite_single_arg_nested(
     package: &mut Package,
     call_expr_id: ExprId,
@@ -2020,6 +2226,19 @@ fn rewrite_single_arg_nested(
 
 /// Rewrites a single local UDT/tuple argument by replacing the argument use with
 /// the local initializer after removing the specialized callable field.
+///
+/// # Before
+/// ```text
+/// args = Var(local_udt)   // bound to (field0, callable, field2)
+/// ```
+/// # After
+/// ```text
+/// args = (field0, field2, captures...)   // callable field removed
+/// ```
+///
+/// # Mutations
+/// - Overwrites `args_id`'s `ExprKind` and `Ty` in place.
+/// - Allocates capture `Expr` nodes through `assigner`.
 fn rewrite_local_single_arg_nested(
     package: &mut Package,
     owner_callable: Option<LocalItemId>,
@@ -2058,6 +2277,14 @@ fn rewrite_local_single_arg_nested(
     true
 }
 
+/// Builds replacement expression data for a call-argument aggregate after the
+/// top-level callable field has been removed.
+///
+/// Before, the tuple or struct represented by `expr_id` still contains the
+/// callable-valued field selected by `field_index`. After, the returned
+/// `ExprKind`/`Ty` pair describes the same aggregate with that field removed,
+/// collapsed when only one element remains, and widened with any closure
+/// captures that must become explicit call arguments.
 fn remove_top_level_field_from_expr_data(
     package: &mut Package,
     expr_id: ExprId,
@@ -2118,7 +2345,12 @@ fn build_expr_data_from_elements(package: &Package, elements: Vec<ExprId>) -> (E
     }
 }
 
-/// Replaces the single direct callable argument with unit or a capture tuple.
+/// Rewrites a single-parameter call's args expression after the callable
+/// argument has been removed.
+///
+/// Before, `args_id` evaluates to the callable argument itself. After, it
+/// evaluates to `()` for a plain global callee or to `(captures...)` when the
+/// rewritten direct call must thread closure captures explicitly.
 fn rewrite_single_arg_root(
     package: &mut Package,
     args_id: ExprId,
@@ -2144,8 +2376,13 @@ fn rewrite_single_arg_root(
     }
 }
 
-/// Removes the element at `path` from a tuple expression, modifying
-/// the expression in place. Collapses single-element tuples.
+/// Removes the callable argument at `path` from a tuple-valued args expression
+/// in place.
+///
+/// Before, the tuple nesting rooted at `expr_id` still matches the original
+/// higher-order callable input. After, the selected element is removed, empty
+/// tuples become unit, and one-element tuples collapse so the remaining shape
+/// matches the specialized callee's input.
 fn remove_element_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]) {
     if path.is_empty() {
         return;
@@ -2203,8 +2440,13 @@ fn remove_element_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]
     }
 }
 
-/// Allocates new expressions for each captured variable and inserts them into
-/// the package. Returns the `ExprId`s of the newly created expressions.
+/// Materializes the capture operands that must be appended to rewritten call
+/// arguments.
+///
+/// Before, each capture is represented only by analysis metadata: an optional
+/// existing `ExprId` and the local it denotes. After, every capture has a
+/// concrete `ExprId` that can be spliced into a tuple, reusing the recorded
+/// expression when possible and otherwise synthesizing `Var(Local(_))` nodes.
 fn allocate_capture_exprs(
     package: &mut Package,
     span: Span,
@@ -2238,8 +2480,12 @@ fn allocate_capture_exprs(
     ids
 }
 
-/// Builds the new callee type by removing the callable parameter from the
-/// arrow's input type and appending capture types when applicable.
+/// Computes the callee arrow type that corresponds to a rewritten direct call.
+///
+/// Before, the callee type still includes the callable-valued parameter from
+/// the original higher-order signature. After, the returned arrow removes that
+/// input slot and appends any closure capture types so the callee type matches
+/// the rewritten args expression.
 fn build_specialized_callee_ty(
     package: &Package,
     callee_id: ExprId,
@@ -2396,6 +2642,12 @@ fn callable_param_input_path(
     super::build_param_input_path(uses_tuple, param, outer_functor)
 }
 
+/// Replaces `callee_id` with a reference to the specialized callable while
+/// preserving any outer functor shell.
+///
+/// Before, the callee subtree still refers to the original higher-order item.
+/// After, the same root `ExprId` evaluates the specialized callable and carries
+/// the rewritten arrow type expected by the direct-call args.
 fn rewrite_specialized_callee(
     package: &mut Package,
     callee_id: ExprId,
@@ -2417,6 +2669,22 @@ fn rewrite_specialized_callee(
     );
 }
 
+/// Overwrites `callee_id` so it names `item_id`, rebuilding any `Adj`/`Ctl`
+/// wrapper chain around a fresh inner `Var` expression.
+///
+/// # Before
+/// ```text
+/// Ctl(Adj(Var(original_item))) : OldArrow
+/// ```
+/// # After
+/// ```text
+/// Ctl(Adj(Var(specialized_item))) : NewArrow
+/// ```
+///
+/// # Mutations
+/// - Rewrites `callee_id`'s `ExprKind` and `Ty` in place.
+/// - Allocates fresh inner `Var` and functor-wrapper `Expr` nodes through
+///   `assigner` when the functor chain is non-trivial.
 fn rewrite_item_callee_with_functor(
     package: &mut Package,
     callee_id: ExprId,
@@ -2437,6 +2705,8 @@ fn rewrite_item_callee_with_functor(
         return;
     }
 
+    // Rebuild the functor wrapper chain from the inside out, then copy the
+    // outermost node back into the original callee slot.
     let mut current_id = assigner.next_expr();
     package.exprs.insert(
         current_id,
@@ -2496,6 +2766,22 @@ fn rewrite_item_callee_with_functor(
 /// Rewrites a call site that has multiple callee candidates (from branch-split
 /// analysis) into an if/elif/else dispatch chain where each branch calls the
 /// appropriate specialization.
+///
+/// # Before
+/// ```text
+/// Call(Var(hof), (callable_arg, other_args))
+/// ```
+/// # After
+/// ```text
+/// if cond_0 { Call(Var(spec_0), args_0) }
+/// elif cond_1 { Call(Var(spec_1), args_1) }
+/// else { Call(Var(spec_default), args_default) }
+/// ```
+///
+/// # Mutations
+/// - Replaces `call_expr_id`'s `ExprKind` with the dispatch chain.
+/// - Allocates per-branch `Call`, callee, args, and `If` `Expr` nodes
+///   through `assigner`.
 #[allow(clippy::too_many_lines)]
 fn branch_split_rewrite(
     package: &mut Package,
@@ -2625,6 +2911,18 @@ fn branch_split_rewrite(
 /// Creates a single branch's specialised call expression, returning its
 /// [`ExprId`]. The callee is replaced with the specialization, the callable
 /// argument is removed from the args, and closure captures are appended.
+///
+/// # Before
+/// ```text
+/// (no expression — branch does not yet exist)
+/// ```
+/// # After
+/// ```text
+/// Call(Var(spec_item), (remaining_args, captures...)) : result_ty
+/// ```
+///
+/// # Mutations
+/// - Allocates callee, args, and call `Expr` nodes through `assigner`.
 #[allow(clippy::too_many_arguments)]
 fn create_branch_call(
     package: &mut Package,
@@ -2914,6 +3212,10 @@ fn build_branch_args_data(
 
 /// Allocates a fresh `Var` expression that references a specialized
 /// callable item, returning its new `ExprId`.
+///
+/// # Mutations
+/// - Delegates to [`alloc_item_callee_expr_with_functor`], which inserts
+///   the `Var` and any functor wrapper `Expr` nodes.
 fn alloc_specialized_callee_expr(
     package: &mut Package,
     orig_callee: &Expr,
@@ -2934,6 +3236,19 @@ fn alloc_specialized_callee_expr(
 
 /// Allocates a fresh callee expression that wraps an item reference with
 /// the requested functor applications (`Adj` and/or `Ctl` layers).
+///
+/// # Before
+/// ```text
+/// (no expression)
+/// ```
+/// # After
+/// ```text
+/// Ctl(...(Adj(Var(item_id)))) : callee_ty   // functor chain built
+/// ```
+///
+/// # Mutations
+/// - Inserts one `Var` `Expr` and zero or more functor-wrapper `Expr`
+///   nodes into `package` through `assigner`.
 fn alloc_item_callee_expr_with_functor(
     package: &mut Package,
     span: Span,
@@ -2988,6 +3303,18 @@ fn alloc_item_callee_expr_with_functor(
 }
 
 /// Allocates a new `ExprKind::If` expression and inserts it into the package.
+///
+/// # Before
+/// ```text
+/// (no expression)
+/// ```
+/// # After
+/// ```text
+/// If(cond_id, true_id, Some(false_id)) : result_ty
+/// ```
+///
+/// # Mutations
+/// - Inserts one `Expr` node through `assigner`.
 fn alloc_if_expr(
     package: &mut Package,
     span: Span,

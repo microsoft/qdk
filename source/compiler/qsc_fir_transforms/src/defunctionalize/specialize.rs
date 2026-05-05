@@ -182,6 +182,19 @@ pub(super) fn specialize(
 /// Drives the post-transform retyping cascade across every spec impl of a
 /// freshly cloned callable, re-establishing [`crate::invariants::InvariantLevel::PostDefunc`]
 /// type consistency after callable references become direct.
+///
+/// # Before
+/// ```text
+/// body { Expr.ty, Block.ty, Pat.ty may be stale }
+/// ```
+/// # After
+/// ```text
+/// body { Expr.ty, Block.ty, Pat.ty refreshed from children up }
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Expr.ty`, `Block.ty`, and `Pat.ty` in place across the
+///   entire callable implementation.
 fn refresh_rewritten_value_types(package: &mut Package, callable_impl: &CallableImpl) {
     match callable_impl {
         CallableImpl::Intrinsic => {}
@@ -202,6 +215,19 @@ fn refresh_rewritten_value_types(package: &mut Package, callable_impl: &Callable
 
 /// Re-computes the type of every statement in a block, returning the
 /// refreshed trailing type so enclosing expressions can cascade the update.
+///
+/// # Before
+/// ```text
+/// Block { stmts, ty: stale_ty }
+/// ```
+/// # After
+/// ```text
+/// Block { stmts, ty: trailing_expr.ty }   // or Unit if no trailing Expr
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Block.ty` in place.
+/// - Delegates to [`refresh_stmt_types`] for each statement.
 fn refresh_block_types(package: &mut Package, block_id: qsc_fir::fir::BlockId) -> Ty {
     let stmt_ids = package.get_block(block_id).stmts.clone();
     for stmt_id in stmt_ids {
@@ -228,6 +254,19 @@ fn refresh_block_types(package: &mut Package, block_id: qsc_fir::fir::BlockId) -
 /// Refreshes the type of a single statement and, when it introduces a
 /// local binding, updates the bound pattern's type to match the rewritten
 /// initializer.
+///
+/// # Before
+/// ```text
+/// Local(pat: OldTy, init_expr: NewTy)
+/// ```
+/// # After
+/// ```text
+/// Local(pat: NewTy, init_expr: NewTy)   // pat retyped to match init
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Pat.ty` in place for `Bind` and `Discard` patterns.
+/// - Delegates to [`refresh_expr_types`] for the statement's expression.
 fn refresh_stmt_types(package: &mut Package, stmt_id: qsc_fir::fir::StmtId) {
     let stmt = package.get_stmt(stmt_id).clone();
     match stmt.kind {
@@ -249,6 +288,19 @@ fn refresh_stmt_types(package: &mut Package, stmt_id: qsc_fir::fir::StmtId) {
 /// Recomputes the type of an expression after rewriting, propagating the
 /// refreshed type through nested blocks, conditionals, calls, and tuple
 /// constructors.
+///
+/// # Before
+/// ```text
+/// Expr { kind, ty: stale_ty }
+/// ```
+/// # After
+/// ```text
+/// Expr { kind, ty: recomputed_ty }   // derived from children
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Expr.ty` in place.
+/// - Recursively refreshes all reachable sub-expressions.
 fn refresh_expr_types(package: &mut Package, expr_id: ExprId) -> Ty {
     let expr = package.get_expr(expr_id).clone();
     let new_ty = match expr.kind {
@@ -615,6 +667,13 @@ fn find_bind_local_at_field_path(
     }
 }
 
+/// Rewrites one statement in a specialized callable body and updates the alias
+/// set used to recognize callable-parameter projections.
+///
+/// Before, destructuring locals in `stmt_id` may still hide the callable
+/// parameter behind tuple-field aliases. After, any newly introduced aliases are
+/// recorded in `alias_set` and all child expressions in the statement have been
+/// visited for direct-call rewriting.
 fn transform_stmt(
     package: &mut Package,
     package_id: PackageId,
@@ -659,6 +718,13 @@ fn transform_stmt(
     }
 }
 
+/// Rewrites an expression subtree in the cloned specialization so callable
+/// parameter uses become concrete callees.
+///
+/// Before, calls may still target `param.param_var`, a tuple-field projection of
+/// it, or an alias introduced by destructuring. After, every matching callee is
+/// rewritten in place to invoke `concrete`, while nested blocks and control-flow
+/// expressions are recursively normalized to the same post-specialization shape.
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::too_many_arguments)]
 fn transform_expr(
@@ -951,6 +1017,20 @@ fn collect_field_path_from_param(
 /// Replaces the callee expression with a direct reference to the concrete
 /// callable, applying the effective functor (composition of creation-site
 /// and body-site functors).
+///
+/// # Before
+/// ```text
+/// callee_expr = Var(Local(param_var)) : Arrow   // indirect via callable parameter
+/// ```
+/// # After
+/// ```text
+/// callee_expr = Ctl?(Adj?(Var(Item(concrete)))) : Arrow   // direct, with functors
+/// ```
+///
+/// # Mutations
+/// - Overwrites `callee_expr_id`'s `ExprKind` and `Ty` in place.
+/// - Allocates functor-wrapper `Expr` nodes through `assigner` when the
+///   effective functor is non-trivial.
 fn replace_callee(
     package: &mut Package,
     package_id: PackageId,
@@ -1129,13 +1209,21 @@ fn apply_target_input_at_control_path(
 /// closure's target callable and remove the capture so that the `param_var`
 /// reference is eliminated.
 ///
-/// Closure captures map 1-1 to the first N parameters of the closure target
-/// callable's input pattern (in order). To specialize:
-/// 1. Look up the capture's corresponding binding in the target callable.
-/// 2. Walk the target callable's body, replacing `Var(Local(capture_param))`
-///    with a direct reference to the concrete callable.
-/// 3. Remove the capture binding from the target callable's input pattern.
-/// 4. Remove the capture from the `Closure` expression's capture list.
+/// # Before
+/// ```text
+/// Closure([param_var, ...], target)   // target body uses param_var
+/// ```
+/// # After
+/// ```text
+/// Closure([...], target')   // param_var capture removed;
+///                           // target body uses concrete callee directly
+/// ```
+///
+/// # Mutations
+/// - Transforms the closure target's body via [`transform_callable_body`].
+/// - Removes the capture from the target's input pattern via
+///   [`remove_capture_from_closure_target`].
+/// - Removes the capture from the `Closure` expression's capture list.
 #[allow(clippy::too_many_arguments)]
 fn transform_closure_param_capture(
     package: &mut Package,
@@ -1218,6 +1306,19 @@ fn transform_closure_param_capture(
 
 /// Removes the capture at `capture_idx` from the closure target callable's
 /// input pattern tuple.
+///
+/// # Before
+/// ```text
+/// input = (capture_0, capture_1, lambda_param)   // capture_idx = 1
+/// ```
+/// # After
+/// ```text
+/// input = (capture_0, lambda_param)   // capture_1 removed
+/// ```
+///
+/// # Mutations
+/// - Rewrites the input `Pat` node in place (or replaces `decl.input` when
+///   flattening a single-element tuple).
 fn remove_capture_from_closure_target(
     package: &mut Package,
     target_item_id: LocalItemId,
@@ -1289,6 +1390,20 @@ fn remove_capture_from_closure_target(
 
 /// When the concrete callable is a closure, its captured variables must be
 /// threaded as additional parameters to the specialized callable.
+///
+/// # Before
+/// ```text
+/// input = (param_0, param_1)   // original HOF input
+/// ```
+/// # After
+/// ```text
+/// input = (param_0, param_1, __capture_0, ..., __capture_N)
+/// ```
+///
+/// # Mutations
+/// - Extends the input `Pat` tuple with new `Bind` patterns for each
+///   capture, or wraps a scalar input in a tuple.
+/// - Allocates new `Pat` and `LocalVarId` nodes through `cloner`.
 fn thread_closure_captures(
     cloner: &mut FirCloner,
     package: &mut Package,
@@ -1372,6 +1487,22 @@ fn thread_closure_captures(
 /// Rewrites the call-argument expression for a closure target by splicing
 /// the captured bindings into the appropriate slot of the call's argument
 /// tuple.
+///
+/// # Before
+/// ```text
+/// Call(Var(closure_target), original_args)
+/// ```
+/// # After
+/// ```text
+/// Call(Var(closure_target), (__capture_0, ..., original_args))
+/// ```
+///
+/// The original args expression is preserved as a single element in the
+/// new outer tuple, not flattened.
+///
+/// # Mutations
+/// - Delegates to [`rewrite_closure_target_call_args_in_block`] across
+///   all specialization bodies.
 fn rewrite_closure_target_call_args(
     package: &mut Package,
     callable_impl: &CallableImpl,
@@ -1435,6 +1566,12 @@ fn rewrite_closure_target_call_args(
     }
 }
 
+/// Walks a block after closure specialization and prepends captured locals to
+/// every call that now targets the closure body directly.
+///
+/// Before, calls to `closure_target` still rely on the closure value to carry
+/// its captures implicitly. After, each matching call in `block_id` passes the
+/// captured locals explicitly so the rewritten target signature is satisfied.
 fn rewrite_closure_target_call_args_in_block(
     package: &mut Package,
     block_id: qsc_fir::fir::BlockId,
@@ -1456,6 +1593,13 @@ fn rewrite_closure_target_call_args_in_block(
     }
 }
 
+/// Applies closure-capture threading to every expression nested under one
+/// statement.
+///
+/// Before, `stmt_id` may still contain calls whose argument tuple omits the
+/// captures now required by `closure_target`. After, all expressions reachable
+/// from the statement have been rewritten so those calls pass the captures
+/// explicitly.
 fn rewrite_closure_target_call_args_in_stmt(
     package: &mut Package,
     stmt_id: qsc_fir::fir::StmtId,
@@ -1480,6 +1624,13 @@ fn rewrite_closure_target_call_args_in_stmt(
     }
 }
 
+/// Rewrites an expression subtree so direct calls to a closure target receive
+/// explicit capture operands.
+///
+/// Before, the expression tree may still contain `Call`s whose callee resolves
+/// to `closure_target` but whose args tuple omits the captures that were baked
+/// into the original closure value. After, every such call prepends those
+/// captures, matching the rewritten direct callable signature.
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::too_many_arguments)]
 fn rewrite_closure_target_call_args_in_expr(
@@ -1732,6 +1883,20 @@ fn rewrite_closure_target_call_args_in_expr(
 
 /// Prepends captured variables as additional arguments ahead of the
 /// existing call-site argument tuple (respecting controlled-layer nesting).
+///
+/// # Before
+/// ```text
+/// args = (original_args)   // or (ctrl_qubits, (original_args))
+/// ```
+/// # After
+/// ```text
+/// args = (__capture_0, ..., __capture_N, original_args)
+/// ```
+///
+/// # Mutations
+/// - Rewrites `args_id`'s `ExprKind` and `Ty` in place to a `Tuple`
+///   containing capture `Var` expressions followed by the preserved args.
+/// - Allocates capture `Var` `Expr` nodes through `assigner`.
 fn prepend_capture_args_to_call(
     package: &mut Package,
     args_id: ExprId,
@@ -1801,6 +1966,20 @@ fn prepend_capture_args_to_call(
 
 /// Removes the callable parameter from the specialized callable's input
 /// pattern and updates the corresponding types.
+///
+/// # Before
+/// ```text
+/// input = (param_0, callable_param, param_2)   // top_level_param = 1
+/// ```
+/// # After
+/// ```text
+/// input = (param_0, param_2)   // callable_param removed
+/// ```
+///
+/// # Mutations
+/// - Rewrites the input `Pat` node's `kind` and `ty` in place.
+/// - Flattens single-element tuples.
+/// - For nested params, delegates to [`remove_nested_callable_param`].
 fn remove_callable_param(package: &mut Package, decl: &mut CallableDecl, param: &CallableParam) {
     if !param.field_path.is_empty() {
         remove_nested_callable_param(package, decl, param);
@@ -1853,6 +2032,20 @@ fn remove_callable_param(package: &mut Package, decl: &mut CallableDecl, param: 
 /// pattern by navigating into the tuple type at the outer position and removing
 /// the arrow element at the inner position. Also rewrites any destructuring
 /// patterns in the body that bind the removed element.
+///
+/// # Before
+/// ```text
+/// input = (outer: (a, callable, b))   // field_path = [1]
+/// ```
+/// # After
+/// ```text
+/// input = (outer: (a, b))   // nested callable removed
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Pat.ty` for the sub-pattern and outer tuple in place.
+/// - Rewrites destructuring patterns in the body via
+///   [`rewrite_destructuring_pat_in_block`].
 fn remove_nested_callable_param(
     package: &mut Package,
     decl: &mut CallableDecl,
@@ -1928,6 +2121,19 @@ fn remove_nested_callable_param(
 /// Walks a block and rewrites any destructuring `let` statement whose init
 /// expression is `Var(Local(param_var))` by removing the sub-pattern at
 /// `inner_path` from the tuple pattern.
+///
+/// # Before
+/// ```text
+/// let (a, callable, b) = param_var;   // inner_path = [1]
+/// ```
+/// # After
+/// ```text
+/// let (a, b) = param_var;   // callable sub-pattern removed
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Pat.kind` and `Pat.ty` via [`remove_pat_at_field_path`].
+/// - Updates the init expression's type to match the rewritten pattern.
 fn rewrite_destructuring_pat_in_block(
     package: &mut Package,
     block_id: qsc_fir::fir::BlockId,
@@ -1958,6 +2164,19 @@ fn rewrite_destructuring_pat_in_block(
 /// Removes the sub-pattern at `field_path` from a tuple pattern structure,
 /// rewriting the outer pattern type so parameter removal stays type-
 /// consistent.
+///
+/// # Before
+/// ```text
+/// Pat::Tuple([p0, p1, p2])   // field_path = [1]
+/// ```
+/// # After
+/// ```text
+/// Pat::Tuple([p0, p2])   // p1 removed, ty updated
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Pat.kind` and `Pat.ty` in place.
+/// - Flattens single-element tuples.
 fn remove_pat_at_field_path(package: &mut Package, pat_id: PatId, field_path: &[usize]) -> bool {
     let Some((index, tail)) = field_path.split_first() else {
         return false;

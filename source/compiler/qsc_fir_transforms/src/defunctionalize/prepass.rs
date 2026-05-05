@@ -37,6 +37,21 @@ pub(super) fn run(store: &mut PackageStore, package_id: PackageId) {
 /// Promotes single-use immutable callable locals whose initializer is a simple
 /// item reference. For example, `let op = H; Apply(op, q)` is rewritten to
 /// `Apply(H, q)`, eliminating the indirection before analysis runs.
+///
+/// # Before
+/// ```text
+/// let op = H;         // Local(pat, Var(Item(H)))
+/// Apply(op, qubit);   // Call(Apply, (Var(Local(op)), qubit))
+/// ```
+/// # After
+/// ```text
+/// let op = H;         // binding still present (DCE removes later)
+/// Apply(H, qubit);    // Call(Apply, (Var(Item(H)), qubit))
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Expr.kind` at each single-use site from `Var(Local(..))`
+///   to `Var(Item(..))` in place.
 fn promote_single_use_callable_locals(store: &mut PackageStore, package_id: PackageId) {
     let replacements = {
         let pkg = store.get(package_id);
@@ -118,9 +133,29 @@ fn collect_single_use_promotions(pkg: &Package) -> Vec<(ExprId, ExprKind)> {
 }
 
 /// Replaces identity closures `(args) => f(args)` with direct references to
-/// `f` in the package's expressions. An identity closure is one whose body is
-/// a single call that forwards all actual parameters in order to a callee that
-/// is either a global item or a single captured variable.
+/// the callee in the package's expressions. An identity closure is one whose
+/// body is a single call that forwards all actual parameters in order to a
+/// callee that is either a global item or a single captured variable.
+///
+/// # Before
+/// ```text
+/// Closure([captures], target)   // target body: (args) => callee(args)
+/// ```
+/// # After (global callee)
+/// ```text
+/// Var(Item(callee_item))   // closure collapsed to direct item reference
+/// ```
+/// # After (captured-local callee)
+/// ```text
+/// Var(Local(outer_var))   // closure collapsed to outer-scope local
+/// ```
+/// # After (functor-wrapped callee)
+/// ```text
+/// UnOp(Functor(Adj), Var(Item(callee_item)))   // functor chain preserved
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Expr.kind` at each identity-closure site in place.
 fn identity_closure_peephole(store: &mut PackageStore, package_id: PackageId) {
     // Collect replacements using an immutable borrow.
     let replacements = {

@@ -705,9 +705,23 @@ fn substitute_functor_set(
 /// Also substitutes types inside generic args on `ExprKind::Var` expressions
 /// and clears generic args that become concrete after substitution.
 ///
-/// Callable declarations have only their output types substituted here;
-/// callable inputs are already substituted via `pat_map` when the input
-/// pattern is cloned.
+/// # Before
+/// ```text
+/// Expr { ty: Ty::Param(0), kind: Var(item, [Ty(Param(0))]) }
+/// Block { ty: Ty::Param(0) }
+/// Pat { ty: Ty::Param(0) }
+/// ```
+/// # After
+/// ```text
+/// Expr { ty: Int, kind: Var(item, [Ty(Int)]) }   // Param(0) → Int
+/// Block { ty: Int }
+/// Pat { ty: Int }
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Expr.ty`, `Block.ty`, and `Pat.ty` for every cloned node.
+/// - Substitutes generic args on `ExprKind::Var` expressions.
+/// - Substitutes callable declaration output types for nested items.
 fn substitute_types_in_cloned_nodes(
     target: &mut Package,
     cloner: &FirCloner,
@@ -774,9 +788,22 @@ fn substitute_generic_arg(ga: &GenericArg, arg_map: &FxHashMap<ParamId, GenericA
 /// Rewrites every generic `Var` call site in the target package to point at
 /// the monomorphized callable produced by [`create_specializations`].
 ///
+/// # Before
+/// ```text
+/// Var(Item(generic_callable), [Ty(Int), Functor(Adj)])
+/// ```
+/// # After
+/// ```text
+/// Var(Item(monomorphized_callable), [])   // generic args cleared
+/// ```
+///
 /// Residual non-empty generic argument lists on sites whose target has no
 /// matching specialization (e.g. intrinsics) are cleared so no `Ty::Param`
 /// survives the pass.
+///
+/// # Mutations
+/// - Rewrites `ExprKind::Var` nodes to reference monomorphized items and
+///   clears their generic-argument lists.
 fn rewrite_call_sites(
     package: &mut Package,
     package_id: PackageId,

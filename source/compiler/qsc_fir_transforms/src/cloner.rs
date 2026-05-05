@@ -557,6 +557,13 @@ impl FirCloner {
         new
     }
 
+    /// Clones one expression kind into `target`, recursively remapping every
+    /// referenced child id.
+    ///
+    /// Before, `kind` points at blocks, expressions, and patterns owned by the
+    /// source package. After, the returned `ExprKind` has the same shape but all
+    /// referenced children have been cloned into `target` and replaced with the
+    /// freshly allocated ids from this cloner.
     #[allow(clippy::too_many_lines)]
     fn clone_expr_kind(
         &mut self,

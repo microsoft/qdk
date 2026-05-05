@@ -617,6 +617,22 @@ fn collect_closure_targets(
 /// rewrites field accesses in all specialization bodies. Returns a
 /// `PromotionResult` only for top-level promotions (which require call-site
 /// rewriting).
+///
+/// # Before
+/// ```text
+/// input pat = Bind(p : (A, B))
+/// body:  Field(Var(Local(p)), Path([0])); Field(Var(Local(p)), Path([1]))
+/// ```
+/// # After
+/// ```text
+/// input pat = Tuple([Bind(p_0 : A), Bind(p_1 : B)])
+/// body:  Var(Local(p_0)); Var(Local(p_1))
+/// ```
+///
+/// # Mutations
+/// - Rewrites the input `Pat` from `Bind` to `Tuple` of per-element `Bind`s.
+/// - Allocates new `LocalVarId`, `PatId` nodes through `assigner`.
+/// - Delegates to [`rewrite_field_accesses`] to rewrite body expressions.
 fn promote_candidate(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -673,6 +689,19 @@ fn promote_candidate(
 }
 
 /// Rewrites field accesses on the old local to use the new decomposed locals.
+///
+/// # Before
+/// ```text
+/// Field(Var(Local(old)), Path([i]))   // param.i
+/// ```
+/// # After
+/// ```text
+/// Var(Local(old_i))   // direct scalar reference
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Expr.kind` in place for matching `Field` and `AssignField`
+///   expressions via [`rewrite_single_field_expr`].
 fn rewrite_field_accesses(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -691,6 +720,33 @@ fn rewrite_field_accesses(
 /// Rewrites a single expression that projects a field of the now-promoted
 /// parameter so it references the corresponding new scalar parameter
 /// binding directly.
+///
+/// Handles two expression shapes:
+///
+/// # Before (`Field` read)
+/// ```text
+/// Field(Var(Local(old_param)), Path([i]))      // single-index
+/// Field(Var(Local(old_param)), Path([i, j]))   // nested
+/// ```
+/// # After (`Field` read)
+/// ```text
+/// Var(Local(param_i))                          // single-index: direct
+/// Field(Var(Local(param_i)), Path([j]))         // nested: re-rooted
+/// ```
+///
+/// # Before (`AssignField`)
+/// ```text
+/// AssignField(Var(Local(old_param)), Path([i]), value)
+/// ```
+/// # After (`AssignField`)
+/// ```text
+/// Assign(Var(Local(param_i)), value)
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Expr.kind` and `Expr.ty` in place for the matched expression.
+/// - Allocates new `Var` `Expr` nodes through `assigner` for nested and
+///   assign-field paths.
 fn rewrite_single_field_expr(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -780,6 +836,20 @@ fn rewrite_single_field_expr(
 /// Rewrites all call sites for promoted callables. At each `Call(Var(Item(id)),
 /// arg)` where `id` is a promoted callable, replaces the single tuple argument
 /// with explicit field extractions wrapped in a `Tuple`.
+///
+/// # Before
+/// ```text
+/// Foo(struct_arg)   // single composite argument
+/// ```
+/// # After
+/// ```text
+/// Foo((struct_arg.0, struct_arg.1))   // explicit field projections
+/// ```
+///
+/// # Mutations
+/// - Rewrites call-site `Expr.kind` in place or wraps in a block when
+///   a temporary is needed to avoid evaluating the argument multiple times.
+/// - Allocates field-projection and tuple `Expr` nodes through `assigner`.
 fn rewrite_call_sites(
     package: &mut Package,
     package_id: PackageId,
@@ -834,6 +904,18 @@ fn expr_is_safe_to_project_repeatedly(package: &Package, expr_id: ExprId) -> boo
 /// expressions that cannot be projected repeatedly without
 /// side-effect duplication. The caller replaces subsequent field
 /// projections with references to `temp`.
+///
+/// # Before
+/// ```text
+/// (no binding)
+/// ```
+/// # After
+/// ```text
+/// let __arg_promote_tmp : T = arg_expr;
+/// ```
+///
+/// # Mutations
+/// - Allocates a new `Pat`, `LocalVarId`, and `Stmt` through `assigner`.
 fn create_projection_temp_binding(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -873,6 +955,9 @@ fn create_projection_temp_binding(
 /// Allocates a fresh `ExprKind::Var(Res::Local(var))` expression with the
 /// given type, used to materialize references to synthesized temporaries
 /// and promoted parameters.
+///
+/// # Mutations
+/// - Inserts one `Expr` node through `assigner`.
 fn create_local_var_expr(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -896,6 +981,19 @@ fn create_local_var_expr(
 /// Builds the projected tuple that replaces the original tuple argument at
 /// a call site, pairing each projected sub-expression with the type slot
 /// expected by the promoted callable signature.
+///
+/// # Before
+/// ```text
+/// (no expression)
+/// ```
+/// # After
+/// ```text
+/// Tuple([Field(arg, Path([0])), ..., Field(arg, Path([n-1]))])
+/// ```
+///
+/// # Mutations
+/// - Allocates per-element `Field` `Expr` nodes and the outer `Tuple`
+///   `Expr` through `assigner`.
 fn create_projected_tuple_arg(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -938,10 +1036,25 @@ fn create_projected_tuple_arg(
     new_arg_id
 }
 
-/// Wraps an existing `Call` expression in a synthesized block that first
-/// binds an argument temporary and then invokes the call with projected
-/// field arguments, preserving evaluation order for non-trivially-
-/// projectable arguments.
+/// Wraps an existing `Call` expression in a synthesized block that places
+/// a pre-built leading statement (typically a temporary binding) before
+/// the call, preserving evaluation order.
+///
+/// # Before
+/// ```text
+/// call_expr_id = Call(callee_id, _)
+/// ```
+/// # After
+/// ```text
+/// call_expr_id = Block {
+///     leading_stmt;                       // supplied by caller
+///     Expr(Call(callee_id, new_arg_id))   // inner call with rewritten args
+/// }
+/// ```
+///
+/// # Mutations
+/// - Replaces `call_expr_id`'s `ExprKind` with `Block(..)` in place.
+/// - Allocates inner `Call`, `Stmt`, and `Block` nodes through `assigner`.
 fn wrap_call_in_block(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -994,9 +1107,23 @@ fn wrap_call_in_block(
 
 /// Rewrites a single call site: `Foo(arg)` → `Foo((arg.0, arg.1, ...))`.
 ///
+/// # Before
+/// ```text
+/// Call(Var(Foo), composite_arg)
+/// ```
+/// # After
+/// ```text
+/// Call(Var(Foo), Tuple([arg.0, arg.1, ...]))   // or Block wrapping
+/// ```
+///
 /// If the argument is already a `Tuple(...)` with the correct arity, the
 /// existing tuple elements are used directly. Otherwise, field-extraction
 /// expressions are created.
+///
+/// # Mutations
+/// - Rewrites `call_expr_id`'s `ExprKind` in place.
+/// - May allocate projection, tuple, and temporary `Expr`/`Stmt` nodes
+///   through `assigner`.
 fn rewrite_single_call_site(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -1137,6 +1264,15 @@ fn resolve_expected_input(
     None
 }
 
+/// Reconciles a rewritten call-site argument subtree with the callee's current
+/// input type.
+///
+/// Before, `arg_id` may still reflect the pre-promotion shape, such as a scalar
+/// where the promoted callee now expects `(scalar,)`, or nested tuple children
+/// whose wrapper structure no longer matches the updated input pattern. After,
+/// the subtree rooted at `arg_id` mirrors `expected_input`: single-element tuple
+/// wrappers are inserted only where required and tuple types are refreshed after
+/// recursive normalization.
 fn normalize_arg_to_expected_input(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -1179,6 +1315,13 @@ fn normalize_arg_to_expected_input(
     arg_mut.ty = Ty::Tuple(updated_tys);
 }
 
+/// Replaces `arg_id` with a one-element tuple node while preserving the
+/// original argument under a freshly allocated child expression.
+///
+/// Before, `arg_id` points directly at the scalar or tuple element supplied at
+/// the call site. After, the original payload lives at `preserved_arg_id` and
+/// `arg_id` becomes `(payload)`, matching callees whose promoted signature still
+/// expects a single tuple layer.
 fn wrap_arg_in_single_tuple(package: &mut Package, assigner: &mut Assigner, arg_id: ExprId) {
     let original_arg = package.get_expr(arg_id).clone();
     let preserved_arg_id = assigner.next_expr();

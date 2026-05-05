@@ -136,6 +136,25 @@ pub fn erase_udts(store: &mut PackageStore, package_id: PackageId, assigner: &mu
 /// every expression type, pattern type, block type, callable signature,
 /// and struct construction in place. Called once per package in the
 /// entry-reachable closure.
+///
+/// # Before
+/// ```text
+/// Expr { ty: Udt(MyStruct), kind: Struct(res, None, fields) }
+/// Pat { ty: Udt(MyStruct) }
+/// Block { ty: Udt(MyStruct) }
+/// ```
+/// # After
+/// ```text
+/// Expr { ty: Tuple([Int, Bool]), kind: Tuple([v0, v1]) }
+/// Pat { ty: Tuple([Int, Bool]) }
+/// Block { ty: Tuple([Int, Bool]) }
+/// ```
+///
+/// # Mutations
+/// - Rewrites `Expr.ty`, `Expr.kind`, `Pat.ty`, `Block.ty`, and callable
+///   output types in place.
+/// - Allocates field-extraction `Expr` nodes through `cloner` for
+///   copy-update and field-update lowering.
 fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, cloner: &mut FirCloner) {
     // Rewrite all expression types and Struct expressions.
     let expr_ids: Vec<ExprId> = package.exprs.iter().map(|(id, _)| id).collect();
@@ -256,13 +275,19 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, cloner: &m
 
 /// Eliminates a UDT constructor call if `kind` is `ExprKind::Call` whose
 /// callee resolves to an `ItemKind::Ty` item. After type resolution the
-/// constructor is an identity/wrapping function:
+/// constructor is an identity/wrapping function.
 ///
-/// - When the argument type already matches the resolved pure type
-///   (multi-field or scalar newtypes), replaces the Call with the argument.
-/// - When the pure type is `Tuple([T])` but the argument is scalar `T`
-///   (trailing-comma newtypes), wraps the argument in a single-element
-///   tuple.
+/// # Before
+/// ```text
+/// Call(Var(Item(UdtConstructor)), arg)   // e.g. MyStruct(42)
+/// ```
+/// # After
+/// ```text
+/// arg   // or Tuple([arg]) for trailing-comma newtypes
+/// ```
+///
+/// # Mutations
+/// - Rewrites `expr_id`'s `ExprKind` and `Ty` in place.
 fn eliminate_udt_constructor_call(
     package: &mut Package,
     udt_cache: &UdtCache,
@@ -304,18 +329,18 @@ fn eliminate_udt_constructor_call(
 /// Lowers a copy-update struct expression `new Foo { ...copy, X = val }`
 /// into a tuple construction, replacing the expression kind in place.
 ///
-/// For multi-field UDTs, builds a tuple where explicitly assigned fields
-/// use the provided value and remaining fields are extracted from the copy
-/// source. The entire value is replaced by the assignment value in any of
-/// the following whole-value-replace cases:
+/// # Before
+/// ```text
+/// Struct(res, Some(copy_id), [FieldAssign(Path([1]), val)])
+/// ```
+/// # After
+/// ```text
+/// Tuple([Field(copy, Path([0])), val])   // field 0 extracted, field 1 replaced
+/// ```
 ///
-/// - the assigned field's path is empty (single-field UDT whose wrapper
-///   was erased),
-/// - the assigned field's path is exactly `[0]` and the record type
-///   resolves to a scalar (the wrapping tuple has already been erased to
-///   its sole element),
-/// - any non-empty path when the resolved record type is a scalar rather
-///   than a tuple (erasure collapsed the surrounding tuple).
+/// # Mutations
+/// - Rewrites `expr_id`'s `ExprKind` and `Ty` in place.
+/// - Allocates field-extraction `Expr` nodes through `cloner`.
 fn lower_copy_update_struct(
     package: &mut Package,
     cloner: &mut FirCloner,
@@ -429,6 +454,21 @@ fn lower_copy_update_struct(
 
 /// Lowers `UpdateField` and `AssignField` with `Field::Path` for a single
 /// expression, replacing the expression kind in place.
+///
+/// # Before
+/// ```text
+/// UpdateField(record, Field::Path([1]), new_val)   // record w/ field 1 updated
+/// AssignField(record, Field::Path([1]), new_val)   // assign field 1
+/// ```
+/// # After
+/// ```text
+/// Tuple([Field(record, Path([0])), new_val])       // lowered tuple
+/// Assign(record, Tuple([Field(record, Path([0])), new_val]))
+/// ```
+///
+/// # Mutations
+/// - Rewrites `expr_id`'s `ExprKind` in place.
+/// - Allocates field-extraction and update `Expr` nodes through `cloner`.
 fn lower_field_updates(
     package: &mut Package,
     cloner: &mut FirCloner,
@@ -651,6 +691,18 @@ fn lower_update_field(
 /// Builds `ExprKind::Tuple(fields)` where `fields[update_idx]` is
 /// `replace_id` and every other position is a freshly allocated
 /// `ExprKind::Field(record_id, Path([j]))`.
+///
+/// # Before
+/// ```text
+/// (no expression)
+/// ```
+/// # After
+/// ```text
+/// Tuple([Field(record, Path([0])), replace, Field(record, Path([2]))])
+/// ```
+///
+/// # Mutations
+/// - Allocates `Field` `Expr` nodes through `cloner` for non-updated positions.
 fn build_updated_tuple(
     package: &mut Package,
     cloner: &mut FirCloner,
@@ -677,6 +729,9 @@ fn build_updated_tuple(
 }
 
 /// Allocates a new `Expr` with `ExprKind::Field(record_id, Path([index]))`.
+///
+/// # Mutations
+/// - Inserts one `Expr` node through `cloner`.
 fn alloc_field_expr(
     package: &mut Package,
     cloner: &mut FirCloner,

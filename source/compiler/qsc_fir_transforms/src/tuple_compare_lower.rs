@@ -105,6 +105,19 @@ pub fn lower_tuple_comparisons(
 
 /// Rewrites a single `BinOp(Eq/Neq)` expression with tuple-typed operands
 /// into element-wise comparisons.
+///
+/// # Before
+/// ```text
+/// BinOp(Eq, lhs: (A, B), rhs: (A, B))
+/// ```
+/// # After
+/// ```text
+/// BinOp(AndL, BinOp(Eq, lhs.0, rhs.0), BinOp(Eq, lhs.1, rhs.1))
+/// ```
+///
+/// # Mutations
+/// - Rewrites `expr_id`'s `ExprKind` in place.
+/// - Allocates field-access and comparison `Expr` nodes through `assigner`.
 fn lower_single_cmp(package: &mut Package, assigner: &mut Assigner, expr_id: ExprId) {
     let expr = package.get_expr(expr_id);
     let (op, lhs_id, rhs_id) = match &expr.kind {
