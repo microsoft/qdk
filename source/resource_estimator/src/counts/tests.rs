@@ -3,6 +3,7 @@
 
 use std::convert::Into;
 
+use crate::system::LogicalResourceCounts;
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use miette::Report;
@@ -14,7 +15,7 @@ use qsc::{
 
 use super::LogicalCounter;
 
-fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
+fn run_logical_counts(source: &str, entry: Option<&str>) -> LogicalResourceCounts {
     let source_map = SourceMap::new([("test".into(), source.into())], entry.map(Into::into));
     let (std_id, store) = qsc::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
 
@@ -40,9 +41,7 @@ fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
     let mut out = GenericReceiver::new(&mut stdout);
 
     match interpreter.eval_entry_with_sim(&mut counter, &mut out) {
-        Ok(_) => {
-            expect.assert_debug_eq(&counter.logical_resources());
-        }
+        Ok(_) => counter.logical_resources(),
         Err(err) => {
             for e in err {
                 let report = Report::from(e);
@@ -51,6 +50,11 @@ fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
             panic!("evaluation failed");
         }
     }
+}
+
+fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
+    let logical_counts = run_logical_counts(source, entry);
+    expect.assert_debug_eq(&logical_counts);
 }
 
 #[test]
@@ -426,4 +430,24 @@ fn post_selection_can_take_impossible_branch() {
             }
         "#]],
     );
+}
+
+#[test]
+fn manual_memory_qubits() {
+    let counts = run_logical_counts(
+        indoc! {"
+                import Std.Diagnostics.PostSelectZ;
+
+                operation Main() : Unit {
+                    use q = Qubit();
+                    Std.ResourceEstimation.MemoryQubitStore(q);
+                    Std.ResourceEstimation.MemoryQubitLoad(q);
+                }
+            "},
+        None,
+    );
+    assert_eq!(counts.write_to_memory_count, Some(1));
+    assert_eq!(counts.read_from_memory_count, Some(1));
+    assert_eq!(counts.num_compute_qubits, Some(1));
+    assert_eq!(counts.num_qubits, 2);
 }
