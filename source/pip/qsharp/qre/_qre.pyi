@@ -1360,6 +1360,18 @@ class Trace:
         """
         ...
 
+    def runtime(self, isa: ISA) -> Optional[int]:
+        """
+        The trace runtime in nanoseconds for a given ISA.
+
+        Args:
+            isa (ISA): The ISA to compute the runtime for.
+
+        Returns:
+            Optional[int]: The trace runtime in nanoseconds, or None if it
+              cannot be computed.
+        """
+
     @property
     def num_gates(self) -> int:
         """
