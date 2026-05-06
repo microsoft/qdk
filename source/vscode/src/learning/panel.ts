@@ -330,7 +330,10 @@ export class KatasPanelManager {
     const staleTabs: vscode.Tab[] = [];
     for (const group of vscode.window.tabGroups.all) {
       for (const tab of group.tabs) {
-        if (tab.input instanceof vscode.TabInputText) {
+        if (
+          tab.input instanceof vscode.TabInputText ||
+          tab.input instanceof vscode.TabInputNotebook
+        ) {
           const tabUriStr = tab.input.uri.toString();
           const isManaged = managedRoots.some((root) =>
             tabUriStr.startsWith(root),
