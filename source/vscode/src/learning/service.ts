@@ -1127,6 +1127,7 @@ export class LearningService {
         type: "example",
         filePath: section.filePath,
         activityTitle: section.title,
+        cellIndex: section.cellIndex,
       } satisfies ExampleContent;
     }
 

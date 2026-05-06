@@ -4,7 +4,8 @@
 /**
  * Discovers learning courses from the well-known `qdk-learning-content` folder
  * in the workspace. Each top-level subfolder is a course; its children (files
- * or folders) become single-activity units of kind "example".
+ * or folders) become units. Notebook (`.ipynb`) files are split into multiple
+ * "example" activities at `##` heading boundaries for cell-level navigation.
  */
 
 import * as vscode from "vscode";
@@ -57,8 +58,8 @@ export async function scanForCourses(): Promise<CatalogCourse[]> {
 }
 
 /**
- * Scan a single course folder. Each child (file or folder) becomes a unit
- * with a single "example" activity.
+ * Scan a single course folder. Each child (file or folder) becomes a unit.
+ * Notebook files are split into multiple activities at `##` headings.
  */
 async function scanCourseFolder(courseUri: vscode.Uri): Promise<CatalogUnit[]> {
   const entries = await vscode.workspace.fs.readDirectory(courseUri);
@@ -72,38 +73,130 @@ async function scanCourseFolder(courseUri: vscode.Uri): Promise<CatalogUnit[]> {
         continue;
       }
       const id = stripExtension(name);
-      units.push({
-        id,
-        title: id,
-        sections: [
-          {
-            type: "example",
-            id,
-            title: id,
-            filePath: childUri.fsPath,
-          } satisfies CatalogExample,
-        ],
-      });
+      const sections = await buildSections(childUri, id);
+      units.push({ id, title: id, sections });
     } else if (type === vscode.FileType.Directory) {
       const mainAsset = await findMainAsset(childUri);
       if (mainAsset) {
-        units.push({
-          id: name,
-          title: name,
-          sections: [
-            {
-              type: "example",
-              id: name,
-              title: name,
-              filePath: mainAsset.fsPath,
-            } satisfies CatalogExample,
-          ],
-        });
+        const sections = await buildSections(mainAsset, name);
+        units.push({ id: name, title: name, sections });
       }
     }
   }
 
   return units;
+}
+
+/**
+ * Build activity sections for a file. For `.ipynb` files, split at `##`
+ * heading boundaries to create one activity per section. For other file
+ * types, return a single activity.
+ */
+async function buildSections(
+  fileUri: vscode.Uri,
+  fallbackId: string,
+): Promise<CatalogExample[]> {
+  if (fileUri.path.endsWith(".ipynb")) {
+    const sections = await splitNotebookAtHeadings(fileUri, fallbackId);
+    if (sections.length > 0) {
+      return sections;
+    }
+  }
+
+  // Non-notebook or notebook without ## headings: single activity.
+  return [
+    {
+      type: "example",
+      id: fallbackId,
+      title: fallbackId,
+      filePath: fileUri.fsPath,
+    },
+  ];
+}
+
+/**
+ * Parse a notebook and split it into activities at `##` markdown headings.
+ * Returns one `CatalogExample` per heading-delimited section, each with a
+ * `cellIndex` pointing to its anchor cell. Cells before the first `##`
+ * heading become an "Introduction" activity (if any exist).
+ */
+async function splitNotebookAtHeadings(
+  notebookUri: vscode.Uri,
+  unitId: string,
+): Promise<CatalogExample[]> {
+  let nbJson: { cells?: { cell_type: string; source: string | string[] }[] };
+  try {
+    const raw = await vscode.workspace.fs.readFile(notebookUri);
+    nbJson = JSON.parse(new TextDecoder("utf-8").decode(raw));
+  } catch {
+    return [];
+  }
+
+  const cells = nbJson.cells;
+  if (!cells || cells.length === 0) {
+    return [];
+  }
+
+  const filePath = notebookUri.fsPath;
+  const sections: CatalogExample[] = [];
+
+  // Walk cells and find ## heading boundaries.
+  let introEnd = -1;
+  for (let i = 0; i < cells.length; i++) {
+    const cell = cells[i];
+    if (cell.cell_type !== "markdown") {
+      continue;
+    }
+    const heading = extractLevel2Heading(cell.source);
+    if (heading) {
+      if (introEnd < 0) {
+        introEnd = i;
+        // If there are cells before the first heading, create an intro activity.
+        if (i > 0) {
+          sections.push({
+            type: "example",
+            id: `${unitId}--intro`,
+            title: "Introduction",
+            filePath,
+            cellIndex: 0,
+          });
+        }
+      }
+      sections.push({
+        type: "example",
+        id: `${unitId}--${slugify(heading)}`,
+        title: heading,
+        filePath,
+        cellIndex: i,
+      });
+    }
+  }
+
+  return sections;
+}
+
+/**
+ * Extract the first `## ` heading from a markdown cell's source.
+ * Returns the heading text (without the `## ` prefix) or undefined.
+ */
+function extractLevel2Heading(source: string | string[]): string | undefined {
+  const text = Array.isArray(source) ? source.join("") : source;
+  for (const line of text.split("\n")) {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith("## ")) {
+      return trimmed.slice(3).trim();
+    }
+  }
+  return undefined;
+}
+
+/** Convert a heading string into a URL-safe slug for use as an id. */
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
 }
 
 /**

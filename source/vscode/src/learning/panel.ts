@@ -102,6 +102,7 @@ export class KatasPanelManager {
         viewColumn: vscode.ViewColumn.One,
         preview: false,
       } satisfies vscode.TextDocumentShowOptions);
+      await this.revealNotebookCell(fileUri, pos.content.cellIndex);
       return;
     }
 
@@ -215,10 +216,13 @@ export class KatasPanelManager {
           this.panel?.dispose();
           this.closeStaleLearningTabs(undefined).catch(() => {});
           const fileUri = vscode.Uri.file(pos.content.filePath);
-          vscode.commands.executeCommand("vscode.open", fileUri, {
-            viewColumn: vscode.ViewColumn.One,
-            preview: false,
-          } satisfies vscode.TextDocumentShowOptions);
+          const { cellIndex } = pos.content;
+          vscode.commands
+            .executeCommand("vscode.open", fileUri, {
+              viewColumn: vscode.ViewColumn.One,
+              preview: false,
+            } satisfies vscode.TextDocumentShowOptions)
+            .then(() => this.revealNotebookCell(fileUri, cellIndex));
           return;
         }
 
@@ -339,6 +343,34 @@ export class KatasPanelManager {
     }
     if (staleTabs.length > 0) {
       await vscode.window.tabGroups.close(staleTabs);
+    }
+  }
+
+  /**
+   * Scroll a notebook editor to a specific cell index. If the file is a
+   * notebook and `cellIndex` is defined, finds the active NotebookEditor
+   * and reveals the target cell at the top of the viewport.
+   */
+  private async revealNotebookCell(
+    fileUri: vscode.Uri,
+    cellIndex: number | undefined,
+  ): Promise<void> {
+    if (cellIndex == null) {
+      return;
+    }
+    // The notebook editor may not be immediately available after opening.
+    // Retry briefly to allow VS Code to finish activating the editor.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const editor = vscode.window.visibleNotebookEditors.find(
+        (e) => e.notebook.uri.toString() === fileUri.toString(),
+      );
+      if (editor) {
+        const range = new vscode.NotebookRange(cellIndex, cellIndex + 1);
+        editor.revealRange(range, vscode.NotebookEditorRevealType.AtTop);
+        editor.selections = [range];
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
 

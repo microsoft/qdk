@@ -68,6 +68,8 @@ export interface ExampleContent {
   /** Absolute file path of the code asset (ipynb, .qs, .py, etc.) */
   filePath: string;
   activityTitle: string;
+  /** 0-based cell index to reveal when navigating (notebook anchor). */
+  cellIndex?: number;
 }
 
 // ─── Actions ───
@@ -252,6 +254,8 @@ export interface CatalogExample {
   title: string;
   /** Absolute file path of the code asset on disk. */
   filePath: string;
+  /** 0-based cell index to reveal when navigating (notebook anchor). */
+  cellIndex?: number;
 }
 
 export type CatalogSection = CatalogExercise | CatalogLesson | CatalogExample;
