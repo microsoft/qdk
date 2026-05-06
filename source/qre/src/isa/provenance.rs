@@ -5,7 +5,28 @@ use std::sync::{Arc, RwLock};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{Encoding, ISA, ISARequirements, Instruction, ParetoFrontier3D};
+use crate::{
+    Encoding, ISA, ISARequirements, Instruction, ParetoFrontier3D, Property, float_to_bits,
+};
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+enum PropertyGroupKey {
+    Bool(bool),
+    Int(i64),
+    Float(u64),
+    Str(String),
+}
+
+impl From<&Property> for PropertyGroupKey {
+    fn from(value: &Property) -> Self {
+        match value {
+            Property::Bool(v) => Self::Bool(*v),
+            Property::Int(v) => Self::Int(*v),
+            Property::Float(v) => Self::Float(float_to_bits(*v)),
+            Property::Str(v) => Self::Str(v.clone()),
+        }
+    }
+}
 
 pub struct ProvenanceGraph {
     nodes: Vec<ProvenanceNode>,
@@ -128,15 +149,20 @@ impl ProvenanceGraph {
             // Sub-partition by encoding and property keys to avoid comparing
             // incompatible instructions (Risk R2 mitigation)
             #[allow(clippy::type_complexity)]
-            let mut sub_groups: FxHashMap<(Encoding, Vec<(u64, u64)>), Vec<usize>> =
-                FxHashMap::default();
+            let mut sub_groups: FxHashMap<
+                (Encoding, Vec<(u64, PropertyGroupKey)>),
+                Vec<usize>,
+            > = FxHashMap::default();
             for &idx in &node_indices {
                 let instr = &self.nodes[idx].instruction;
-                let mut prop_vec: Vec<(u64, u64)> = instr
+                let mut prop_vec: Vec<(u64, PropertyGroupKey)> = instr
                     .properties
                     .as_ref()
                     .map(|p| {
-                        let mut v: Vec<_> = p.iter().map(|(&k, &v)| (k, v)).collect();
+                        let mut v: Vec<_> = p
+                            .iter()
+                            .map(|(&k, v)| (k, PropertyGroupKey::from(v)))
+                            .collect();
                         v.sort_unstable();
                         v
                     })

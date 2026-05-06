@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import pytest
+
 from qsharp.qre import LOGICAL, PHYSICAL
 from qsharp.qre.instruction_ids import (
     T,
@@ -11,6 +13,7 @@ from qsharp.qre.instruction_ids import (
     CZ,
     H,
     MEAS_Z,
+    PHYSICAL_MOVE,
     MEAS_X,
     MEAS_XX,
     MEAS_ZZ,
@@ -19,6 +22,9 @@ from qsharp.qre.instruction_ids import (
     PREP_Z,
     LATTICE_SURGERY,
     MEMORY,
+    MEAS_RESET_Z,
+    RZ,
+    SQRT_X,
     SQRT_SQRT_X,
     SQRT_SQRT_X_DAG,
     SQRT_SQRT_Y,
@@ -29,15 +35,22 @@ from qsharp.qre.instruction_ids import (
 from qsharp.qre.models import (
     GateBased,
     Majorana,
+    NeutralAtom,
     RoundBasedFactory,
     MagicUpToClifford,
     Litinski19Factory,
     SurfaceCode,
+    SurfaceCodeLowMove,
     ThreeAux,
     TwoDimensionalYokedSurfaceCode,
 )
-from qsharp.qre.property_keys import DISTANCE
-
+from qsharp.qre.property_keys import (
+    ACCELERATION,
+    ATOM_SPACING,
+    CODE_CYCLE_TIME,
+    DISTANCE,
+    VELOCITY,
+)
 
 # ---------------------------------------------------------------------------
 # GateBased architecture tests
@@ -179,6 +192,68 @@ class TestMajorana:
 
 
 # ---------------------------------------------------------------------------
+# NeutralAtom architecture tests
+# ---------------------------------------------------------------------------
+
+
+class TestNeutralAtom:
+    def test_default_parameters(self):
+        arch = NeutralAtom()
+
+        assert arch.rydberg_time == 500
+        assert arch.rydberg_error == 1e-3
+        assert arch.one_qubit_time == 1000
+        assert arch.one_qubit_error == 1e-4
+        assert arch.measurement_time == 10000
+        assert arch.measurement_error == 1e-4
+        assert arch.handoff_time == 0
+        assert arch.atom_spacing == 3.0
+        assert arch.max_velocity == 0.25
+        assert arch.max_acceleration == 5000.0
+
+    def test_provided_isa_contains_expected_instructions(self):
+        arch = NeutralAtom()
+        isa = arch.context().isa
+
+        for instr_id in [
+            RZ,
+            T,
+            SQRT_X,
+            H,
+            CZ,
+            CNOT,
+            MEAS_Z,
+            MEAS_RESET_Z,
+            PHYSICAL_MOVE,
+        ]:
+            assert instr_id in isa
+
+    def test_rz_is_free(self):
+        arch = NeutralAtom()
+        isa = arch.context().isa
+
+        assert isa[RZ].expect_time() == 0
+        assert isa[RZ].expect_error_rate() == 0.0
+
+    def test_physical_move_has_motion_properties(self):
+        arch = NeutralAtom(
+            atom_spacing=8.5, max_velocity=17.25, max_acceleration=9000.5
+        )
+        isa = arch.context().isa
+        move = isa[PHYSICAL_MOVE]
+
+        assert move.get_property(ATOM_SPACING) == 8.5
+        assert move.get_property(VELOCITY) == 17.25
+        assert move.get_property(ACCELERATION) == 9000.5
+
+    def test_physical_move_has_expected_time(self):
+        arch = NeutralAtom(atom_spacing=8, handoff_time=17)
+        isa = arch.context().isa
+
+        assert isa[PHYSICAL_MOVE].expect_time() == 34
+
+
+# ---------------------------------------------------------------------------
 # SurfaceCode QEC tests
 # ---------------------------------------------------------------------------
 
@@ -300,6 +375,79 @@ class TestSurfaceCode:
 
         # Lower threshold means worse ratio => higher logical error
         assert error_low > error_high
+
+
+class TestSurfaceCodeLowMove:
+    def test_removed_gate_depth_keywords_are_rejected(self):
+        one_qubit_kwargs = {"distance": 3, "one_qubit_gate_depth": 1}
+        with pytest.raises(TypeError):
+            SurfaceCodeLowMove(**one_qubit_kwargs)
+
+        two_qubit_kwargs = {"distance": 3, "two_qubit_gate_depth": 4}
+        with pytest.raises(TypeError):
+            SurfaceCodeLowMove(**two_qubit_kwargs)
+
+    def test_required_isa_is_satisfied_by_neutral_atom(self):
+        arch = NeutralAtom(atom_spacing=10.0)
+
+        assert arch.context().isa.satisfies(SurfaceCodeLowMove.required_isa())
+
+    def test_required_isa_rejects_small_atom_spacing(self):
+        arch = NeutralAtom(atom_spacing=9.9)
+
+        assert arch.context().isa.satisfies(SurfaceCodeLowMove.required_isa()) is False
+
+    def test_uses_move_atom_spacing_property(self):
+        small_spacing_arch = NeutralAtom(
+            atom_spacing=10.0,
+            max_velocity=1,
+            max_acceleration=1,
+            measurement_time=1,
+        )
+        large_spacing_arch = NeutralAtom(
+            atom_spacing=20.0,
+            max_velocity=1,
+            max_acceleration=1,
+            measurement_time=1,
+        )
+
+        small_spacing_ctx = small_spacing_arch.context()
+        large_spacing_ctx = large_spacing_arch.context()
+        sc = SurfaceCodeLowMove(distance=3)
+
+        small_spacing_lattice_surgery = list(
+            sc.provided_isa(small_spacing_ctx.isa, small_spacing_ctx)
+        )[0][LATTICE_SURGERY]
+        large_spacing_lattice_surgery = list(
+            sc.provided_isa(large_spacing_ctx.isa, large_spacing_ctx)
+        )[0][LATTICE_SURGERY]
+
+        assert small_spacing_lattice_surgery.get_property(CODE_CYCLE_TIME) != (
+            large_spacing_lattice_surgery.get_property(CODE_CYCLE_TIME)
+        )
+
+    def test_provides_lattice_surgery(self):
+        arch = NeutralAtom(atom_spacing=10.0)
+        ctx = arch.context()
+        sc = SurfaceCodeLowMove(distance=3)
+
+        isas = list(sc.provided_isa(ctx.isa, ctx))
+
+        assert len(isas) == 1
+        assert LATTICE_SURGERY in isas[0]
+        assert isas[0][LATTICE_SURGERY].encoding == LOGICAL
+
+    def test_time_scales_from_code_cycle_time(self):
+        arch = NeutralAtom(atom_spacing=10.0)
+        ctx = arch.context()
+        sc = SurfaceCodeLowMove(distance=3)
+
+        lattice_surgery = list(sc.provided_isa(ctx.isa, ctx))[0][LATTICE_SURGERY]
+        code_cycle_time = lattice_surgery.get_property(CODE_CYCLE_TIME)
+        assert isinstance(code_cycle_time, (int, float))
+
+        assert code_cycle_time > 0
+        assert lattice_surgery.expect_time(1) == code_cycle_time * sc.distance
 
 
 # ---------------------------------------------------------------------------
