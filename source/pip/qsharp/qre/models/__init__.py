@@ -4,19 +4,22 @@
 from .factories import Litinski19Factory, MagicUpToClifford, RoundBasedFactory
 from .qec import (
     SurfaceCode,
+    SurfaceCodeLowMove,
     ThreeAux,
     OneDimensionalYokedSurfaceCode,
     TwoDimensionalYokedSurfaceCode,
 )
-from .qubits import GateBased, Majorana
+from .qubits import GateBased, Majorana, NeutralAtom
 
 __all__ = [
     "GateBased",
     "Litinski19Factory",
     "Majorana",
     "MagicUpToClifford",
+    "NeutralAtom",
     "RoundBasedFactory",
     "SurfaceCode",
+    "SurfaceCodeLowMove",
     "ThreeAux",
     "OneDimensionalYokedSurfaceCode",
     "TwoDimensionalYokedSurfaceCode",
