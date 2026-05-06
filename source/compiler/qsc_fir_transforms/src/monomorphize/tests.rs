@@ -620,7 +620,8 @@ fn mono_missing_same_package_specialization_panics() {
             function Main() : Int { Identity(42) }
         "#});
 
-    rewrite_call_sites(store.get_mut(pkg_id), pkg_id, &[]);
+    let expr_ids: Vec<_> = store.get(pkg_id).exprs.iter().map(|(id, _)| id).collect();
+    rewrite_call_sites(store.get_mut(pkg_id), pkg_id, &[], &expr_ids);
 }
 
 fn assert_node_id_is_unique(node_id: NodeId, seen: &mut FxHashSet<u32>) {
@@ -928,9 +929,10 @@ fn cross_package_non_intrinsic_generic_specializes() {
 }
 
 #[test]
-fn monomorphize_no_entry_returns_immediately() {
+#[should_panic(expected = "monomorphize requires a package entry expression")]
+fn monomorphize_no_entry_panics() {
     // Compile as a library (no @EntryPoint) so package.entry is None.
-    // monomorphize should return immediately, leaving generics untouched.
+    // monomorphize should panic because it requires an entry expression.
     use qsc_data_structures::{
         language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
     };
@@ -969,41 +971,10 @@ fn monomorphize_no_entry_returns_immediately() {
     let hir_pkg_id = hir_store.insert(unit);
     let (mut fir_store, fir_pkg_id, _) = lower_hir_to_fir(&hir_store, hir_pkg_id);
 
-    // Confirm entry is None before calling monomorphize.
     assert!(fir_store.get(fir_pkg_id).entry.is_none());
-
-    // Capture item count before.
-    let items_before: Vec<_> = fir_store
-        .get(fir_pkg_id)
-        .items
-        .iter()
-        .map(|(id, _)| id)
-        .collect();
 
     let mut assigner = Assigner::from_package(fir_store.get(fir_pkg_id));
     monomorphize(&mut fir_store, fir_pkg_id, &mut assigner);
-
-    // Item count must be unchanged — no specializations were created.
-    let items_after: Vec<_> = fir_store
-        .get(fir_pkg_id)
-        .items
-        .iter()
-        .map(|(id, _)| id)
-        .collect();
-    assert_eq!(items_before, items_after);
-
-    // The generic function should still be generic.
-    let package = fir_store.get(fir_pkg_id);
-    for (_, item) in &package.items {
-        if let ItemKind::Callable(decl) = &item.kind
-            && decl.name.name.as_ref() == "Helper"
-        {
-            assert!(
-                !decl.generics.is_empty(),
-                "Helper should still be generic after no-op monomorphize"
-            );
-        }
-    }
 }
 
 #[test]
@@ -1216,5 +1187,28 @@ fn shared_input_and_arrow_generic_param_specializes() {
             // entry
             Main()
         "#]],
+    );
+}
+
+#[test]
+fn unreachable_generic_call_site_not_specialized() {
+    // Monomorphize only processes reachable callables.
+    // The dead callable's generic call with a different type arg
+    // never generates a specialization. Verify that only the reachable
+    // Int specialization is produced.
+    check(
+        indoc! {"
+            namespace Test {
+                @EntryPoint()
+                function Main() : Int {
+                    Identity(42)
+                }
+                function Identity<'T>(x : 'T) : 'T { x }
+            }
+        "},
+        &expect![[r#"
+            Identity: generics=1, input=Param<0>, output=Param<0>
+            Identity<Int>: generics=0, input=Int, output=Int
+            Main: generics=0, input=Unit, output=Int"#]],
     );
 }

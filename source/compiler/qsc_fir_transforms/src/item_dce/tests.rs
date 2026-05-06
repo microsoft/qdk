@@ -637,3 +637,76 @@ mod item_dce_contracts {
         }
     }
 }
+
+#[test]
+fn pinned_item_survives_item_dce() {
+    let (mut store, pkg_id) = compile_to_fir(indoc! {"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int { 42 }
+            // Unreachable from entry but will be pinned
+            operation Pinned() : Int { 99 }
+        }
+    "});
+    let package = store.get(pkg_id);
+    let pinned_local = callable_id_by_name(package, "Pinned");
+    let pinned_store_id = qsc_fir::fir::StoreItemId {
+        package: pkg_id,
+        item: pinned_local,
+    };
+
+    let errors = crate::run_pipeline_to(
+        &mut store,
+        pkg_id,
+        PipelineStage::ItemDce,
+        &[pinned_store_id],
+    );
+    assert!(errors.is_empty());
+
+    // Pinned item should survive DCE.
+    let package = store.get(pkg_id);
+    assert!(
+        package.items.get(pinned_local).is_some(),
+        "pinned item should survive DCE"
+    );
+}
+
+#[test]
+fn pinned_item_transitive_deps_survive_item_dce() {
+    let (mut store, pkg_id) = compile_to_fir(indoc! {"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int { 42 }
+            // Unreachable from entry but will be pinned
+            operation Pinned() : Int { Helper() }
+            // Transitive dep of Pinned, also unreachable from entry
+            operation Helper() : Int { 77 }
+        }
+    "});
+    let package = store.get(pkg_id);
+    let pinned_local = callable_id_by_name(package, "Pinned");
+    let helper_local = callable_id_by_name(package, "Helper");
+    let pinned_store_id = qsc_fir::fir::StoreItemId {
+        package: pkg_id,
+        item: pinned_local,
+    };
+
+    let errors = crate::run_pipeline_to(
+        &mut store,
+        pkg_id,
+        PipelineStage::ItemDce,
+        &[pinned_store_id],
+    );
+    assert!(errors.is_empty());
+
+    // Both pinned item and its transitive dep should survive DCE.
+    let package = store.get(pkg_id);
+    assert!(
+        package.items.get(pinned_local).is_some(),
+        "pinned item should survive DCE"
+    );
+    assert!(
+        package.items.get(helper_local).is_some(),
+        "transitive dependency of pinned item should survive DCE"
+    );
+}

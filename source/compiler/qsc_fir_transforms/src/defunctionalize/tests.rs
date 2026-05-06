@@ -14,10 +14,12 @@ use super::defunctionalize;
 use super::types::{
     CallableParam, CalleeLattice, ConcreteCallable, ConcreteCallableKey, SpecKey, compose_functors,
 };
+use crate::fir_builder::reachable_local_callables;
 use crate::reachability::collect_reachable_from_entry;
 use crate::test_utils::{
     compile_to_monomorphized_fir, compile_to_monomorphized_fir_with_capabilities,
 };
+use crate::walk_utils::collect_expr_ids_in_entry_and_local_callables;
 use crate::{invariants as fir_invariants, invariants::InvariantLevel};
 use qsc_data_structures::functors::FunctorApp;
 
@@ -233,7 +235,13 @@ fn check_analysis_with_capabilities(
     let (mut fir_store, fir_pkg_id) =
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
     let reachable = collect_reachable_from_entry(&fir_store, fir_pkg_id);
-    super::prepass::run(&mut fir_store, fir_pkg_id);
+    let package = fir_store.get(fir_pkg_id);
+    let local_item_ids: Vec<_> = reachable_local_callables(package, fir_pkg_id, &reachable)
+        .map(|(id, _)| id)
+        .collect();
+    let reachable_expr_ids =
+        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
+    super::prepass::run(&mut fir_store, fir_pkg_id, &reachable_expr_ids);
     let result = defunc_analysis::analyze(&mut fir_store, fir_pkg_id, &reachable);
 
     let mut lines: Vec<String> = Vec::new();
@@ -643,4 +651,35 @@ fn hof_with_nested_named_function_specializes_correctly() {
         }
     "#;
     check_pipeline(source);
+}
+
+#[test]
+fn unreachable_closure_structure_preserved() {
+    // Reachable: Main calls Apply with a closure.
+    // Dead: DeadFn uses a different closure pattern.
+    // Document whether the dead closure structure is mutated by defunctionalization.
+    use indoc::indoc;
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(indoc! {"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                Apply(x -> x + 1, 5)
+            }
+            function Apply(f : Int -> Int, x : Int) : Int { f(x) }
+            // Dead — never called from entry
+            function DeadFn() : Int {
+                Apply(x -> x * 2, 10)
+            }
+        }
+    "});
+    let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
+    assert_no_defunctionalization_errors("unreachable_closure_structure_preserved", &errors);
+
+    // Document that dead callable still exists (item DCE hasn't run yet).
+    let package = fir_store.get(fir_pkg_id);
+    let dead_exists = package.items.values().any(|item| {
+        matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "DeadFn")
+    });
+    assert!(dead_exists, "DeadFn should still exist pre-DCE");
 }

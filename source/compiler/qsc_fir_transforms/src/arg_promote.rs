@@ -145,7 +145,10 @@ use crate::fir_builder::{
     decompose_binding, functored_specs, reachable_local_callables, resolve_udt_element_types,
 };
 use crate::reachability::collect_reachable_from_entry;
-use crate::walk_utils::{collect_uses_in_block, for_each_expr, for_each_expr_in_callable_impl};
+use crate::walk_utils::{
+    collect_expr_ids_in_entry_and_local_callables, collect_expr_ids_in_local_callables,
+    collect_uses_in_block, for_each_expr, for_each_expr_in_callable_impl,
+};
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
@@ -191,50 +194,102 @@ pub fn arg_promote(store: &mut PackageStore, package_id: PackageId, assigner: &m
         return;
     }
 
+    promote_to_fixed_point(store, package_id, assigner);
+    normalize_reachable_call_arg_types(store, package_id, assigner);
+}
+
+/// Iterates promotion rounds until no more candidates are found.
+///
+/// Each iteration peels one level of tuple nesting from eligible parameters,
+/// rewrites their bodies and call sites, then recomputes reachability for
+/// the next round.
+fn promote_to_fixed_point(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigner: &mut Assigner,
+) {
     loop {
-        let reachable = collect_reachable_from_entry(store, package_id);
-        let package = store.get(package_id);
-
-        // Collect first-class and closure uses of callables to disqualify them.
-        let first_class = collect_first_class_callables(package, package_id, &reachable);
-        let closure_targets = collect_closure_targets(package, package_id, &reachable);
-
-        // Identify candidates.
-        let mut candidates: Vec<ArgPromoCandidate> = Vec::new();
-
-        for (item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
-            // Skip callables used as first-class values or partially applied.
-            if first_class.contains(&item_id) || closure_targets.contains(&item_id) {
-                continue;
-            }
-
-            candidates.extend(check_candidates(store, package, package_id, item_id, decl));
-        }
-
+        let candidates = find_promotion_candidates(store, package_id);
         if candidates.is_empty() {
             break;
         }
+        apply_promotions(store, package_id, assigner, &candidates);
+    }
+}
 
-        // Apply promotion: decompose parameters and rewrite bodies.
-        let package = store.get_mut(package_id);
-        let mut promotions: Vec<PromotionResult> = Vec::new();
-        for candidate in &candidates {
-            if let Some(result) = promote_candidate(package, assigner, candidate) {
-                promotions.push(result);
-            }
+/// Finds all eligible promotion candidates in the current reachable set,
+/// excluding callables used as first-class values or closure targets.
+fn find_promotion_candidates(
+    store: &PackageStore,
+    package_id: PackageId,
+) -> Vec<ArgPromoCandidate> {
+    let reachable = collect_reachable_from_entry(store, package_id);
+    let package = store.get(package_id);
+
+    let first_class = collect_first_class_callables(package, package_id, &reachable);
+    let closure_targets = collect_closure_targets(package, package_id, &reachable);
+
+    let mut candidates: Vec<ArgPromoCandidate> = Vec::new();
+    for (item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
+        if first_class.contains(&item_id) || closure_targets.contains(&item_id) {
+            continue;
         }
+        candidates.extend(check_candidates(store, package, package_id, item_id, decl));
+    }
+    candidates
+}
 
-        // Rewrite call sites (only for top-level promotions).
-        if !promotions.is_empty() {
-            rewrite_call_sites(package, package_id, assigner, &promotions);
+/// Applies a batch of promotion candidates: decomposes parameters, rewrites
+/// bodies, and rewrites call sites scoped to reachable expressions.
+fn apply_promotions(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigner: &mut Assigner,
+    candidates: &[ArgPromoCandidate],
+) {
+    let reachable = collect_reachable_from_entry(store, package_id);
+    let package = store.get(package_id);
+    let local_item_ids: Vec<_> = reachable_local_callables(package, package_id, &reachable)
+        .map(|(id, _)| id)
+        .collect();
+    let reachable_expr_ids =
+        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
+
+    let package = store.get_mut(package_id);
+    let mut promotions: Vec<PromotionResult> = Vec::new();
+    for candidate in candidates {
+        if let Some(result) = promote_candidate(package, assigner, candidate) {
+            promotions.push(result);
         }
     }
 
-    // Normalize call-arg types across all call sites so that argument
-    // expressions match the expected callable input shape (e.g. single-
-    // element tuple wrapping after promotion changes a signature).
+    if !promotions.is_empty() {
+        rewrite_call_sites(
+            package,
+            package_id,
+            assigner,
+            &promotions,
+            &reachable_expr_ids,
+        );
+    }
+}
+
+/// Normalizes call-argument types across all reachable call sites after
+/// promotion has converged.
+fn normalize_reachable_call_arg_types(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigner: &mut Assigner,
+) {
+    let reachable = collect_reachable_from_entry(store, package_id);
+    let package = store.get(package_id);
+    let local_item_ids: Vec<_> = reachable_local_callables(package, package_id, &reachable)
+        .map(|(id, _)| id)
+        .collect();
+    let reachable_expr_ids =
+        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
     let package = store.get_mut(package_id);
-    normalize_call_arg_types(package, package_id, assigner);
+    normalize_call_arg_types(package, package_id, assigner, &reachable_expr_ids);
 }
 
 /// A candidate for argument promotion.
@@ -612,10 +667,11 @@ fn promote_candidate(
         &candidate.elem_types,
     );
 
-    // Rewrite all field accesses across the entire package.
+    // Rewrite field accesses scoped to the promoted callable's body.
     rewrite_field_accesses(
         package,
         assigner,
+        candidate.item_id,
         candidate.local_id,
         &new_locals,
         &candidate.elem_types,
@@ -633,6 +689,9 @@ fn promote_candidate(
 
 /// Rewrites field accesses on the old local to use the new decomposed locals.
 ///
+/// Scoped to the promoted callable's body expressions only, since `old_local`
+/// is a parameter binding that can only appear in the declaring callable.
+///
 /// # Before
 /// ```text
 /// Field(Var(Local(old)), Path([i]))   // param.i
@@ -648,11 +707,12 @@ fn promote_candidate(
 fn rewrite_field_accesses(
     package: &mut Package,
     assigner: &mut Assigner,
+    item_id: LocalItemId,
     old_local: LocalVarId,
     new_locals: &[LocalVarId],
     elem_types: &[Ty],
 ) {
-    let expr_ids: Vec<ExprId> = package.exprs.iter().map(|(id, _)| id).collect();
+    let expr_ids = collect_expr_ids_in_local_callables(&*package, &[item_id]);
     for expr_id in expr_ids {
         rewrite_single_field_expr(
             package, assigner, expr_id, old_local, new_locals, elem_types,
@@ -798,15 +858,16 @@ fn rewrite_call_sites(
     package_id: PackageId,
     assigner: &mut Assigner,
     promotions: &[PromotionResult],
+    reachable_expr_ids: &[ExprId],
 ) {
     // Build a set of promoted item IDs for quick lookup.
     let promoted: FxHashSet<LocalItemId> = promotions.iter().map(|p| p.item_id).collect();
 
     // Collect all call-site ExprIds that target a promoted callable.
-    let call_sites: Vec<(ExprId, LocalItemId)> = package
-        .exprs
+    let call_sites: Vec<(ExprId, LocalItemId)> = reachable_expr_ids
         .iter()
-        .filter_map(|(expr_id, expr)| {
+        .filter_map(|&expr_id| {
+            let expr = package.exprs.get(expr_id)?;
             if let ExprKind::Call(callee_id, _) = &expr.kind {
                 let callee = package.exprs.get(*callee_id)?;
                 if let ExprKind::Var(Res::Item(item_id), _) = &callee.kind
@@ -1167,11 +1228,16 @@ fn rewrite_single_call_site(
 /// - For every direct call expression, argument type structure matches the
 ///   expected callable input type where normalization can be done locally.
 /// - Does not rewrite callee declarations; only argument expression shape.
-fn normalize_call_arg_types(package: &mut Package, package_id: PackageId, assigner: &mut Assigner) {
-    let call_sites: Vec<(ExprId, Ty)> = package
-        .exprs
+fn normalize_call_arg_types(
+    package: &mut Package,
+    package_id: PackageId,
+    assigner: &mut Assigner,
+    reachable_expr_ids: &[ExprId],
+) {
+    let call_sites: Vec<(ExprId, Ty)> = reachable_expr_ids
         .iter()
-        .filter_map(|(_, expr)| {
+        .filter_map(|&expr_id| {
+            let expr = package.exprs.get(expr_id)?;
             let ExprKind::Call(callee_id, arg_id) = expr.kind else {
                 return None;
             };

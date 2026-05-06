@@ -50,7 +50,7 @@ mod semantic_equivalence_tests;
 
 use crate::fir_builder::{alloc_bin_op_expr, alloc_field_expr, reachable_local_callables};
 use crate::reachability::collect_reachable_from_entry;
-use crate::walk_utils::for_each_expr_in_callable_impl;
+use crate::walk_utils::collect_expr_ids_in_entry_and_local_callables;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{BinOp, ExprId, ExprKind, Package, PackageId, PackageLookup, PackageStore};
 use qsc_fir::ty::{Prim, Ty};
@@ -80,13 +80,13 @@ pub fn lower_tuple_comparisons(
     let reachable = collect_reachable_from_entry(store, package_id);
     let package = store.get(package_id);
 
-    // Collect all ExprIds in reachable callables.
-    let mut expr_ids: Vec<ExprId> = Vec::new();
-    for (_item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
-        for_each_expr_in_callable_impl(package, &decl.implementation, &mut |id, _| {
-            expr_ids.push(id);
-        });
-    }
+    // Collect reachable local callable item IDs.
+    let local_item_ids: Vec<_> = reachable_local_callables(package, package_id, &reachable)
+        .map(|(item_id, _)| item_id)
+        .collect();
+
+    // Collect all ExprIds in entry expression + reachable callable bodies.
+    let expr_ids = collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
 
     let package = store.get_mut(package_id);
     for expr_id in expr_ids {

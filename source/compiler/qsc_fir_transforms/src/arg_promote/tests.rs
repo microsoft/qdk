@@ -957,3 +957,31 @@ fn pretty_print_after_arg_promote_is_non_empty() {
         "pretty-printed Q# after arg_promote should not be empty"
     );
 }
+
+#[test]
+fn unreachable_caller_call_site_behavior() {
+    // Dead callable calls a promoted target — document whether it gets rewritten.
+    // This captures current (package-wide) behavior before scope narrowing.
+    check(
+        indoc! {"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Int {
+                    Foo((1, 2))
+                }
+                operation Foo(x : (Int, Int)) : Int {
+                    let (a, b) = x;
+                    a + b
+                }
+                // Dead callable — never called from entry path
+                operation Dead() : Int {
+                    Foo((3, 4))
+                }
+            }
+        "},
+        &expect![[r#"
+            Callable Foo: input=Bind(x: (Int, Int))
+              local: Tuple(Bind(a: Int), Bind(b: Int))
+            Callable Main: input=Tuple()"#]],
+    );
+}

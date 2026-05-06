@@ -903,3 +903,36 @@ fn pretty_print_after_sroa_is_non_empty() {
         "pretty-printed Q# after SROA should not be empty"
     );
 }
+
+#[test]
+fn unreachable_callable_tuple_local_behavior() {
+    // Reachable Foo has a tuple local, Dead also has one.
+    // Document whether Dead's tuple local is scalarized.
+    // The `check` helper only extracts reachable callables via
+    // `collect_reachable_from_entry`, so this captures reachable-only output.
+    check(
+        indoc! {"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Int {
+                    Foo()
+                }
+                operation Foo() : Int {
+                    let t = (1, 2);
+                    let (a, b) = t;
+                    a + b
+                }
+                operation Dead() : Int {
+                    let t = (3, 4);
+                    let (a, b) = t;
+                    a * b
+                }
+            }
+        "},
+        &expect![[r#"
+            Callable Foo: input=Tuple()
+              local: Bind(t: (Int, Int))
+              local: Tuple(Bind(a: Int), Bind(b: Int))
+            Callable Main: input=Tuple()"#]],
+    );
+}

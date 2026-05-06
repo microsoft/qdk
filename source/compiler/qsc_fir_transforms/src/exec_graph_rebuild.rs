@@ -127,7 +127,6 @@ struct CallableSpecs {
 ///
 /// This must be called after all FIR transforms have completed. The function
 /// is idempotent — calling it multiple times produces the same result.
-#[allow(clippy::too_many_lines)]
 pub fn rebuild_exec_graphs(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -141,72 +140,92 @@ pub fn rebuild_exec_graphs(
         }
     }
 
-    // Collect the set of reachable callable items.
     let reachable = if pinned_items.is_empty() {
         collect_reachable_from_entry(store, package_id)
     } else {
         collect_reachable_with_seeds(store, package_id, pinned_items)
     };
 
-    // Collect the block IDs for every spec in every reachable
-    // callable that lives in *this* package (cross-package items are not
-    // rebuilt).
+    let collected = collect_callable_specs(store, package_id, &reachable);
+    rebuild_callable_exec_graphs(store, package_id, &collected);
+    rebuild_entry_exec_graph(store, package_id);
+}
+
+/// Collects the block IDs for every spec in every reachable callable that
+/// lives in this package (cross-package items are not rebuilt).
+fn collect_callable_specs(
+    store: &PackageStore,
+    package_id: PackageId,
+    reachable: &rustc_hash::FxHashSet<StoreItemId>,
+) -> Vec<CallableSpecs> {
     let mut collected: Vec<CallableSpecs> = Vec::new();
-    {
-        let package = store.get(package_id);
-        for item_id in &reachable {
-            if item_id.package != package_id {
-                continue;
-            }
-            let item = package.get_item(item_id.item);
-            let decl = match &item.kind {
-                ItemKind::Callable(decl) => decl.as_ref(),
-                _ => continue,
-            };
-            let mut specs = Vec::new();
-            match &decl.implementation {
-                CallableImpl::Intrinsic => continue,
-                CallableImpl::Spec(spec_impl) => {
-                    specs.push(SpecInfo {
-                        block: spec_impl.body.block,
-                        kind: SpecKind::Body,
-                    });
-                    if let Some(adj) = &spec_impl.adj {
-                        specs.push(SpecInfo {
-                            block: adj.block,
-                            kind: SpecKind::Adj,
-                        });
-                    }
-                    if let Some(ctl) = &spec_impl.ctl {
-                        specs.push(SpecInfo {
-                            block: ctl.block,
-                            kind: SpecKind::Ctl,
-                        });
-                    }
-                    if let Some(ctl_adj) = &spec_impl.ctl_adj {
-                        specs.push(SpecInfo {
-                            block: ctl_adj.block,
-                            kind: SpecKind::CtlAdj,
-                        });
-                    }
-                }
-                CallableImpl::SimulatableIntrinsic(spec) => {
-                    specs.push(SpecInfo {
-                        block: spec.block,
-                        kind: SpecKind::SimulatableIntrinsic,
-                    });
-                }
-            }
+    let package = store.get(package_id);
+    for item_id in reachable {
+        if item_id.package != package_id {
+            continue;
+        }
+        let item = package.get_item(item_id.item);
+        let decl = match &item.kind {
+            ItemKind::Callable(decl) => decl.as_ref(),
+            _ => continue,
+        };
+        let specs = collect_specs_from_impl(&decl.implementation);
+        if !specs.is_empty() {
             collected.push(CallableSpecs {
                 item_id: item_id.item,
                 specs,
             });
         }
     }
+    collected
+}
 
-    // For each collected spec, build the new exec graph (immutable
-    // borrow), then write it back (mutable borrow).
-    for callable in &collected {
+/// Extracts `SpecInfo` entries from a callable implementation.
+fn collect_specs_from_impl(implementation: &CallableImpl) -> Vec<SpecInfo> {
+    let mut specs = Vec::new();
+    match implementation {
+        CallableImpl::Intrinsic => {}
+        CallableImpl::Spec(spec_impl) => {
+            specs.push(SpecInfo {
+                block: spec_impl.body.block,
+                kind: SpecKind::Body,
+            });
+            if let Some(adj) = &spec_impl.adj {
+                specs.push(SpecInfo {
+                    block: adj.block,
+                    kind: SpecKind::Adj,
+                });
+            }
+            if let Some(ctl) = &spec_impl.ctl {
+                specs.push(SpecInfo {
+                    block: ctl.block,
+                    kind: SpecKind::Ctl,
+                });
+            }
+            if let Some(ctl_adj) = &spec_impl.ctl_adj {
+                specs.push(SpecInfo {
+                    block: ctl_adj.block,
+                    kind: SpecKind::CtlAdj,
+                });
+            }
+        }
+        CallableImpl::SimulatableIntrinsic(spec) => {
+            specs.push(SpecInfo {
+                block: spec.block,
+                kind: SpecKind::SimulatableIntrinsic,
+            });
+        }
+    }
+    specs
+}
+
+/// Rebuilds and writes back the exec graph for each collected callable spec.
+fn rebuild_callable_exec_graphs(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    collected: &[CallableSpecs],
+) {
+    for callable in collected {
         for spec_info in &callable.specs {
             // Build graph — immutable borrow.
             let (graph, ranges) = {
@@ -221,55 +240,64 @@ pub fn rebuild_exec_graphs(
             let package = store.get_mut(package_id);
             apply_ranges(package, &ranges);
 
-            let item = package
-                .items
-                .get_mut(callable.item_id)
-                .expect("item must exist");
-            let decl = match &mut item.kind {
-                ItemKind::Callable(decl) => decl.as_mut(),
-                _ => unreachable!("already verified callable"),
-            };
-
-            let target_spec: &mut FirSpecDecl = match spec_info.kind {
-                SpecKind::Body => match &mut decl.implementation {
-                    CallableImpl::Spec(si) => &mut si.body,
-                    _ => unreachable!("already verified Spec"),
-                },
-                SpecKind::Adj => match &mut decl.implementation {
-                    CallableImpl::Spec(si) => si.adj.as_mut().expect("adj must exist"),
-                    _ => unreachable!("already verified Spec"),
-                },
-                SpecKind::Ctl => match &mut decl.implementation {
-                    CallableImpl::Spec(si) => si.ctl.as_mut().expect("ctl must exist"),
-                    _ => unreachable!("already verified Spec"),
-                },
-                SpecKind::CtlAdj => match &mut decl.implementation {
-                    CallableImpl::Spec(si) => si.ctl_adj.as_mut().expect("ctl_adj must exist"),
-                    _ => unreachable!("already verified Spec"),
-                },
-                SpecKind::SimulatableIntrinsic => match &mut decl.implementation {
-                    CallableImpl::SimulatableIntrinsic(spec) => spec,
-                    _ => unreachable!("already verified SimulatableIntrinsic"),
-                },
-            };
+            let target_spec = get_spec_decl_mut(package, callable.item_id, spec_info.kind);
             target_spec.exec_graph = graph;
         }
     }
+}
 
-    // Rebuild the entry exec graph.
-    let entry_expr_id = store.get(package_id).entry;
-    if let Some(entry_id) = entry_expr_id {
-        let (graph, ranges) = {
-            let package = store.get(package_id);
-            let mut builder = ExecGraphBuilder::default();
-            let mut ranges = RangeUpdates::default();
-            rebuild_expr(package, &mut builder, entry_id, &mut ranges);
-            (builder.take(), ranges)
-        };
-        let package = store.get_mut(package_id);
-        package.entry_exec_graph = graph;
-        apply_ranges(package, &ranges);
+/// Returns a mutable reference to the spec decl identified by `kind` on the
+/// callable at `item_id`.
+fn get_spec_decl_mut(
+    package: &mut Package,
+    item_id: LocalItemId,
+    kind: SpecKind,
+) -> &mut FirSpecDecl {
+    let item = package.items.get_mut(item_id).expect("item must exist");
+    let decl = match &mut item.kind {
+        ItemKind::Callable(decl) => decl.as_mut(),
+        _ => unreachable!("already verified callable"),
+    };
+    match kind {
+        SpecKind::Body => match &mut decl.implementation {
+            CallableImpl::Spec(si) => &mut si.body,
+            _ => unreachable!("already verified Spec"),
+        },
+        SpecKind::Adj => match &mut decl.implementation {
+            CallableImpl::Spec(si) => si.adj.as_mut().expect("adj must exist"),
+            _ => unreachable!("already verified Spec"),
+        },
+        SpecKind::Ctl => match &mut decl.implementation {
+            CallableImpl::Spec(si) => si.ctl.as_mut().expect("ctl must exist"),
+            _ => unreachable!("already verified Spec"),
+        },
+        SpecKind::CtlAdj => match &mut decl.implementation {
+            CallableImpl::Spec(si) => si.ctl_adj.as_mut().expect("ctl_adj must exist"),
+            _ => unreachable!("already verified Spec"),
+        },
+        SpecKind::SimulatableIntrinsic => match &mut decl.implementation {
+            CallableImpl::SimulatableIntrinsic(spec) => spec,
+            _ => unreachable!("already verified SimulatableIntrinsic"),
+        },
     }
+}
+
+/// Rebuilds the entry exec graph from the package's entry expression.
+fn rebuild_entry_exec_graph(store: &mut PackageStore, package_id: PackageId) {
+    let entry_id = store
+        .get(package_id)
+        .entry
+        .expect("entry must exist; caller guards against missing entry");
+    let (graph, ranges) = {
+        let package = store.get(package_id);
+        let mut builder = ExecGraphBuilder::default();
+        let mut ranges = RangeUpdates::default();
+        rebuild_expr(package, &mut builder, entry_id, &mut ranges);
+        (builder.take(), ranges)
+    };
+    let package = store.get_mut(package_id);
+    package.entry_exec_graph = graph;
+    apply_ranges(package, &ranges);
 }
 
 /// Rebuilds the execution graph for a block by visiting each statement and

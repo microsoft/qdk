@@ -893,3 +893,60 @@ fn exec_graph_rebuild_rejects_struct_expressions() {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
     super::rebuild_exec_graphs(&mut store, pkg_id, &[]);
 }
+
+#[test]
+fn pinned_item_rebuilt_in_exec_graph() {
+    // After full pipeline with pinned items, verify the pinned callable has
+    // non-empty exec graph nodes — proving it participates in exec graph rebuild.
+    use crate::test_utils::compile_to_fir;
+
+    let (mut store, pkg_id) = compile_to_fir(indoc! {"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int { 42 }
+            // Unreachable from entry but will be pinned
+            operation Pinned() : Int { 99 }
+        }
+    "});
+    let package = store.get(pkg_id);
+    let pinned_local = package
+        .items
+        .iter()
+        .find_map(|(item_id, item)| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "Pinned" => Some(item_id),
+            _ => None,
+        })
+        .expect("Pinned callable should exist");
+    let pinned_store_id = StoreItemId {
+        package: pkg_id,
+        item: pinned_local,
+    };
+
+    let errors = crate::run_pipeline_to(
+        &mut store,
+        pkg_id,
+        PipelineStage::ExecGraphRebuild,
+        &[pinned_store_id],
+    );
+    assert!(errors.is_empty(), "pipeline errors: {errors:?}");
+
+    // Verify the pinned callable's spec has a non-empty exec graph.
+    let package = store.get(pkg_id);
+    let item = package.get_item(pinned_local);
+    if let ItemKind::Callable(decl) = &item.kind {
+        if let CallableImpl::Spec(spec) = &decl.implementation {
+            let graph = spec
+                .body
+                .exec_graph
+                .select_ref(qsc_fir::fir::ExecGraphConfig::NoDebug);
+            assert!(
+                !graph.is_empty(),
+                "pinned callable should have non-empty exec graph after rebuild"
+            );
+        } else {
+            panic!("pinned callable should have Spec implementation");
+        }
+    } else {
+        panic!("pinned item should be a callable");
+    }
+}

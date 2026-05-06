@@ -26,12 +26,15 @@ use rustc_hash::FxHashMap;
 
 /// Runs pre-pass rewrites before collecting call sites for defunctionalization. See
 /// [`promote_single_use_callable_locals`] and [`identity_closure_peephole`] for details.
-pub(super) fn run(store: &mut PackageStore, package_id: PackageId) {
+///
+/// Only expressions in `reachable_expr_ids` are scanned for promotion candidates
+/// and identity-closure patterns, restricting analysis to entry-reachable code.
+pub(super) fn run(store: &mut PackageStore, package_id: PackageId, reachable_expr_ids: &[ExprId]) {
     // Before collecting call sites, runs pre-pass rewrites:
     // 1. Promotes single-use immutable callable locals to direct item references.
     // 2. Replaces identity closures `(args) => f(args)` with direct references to `f`.
-    promote_single_use_callable_locals(store, package_id);
-    identity_closure_peephole(store, package_id);
+    promote_single_use_callable_locals(store, package_id, reachable_expr_ids);
+    identity_closure_peephole(store, package_id, reachable_expr_ids);
 }
 
 /// Promotes single-use immutable callable locals whose initializer is a simple
@@ -52,10 +55,14 @@ pub(super) fn run(store: &mut PackageStore, package_id: PackageId) {
 /// # Mutations
 /// - Rewrites `Expr.kind` at each single-use site from `Var(Local(..))`
 ///   to `Var(Item(..))` in place.
-fn promote_single_use_callable_locals(store: &mut PackageStore, package_id: PackageId) {
+fn promote_single_use_callable_locals(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    reachable_expr_ids: &[ExprId],
+) {
     let replacements = {
         let pkg = store.get(package_id);
-        collect_single_use_promotions(pkg)
+        collect_single_use_promotions(pkg, reachable_expr_ids)
     };
 
     if !replacements.is_empty() {
@@ -70,9 +77,12 @@ fn promote_single_use_callable_locals(store: &mut PackageStore, package_id: Pack
 }
 
 /// Scans all immutable local bindings whose initialiser is a simple item
-/// reference (`Var(Res::Item(_))`), counts uses, and collects replacements
-/// for locals that are used exactly once.
-fn collect_single_use_promotions(pkg: &Package) -> Vec<(ExprId, ExprKind)> {
+/// reference (`Var(Res::Item(_))`), counts uses within reachable expressions,
+/// and collects replacements for locals that are used exactly once.
+fn collect_single_use_promotions(
+    pkg: &Package,
+    reachable_expr_ids: &[ExprId],
+) -> Vec<(ExprId, ExprKind)> {
     // find candidate immutable locals whose init is a simple item reference.
     let mut candidates: FxHashMap<LocalVarId, ExprKind> = FxHashMap::default();
     for (_, stmt) in &pkg.stmts {
@@ -96,8 +106,9 @@ fn collect_single_use_promotions(pkg: &Package) -> Vec<(ExprId, ExprKind)> {
         return Vec::new();
     }
 
-    // exclude candidates that are captured by closures.
-    for (_, expr) in &pkg.exprs {
+    // exclude candidates that are captured by closures (within reachable code).
+    for &expr_id in reachable_expr_ids {
+        let expr = pkg.get_expr(expr_id);
         if let ExprKind::Closure(captures, _) = &expr.kind {
             for var in captures {
                 candidates.remove(var);
@@ -109,11 +120,12 @@ fn collect_single_use_promotions(pkg: &Package) -> Vec<(ExprId, ExprKind)> {
         return Vec::new();
     }
 
-    // count uses and record use-site expression IDs.
+    // count uses and record use-site expression IDs (within reachable code).
     let mut use_info: FxHashMap<LocalVarId, Vec<ExprId>> =
         candidates.keys().map(|&var| (var, Vec::new())).collect();
 
-    for (expr_id, expr) in &pkg.exprs {
+    for &expr_id in reachable_expr_ids {
+        let expr = pkg.get_expr(expr_id);
         if let ExprKind::Var(Res::Local(var), _) = &expr.kind
             && let Some(uses) = use_info.get_mut(var)
         {
@@ -156,11 +168,15 @@ fn collect_single_use_promotions(pkg: &Package) -> Vec<(ExprId, ExprKind)> {
 ///
 /// # Mutations
 /// - Rewrites `Expr.kind` at each identity-closure site in place.
-fn identity_closure_peephole(store: &mut PackageStore, package_id: PackageId) {
+fn identity_closure_peephole(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    reachable_expr_ids: &[ExprId],
+) {
     // Collect replacements using an immutable borrow.
     let replacements = {
         let pkg = store.get(package_id);
-        collect_identity_closures(pkg)
+        collect_identity_closures(pkg, reachable_expr_ids)
     };
 
     // Apply replacements using a mutable borrow.
@@ -175,12 +191,16 @@ fn identity_closure_peephole(store: &mut PackageStore, package_id: PackageId) {
     }
 }
 
-/// Scans all expressions and collects `(ExprId, replacement ExprKind)` pairs
+/// Scans reachable expressions and collects `(ExprId, replacement ExprKind)` pairs
 /// for identity closures.
-fn collect_identity_closures(pkg: &Package) -> Vec<(ExprId, ExprKind)> {
+fn collect_identity_closures(
+    pkg: &Package,
+    reachable_expr_ids: &[ExprId],
+) -> Vec<(ExprId, ExprKind)> {
     let mut replacements = Vec::new();
 
-    for (expr_id, expr) in &pkg.exprs {
+    for &expr_id in reachable_expr_ids {
+        let expr = pkg.get_expr(expr_id);
         if let ExprKind::Closure(captures, target) = &expr.kind {
             replacements.extend(check_identity_closure(pkg, expr_id, captures, *target));
         }

@@ -58,8 +58,11 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::cloner::FirCloner;
-use crate::fir_builder::functored_specs;
+use crate::fir_builder::{functored_specs, reachable_local_callables};
 use crate::reachability::collect_reachable_from_entry;
+use crate::walk_utils::{
+    collect_expr_ids_in_entry_and_local_callables, extend_expr_ids_in_local_callables,
+};
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BlockId, CallableDecl, CallableImpl, ExprId, ExprKind, Ident, Item, ItemId, ItemKind,
@@ -90,12 +93,11 @@ struct Specialization {
 /// expression.
 pub fn monomorphize(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assigner) {
     let package = store.get(package_id);
-    if package.entry.is_none() {
-        return;
-    }
+    assert!(
+        package.entry.is_some(),
+        "monomorphize requires a package entry expression"
+    );
 
-    // Discover all unique (callable, generic_args) pairs in
-    // entry-reachable code.
     let instantiations = discover_instantiations(store, package_id);
     if instantiations.is_empty() {
         return;
@@ -110,8 +112,59 @@ pub fn monomorphize(store: &mut PackageStore, package_id: PackageId, assigner: &
         create_specializations(store, package_id, instantiations, owned_assigner);
     *assigner = returned_assigner;
 
-    // Rewrite call sites to reference the specialized callables.
-    rewrite_call_sites(store.get_mut(package_id), package_id, &specializations);
+    let expr_ids = collect_rewrite_scope(store, package_id, &specializations);
+
+    let package = store.get_mut(package_id);
+    rewrite_call_sites(package, package_id, &specializations, &expr_ids);
+}
+
+/// Collects all expression IDs that may contain generic call sites requiring
+/// rewriting: entry-reachable callables, newly created specializations, and
+/// any closure items transitively referenced by those specializations.
+fn collect_rewrite_scope(
+    store: &PackageStore,
+    package_id: PackageId,
+    specializations: &[Specialization],
+) -> Vec<ExprId> {
+    let reachable = collect_reachable_from_entry(store, package_id);
+    let package = store.get(package_id);
+    let local_item_ids: Vec<_> = reachable_local_callables(package, package_id, &reachable)
+        .map(|(id, _)| id)
+        .collect();
+    let mut expr_ids = collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
+    let new_item_ids: Vec<_> = specializations.iter().map(|s| s.new_item_id.item).collect();
+    let mut seen: FxHashSet<ExprId> = expr_ids.iter().copied().collect();
+
+    // We computed reachability after creating specializations but before
+    // rewriting call sites, so new specializations aren't reachable from
+    // entry yet. Those new specializations may reference newly-cloned
+    // closure items that are also unreachable from entry until call sites
+    // are redirected.
+    let mut walked_items: FxHashSet<LocalItemId> = local_item_ids.iter().copied().collect();
+    walked_items.extend(new_item_ids.iter().copied());
+
+    let mut scan_start = expr_ids.len();
+    extend_expr_ids_in_local_callables(package, &new_item_ids, &mut expr_ids, &mut seen);
+
+    // Transitively walk closure items whose bodies may also contain generic
+    // call sites that need rewriting.
+    loop {
+        let mut new_closures = Vec::new();
+        for &expr_id in &expr_ids[scan_start..] {
+            if let ExprKind::Closure(_, local_item_id) = &package.get_expr(expr_id).kind
+                && walked_items.insert(*local_item_id)
+            {
+                new_closures.push(*local_item_id);
+            }
+        }
+        if new_closures.is_empty() {
+            break;
+        }
+        scan_start = expr_ids.len();
+        extend_expr_ids_in_local_callables(package, &new_closures, &mut expr_ids, &mut seen);
+    }
+
+    expr_ids
 }
 
 /// Walks all entry-reachable code and collects every unique
@@ -811,6 +864,7 @@ fn rewrite_call_sites(
     package: &mut Package,
     package_id: PackageId,
     specializations: &[Specialization],
+    expr_ids: &[ExprId],
 ) {
     // Build a lookup from (source key) → new ItemId.
     let lookup: FxHashMap<String, ItemId> = specializations
@@ -818,9 +872,8 @@ fn rewrite_call_sites(
         .map(|s| (mono_key(s.source, &s.args), s.new_item_id))
         .collect();
 
-    // Walk all expressions in the package and rewrite generic Var references.
-    let expr_ids: Vec<ExprId> = package.exprs.iter().map(|(id, _)| id).collect();
-    for expr_id in expr_ids {
+    // Walk scoped expressions and rewrite generic Var references.
+    for &expr_id in expr_ids {
         let expr = package.exprs.get(expr_id).expect("expr should exist");
         if let ExprKind::Var(Res::Item(item_id), ref generic_args) = expr.kind {
             if generic_args.is_empty() {
