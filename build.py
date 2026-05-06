@@ -233,7 +233,9 @@ if npm_install_needed:
         command.append("optional")
 
     step_start("Running npm install")
-    subprocess.run(command, check=True, text=True, cwd=root_dir)
+    npm_env = os.environ.copy()
+    npm_env["PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD"] = "1"
+    subprocess.run(command, check=True, text=True, cwd=root_dir, env=npm_env)
     step_end()
 
 if args.check:
