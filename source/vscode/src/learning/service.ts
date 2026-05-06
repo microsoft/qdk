@@ -335,23 +335,9 @@ export class LearningService {
       return { moved: false, state: this.getState() };
     }
 
-    const oldFp = this.flatPositions[this.currentFlatIndex];
-    this.currentFlatIndex++;
-    const newFp = this.flatPositions[this.currentFlatIndex];
+    this.markCurrentIfAutoCompletable();
 
-    // Auto-mark lesson/example sections complete when crossing section boundary
-    if (
-      oldFp.unitId !== newFp.unitId ||
-      oldFp.activityId !== newFp.activityId
-    ) {
-      const oldUnit = this.findUnit(oldFp.courseId, oldFp.unitId);
-      const oldSection = oldUnit.sections.find(
-        (s) => s.id === oldFp.activityId,
-      );
-      if (oldSection?.type === "lesson" || oldSection?.type === "example") {
-        this.markComplete(oldFp);
-      }
-    }
+    this.currentFlatIndex++;
 
     this.syncPosition();
     const state = this.getState();
@@ -372,6 +358,8 @@ export class LearningService {
   }
 
   goTo(courseId: string, unitId: string, activityId?: string): LearningState {
+    this.markCurrentIfAutoCompletable();
+
     if (!activityId) {
       const firstIdx = this.flatPositions.findIndex(
         (fp) => fp.courseId === courseId && fp.unitId === unitId,
@@ -983,6 +971,23 @@ export class LearningService {
 
   private isComplete(loc: ActivityLocation): boolean {
     return findCompletion(this.progressData.completions, loc) != null;
+  }
+
+  /**
+   * If the current position is a lesson or example activity, mark it
+   * complete. Called before navigating away (next, goTo) so progress is
+   * recorded even when the user skips ahead.
+   */
+  private markCurrentIfAutoCompletable(): void {
+    const fp = this.flatPositions[this.currentFlatIndex];
+    if (!fp) {
+      return;
+    }
+    const unit = this.findUnit(fp.courseId, fp.unitId);
+    const section = unit.sections.find((s) => s.id === fp.activityId);
+    if (section?.type === "lesson" || section?.type === "example") {
+      this.markComplete(fp);
+    }
   }
 
   private markComplete(loc: ActivityLocation): void {
