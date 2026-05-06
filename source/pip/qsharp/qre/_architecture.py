@@ -92,7 +92,7 @@ class ISAContext:
         error_rate: float | _FloatFunction = 0.0,
         transform: ISATransform | None = None,
         source: list[Instruction] | None = None,
-        **kwargs: int,
+        **kwargs: int | float,
     ) -> int:
         """
         Create an instruction and add it to the provenance graph.

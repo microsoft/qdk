@@ -5,6 +5,7 @@ import pytest
 
 from qsharp.qre import (
     LOGICAL,
+    ConstraintBound,
     ISARequirements,
     constraint,
     generic_function,
@@ -123,6 +124,37 @@ def test_instruction_constraints():
     # ISA with distance property
     assert isa_with_dist.satisfies(reqs_no_prop) is True
     assert isa_with_dist.satisfies(reqs_with_prop) is True
+
+    # Test ISA.satisfies with numeric property bounds
+    isa_with_small_spacing = graph.make_isa(
+        [
+            graph.add_instruction(
+                T,
+                encoding=LOGICAL,
+                time=1000,
+                error_rate=1e-8,
+                atom_spacing=9.5,
+            ),
+        ]
+    )
+    isa_with_large_spacing = graph.make_isa(
+        [
+            graph.add_instruction(
+                T,
+                encoding=LOGICAL,
+                time=1000,
+                error_rate=1e-8,
+                atom_spacing=10.0,
+            ),
+        ]
+    )
+
+    reqs_with_spacing_bound = ISARequirements(
+        constraint(T, encoding=LOGICAL, atom_spacing=ConstraintBound.gt(9.9))
+    )
+
+    assert isa_with_small_spacing.satisfies(reqs_with_spacing_bound) is False
+    assert isa_with_large_spacing.satisfies(reqs_with_spacing_bound) is True
 
 
 def test_property_names():

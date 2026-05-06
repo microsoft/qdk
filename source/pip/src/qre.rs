@@ -313,26 +313,42 @@ impl Instruction {
         self.0.source()
     }
 
-    pub fn set_property(&mut self, key: u64, value: u64) {
-        self.0.set_property(key, value);
+    pub fn set_property(&mut self, key: u64, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.0.set_property(key, py_property_to_qre(value)?);
+        Ok(())
     }
 
-    pub fn get_property(&self, key: u64) -> Option<u64> {
-        self.0.get_property(&key)
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn get_property(self_: PyRef<'_, Self>, key: u64) -> PyResult<Option<Bound<'_, PyAny>>> {
+        self_
+            .0
+            .get_property(&key)
+            .map(|value| qre_property_to_py(self_.py(), value))
+            .transpose()
     }
 
     pub fn has_property(&self, key: u64) -> bool {
         self.0.has_property(&key)
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     #[pyo3(signature = (key, default))]
-    pub fn get_property_or(&self, key: u64, default: u64) -> u64 {
-        self.0.get_property_or(&key, default)
+    pub fn get_property_or<'py>(
+        self_: PyRef<'py, Self>,
+        key: u64,
+        default: &Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        if let Some(value) = self_.0.get_property(&key) {
+            qre_property_to_py(self_.py(), value)
+        } else {
+            Ok(default.clone())
+        }
     }
 
-    pub fn __getitem__(&self, key: u64) -> PyResult<u64> {
-        match self.0.get_property(&key) {
-            Some(value) => Ok(value),
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn __getitem__(self_: PyRef<'_, Self>, key: u64) -> PyResult<Bound<'_, PyAny>> {
+        match self_.0.get_property(&key) {
+            Some(value) => qre_property_to_py(self_.py(), value),
             None => Err(PyKeyError::new_err(format!(
                 "Property with key {key} not found"
             ))),
@@ -432,6 +448,10 @@ impl Constraint {
         self.0.add_property(property);
     }
 
+    pub fn add_property_bound(&mut self, property: u64, bound: &ConstraintBound) {
+        self.0.add_property_bound(property, bound.0);
+    }
+
     pub fn has_property(&self, property: u64) -> bool {
         self.0.has_property(&property)
     }
@@ -442,6 +462,27 @@ fn convert_encoding(encoding: u64) -> PyResult<qre::Encoding> {
         0 => Ok(qre::Encoding::Physical),
         1 => Ok(qre::Encoding::Logical),
         _ => Err(EstimationError::new_err("Invalid encoding value")),
+    }
+}
+
+fn py_property_to_qre(value: &Bound<'_, PyAny>) -> PyResult<qre::Property> {
+    if value.is_instance_of::<pyo3::types::PyBool>() {
+        Ok(qre::Property::new_bool(value.extract()?))
+    } else if let Ok(i) = value.extract::<i64>() {
+        Ok(qre::Property::new_int(i))
+    } else if let Ok(f) = value.extract::<f64>() {
+        Ok(qre::Property::new_float(f))
+    } else {
+        Ok(qre::Property::new_str(value.to_string()))
+    }
+}
+
+fn qre_property_to_py<'py>(py: Python<'py>, value: &qre::Property) -> PyResult<Bound<'py, PyAny>> {
+    match value {
+        qre::Property::Bool(b) => PyBool::new(py, *b).into_bound_py_any(py),
+        qre::Property::Int(i) => PyInt::new(py, *i).into_bound_py_any(py),
+        qre::Property::Float(f) => PyFloat::new(py, *f).into_bound_py_any(py),
+        qre::Property::Str(s) => PyString::new(py, s).into_bound_py_any(py),
     }
 }
 
@@ -508,7 +549,7 @@ fn build_instruction(
                 qre::property_name_to_key(&key_str.to_ascii_uppercase()).ok_or_else(|| {
                     PyValueError::new_err(format!("Unknown property name: {key_str}"))
                 })?;
-            let prop_value: u64 = value.extract()?;
+            let prop_value = py_property_to_qre(&value)?;
             instr.set_property(prop_key, prop_value);
         }
     }

@@ -8,11 +8,11 @@ use std::{
     sync::{Arc, RwLock, RwLockReadGuard},
 };
 
-use num_traits::FromPrimitive;
+use num_traits::{FromPrimitive, ToPrimitive};
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
-use crate::trace::instruction_ids::instruction_name;
+use crate::trace::{Property, instruction_ids::instruction_name};
 
 pub mod property_keys;
 
@@ -267,7 +267,7 @@ pub struct Instruction {
     encoding: Encoding,
     metrics: Metrics,
     source: usize,
-    properties: Option<FxHashMap<u64, u64>>,
+    properties: Option<FxHashMap<u64, Property>>,
 }
 
 impl Instruction {
@@ -418,7 +418,7 @@ impl Instruction {
         self.source
     }
 
-    pub fn set_property(&mut self, key: u64, value: u64) {
+    pub fn set_property(&mut self, key: u64, value: Property) {
         if let Some(ref mut properties) = self.properties {
             properties.insert(key, value);
         } else {
@@ -429,8 +429,8 @@ impl Instruction {
     }
 
     #[must_use]
-    pub fn get_property(&self, key: &u64) -> Option<u64> {
-        self.properties.as_ref()?.get(key).copied()
+    pub fn get_property(&self, key: &u64) -> Option<&Property> {
+        self.properties.as_ref()?.get(key)
     }
 
     #[must_use]
@@ -441,7 +441,7 @@ impl Instruction {
     }
 
     #[must_use]
-    pub fn get_property_or(&self, key: &u64, default: u64) -> u64 {
+    pub fn get_property_or<'a>(&'a self, key: &u64, default: &'a Property) -> &'a Property {
         self.get_property(key).unwrap_or(default)
     }
 }
@@ -465,6 +465,7 @@ pub struct InstructionConstraint {
     arity: Option<u64>,
     error_rate_fn: Option<ConstraintBound<f64>>,
     properties: FxHashSet<u64>,
+    property_bounds: FxHashMap<u64, ConstraintBound<f64>>,
 }
 
 impl InstructionConstraint {
@@ -481,12 +482,18 @@ impl InstructionConstraint {
             arity,
             error_rate_fn,
             properties: FxHashSet::default(),
+            property_bounds: FxHashMap::default(),
         }
     }
 
     /// Adds a property requirement to the constraint.
     pub fn add_property(&mut self, property: u64) {
         self.properties.insert(property);
+    }
+
+    /// Adds a numeric property bound requirement to the constraint.
+    pub fn add_property_bound(&mut self, property: u64, bound: ConstraintBound<f64>) {
+        self.property_bounds.insert(property, bound);
     }
 
     /// Checks if the constraint requires a specific property.
@@ -499,6 +506,12 @@ impl InstructionConstraint {
     #[must_use]
     pub fn properties(&self) -> &FxHashSet<u64> {
         &self.properties
+    }
+
+    /// Returns the map of numeric property bounds.
+    #[must_use]
+    pub fn property_bounds(&self) -> &FxHashMap<u64, ConstraintBound<f64>> {
+        &self.property_bounds
     }
 
     /// Returns the instruction ID this constraint applies to.
@@ -566,6 +579,25 @@ impl InstructionConstraint {
 
         for prop in &self.properties {
             if !instruction.has_property(prop) {
+                return false;
+            }
+        }
+
+        for (prop, bound) in &self.property_bounds {
+            let Some(value) = instruction.get_property(prop) else {
+                return false;
+            };
+
+            let value = match value {
+                Property::Int(v) => match v.to_f64() {
+                    Some(v) => v,
+                    None => return false,
+                },
+                Property::Float(v) => *v,
+                _ => return false,
+            };
+
+            if !bound.evaluate(&value) {
                 return false;
             }
         }

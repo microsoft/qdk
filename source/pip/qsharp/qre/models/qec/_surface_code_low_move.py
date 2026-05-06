@@ -25,18 +25,28 @@ from ...instruction_ids import (
     SQRT_X,
 )
 from ...property_keys import (
+    ATOM_SPACING,
     SURFACE_CODE_ONE_QUBIT_TIME_FACTOR,
     SURFACE_CODE_TWO_QUBIT_TIME_FACTOR,
     VELOCITY,
     ACCELERATION,
-    ATOM_SPACING,
 )
 
 
 @dataclass
 class SurfaceCodeLowMove(ISATransform):
     """
-    This class models the gate-based rotated surface code.
+    This class models a rotated surface code tailored to a reconfigurable,
+    zoned neutral-atom architecture with mobile ancillas.
+
+    The syndrome-extraction schedule is based on a mobile-ancilla surface-code
+    scheme in which a single ancilla visits the data qubits of each plaquette,
+    combined with the atom-transport model used by ``NeutralAtom``. In this
+    model, the ancilla is moved within the Rydberg interaction range of each
+    data atom to execute the entangling sequence, while other atoms and gate
+    sites remain separated by about 10 microns to suppress crosstalk. The time
+    model therefore combines the single-ancilla plaquette circuit with explicit
+    motion overhead from horizontal and diagonal transport segments.
 
     Attributes:
         crossing_prefactor: float
@@ -46,16 +56,10 @@ class SurfaceCodeLowMove(ISATransform):
         error_correction_threshold: float
             The error correction threshold for the surface code.  (Default is
             0.01 (1%), see [arXiv:1009.3686](https://arxiv.org/abs/1009.3686))
-        one_qubit_gate_depth: int
-            The depth of one-qubit gates in each syndrome extraction cycle.
-            (Default is 1, see Fig. 2 in [arXiv:1009.3686](https://arxiv.org/abs/1009.3686))
-        two_qubit_gate_depth: int
-            The depth of two-qubit gates in each syndrome extraction cycle.
-            (Default is 4, see Fig. 2 in [arXiv:1009.3686](https://arxiv.org/abs/1009.3686))
         code_cycle_override: Optional[int]
             If provided, this value will be used as the time for each syndrome
             extraction cycle instead of the default calculation based on gate
-            times and depths. (Default is None)
+            times and transport overhead. (Default is None)
         code_cycle_offset: int
             An additional time offset to add to the syndrome extraction cycle
             time. (Default is 0)
@@ -66,21 +70,34 @@ class SurfaceCodeLowMove(ISATransform):
 
     References:
 
-    - Dominic Horsman, Austin G. Fowler, Simon Devitt, Rodney Van Meter: Surface
-      code quantum computing by lattice surgery,
-      [arXiv:1111.4022](https://arxiv.org/abs/1111.4022)
-    - Austin G. Fowler, Matteo Mariantoni, John M. Martinis, Andrew N. Cleland:
-      Surface codes: Towards practical large-scale quantum computation,
-      [arXiv:1208.0928](https://arxiv.org/abs/1208.0928)
-    - David S. Wang, Austin G. Fowler, Lloyd C. L. Hollenberg: Quantum computing
-      with nearest neighbor interactions and error rates over 1%,
-      [arXiv:1009.3686](https://arxiv.org/abs/1009.3686)
+        - D. S. Wang, A. G. Fowler, L. C. L. Hollenberg: Quantum computing with
+            nearest neighbor interactions and error rates over 1%,
+            [arXiv:1009.3686](https://arxiv.org/abs/1009.3686)
+        - D. Horsman, A. G. Fowler, S. Devitt, R. Van Meter: Surface code quantum
+            computing by lattice surgery,
+            [arXiv:1111.4022](https://arxiv.org/abs/1111.4022)
+        - A. G. Fowler, M. Mariantoni, J. M. Martinis, A. N. Cleland: Surface
+            codes: Towards practical large-scale quantum computation,
+            [arXiv:1208.0928](https://arxiv.org/abs/1208.0928)
+        - D. Bluvstein, H. Levine, G. Semeghini, et al.: A quantum processor based
+            on coherent transport of entangled atom arrays,
+            [arXiv:2112.03923](https://arxiv.org/abs/2112.03923)
+        - D. Bluvstein, S. J. Evered, A. A. Geim, et al.: Logical quantum
+            processor based on reconfigurable atom arrays,
+            [arXiv:2312.03982](https://arxiv.org/abs/2312.03982)
+        - S. Jandura, L. Pecorari, G. Pupillo: Surface Code Stabilizer
+            Measurements for Rydberg Atoms,
+            [arXiv:2405.16621](https://arxiv.org/abs/2405.16621)
+        - W.-H. Lin, D. B. Tan, J. Cong: Reuse-Aware Compilation for Zoned Quantum
+            Architectures Based on Neutral Atoms,
+            [arXiv:2411.11784](https://arxiv.org/abs/2411.11784)
+        - D. Bluvstein, A. A. Geim, S. H. Li, et al.: Architectural mechanisms of
+            a universal fault-tolerant quantum computer,
+            [arXiv:2506.20661](https://arxiv.org/abs/2506.20661)
     """
 
     crossing_prefactor: float = 0.03
     error_correction_threshold: float = 0.01
-    one_qubit_gate_depth: int = 1
-    two_qubit_gate_depth: int = 4
     code_cycle_override: Optional[int] = None
     code_cycle_offset: int = 0
     _: KW_ONLY
@@ -94,7 +111,11 @@ class SurfaceCodeLowMove(ISATransform):
             constraint(CZ, arity=2, error_rate=ConstraintBound.lt(0.01)),
             constraint(MEAS_Z, error_rate=ConstraintBound.lt(0.01)),
             constraint(MEAS_RESET_Z, error_rate=ConstraintBound.lt(0.01)),
-            constraint(PHYSICAL_MOVE, error_rate=ConstraintBound.lt(0.01)),
+            constraint(
+                PHYSICAL_MOVE,
+                error_rate=ConstraintBound.lt(0.01),
+                atom_spacing=ConstraintBound.gt(9.9),
+            ),
         )
 
     def provided_isa(
@@ -107,27 +128,26 @@ class SurfaceCodeLowMove(ISATransform):
         meas_z = impl_isa[MEAS_Z]
 
         move = impl_isa[PHYSICAL_MOVE]
-        if (
-            move.has_property(VELOCITY)
-            and move.has_property(ACCELERATION)
-            and move.has_property(ATOM_SPACING)
-        ):
-            max_vel = move.get_property_or(VELOCITY, 0)
-            max_accel = move.get_property_or(ACCELERATION, 0)
-            atom_spacing = move.get_property_or(ATOM_SPACING, 0)
-            if atom_spacing < max_vel**2 / max_accel:
-                hor_seg_time = math.sqrt(atom_spacing / max_accel)
-            else:
-                extra_distance = atom_spacing - max_vel**2 / max_accel
-                hor_seg_time = max_vel / max_accel + extra_distance / max_vel
-            if math.sqrt(2) * atom_spacing < max_vel**2 / max_accel:
-                diag_seg_time = math.sqrt(math.sqrt(2) * atom_spacing / max_accel)
-            else:
-                extra_distance = math.sqrt(2) * atom_spacing - max_vel**2 / max_accel
-                diag_seg_time = max_vel / max_accel + extra_distance / max_vel
-            move_time = 3 * move.expect_time() + 2 * hor_seg_time + diag_seg_time
+        atom_spacing_prop = move.get_property_or(ATOM_SPACING, 10.0)
+        max_vel_prop = move.get_property_or(VELOCITY, 0.25)
+        max_accel_prop = move.get_property_or(ACCELERATION, 5000.0)
+        assert isinstance(atom_spacing_prop, (int, float))
+        assert isinstance(max_vel_prop, (int, float))
+        assert isinstance(max_accel_prop, (int, float))
+        atom_spacing = float(atom_spacing_prop) * 1e-6  # Convert from microns to meters
+        max_vel = float(max_vel_prop)
+        max_accel = float(max_accel_prop)
+        if atom_spacing < max_vel**2 / max_accel:
+            hor_seg_time = math.sqrt(atom_spacing / max_accel)
         else:
-            move_time = move.expect_time()
+            extra_distance = atom_spacing - max_vel**2 / max_accel
+            hor_seg_time = max_vel / max_accel + extra_distance / max_vel
+        if math.sqrt(2) * atom_spacing < max_vel**2 / max_accel:
+            diag_seg_time = math.sqrt(math.sqrt(2) * atom_spacing / max_accel)
+        else:
+            extra_distance = math.sqrt(2) * atom_spacing - max_vel**2 / max_accel
+            diag_seg_time = max_vel / max_accel + extra_distance / max_vel
+        move_time = 3 * move.expect_time() + 1e9 * (2 * hor_seg_time + diag_seg_time)
 
         four_cz_time = math.ceil(4 * cz.expect_time() + move_time)
         h_time = sqrt_x.expect_time() + 2 * rz.expect_time()

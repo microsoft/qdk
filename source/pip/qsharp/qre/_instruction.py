@@ -44,7 +44,7 @@ def constraint(
     *,
     arity: Optional[int] = 1,
     error_rate: Optional[ConstraintBound] = None,
-    **kwargs: bool,
+    **kwargs: bool | ConstraintBound,
 ) -> Constraint:
     """
     Create an instruction constraint.
@@ -55,8 +55,10 @@ def constraint(
         arity (Optional[int]): The instruction arity. If None, instruction is
             assumed to have variable arity.  Default is 1.
         error_rate (Optional[ConstraintBound]): The constraint on the error rate.
-        **kwargs (bool): Required properties that matching instructions must have.
-            Valid property names: distance. Set to True to require the property.
+        **kwargs (bool | ConstraintBound): Required property conditions for
+            matching instructions. Pass ``True`` to require that the property
+            exists, or pass a ``ConstraintBound`` to require a numeric
+            property value to satisfy that bound.
 
     Returns:
         Constraint: The instruction constraint.
@@ -67,11 +69,20 @@ def constraint(
     c = Constraint(id, encoding, arity, error_rate)
 
     for key, value in kwargs.items():
-        if value:
-            if (prop_key := property_name_to_key(key)) is None:
-                raise ValueError(f"Unknown property '{key}'")
+        if not value:
+            continue
 
+        if (prop_key := property_name_to_key(key)) is None:
+            raise ValueError(f"Unknown property '{key}'")
+
+        if value is True:
             c.add_property(prop_key)
+        elif isinstance(value, ConstraintBound):
+            c.add_property_bound(prop_key, value)
+        else:
+            raise TypeError(
+                f"Property constraint '{key}' must be a bool or ConstraintBound"
+            )
 
     return c
 

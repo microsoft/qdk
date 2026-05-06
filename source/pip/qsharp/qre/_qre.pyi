@@ -377,17 +377,17 @@ class Instruction:
         """
         ...
 
-    def set_property(self, key: int, value: int) -> None:
+    def set_property(self, key: int, value: bool | int | float | str) -> None:
         """
         Set a property on the instruction.
 
         Args:
             key (int): The property key.
-            value (int): The property value.
+            value (bool | int | float | str): The property value.
         """
         ...
 
-    def get_property(self, key: int) -> Optional[int]:
+    def get_property(self, key: int) -> Optional[bool | int | float | str]:
         """
         Get a property by its key.
 
@@ -395,7 +395,7 @@ class Instruction:
             key (int): The property key.
 
         Returns:
-            Optional[int]: The property value, or None if not found.
+            Optional[bool | int | float | str]: The property value, or None if not found.
         """
         ...
 
@@ -411,20 +411,22 @@ class Instruction:
         """
         ...
 
-    def get_property_or(self, key: int, default: int) -> int:
+    def get_property_or(
+        self, key: int, default: bool | int | float | str
+    ) -> bool | int | float | str:
         """
         Get a property by its key, or return a default value if not found.
 
         Args:
             key (int): The property key.
-            default (int): The default value to return if the property is not found.
+            default (bool | int | float | str): The default value to return if the property is not found.
 
         Returns:
-            int: The property value, or the default value if not found.
+            bool | int | float | str: The property value, or the default value if not found.
         """
         ...
 
-    def __getitem__(self, key: int) -> int:
+    def __getitem__(self, key: int) -> bool | int | float | str:
         """
         Get a property by its key, or raise an error if not found.
 
@@ -432,7 +434,7 @@ class Instruction:
             key (int): The property key.
 
         Returns:
-            int: The property value.
+            bool | int | float | str: The property value.
         """
         ...
 
@@ -590,6 +592,17 @@ class Constraint:
 
         Args:
             property (int): The property key that must be present in matching instructions.
+        """
+        ...
+
+    def add_property_bound(self, property: int, bound: ConstraintBound) -> None:
+        """
+        Add a numeric property bound requirement to the constraint.
+
+        Args:
+            property (int): The property key to constrain.
+            bound (ConstraintBound): The numeric bound that matching instructions
+                must satisfy for this property.
         """
         ...
 
