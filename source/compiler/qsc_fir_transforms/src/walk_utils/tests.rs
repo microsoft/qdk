@@ -277,3 +277,108 @@ fn assigner_ids_do_not_collide_with_existing_package_ids() {
         "new local {new_local} should be > max existing {max_local}"
     );
 }
+
+#[test]
+fn collect_entry_expr_ids_returns_all_entry_descendants() {
+    let (store, pkg_id) = compile_to_fir(
+        "function Main() : Int {
+             let x = 1 + 2;
+             x
+         }",
+    );
+    let package = store.get(pkg_id);
+    let ids = collect_expr_ids_in_entry(package);
+    // The entry expression wraps the call to Main. It should contain at least
+    // the call expression and the callee/args sub-expressions.
+    assert!(
+        !ids.is_empty(),
+        "entry expression IDs should be non-empty for a program with an entry point"
+    );
+    // All returned IDs should be valid expression IDs in the package.
+    for &id in &ids {
+        let _ = package.get_expr(id);
+    }
+}
+
+#[test]
+fn collect_callable_expr_ids_covers_all_specs() {
+    let (store, pkg_id) = compile_to_fir(
+        "operation Op() : Unit is Adj + Ctl {
+             body ... { Message(\"body\"); }
+             adjoint ... { Message(\"adj\"); }
+             controlled (cs, ...) { Message(\"ctl\"); }
+         }
+         operation Main() : Unit { Op(); }",
+    );
+    let package = store.get(pkg_id);
+
+    // Find Op's LocalItemId.
+    let op_local_id = package
+        .items
+        .iter()
+        .find_map(|(id, item)| {
+            if let ItemKind::Callable(decl) = &item.kind {
+                if decl.name.name.as_ref() == "Op" {
+                    return Some(id);
+                }
+            }
+            None
+        })
+        .expect("Op callable not found");
+
+    let ids = collect_expr_ids_in_local_callables(package, &[op_local_id]);
+    // Op has body, adj, and ctl specs — each contains at least a Call expression.
+    assert!(
+        ids.len() >= 3,
+        "expected at least 3 expression IDs covering multiple specs, got {}",
+        ids.len()
+    );
+    // No duplicates.
+    let unique: FxHashSet<_> = ids.iter().copied().collect();
+    assert_eq!(ids.len(), unique.len(), "expression IDs should be unique");
+}
+
+#[test]
+fn extend_does_not_duplicate_seen_ids() {
+    let (store, pkg_id) = compile_to_fir(
+        "function Helper() : Int { 42 }
+         function Main() : Int { Helper() }",
+    );
+    let package = store.get(pkg_id);
+
+    // Collect all local callable IDs.
+    let local_ids: Vec<_> = package
+        .items
+        .iter()
+        .filter_map(|(id, item)| {
+            if let ItemKind::Callable(_) = &item.kind {
+                Some(id)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // First collection.
+    let mut ids = Vec::new();
+    let mut seen = FxHashSet::default();
+    extend_expr_ids_in_local_callables(package, &local_ids, &mut ids, &mut seen);
+    let first_count = ids.len();
+    assert!(first_count > 0, "should collect some expression IDs");
+
+    // Second extension with same callables — should add nothing.
+    extend_expr_ids_in_local_callables(package, &local_ids, &mut ids, &mut seen);
+    assert_eq!(
+        ids.len(),
+        first_count,
+        "second extension should not add duplicates"
+    );
+}
+
+#[test]
+fn empty_local_items_returns_empty() {
+    let (store, pkg_id) = compile_to_fir("function Main() : Int { 1 }");
+    let package = store.get(pkg_id);
+    let ids = collect_expr_ids_in_local_callables(package, &[]);
+    assert!(ids.is_empty(), "empty item list should yield empty result");
+}

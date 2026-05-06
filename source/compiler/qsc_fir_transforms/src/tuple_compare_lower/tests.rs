@@ -410,3 +410,27 @@ fn tuple_compare_lower_is_idempotent() {
     let second = crate::pretty::write_package_qsharp(&store, pkg_id);
     assert_eq!(first, second, "tuple_compare_lower should be idempotent");
 }
+
+#[test]
+fn entry_expression_tuple_comparison_is_lowered() {
+    // Tuple comparison in an @EntryPoint callable is lowered correctly.
+    // Documents that the entry expression path is covered by tuple_compare_lower.
+    check(
+        indoc! {"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Bool {
+                    (1, 2) == (1, 2)
+                }
+            }
+        "},
+        &expect![[r#"
+            BinOp(AndL, ty=Bool):
+              BinOp(Eq, ty=Bool):
+                Lit(Int(1), ty=Int)
+                Lit(Int(1), ty=Int)
+              BinOp(Eq, ty=Bool):
+                Lit(Int(2), ty=Int)
+                Lit(Int(2), ty=Int)"#]],
+    );
+}

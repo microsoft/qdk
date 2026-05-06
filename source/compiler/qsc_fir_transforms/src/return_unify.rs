@@ -189,11 +189,11 @@ use qsc_fir::{
     fir::{
         BinOp, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Ident, ItemKind, Lit,
         LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore, Pat,
-        PatId, PatKind, Res, Result, StmtId, StmtKind, UnOp,
+        PatId, PatKind, Res, Result, StmtId, StmtKind, StoreItemId, UnOp,
     },
     ty::{Prim, Ty},
 };
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::rc::Rc;
 use thiserror::Error;
 
@@ -219,19 +219,52 @@ pub enum Error {
 
 type UdtPureTyCache = FxHashMap<(PackageId, LocalItemId), Ty>;
 
-/// Builds a UDT identifier → pure representation type cache.
+/// Recursively collects UDT item references from a type.
 ///
-/// Keys are `(PackageId, LocalItemId)` for every UDT in the store and values
-/// are the callable-free representation type produced by
-/// [`qsc_fir::ty::Udt::get_pure_ty`], used when synthesizing default values
-/// for the flag-based transform.
-fn build_udt_pure_ty_cache(store: &PackageStore) -> UdtPureTyCache {
-    let mut cache = FxHashMap::default();
-    for (pkg_id, package) in store {
-        for (item_id, item) in &package.items {
-            if let ItemKind::Ty(_, udt) = &item.kind {
-                cache.insert((pkg_id, item_id), udt.get_pure_ty());
+/// Walks nested tuples, arrays, and arrows to find all `Ty::Udt` variants and
+/// records their `(PackageId, LocalItemId)` identity in `refs`.
+fn collect_udt_refs_from_ty(ty: &Ty, refs: &mut FxHashSet<(PackageId, LocalItemId)>) {
+    match ty {
+        Ty::Udt(Res::Item(item_id)) => {
+            refs.insert((item_id.package, item_id.item));
+        }
+        Ty::Array(inner) => collect_udt_refs_from_ty(inner, refs),
+        Ty::Tuple(tys) => {
+            for t in tys {
+                collect_udt_refs_from_ty(t, refs);
             }
+        }
+        Ty::Arrow(arrow) => {
+            collect_udt_refs_from_ty(&arrow.input, refs);
+            collect_udt_refs_from_ty(&arrow.output, refs);
+        }
+        _ => {}
+    }
+}
+
+/// Builds a UDT pure-type cache scoped to UDTs referenced in reachable callable return types.
+///
+/// Only resolves `get_pure_ty()` for UDTs that appear in the output types of callables in
+/// `reachable`. This avoids scanning all packages × all items when only a fraction of UDTs
+/// are actually needed during return unification.
+fn build_scoped_udt_pure_ty_cache(
+    store: &PackageStore,
+    reachable: &FxHashSet<StoreItemId>,
+) -> UdtPureTyCache {
+    let mut needed_udts: FxHashSet<(PackageId, LocalItemId)> = FxHashSet::default();
+    for item_id in reachable {
+        let pkg = store.get(item_id.package);
+        let item = pkg.get_item(item_id.item);
+        if let ItemKind::Callable(decl) = &item.kind {
+            collect_udt_refs_from_ty(&decl.output, &mut needed_udts);
+        }
+    }
+    let mut cache = FxHashMap::default();
+    for (pkg_id, local_id) in &needed_udts {
+        let pkg = store.get(*pkg_id);
+        let item = pkg.get_item(*local_id);
+        if let ItemKind::Ty(_, udt) = &item.kind {
+            cache.insert((*pkg_id, *local_id), udt.get_pure_ty());
         }
     }
     cache
@@ -289,7 +322,7 @@ pub fn unify_returns(
     assigner: &mut Assigner,
 ) -> Vec<Error> {
     let reachable = collect_reachable_from_entry(store, package_id);
-    let udt_pure_tys = build_udt_pure_ty_cache(store);
+    let udt_pure_tys = build_scoped_udt_pure_ty_cache(store, &reachable);
     let mut errors = Vec::new();
 
     let local_reachable: Vec<_> = reachable

@@ -79,13 +79,13 @@ use crate::fir_builder::{
     resolve_udt_element_types,
 };
 use crate::reachability::collect_reachable_from_entry;
-use crate::walk_utils::collect_uses_in_block;
+use crate::walk_utils::{collect_expr_ids_in_local_callables, collect_uses_in_block};
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, LocalVarId,
-    Package, PackageId, PackageLookup, PackageStore, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt,
-    StmtId, StmtKind,
+    BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, ItemKind,
+    LocalItemId, LocalVarId, Package, PackageId, PackageLookup, PackageStore, PatId, PatKind, Res,
+    SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
 };
 use qsc_fir::ty::Ty;
 use rustc_hash::FxHashMap;
@@ -111,8 +111,8 @@ pub fn sroa(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assi
         // Collect candidates across all reachable callables.
         let mut all_candidates: Vec<SroaCandidate> = Vec::new();
 
-        for (_item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
-            collect_candidates_in_callable(store, package_id, decl, &mut all_candidates);
+        for (item_id, decl) in reachable_local_callables(package, package_id, &reachable) {
+            collect_candidates_in_callable(store, package_id, item_id, decl, &mut all_candidates);
         }
 
         if all_candidates.is_empty() {
@@ -137,22 +137,25 @@ struct SroaCandidate {
     elem_types: Vec<Ty>,
     /// The name of the original binding.
     name: Rc<str>,
+    /// The callable item that owns this local binding.
+    owner_item: LocalItemId,
 }
 
 /// Scans a callable's body for SROA candidates.
 fn collect_candidates_in_callable(
     store: &PackageStore,
     package_id: PackageId,
+    owner_item: LocalItemId,
     decl: &CallableDecl,
     candidates: &mut Vec<SroaCandidate>,
 ) {
     match &decl.implementation {
         CallableImpl::Intrinsic => {}
         CallableImpl::Spec(spec_impl) => {
-            collect_candidates_in_spec_impl(store, package_id, spec_impl, candidates);
+            collect_candidates_in_spec_impl(store, package_id, owner_item, spec_impl, candidates);
         }
         CallableImpl::SimulatableIntrinsic(spec) => {
-            collect_candidates_in_spec(store, package_id, spec, candidates);
+            collect_candidates_in_spec(store, package_id, owner_item, spec, candidates);
         }
     }
 }
@@ -162,12 +165,13 @@ fn collect_candidates_in_callable(
 fn collect_candidates_in_spec_impl(
     store: &PackageStore,
     package_id: PackageId,
+    owner_item: LocalItemId,
     spec_impl: &SpecImpl,
     candidates: &mut Vec<SroaCandidate>,
 ) {
-    collect_candidates_in_spec(store, package_id, &spec_impl.body, candidates);
+    collect_candidates_in_spec(store, package_id, owner_item, &spec_impl.body, candidates);
     for spec in functored_specs(spec_impl) {
-        collect_candidates_in_spec(store, package_id, spec, candidates);
+        collect_candidates_in_spec(store, package_id, owner_item, spec, candidates);
     }
 }
 
@@ -177,6 +181,7 @@ fn collect_candidates_in_spec_impl(
 fn collect_candidates_in_spec(
     store: &PackageStore,
     package_id: PackageId,
+    owner_item: LocalItemId,
     spec: &SpecDecl,
     candidates: &mut Vec<SroaCandidate>,
 ) {
@@ -192,6 +197,7 @@ fn collect_candidates_in_spec(
                 pat_id: binding.pat_id,
                 elem_types: binding.elem_types,
                 name: binding.name,
+                owner_item,
             });
         }
     }
@@ -347,6 +353,7 @@ fn decompose_candidate(package: &mut Package, assigner: &mut Assigner, candidate
     rewrite_field_accesses(
         package,
         assigner,
+        candidate.owner_item,
         candidate.local_id,
         &new_locals,
         &candidate.elem_types,
@@ -359,6 +366,7 @@ fn decompose_candidate(package: &mut Package, assigner: &mut Assigner, candidate
     rewrite_assign_tuples(
         package,
         assigner,
+        candidate.owner_item,
         candidate.local_id,
         &new_locals,
         &candidate.elem_types,
@@ -386,16 +394,17 @@ fn decompose_candidate(package: &mut Package, assigner: &mut Assigner, candidate
 fn rewrite_field_accesses(
     package: &mut Package,
     assigner: &mut Assigner,
+    owner_item: LocalItemId,
     old_local: LocalVarId,
     new_locals: &[LocalVarId],
     elem_types: &[Ty],
 ) {
-    // Collect all ExprIds that need rewriting.
-    let expr_ids: Vec<ExprId> = package.exprs.iter().map(|(id, _)| id).collect();
+    // Collect ExprIds only from the owning callable (locals cannot escape).
+    let expr_ids = collect_expr_ids_in_local_callables(&*package, &[owner_item]);
 
     for expr_id in expr_ids {
         rewrite_single_expr(
-            package, assigner, expr_id, old_local, new_locals, elem_types,
+            package, assigner, owner_item, expr_id, old_local, new_locals, elem_types,
         );
     }
 }
@@ -415,6 +424,7 @@ fn rewrite_field_accesses(
 fn rewrite_single_expr(
     package: &mut Package,
     assigner: &mut Assigner,
+    owner_item: LocalItemId,
     expr_id: ExprId,
     old_local: LocalVarId,
     new_locals: &[LocalVarId],
@@ -441,7 +451,7 @@ fn rewrite_single_expr(
                             let ty = elem_types[idx].clone();
                             alloc_local_var_expr(package, assigner, new_local, ty, span)
                         };
-                        replace_expr_references(package, expr_id, replacement_id);
+                        replace_expr_references(package, owner_item, expr_id, replacement_id);
                     } else {
                         // Nested: t.i.j... -> Field(Var(t_i), Path([j, ...]))
                         let remaining: Vec<usize> = path.indices[1..].to_vec();
@@ -464,7 +474,7 @@ fn rewrite_single_expr(
                                 exec_graph_range: EMPTY_EXEC_RANGE,
                             },
                         );
-                        replace_expr_references(package, expr_id, replacement_id);
+                        replace_expr_references(package, owner_item, expr_id, replacement_id);
                     }
                 }
             }
@@ -510,7 +520,7 @@ fn rewrite_single_expr(
                             exec_graph_range: EMPTY_EXEC_RANGE,
                         },
                     );
-                    replace_expr_references(package, expr_id, replacement_id);
+                    replace_expr_references(package, owner_item, expr_id, replacement_id);
                 }
             }
         }
@@ -518,22 +528,39 @@ fn rewrite_single_expr(
     }
 }
 
-/// Rewrites every reference to `old_expr_id` in the package to point at
+/// Rewrites every reference to `old_expr_id` in the owner callable to point at
 /// `new_expr_id`.
 ///
 /// Before, entry, statements, and parent expressions still point at the
 /// aggregate expression that SROA wants to replace. After, every such edge
 /// points at the scalarized replacement, allowing the old node to become dead.
-fn replace_expr_references(package: &mut Package, old_expr_id: ExprId, new_expr_id: ExprId) {
+fn replace_expr_references(
+    package: &mut Package,
+    owner_item: LocalItemId,
+    old_expr_id: ExprId,
+    new_expr_id: ExprId,
+) {
     if package.entry == Some(old_expr_id) {
         package.entry = Some(new_expr_id);
     }
 
-    for stmt in package.stmts.values_mut() {
-        replace_expr_in_stmt(stmt, old_expr_id, new_expr_id);
+    // Collect owner's block IDs and expr IDs with immutable borrow, then mutate.
+    let (block_ids, expr_ids) = {
+        let blocks = collect_all_block_ids_in_callable(&*package, owner_item);
+        let exprs = collect_expr_ids_in_local_callables(&*package, &[owner_item]);
+        (blocks, exprs)
+    };
+
+    for block_id in &block_ids {
+        let stmts: Vec<StmtId> = package.get_block(*block_id).stmts.clone();
+        for stmt_id in stmts {
+            let stmt = package.stmts.get_mut(stmt_id).expect("stmt should exist");
+            replace_expr_in_stmt(stmt, old_expr_id, new_expr_id);
+        }
     }
 
-    for expr in package.exprs.values_mut() {
+    for expr_id in expr_ids {
+        let expr = package.exprs.get_mut(expr_id).expect("expr should exist");
         replace_expr_in_expr(expr, old_expr_id, new_expr_id);
     }
 }
@@ -620,15 +647,56 @@ fn replace_expr_id(expr_id: &mut ExprId, old_expr_id: ExprId, new_expr_id: ExprI
     }
 }
 
-/// Builds a mapping from `StmtId` → `BlockId` for every statement in the package.
-fn build_stmt_block_map(package: &Package) -> FxHashMap<StmtId, BlockId> {
+/// Builds a mapping from `StmtId` → `BlockId` for the owner callable's blocks.
+fn build_stmt_block_map_for_callable(
+    package: &Package,
+    item_id: LocalItemId,
+) -> FxHashMap<StmtId, BlockId> {
     let mut map = FxHashMap::default();
-    for (block_id, block) in &package.blocks {
+    let block_ids = collect_all_block_ids_in_callable(package, item_id);
+    for block_id in block_ids {
+        let block = package.get_block(block_id);
         for &stmt_id in &block.stmts {
             map.insert(stmt_id, block_id);
         }
     }
     map
+}
+
+/// Collects all block IDs reachable from a callable's implementation.
+fn collect_all_block_ids_in_callable(package: &Package, item_id: LocalItemId) -> Vec<BlockId> {
+    let Some(item) = package.items.get(item_id) else {
+        return Vec::new();
+    };
+    let ItemKind::Callable(decl) = &item.kind else {
+        return Vec::new();
+    };
+    let mut block_ids = Vec::new();
+    // Include spec-level blocks.
+    match &decl.implementation {
+        CallableImpl::Intrinsic => {}
+        CallableImpl::Spec(spec_impl) => {
+            block_ids.push(spec_impl.body.block);
+            for spec in functored_specs(spec_impl) {
+                block_ids.push(spec.block);
+            }
+        }
+        CallableImpl::SimulatableIntrinsic(spec) => {
+            block_ids.push(spec.block);
+        }
+    }
+    // Include nested blocks found via expression walking.
+    crate::walk_utils::for_each_expr_in_callable_impl(
+        package,
+        &decl.implementation,
+        &mut |_, expr| match &expr.kind {
+            ExprKind::Block(bid) | ExprKind::While(_, bid) => {
+                block_ids.push(*bid);
+            }
+            _ => {}
+        },
+    );
+    block_ids
 }
 
 /// Splits `Assign(Var(Local(old)), Tuple([e0, e1, ...]))` into per-element
@@ -651,16 +719,18 @@ fn build_stmt_block_map(package: &Package) -> FxHashMap<StmtId, BlockId> {
 fn rewrite_assign_tuples(
     package: &mut Package,
     assigner: &mut Assigner,
+    owner_item: LocalItemId,
     old_local: LocalVarId,
     new_locals: &[LocalVarId],
     elem_types: &[Ty],
 ) {
-    let stmt_block_map = build_stmt_block_map(package);
+    let stmt_block_map = build_stmt_block_map_for_callable(package, owner_item);
 
     // Collect (stmt_id, expr_id, elements) for all matching Assign-Tuple patterns.
     let mut rewrites: Vec<(StmtId, ExprId, Vec<ExprId>)> = Vec::new();
 
-    for (stmt_id, stmt) in &package.stmts {
+    for &stmt_id in stmt_block_map.keys() {
+        let stmt = package.stmts.get(stmt_id).expect("stmt should exist");
         let semi_expr_id = match &stmt.kind {
             StmtKind::Semi(e) => *e,
             _ => continue,

@@ -59,6 +59,7 @@ pub fn gc_unreachable(package: &mut Package) -> usize {
 }
 
 /// Reachable-ID sets for each arena type.
+#[derive(Debug, Default)]
 struct LiveSets {
     blocks: FxHashSet<BlockId>,
     stmts: FxHashSet<StmtId>,
@@ -69,12 +70,7 @@ struct LiveSets {
 fn mark(package: &Package) -> LiveSets {
     let mut collector = ReachabilityCollector {
         package,
-        live: LiveSets {
-            blocks: FxHashSet::default(),
-            stmts: FxHashSet::default(),
-            exprs: FxHashSet::default(),
-            pats: FxHashSet::default(),
-        },
+        live: LiveSets::default(),
     };
 
     // Walk all items (callable spec bodies, including unreachable callables —

@@ -32,9 +32,10 @@ mod tests;
 
 use crate::fir_builder::functored_specs;
 use qsc_fir::fir::{
-    BlockId, CallableImpl, Expr, ExprId, ExprKind, Field, LocalVarId, Package, PackageLookup, Res,
-    SpecDecl, SpecImpl, StmtKind, StringComponent,
+    BlockId, CallableImpl, Expr, ExprId, ExprKind, Field, ItemKind, LocalItemId, LocalVarId,
+    Package, PackageLookup, Res, SpecDecl, SpecImpl, StmtKind, StringComponent,
 };
+use rustc_hash::FxHashSet;
 
 /// Walks an expression tree in pre-order, invoking `visit` for each expression.
 ///
@@ -310,5 +311,68 @@ pub(crate) fn collect_uses_in_expr(
             }
         }
         ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
+    }
+}
+
+/// Collects all expression IDs reachable from the package entry expression.
+///
+/// Returns an empty vector when the package has no entry.
+pub(crate) fn collect_expr_ids_in_entry(package: &Package) -> Vec<ExprId> {
+    let mut ids = Vec::new();
+    let mut seen = FxHashSet::default();
+    if let Some(entry_id) = package.entry {
+        for_each_expr(package, entry_id, &mut |expr_id, _| {
+            if seen.insert(expr_id) {
+                ids.push(expr_id);
+            }
+        });
+    }
+    ids
+}
+
+/// Collects all expression IDs from the specialization bodies of the given
+/// local callables.
+pub(crate) fn collect_expr_ids_in_local_callables(
+    package: &Package,
+    local_item_ids: &[LocalItemId],
+) -> Vec<ExprId> {
+    let mut ids = Vec::new();
+    let mut seen = FxHashSet::default();
+    extend_expr_ids_in_local_callables(package, local_item_ids, &mut ids, &mut seen);
+    ids
+}
+
+/// Collects all expression IDs from the entry expression and the specialization
+/// bodies of the given local callables.
+pub(crate) fn collect_expr_ids_in_entry_and_local_callables(
+    package: &Package,
+    local_item_ids: &[LocalItemId],
+) -> Vec<ExprId> {
+    let mut ids = collect_expr_ids_in_entry(package);
+    let mut seen: FxHashSet<ExprId> = ids.iter().copied().collect();
+    extend_expr_ids_in_local_callables(package, local_item_ids, &mut ids, &mut seen);
+    ids
+}
+
+/// Extends an existing expression ID collection with IDs from the given local
+/// callable bodies. Skips IDs already in `seen`.
+pub(crate) fn extend_expr_ids_in_local_callables(
+    package: &Package,
+    local_item_ids: &[LocalItemId],
+    ids: &mut Vec<ExprId>,
+    seen: &mut FxHashSet<ExprId>,
+) {
+    for &local_item_id in local_item_ids {
+        let Some(item) = package.items.get(local_item_id) else {
+            continue;
+        };
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        for_each_expr_in_callable_impl(package, &decl.implementation, &mut |expr_id, _| {
+            if seen.insert(expr_id) {
+                ids.push(expr_id);
+            }
+        });
     }
 }

@@ -33,9 +33,7 @@ use qsc_fir::fir::{
 use qsc_fir::ty::{FunctorSet, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::reachability::{
-    collect_reachable_from_entry, collect_reachable_package_closure, collect_reachable_with_seeds,
-};
+use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
 
 /// The level of invariant checking to perform, corresponding to which passes
 /// have already been applied.
@@ -69,6 +67,7 @@ pub enum InvariantLevel {
 }
 
 impl InvariantLevel {
+    /// Returns `true` when this level is at or after monomorphization.
     fn is_post_mono_or_later(self) -> bool {
         matches!(
             self,
@@ -84,6 +83,7 @@ impl InvariantLevel {
         )
     }
 
+    /// Returns `true` when this level is at or after return unification.
     fn is_post_return_unify_or_later(self) -> bool {
         matches!(
             self,
@@ -98,6 +98,7 @@ impl InvariantLevel {
         )
     }
 
+    /// Returns `true` when this level is at or after defunctionalization.
     fn is_post_defunc_or_later(self) -> bool {
         matches!(
             self,
@@ -111,6 +112,7 @@ impl InvariantLevel {
         )
     }
 
+    /// Returns `true` when this level is at or after UDT erasure.
     fn is_post_udt_erase_or_later(self) -> bool {
         matches!(
             self,
@@ -123,6 +125,7 @@ impl InvariantLevel {
         )
     }
 
+    /// Returns `true` when this level is at or after tuple comparison lowering.
     fn is_post_tuple_comp_lower_or_later(self) -> bool {
         matches!(
             self,
@@ -134,6 +137,7 @@ impl InvariantLevel {
         )
     }
 
+    /// Returns `true` when this level is at or after SROA.
     fn is_post_sroa_or_later(self) -> bool {
         matches!(
             self,
@@ -141,64 +145,24 @@ impl InvariantLevel {
         )
     }
 
+    /// Returns `true` when this level is at or after argument promotion.
     fn is_post_arg_promote_or_later(self) -> bool {
         matches!(self, Self::PostArgPromote | Self::PostGc | Self::PostAll)
     }
 }
 
-/// Checks FIR structural invariants on entry-reachable code and, after UDT
-/// erasure, on the full reachable package closure that pass mutates.
+/// Checks FIR structural invariants on entry-reachable code.
 ///
-/// Equivalent to [`check_with_pinned_items`] with an empty `pinned_items`
-/// slice. Use [`check_with_pinned_items`] when the pipeline has pinned
-/// additional items (e.g. for callable-args codegen) so those callables are
-/// also validated.
+/// The invariant walk is scoped to items reachable from the target package's
+/// entry expression. Items pinned for backend codegen (e.g. for
+/// `fir_to_qir_from_callable`) are excluded from this check — the production
+/// pipeline intentionally limits invariant enforcement to the entry-rooted
+/// reachability closure.
 ///
 /// # Panics
 ///
 /// Panics with a descriptive message if any invariant is violated.
 pub fn check(store: &PackageStore, package_id: qsc_fir::fir::PackageId, level: InvariantLevel) {
-    check_with_pinned_items(store, package_id, level, &[]);
-}
-
-/// Checks FIR structural invariants on reachable code, including any
-/// additional `pinned_items` as extra reachability roots.
-///
-/// The invariant walk is scoped two ways. Callable-signature and
-/// callable-body checks (`check_reachable_invariants`, `check_expr_types`,
-/// `check_non_unit_block_tails`) only visit items reachable from the target
-/// package's entry expression (plus pinned items when provided);
-/// cross-package items referenced by those callables are not re-checked for
-/// the stage-sensitive invariants because the preceding passes only rewrote
-/// the target package. The `check_package_udt_erase_invariants` walker is
-/// the single exception: once `udt_erase` runs it must verify the
-/// UDT-erasure surface on every package in the reachable package closure,
-/// because that pass mutates types and expression kinds across packages.
-///
-/// The top-level dispatcher runs the invariant helpers in layers:
-/// - `check_id_references` validates raw `IndexMap` links before any
-///   stage-sensitive logic runs.
-/// - `check_package_udt_erase_invariants` validates package-wide UDT-erasure
-///   surfaces for every package in the reachable package closure once
-///   `udt_erase` has run.
-/// - `check_reachable_invariants` applies callable-signature and callable-body
-///   checks to reachable items in the transformed package.
-/// - `check_non_unit_block_tails` verifies the single-exit block shape that
-///   return unification promises.
-/// - `check_expr_types` revisits the entry expression tree itself, which may
-///   contain structure not visited from callable bodies alone.
-/// - `check_configured_exec_graph` validates both entry exec-graph views once
-///   the full pipeline has rebuilt them.
-///
-/// # Panics
-///
-/// Panics with a descriptive message if any invariant is violated.
-pub fn check_with_pinned_items(
-    store: &PackageStore,
-    package_id: qsc_fir::fir::PackageId,
-    level: InvariantLevel,
-    pinned_items: &[StoreItemId],
-) {
     let package = store.get(package_id);
     check_id_references(package);
 
@@ -206,11 +170,7 @@ pub fn check_with_pinned_items(
         return;
     };
 
-    let reachable = if pinned_items.is_empty() {
-        collect_reachable_from_entry(store, package_id)
-    } else {
-        collect_reachable_with_seeds(store, package_id, pinned_items)
-    };
+    let reachable = collect_reachable_from_entry(store, package_id);
     if level.is_post_udt_erase_or_later() {
         let reachable_packages = collect_reachable_package_closure(package_id, &reachable);
         for reachable_package_id in reachable_packages {
@@ -222,7 +182,7 @@ pub fn check_with_pinned_items(
         }
     }
 
-    check_reachable_invariants(store, package_id, &reachable, level, pinned_items);
+    check_reachable_invariants(store, package_id, &reachable, level);
 
     if level.is_post_defunc_or_later() {
         check_expr_id_ownership(store, package_id, &reachable, entry_id);
@@ -273,6 +233,13 @@ fn check_package_udt_erase_invariants(package: &Package) {
     }
 }
 
+/// Validates that a single expression satisfies post-UDT-erasure invariants:
+/// no `Ty::Udt` in its type, no `ExprKind::Struct`, no `Field::Path` in
+/// `UpdateField`/`AssignField`, and `Field::Path` only on tuple-typed records.
+///
+/// # Panics
+///
+/// Panics with a descriptive message if any UDT-erasure invariant is violated.
 fn check_expr_udt_erase_invariants(package: &Package, expr_id: ExprId) {
     let expr = package.get_expr(expr_id);
     check_type_udt_erase_invariants(&expr.ty, &format!("Expr {expr_id}"));
@@ -304,6 +271,11 @@ fn check_expr_udt_erase_invariants(package: &Package, expr_id: ExprId) {
     }
 }
 
+/// Recursively validates that a type contains no `Ty::Udt` variants.
+///
+/// # Panics
+///
+/// Panics if `Ty::Udt` is found anywhere within the type tree.
 fn check_type_udt_erase_invariants(ty: &Ty, context: &str) {
     match ty {
         Ty::Array(inner) => check_type_udt_erase_invariants(inner, context),
@@ -652,7 +624,6 @@ fn check_reachable_invariants(
     target_package_id: qsc_fir::fir::PackageId,
     reachable: &FxHashSet<StoreItemId>,
     level: InvariantLevel,
-    _pinned_items: &[StoreItemId],
 ) {
     for item_id in reachable {
         // Only check invariants on items in the target package. Cross-package

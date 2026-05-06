@@ -85,17 +85,21 @@ mod tests;
 #[cfg(all(test, feature = "slow-proptest-tests"))]
 mod semantic_equivalence_tests;
 
+use crate::fir_builder::reachable_local_callables;
 use crate::reachability::collect_reachable_from_entry;
+use crate::walk_utils::collect_expr_ids_in_entry_and_local_callables;
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     ExprId, ExprKind, ItemKind, LocalItemId, Package, PackageId, PackageLookup, PackageStore, Res,
+    StoreItemId,
 };
 use qsc_fir::ty::Ty;
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 use types::{
-    CallSite, CallableParam, ConcreteCallable, ConcreteCallableKey, SpecKey, peel_body_functors,
+    AnalysisResult, CallSite, CallableParam, ConcreteCallable, ConcreteCallableKey, SpecKey,
+    peel_body_functors,
 };
 
 /// Maximum number of analysis → specialize → rewrite iterations before
@@ -140,7 +144,6 @@ pub fn defunctionalize(
     // (mirrors LLVM DevirtSCCRepeatedPass: detect when an iteration fails to
     // reduce the remaining work set).
     let (_, mut prev_remaining_count, _) = remaining_callable_value_info(store, package_id);
-    let mut _stuck = false;
 
     while iteration_count < max_iterations {
         iteration_count += 1;
@@ -153,83 +156,171 @@ pub fn defunctionalize(
 
         let reachable = collect_reachable_from_entry(store, package_id);
 
+        let (local_item_ids, reachable_expr_ids) =
+            collect_reachable_scope(store, package_id, &reachable);
+
         // Simplify defunctionalization analysis by eliminating callable
         // indirection patterns and exposing direct call sites.
-        prepass::run(store, package_id);
+        prepass::run(store, package_id, &reachable_expr_ids);
 
         let analysis = analysis::analyze(store, package_id, &reachable);
 
-        let (spec_map, mut spec_errors) = if analysis.call_sites.is_empty() {
-            (Default::default(), Vec::new())
-        } else {
-            specialize::specialize(store, package_id, &analysis, assigner)
-        };
-        // Separate warnings from errors so the `retain` at the top of each
-        // iteration does not discard them.
-        warnings.extend(
-            spec_errors
-                .iter()
-                .filter(|e| matches!(e, Error::ExcessiveSpecializations(..)))
-                .cloned(),
+        let spec_map = run_specialization(
+            store,
+            package_id,
+            &analysis,
+            assigner,
+            &mut errors,
+            &mut warnings,
         );
-        spec_errors.retain(|e| !matches!(e, Error::ExcessiveSpecializations(..)));
-        errors.append(&mut spec_errors);
 
         // Rewrite call sites and run dead callable-local cleanup even on
         // iterations where no new specializations were discovered.
         let package = store.get_mut(package_id);
         rewrite::rewrite(package, package_id, &analysis, &spec_map, assigner);
 
-        // Collect closure targets that were specialized in this iteration and
-        // replace consumed closure expressions with Unit. A closure is
-        // "consumed" when its target callable has had a specialization created
-        // for it, meaning the HOF call that used this closure has been
-        // rewritten to a direct call.
-        for cs in &analysis.call_sites {
-            let spec_key = build_spec_key(cs);
-            if spec_map.contains_key(&spec_key)
-                && let ConcreteCallable::Closure { target, .. } = &cs.callable_arg
-            {
-                specialized_closure_targets.insert(*target);
-            }
-        }
-        specialized_items.extend(spec_map.values().copied());
-        cleanup_consumed_closures(package, &specialized_closure_targets, &specialized_items);
+        track_specialized_closures(
+            &analysis,
+            &spec_map,
+            &mut specialized_closure_targets,
+            &mut specialized_items,
+        );
+        cleanup_consumed_closures(
+            package,
+            &specialized_closure_targets,
+            &specialized_items,
+            &local_item_ids,
+        );
 
         // Check convergence
-        let (has_remaining, remaining_count, _) = remaining_callable_value_info(store, package_id);
-
-        // Before/after progress check: remaining callable expressions must
-        // decrease or new call sites must have been discovered. Without
-        // progress the loop cannot converge and should exit early.
-        let made_progress =
-            remaining_count < prev_remaining_count || !analysis.call_sites.is_empty();
-        prev_remaining_count = remaining_count;
-
-        // On the first iteration, compute a dynamic iteration limit based on
-        // the number of remaining callable values discovered. This scales with
-        // program complexity while capping runaway iteration.
-        if iteration_count == 1 {
-            max_iterations = analysis
-                .callable_params
-                .len()
-                .max(remaining_count)
-                .clamp(MAX_ITERATIONS, 20);
-        }
-
-        if !has_remaining {
-            break;
-        }
-
-        if !made_progress {
-            // Stuck: remaining callable expressions unchanged and no new call
-            // sites were discovered. The post-loop check will emit
-            // FixpointNotReached.
-            _stuck = true;
+        let converged = check_convergence(
+            store,
+            package_id,
+            &analysis,
+            iteration_count,
+            &mut max_iterations,
+            &mut prev_remaining_count,
+        );
+        if converged {
             break;
         }
     }
 
+    emit_fixpoint_error(store, package_id, iteration_count, &mut errors);
+    errors.extend(warnings);
+
+    errors
+}
+
+/// Computes the reachable local callable IDs and expression IDs for scoping
+/// the prepass and cleanup to entry-reachable code.
+fn collect_reachable_scope(
+    store: &PackageStore,
+    package_id: PackageId,
+    reachable: &FxHashSet<StoreItemId>,
+) -> (Vec<LocalItemId>, Vec<ExprId>) {
+    let package = store.get(package_id);
+    let local_item_ids: Vec<_> = reachable_local_callables(package, package_id, reachable)
+        .map(|(id, _)| id)
+        .collect();
+    let reachable_expr_ids =
+        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
+    (local_item_ids, reachable_expr_ids)
+}
+
+/// Runs specialization if there are call sites, separating warnings from
+/// errors. Returns the specialization map.
+fn run_specialization(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    analysis: &AnalysisResult,
+    assigner: &mut Assigner,
+    errors: &mut Vec<Error>,
+    warnings: &mut Vec<Error>,
+) -> FxHashMap<SpecKey, LocalItemId> {
+    let (spec_map, mut spec_errors) = if analysis.call_sites.is_empty() {
+        (Default::default(), Vec::new())
+    } else {
+        specialize::specialize(store, package_id, analysis, assigner)
+    };
+    // Separate warnings from errors so the `retain` at the top of each
+    // iteration does not discard them.
+    warnings.extend(
+        spec_errors
+            .iter()
+            .filter(|e| matches!(e, Error::ExcessiveSpecializations(..)))
+            .cloned(),
+    );
+    spec_errors.retain(|e| !matches!(e, Error::ExcessiveSpecializations(..)));
+    errors.append(&mut spec_errors);
+    spec_map
+}
+
+/// Records which closure targets were consumed by specialization in this
+/// iteration.
+fn track_specialized_closures(
+    analysis: &AnalysisResult,
+    spec_map: &FxHashMap<SpecKey, LocalItemId>,
+    specialized_closure_targets: &mut FxHashSet<LocalItemId>,
+    specialized_items: &mut FxHashSet<LocalItemId>,
+) {
+    for cs in &analysis.call_sites {
+        let spec_key = build_spec_key(cs);
+        if spec_map.contains_key(&spec_key)
+            && let ConcreteCallable::Closure { target, .. } = &cs.callable_arg
+        {
+            specialized_closure_targets.insert(*target);
+        }
+    }
+    specialized_items.extend(spec_map.values().copied());
+}
+
+/// Checks whether the fixed-point loop should terminate. Returns `true` when
+/// the loop should break (converged or stuck).
+fn check_convergence(
+    store: &PackageStore,
+    package_id: PackageId,
+    analysis: &AnalysisResult,
+    iteration_count: usize,
+    max_iterations: &mut usize,
+    prev_remaining_count: &mut usize,
+) -> bool {
+    let (has_remaining, remaining_count, _) = remaining_callable_value_info(store, package_id);
+
+    let made_progress = remaining_count < *prev_remaining_count || !analysis.call_sites.is_empty();
+    *prev_remaining_count = remaining_count;
+
+    // On the first iteration, compute a dynamic iteration limit based on
+    // the number of remaining callable values discovered.
+    if iteration_count == 1 {
+        *max_iterations = analysis
+            .callable_params
+            .len()
+            .max(remaining_count)
+            .clamp(MAX_ITERATIONS, 20);
+    }
+
+    if !has_remaining {
+        return true;
+    }
+
+    // No progress was made — the loop is stuck. Break out and let
+    // `emit_fixpoint_error` report the remaining callable values.
+    if !made_progress {
+        return true;
+    }
+
+    false
+}
+
+/// Emits a `FixpointNotReached` error if callable values remain after the
+/// loop exits.
+fn emit_fixpoint_error(
+    store: &PackageStore,
+    package_id: PackageId,
+    iteration_count: usize,
+    errors: &mut Vec<Error>,
+) {
     let (has_remaining, remaining_count, span) = remaining_callable_value_info(store, package_id);
     if has_remaining && errors.is_empty() {
         errors.push(Error::FixpointNotReached(
@@ -238,11 +329,6 @@ pub fn defunctionalize(
             span,
         ));
     }
-
-    // Merge accumulated warnings into the returned error list.
-    errors.extend(warnings);
-
-    errors
 }
 
 /// Replaces all remaining closure expressions whose target callable was
@@ -277,6 +363,7 @@ fn cleanup_consumed_closures(
     package: &mut Package,
     specialized_targets: &FxHashSet<LocalItemId>,
     skip_items: &FxHashSet<LocalItemId>,
+    reachable_item_ids: &[LocalItemId],
 ) -> usize {
     if specialized_targets.is_empty() {
         return 0;
@@ -285,12 +372,11 @@ fn cleanup_consumed_closures(
     // First pass: collect the ExprIds of all call argument subtrees.
     // Closures inside these subtrees are still live as HOF arguments.
     let mut call_arg_exprs: FxHashSet<ExprId> = FxHashSet::default();
-    let item_ids: Vec<_> = package.items.iter().map(|(id, _)| id).collect();
-    for item_id in &item_ids {
-        if skip_items.contains(item_id) {
+    for &item_id in reachable_item_ids {
+        if skip_items.contains(&item_id) {
             continue;
         }
-        let item = package.get_item(*item_id);
+        let item = package.get_item(item_id);
         if let ItemKind::Callable(decl) = &item.kind {
             crate::walk_utils::for_each_expr_in_callable_impl(
                 package,
@@ -314,11 +400,11 @@ fn cleanup_consumed_closures(
     // Second pass: collect consumed closures that are NOT in call argument
     // positions.
     let mut to_replace: Vec<ExprId> = Vec::new();
-    for item_id in &item_ids {
-        if skip_items.contains(item_id) {
+    for &item_id in reachable_item_ids {
+        if skip_items.contains(&item_id) {
             continue;
         }
-        let item = package.get_item(*item_id);
+        let item = package.get_item(item_id);
         if let ItemKind::Callable(decl) = &item.kind {
             crate::walk_utils::for_each_expr_in_callable_impl(
                 package,

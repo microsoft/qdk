@@ -153,6 +153,11 @@ fn run_pipeline_to_impl(
     stage: PipelineStage,
     pinned_items: &[StoreItemId],
 ) -> Vec<PipelineError> {
+    assert!(
+        store.get(package_id).entry.is_some(),
+        "FIR transform pipeline requires a package with an entry expression; \
+         library packages should not be passed to the transform pipeline"
+    );
     let mut assigner = Assigner::from_package(store.get(package_id));
 
     monomorphize::monomorphize(store, package_id, &mut assigner);
@@ -225,22 +230,7 @@ fn run_pipeline_to_impl(
     // Item DCE: remove unreachable callable items and dead type items.
     // Callers may pin items via `pinned_items` to keep them (and their
     // transitive dependencies) alive through DCE and exec-graph-rebuild.
-    // Pinned items are NOT invariant-checked — PostAll uses entry-only
-    // reachability. Pinning is needed when the original target ID is used
-    // by `fir_to_qir_from_callable` after defunc rewrites the entry Call
-    // to reference the specialized callable.
-    if store.get(package_id).entry.is_some() {
-        let reachable = if pinned_items.is_empty() {
-            reachability::collect_reachable_from_entry(store, package_id)
-        } else {
-            reachability::collect_reachable_with_seeds(store, package_id, pinned_items)
-        };
-        let removed =
-            item_dce::eliminate_dead_items(package_id, store.get_mut(package_id), &reachable);
-        if removed > 0 {
-            gc_unreachable::gc_unreachable(store.get_mut(package_id));
-        }
-    }
+    run_item_dce_and_gc(store, package_id, pinned_items);
     if matches!(stage, PipelineStage::ItemDce) {
         return Vec::new();
     }
@@ -254,6 +244,29 @@ fn run_pipeline_to_impl(
     // for fir_to_qir_from_callable) retain pre-transform types and are not checked.
     invariants::check(store, package_id, invariants::InvariantLevel::PostAll);
     Vec::new()
+}
+
+/// Runs item-level DCE with optional pinned-root expansion, followed by
+/// conditional GC if any items were removed.
+///
+/// Pinned items are NOT invariant-checked — `PostAll` uses entry-only
+/// reachability. Pinning is needed when the original target ID is used
+/// by `fir_to_qir_from_callable` after defunc rewrites the entry `Call`
+/// to reference the specialized callable.
+fn run_item_dce_and_gc(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    pinned_items: &[StoreItemId],
+) {
+    let reachable = if pinned_items.is_empty() {
+        reachability::collect_reachable_from_entry(store, package_id)
+    } else {
+        reachability::collect_reachable_with_seeds(store, package_id, pinned_items)
+    };
+    let removed = item_dce::eliminate_dead_items(package_id, store.get_mut(package_id), &reachable);
+    if removed > 0 {
+        gc_unreachable::gc_unreachable(store.get_mut(package_id));
+    }
 }
 
 /// Runs the authoritative FIR optimization schedule up to the requested stage.

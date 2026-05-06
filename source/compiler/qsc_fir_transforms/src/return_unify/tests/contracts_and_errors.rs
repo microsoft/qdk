@@ -37,7 +37,8 @@ fn guard_stmt_with_flag_rejects_non_unit_expr_stmt() {
         let assigner: &mut Assigner = &mut assigner;
         alloc_expr_stmt(package, assigner, lit_expr_id, Span::default())
     };
-    let udt_pure_tys = super::super::build_udt_pure_ty_cache(&store);
+    let reachable = FxHashSet::default();
+    let udt_pure_tys = super::super::build_scoped_udt_pure_ty_cache(&store, &reachable);
     let package = store.get_mut(pkg_id);
     let _ = super::super::guard_stmt_with_flag(
         package,
