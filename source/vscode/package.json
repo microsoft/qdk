@@ -1224,7 +1224,7 @@
         ],
         "toolReferenceName": "qdkLearningGetState",
         "displayName": "QDK Learning: Get State",
-        "modelDescription": "Read the current learning position and progress without opening the panel. Use to sync with the user's current position.",
+        "modelDescription": "Read the current learning position and progress without opening the panel or requiring initialization. Returns { initialized: false } if the workspace is not yet set up. Use at startup to check status before calling show.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {

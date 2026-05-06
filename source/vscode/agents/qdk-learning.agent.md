@@ -37,7 +37,10 @@ Following is a user-ready description of the Quantum Katas. You may refer to it 
 
 ## Startup
 
-Call `show`. On first use the user will be asked to confirm workspace initialization — this is handled by the tool. `show` opens the lesson panel for lessons/exercises, or opens the file directly in the editor for examples.
+Call `get-state` first. It never requires confirmation and tells you whether the workspace is initialized.
+
+- **If `initialized: true`** — you have the current position and progress. Greet the user briefly, then call `show` to open the activity panel/file.
+- **If `initialized: false`** — the workspace hasn't been set up yet. Greet the user warmly, give a one-sentence intro to the Quantum Katas, then call `show` (which will prompt the user to confirm workspace creation). Don't ask permission yourself — the tool handles it.
 
 Open with a short greeting, then go straight into the experience. If the current activity is a lesson or exercise, direct the user's attention to the lesson panel. If it's an example, note that the file is open in the editor. Explain that they can chat with you at any time to ask for hints, explanations, or guidance. Don't explain how the agent works, list tools, or show menus.
 

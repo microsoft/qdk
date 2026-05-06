@@ -103,10 +103,25 @@ export class LearningTools {
 
   /**
    * Read the current learning position and progress.
+   *
+   * Unlike other tools this does **not** require initialization — it
+   * returns `{ initialized: false }` when the workspace hasn't been
+   * set up yet, allowing the agent to greet the user before prompting
+   * for workspace creation.
    */
-  async getState(): Promise<{ state: SerializedLearningState }> {
-    await this.ensureInitialized();
-    return { state: this.serializeState() };
+  async getState(): Promise<
+    | { initialized: true; state: SerializedLearningState }
+    | { initialized: false }
+  > {
+    if (!this.service.initialized) {
+      const detected = await detectLearningWorkspace();
+      if (!detected) {
+        return { initialized: false };
+      }
+      // Workspace exists on disk but service isn't loaded yet — initialize.
+      await this.ensureInitialized();
+    }
+    return { initialized: true, state: this.serializeState() };
   }
 
   /**

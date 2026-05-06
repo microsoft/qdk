@@ -114,7 +114,6 @@ const toolDefinitions: {
   {
     name: "qdk-learning-get-state",
     tool: async () => await learningTools!.getState(),
-    confirm: async () => learningTools!.confirmInit(),
   },
   {
     name: "qdk-learning-get-progress",
