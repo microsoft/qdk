@@ -26,8 +26,6 @@ from ...instruction_ids import (
 )
 from ...property_keys import (
     ATOM_SPACING,
-    SURFACE_CODE_ONE_QUBIT_TIME_FACTOR,
-    SURFACE_CODE_TWO_QUBIT_TIME_FACTOR,
     VELOCITY,
     ACCELERATION,
 )
