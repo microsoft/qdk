@@ -11,6 +11,7 @@ import { registerLearningDecorations } from "./decorations.js";
 import { registerEditorContext } from "./editorContext.js";
 import { registerKatasPanelSerializer } from "./panel.js";
 import { registerLearningProgressView } from "./progressTreeView.js";
+import { registerLearningWelcomeView } from "./welcomeView.js";
 import { LearningService } from "./service.js";
 
 export {
@@ -47,6 +48,7 @@ export function initLearning(
     ),
   );
   registerLearningProgressView(context, learningService);
+  registerLearningWelcomeView(context);
   registerLearningCommands(context, learningService);
   registerKatasPanelSerializer(context, learningService);
   return learningService;

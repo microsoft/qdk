@@ -434,8 +434,15 @@
       ],
       "qsharp-vscode-katas": [
         {
+          "id": "qsharp-vscode.learningWelcome",
+          "name": "Welcome",
+          "type": "webview",
+          "when": "!qsharp-vscode.katasDetected"
+        },
+        {
           "id": "qsharp-vscode.learningTree",
-          "name": "Katas"
+          "name": "Katas",
+          "when": "qsharp-vscode.katasDetected"
         }
       ]
     },
@@ -443,11 +450,6 @@
       {
         "view": "quantum-workspaces",
         "contents": "Connect to Azure Quantum\n[Connect to an existing workspace](command:qsharp-vscode.workspacesAdd)\nNote: For the first workspace added there may be several consent prompts to grant VS Code access.\nFor more information about the QDK and Azure Quantum, visit [https://aka.ms/AQ/Documentation](https://aka.ms/AQ/Documentation)."
-      },
-      {
-        "view": "qsharp-vscode.learningTree",
-        "contents": "Welcome to the Quantum Katas — a free, hands-on introduction to quantum computing with Q#.\n\nEach kata is a self-contained tutorial that teaches a concept through short readings followed by exercises you complete in your editor. Topics include qubits, gates, measurement, entanglement, and famous algorithms like Grover's and Deutsch–Jozsa.\n\nNo prior quantum experience required.\n[$(sparkle) Get started](command:qsharp-vscode.katasContinue)",
-        "when": "!qsharp-vscode.katasDetected"
       }
     ],
     "chatInstructions": [
@@ -650,7 +652,7 @@
         "command": "qsharp-vscode.katasOpenSection",
         "title": "Open Quantum Katas section",
         "category": "QDK",
-        "icon": "$(play)"
+        "icon": "$(go-to-file)"
       },
       {
         "command": "qsharp-vscode.katasAskInChat",
