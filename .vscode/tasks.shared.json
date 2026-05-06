@@ -77,6 +77,15 @@
 			"label": "Watch & serve - npm & playground",
 			"dependsOn":["watch - npm", "watch - playground", "start - playground"],
 			"dependsOrder": "parallel"
+		},
+		{
+			"label": "Package VS Code extension",
+			"type": "shell",
+			"command": "npx",
+			"args": ["@vscode/vsce", "package", "--no-dependencies"],
+			"options": {"cwd": "${workspaceFolder}/source/vscode"},
+			"group": "build",
+			"problemMatcher": []
 		}
 	]
 }
