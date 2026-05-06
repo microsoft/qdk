@@ -29,7 +29,12 @@ export function registerLearningWelcomeView(
         );
 
         const codiconCssUri = webviewView.webview.asWebviewUri(
-          vscode.Uri.joinPath(context.extensionUri, "out", "katex", "codicon.css"),
+          vscode.Uri.joinPath(
+            context.extensionUri,
+            "out",
+            "katex",
+            "codicon.css",
+          ),
         );
 
         webviewView.webview.html = getHtml(
@@ -42,7 +47,11 @@ export function registerLearningWelcomeView(
   );
 }
 
-function getHtml(logoUri: vscode.Uri, codiconCssUri: vscode.Uri, cspSource: string): string {
+function getHtml(
+  logoUri: vscode.Uri,
+  codiconCssUri: vscode.Uri,
+  cspSource: string,
+): string {
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
