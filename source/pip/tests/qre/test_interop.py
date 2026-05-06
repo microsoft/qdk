@@ -237,8 +237,7 @@ def test_qsharp_from_string():
 
 
 def test_qsharp_from_callable():
-    qsharp.eval(
-        """
+    qsharp.eval("""
     operation Test(numTs: Int) : Unit {{
         use (a, b, c) = (Qubit(), Qubit(), Qubit());
         for i in 1..numTs {{
@@ -247,8 +246,7 @@ def test_qsharp_from_callable():
         CCNOT(a, b, c);
         Rz(1.2345, a);
     }}
-    """
-    )
+    """)
 
     for num_ts in range(1, 6):
         app = QSharpApplication(qsharp.code.Test, args=(num_ts,))  # type: ignore
