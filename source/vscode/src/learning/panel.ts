@@ -51,6 +51,9 @@ export class KatasPanelManager {
   private ready = false;
   private queuedMessages: unknown[] = [];
   private disposables: vscode.Disposable[] = [];
+  /** Suppresses tab cleanup in onDidDispose when the panel is being
+   *  disposed as part of a controlled transition (e.g. to an example). */
+  private suppressDisposeCleanup = false;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -95,9 +98,11 @@ export class KatasPanelManager {
     // Example activities open the file directly — no panel needed.
     const pos = this.service.getPosition();
     if (pos.content.type === "example") {
+      this.suppressDisposeCleanup = true;
       this.panel?.dispose();
-      this.closeStaleLearningTabs(undefined).catch(() => {});
       const fileUri = vscode.Uri.file(pos.content.filePath);
+      // Keep the target file open — only close other managed tabs.
+      await this.closeStaleLearningTabs(fileUri);
       await vscode.commands.executeCommand("vscode.open", fileUri, {
         viewColumn: vscode.ViewColumn.One,
         preview: false,
@@ -181,6 +186,12 @@ export class KatasPanelManager {
         this.panel = undefined;
         this.ready = false;
         this.queuedMessages = [];
+        // Clean up managed code file tabs when the panel is closed
+        // by the user (not during a controlled transition to an example).
+        if (this.service.initialized && !this.suppressDisposeCleanup) {
+          this.closeStaleLearningTabs(undefined).catch(() => {});
+        }
+        this.suppressDisposeCleanup = false;
       },
       undefined,
       this.disposables,
@@ -213,16 +224,20 @@ export class KatasPanelManager {
         if (pos.content.type === "example") {
           // Example activities don't use the lesson panel — close it and
           // open the file directly in the primary editor column.
+          this.suppressDisposeCleanup = true;
           this.panel?.dispose();
-          this.closeStaleLearningTabs(undefined).catch(() => {});
           const fileUri = vscode.Uri.file(pos.content.filePath);
           const { cellIndex } = pos.content;
-          vscode.commands
-            .executeCommand("vscode.open", fileUri, {
-              viewColumn: vscode.ViewColumn.One,
-              preview: false,
-            } satisfies vscode.TextDocumentShowOptions)
-            .then(() => this.revealNotebookCell(fileUri, cellIndex));
+          // Keep the target file open — only close other managed tabs.
+          this.closeStaleLearningTabs(fileUri)
+            .then(() =>
+              vscode.commands.executeCommand("vscode.open", fileUri, {
+                viewColumn: vscode.ViewColumn.One,
+                preview: false,
+              } satisfies vscode.TextDocumentShowOptions),
+            )
+            .then(() => this.revealNotebookCell(fileUri, cellIndex))
+            .catch(() => {});
           return;
         }
 
@@ -281,7 +296,7 @@ export class KatasPanelManager {
 
   /**
    * If the current position is an exercise or example, open the
-   * corresponding .qs file in the secondary editor column.
+   * corresponding .qs file in the editor group below the lesson panel.
    * Closes any previously-opened kata editor tabs that are no longer current.
    */
   private async openCurrentFile(): Promise<void> {
@@ -300,6 +315,12 @@ export class KatasPanelManager {
     await this.closeStaleLearningTabs(fileUri);
 
     if (fileUri) {
+      // Set a vertical (top/bottom) two-row layout so the lesson panel
+      // is above and the code file is below.
+      await vscode.commands.executeCommand("vscode.setEditorLayout", {
+        orientation: 1,
+        groups: [{ size: 0.5 }, { size: 0.5 }],
+      });
       await vscode.commands.executeCommand("vscode.open", fileUri, {
         viewColumn: vscode.ViewColumn.Two,
         preview: false,
