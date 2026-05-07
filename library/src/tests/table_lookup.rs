@@ -4,7 +4,7 @@
 use super::test_expression_with_lib;
 use qsc::interpret::Value;
 
-// Tests for Microsoft.Quantum.TableLookup namespace
+// Tests for Std.TableLookup namespace
 
 const SELECT_TEST_LIB: &str = include_str!("resources/src/select.qs");
 
