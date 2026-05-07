@@ -10,7 +10,7 @@ readme = "README.md"
 authors = [ { name = "Microsoft" } ]
 license = { file = "LICENSE.txt" }
 requires-python = ">=3.10"
-dependencies = ["pyqir>=0.12.3,<0.13"]
+dependencies = ["pyqir>=0.12.3,<0.13", "qsharp==0.0.0"]
 classifiers = [
     "License :: OSI Approved :: MIT License",
     "Development Status :: 5 - Production/Stable",
