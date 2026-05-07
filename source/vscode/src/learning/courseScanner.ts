@@ -15,6 +15,11 @@ import type { CatalogCourse, CatalogUnit, CatalogExample } from "./types.js";
 /** Supported code file extensions for example activities. */
 const SUPPORTED_EXTENSIONS = new Set([".ipynb", ".qs", ".py", ".qasm"]);
 
+/** Strip a leading `NN - ` sorting prefix from a folder name for display. */
+function stripSortPrefix(name: string): string {
+  return name.replace(/^\d+ - /, "");
+}
+
 /**
  * Scan all workspace folders for a `qdk-learning-content` directory and
  * return discovered courses. Each top-level subfolder under the content
@@ -46,7 +51,7 @@ export async function scanForCourses(): Promise<CatalogCourse[]> {
           : undefined;
         courses.push({
           id: name,
-          title: name,
+          title: stripSortPrefix(name),
           units,
           iconPath,
         });
@@ -74,12 +79,12 @@ async function scanCourseFolder(courseUri: vscode.Uri): Promise<CatalogUnit[]> {
       }
       const id = stripExtension(name);
       const sections = await buildSections(childUri, id);
-      units.push({ id, title: id, sections });
+      units.push({ id, title: stripSortPrefix(id), sections });
     } else if (type === vscode.FileType.Directory) {
       const mainAsset = await findMainAsset(childUri);
       if (mainAsset) {
         const sections = await buildSections(mainAsset, name);
-        units.push({ id: name, title: name, sections });
+        units.push({ id: name, title: stripSortPrefix(name), sections });
       }
     }
   }
