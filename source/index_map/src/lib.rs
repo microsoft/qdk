@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(test)]
+mod tests;
+
 use std::{
     fmt::{self, Debug, Formatter},
     iter::Enumerate,
@@ -119,6 +122,21 @@ impl<K: Into<usize>, V> IndexMap<K, V> {
             self.values.resize_with(index + 1, || None);
         }
         self.values[index] = Some(value);
+    }
+
+    /// Inserts a value at the given index only if no value is already present.
+    /// Returns `true` if the value was inserted, `false` if a value already existed.
+    pub fn insert_if_absent(&mut self, key: K, value: V) -> bool {
+        let index = key.into();
+        if index >= self.values.len() {
+            self.values.resize_with(index + 1, || None);
+        }
+        if self.values[index].is_none() {
+            self.values[index] = Some(value);
+            true
+        } else {
+            false
+        }
     }
 
     pub fn contains_key(&self, key: K) -> bool {

@@ -133,7 +133,7 @@ fn qubit_params() {
 }
 
 #[test]
-fn qubit_array_params() {
+fn qubit_array_parameters_allocate_flat_register_slices() {
     let (item, operation) = compile_one_operation(
         r"
         namespace Test {
@@ -149,7 +149,7 @@ fn qubit_array_params() {
     expect![[r"
         {
                     use qs = Qubit[15];
-                    (Test.Test)(qs[0..1], Microsoft.Quantum.Arrays.Chunks(2, qs[2..5]), Microsoft.Quantum.Arrays.Chunks(2, Microsoft.Quantum.Arrays.Chunks(2, qs[6..13])), qs[14]);
+                    (Test.Test)(qs[0..1], [qs[2..3], qs[4..5]], [[qs[6..7], qs[8..9]], [qs[10..11], qs[12..13]]], qs[14]);
                     let r: Result[] = [];
                     r
                 }"]].assert_eq(&expr);

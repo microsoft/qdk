@@ -379,6 +379,7 @@ pub enum Instruction {
     Fsub(Operand, Operand, Variable),
     Fmul(Operand, Operand, Variable),
     Fdiv(Operand, Operand, Variable),
+    Frem(Operand, Operand, Variable),
     Fcmp(FcmpConditionCode, Operand, Operand, Variable),
     Icmp(ConditionCode, Operand, Operand, Variable),
     LogicalNot(Operand, Variable),
@@ -470,6 +471,9 @@ impl Display for Instruction {
             }
             Self::Fdiv(lhs, rhs, variable) => {
                 write_binary_instruction(f, "Fdiv", lhs, rhs, *variable)?;
+            }
+            Self::Frem(lhs, rhs, variable) => {
+                write_binary_instruction(f, "Frem", lhs, rhs, *variable)?;
             }
             Self::Fcmp(op, lhs, rhs, variable) => {
                 write_fcmp_instruction(f, *op, lhs, rhs, *variable)?;

@@ -20,7 +20,10 @@ mod spec_gen;
 mod test_attribute;
 
 use callable_limits::CallableLimits;
-use capabilitiesck::{check_supported_capabilities, lower_store, run_rca_pass};
+use capabilitiesck::{
+    check_supported_capabilities, check_supported_capabilities_for_callable, lower_store,
+    run_rca_pass,
+};
 use entry_point::generate_entry_expr;
 use index_assignment::ConvertToWSlash;
 use loop_unification::LoopUni;
@@ -70,10 +73,14 @@ pub enum PackageType {
 pub fn lower_hir_to_fir(
     package_store: &qsc_frontend::compile::PackageStore,
     package_id: qsc_hir::hir::PackageId,
-) -> (fir::PackageStore, fir::PackageId) {
-    let fir_store = lower_store(package_store);
+) -> (
+    fir::PackageStore,
+    fir::PackageId,
+    qsc_fir::assigner::Assigner,
+) {
+    let (fir_store, assigner) = lower_store(package_store);
     let fir_package_id = map_hir_package_to_fir(package_id);
-    (fir_store, fir_package_id)
+    (fir_store, fir_package_id, assigner)
 }
 
 pub struct PassContext {
@@ -190,7 +197,7 @@ pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {
     borrow_errors.into_iter().map(Error::BorrowCk).collect()
 }
 
-pub fn run_fir_passes(
+pub fn run_rca(
     package: &fir::Package,
     compute_properties: &PackageComputeProperties,
     capabilities: TargetCapabilityFlags,
@@ -198,6 +205,28 @@ pub fn run_fir_passes(
 ) -> Vec<Error> {
     let capabilities_errors =
         check_supported_capabilities(package, compute_properties, capabilities, store);
+    capabilities_errors
+        .into_iter()
+        .map(Error::CapabilitiesCk)
+        .collect()
+}
+
+pub fn run_rca_for_callable(
+    fir_store: &fir::PackageStore,
+    compute_properties: &PackageStoreComputeProperties,
+    callable: fir::StoreItemId,
+    capabilities: TargetCapabilityFlags,
+) -> Vec<Error> {
+    let package = fir_store.get(callable.package);
+    let package_compute_properties = compute_properties.get(callable.package);
+    let capabilities_errors = check_supported_capabilities_for_callable(
+        package,
+        package_compute_properties,
+        callable.item,
+        capabilities,
+        fir_store,
+    );
+
     capabilities_errors
         .into_iter()
         .map(Error::CapabilitiesCk)

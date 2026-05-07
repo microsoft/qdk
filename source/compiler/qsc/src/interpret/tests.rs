@@ -1030,6 +1030,339 @@ mod given_interpreter {
             "#]].assert_eq(&res);
         }
 
+        fn assert_qir_has_three_h_gates(qir: &str) {
+            assert!(
+                qir.contains("define i64 @ENTRYPOINT__main()"),
+                "expected entry point in generated QIR, got:\n{qir}"
+            );
+            assert!(
+                qir.contains(r#""required_num_qubits"="3""#),
+                "expected three qubits in generated QIR, got:\n{qir}"
+            );
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__h__body").count(),
+                3,
+                "expected three H applications in generated QIR, got:\n{qir}"
+            );
+        }
+
+        fn user_global(interpreter: &Interpreter, name: &str) -> Value {
+            interpreter
+                .user_globals()
+                .into_iter()
+                .find_map(|(_, global_name, value)| (global_name.as_ref() == name).then_some(value))
+                .unwrap_or_else(|| panic!("{name} should be present in user globals"))
+        }
+
+        #[test]
+        fn qirgen_does_not_corrupt_later_interpreter_eval_or_recompilation() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; } "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            interpreter.qirgen("Foo()").expect("expected success");
+
+            let (result, output) = line(&mut interpreter, "Foo()");
+            is_only_value(
+                &result,
+                &output,
+                &Value::Result(qsc_eval::val::Result::Val(false)),
+            );
+
+            let (result, output) = line(&mut interpreter, "operation Bar() : Result { Foo() }");
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = line(&mut interpreter, "Bar()");
+            is_only_value(
+                &result,
+                &output,
+                &Value::Result(qsc_eval::val::Result::Val(false)),
+            );
+        }
+
+        #[test]
+        fn qirgen_from_callable_user_global_succeeds_after_fresh_lowering() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; } "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let callable = user_global(&interpreter, "Foo");
+
+            let res = interpreter
+                .qirgen_from_callable(&callable, Value::unit())
+                .expect("expected success");
+
+            expect![[r#"
+                %Result = type opaque
+                %Qubit = type opaque
+
+                @0 = internal constant [4 x i8] c"0_r\00"
+
+                define i64 @ENTRYPOINT__main() #0 {
+                block_0:
+                  call void @__quantum__rt__initialize(i8* null)
+                  call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+                  call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+                  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0
+                }
+
+                declare void @__quantum__rt__initialize(i8*)
+
+                declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
+
+                declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+                declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
+
+                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="1" }
+                attributes #1 = { "irreversible" }
+
+                ; module flags
+
+                !llvm.module.flags = !{!0, !1, !2, !3}
+
+                !0 = !{i32 1, !"qir_major_version", i32 1}
+                !1 = !{i32 7, !"qir_minor_version", i32 0}
+                !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+                !3 = !{i32 1, !"dynamic_result_management", i1 false}
+            "#]]
+            .assert_eq(&res);
+        }
+
+        #[test]
+        fn qirgen_from_callable_with_global_callable_arg_succeeds() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    open Std.Canon;
+
+                    operation InvokeWithQubits(nQubits : Int, f : Qubit[] => Unit) : Unit {
+                        use qs = Qubit[nQubits];
+                        f(qs);
+                    }
+
+                    operation AllH(qs : Qubit[]) : Unit {
+                        struct Point3d { X : Double, Y : Double, Z : Double }
+
+                        let point = new Point3d { X = 1.0, Y = 2.0, Z = 3.0 };
+                        let point2 = new Point3d { ...point, Z = 4.0 };
+                        let should_apply = point2.X == 1.0;
+                        if should_apply {
+                            ApplyToEach(H, qs);
+                        }
+                    }
+
+                    operation UnusedIntOutput() : Int {
+                        1
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let invoke_with_qubits = user_global(&interpreter, "InvokeWithQubits");
+            let all_h = user_global(&interpreter, "AllH");
+
+            let qir = interpreter
+                .qirgen_from_callable(
+                    &invoke_with_qubits,
+                    Value::Tuple(vec![Value::Int(3), all_h].into(), None),
+                )
+                .expect("expected success");
+
+            assert_qir_has_three_h_gates(&qir);
+        }
+
+        #[test]
+        fn qirgen_from_callable_with_closure_arg_succeeds() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    open Std.Canon;
+
+                    operation InvokeWithQubits(nQubits : Int, f : Qubit[] => Unit) : Unit {
+                        use qs = Qubit[nQubits];
+                        f(qs);
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let invoke_with_qubits = user_global(&interpreter, "InvokeWithQubits");
+
+            let (closure_result, closure_output) = line(&mut interpreter, "ApplyToEach(H, _)");
+            assert!(
+                closure_output.is_empty(),
+                "unexpected output while creating closure: {closure_output}"
+            );
+            let apply_h = closure_result.expect("expected closure value");
+
+            let qir = interpreter
+                .qirgen_from_callable(
+                    &invoke_with_qubits,
+                    Value::Tuple(vec![Value::Int(3), apply_h].into(), None),
+                )
+                .expect("expected success");
+
+            assert_qir_has_three_h_gates(&qir);
+        }
+
+        #[test]
+        fn qirgen_from_callable_with_arrow_input_reports_runtime_capability_errors() {
+            let mut interpreter = get_interpreter_with_capabilities(
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    import Std.Convert.*;
+
+                    operation InvokeWithMeasuredInt(f : (Int, Qubit) => Unit) : Unit {
+                        use q = Qubit();
+                        let i = if MResetZ(q) == One { 1 } else { 0 };
+                        f(i, q);
+                    }
+
+                    operation RotateByInt(i : Int, q : Qubit) : Unit {
+                        Rx(IntAsDouble(i), q);
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let invoke_with_measured_int = user_global(&interpreter, "InvokeWithMeasuredInt");
+            let rotate_by_int = user_global(&interpreter, "RotateByInt");
+
+            let errors = interpreter
+                .qirgen_from_callable(&invoke_with_measured_int, rotate_by_int)
+                .expect_err("expected runtime capability error");
+
+            assert!(
+                errors
+                    .iter()
+                    .all(|error| matches!(error, crate::interpret::Error::PartialEvaluation(_))),
+                "expected deferred partial-evaluation capability errors, got {errors:?}"
+            );
+            assert!(
+                errors
+                    .iter()
+                    .any(|error| format!("{error:?}").contains("UseOfDynamicDouble")),
+                "expected a dynamic double capability diagnostic, got {errors:?}"
+            );
+        }
+
+        #[test]
+        fn qirgen_from_callable_profile_incompatible_outputs_report_callable_scoped_errors() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation ReturnInt() : Int {
+                        1
+                    }
+
+                    operation ReturnDouble() : Double {
+                        1.0
+                    }
+
+                    operation ReturnBool() : Bool {
+                        true
+                    }
+
+                    operation ReturnString() : String {
+                        "hello"
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let int_errors = interpreter
+                .qirgen_from_callable(&user_global(&interpreter, "ReturnInt"), Value::unit())
+                .expect_err("expected integer output rejection");
+            is_error(
+                &int_errors,
+                &expect![[r#"
+                    cannot use an integer value as an output
+                       [line_0] [ReturnInt]
+                "#]],
+            );
+
+            let double_errors = interpreter
+                .qirgen_from_callable(&user_global(&interpreter, "ReturnDouble"), Value::unit())
+                .expect_err("expected double output rejection");
+            is_error(
+                &double_errors,
+                &expect![[r#"
+                    cannot use a double value as an output
+                       [line_0] [ReturnDouble]
+                "#]],
+            );
+
+            let bool_errors = interpreter
+                .qirgen_from_callable(&user_global(&interpreter, "ReturnBool"), Value::unit())
+                .expect_err("expected bool output rejection");
+            is_error(
+                &bool_errors,
+                &expect![[r#"
+                    cannot use a bool value as an output
+                       [line_0] [ReturnBool]
+                "#]],
+            );
+
+            let advanced_errors = interpreter
+                .qirgen_from_callable(&user_global(&interpreter, "ReturnString"), Value::unit())
+                .expect_err("expected advanced output rejection");
+            is_error(
+                &advanced_errors,
+                &expect![[r#"
+                    cannot use value with advanced type as an output
+                       [line_0] [ReturnString]
+                "#]],
+            );
+        }
+
+        #[test]
+        fn qirgen_from_callable_does_not_corrupt_later_interpreter_eval_or_recompilation() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"operation Foo() : Result { use q = Qubit(); let r = M(q); Reset(q); return r; } "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let callable = user_global(&interpreter, "Foo");
+
+            interpreter
+                .qirgen_from_callable(&callable, Value::unit())
+                .expect("expected success");
+
+            let mut cursor = Cursor::new(Vec::<u8>::new());
+            let mut receiver = CursorReceiver::new(&mut cursor);
+            let result = interpreter.invoke(&mut receiver, callable.clone(), Value::unit());
+            let output = receiver.dump();
+            is_only_value(
+                &result,
+                &output,
+                &Value::Result(qsc_eval::val::Result::Val(false)),
+            );
+
+            let (result, output) = line(&mut interpreter, "operation Bar() : Result { Foo() }");
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = line(&mut interpreter, "Bar()");
+            is_only_value(
+                &result,
+                &output,
+                &Value::Result(qsc_eval::val::Result::Val(false)),
+            );
+        }
+
         #[test]
         fn adaptive_qirgen() {
             let mut interpreter = get_interpreter_with_capabilities(
@@ -1096,6 +1429,117 @@ mod given_interpreter {
                 !4 = !{i32 5, !"int_computations", !{!"i64"}}
             "#]]
             .assert_eq(&res);
+        }
+
+        #[test]
+        fn adaptive_qirgen_source_entrypoint_uses_fresh_lowering() {
+            let mut interpreter = get_interpreter_with_capabilities(
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                namespace Test {
+                    import Std.Intrinsic.*;
+                    import Std.Math.*;
+                    import Std.Measurement.*;
+
+                    @EntryPoint()
+                    operation Main() : ((Result[], Int), Bool) {
+                        use registerA = Qubit[3];
+                        if true {
+                            X(registerA[0]);
+                            if true {
+                                X(registerA[1]);
+                                if false {
+                                    X(registerA[2]);
+                                }
+                            }
+                        }
+                        let registerAMeasurements = MeasureEachZ(registerA);
+
+                        mutable a = 0;
+                        if registerAMeasurements[0] == Zero {
+                            if registerAMeasurements[1] == Zero and registerAMeasurements[2] == Zero {
+                                set a = 0;
+                            } elif registerAMeasurements[1] == Zero and registerAMeasurements[2] == One {
+                                set a = 1;
+                            } elif registerAMeasurements[1] == One and registerAMeasurements[2] == Zero {
+                                set a = 2;
+                            } else {
+                                set a = 3;
+                            }
+                        } else {
+                            if registerAMeasurements[1] == Zero and registerAMeasurements[2] == Zero {
+                                set a = 4;
+                            } elif registerAMeasurements[1] == Zero and registerAMeasurements[2] == One {
+                                set a = 5;
+                            } elif registerAMeasurements[1] == One and registerAMeasurements[2] == Zero {
+                                set a = 6;
+                            } else {
+                                set a = 7;
+                            }
+                        }
+                        ResetAll(registerA);
+
+                        use q = Qubit();
+                        ((registerAMeasurements, a), MResetZ(q) == One)
+                    }
+                }"#
+                },
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let qir = interpreter.qirgen("Test.Main()").expect("expected success");
+
+            assert!(
+                qir.contains("call void @__quantum__rt__int_record_output(i64 %var_"),
+                "expected dynamic integer output to be recorded from an SSA value, got:\n{qir}"
+            );
+            assert!(
+                !qir.contains("call void @__quantum__rt__int_record_output(i64 0,"),
+                "expected source entrypoint QIR generation to avoid stale literal outputs, got:\n{qir}"
+            );
+        }
+
+        #[test]
+        fn adaptive_qirgen_source_entrypoint_supports_measurement_comparisons() {
+            let mut interpreter = get_interpreter_with_capabilities(
+                TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
+            );
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                namespace Test {
+                    import Std.Intrinsic.*;
+
+                    @EntryPoint()
+                    operation Main() : (Bool, Bool, Bool, Bool) {
+                        use (q0, q1) = (Qubit(), Qubit());
+                        X(q0);
+                        CNOT(q0, q1);
+                        let (r0, r1) = (M(q0), M(q1));
+                        Reset(q0);
+                        Reset(q1);
+                        return (r0 == One, r1 == Zero, r0 == r1, r0 == Zero ? false | true);
+                    }
+                }"#
+                },
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let qir = interpreter.qirgen("Test.Main()").expect("expected success");
+
+            assert!(
+                qir.contains(
+                    "call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))"
+                ),
+                "expected measurement comparisons to lower through read_result, got:\n{qir}"
+            );
+            assert!(
+                qir.contains("icmp eq i1 %var_4, %var_5"),
+                "expected result-to-result equality to lower to an i1 comparison, got:\n{qir}"
+            );
         }
 
         #[test]
@@ -1239,6 +1683,26 @@ mod given_interpreter {
                 !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
                 !3 = !{i32 1, !"dynamic_result_management", i1 false}
             "#]].assert_eq(&res);
+        }
+
+        #[test]
+        fn adaptive_rif_qirgen_entry_expr_apply_to_each_sx() {
+            let mut interpreter = get_interpreter_with_capabilities(
+                TargetCapabilityFlags::Adaptive
+                    | TargetCapabilityFlags::IntegerComputations
+                    | TargetCapabilityFlags::FloatingPointComputations,
+            );
+            let (result, output) = line(&mut interpreter, indoc! {"open Std.Canon;"});
+            is_only_value(&result, &output, &Value::unit());
+
+            let res = interpreter
+                .qirgen("{ use qs = Qubit[4]; ApplyToEach(SX, qs); }")
+                .expect("expected success");
+
+            assert!(
+                res.contains("declare void @__quantum__qis__sx__body(%Qubit*)"),
+                "expected ApplyToEach(SX, qs) to generate SX calls, got:\n{res}"
+            );
         }
 
         #[test]

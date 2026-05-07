@@ -274,6 +274,12 @@ impl Arg {
 }
 
 /// Represents the possible control flow options that an evaluation can have.
+///
+/// Note: The `Return` variant is vestigial for the production pipeline.
+/// The `return_unify` FIR transform pass eliminates all `ExprKind::Return`
+/// nodes before partial evaluation runs. However, partial eval unit tests
+/// bypass FIR transforms and evaluate raw FIR, so the `Return` variant
+/// and its handling code remain for test compatibility.
 pub enum EvalControlFlow {
     Continue(Value),
     Return(Value),

@@ -144,6 +144,7 @@ fn check_var_usage(
             | Instruction::Fsub(operand0, operand1, variable)
             | Instruction::Fmul(operand0, operand1, variable)
             | Instruction::Fdiv(operand0, operand1, variable)
+            | Instruction::Frem(operand0, operand1, variable)
             | Instruction::LogicalAnd(operand0, operand1, variable)
             | Instruction::LogicalOr(operand0, operand1, variable)
             | Instruction::BitwiseAnd(operand0, operand1, variable)

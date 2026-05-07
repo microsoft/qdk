@@ -117,9 +117,22 @@ mod given_debugger {
                 p
             }
         }"#;
+
+    static DUPLICATE_RANGE_SOURCE: &str = r#"
+        namespace Sample {
+            @EntryPoint()
+            operation Main() : Result[] {
+                use q1 = Qubit();
+                Y(q1);
+                let m1 = M(q1);
+                return [m1];
+            }
+        }"#;
+
     #[cfg(test)]
     mod step {
         use qsc_data_structures::{source::SourceMap, target::TargetCapabilityFlags};
+        use rustc_hash::FxHashSet;
 
         use super::*;
 
@@ -236,6 +249,37 @@ mod given_debugger {
             expect_next(&mut debugger);
             let expected = "42";
             expect_return(debugger, expected);
+            Ok(())
+        }
+
+        #[test]
+        fn duplicate_source_ranges_collapse_to_one_hittable_breakpoint()
+        -> Result<(), Vec<crate::interpret::Error>> {
+            let sources = SourceMap::new([("test.qs".into(), DUPLICATE_RANGE_SOURCE.into())], None);
+            let (std_id, store) =
+                crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+            let mut debugger = Debugger::new(
+                sources,
+                TargetCapabilityFlags::all(),
+                Encoding::Utf8,
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+            )?;
+
+            let breakpoints = debugger.get_breakpoints("test.qs");
+            assert_eq!(breakpoints.len(), 4);
+
+            let unique_ranges: FxHashSet<_> = breakpoints.iter().map(|bp| bp.range).collect();
+            assert_eq!(unique_ranges.len(), breakpoints.len());
+
+            let return_breakpoint_id = breakpoints
+                .last()
+                .expect("expected a return breakpoint")
+                .id
+                .into();
+
+            expect_bp(&mut debugger, &[return_breakpoint_id], return_breakpoint_id);
             Ok(())
         }
     }
