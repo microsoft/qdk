@@ -136,6 +136,63 @@ test("basic eval", async () => {
   assert.equal(result.result, "42");
 });
 
+test("circuitsToQsharp generates Q# from a CircuitGroup", async () => {
+  const compiler = await getCompiler();
+
+  /** @type {import("../dist/data-structures/circuit.js").CircuitGroup} */
+  const circuits = {
+    version: 1,
+    circuits: [
+      {
+        qubits: [{ id: 0 }, { id: 1 }],
+        componentGrid: [
+          {
+            components: [
+              {
+                kind: "unitary",
+                gate: "H",
+                targets: [{ qubit: 0 }],
+              },
+            ],
+          },
+          {
+            components: [
+              {
+                kind: "unitary",
+                gate: "X",
+                targets: [{ qubit: 1 }],
+                controls: [{ qubit: 0 }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const qsharp = await compiler.circuitsToQsharp("Bell", circuits);
+
+  assert(
+    qsharp.includes("operation Bell"),
+    `expected generated Q# to define operation 'Bell'; got: ${qsharp}`,
+  );
+  assert(qsharp.includes("H("), "expected H gate call");
+  assert(qsharp.includes("Controlled X("), "expected Controlled X gate call");
+});
+
+test("circuitsToQsharp surfaces errors for invalid JSON shape", async () => {
+  const compiler = await getCompiler();
+
+  // Missing the required `version` and `circuits` fields.
+  await assert.rejects(() =>
+    compiler.circuitsToQsharp(
+      "Bad",
+      // @ts-expect-error - intentionally invalid
+      { not: "a circuit group" },
+    ),
+  );
+});
+
 test("EntryPoint only", async () => {
   const code = `
 namespace Test {
