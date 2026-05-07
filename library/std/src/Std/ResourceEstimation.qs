@@ -211,7 +211,6 @@ function LeastFrequentlyUsed() : Int {
     return 1;
 }
 
-
 /// Signals to resource estimator that this qubit is stored to memory, i.e.
 /// transitions from "compute qubit" to "memory qubit".
 /// Each qubit is allocated as "compute" by default.
@@ -230,6 +229,18 @@ function MemoryQubitStore(q: Qubit) : Unit {
 function MemoryQubitLoad(q: Qubit) : Unit {
     body intrinsic;
 }
+
+
+/// All subsequent `use` statements will allocate compute qubits.
+function AllocateComputeQubits() : Unit {
+    body intrinsic;
+}
+
+/// All subsequent `use` statements will allocate memory qubits.
+function AllocateMemoryQubits() : Unit {
+    body intrinsic;
+}
+
 
 export
     SingleVariant,
@@ -250,4 +261,6 @@ export
     LeastRecentlyUsed,
     LeastFrequentlyUsed,
     MemoryQubitLoad,
-    MemoryQubitStore;
+    MemoryQubitStore,
+    AllocateComputeQubits,
+    AllocateMemoryQubits;

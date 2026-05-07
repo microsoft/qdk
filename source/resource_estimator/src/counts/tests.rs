@@ -433,11 +433,9 @@ fn post_selection_can_take_impossible_branch() {
 }
 
 #[test]
-fn manual_memory_qubits() {
+fn manual_memory_qubits_load_store() {
     let counts = run_logical_counts(
         indoc! {"
-                import Std.Diagnostics.PostSelectZ;
-
                 operation Main() : Unit {
                     use q = Qubit();
                     Std.ResourceEstimation.MemoryQubitStore(q);
@@ -450,4 +448,26 @@ fn manual_memory_qubits() {
     assert_eq!(counts.read_from_memory_count, Some(1));
     assert_eq!(counts.num_compute_qubits, Some(1));
     assert_eq!(counts.num_qubits, 2);
+}
+
+#[test]
+fn manual_memory_qubits_allocator() {
+    let counts = run_logical_counts(
+        indoc! {"
+                operation Main() : Unit {
+                    Std.ResourceEstimation.AllocateMemoryQubits();
+                    use q1 = Qubit[5];
+                    Std.ResourceEstimation.AllocateComputeQubits();
+                    use q2 = Qubit[2];
+                    Std.ResourceEstimation.MemoryQubitLoad(q1[0]);
+                }
+            "},
+        None,
+    );
+
+    // Initially allocated 5 memory, 2 compute qubits.
+    // Then moved a qubit from memory to compute.
+    // So, in total need 5 memory and 3 compute qubits.
+    assert_eq!(counts.num_compute_qubits, Some(3));
+    assert_eq!(counts.num_qubits, 8);
 }
