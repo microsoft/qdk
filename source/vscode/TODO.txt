@@ -2,3 +2,6 @@
 - bring quantum workspaces into panel
 - deleting files should clean up state
 - corrupt files?
+
+
+refine startup a bit
