@@ -10,7 +10,7 @@ import math
 
 import qdk as qsharp
 from qdk import openqasm
-from qdk.qiskit import QSharpError
+from qdk.qsharp import QSharpError
 from qdk.simulation import NoiseConfig
 from qdk.simulation._simulation import run_qir_clifford
 from qdk._device._atom import NeutralAtomDevice
