@@ -139,7 +139,7 @@ export class LearningProgressTreeProvider implements vscode.TreeDataProvider<Lea
           : vscode.TreeItemCollapsibleState.Collapsed,
       );
       item.description = `${unit.completed}/${unit.total}`;
-      item.iconPath = unitIcon(unit);
+      item.iconPath = unitIcon(unit, isCurrent);
       item.contextValue = "unit";
       item.tooltip = `${unit.title} — ${unit.completed}/${unit.total} activities complete`;
       // Vary the id by `isCurrent` so VS Code sees a new node when the active
@@ -153,14 +153,6 @@ export class LearningProgressTreeProvider implements vscode.TreeDataProvider<Lea
       activity.title,
       vscode.TreeItemCollapsibleState.None,
     );
-    item.description =
-      activity.type === "exercise"
-        ? "exercise"
-        : activity.type === "example"
-          ? "example"
-          : activity.hasExample
-            ? "lesson · example"
-            : "lesson";
     item.iconPath = activityIcon(activity, isCurrent);
     item.contextValue = activity.type;
     item.tooltip = activity.isComplete
@@ -322,11 +314,13 @@ const iconCurrent = new vscode.ThemeIcon(
 );
 /** Icon for an activity or unit that has not been started. */
 const iconIncomplete = new vscode.ThemeIcon("circle-large-outline");
-/** Icon for a unit that is partially complete. */
+/** Icon for a unit that is partially complete and currently active. */
 const iconInProgress = new vscode.ThemeIcon(
   "record",
   new vscode.ThemeColor("charts.blue"),
 );
+/** Icon for a unit that is partially complete but not currently active. */
+const iconInProgressNeutral = new vscode.ThemeIcon("record");
 
 function activityIcon(
   a: ActivityProgress,
@@ -341,12 +335,12 @@ function activityIcon(
   return iconIncomplete;
 }
 
-function unitIcon(u: UnitProgress): vscode.ThemeIcon {
+function unitIcon(u: UnitProgress, isCurrent: boolean): vscode.ThemeIcon {
   if (u.total > 0 && u.completed === u.total) {
     return iconPassed;
   }
   if (u.completed > 0) {
-    return iconInProgress;
+    return isCurrent ? iconInProgress : iconInProgressNeutral;
   }
   return iconIncomplete;
 }
