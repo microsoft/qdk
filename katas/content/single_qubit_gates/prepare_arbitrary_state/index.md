@@ -1,6 +1,6 @@
 **Inputs:**
 
-1. A non-negative real number $\alpha$.
+1. A real number $\alpha$.
 2. A non-negative real number $\beta = \sqrt{1 - \alpha^2}$.
 3. A real number $\theta$.
 4. A qubit in state $\ket{0}$.
