@@ -1,8 +1,23 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import type { ICompilerWorker } from "qsharp-lang";
 import * as vscode from "vscode";
+import {
+  circuitPreviewUriFor,
+  getCircuitPreviewProvider,
+} from "./circuitPreview";
+import { loadCompilerWorker } from "./common";
 import { runProgramInTerminal } from "./run";
+
+/**
+ * Debounce window between circuit edits and recomputing the Q# preview.
+ *
+ * Short enough that the preview feels live during typical interactions
+ * (drag, drop, parameter edits), long enough to coalesce the rapid bursts
+ * of edits that happen during a drag.
+ */
+const PREVIEW_DEBOUNCE_MS = 200;
 
 export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
   private static readonly viewType = "qsharp-webview.circuit";
@@ -29,6 +44,91 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
       enableScripts: true,
     };
     webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
+
+    // Per-editor preview state. Held in closure variables (rather than on
+    // `this`) because a single CircuitEditorProvider services all open
+    // circuit editors and would otherwise need a Map keyed by document URI.
+    const previewUri = circuitPreviewUriFor(document.uri);
+    let previewWorker: ICompilerWorker | undefined;
+    let previewTimer: ReturnType<typeof setTimeout> | undefined;
+    // Monotonically increasing request ID so out-of-order async results from
+    // the compiler worker can be discarded (latest edit wins).
+    let previewRequestId = 0;
+    let lastAppliedRequestId = -1;
+
+    const getPreviewWorker = (): ICompilerWorker => {
+      if (!previewWorker) {
+        previewWorker = loadCompilerWorker(this.context.extensionUri);
+      }
+      return previewWorker;
+    };
+
+    /**
+     * Recompute the Q# preview for the current document content and push it
+     * to the preview provider. Errors are surfaced inline as Q# comments so
+     * the preview surface remains a valid Q# document at all times.
+     */
+    const refreshPreviewNow = async () => {
+      const provider = getCircuitPreviewProvider();
+      if (!provider) return;
+
+      const requestId = ++previewRequestId;
+      const text = document.getText();
+      const operationName = previewOperationNameFor(document.uri);
+
+      let qsharp: string;
+      if (text.trim().length === 0) {
+        qsharp = `// ${operationName} is empty. Add gates to the circuit to generate Q#.\n`;
+      } else {
+        try {
+          // Validate the JSON shape on the host first so an unparseable
+          // file produces a friendly comment rather than a wasm panic.
+          JSON.parse(text);
+        } catch (err: any) {
+          if (requestId > lastAppliedRequestId) {
+            lastAppliedRequestId = requestId;
+            provider.setContent(
+              previewUri,
+              previewErrorComment(
+                `Circuit file is not valid JSON: ${err?.message ?? err}`,
+              ),
+            );
+          }
+          return;
+        }
+
+        try {
+          const worker = getPreviewWorker();
+          const circuits = JSON.parse(text);
+          qsharp = await worker.circuitsToQsharp(operationName, circuits);
+        } catch (err: any) {
+          if (requestId > lastAppliedRequestId) {
+            lastAppliedRequestId = requestId;
+            provider.setContent(
+              previewUri,
+              previewErrorComment(
+                `Could not generate Q#: ${err?.message ?? err}`,
+              ),
+            );
+          }
+          return;
+        }
+      }
+
+      // Drop stale results so a slow generation can't overwrite a newer one.
+      if (requestId <= lastAppliedRequestId) return;
+      lastAppliedRequestId = requestId;
+      provider.setContent(previewUri, qsharp);
+    };
+
+    const schedulePreviewRefresh = () => {
+      if (previewTimer) clearTimeout(previewTimer);
+      previewTimer = setTimeout(() => {
+        previewTimer = undefined;
+        // Fire-and-forget; errors are already surfaced into the preview text.
+        void refreshPreviewNow();
+      }, PREVIEW_DEBOUNCE_MS);
+    };
 
     webviewPanel.webview.onDidReceiveMessage(async (e) => {
       switch (e.command) {
@@ -92,6 +192,12 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
             // Update the webview with the new document content
             updateWebview();
           }
+          // Refresh the preview for any change (including ones initiated by
+          // the webview itself), so external edits and webview edits stay
+          // in sync with the side-by-side Q# preview.
+          if (event.contentChanges.length > 0) {
+            schedulePreviewRefresh();
+          }
         }
       },
     );
@@ -99,7 +205,24 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
     // Dispose of the event listener when the webview is closed
     webviewPanel.onDidDispose(() => {
       changeDocumentSubscription.dispose();
+      if (previewTimer) {
+        clearTimeout(previewTimer);
+        previewTimer = undefined;
+      }
+      if (previewWorker) {
+        previewWorker.terminate();
+        previewWorker = undefined;
+      }
+      // Drop cached preview content for this document so a subsequent open
+      // doesn't briefly show stale Q# before the first refresh completes.
+      getCircuitPreviewProvider()?.clearContent(previewUri);
     });
+
+    // Generate the initial preview content and open the preview tab beside
+    // the circuit. Both are fire-and-forget: failures only affect the side
+    // panel, never the circuit editor itself.
+    void refreshPreviewNow();
+    void openPreviewBeside(previewUri);
   }
 
   private getHtmlForWebview(webview: vscode.Webview): string {
@@ -239,5 +362,66 @@ export async function generateQubitCircuitExpression(
       `Failed to generate Q# circuit expression: ${err?.message ?? err}`,
       { cause: err },
     );
+  }
+}
+
+/**
+ * Derive the Q# operation name shown in the preview from the circuit URI.
+ *
+ * Mirrors the convention used by `CircuitEditorProvider.updateWebview`, which
+ * derives the title from the basename minus extension. Falls back to a safe
+ * default for URIs without a recognizable basename.
+ */
+function previewOperationNameFor(circuitUri: vscode.Uri): string {
+  const basename = circuitUri.path.split(/[\\/]/).pop() ?? "";
+  const name = basename.replace(/\.[^/.]+$/, "");
+  return name.length > 0 ? name : "Circuit";
+}
+
+/**
+ * Format an error message as a Q# comment block so the preview tab keeps
+ * rendering as valid Q# even when generation fails.
+ */
+function previewErrorComment(message: string): string {
+  const lines = String(message).split(/\r?\n/);
+  return [
+    "// Q# preview unavailable for the current circuit:",
+    ...lines.map((line) => `// ${line}`),
+    "",
+  ].join("\n");
+}
+
+/**
+ * Reveal (or open) the Q# preview document in the editor group beside the
+ * circuit. Best-effort: if VS Code rejects the open (e.g. no editor group is
+ * available), the preview simply isn't shown and the circuit editor is
+ * unaffected.
+ */
+async function openPreviewBeside(previewUri: vscode.Uri): Promise<void> {
+  try {
+    // If the preview is already showing in some tab, reveal that one instead
+    // of opening a duplicate. This handles the common case of toggling back
+    // to a circuit whose preview was opened earlier in this session.
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const input = tab.input as { uri?: vscode.Uri } | undefined;
+        if (input?.uri?.toString() === previewUri.toString()) {
+          await vscode.window.showTextDocument(previewUri, {
+            viewColumn: group.viewColumn,
+            preserveFocus: true,
+            preview: false,
+          });
+          return;
+        }
+      }
+    }
+
+    await vscode.window.showTextDocument(previewUri, {
+      viewColumn: vscode.ViewColumn.Beside,
+      preserveFocus: true,
+      preview: false,
+    });
+  } catch {
+    // Best-effort; the circuit editor itself works without the preview.
   }
 }
