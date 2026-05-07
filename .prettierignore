@@ -20,6 +20,8 @@ __pycache__/
 /source/npm/qsharp/test/**/*.snapshot.*
 /source/pip/
 /source/pip/src/**/*.html
+/source/qdk_package/
+/source/qdk_package/src/**/*.html
 /source/playground/public/libs/
 /source/vscode/out/
 /source/vscode/test/out/

@@ -2082,6 +2082,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "qdk"
+version = "0.0.0"
+dependencies = [
+ "allocator",
+ "expect-test",
+ "memchr",
+ "miette",
+ "noisy_simulator",
+ "num-bigint",
+ "num-complex",
+ "num-traits",
+ "pyo3",
+ "qdk_simulators",
+ "qre",
+ "qsc",
+ "rand 0.8.5",
+ "rayon",
+ "resource_estimator",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "qdk_simulators"
 version = "0.0.0"
 dependencies = [
@@ -2513,30 +2537,6 @@ dependencies = [
  "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
-]
-
-[[package]]
-name = "qsharp"
-version = "0.0.0"
-dependencies = [
- "allocator",
- "expect-test",
- "memchr",
- "miette",
- "noisy_simulator",
- "num-bigint",
- "num-complex",
- "num-traits",
- "pyo3",
- "qdk_simulators",
- "qre",
- "qsc",
- "rand 0.8.5",
- "rayon",
- "resource_estimator",
- "rustc-hash",
- "serde",
- "serde_json",
 ]
 
 [[package]]

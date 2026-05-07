@@ -1,20 +1,20 @@
 # Q# Language Support for Python
 
+> **Note:** The `qsharp` package is deprecated. Please use the [`qdk`](https://pypi.org/project/qdk/) package instead. This package is a thin compatibility shim that re-exports the `qdk` public API so that existing code continues to work.
+
 Q# is an open-source, high-level programming language for developing and running quantum algorithms.
 The `qsharp` package for Python provides interoperability with the Q# interpreter, making it easy
 to simulate Q# programs within Python.
 
 ## Installation
 
-To install the Q# language package, run:
-
 ```bash
-pip install qsharp
+pip install qdk
 ```
 
-## Usage
+For backward compatibility, `pip install qsharp` also works and will install `qdk` as a dependency.
 
-First, import the `qsharp` module:
+## Usage
 
 ```python
 from qdk import qsharp
@@ -42,7 +42,7 @@ BellState()
 ## Telemetry
 
 This library sends telemetry. Minimal anonymous data is collected to help measure feature usage and performance.
-All telemetry events can be seen in the source file [telemetry_events.py](https://github.com/microsoft/qdk/tree/main/source/pip/qsharp/telemetry_events.py).
+All telemetry events can be seen in the source file [telemetry_events.py](https://github.com/microsoft/qdk/tree/main/source/qdk_package/qdk/telemetry_events.py).
 
 To disable sending telemetry from this package, set the environment variable `QDK_PYTHON_TELEMETRY=none`
 

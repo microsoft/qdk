@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin ~= 1.10.2"]
+build-backend = "maturin"
 
 [project]
 name = "qdk"
@@ -10,7 +10,22 @@ readme = "README.md"
 authors = [ { name = "Microsoft" } ]
 license = { file = "LICENSE.txt" }
 requires-python = ">=3.10"
-dependencies = ["qsharp==0.0.0", "pyqir>=0.12.3,<0.13"]
+dependencies = ["pyqir>=0.12.3,<0.13", "qsharp==0.0.0"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python",
+    "Programming Language :: Rust",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+]
 
 [project.optional-dependencies]
 jupyter = ["qsharp-widgets==0.0.0", "qsharp-jupyterlab==0.0.0"]
@@ -30,6 +45,9 @@ all = [
   "qsharp-jupyterlab==0.0.0",
 ]
 
-[tool.setuptools.packages.find]
-where = ["."]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.maturin]
+module-name = "qdk._native"
 

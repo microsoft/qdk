@@ -28,7 +28,7 @@ For Qiskit integration, which exposes Qiskit interop utilities in the `qdk.qiski
 pip install "qdk[qiskit]"
 ```
 
-For Cirq integration, which exposes Cirq interop utilities in the `qdk.azure.cirq` submodule:
+For Cirq integration, which exposes Cirq interop utilities in the `qdk.cirq` submodule:
 
 ```bash
 pip install "qdk[cirq]"
@@ -70,12 +70,17 @@ Histogram(results)
 
 Submodules:
 
-- `qdk.qsharp` – exports the same APIs as the `qsharp` Python package
-- `qdk.openqasm` – exports the same APIs as the `openqasm` submodule of the `qsharp` Python package.
-- `qdk.estimator` – exports the same APIs as the `estimator` submodule of the `qsharp` Python package.
-- `qdk.widgets` – exports the Jupyter widgets available from the `qsharp-widgets` Python package (requires the `qdk[jupyter]` extra to be installed).
-- `qdk.azure` – exports the Python APIs available from the `azure-quantum` Python package (requires the `qdk[azure]` extra to be installed).
-- `qdk.qiskit` – exports the same APIs as the `interop.qiskit` submodule of the `qsharp` Python package (requires the `qdk[qiskit]` extra to be installed).
+- `qdk.qsharp` – Q# interpreter functions: `init`, `eval`, `run`, `compile`, `circuit`, `estimate`, and related types.
+- `qdk.openqasm` – OpenQASM compilation and execution.
+- `qdk.estimator` – resource estimation utilities.
+- `qdk.simulation` – noise-aware simulation utilities: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types.
+- `qdk.code` – dynamic namespace populated at runtime with user-defined Q# and OpenQASM callables.
+- `qdk.qre` – quantum resource estimation v3: `estimate`, `Application`, `Architecture`, `ISA`, `ISATransform`, and related types.
+- `qdk.applications` – domain-specific quantum applications (e.g. `qdk.applications.magnets`).
+- `qdk.widgets` – Jupyter widgets for visualization (requires the `qdk[jupyter]` extra).
+- `qdk.azure` – Azure Quantum service integration (requires the `qdk[azure]` extra).
+- `qdk.qiskit` – Qiskit interop: `QSharpBackend`, `NeutralAtomBackend`, and related types (requires the `qdk[qiskit]` extra).
+- `qdk.cirq` – Cirq interop: `NeutralAtomSampler` (requires the `qdk[cirq]` extra).
 
 ### Top level exports
 
@@ -100,4 +105,14 @@ For convenience, the following helpers and types are also importable directly fr
 ## Telemetry
 
 This library sends telemetry. Minimal anonymous data is collected to help measure feature usage and performance.
-All telemetry events can be seen in the source file [telemetry_events.py](https://github.com/microsoft/qdk/tree/main/source/pip/qsharp/telemetry_events.py).
+All telemetry events can be seen in the source file [telemetry_events.py](https://github.com/microsoft/qdk/tree/main/source/qdk_package/qdk/telemetry_events.py).
+
+To disable sending telemetry from this package, set the environment variable `QDK_PYTHON_TELEMETRY=none`
+
+## Support
+
+For more information about the Microsoft Quantum Development Kit, visit [https://aka.ms/qdk](https://aka.ms/qdk).
+
+## Contributing
+
+Q# welcomes your contributions! Visit the Q# GitHub repository at [https://github.com/microsoft/qdk] to find out more about the project.
