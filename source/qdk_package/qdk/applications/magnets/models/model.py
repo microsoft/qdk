@@ -39,7 +39,7 @@ class Model:
     Example:
 
     .. code-block:: python
-        >>> from qsharp.magnets.geometry import Chain1D
+        >>> from qdk.magnets.geometry import Chain1D
         >>> geometry = Chain1D(4)
         >>> model = Model(geometry)
         >>> model.set_coefficient((0, 1), 1.5)

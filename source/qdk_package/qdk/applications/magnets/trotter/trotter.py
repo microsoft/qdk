@@ -22,7 +22,7 @@ try:
     import cirq
 except Exception as ex:
     raise ImportError(
-        "qsharp.magnets.models requires the cirq extras. Install with 'pip install \"qsharp[cirq]\"'."
+        "qdk.magnets.models requires the cirq extras. Install with 'pip install \"qdk[cirq]\"'."
     ) from ex
 
 
