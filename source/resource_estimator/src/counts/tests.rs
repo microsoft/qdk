@@ -437,37 +437,15 @@ fn manual_memory_qubits_load_store() {
     let counts = run_logical_counts(
         indoc! {"
                 operation Main() : Unit {
-                    use q = Qubit();
-                    Std.ResourceEstimation.MemoryQubitStore(q);
-                    Std.ResourceEstimation.MemoryQubitLoad(q);
+                    use qs = Qubit[2];
+                    Std.Memory.MemoryQubitStore(qs[0]);
+                    Std.Memory.MemoryQubitLoad(qs[0]);
                 }
             "},
         None,
     );
     assert_eq!(counts.write_to_memory_count, Some(1));
     assert_eq!(counts.read_from_memory_count, Some(1));
-    assert_eq!(counts.num_compute_qubits, Some(1));
-    assert_eq!(counts.num_qubits, 2);
-}
-
-#[test]
-fn manual_memory_qubits_allocator() {
-    let counts = run_logical_counts(
-        indoc! {"
-                operation Main() : Unit {
-                    Std.ResourceEstimation.AllocateMemoryQubits();
-                    use q1 = Qubit[5];
-                    Std.ResourceEstimation.AllocateComputeQubits();
-                    use q2 = Qubit[2];
-                    Std.ResourceEstimation.MemoryQubitLoad(q1[0]);
-                }
-            "},
-        None,
-    );
-
-    // Initially allocated 5 memory, 2 compute qubits.
-    // Then moved a qubit from memory to compute.
-    // So, in total need 5 memory and 3 compute qubits.
-    assert_eq!(counts.num_compute_qubits, Some(3));
-    assert_eq!(counts.num_qubits, 8);
+    assert_eq!(counts.num_compute_qubits, Some(2));
+    assert_eq!(counts.num_qubits, 3);
 }

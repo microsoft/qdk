@@ -5,34 +5,6 @@ use std::hash::Hash;
 #[cfg(test)]
 mod tests;
 
-#[derive(Default)]
-pub struct QubitPool {
-    free_list: Vec<usize>,
-    next_id: usize,
-}
-
-impl QubitPool {
-    pub fn allocate(&mut self) -> usize {
-        let index = if let Some(index) = self.free_list.pop() {
-            index
-        } else {
-            let index = self.next_id;
-            self.next_id += 1;
-            index
-        };
-
-        index
-    }
-
-    pub fn release(&mut self, index: usize) {
-        self.free_list.push(index);
-    }
-
-    pub fn max_in_use(&self) -> usize {
-        self.next_id
-    }
-}
-
 pub enum CachingStrategy {
     LeastRecentlyUsed(LeastRecentlyUsedPriorityQueue<usize>),
     LeastFrequentlyUsed(LeastFrequentlyUsedPriorityQueue<usize>),
@@ -72,6 +44,10 @@ impl MemoryComputeInfo {
             CachingStrategy::LeastRecentlyUsed(lru) => lru.insert_all(qubits),
             CachingStrategy::LeastFrequentlyUsed(lfu) => lfu.insert_all(qubits),
         }
+    }
+
+    pub fn store_to_memory(&mut self, qubit: usize) {
+        // TODO: implement.
     }
 
     pub fn compute_size(&self) -> usize {

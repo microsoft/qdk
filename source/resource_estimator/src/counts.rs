@@ -5,6 +5,7 @@
 mod tests;
 
 mod memory_compute;
+mod qubit_pool;
 
 use num_bigint::BigUint;
 use num_complex::Complex;
@@ -14,13 +15,8 @@ use rustc_hash::FxHashMap;
 use std::{array, cell::RefCell, f64::consts::PI, fmt::Debug, iter::Sum};
 
 use crate::{counts::memory_compute::CachingStrategy, system::LogicalResourceCounts};
-use memory_compute::{MemoryComputeInfo, QubitPool};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum QubitType {
-    Compute,
-    Memory,
-}
+use memory_compute::MemoryComputeInfo;
+use qubit_pool::{QubitType, TypedQubitPools};
 
 /// Resource counter implementation
 ///
@@ -61,15 +57,7 @@ pub struct LogicalCounter {
     post_select_measurements: FxHashMap<usize, bool>,
 
     /// Pool of typed compute qubits used by manual MemoryQubitStore/Load.
-    compute_qubit_pool: QubitPool,
-    /// Pool of typed memory qubits used by manual MemoryQubitStore/Load.
-    memory_qubit_pool: QubitPool,
-    /// Mapping from untyped allocated qubit id to its typed counterpart/state.
-    typed_qubit_map: FxHashMap<usize, (QubitType, usize)>,
-    /// Peak number of typed qubits alive at once in manual memory-qubit mode.
-    typed_qubit_peak: usize,
-    /// Type of next alloctaed qubit.
-    next_allocation_qubit_type: QubitType,
+    typed_qubit_pools: TypedQubitPools,
 
     manual_memory_reads: usize,
     manual_memory_writes: usize,
@@ -94,11 +82,7 @@ impl Default for LogicalCounter {
             memory_compute: None,
             rnd: RefCell::new(StdRng::seed_from_u64(0)),
             post_select_measurements: FxHashMap::default(),
-            compute_qubit_pool: QubitPool::default(),
-            memory_qubit_pool: QubitPool::default(),
-            typed_qubit_map: FxHashMap::default(),
-            typed_qubit_peak: 0,
-            next_allocation_qubit_type: QubitType::Compute,
+            typed_qubit_pools: TypedQubitPools::default(),
             manual_memory_reads: 0,
             manual_memory_writes: 0,
             manual_memory_mode: false,
@@ -118,7 +102,7 @@ impl LogicalCounter {
                 )
             } else if self.manual_memory_mode {
                 (
-                    Some(self.compute_qubit_pool.max_in_use() as u64),
+                    Some(self.typed_qubit_pools.max_in_use(QubitType::Compute) as u64),
                     Some(self.manual_memory_reads as u64),
                     Some(self.manual_memory_writes as u64),
                 )
@@ -127,7 +111,8 @@ impl LogicalCounter {
             };
 
         let num_qubits = if self.manual_memory_mode {
-            self.compute_qubit_pool.max_in_use() + self.memory_qubit_pool.max_in_use()
+            self.typed_qubit_pools.max_in_use(QubitType::Compute)
+                + self.typed_qubit_pools.max_in_use(QubitType::Memory)
         } else {
             self.next_free
         };
@@ -507,10 +492,12 @@ impl LogicalCounter {
             memory_compute.assert_compute_qubits(qubits.iter().copied());
         }
 
-        for qubit in qubits {
-            if let Some((qubit_type, _)) = self.typed_qubit_map.get(&qubit) {
-                if matches!(qubit_type, QubitType::Memory) {
-                    panic!("cannot apply compute operation to a memory qubit");
+        if (self.manual_memory_mode) {
+            for qid in qubits {
+                if self.typed_qubit_pools.get_qubit_type(qid) == QubitType::Memory {
+                    self.typed_qubit_pools.release(qid);
+                    self.typed_qubit_pools.allocate(qid, QubitType::Compute);
+                    self.manual_memory_reads += 1;
                 }
             }
         }
@@ -661,25 +648,14 @@ impl Backend for LogicalCounter {
             index
         };
 
-        let typed_index = match self.next_allocation_qubit_type {
-            QubitType::Compute => self.compute_qubit_pool.allocate(),
-            QubitType::Memory => self.memory_qubit_pool.allocate(),
-        };
-        self.typed_qubit_map
-            .insert(index, (self.next_allocation_qubit_type, typed_index));
-        self.typed_qubit_peak = self.typed_qubit_peak.max(self.typed_qubit_map.len());
+        self.typed_qubit_pools.allocate(index, QubitType::Compute);
 
         index
     }
 
     fn qubit_release(&mut self, q: usize) -> bool {
-        if let Some((qubit_type, index)) = self.typed_qubit_map.remove(&q) {
-            match qubit_type {
-                QubitType::Compute => self.compute_qubit_pool.release(index),
-                QubitType::Memory => self.memory_qubit_pool.release(index),
-            }
-        }
         self.free_list.push(q);
+        self.typed_qubit_pools.release(q);
         true
     }
 
@@ -697,14 +673,7 @@ impl Backend for LogicalCounter {
             self.post_select_measurements.insert(q0, val);
         }
 
-        let q0_typed = self.typed_qubit_map.remove(&q0);
-        let q1_typed = self.typed_qubit_map.remove(&q1);
-        if let Some(typed_info) = q0_typed {
-            self.typed_qubit_map.insert(q1, typed_info);
-        }
-        if let Some(typed_info) = q1_typed {
-            self.typed_qubit_map.insert(q0, typed_info);
-        }
+        // TODO: do something correct here.
     }
 
     fn capture_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
@@ -783,52 +752,22 @@ impl Backend for LogicalCounter {
             }
             "MemoryQubitLoad" => {
                 self.manual_memory_mode = true;
-                let q = arg.unwrap_qubit().deref().0;
-                let Some((qubit_type, index)) = self.typed_qubit_map.get(&q).copied() else {
-                    return Some(Err(
-                        "MemoryQubitLoad can only be applied to a memory qubit".to_string()
-                    ));
-                };
-                if !matches!(qubit_type, QubitType::Memory) {
-                    return Some(Err(
-                        "MemoryQubitLoad can only be applied to a memory qubit".to_string()
-                    ));
-                }
-                self.memory_qubit_pool.release(index);
-                let compute_index = self.compute_qubit_pool.allocate();
-                self.typed_qubit_map
-                    .insert(q, (QubitType::Compute, compute_index));
-                self.manual_memory_reads += 1;
+                let qid = arg.unwrap_qubit().deref().0;
+
+                self.assert_compute_qubits([qid]);
+
                 Some(Ok(Value::unit()))
             }
             "MemoryQubitStore" => {
                 self.manual_memory_mode = true;
-                let q = arg.unwrap_qubit().deref().0;
-                let Some((qubit_type, index)) = self.typed_qubit_map.get(&q).copied() else {
-                    return Some(Err(
-                        "MemoryQubitStore can only be applied to a compute qubit".to_string(),
-                    ));
-                };
-                if !matches!(qubit_type, QubitType::Compute) {
-                    return Some(Err(
-                        "MemoryQubitStore can only be applied to a compute qubit".to_string(),
-                    ));
+                let qid = arg.unwrap_qubit().deref().0;
+
+                if self.typed_qubit_pools.get_qubit_type(qid) == QubitType::Compute {
+                    self.typed_qubit_pools.release(qid);
+                    self.typed_qubit_pools.allocate(qid, QubitType::Memory);
+                    self.manual_memory_writes += 1;
                 }
-                self.compute_qubit_pool.release(index);
-                let memory_index = self.memory_qubit_pool.allocate();
-                self.typed_qubit_map
-                    .insert(q, (QubitType::Memory, memory_index));
-                self.manual_memory_writes += 1;
-                Some(Ok(Value::unit()))
-            }
-            "AllocateComputeQubits" => {
-                self.manual_memory_mode = true;
-                self.next_allocation_qubit_type = QubitType::Compute;
-                Some(Ok(Value::unit()))
-            }
-            "AllocateMemoryQubits" => {
-                self.manual_memory_mode = true;
-                self.next_allocation_qubit_type = QubitType::Memory;
+
                 Some(Ok(Value::unit()))
             }
             _ => None,

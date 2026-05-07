@@ -151,8 +151,6 @@ impl Backend for QuantumIntrinsicsChecker {
             | "EnableMemoryComputeArchitecture"
             | "MemoryQubitStore"
             | "MemoryQubitLoad"
-            | "AllocateComputeQubits"
-            | "AllocateMemoryQubits"
             | "GlobalPhase"
             | "ConfigurePauliNoise"
             | "ConfigureQubitLoss"

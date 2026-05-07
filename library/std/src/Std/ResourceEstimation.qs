@@ -211,37 +211,6 @@ function LeastFrequentlyUsed() : Int {
     return 1;
 }
 
-/// Signals to resource estimator that this qubit is stored to memory, i.e.
-/// transitions from "compute qubit" to "memory qubit".
-/// Each qubit is allocated as "compute" by default.
-/// MemoryQubitStore can be applied only to "compute" qubit. That is, qubit on which
-/// MemoryQubitLoad wasn't applied or if it was applied, it was followed by
-/// MemoryQubitLoad.
-/// While qubit is in "memory" state, no gates or measurements can be applied to it.
-function MemoryQubitStore(q: Qubit) : Unit {
-    body intrinsic;
-}
-
-/// Signals to resource estimator that this qubit is loaded from memory, i.e.
-/// transitions from "memory qubit" to "compute qubit".
-/// Can be applied only to "memory qubit", i.e. on which previously MemoryQubitStore
-/// was applied.
-function MemoryQubitLoad(q: Qubit) : Unit {
-    body intrinsic;
-}
-
-
-/// All subsequent `use` statements will allocate compute qubits.
-function AllocateComputeQubits() : Unit {
-    body intrinsic;
-}
-
-/// All subsequent `use` statements will allocate memory qubits.
-function AllocateMemoryQubits() : Unit {
-    body intrinsic;
-}
-
-
 export
     SingleVariant,
     BeginEstimateCaching,
@@ -259,8 +228,4 @@ export
     RepeatEstimates,
     EnableMemoryComputeArchitecture,
     LeastRecentlyUsed,
-    LeastFrequentlyUsed,
-    MemoryQubitLoad,
-    MemoryQubitStore,
-    AllocateComputeQubits,
-    AllocateMemoryQubits;
+    LeastFrequentlyUsed;
