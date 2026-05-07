@@ -149,14 +149,16 @@ async function getAzureQuantumError(response: Response): Promise<AzureError> {
 
   try {
     const json = await response.json();
-    if (json.errorCode && json.message) {
-      detail = `${json.errorCode}: ${json.message}`;
+    // Extract the error data if it conforms to the Azure Quantum error schema defined in
+    // https://github.com/Azure/azure-rest-api-specs/blob/957fd518388828b31126417415b04f859b95c586/specification/quantum/data-plane/Microsoft.Quantum/preview/2022-09-12-preview/quantum.json#L1186
+    if (json.error?.code && json.error?.message) {
+      detail = `${json.error.code}: ${json.error.message}`;
     }
   } catch {
     /* body wasn't readable or wasn't JSON — detail stays empty */
   }
 
-  let message = `Azure Quantum request failed with status ${response.status}.`;
+  let message = `Azure Quantum request failed with status ${response.status} (${response.statusText}).`;
   if (detail) message += `\n${detail}`;
   if (requestId) message += `\nRequest ID: ${requestId}`;
   return new AzureError(message);
