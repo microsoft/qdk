@@ -11,6 +11,7 @@ import {
 import * as vscode from "vscode";
 import { initAzureWorkspaces } from "./azure/commands.js";
 import { CircuitEditorProvider } from "./circuitEditor.js";
+import { registerCircuitPreviewProvider } from "./circuitPreview.js";
 import { initProjectCreator } from "./createProject.js";
 import { activateDebugger } from "./debugger/activate.js";
 import { startOtherQSharpDiagnostics } from "./diagnostics.js";
@@ -83,6 +84,7 @@ export async function activate(
   context.subscriptions.push(...(await activateLanguageService(context)));
   context.subscriptions.push(...startOtherQSharpDiagnostics());
   context.subscriptions.push(...registerQSharpNotebookHandlers());
+  context.subscriptions.push(registerCircuitPreviewProvider());
   context.subscriptions.push(CircuitEditorProvider.register(context));
   context.subscriptions.push(...registerChangelogCommand(context));
 
