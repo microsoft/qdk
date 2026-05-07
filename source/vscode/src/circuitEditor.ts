@@ -19,6 +19,40 @@ import { runProgramInTerminal } from "./run";
  */
 const PREVIEW_DEBOUNCE_MS = 200;
 
+/**
+ * Settings key for the auto-open preview behaviour. Read on editor open and
+ * watched for changes so the user can flip it without restarting.
+ */
+const PREVIEW_SETTING_SECTION = "Q#";
+const PREVIEW_SETTING_KEY = "circuits.showCodePreview";
+
+function previewAutoOpenEnabled(): boolean {
+  return vscode.workspace
+    .getConfiguration(PREVIEW_SETTING_SECTION)
+    .get<boolean>(PREVIEW_SETTING_KEY, true);
+}
+
+/**
+ * Per-open-circuit hooks exposed to the showCircuitCodePreview command so it
+ * can request the preview for whichever circuit is currently active without
+ * the command needing to know about the editor's internal plumbing.
+ */
+interface CircuitPreviewController {
+  show: () => Promise<void>;
+}
+
+const previewControllers = new Map<string, CircuitPreviewController>();
+
+/**
+ * Look up the controller for a circuit document URI, if one is currently open.
+ * Used by the showCircuitCodePreview command.
+ */
+export function getCircuitPreviewController(
+  circuitUri: vscode.Uri,
+): CircuitPreviewController | undefined {
+  return previewControllers.get(circuitUri.toString());
+}
+
 export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
   private static readonly viewType = "qsharp-webview.circuit";
   updatingDocument: boolean = false;
@@ -55,12 +89,28 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
     // the compiler worker can be discarded (latest edit wins).
     let previewRequestId = 0;
     let lastAppliedRequestId = -1;
+    // Cache of the last content we pushed to the preview provider. Used to
+    // suppress redundant updates (notably during error storms when every
+    // keystroke produces the same "invalid JSON" comment).
+    let lastAppliedContent: string | undefined;
 
     const getPreviewWorker = (): ICompilerWorker => {
       if (!previewWorker) {
         previewWorker = loadCompilerWorker(this.context.extensionUri);
       }
       return previewWorker;
+    };
+
+    const applyPreviewContent = (content: string, requestId: number) => {
+      if (requestId <= lastAppliedRequestId) return;
+      lastAppliedRequestId = requestId;
+      // Avoid no-op updates: TextDocumentContentProvider.onDidChange would
+      // otherwise force VS Code to re-tokenize and refresh the editor for
+      // identical content (common when the same JSON-parse error repeats
+      // on every keystroke).
+      if (content === lastAppliedContent) return;
+      lastAppliedContent = content;
+      getCircuitPreviewProvider()?.setContent(previewUri, content);
     };
 
     /**
@@ -76,49 +126,46 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
       const text = document.getText();
       const operationName = previewOperationNameFor(document.uri);
 
-      let qsharp: string;
       if (text.trim().length === 0) {
-        qsharp = `// ${operationName} is empty. Add gates to the circuit to generate Q#.\n`;
-      } else {
-        try {
-          // Validate the JSON shape on the host first so an unparseable
-          // file produces a friendly comment rather than a wasm panic.
-          JSON.parse(text);
-        } catch (err: any) {
-          if (requestId > lastAppliedRequestId) {
-            lastAppliedRequestId = requestId;
-            provider.setContent(
-              previewUri,
-              previewErrorComment(
-                `Circuit file is not valid JSON: ${err?.message ?? err}`,
-              ),
-            );
-          }
-          return;
-        }
-
-        try {
-          const worker = getPreviewWorker();
-          const circuits = JSON.parse(text);
-          qsharp = await worker.circuitsToQsharp(operationName, circuits);
-        } catch (err: any) {
-          if (requestId > lastAppliedRequestId) {
-            lastAppliedRequestId = requestId;
-            provider.setContent(
-              previewUri,
-              previewErrorComment(
-                `Could not generate Q#: ${err?.message ?? err}`,
-              ),
-            );
-          }
-          return;
-        }
+        applyPreviewContent(
+          `// Q# preview — empty circuit\n// Add gates to ${operationName} to generate Q#.\n`,
+          requestId,
+        );
+        return;
       }
 
-      // Drop stale results so a slow generation can't overwrite a newer one.
-      if (requestId <= lastAppliedRequestId) return;
-      lastAppliedRequestId = requestId;
-      provider.setContent(previewUri, qsharp);
+      try {
+        // Validate the JSON shape on the host first so an unparseable
+        // file produces a friendly comment rather than a wasm panic.
+        JSON.parse(text);
+      } catch (err: any) {
+        applyPreviewContent(
+          previewErrorComment(
+            "invalid JSON",
+            `Circuit file is not valid JSON: ${err?.message ?? err}`,
+          ),
+          requestId,
+        );
+        return;
+      }
+
+      let qsharp: string;
+      try {
+        const worker = getPreviewWorker();
+        const circuits = JSON.parse(text);
+        qsharp = await worker.circuitsToQsharp(operationName, circuits);
+      } catch (err: any) {
+        applyPreviewContent(
+          previewErrorComment(
+            "generation failed",
+            `Could not generate Q#: ${err?.message ?? err}`,
+          ),
+          requestId,
+        );
+        return;
+      }
+
+      applyPreviewContent(qsharp, requestId);
     };
 
     const schedulePreviewRefresh = () => {
@@ -129,6 +176,20 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
         void refreshPreviewNow();
       }, PREVIEW_DEBOUNCE_MS);
     };
+
+    /**
+     * Force the preview to be visible and current. Used by the
+     * showCircuitCodePreview command and by the config-change listener when
+     * the user flips the auto-open setting on while a circuit is open.
+     */
+    const showPreview = async () => {
+      await refreshPreviewNow();
+      await openPreviewBeside(previewUri);
+    };
+
+    // Make this editor's preview reachable from the showCircuitCodePreview
+    // command. Keyed by the original circuit URI (not the preview URI).
+    previewControllers.set(document.uri.toString(), { show: showPreview });
 
     webviewPanel.webview.onDidReceiveMessage(async (e) => {
       switch (e.command) {
@@ -202,9 +263,32 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
       },
     );
 
+    // React to the user toggling the auto-open setting on. Toggling off
+    // intentionally leaves any already-open preview tab in place — the user
+    // can close it manually — but stops further auto-opens for new circuits.
+    let lastAutoOpenEnabled = previewAutoOpenEnabled();
+    const configSubscription = vscode.workspace.onDidChangeConfiguration(
+      (e) => {
+        if (
+          !e.affectsConfiguration(
+            `${PREVIEW_SETTING_SECTION}.${PREVIEW_SETTING_KEY}`,
+          )
+        ) {
+          return;
+        }
+        const enabled = previewAutoOpenEnabled();
+        if (enabled && !lastAutoOpenEnabled) {
+          void showPreview();
+        }
+        lastAutoOpenEnabled = enabled;
+      },
+    );
+
     // Dispose of the event listener when the webview is closed
     webviewPanel.onDidDispose(() => {
       changeDocumentSubscription.dispose();
+      configSubscription.dispose();
+      previewControllers.delete(document.uri.toString());
       if (previewTimer) {
         clearTimeout(previewTimer);
         previewTimer = undefined;
@@ -218,11 +302,13 @@ export class CircuitEditorProvider implements vscode.CustomTextEditorProvider {
       getCircuitPreviewProvider()?.clearContent(previewUri);
     });
 
-    // Generate the initial preview content and open the preview tab beside
-    // the circuit. Both are fire-and-forget: failures only affect the side
-    // panel, never the circuit editor itself.
+    // Generate the initial preview content unconditionally so the command
+    // (or a later setting flip) gets an instant response. Only auto-open
+    // the side panel if the setting allows it.
     void refreshPreviewNow();
-    void openPreviewBeside(previewUri);
+    if (lastAutoOpenEnabled) {
+      void openPreviewBeside(previewUri);
+    }
   }
 
   private getHtmlForWebview(webview: vscode.Webview): string {
@@ -380,12 +466,14 @@ function previewOperationNameFor(circuitUri: vscode.Uri): string {
 
 /**
  * Format an error message as a Q# comment block so the preview tab keeps
- * rendering as valid Q# even when generation fails.
+ * rendering as valid Q# even when generation fails. The `kind` shows up in
+ * the header so users can tell at a glance whether the issue is a malformed
+ * file vs. a compiler problem.
  */
-function previewErrorComment(message: string): string {
+function previewErrorComment(kind: string, message: string): string {
   const lines = String(message).split(/\r?\n/);
   return [
-    "// Q# preview unavailable for the current circuit:",
+    `// Q# preview unavailable — ${kind}`,
     ...lines.map((line) => `// ${line}`),
     "",
   ].join("\n");
