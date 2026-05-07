@@ -22,12 +22,9 @@ classifiers = [
 [project.optional-dependencies]
 jupyterlab = ["qdk[jupyter]"]
 widgets = ["qdk[jupyter]"]
-jupyter = ["qdk[jupyter]"]
 qiskit = ["qdk[qiskit]"]
 cirq = ["qdk[cirq]"]
 qre = ["qdk[qre]"]
-azure = ["qdk[azure]"]
-applications = ["qdk[applications]"]
 
 [build-system]
 requires = ["setuptools>=64", "wheel"]
