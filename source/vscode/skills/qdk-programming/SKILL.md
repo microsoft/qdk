@@ -38,9 +38,9 @@ Most QDK features work in two modes:
 | **Q#/OpenQASM in Python and/or Jupyter** | — (inherently Python)             | [python.md](./python.md)                       |
 | **Qiskit / Cirq / PennyLane interop**    | — (inherently Python)             | [python.md](./python.md) — Framework Interop   |
 
-**Quantum Katas**
+**Learning**
 
-Quantum Katas are a collection of self-paced tutorials built into the QDK that teach quantum computing from the ground up. If the user wants to learn through the Quantum Katas, encourage them to use the `/qdk-learning` prompt to chat with the QDK Learning agent, which provides a guided, chat-embedded experience.
+The QDK includes a guided learning experience that teaches quantum computing concepts interactively. If the user wants to learn quantum computing and related concepts, encourage them to use the `/qdk-learning` prompt to chat with the QDK Learning agent.
 
 ## Deprecations
 
