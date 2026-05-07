@@ -208,6 +208,7 @@ pub(crate) fn run_ast(
                 interpreter.run_with_sim(&mut sim, receiver, None, None)?
             }
         };
+
         results.push(result);
     }
 
@@ -820,6 +821,28 @@ where
     match kwargs.get_item("output_semantics")? {
         Some(obj) => Ok(obj.extract::<OutputSemantics>()?),
         None => Ok(default()),
+    }
+}
+
+/// Extracts the output semantics from the kwargs dictionary.
+pub(crate) fn get_sim_type(kwargs: &Bound<'_, PyDict>) -> PyResult<SimType> {
+    match kwargs.get_item("sim_type")? {
+        Some(obj) => Ok(match obj.extract::<String>()?.as_str() {
+            "sparse" => SimType::Sparse,
+            "clifford" => {
+                // Clifford simulator needs a num_qubits, which defaults to 1000 if unspecified.
+                let num_qubits = kwargs
+                    .get_item("num_qubits")?
+                    .map_or_else(|| Ok(1000), |x| x.extract::<usize>())?;
+                SimType::Clifford(num_qubits)
+            }
+            other => {
+                return Err(PyException::new_err(format!(
+                    "Invalid sim type specified: {other}"
+                )));
+            }
+        }),
+        None => Ok(Default::default()),
     }
 }
 

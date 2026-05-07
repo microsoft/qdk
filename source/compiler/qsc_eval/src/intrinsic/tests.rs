@@ -28,119 +28,119 @@ struct CustomSim {
 }
 
 impl Backend for CustomSim {
-    fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
-        self.sim.ccx(ctl0, ctl1, q);
+    fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) -> Result<(), String> {
+        self.sim.ccx(ctl0, ctl1, q)
     }
 
-    fn cx(&mut self, ctl: usize, q: usize) {
-        self.sim.cx(ctl, q);
+    fn cx(&mut self, ctl: usize, q: usize) -> Result<(), String> {
+        self.sim.cx(ctl, q)
     }
 
-    fn cy(&mut self, ctl: usize, q: usize) {
-        self.sim.cy(ctl, q);
+    fn cy(&mut self, ctl: usize, q: usize) -> Result<(), String> {
+        self.sim.cy(ctl, q)
     }
 
-    fn cz(&mut self, ctl: usize, q: usize) {
-        self.sim.cz(ctl, q);
+    fn cz(&mut self, ctl: usize, q: usize) -> Result<(), String> {
+        self.sim.cz(ctl, q)
     }
 
-    fn h(&mut self, q: usize) {
-        self.sim.h(q);
+    fn h(&mut self, q: usize) -> Result<(), String> {
+        self.sim.h(q)
     }
 
-    fn m(&mut self, q: usize) -> val::Result {
+    fn m(&mut self, q: usize) -> Result<val::Result, String> {
         self.sim.m(q)
     }
 
-    fn mresetz(&mut self, q: usize) -> val::Result {
+    fn mresetz(&mut self, q: usize) -> Result<val::Result, String> {
         self.sim.mresetz(q)
     }
 
-    fn reset(&mut self, q: usize) {
-        self.sim.reset(q);
+    fn reset(&mut self, q: usize) -> Result<(), String> {
+        self.sim.reset(q)
     }
 
-    fn rx(&mut self, theta: f64, q: usize) {
-        self.sim.rx(theta, q);
+    fn rx(&mut self, theta: f64, q: usize) -> Result<(), String> {
+        self.sim.rx(theta, q)
     }
 
-    fn rxx(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.sim.rxx(theta, q0, q1);
+    fn rxx(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
+        self.sim.rxx(theta, q0, q1)
     }
 
-    fn ry(&mut self, theta: f64, q: usize) {
-        self.sim.ry(theta, q);
+    fn ry(&mut self, theta: f64, q: usize) -> Result<(), String> {
+        self.sim.ry(theta, q)
     }
 
-    fn ryy(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.sim.ryy(theta, q0, q1);
+    fn ryy(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
+        self.sim.ryy(theta, q0, q1)
     }
 
-    fn rz(&mut self, theta: f64, q: usize) {
-        self.sim.rz(theta, q);
+    fn rz(&mut self, theta: f64, q: usize) -> Result<(), String> {
+        self.sim.rz(theta, q)
     }
 
-    fn rzz(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.sim.rzz(theta, q0, q1);
+    fn rzz(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
+        self.sim.rzz(theta, q0, q1)
     }
 
-    fn sadj(&mut self, q: usize) {
-        self.sim.sadj(q);
+    fn sadj(&mut self, q: usize) -> Result<(), String> {
+        self.sim.sadj(q)
     }
 
-    fn s(&mut self, q: usize) {
-        self.sim.s(q);
+    fn s(&mut self, q: usize) -> Result<(), String> {
+        self.sim.s(q)
     }
 
-    fn sx(&mut self, q: usize) {
-        self.sim.h(q);
-        self.sim.s(q);
-        self.sim.h(q);
+    fn sx(&mut self, q: usize) -> Result<(), String> {
+        self.sim.h(q)?;
+        self.sim.s(q)?;
+        self.sim.h(q)
     }
 
-    fn swap(&mut self, q0: usize, q1: usize) {
-        self.sim.swap(q0, q1);
+    fn swap(&mut self, q0: usize, q1: usize) -> Result<(), String> {
+        self.sim.swap(q0, q1)
     }
 
-    fn tadj(&mut self, q: usize) {
-        self.sim.tadj(q);
+    fn tadj(&mut self, q: usize) -> Result<(), String> {
+        self.sim.tadj(q)
     }
 
-    fn t(&mut self, q: usize) {
-        self.sim.t(q);
+    fn t(&mut self, q: usize) -> Result<(), String> {
+        self.sim.t(q)
     }
 
-    fn x(&mut self, q: usize) {
-        self.sim.x(q);
+    fn x(&mut self, q: usize) -> Result<(), String> {
+        self.sim.x(q)
     }
 
-    fn y(&mut self, q: usize) {
-        self.sim.y(q);
+    fn y(&mut self, q: usize) -> Result<(), String> {
+        self.sim.y(q)
     }
 
-    fn z(&mut self, q: usize) {
-        self.sim.z(q);
+    fn z(&mut self, q: usize) -> Result<(), String> {
+        self.sim.z(q)
     }
 
-    fn qubit_allocate(&mut self) -> usize {
+    fn qubit_allocate(&mut self) -> Result<usize, String> {
         self.sim.qubit_allocate()
     }
 
-    fn qubit_release(&mut self, q: usize) -> bool {
+    fn qubit_release(&mut self, q: usize) -> Result<bool, String> {
         self.sim.qubit_release(q)
     }
 
-    fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
-        self.sim.qubit_swap_id(q0, q1);
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize) -> Result<(), String> {
+        self.sim.qubit_swap_id(q0, q1)
     }
 
     fn capture_quantum_state(
         &mut self,
-    ) -> (Vec<(num_bigint::BigUint, num_complex::Complex<f64>)>, usize) {
+    ) -> Result<(Vec<(num_bigint::BigUint, num_complex::Complex<f64>)>, usize), String> {
         self.sim.capture_quantum_state()
     }
 
-    fn qubit_is_zero(&mut self, q: usize) -> bool {
+    fn qubit_is_zero(&mut self, q: usize) -> Result<bool, String> {
         self.sim.qubit_is_zero(q)
     }
 

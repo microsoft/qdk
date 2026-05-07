@@ -68,7 +68,7 @@ def run(
     :param qubit_loss: The probability of qubit loss in simulation.
     :type qubit_loss: float
     :param as_bitstring: If true, the result registers will be converted to bitstrings.
-    :type as_bitstring: boolbool
+    :type as_bitstring: bool
     :param type: The type of simulator to use. If not specified, the default sparse state vector simulation will be used.
     :param num_qubits: The number of qubits to use for the simulation type "clifford".
         If not specified, the Clifford simulator assumes a default of 1000 qubits.
