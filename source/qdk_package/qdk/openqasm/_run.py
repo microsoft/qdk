@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from time import monotonic
-from typing import Any, Callable, cast, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, cast, Dict, List, Optional, Tuple, Union, Literal
 from .._fs import read_file, list_directory, resolve
 from .._http import fetch_github
 from .._native import QasmError, Output, run_qasm_program  # type: ignore
@@ -42,6 +42,8 @@ def run(
     ] = None,
     qubit_loss: Optional[float] = None,
     as_bitstring: bool = False,
+    type: Optional[Literal["sparse", "clifford"]] = None,
+    num_qubits: Optional[int] = None,
     **kwargs: Any,
 ) -> List[Any]:
     """
@@ -66,7 +68,10 @@ def run(
     :param qubit_loss: The probability of qubit loss in simulation.
     :type qubit_loss: float
     :param as_bitstring: If true, the result registers will be converted to bitstrings.
-    :type as_bitstring: bool
+    :type as_bitstring: boolbool
+    :param type: The type of simulator to use. If not specified, the default sparse state vector simulation will be used.
+    :param num_qubits: The number of qubits to use for the simulation type "clifford".
+        If not specified, the Clifford simulator assumes a default of 1000 qubits.
     :param **kwargs: Additional keyword arguments for compiling the source program. Common options:
 
         - ``name`` (str): The name of the circuit. This is used as the entry point for the program.
@@ -113,6 +118,12 @@ def run(
     elif isinstance(source, str):
         source_str = source
 
+    if type is not None and type == "clifford":
+        if noise is not None and not isinstance(noise, NoiseConfig):
+            raise ValueError(
+                "only `NoiseConfig` is supported when using noise with the clifford simulator."
+            )
+
     noise_config = None
     if isinstance(noise, NoiseConfig):
         noise_config = noise
@@ -137,6 +148,9 @@ def run(
                 qubit_loss=qubit_loss,
                 callable=callable,
                 args=args,
+                seed=kwargs.get("seed"),
+                sim_type=type,
+                num_qubits=num_qubits,
             )
             results[-1]["result"] = run_results
 
@@ -171,6 +185,10 @@ def run(
             kwargs["search_path"] = "."
 
         kwargs["shots"] = shots
+        if type is not None:
+            kwargs["sim_type"] = type
+        if num_qubits is not None:
+            kwargs["num_qubits"] = num_qubits
 
         results = run_qasm_program(
             source_str,

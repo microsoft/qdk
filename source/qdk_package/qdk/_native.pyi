@@ -2,7 +2,17 @@
 # Licensed under the MIT License.
 
 from enum import Enum
-from typing import Any, Callable, Optional, Dict, List, Tuple, TypedDict, overload
+from typing import (
+    Any,
+    Callable,
+    Optional,
+    Dict,
+    List,
+    Tuple,
+    TypedDict,
+    Literal,
+    overload,
+)
 
 # pylint: disable=unused-argument
 # E302 is fighting with the formatter for number of blank lines
@@ -187,6 +197,8 @@ class Interpreter:
         callable: Optional[GlobalCallable | Closure],
         args: Optional[Any],
         seed: Optional[int],
+        sim_type: Optional[Literal["sparse", "clifford"]],
+        num_qubits: Optional[int],
     ) -> Any:
         """
         Runs the given Q# expression with an independent instance of the simulator.
@@ -200,6 +212,9 @@ class Interpreter:
         :param callable: The callable to run, if no entry expression is provided.
         :param args: The arguments to pass to the callable, if any.
         :param seed: The seed to use for the random number generator in simulation, if any.
+        :param sim_type: The type of simulator to use. If not specified, the default sparse state vector simulation will be used.
+        :param num_qubits: The number of qubits to use for the simulation type "clifford".
+            If not specified, the Clifford simulator assumes a default of 1000 qubits.
 
         :returns values: A result or runtime errors.
 

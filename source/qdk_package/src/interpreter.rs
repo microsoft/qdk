@@ -50,7 +50,7 @@ use qsc::{
     fir::{self},
     hir::ty::{Prim, Ty},
     interpret::{
-        self, CircuitEntryPoint, PauliNoise, TaggedItem, Value,
+        self, CircuitEntryPoint, PauliNoise, SimType, TaggedItem, Value,
         output::{Error, Receiver},
     },
     openqasm::{
@@ -711,7 +711,7 @@ impl Interpreter {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature=(entry_expr=None, callback=None, noise_config=None, noise=None, qubit_loss=None, callable=None, args=None, seed=None))]
+    #[pyo3(signature=(entry_expr=None, callback=None, noise_config=None, noise=None, qubit_loss=None, callable=None, args=None, seed=None, sim_type=None, num_qubits=None))]
     fn run(
         &mut self,
         py: Python,
@@ -723,6 +723,8 @@ impl Interpreter {
         callable: Option<Py<PyAny>>,
         args: Option<Py<PyAny>>,
         seed: Option<u64>,
+        sim_type: Option<&str>,
+        num_qubits: Option<usize>,
     ) -> PyResult<Py<PyAny>> {
         let mut receiver = OptionalCallbackReceiver { callback, py };
 
@@ -744,6 +746,14 @@ impl Interpreter {
         let noise_config: Option<qdk_simulators::noise_config::NoiseConfig<f64, f64>> =
             noise_config.map(|noise_config| unbind_noise_config(py, noise_config));
 
+        let sim_type = sim_type
+            .map(|s| match s {
+                "sparse" => SimType::Sparse,
+                "clifford" => SimType::Clifford(num_qubits.unwrap_or(1000)),
+                _ => panic!("invalid sim_type {s}"),
+            })
+            .unwrap_or_default();
+
         let result = match callable_val {
             Some(callable) => {
                 let (input_ty, output_ty) = self
@@ -760,6 +770,7 @@ impl Interpreter {
                     qubit_loss,
                     noise_config,
                     seed,
+                    sim_type,
                 )
             }
             _ => self.interpreter.run(
@@ -769,6 +780,7 @@ impl Interpreter {
                 qubit_loss,
                 noise_config,
                 seed,
+                sim_type,
             ),
         };
 
