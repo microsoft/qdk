@@ -1033,7 +1033,11 @@ impl Backend for SparseSim {
             | "AccountForEstimatesInternal"
             | "BeginRepeatEstimatesInternal"
             | "EndRepeatEstimatesInternal"
-            | "EnableMemoryComputeArchitecture" => Some(Ok(Value::unit())),
+            | "EnableMemoryComputeArchitecture"
+            | "MemoryQubitStore"
+            | "MemoryQubitLoad"
+            | "AllocateComputeQubits"
+            | "AllocateMemoryQubits" => Some(Ok(Value::unit())),
             "ConfigurePauliNoise" => {
                 let [xv, yv, zv] = &*arg.unwrap_tuple() else {
                     panic!("tuple arity for ConfigurePauliNoise intrinsic should be 3");

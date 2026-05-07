@@ -9,8 +9,6 @@ mod tests;
 pub struct QubitPool {
     free_list: Vec<usize>,
     next_id: usize,
-    in_use: usize,
-    max_in_use: usize,
 }
 
 impl QubitPool {
@@ -22,24 +20,16 @@ impl QubitPool {
             self.next_id += 1;
             index
         };
-        self.in_use += 1;
-        if self.in_use > self.max_in_use {
-            self.max_in_use = self.in_use;
-        }
 
         index
     }
 
     pub fn release(&mut self, index: usize) {
         self.free_list.push(index);
-        self.in_use = self
-            .in_use
-            .checked_sub(1)
-            .expect("releasing from an empty qubit pool");
     }
 
     pub fn max_in_use(&self) -> usize {
-        self.max_in_use
+        self.next_id
     }
 }
 

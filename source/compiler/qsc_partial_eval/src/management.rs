@@ -149,6 +149,10 @@ impl Backend for QuantumIntrinsicsChecker {
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
             "EndEstimateCaching"
             | "EnableMemoryComputeArchitecture"
+            | "MemoryQubitStore"
+            | "MemoryQubitLoad"
+            | "AllocateComputeQubits"
+            | "AllocateMemoryQubits"
             | "GlobalPhase"
             | "ConfigurePauliNoise"
             | "ConfigureQubitLoss"
