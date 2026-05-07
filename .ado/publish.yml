@@ -19,7 +19,7 @@ schedules:
 
 variables:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN_VERSION: "1.93"
+  RUST_TOOLCHAIN_VERSION: "1.95"
 
 resources:
   repositories:
@@ -106,7 +106,7 @@ extends:
               # common init steps
               - task: RustInstaller@1
                 inputs:
-                  rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
+                  rustVersion: ms-preview-$(RUST_TOOLCHAIN_VERSION)
                   additionalTargets: wasm32-unknown-unknown
                   cratesIoFeedOverride: $(cratesIoFeedOverride)
                   toolchainFeed: $(toolchainFeed)
@@ -154,7 +154,7 @@ extends:
               # common init steps
               - task: RustInstaller@1
                 inputs:
-                  rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
+                  rustVersion: ms-preview-$(RUST_TOOLCHAIN_VERSION)
                   additionalTargets: wasm32-unknown-unknown
                   cratesIoFeedOverride: $(cratesIoFeedOverride)
                   toolchainFeed: $(toolchainFeed)
@@ -271,7 +271,7 @@ extends:
               # common init steps
               - task: RustInstaller@1
                 inputs:
-                  rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
+                  rustVersion: ms-preview-$(RUST_TOOLCHAIN_VERSION)
                   cratesIoFeedOverride: $(cratesIoFeedOverride)
                   toolchainFeed: $(toolchainFeed)
                 displayName: Install Rust toolchain
@@ -339,7 +339,7 @@ extends:
                   # if we have additional rust targets, we need to install them
                   - task: RustInstaller@1
                     inputs:
-                      rustVersion: ms-prod-$(RUST_TOOLCHAIN_VERSION)
+                      rustVersion: ms-preview-$(RUST_TOOLCHAIN_VERSION)
                       additionalTargets: wasm32-unknown-unknown
                       cratesIoFeedOverride: $(cratesIoFeedOverride)
                       toolchainFeed: $(toolchainFeed)
