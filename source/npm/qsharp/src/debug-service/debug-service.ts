@@ -24,6 +24,7 @@ import {
 import { log } from "../log.js";
 import type { IServiceProxy, ServiceProtocol } from "../workers/types.js";
 import { toWasmProgramConfig } from "../compiler/compiler.js";
+import { callAndTransformExceptions } from "../diagnostics.js";
 
 type QscWasm = typeof import("../../lib/web/qsc_wasm.js");
 
@@ -112,7 +113,9 @@ export class QSharpDebugService implements IDebugService {
   ): Promise<IStructStepResult> {
     const event_cb = (msg: string) => onCompilerEvent(msg, eventHandler);
     const ids = new Uint32Array(bps);
-    return this.debugService.eval_continue(event_cb, ids);
+    return await callAndTransformExceptions(async () =>
+      this.debugService.eval_continue(event_cb, ids),
+    );
   }
 
   async evalNext(
@@ -121,7 +124,9 @@ export class QSharpDebugService implements IDebugService {
   ): Promise<IStructStepResult> {
     const event_cb = (msg: string) => onCompilerEvent(msg, eventHandler);
     const ids = new Uint32Array(bps);
-    return this.debugService.eval_next(event_cb, ids);
+    return await callAndTransformExceptions(async () =>
+      this.debugService.eval_next(event_cb, ids),
+    );
   }
 
   async evalStepIn(
@@ -130,7 +135,9 @@ export class QSharpDebugService implements IDebugService {
   ): Promise<IStructStepResult> {
     const event_cb = (msg: string) => onCompilerEvent(msg, eventHandler);
     const ids = new Uint32Array(bps);
-    return this.debugService.eval_step_in(event_cb, ids);
+    return await callAndTransformExceptions(async () =>
+      this.debugService.eval_step_in(event_cb, ids),
+    );
   }
 
   async evalStepOut(
@@ -139,7 +146,9 @@ export class QSharpDebugService implements IDebugService {
   ): Promise<IStructStepResult> {
     const event_cb = (msg: string) => onCompilerEvent(msg, eventHandler);
     const ids = new Uint32Array(bps);
-    return this.debugService.eval_step_out(event_cb, ids);
+    return await callAndTransformExceptions(async () =>
+      this.debugService.eval_step_out(event_cb, ids),
+    );
   }
 
   async dispose() {
