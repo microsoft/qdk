@@ -368,13 +368,12 @@ impl ManualMemoryCompute {
     /// Moves this qubit to set of memory qubits.
     /// If it was a compute qubit, records that as "write" operation.
     pub fn move_to_memory(&mut self, qid: usize) {
-        if !self.memory_qubits.contains(&qid) {
+        if self.compute_qubits.contains(&qid) {
             self.compute_qubits.remove(&qid);
             self.writes_count += 1;
-            self.memory_qubits.insert(qid);
-            self.max_memory_qubits_count =
-                max(self.max_memory_qubits_count, self.memory_qubits.len());
         }
+        self.memory_qubits.insert(qid);
+        self.max_memory_qubits_count = max(self.max_memory_qubits_count, self.memory_qubits.len());
     }
 
     /// Releases the qubit.
