@@ -57,16 +57,6 @@ from qdk import telemetry_events
 
 telemetry_events.on_import()
 
-# IPython notebook specific features
-try:
-    if __IPYTHON__:  # type: ignore
-        from qdk._ipython import register_magic
-
-        register_magic()
-except NameError:
-    pass
-
-
 __all__ = [
     "init",
     "eval",
