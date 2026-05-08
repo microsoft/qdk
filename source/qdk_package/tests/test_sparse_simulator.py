@@ -13,7 +13,8 @@ from qdk._native import Result
 
 from qdk import qsharp
 from qdk import TargetProfile
-from qdk import openqasm, run
+from qdk import openqasm
+from qdk.qsharp import run
 
 from qdk.simulation import NoiseConfig
 

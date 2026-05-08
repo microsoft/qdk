@@ -8,9 +8,11 @@ from qdk import (
     init,
     TargetProfile,
     BitFlipNoise,
+    Result,
+)
+from qdk.qsharp import (
     CircuitGenerationMethod,
     QSharpError,
-    Result,
     eval as qsharp_eval,
     run as qsharp_run,
     compile as qsharp_compile,

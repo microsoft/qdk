@@ -4,11 +4,11 @@
 from math import pi
 import pytest
 from qdk import (
-    QSharpError,
     init,
     TargetProfile,
     Result,
 )
+from qdk.qsharp import QSharpError
 from qdk.openqasm import (
     import_openqasm,
     ProgramType,
