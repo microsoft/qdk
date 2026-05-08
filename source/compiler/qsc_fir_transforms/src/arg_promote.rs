@@ -152,12 +152,13 @@ use crate::walk_utils::{
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, Ident,
-    ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore,
-    Pat, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId,
+    Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath, Functor,
+    Ident, ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup,
+    PackageStore, Pat, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
+    StoreItemId, UnOp,
 };
-use qsc_fir::ty::Ty;
-use rustc_hash::FxHashSet;
+use qsc_fir::ty::{Prim, Ty};
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::rc::Rc;
 
 /// Runs argument promotion on the entry-reachable portion of a package.
@@ -268,7 +269,7 @@ fn apply_promotions(
             package,
             package_id,
             assigner,
-            &promotions,
+            promotions,
             &reachable_expr_ids,
         );
     }
@@ -312,6 +313,7 @@ struct ArgPromoCandidate {
 
 /// Result of promoting a candidate — tracks the callable and its element types
 /// so that call sites can be rewritten.
+#[derive(Clone)]
 struct PromotionResult {
     /// The callable's `LocalItemId`.
     item_id: LocalItemId,
@@ -836,9 +838,10 @@ fn rewrite_single_field_expr(
     }
 }
 
-/// Rewrites all call sites for promoted callables. At each `Call(Var(Item(id)),
-/// arg)` where `id` is a promoted callable, replaces the single tuple argument
-/// with explicit field extractions wrapped in a `Tuple`.
+/// Rewrites all call sites for promoted callables. At each direct item call,
+/// including `Call(UnOp(Functor, Var(Item(id))), arg)`, where `id` is a
+/// promoted callable, replaces the payload tuple argument with explicit field
+/// extractions wrapped in a `Tuple`.
 ///
 /// # Before
 /// ```text
@@ -857,36 +860,95 @@ fn rewrite_call_sites(
     package: &mut Package,
     package_id: PackageId,
     assigner: &mut Assigner,
-    promotions: &[PromotionResult],
+    promotions: Vec<PromotionResult>,
     reachable_expr_ids: &[ExprId],
 ) {
     // Build a set of promoted item IDs for quick lookup.
-    let promoted: FxHashSet<LocalItemId> = promotions.iter().map(|p| p.item_id).collect();
+    let promoted_map: FxHashMap<LocalItemId, PromotionResult> =
+        promotions.into_iter().map(|p| (p.item_id, p)).collect();
 
     // Collect all call-site ExprIds that target a promoted callable.
-    let call_sites: Vec<(ExprId, LocalItemId)> = reachable_expr_ids
+    let call_sites: Vec<(ExprId, LocalItemId, usize)> = reachable_expr_ids
         .iter()
         .filter_map(|&expr_id| {
             let expr = package.exprs.get(expr_id)?;
             if let ExprKind::Call(callee_id, _) = &expr.kind {
-                let callee = package.exprs.get(*callee_id)?;
-                if let ExprKind::Var(Res::Item(item_id), _) = &callee.kind
-                    && item_id.package == package_id
-                    && promoted.contains(&item_id.item)
-                {
-                    return Some((expr_id, item_id.item));
-                }
+                let callee = resolve_promoted_direct_item_callee(
+                    package,
+                    package_id,
+                    *callee_id,
+                    &promoted_map,
+                )?;
+                return Some((expr_id, callee.item_id, callee.controlled_depth));
             }
             None
         })
         .collect();
 
-    for (call_expr_id, item_id) in call_sites {
-        let promotion = promotions
-            .iter()
-            .find(|p| p.item_id == item_id)
+    for (call_expr_id, item_id, controlled_depth) in call_sites {
+        let promotion = promoted_map
+            .get(&item_id)
             .expect("promotion should exist for promoted item");
-        rewrite_single_call_site(package, assigner, call_expr_id, promotion);
+        if controlled_depth == 0 {
+            rewrite_single_call_site(package, assigner, call_expr_id, promotion);
+        } else {
+            rewrite_controlled_call_site(
+                package,
+                assigner,
+                call_expr_id,
+                promotion,
+                controlled_depth,
+            );
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct DirectItemCallee {
+    item_id: LocalItemId,
+    controlled_depth: usize,
+}
+
+/// Resolves `callee_id` as a promoted direct item callee, including functor
+/// wrappers around the direct item reference.
+fn resolve_promoted_direct_item_callee(
+    package: &Package,
+    package_id: PackageId,
+    callee_id: ExprId,
+    promoted: &FxHashMap<LocalItemId, PromotionResult>,
+) -> Option<DirectItemCallee> {
+    let callee = resolve_direct_item_callee(package, package_id, callee_id)?;
+    promoted.contains_key(&callee.item_id).then_some(callee)
+}
+
+/// Resolves a callee expression to a target-package item, unwrapping adjoint
+/// and controlled functor applications while counting controlled layers.
+fn resolve_direct_item_callee(
+    package: &Package,
+    package_id: PackageId,
+    callee_id: ExprId,
+) -> Option<DirectItemCallee> {
+    let mut current = callee_id;
+    let mut controlled_depth = 0usize;
+
+    loop {
+        let expr = package.exprs.get(current)?;
+        match &expr.kind {
+            ExprKind::Var(Res::Item(item_id), _) if item_id.package == package_id => {
+                return Some(DirectItemCallee {
+                    item_id: item_id.item,
+                    controlled_depth,
+                });
+            }
+            ExprKind::UnOp(UnOp::Functor(Functor::Adj), inner_id) => {
+                current = *inner_id;
+            }
+            ExprKind::UnOp(UnOp::Functor(Functor::Ctl), inner_id) => {
+                controlled_depth += 1;
+                current = *inner_id;
+            }
+            _ => return None,
+        }
     }
 }
 
@@ -1040,6 +1102,120 @@ fn create_projected_tuple_arg(
     new_arg_id
 }
 
+/// Wraps a single promoted payload expression in a one-element tuple argument.
+fn create_single_tuple_arg(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    arg_id: ExprId,
+    elem_types: &[Ty],
+) -> ExprId {
+    let new_arg_id = assigner.next_expr();
+    let new_arg = qsc_fir::fir::Expr {
+        id: new_arg_id,
+        span: Span::default(),
+        ty: Ty::Tuple(elem_types.to_vec()),
+        kind: ExprKind::Tuple(vec![arg_id]),
+        exec_graph_range: EMPTY_EXEC_RANGE,
+    };
+    package.exprs.insert(new_arg_id, new_arg);
+    new_arg_id
+}
+
+/// Builds a block expression that evaluates a leading statement before
+/// returning `result_expr_id`.
+fn create_payload_block(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    leading_stmt_id: StmtId,
+    result_expr_id: ExprId,
+) -> ExprId {
+    let result_ty = package.get_expr(result_expr_id).ty.clone();
+
+    let result_stmt_id = assigner.next_stmt();
+    package.stmts.insert(
+        result_stmt_id,
+        Stmt {
+            id: result_stmt_id,
+            span: Span::default(),
+            kind: StmtKind::Expr(result_expr_id),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+
+    let block_id = assigner.next_block();
+    package.blocks.insert(
+        block_id,
+        Block {
+            id: block_id,
+            span: Span::default(),
+            ty: result_ty.clone(),
+            stmts: vec![leading_stmt_id, result_stmt_id],
+        },
+    );
+
+    let block_expr_id = assigner.next_expr();
+    package.exprs.insert(
+        block_expr_id,
+        Expr {
+            id: block_expr_id,
+            span: Span::default(),
+            ty: result_ty,
+            kind: ExprKind::Block(block_id),
+            exec_graph_range: EMPTY_EXEC_RANGE,
+        },
+    );
+    block_expr_id
+}
+
+/// Creates a promoted payload argument, returning `None` when the existing
+/// payload already has the expected tuple shape.
+fn create_rewritten_payload_arg(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    promotion: &PromotionResult,
+    arg_id: ExprId,
+) -> Option<ExprId> {
+    let arg_expr = package.exprs.get(arg_id).expect("arg expr exists");
+    let arg_ty = arg_expr.ty.clone();
+
+    if let ExprKind::Tuple(elems) = &arg_expr.kind
+        && elems.len() == promotion.elem_types.len()
+    {
+        return None;
+    }
+
+    if promotion.elem_types.len() == 1 {
+        return Some(create_single_tuple_arg(
+            package,
+            assigner,
+            arg_id,
+            &promotion.elem_types,
+        ));
+    }
+
+    let temp_binding = if expr_is_safe_to_project_repeatedly(package, arg_id) {
+        None
+    } else {
+        Some(create_projection_temp_binding(
+            package, assigner, arg_id, &arg_ty,
+        ))
+    };
+    let new_arg_id = create_projected_tuple_arg(
+        package,
+        assigner,
+        promotion,
+        arg_id,
+        &arg_ty,
+        temp_binding.map(|(temp_local, _)| temp_local),
+    );
+
+    Some(if let Some((_, temp_stmt_id)) = temp_binding {
+        create_payload_block(package, assigner, temp_stmt_id, new_arg_id)
+    } else {
+        new_arg_id
+    })
+}
+
 /// Wraps an existing `Call` expression in a synthesized block that places
 /// a pre-built leading statement (typically a temporary binding) before
 /// the call, preserving evaluation order.
@@ -1152,15 +1328,7 @@ fn rewrite_single_call_site(
     }
 
     if promotion.elem_types.len() == 1 {
-        let new_arg_id = assigner.next_expr();
-        let new_arg = qsc_fir::fir::Expr {
-            id: new_arg_id,
-            span: Span::default(),
-            ty: Ty::Tuple(promotion.elem_types.clone()),
-            kind: ExprKind::Tuple(vec![arg_id]),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        };
-        package.exprs.insert(new_arg_id, new_arg);
+        let new_arg_id = create_single_tuple_arg(package, assigner, arg_id, &promotion.elem_types);
 
         let call_mut = package
             .exprs
@@ -1203,6 +1371,96 @@ fn rewrite_single_call_site(
             .expect("call expr exists");
         call_mut.kind = ExprKind::Call(callee_id, new_arg_id);
     }
+}
+
+/// Rewrites the payload portion of a controlled call while preserving the
+/// existing control layers and their evaluation order.
+fn rewrite_controlled_call_site(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    call_expr_id: ExprId,
+    promotion: &PromotionResult,
+    controlled_depth: usize,
+) {
+    let call_expr = package.exprs.get(call_expr_id).expect("call expr exists");
+    let ExprKind::Call(callee_id, arg_id) = call_expr.kind else {
+        return;
+    };
+
+    let Some((control_ids, payload_id)) =
+        peel_controlled_arg_layers(package, arg_id, controlled_depth)
+    else {
+        return;
+    };
+
+    let Some(new_payload_id) =
+        create_rewritten_payload_arg(package, assigner, promotion, payload_id)
+    else {
+        return;
+    };
+
+    let new_arg_id = rebuild_controlled_arg_layers(package, assigner, &control_ids, new_payload_id);
+    let call_mut = package
+        .exprs
+        .get_mut(call_expr_id)
+        .expect("call expr exists");
+    call_mut.kind = ExprKind::Call(callee_id, new_arg_id);
+}
+
+/// Peels nested controlled-call argument tuples into their control expressions
+/// and the final payload expression.
+fn peel_controlled_arg_layers(
+    package: &Package,
+    arg_id: ExprId,
+    controlled_depth: usize,
+) -> Option<(Vec<ExprId>, ExprId)> {
+    let mut control_ids = Vec::with_capacity(controlled_depth);
+    let mut current = arg_id;
+
+    for _ in 0..controlled_depth {
+        let expr = package.exprs.get(current)?;
+        let ExprKind::Tuple(items) = &expr.kind else {
+            return None;
+        };
+        let [controls, payload] = items.as_slice() else {
+            return None;
+        };
+        control_ids.push(*controls);
+        current = *payload;
+    }
+
+    Some((control_ids, current))
+}
+
+/// Rebuilds controlled-call argument tuple layers around a rewritten payload.
+fn rebuild_controlled_arg_layers(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    control_ids: &[ExprId],
+    payload_id: ExprId,
+) -> ExprId {
+    let mut current = payload_id;
+
+    for &controls in control_ids.iter().rev() {
+        let tuple_ty = Ty::Tuple(vec![
+            package.get_expr(controls).ty.clone(),
+            package.get_expr(current).ty.clone(),
+        ]);
+        let tuple_id = assigner.next_expr();
+        package.exprs.insert(
+            tuple_id,
+            Expr {
+                id: tuple_id,
+                span: Span::default(),
+                ty: tuple_ty,
+                kind: ExprKind::Tuple(vec![controls, current]),
+                exec_graph_range: EMPTY_EXEC_RANGE,
+            },
+        );
+        current = tuple_id;
+    }
+
+    current
 }
 
 /// Normalizes call argument expression shapes to exactly match callee input
@@ -1256,21 +1514,31 @@ fn resolve_expected_input(
     package_id: PackageId,
     callee_id: ExprId,
 ) -> Option<Ty> {
-    let callee = package.get_expr(callee_id);
-    if let ExprKind::Var(Res::Item(item_id), _) = &callee.kind
-        && item_id.package == package_id
-    {
-        let item = package.items.get(item_id.item)?;
+    if let Some(callee) = resolve_direct_item_callee(package, package_id, callee_id) {
+        let item = package.items.get(callee.item_id)?;
         if let ItemKind::Callable(decl) = &item.kind {
-            return Some(package.get_pat(decl.input).ty.clone());
+            let input_ty = package.get_pat(decl.input).ty.clone();
+            return Some(apply_controlled_input_layers(
+                input_ty,
+                callee.controlled_depth,
+            ));
         }
     }
 
+    let callee = package.get_expr(callee_id);
     if let Ty::Arrow(arrow) = &callee.ty {
         return Some((*arrow.input).clone());
     }
 
     None
+}
+
+/// Applies one controlled-functor input layer per controlled wrapper.
+fn apply_controlled_input_layers(mut input_ty: Ty, controlled_depth: usize) -> Ty {
+    for _ in 0..controlled_depth {
+        input_ty = Ty::Tuple(vec![Ty::Array(Box::new(Ty::Prim(Prim::Qubit))), input_ty]);
+    }
+    input_ty
 }
 
 /// Reconciles a rewritten call-site argument subtree with the callee's current

@@ -773,7 +773,7 @@ fn rewrite_assign_tuples(
                 .get_mut(assign_expr_id)
                 .expect("assign expr exists");
             assign.kind = ExprKind::Assign(new_lhs_id, elements[0]);
-            assign.ty = elem_types[0].clone();
+            assign.ty = Ty::UNIT;
         }
 
         // For elements 1..n, create new Assign exprs and Semi stmts.
@@ -793,7 +793,7 @@ fn rewrite_assign_tuples(
             let assign_expr = Expr {
                 id: assign_id,
                 span: Span::default(),
-                ty: elem_types[i].clone(),
+                ty: Ty::UNIT,
                 kind: ExprKind::Assign(lhs_id, elements[i]),
                 exec_graph_range: EMPTY_EXEC_RANGE,
             };

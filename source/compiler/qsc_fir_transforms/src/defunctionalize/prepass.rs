@@ -18,11 +18,13 @@
 //!
 
 use qsc_fir::fir::{
-    CallableImpl, ExprId, ExprKind, ItemKind, LocalVarId, Mutability, Package, PackageId,
-    PackageLookup, PackageStore, PatKind, Res, StmtKind, UnOp,
+    Block, BlockId, CallableImpl, Expr, ExprId, ExprKind, ItemKind, LocalVarId, Mutability,
+    Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind, Res, Stmt, StmtId,
+    StmtKind, UnOp,
 };
 use qsc_fir::ty::Ty;
-use rustc_hash::FxHashMap;
+use qsc_fir::visit::{self, Visitor};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Runs pre-pass rewrites before collecting call sites for defunctionalization. See
 /// [`promote_single_use_callable_locals`] and [`identity_closure_peephole`] for details.
@@ -76,17 +78,34 @@ fn promote_single_use_callable_locals(
     }
 }
 
-/// Scans all immutable local bindings whose initialiser is a simple item
-/// reference (`Var(Res::Item(_))`), counts uses within reachable expressions,
-/// and collects replacements for locals that are used exactly once.
+/// Scans immutable local bindings whose initialiser is a simple item reference
+/// (`Var(Res::Item(_))`), counts uses within reachable expressions in the same
+/// owner scope, and collects replacements for locals that are used exactly once.
 fn collect_single_use_promotions(
     pkg: &Package,
     reachable_expr_ids: &[ExprId],
 ) -> Vec<(ExprId, ExprKind)> {
+    let reachable_expr_ids: FxHashSet<_> = reachable_expr_ids.iter().copied().collect();
+    collect_promotion_scopes(pkg)
+        .iter()
+        .flat_map(|scope| collect_single_use_promotions_in_scope(pkg, scope, &reachable_expr_ids))
+        .collect()
+}
+
+/// Collects single-use callable-local replacements within one owner scope.
+fn collect_single_use_promotions_in_scope(
+    pkg: &Package,
+    scope: &PromotionScope<'_>,
+    reachable_expr_ids: &FxHashSet<ExprId>,
+) -> Vec<(ExprId, ExprKind)> {
     // find candidate immutable locals whose init is a simple item reference.
     let mut candidates: FxHashMap<LocalVarId, ExprKind> = FxHashMap::default();
-    for (_, stmt) in &pkg.stmts {
+    for &stmt_id in &scope.stmts {
+        let stmt = pkg.get_stmt(stmt_id);
         if let StmtKind::Local(Mutability::Immutable, pat_id, init_expr_id) = &stmt.kind {
+            if !reachable_expr_ids.contains(init_expr_id) {
+                continue;
+            }
             let pat = pkg.get_pat(*pat_id);
             if let PatKind::Bind(ident) = &pat.kind
                 && matches!(pat.ty, Ty::Arrow(_))
@@ -107,7 +126,10 @@ fn collect_single_use_promotions(
     }
 
     // exclude candidates that are captured by closures (within reachable code).
-    for &expr_id in reachable_expr_ids {
+    for &expr_id in &scope.exprs {
+        if !reachable_expr_ids.contains(&expr_id) {
+            continue;
+        }
         let expr = pkg.get_expr(expr_id);
         if let ExprKind::Closure(captures, _) = &expr.kind {
             for var in captures {
@@ -124,7 +146,10 @@ fn collect_single_use_promotions(
     let mut use_info: FxHashMap<LocalVarId, Vec<ExprId>> =
         candidates.keys().map(|&var| (var, Vec::new())).collect();
 
-    for &expr_id in reachable_expr_ids {
+    for &expr_id in &scope.exprs {
+        if !reachable_expr_ids.contains(&expr_id) {
+            continue;
+        }
         let expr = pkg.get_expr(expr_id);
         if let ExprKind::Var(Res::Local(var), _) = &expr.kind
             && let Some(uses) = use_info.get_mut(var)
@@ -142,6 +167,112 @@ fn collect_single_use_promotions(
     }
 
     replacements
+}
+
+/// Builds the owner boundaries used for single-use local promotion.
+///
+/// Each scope is rooted at either the package entry expression or one callable
+/// implementation. Keeping the scopes separate prevents local-use counts from
+/// crossing callable and closure ownership boundaries.
+fn collect_promotion_scopes(pkg: &Package) -> Vec<PromotionScope<'_>> {
+    let mut scopes = Vec::new();
+
+    if let Some(entry_expr_id) = pkg.entry {
+        let mut scope = PromotionScope::new(pkg);
+        scope.visit_expr(entry_expr_id);
+        scopes.push(scope);
+    }
+
+    for (_, item) in &pkg.items {
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        let mut scope = PromotionScope::new(pkg);
+        scope.visit_callable_impl(&decl.implementation);
+        scopes.push(scope);
+    }
+
+    scopes
+}
+
+/// FIR visited under one owner boundary for single-use local promotion.
+///
+/// A promotion scope is the entry expression or one callable implementation,
+/// including its explicit specialization bodies. Local declarations in the
+/// scope provide promotion candidates, and local references in the scope provide
+/// use sites. Closure bodies are not walked through closure expressions here;
+/// they are represented by their own callable scopes, while captured locals are
+/// detected from the closure expression in the enclosing scope.
+///
+/// The `seen_*` sets make the traversal idempotent when a block, statement, or
+/// expression is reachable from more than one root in the same callable
+/// implementation.
+struct PromotionScope<'a> {
+    /// The package being analyzed.
+    pkg: &'a Package,
+    /// Statements that can introduce candidate immutable callable locals.
+    stmts: Vec<StmtId>,
+    /// Expressions whose local references are checked as use sites.
+    exprs: Vec<ExprId>,
+    /// Blocks already visited in this owner boundary.
+    seen_blocks: FxHashSet<BlockId>,
+    /// Statements already recorded in this owner boundary.
+    seen_stmts: FxHashSet<StmtId>,
+    /// Expressions already recorded in this owner boundary.
+    seen_exprs: FxHashSet<ExprId>,
+}
+
+impl<'a> PromotionScope<'a> {
+    fn new(pkg: &'a Package) -> Self {
+        Self {
+            pkg,
+            stmts: Vec::new(),
+            exprs: Vec::new(),
+            seen_blocks: FxHashSet::default(),
+            seen_stmts: FxHashSet::default(),
+            seen_exprs: FxHashSet::default(),
+        }
+    }
+}
+
+impl<'a> Visitor<'a> for PromotionScope<'a> {
+    fn get_block(&self, id: BlockId) -> &'a Block {
+        self.pkg.get_block(id)
+    }
+
+    fn get_expr(&self, id: ExprId) -> &'a Expr {
+        self.pkg.get_expr(id)
+    }
+
+    fn get_pat(&self, id: PatId) -> &'a Pat {
+        self.pkg.get_pat(id)
+    }
+
+    fn get_stmt(&self, id: StmtId) -> &'a Stmt {
+        self.pkg.get_stmt(id)
+    }
+
+    fn visit_block(&mut self, block_id: BlockId) {
+        if self.seen_blocks.insert(block_id) {
+            visit::walk_block(self, block_id);
+        }
+    }
+
+    fn visit_stmt(&mut self, stmt_id: StmtId) {
+        if self.seen_stmts.insert(stmt_id) {
+            self.stmts.push(stmt_id);
+            visit::walk_stmt(self, stmt_id);
+        }
+    }
+
+    fn visit_expr(&mut self, expr_id: ExprId) {
+        if self.seen_exprs.insert(expr_id) {
+            self.exprs.push(expr_id);
+            visit::walk_expr(self, expr_id);
+        }
+    }
+
+    fn visit_pat(&mut self, _: PatId) {}
 }
 
 /// Replaces identity closures `(args) => f(args)` with direct references to

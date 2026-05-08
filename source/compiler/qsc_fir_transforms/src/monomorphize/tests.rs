@@ -12,9 +12,7 @@ use rustc_hash::FxHashSet;
 /// in the user package showing name, generic-param count, input type, and
 /// output type. Sorted for determinism.
 fn check(source: &str, expect: &Expect) {
-    let (mut store, pkg_id) = crate::test_utils::compile_to_fir(source);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    monomorphize(&mut store, pkg_id, &mut assigner);
+    let (store, pkg_id) = compile_and_monomorphize(source);
 
     let package = store.get(pkg_id);
     let mut lines: Vec<String> = Vec::new();
@@ -44,12 +42,44 @@ fn check_details(source: &str, expect: &Expect) {
     ));
 }
 
-/// Compiles Q# source, runs monomorphization, and asserts no
-/// `ExprKind::Var` in the user package still carries generic args.
-fn assert_no_generic_args(source: &str) {
+fn compile_and_monomorphize(source: &str) -> (qsc_fir::fir::PackageStore, qsc_fir::fir::PackageId) {
     let (mut store, pkg_id) = crate::test_utils::compile_to_fir(source);
     let mut assigner = Assigner::from_package(store.get(pkg_id));
     monomorphize(&mut store, pkg_id, &mut assigner);
+    (store, pkg_id)
+}
+
+fn compile_entry_and_monomorphize(
+    source: &str,
+    entry: &str,
+) -> (qsc_fir::fir::PackageStore, qsc_fir::fir::PackageId) {
+    let (mut store, pkg_id) = crate::test_utils::compile_to_fir_with_entry(source, entry);
+    let mut assigner = Assigner::from_package(store.get(pkg_id));
+    monomorphize(&mut store, pkg_id, &mut assigner);
+    (store, pkg_id)
+}
+
+fn entry_callee_name_and_generic_arg_count(package: &qsc_fir::fir::Package) -> (String, usize) {
+    let entry_id = package
+        .entry
+        .expect("package should have an entry expression");
+    let ExprKind::Call(callee_id, _) = package.get_expr(entry_id).kind else {
+        panic!("entry expression should remain a call")
+    };
+    let ExprKind::Var(Res::Item(item_id), ref generic_args) = package.get_expr(callee_id).kind
+    else {
+        panic!("entry callee should be a callable reference")
+    };
+    let ItemKind::Callable(decl) = &package.get_item(item_id.item).kind else {
+        panic!("entry callee should resolve to a callable item")
+    };
+    (decl.name.name.to_string(), generic_args.len())
+}
+
+/// Compiles Q# source, runs monomorphization, and asserts no
+/// `ExprKind::Var` in the user package still carries generic args.
+fn assert_no_generic_args(source: &str) {
+    let (store, pkg_id) = compile_and_monomorphize(source);
 
     let package = store.get(pkg_id);
     for (id, expr) in &package.exprs {
@@ -62,9 +92,51 @@ fn assert_no_generic_args(source: &str) {
     }
 }
 
+fn reachable_parametric_callable_details(
+    store: &qsc_fir::fir::PackageStore,
+    pkg_id: qsc_fir::fir::PackageId,
+) -> Vec<String> {
+    let reachable = crate::reachability::collect_reachable_from_entry(store, pkg_id);
+    let package = store.get(pkg_id);
+    package
+        .items
+        .iter()
+        .filter(|(item_id, _)| {
+            reachable.contains(&qsc_fir::fir::StoreItemId {
+                package: pkg_id,
+                item: *item_id,
+            })
+        })
+        .filter_map(|(_, item)| {
+            let ItemKind::Callable(decl) = &item.kind else {
+                return None;
+            };
+
+            let input_ty = &package.get_pat(decl.input).ty;
+            let output_has_param = super::ty_contains_param(&decl.output);
+            let input_has_param = super::ty_contains_param(input_ty);
+            let functor_param = matches!(
+                input_ty,
+                qsc_fir::ty::Ty::Arrow(arrow)
+                    if matches!(arrow.functors, qsc_fir::ty::FunctorSet::Param(_))
+            );
+
+            (output_has_param || input_has_param || functor_param).then(|| {
+                format!(
+                    "{}: generics={}, input={}, output={}",
+                    decl.name.name,
+                    decl.generics.len(),
+                    input_ty,
+                    decl.output,
+                )
+            })
+        })
+        .collect()
+}
+
 #[test]
 fn mono_explicit_entry_expression_rewritten() {
-    let (mut store, pkg_id) = crate::test_utils::compile_to_fir_with_entry(
+    let (store, pkg_id) = compile_entry_and_monomorphize(
         indoc! {r#"
                 namespace Test {
                     function Identity<'T>(x : 'T) : 'T { x }
@@ -72,32 +144,10 @@ fn mono_explicit_entry_expression_rewritten() {
             "#},
         "Test.Identity(42)",
     );
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    monomorphize(&mut store, pkg_id, &mut assigner);
-
-    let package = store.get(pkg_id);
-    let entry_id = package
-        .entry
-        .expect("package should have an entry expression");
-    let entry_expr = package.get_expr(entry_id);
-    let ExprKind::Call(callee_id, _) = entry_expr.kind else {
-        panic!("entry expression should remain a call")
-    };
-    let callee_expr = package.get_expr(callee_id);
-    let ExprKind::Var(Res::Item(item_id), ref generic_args) = callee_expr.kind else {
-        panic!("entry callee should be a callable reference")
-    };
-
-    assert!(
-        generic_args.is_empty(),
-        "entry-expression callee should not retain generic args after monomorphization"
+    assert_eq!(
+        entry_callee_name_and_generic_arg_count(store.get(pkg_id)),
+        ("Identity<Int>".to_string(), 0),
     );
-
-    let item = package.get_item(item_id.item);
-    let ItemKind::Callable(decl) = &item.kind else {
-        panic!("entry callee should resolve to a callable item")
-    };
-    assert_eq!(decl.name.name.as_ref(), "Identity<Int>");
 }
 
 #[test]
@@ -298,41 +348,8 @@ fn mono_partial_application_skips_non_concrete_stdlib_generics() {
         }
     "#};
 
-    let (mut store, pkg_id) = crate::test_utils::compile_to_fir(source);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    monomorphize(&mut store, pkg_id, &mut assigner);
-    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
-    let package = store.get(pkg_id);
-    let offenders = package
-        .items
-        .iter()
-        .filter(|(item_id, _)| {
-            reachable.contains(&qsc_fir::fir::StoreItemId {
-                package: pkg_id,
-                item: *item_id,
-            })
-        })
-        .filter_map(|(_, item)| {
-            let ItemKind::Callable(decl) = &item.kind else {
-                return None;
-            };
-
-            let input_ty = &package.get_pat(decl.input).ty;
-            let output_has_param = super::ty_contains_param(&decl.output);
-            let input_has_param = super::ty_contains_param(input_ty);
-            let functor_param = matches!(input_ty, qsc_fir::ty::Ty::Arrow(arrow) if matches!(arrow.functors, qsc_fir::ty::FunctorSet::Param(_)));
-
-            (output_has_param || input_has_param || functor_param).then(|| {
-                format!(
-                    "{}: generics={}, input={}, output={}",
-                    decl.name.name,
-                    decl.generics.len(),
-                    input_ty,
-                    decl.output,
-                )
-            })
-        })
-        .collect::<Vec<_>>();
+    let (store, pkg_id) = compile_and_monomorphize(source);
+    let offenders = reachable_parametric_callable_details(&store, pkg_id);
     assert!(
         offenders.is_empty(),
         "offending callables after mono:\n{}",
@@ -1211,4 +1228,27 @@ fn unreachable_generic_call_site_not_specialized() {
             Identity<Int>: generics=0, input=Int, output=Int
             Main: generics=0, input=Unit, output=Int"#]],
     );
+}
+
+#[test]
+fn cross_package_generic_function_monomorphized() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            function Identity<'T>(x: 'T) : 'T { x }
+            function Pair<'T, 'U>(a: 'T, b: 'U) : ('T, 'U) { (a, b) }
+            export Identity, Pair;
+        }
+    "};
+
+    let user_source = indoc! {"
+        import TestLib.*;
+        @EntryPoint()
+        operation Main() : (Int, (Bool, Double)) {
+            let x = Identity(42);
+            let p = Pair(true, 3.14);
+            (x, p)
+        }
+    "};
+
+    crate::test_utils::check_semantic_equivalence_with_library(lib_source, user_source);
 }

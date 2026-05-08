@@ -6,7 +6,7 @@ use super::*;
 #[test]
 fn type_preservation_structured_strategy() {
     // Structured strategy rewrites block tails — invariant checked in pipeline.
-    let (_store, _pkg_id) = compile_return_unified(indoc! {r#"
+    let (store, pkg_id) = compile_return_unified(indoc! {r#"
         namespace Test {
             function Main() : Int {
                 if true {
@@ -16,12 +16,15 @@ fn type_preservation_structured_strategy() {
             }
         }
     "#});
+    crate::test_utils::assert_callable_body_terminal_expr_matches_block_type(
+        &store, pkg_id, "Main",
+    );
 }
 
 #[test]
 fn type_preservation_flag_strategy_int() {
     // Flag strategy with Int return — invariant checked in pipeline.
-    let (_store, _pkg_id) = compile_return_unified(indoc! {r#"
+    let (store, pkg_id) = compile_return_unified(indoc! {r#"
         namespace Test {
             function Main() : Int {
                 mutable i = 0;
@@ -35,12 +38,15 @@ fn type_preservation_flag_strategy_int() {
             }
         }
     "#});
+    crate::test_utils::assert_callable_body_terminal_expr_matches_block_type(
+        &store, pkg_id, "Main",
+    );
 }
 
 #[test]
 fn type_preservation_tuple_return() {
     // Tuple return type — invariant checked in pipeline.
-    let (_store, _pkg_id) = compile_return_unified(indoc! {r#"
+    let (store, pkg_id) = compile_return_unified(indoc! {r#"
         namespace Test {
             function Main() : (Int, Bool) {
                 if true {
@@ -50,12 +56,15 @@ fn type_preservation_tuple_return() {
             }
         }
     "#});
+    crate::test_utils::assert_callable_body_terminal_expr_matches_block_type(
+        &store, pkg_id, "Main",
+    );
 }
 
 #[test]
 fn type_preservation_nested_block_expr() {
     // Nested block expression return — invariant checked in pipeline.
-    let (_store, _pkg_id) = compile_return_unified(indoc! {r#"
+    let (store, pkg_id) = compile_return_unified(indoc! {r#"
         namespace Test {
             function Main() : Int {
                 let x = {
@@ -68,12 +77,15 @@ fn type_preservation_nested_block_expr() {
             }
         }
     "#});
+    crate::test_utils::assert_callable_body_terminal_expr_matches_block_type(
+        &store, pkg_id, "Main",
+    );
 }
 
 #[test]
 fn type_preservation_double_return() {
     // Double return type — invariant checked in pipeline.
-    let (_store, _pkg_id) = compile_return_unified(indoc! {r#"
+    let (store, pkg_id) = compile_return_unified(indoc! {r#"
         namespace Test {
             function Main() : Double {
                 if true {
@@ -83,4 +95,7 @@ fn type_preservation_double_return() {
             }
         }
     "#});
+    crate::test_utils::assert_callable_body_terminal_expr_matches_block_type(
+        &store, pkg_id, "Main",
+    );
 }

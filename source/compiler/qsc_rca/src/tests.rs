@@ -128,10 +128,12 @@ impl PipelineContext {
         // The RCA `Analyzer` assumes PostAll invariants hold — in particular, no closures or
         // unresolved type parameters remain in reachable code. See
         // `qsc_fir_transforms::invariants::check` for the authoritative checker.
-        let errors = qsc_fir_transforms::run_pipeline(&mut fir_store, user_package_id);
+        let result =
+            qsc_fir_transforms::run_pipeline_with_diagnostics(&mut fir_store, user_package_id);
         assert!(
-            errors.is_empty(),
-            "FIR transform pipeline reported errors: {errors:?}"
+            result.errors.is_empty(),
+            "FIR transform pipeline reported errors: {:?}",
+            result.errors
         );
         let analyzer = Analyzer::init(&fir_store, capabilities);
         let compute_properties = analyzer.analyze_all();

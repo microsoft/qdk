@@ -317,10 +317,10 @@ fn collect_callable_expr_ids_covers_all_specs() {
         .items
         .iter()
         .find_map(|(id, item)| {
-            if let ItemKind::Callable(decl) = &item.kind {
-                if decl.name.name.as_ref() == "Op" {
-                    return Some(id);
-                }
+            if let ItemKind::Callable(decl) = &item.kind
+                && decl.name.name.as_ref() == "Op"
+            {
+                return Some(id);
             }
             None
         })

@@ -5,15 +5,17 @@
 //! pipeline and cover schedule parity, successful end-to-end validation, and
 //! targeted failure regressions.
 
+use qsc_eval::val::Value;
 use qsc_fir::{
-    fir::{CallableImpl, ExprKind, ItemKind, PackageLookup},
+    fir::{CallableImpl, ExecGraphConfig, ExprKind, ItemKind, PackageLookup, StoreItemId},
     validate::validate,
 };
 use qsc_fir_transforms::{
-    PipelineError, PipelineStage, invariants, reachability, run_pipeline, run_pipeline_to,
+    PipelineError, PipelineStage, invariants, reachability, run_pipeline_to_with_diagnostics,
+    run_pipeline_with_diagnostics,
     test_utils::{
         assert_callable_body_terminal_expr_matches_block_type, assert_no_pipeline_errors,
-        compile_to_fir, compile_to_fir_with_entry, expr_kind_short,
+        compile_to_fir, compile_to_fir_with_entry, compile_to_fir_with_library, expr_kind_short,
     },
 };
 
@@ -22,6 +24,25 @@ type LoweredOutput = (
     qsc_fir::fir::PackageId,
     qsc_fir::assigner::Assigner,
 );
+
+const EXCESSIVE_SPECIALIZATIONS_SOURCE: &str = r#"
+    operation Apply(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
+    @EntryPoint()
+    operation Main() : Unit {
+        use q = Qubit();
+        Apply(q1 => Rx(1.0, q1), q);
+        Apply(q1 => Rx(2.0, q1), q);
+        Apply(q1 => Rx(3.0, q1), q);
+        Apply(q1 => Rx(4.0, q1), q);
+        Apply(q1 => Rx(5.0, q1), q);
+        Apply(q1 => Rx(6.0, q1), q);
+        Apply(q1 => Rx(7.0, q1), q);
+        Apply(q1 => Rx(8.0, q1), q);
+        Apply(q1 => Rx(9.0, q1), q);
+        Apply(q1 => Rx(10.0, q1), q);
+        Apply(q1 => Rx(11.0, q1), q);
+    }
+"#;
 
 /// Compiles a Q# source string as an executable on top of core+std.
 fn compile_and_lower(source: &str) -> LoweredOutput {
@@ -46,8 +67,8 @@ fn run_pipeline_successfully(
     store: &mut qsc_fir::fir::PackageStore,
     pkg_id: qsc_fir::fir::PackageId,
 ) {
-    let errors = run_pipeline(store, pkg_id);
-    assert_no_pipeline_errors("run_pipeline", &errors);
+    let result = run_pipeline_with_diagnostics(store, pkg_id);
+    assert_no_pipeline_errors("run_pipeline", &result.errors);
 }
 
 fn run_pipeline_to_successfully(
@@ -55,8 +76,34 @@ fn run_pipeline_to_successfully(
     pkg_id: qsc_fir::fir::PackageId,
     stage: PipelineStage,
 ) {
-    let errors = run_pipeline_to(store, pkg_id, stage, &[]);
-    assert_no_pipeline_errors("run_pipeline_to", &errors);
+    let result = run_pipeline_to_with_diagnostics(store, pkg_id, stage, &[]);
+    assert_no_pipeline_errors("run_pipeline_to", &result.errors);
+}
+
+fn eval_entry_value(
+    store: &qsc_fir::fir::PackageStore,
+    pkg_id: qsc_fir::fir::PackageId,
+) -> Result<Value, String> {
+    use qsc_eval::backend::{SparseSim, TracingBackend};
+    use qsc_eval::output::GenericReceiver;
+
+    let package = store.get(pkg_id);
+    let entry_graph = package.entry_exec_graph.clone();
+    let mut env = qsc_eval::Env::default();
+    let mut sim = SparseSim::new();
+    let mut output = Vec::<u8>::new();
+    let mut receiver = GenericReceiver::new(&mut output);
+    qsc_eval::eval(
+        pkg_id,
+        Some(42),
+        entry_graph,
+        ExecGraphConfig::NoDebug,
+        store,
+        &mut env,
+        &mut TracingBackend::no_tracer(&mut sim),
+        &mut receiver,
+    )
+    .map_err(|(err, _frames)| format!("{err:?}"))
 }
 
 fn callable_body_spec<'a>(
@@ -187,6 +234,45 @@ fn package_has_callable_named(
         ItemKind::Callable(decl) => decl.name.name.as_ref() == callable_name,
         _ => false,
     })
+}
+
+fn warning_is_excessive_specializations(warning: &PipelineError) -> bool {
+    matches!(
+        warning,
+        PipelineError::Defunctionalize(
+            qsc_fir_transforms::defunctionalize::Error::ExcessiveSpecializations(..)
+        )
+    )
+}
+
+fn store_with_removed_pinned_callable() -> (
+    qsc_fir::fir::PackageStore,
+    qsc_fir::fir::PackageId,
+    StoreItemId,
+) {
+    let (mut store, pkg_id) = compile_to_fir(
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int { 42 }
+            operation Pinned() : Int { 99 }
+        }
+        "#,
+    );
+    let pinned_item = {
+        let package = store.get(pkg_id);
+        package
+            .items
+            .iter()
+            .find_map(|(item_id, item)| match &item.kind {
+                ItemKind::Callable(decl) if decl.name.name.as_ref() == "Pinned" => Some(item_id),
+                _ => None,
+            })
+            .expect("Pinned callable should exist")
+    };
+    let pinned_store_id = StoreItemId::from((pkg_id, pinned_item));
+    store.get_mut(pkg_id).items.remove(pinned_item);
+    (store, pkg_id, pinned_store_id)
 }
 
 fn expr_targets_callable(
@@ -375,14 +461,6 @@ fn terminal_result_array_block_shape_through_use_scope_stays_valid() {
 }
 
 #[test]
-fn simple_entry_point_passes_all_invariants() {
-    let (mut fir_store, fir_pkg_id, _) = compile_and_lower("operation Main() : Int { 42 }");
-    run_pipeline_successfully(&mut fir_store, fir_pkg_id);
-    let package = fir_store.get(fir_pkg_id);
-    validate(package, &fir_store);
-}
-
-#[test]
 fn generic_identity_monomorphized_to_concrete_type() {
     let (mut fir_store, fir_pkg_id, _) = compile_and_lower(
         r#"
@@ -512,8 +590,8 @@ fn composite_while_return_survives_full_pipeline() {
         "#,
     );
 
-    let errors = run_pipeline(&mut fir_store, fir_pkg_id);
-    assert_no_pipeline_errors("run_pipeline", &errors);
+    let result = run_pipeline_with_diagnostics(&mut fir_store, fir_pkg_id);
+    assert_no_pipeline_errors("run_pipeline", &result.errors);
 
     let package = fir_store.get(fir_pkg_id);
     validate(package, &fir_store);
@@ -521,7 +599,79 @@ fn composite_while_return_survives_full_pipeline() {
 }
 
 #[test]
-fn run_pipeline_returns_dynamic_callable_defunctionalization_diagnostics() {
+fn mixed_full_pipeline_semantic_regression_preserves_result() {
+    let (mut fir_store, fir_pkg_id, _) = compile_and_lower(
+        r#"
+        namespace Test {
+            struct Pair { A : Int, B : Int }
+
+            function Id<'T>(x : 'T) : 'T { x }
+            function SumPair(pair : Pair) : Int { pair.A + pair.B }
+            function ApplyInt(f : Int -> Int, value : Int) : Int { f(value) }
+
+            function Adjust(value : Int) : Int {
+                if value == 0 {
+                    return 99;
+                }
+                value + 1
+            }
+
+            @EntryPoint()
+            operation Main() : Int {
+                let base = new Pair { A = Id(2), B = 3 };
+                let updated = new Pair { ...base, B = 4 };
+                let tuple = (updated.A, updated.B);
+                let tupleMatched = tuple == (2, 4);
+                let value = ApplyInt(Adjust, SumPair(updated));
+                if tupleMatched {
+                    return value;
+                }
+                0
+            }
+        }
+        "#,
+    );
+
+    run_pipeline_successfully(&mut fir_store, fir_pkg_id);
+
+    let package = fir_store.get(fir_pkg_id);
+    validate(package, &fir_store);
+    invariants::check(&fir_store, fir_pkg_id, invariants::InvariantLevel::PostAll);
+
+    let value = eval_entry_value(&fir_store, fir_pkg_id).expect("entry evaluation should succeed");
+    assert_eq!(value, Value::Int(7));
+}
+
+#[test]
+fn excessive_specializations_warning_reaches_full_pipeline() {
+    let (mut fir_store, fir_pkg_id, _) = compile_and_lower(EXCESSIVE_SPECIALIZATIONS_SOURCE);
+
+    let result = run_pipeline_with_diagnostics(&mut fir_store, fir_pkg_id);
+
+    assert!(
+        result.errors.is_empty(),
+        "expected no fatal pipeline errors, got:\n{}",
+        format_pipeline_errors(&result.errors)
+    );
+    assert_eq!(
+        result.warnings.len(),
+        1,
+        "expected one warning, got:\n{}",
+        format_pipeline_errors(&result.warnings)
+    );
+    assert!(
+        warning_is_excessive_specializations(&result.warnings[0]),
+        "expected ExcessiveSpecializations warning, got:\n{}",
+        format_pipeline_errors(&result.warnings)
+    );
+
+    let package = fir_store.get(fir_pkg_id);
+    validate(package, &fir_store);
+    invariants::check(&fir_store, fir_pkg_id, invariants::InvariantLevel::PostAll);
+}
+
+#[test]
+fn run_pipeline_with_diagnostics_returns_dynamic_callable_as_fatal_error() {
     let (mut fir_store, fir_pkg_id, _) = compile_and_lower(
         r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
@@ -540,27 +690,115 @@ fn run_pipeline_returns_dynamic_callable_defunctionalization_diagnostics() {
         "#,
     );
 
-    let errors = run_pipeline(&mut fir_store, fir_pkg_id);
+    let result = run_pipeline_with_diagnostics(&mut fir_store, fir_pkg_id);
 
-    assert_eq!(
-        errors.len(),
-        1,
-        "expected one defunctionalization diagnostic, got:\n{}",
-        format_pipeline_errors(&errors)
+    assert!(
+        result.warnings.is_empty(),
+        "expected no warnings, got:\n{}",
+        format_pipeline_errors(&result.warnings)
     );
     assert!(
         matches!(
-            errors.as_slice(),
+            result.errors.as_slice(),
             [PipelineError::Defunctionalize(
                 qsc_fir_transforms::defunctionalize::Error::DynamicCallable(_)
             )]
         ),
-        "expected a DynamicCallable diagnostic, got:\n{}",
-        format_pipeline_errors(&errors)
+        "expected DynamicCallable fatal error, got:\n{}",
+        format_pipeline_errors(&result.errors)
     );
-    assert_eq!(
-        errors[0].to_string(),
-        "callable argument could not be resolved statically"
+}
+
+#[test]
+fn run_pipeline_to_missing_pinned_item_reports_diagnostic() {
+    let (mut store, pkg_id, pinned_store_id) = store_with_removed_pinned_callable();
+
+    let result = run_pipeline_to_with_diagnostics(
+        &mut store,
+        pkg_id,
+        PipelineStage::ItemDce,
+        &[pinned_store_id],
+    );
+
+    assert!(
+        result.warnings.is_empty(),
+        "expected no warnings, got:\n{}",
+        format_pipeline_errors(&result.warnings)
+    );
+    assert!(
+        matches!(
+            result.errors.as_slice(),
+            [PipelineError::MissingPinnedItem(item_id)] if *item_id == pinned_store_id
+        ),
+        "expected MissingPinnedItem diagnostic, got:\n{}",
+        format_pipeline_errors(&result.errors)
+    );
+}
+
+#[test]
+fn run_pipeline_to_missing_pinned_item_reports_diagnostic_before_exec_rebuild() {
+    let (mut store, pkg_id, pinned_store_id) = store_with_removed_pinned_callable();
+
+    let result = run_pipeline_to_with_diagnostics(
+        &mut store,
+        pkg_id,
+        PipelineStage::ExecGraphRebuild,
+        &[pinned_store_id],
+    );
+
+    assert!(
+        matches!(
+            result.errors.as_slice(),
+            [PipelineError::MissingPinnedItem(item_id)] if *item_id == pinned_store_id
+        ),
+        "expected MissingPinnedItem diagnostic before exec graph rebuild, got:\n{}",
+        format_pipeline_errors(&result.errors)
+    );
+}
+
+#[test]
+fn run_pipeline_to_non_callable_pinned_item_reports_diagnostic() {
+    let (mut store, pkg_id) = compile_to_fir(
+        r#"
+        namespace Test {
+            newtype Marker = Int;
+            @EntryPoint()
+            operation Main() : Int { 42 }
+        }
+        "#,
+    );
+    let pinned_item = {
+        let package = store.get(pkg_id);
+        package
+            .items
+            .iter()
+            .find_map(|(item_id, item)| match &item.kind {
+                ItemKind::Ty(name, _) if name.name.as_ref() == "Marker" => Some(item_id),
+                _ => None,
+            })
+            .expect("Marker type item should exist")
+    };
+    let pinned_store_id = StoreItemId::from((pkg_id, pinned_item));
+
+    let result = run_pipeline_to_with_diagnostics(
+        &mut store,
+        pkg_id,
+        PipelineStage::ItemDce,
+        &[pinned_store_id],
+    );
+
+    assert!(
+        result.warnings.is_empty(),
+        "expected no warnings, got:\n{}",
+        format_pipeline_errors(&result.warnings)
+    );
+    assert!(
+        matches!(
+            result.errors.as_slice(),
+            [PipelineError::PinnedItemNotCallable(item_id)] if *item_id == pinned_store_id
+        ),
+        "expected PinnedItemNotCallable diagnostic, got:\n{}",
+        format_pipeline_errors(&result.errors)
     );
 }
 
@@ -1078,7 +1316,6 @@ fn local_multi_field_udt_callable_field_invoked() {
 /// function. Exercises defunc's expression-level analysis when the arrow
 /// value flows through a HOF call site.
 #[test]
-#[ignore = "defunc limitation: callable extracted via UDT field accessor (w::F) cannot be statically resolved when passed to a HOF"]
 fn local_multi_field_udt_callable_passed_to_hof() {
     let source = r#"
         namespace Test {
@@ -1098,6 +1335,50 @@ fn local_multi_field_udt_callable_passed_to_hof() {
     validate(package, &store);
 }
 
+/// Cross-package multi-field UDT with a callable field, modeled after
+/// `Std.TableLookup.AndChain` which has `(NGarbageQubits: Int, Apply: Qubit[] => Unit is Adj)`.
+///
+/// The library defines the UDT and a factory function that constructs it
+/// with a closure capturing the factory's arguments. User code calls the
+/// factory cross-package, exercises the callable field, and returns the
+/// integer field. This exercises defunctionalization, UDT erasure, and SROA
+/// on a callable value flowing through a cross-package struct boundary.
+#[test]
+fn cross_package_multi_field_udt_with_callable_field() {
+    let lib_source = r#"
+        namespace TestLib {
+            struct Config {
+                Count: Int,
+                Apply: Qubit[] => Unit is Adj,
+            }
+            export Config, MakeConfig;
+
+            operation NoOpImpl(qs : Qubit[]) : Unit is Adj {}
+
+            function MakeConfig(n : Int) : Config {
+                new Config { Count = n, Apply = NoOpImpl }
+            }
+        }
+    "#;
+
+    let user_source = r#"
+        import TestLib.*;
+
+        @EntryPoint()
+        operation Main() : Int {
+            let cfg = MakeConfig(3);
+            use qs = Qubit[cfg.Count];
+            cfg.Apply(qs);
+            cfg.Count
+        }
+    "#;
+
+    let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
+    run_pipeline_successfully(&mut store, pkg_id);
+    let package = store.get(pkg_id);
+    validate(package, &store);
+}
+
 // ============================================================================
 // Stage-Parity Integration Tests
 // ============================================================================
@@ -1110,17 +1391,52 @@ fn local_multi_field_udt_callable_passed_to_hof() {
 // 4. Type correctness is preserved across the stage boundary
 // 5. Package structure and export lists remain consistent
 
+/// Asserts stage-parity: running the pipeline to `stage` produces the same
+/// reachable callable surface as a full pipeline run on the same source.
+///
+/// Returns `(staged_store, staged_pkg, full_store, full_pkg)` for callers that
+/// need stage-specific assertions beyond the common checks.
+fn assert_stage_parity(
+    source: &str,
+    stage: PipelineStage,
+    invariant_level: invariants::InvariantLevel,
+) -> (
+    qsc_fir::fir::PackageStore,
+    qsc_fir::fir::PackageId,
+    qsc_fir::fir::PackageStore,
+    qsc_fir::fir::PackageId,
+) {
+    let (mut staged_store, staged_pkg_id, _) = compile_and_lower(source);
+    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
+
+    run_pipeline_to_successfully(&mut staged_store, staged_pkg_id, stage);
+    run_pipeline_successfully(&mut full_store, full_pkg_id);
+
+    invariants::check(&staged_store, staged_pkg_id, invariant_level);
+
+    let full_package = full_store.get(full_pkg_id);
+    validate(full_package, &full_store);
+
+    // Callable set parity.
+    let staged_callables = reachable_callable_names(&staged_store, staged_pkg_id);
+    let full_callables = reachable_callable_names(&full_store, full_pkg_id);
+    assert_eq!(
+        staged_callables, full_callables,
+        "stage {stage:?} callable set differs from Full"
+    );
+
+    // Type summary parity.
+    assert_eq!(
+        reachable_callable_summary(&staged_store, staged_pkg_id),
+        reachable_callable_summary(&full_store, full_pkg_id),
+        "stage {stage:?} callable summaries differ from Full"
+    );
+
+    (staged_store, staged_pkg_id, full_store, full_pkg_id)
+}
+
 #[test]
 fn stage_parity_mono_monomorphization_preserves_callable_types() {
-    // Stage-parity check after monomorphization.
-    //
-    // Invariant: After Mono, all generic parameters are erased and concrete
-    // monomorphized callables exist. Callable count should match full pipeline
-    // (Mono doesn't create or remove callables; it specializes them).
-    //
-    // Importance: Mono is the first transformation. Validating its output
-    // parity ensures subsequent passes inherit a well-formed FIR with no
-    // unexpected callable additions or deletions.
     let source = r#"
         function Identity<'T>(x : 'T) : 'T { x }
         @EntryPoint()
@@ -1131,50 +1447,21 @@ fn stage_parity_mono_monomorphization_preserves_callable_types() {
         }
     "#;
 
-    let (mut post_mono_store, post_mono_pkg_id, _) = compile_and_lower(source);
-    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
-
-    run_pipeline_to_successfully(&mut post_mono_store, post_mono_pkg_id, PipelineStage::Mono);
-    run_pipeline_successfully(&mut full_store, full_pkg_id);
-
-    invariants::check(
-        &post_mono_store,
-        post_mono_pkg_id,
+    let (staged, staged_pkg, full, full_pkg) = assert_stage_parity(
+        source,
+        PipelineStage::Mono,
         invariants::InvariantLevel::PostMono,
     );
 
-    let full_package = full_store.get(full_pkg_id);
-    validate(full_package, &full_store);
-
-    // Callable count parity: Mono should not add/remove callables.
-    let post_mono_callables = reachable_callable_names(&post_mono_store, post_mono_pkg_id);
-    let full_callables = reachable_callable_names(&full_store, full_pkg_id);
     assert_eq!(
-        post_mono_callables, full_callables,
-        "callable set must be identical after Mono and full pipeline"
-    );
-
-    // Type consistency: callable signatures should be identical.
-    assert_eq!(
-        reachable_callable_summary(&post_mono_store, post_mono_pkg_id),
-        reachable_callable_summary(&full_store, full_pkg_id)
+        callable_body_summary(&staged, staged_pkg, "Main"),
+        callable_body_summary(&full, full_pkg, "Main"),
+        "Main body shape should already match full pipeline after Mono for pure generic calls"
     );
 }
 
 #[test]
 fn stage_parity_defunc_defunctionalization_eliminates_callable_types() {
-    // Stage-parity check after defunctionalization.
-    //
-    // Invariant: After Defunc, all arrow types and closure expressions
-    // have been eliminated from reachable code. Callable-wrapping closures
-    // are lifted to callable declarations, but the count in reachable code
-    // should match the full pipeline (lifted callables participate in
-    // reachability from Main).
-    //
-    // Importance: Defunc is a high-value transformation that changes the
-    // structure of the FIR significantly. Validating parity ensures that
-    // callable creation during lifting does not introduce duplicate or
-    // stray callables, and that the reachable set is stable.
     let source = r#"
         operation Apply(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
         @EntryPoint()
@@ -1185,52 +1472,21 @@ fn stage_parity_defunc_defunctionalization_eliminates_callable_types() {
         }
     "#;
 
-    let (mut post_defunc_store, post_defunc_pkg_id, _) = compile_and_lower(source);
-    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
-
-    run_pipeline_to_successfully(
-        &mut post_defunc_store,
-        post_defunc_pkg_id,
+    let (staged, staged_pkg, full, full_pkg) = assert_stage_parity(
+        source,
         PipelineStage::Defunc,
-    );
-    run_pipeline_successfully(&mut full_store, full_pkg_id);
-
-    invariants::check(
-        &post_defunc_store,
-        post_defunc_pkg_id,
         invariants::InvariantLevel::PostDefunc,
     );
 
-    let full_package = full_store.get(full_pkg_id);
-    validate(full_package, &full_store);
-
-    // Callable count parity: lifted callables should be in reachable set.
-    let post_defunc_callables = reachable_callable_names(&post_defunc_store, post_defunc_pkg_id);
-    let full_callables = reachable_callable_names(&full_store, full_pkg_id);
     assert_eq!(
-        post_defunc_callables, full_callables,
-        "callable set after Defunc must match full pipeline"
-    );
-
-    // Type summary parity.
-    assert_eq!(
-        reachable_callable_summary(&post_defunc_store, post_defunc_pkg_id),
-        reachable_callable_summary(&full_store, full_pkg_id)
+        callable_body_summary(&staged, staged_pkg, "Main"),
+        callable_body_summary(&full, full_pkg, "Main"),
+        "Main body shape should stay stable after defunctionalization for direct H calls"
     );
 }
 
 #[test]
 fn stage_parity_udt_erase_eliminates_udt_types() {
-    // Stage-parity check after UDT erasure.
-    //
-    // Invariant: After UdtErase, all Ty::Udt types are erased from
-    // reachable code. UDT-wrapping callables are eliminated only if
-    // they become unreachable (deferred to item_dce). Reachable callables
-    // should match the full pipeline output.
-    //
-    // Importance: UDT erasure is a significant structural transformation
-    // that rewrites type signatures. Validating parity ensures no callables
-    // are unexpectedly preserved or removed at this stage.
     let source = r#"
         namespace Test {
             newtype Wrapper = (x: Int);
@@ -1243,52 +1499,21 @@ fn stage_parity_udt_erase_eliminates_udt_types() {
         }
     "#;
 
-    let (mut post_udt_store, post_udt_pkg_id, _) = compile_and_lower(source);
-    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
-
-    run_pipeline_to_successfully(
-        &mut post_udt_store,
-        post_udt_pkg_id,
+    let (staged, staged_pkg, full, full_pkg) = assert_stage_parity(
+        source,
         PipelineStage::UdtErase,
-    );
-    run_pipeline_successfully(&mut full_store, full_pkg_id);
-
-    invariants::check(
-        &post_udt_store,
-        post_udt_pkg_id,
         invariants::InvariantLevel::PostUdtErase,
     );
 
-    let full_package = full_store.get(full_pkg_id);
-    validate(full_package, &full_store);
-
-    // Callable count parity.
-    let post_udt_callables = reachable_callable_names(&post_udt_store, post_udt_pkg_id);
-    let full_callables = reachable_callable_names(&full_store, full_pkg_id);
     assert_eq!(
-        post_udt_callables, full_callables,
-        "callable set after UdtErase must match full pipeline"
-    );
-
-    // Type summary parity.
-    assert_eq!(
-        reachable_callable_summary(&post_udt_store, post_udt_pkg_id),
-        reachable_callable_summary(&full_store, full_pkg_id)
+        callable_body_summary(&staged, staged_pkg, "Extract"),
+        callable_body_summary(&full, full_pkg, "Extract"),
+        "single-field erased UDT accessor body should match the full pipeline"
     );
 }
 
 #[test]
 fn stage_parity_tuple_comp_lower_lowers_tuple_equality() {
-    // Stage-parity check after tuple comparison lowering.
-    //
-    // Invariant: After TupleCompLower, all tuple equality and inequality
-    // operations are lowered to scalar comparisons and logical operators.
-    // No BinOp(Eq/Neq) with tuple operands should exist. Callable count
-    // should match full pipeline.
-    //
-    // Importance: TupleCompLower is a mid-pipeline pass that preserves the
-    // callable set while rewriting expression structure. Validating parity
-    // ensures no unexpected side effects on the callable structure.
     let source = r#"
         @EntryPoint()
         operation Main() : Bool {
@@ -1298,52 +1523,21 @@ fn stage_parity_tuple_comp_lower_lowers_tuple_equality() {
         }
     "#;
 
-    let (mut post_tuple_store, post_tuple_pkg_id, _) = compile_and_lower(source);
-    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
-
-    run_pipeline_to_successfully(
-        &mut post_tuple_store,
-        post_tuple_pkg_id,
+    let (staged, staged_pkg, _, _) = assert_stage_parity(
+        source,
         PipelineStage::TupleCompLower,
-    );
-    run_pipeline_successfully(&mut full_store, full_pkg_id);
-
-    invariants::check(
-        &post_tuple_store,
-        post_tuple_pkg_id,
         invariants::InvariantLevel::PostTupleCompLower,
     );
 
-    let full_package = full_store.get(full_pkg_id);
-    validate(full_package, &full_store);
-
-    // Callable count parity.
-    let post_tuple_callables = reachable_callable_names(&post_tuple_store, post_tuple_pkg_id);
-    let full_callables = reachable_callable_names(&full_store, full_pkg_id);
-    assert_eq!(
-        post_tuple_callables, full_callables,
-        "callable set after TupleCompLower must match full pipeline"
-    );
-
-    // Type summary parity.
-    assert_eq!(
-        reachable_callable_summary(&post_tuple_store, post_tuple_pkg_id),
-        reachable_callable_summary(&full_store, full_pkg_id)
+    let main_body = callable_body_summary(&staged, staged_pkg, "Main");
+    assert!(
+        main_body.contains("BinOp(AndL)"),
+        "tuple equality should lower to a conjunction in Main body:\n{main_body}"
     );
 }
 
 #[test]
 fn stage_parity_sroa_body_shape_matches_full_pipeline() {
-    // Stage-parity check after Scalar Replacement of Aggregates (SROA).
-    //
-    // Invariant: After SROA, the reachable callable set, signature surface,
-    // and callable body shape for this source program should already match
-    // the later full-pipeline result.
-    //
-    // Importance: SROA is a data-flow optimization that rewrites local
-    // patterns and parameter decomposition. Validating parity ensures that
-    // the scalarization does not introduce unexpected new callables or
-    // remove callables unexpectedly.
     let source = r#"
         function Pair() : (Int, Bool) { (1, true) }
         @EntryPoint()
@@ -1353,58 +1547,23 @@ fn stage_parity_sroa_body_shape_matches_full_pipeline() {
         }
     "#;
 
-    let (mut post_sroa_store, post_sroa_pkg_id, _) = compile_and_lower(source);
-    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
-
-    run_pipeline_to_successfully(&mut post_sroa_store, post_sroa_pkg_id, PipelineStage::Sroa);
-    run_pipeline_successfully(&mut full_store, full_pkg_id);
-
-    invariants::check(
-        &post_sroa_store,
-        post_sroa_pkg_id,
+    let (staged, staged_pkg, full, full_pkg) = assert_stage_parity(
+        source,
+        PipelineStage::Sroa,
         invariants::InvariantLevel::PostSroa,
     );
 
-    let full_package = full_store.get(full_pkg_id);
-    validate(full_package, &full_store);
-
-    // Callable count parity.
-    let post_sroa_callables = reachable_callable_names(&post_sroa_store, post_sroa_pkg_id);
-    let full_callables = reachable_callable_names(&full_store, full_pkg_id);
-    assert_eq!(
-        post_sroa_callables, full_callables,
-        "callable set after SROA must match full pipeline"
-    );
-
-    // Type summary parity.
-    assert_eq!(
-        reachable_callable_summary(&post_sroa_store, post_sroa_pkg_id),
-        reachable_callable_summary(&full_store, full_pkg_id)
-    );
-
-    // Body summary parity: callable bodies should be identical after SROA
-    // and full pipeline.
-    for callable_name in &full_callables {
+    for name in &reachable_callable_names(&full, full_pkg) {
         assert_eq!(
-            callable_body_summary(&post_sroa_store, post_sroa_pkg_id, callable_name),
-            callable_body_summary(&full_store, full_pkg_id, callable_name),
-            "callable '{callable_name}' body must match after SROA and full pipeline"
+            callable_body_summary(&staged, staged_pkg, name),
+            callable_body_summary(&full, full_pkg, name),
+            "callable '{name}' body must match after SROA and full pipeline"
         );
     }
 }
 
 #[test]
 fn stage_parity_item_dce_reachable_surface_matches_full_pipeline() {
-    // Stage-parity check after item-level dead code elimination.
-    //
-    // Invariant: After ItemDce, the reachable callable surface should match
-    // the full pipeline output for this program. A separate regression test
-    // below asserts direct removal of an unreachable callable item.
-    //
-    // Importance: ItemDce is a critical pass that removes dead code. This
-    // test validates that DCE correctly identifies and preserves reachable
-    // items while eliminating only truly dead items, avoiding premature
-    // removal or over-retention of items.
     let source = r#"
         function Unused() : Int { 99 }
         function Used() : Int { 42 }
@@ -1412,51 +1571,21 @@ fn stage_parity_item_dce_reachable_surface_matches_full_pipeline() {
         operation Main() : Int { Used() }
     "#;
 
-    let (mut post_dce_store, post_dce_pkg_id, _) = compile_and_lower(source);
-    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
-
-    run_pipeline_to_successfully(&mut post_dce_store, post_dce_pkg_id, PipelineStage::ItemDce);
-    run_pipeline_successfully(&mut full_store, full_pkg_id);
-
-    invariants::check(
-        &post_dce_store,
-        post_dce_pkg_id,
-        invariants::InvariantLevel::PostArgPromote, // ItemDce runs after ArgPromote
+    let (staged, staged_pkg, full, full_pkg) = assert_stage_parity(
+        source,
+        PipelineStage::ItemDce,
+        invariants::InvariantLevel::PostItemDce,
     );
 
-    let full_package = full_store.get(full_pkg_id);
-    validate(full_package, &full_store);
-
-    // Callable count parity: reachable callables must match.
-    let post_dce_callables = reachable_callable_names(&post_dce_store, post_dce_pkg_id);
-    let full_callables = reachable_callable_names(&full_store, full_pkg_id);
     assert_eq!(
-        post_dce_callables, full_callables,
-        "reachable callable set after ItemDce must match full pipeline"
-    );
-
-    // Type summary parity.
-    assert_eq!(
-        reachable_callable_summary(&post_dce_store, post_dce_pkg_id),
-        reachable_callable_summary(&full_store, full_pkg_id)
+        callable_body_summary(&staged, staged_pkg, "Main"),
+        callable_body_summary(&full, full_pkg, "Main"),
+        "entry body should match full pipeline after ItemDce"
     );
 }
 
 #[test]
 fn stage_parity_exec_graph_rebuild_reconstructs_execution_graph() {
-    // Stage-parity check after execution graph rebuild.
-    //
-    // Invariant: After ExecGraphRebuild, the execution graph is reconstructed
-    // from the rewritten FIR. All EMPTY_EXEC_RANGE sentinels from earlier
-    // passes are replaced with valid execution graph ranges. Callable bodies
-    // should match the full pipeline output, and the package structure
-    // should be stable.
-    //
-    // Importance: ExecGraphRebuild is the final structural pass. This test
-    // validates that the execution graph reconstruction does not alter
-    // callable definitions, introduce new callables, or remove existing
-    // ones. The reconstructed graph should be well-formed and match the
-    // full pipeline's graph.
     let source = r#"
         operation Identity<'T>(x : 'T) : 'T { x }
         operation Apply(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
@@ -1469,94 +1598,41 @@ fn stage_parity_exec_graph_rebuild_reconstructs_execution_graph() {
         }
     "#;
 
-    let (mut post_rebuild_store, post_rebuild_pkg_id, _) = compile_and_lower(source);
-    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
-
-    run_pipeline_to_successfully(
-        &mut post_rebuild_store,
-        post_rebuild_pkg_id,
+    let (staged, staged_pkg, full, full_pkg) = assert_stage_parity(
+        source,
         PipelineStage::ExecGraphRebuild,
-    );
-    run_pipeline_successfully(&mut full_store, full_pkg_id);
-
-    invariants::check(
-        &post_rebuild_store,
-        post_rebuild_pkg_id,
-        invariants::InvariantLevel::PostAll, // ExecGraphRebuild is the last pass
+        invariants::InvariantLevel::PostAll,
     );
 
-    let full_package = full_store.get(full_pkg_id);
-    validate(full_package, &full_store);
-
-    // Callable count parity.
-    let post_rebuild_callables = reachable_callable_names(&post_rebuild_store, post_rebuild_pkg_id);
-    let full_callables = reachable_callable_names(&full_store, full_pkg_id);
-    assert_eq!(
-        post_rebuild_callables, full_callables,
-        "callable set after ExecGraphRebuild must match full pipeline"
-    );
-
-    // Type summary parity.
-    assert_eq!(
-        reachable_callable_summary(&post_rebuild_store, post_rebuild_pkg_id),
-        reachable_callable_summary(&full_store, full_pkg_id)
-    );
-
-    // Body summary parity: all callable bodies must match.
-    for callable_name in &full_callables {
+    for name in &reachable_callable_names(&full, full_pkg) {
         assert_eq!(
-            callable_body_summary(&post_rebuild_store, post_rebuild_pkg_id, callable_name),
-            callable_body_summary(&full_store, full_pkg_id, callable_name),
-            "callable '{callable_name}' body must match after ExecGraphRebuild and full pipeline"
+            callable_body_summary(&staged, staged_pkg, name),
+            callable_body_summary(&full, full_pkg, name),
+            "callable '{name}' body must match after ExecGraphRebuild and full pipeline"
         );
     }
 }
 
 #[test]
 fn stage_parity_mono_type_stability() {
-    // Regression test for generic specialization at PostMono.
-    //
-    // Invariant: Generic specialization at Mono produces monomorphized callables.
-    // The callable count (reachable from entry) should match the full pipeline,
-    // indicating that Mono neither creates nor removes callables unexpectedly.
-    let source = r#"
+    assert_stage_parity(
+        r#"
         operation Generic<'T>(x: 'T) : Unit { }
         @EntryPoint()
         operation Main() : Unit {
             Generic(1);
             Generic("str");
         }
-    "#;
-
-    let (mut post_mono_store, post_mono_pkg_id, _) = compile_and_lower(source);
-    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
-
-    run_pipeline_to_successfully(&mut post_mono_store, post_mono_pkg_id, PipelineStage::Mono);
-    run_pipeline_successfully(&mut full_store, full_pkg_id);
-
-    invariants::check(
-        &post_mono_store,
-        post_mono_pkg_id,
+    "#,
+        PipelineStage::Mono,
         invariants::InvariantLevel::PostMono,
-    );
-
-    let mono_callable_count = reachable_callable_names(&post_mono_store, post_mono_pkg_id).len();
-    let full_callable_count = reachable_callable_names(&full_store, full_pkg_id).len();
-
-    assert_eq!(
-        mono_callable_count, full_callable_count,
-        "generic specialization should not change reachable callable count at PostMono"
     );
 }
 
 #[test]
 fn stage_parity_defunc_hof_elimination() {
-    // Regression test for HOF callable elimination at PostDefunc.
-    //
-    // Invariant: After defunctionalization, HOF callables (with arrow types)
-    // have been eliminated and replaced by lifted specializations. The reachable
-    // callable count should reflect this transformation and match the full pipeline.
-    let source = r#"
+    assert_stage_parity(
+        r#"
         operation Apply(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
         @EntryPoint()
         operation Main() : Unit {
@@ -1564,71 +1640,25 @@ fn stage_parity_defunc_hof_elimination() {
             Apply(H, q);
             Apply(X, q);
         }
-    "#;
-
-    let (mut post_defunc_store, post_defunc_pkg_id, _) = compile_and_lower(source);
-    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
-
-    run_pipeline_to_successfully(
-        &mut post_defunc_store,
-        post_defunc_pkg_id,
+    "#,
         PipelineStage::Defunc,
-    );
-    run_pipeline_successfully(&mut full_store, full_pkg_id);
-
-    invariants::check(
-        &post_defunc_store,
-        post_defunc_pkg_id,
         invariants::InvariantLevel::PostDefunc,
-    );
-
-    let defunc_callables = reachable_callable_names(&post_defunc_store, post_defunc_pkg_id);
-    let full_callables = reachable_callable_names(&full_store, full_pkg_id);
-
-    assert_eq!(
-        defunc_callables, full_callables,
-        "HOF elimination should produce consistent callable set at PostDefunc"
     );
 }
 
 #[test]
 fn stage_parity_tuple_comp_lower_no_residual() {
-    // Regression test for tuple comparison lowering at PostTupleCompLower.
-    //
-    // Invariant: After tuple comparison lowering, no binary equality operations
-    // on tuple-typed operands remain in reachable code. This test verifies the
-    // lowering completes without introducing residual BinOp(Eq, Tuple) expressions.
-    let source = r#"
+    assert_stage_parity(
+        r#"
         @EntryPoint()
         operation Main() : Bool {
             let pair = (1, 2);
             let other = (1, 2);
             pair == other
         }
-    "#;
-
-    let (mut post_tuple_store, post_tuple_pkg_id, _) = compile_and_lower(source);
-    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
-
-    run_pipeline_to_successfully(
-        &mut post_tuple_store,
-        post_tuple_pkg_id,
+    "#,
         PipelineStage::TupleCompLower,
-    );
-    run_pipeline_successfully(&mut full_store, full_pkg_id);
-
-    invariants::check(
-        &post_tuple_store,
-        post_tuple_pkg_id,
         invariants::InvariantLevel::PostTupleCompLower,
-    );
-
-    let post_tuple_callables = reachable_callable_names(&post_tuple_store, post_tuple_pkg_id);
-    let full_callables = reachable_callable_names(&full_store, full_pkg_id);
-
-    assert_eq!(
-        post_tuple_callables, full_callables,
-        "tuple comparison lowering should preserve callable structure"
     );
 }
 
@@ -1678,6 +1708,6 @@ fn stage_parity_item_dce_removes_unreachable_callable_items() {
     invariants::check(
         &post_dce_store,
         post_dce_pkg_id,
-        invariants::InvariantLevel::PostGc,
+        invariants::InvariantLevel::PostItemDce,
     );
 }

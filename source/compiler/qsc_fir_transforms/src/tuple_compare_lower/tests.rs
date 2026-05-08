@@ -281,8 +281,18 @@ fn dynamic_tuple_eq_qir_succeeds() {
             (r0, r1) == (Zero, Zero)
         }",
     );
-    // QIR should be non-empty, meaning the pipeline succeeded.
-    assert!(!qir.is_empty(), "QIR generation should succeed");
+    assert!(
+        qir.contains("__quantum__qis__m__body"),
+        "QIR should include measurements for the tuple operands:\n{qir}"
+    );
+    assert!(
+        qir.matches("icmp eq i1").count() >= 2,
+        "lowered tuple equality should compare both tuple elements in QIR:\n{qir}"
+    );
+    assert!(
+        qir.contains("phi i1"),
+        "lowered tuple equality should join short-circuit results in QIR:\n{qir}"
+    );
 }
 
 #[test]

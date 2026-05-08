@@ -20,7 +20,7 @@
 //! reachability-based checks rather than returning early.
 
 use qsc_fir_transforms::{
-    invariants, run_pipeline,
+    invariants, run_pipeline_with_diagnostics,
     test_utils::{assert_no_pipeline_errors, compile_to_fir},
 };
 
@@ -36,8 +36,8 @@ fn compile_and_run_full_pipeline(
     source: &str,
 ) -> (qsc_fir::fir::PackageStore, qsc_fir::fir::PackageId) {
     let (mut store, pkg_id) = compile_to_fir(source);
-    let errors = run_pipeline(&mut store, pkg_id);
-    assert_no_pipeline_errors("run_pipeline", &errors);
+    let result = run_pipeline_with_diagnostics(&mut store, pkg_id);
+    assert_no_pipeline_errors("run_pipeline", &result.errors);
     (store, pkg_id)
 }
 
@@ -53,8 +53,12 @@ fn compile_and_run_full_pipeline(
 /// - No `Ty::Param` in reachable code (monomorphization completed).
 /// - No `ExprKind::Return` in reachable code (return unification completed).
 /// - No `Ty::Arrow` params / `ExprKind::Closure` (defunctionalization completed).
-/// - No `Ty::Udt` / `ExprKind::Struct` / `Field::Path` (UDT erasure completed).
+/// - No `Ty::Udt` / `ExprKind::Struct`; `Field::Path` only on tuple records
+///   (UDT erasure completed).
 /// - All exec-graph ranges populated (exec-graph rebuild completed).
+///
+/// This is the authoritative contract test for simple entry-point invariant
+/// verification; do not duplicate in other test files.
 #[test]
 fn run_pipeline_output_satisfies_post_all_invariants() {
     let (store, pkg_id) = compile_and_run_full_pipeline(

@@ -1,7 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Rebuilds exec graphs for all reachable callables and the entry expression.
+//! Rebuilds exec graphs for reachable target-package callables, selected
+//! mutated external callable specs, and the entry expression.
 //!
 //! After earlier FIR transforms synthesize new expressions or statements with
 //! empty ranges, the exec graphs on `SpecDecl` and
@@ -10,6 +11,10 @@
 //! SROA, and argument promotion. This pass reconstructs every graph from
 //! scratch by walking the FIR and emitting the same node sequences that the
 //! original lowerer would have produced.
+//!
+//! This pass must run after UDT erasure, defunctionalization, tuple comparison
+//! lowering, SROA, and argument promotion have removed expression forms that the
+//! exec graph builder treats as eliminated at this stage.
 //!
 //! ## Transformation Shape
 //!
@@ -59,6 +64,7 @@ use qsc_fir::ty::Ty;
 use qsc_lowerer::ExecGraphBuilder;
 
 use crate::reachability::{collect_reachable_from_entry, collect_reachable_with_seeds};
+use crate::{CallableSpecId, CallableSpecKind};
 
 /// Side-table collecting deferred `exec_graph_range` updates.
 /// Populated during the read-only graph-building pass, then applied in a
@@ -97,26 +103,12 @@ struct SpecInfo {
     block: BlockId,
     /// Which specialization on the containing callable should receive the
     /// rebuilt graph during write-back.
-    kind: SpecKind,
-}
-
-/// Which specialization within a `CallableImpl`.
-#[derive(Clone, Copy)]
-enum SpecKind {
-    /// The default callable body implementation.
-    Body,
-    /// The adjoint specialization.
-    Adj,
-    /// The controlled specialization.
-    Ctl,
-    /// The controlled-adjoint specialization.
-    CtlAdj,
-    /// A simulatable intrinsic with an explicit body block.
-    SimulatableIntrinsic,
+    kind: CallableSpecKind,
 }
 
 /// All spec infos for one callable item, collected while holding `&Package`.
 struct CallableSpecs {
+    package_id: PackageId,
     item_id: LocalItemId,
     specs: Vec<SpecInfo>,
 }
@@ -127,10 +119,37 @@ struct CallableSpecs {
 ///
 /// This must be called after all FIR transforms have completed. The function
 /// is idempotent — calling it multiple times produces the same result.
+///
+/// # Panics
+///
+/// Panics if reachable bodies still contain FIR variants eliminated by earlier
+/// transforms, such as `ExprKind::Struct`, `ExprKind::Closure`, or
+/// `ExprKind::Hole`.
 pub fn rebuild_exec_graphs(
     store: &mut PackageStore,
     package_id: PackageId,
     pinned_items: &[StoreItemId],
+) {
+    rebuild_exec_graphs_with_external_specs(store, package_id, pinned_items, &[]);
+}
+
+/// Rebuilds exec graphs for the target package's reachable callables, the
+/// entry expression, and selected external callable specs.
+///
+/// `external_specs` should contain only callable specs that earlier passes
+/// structurally mutated outside the target package. The same post-transform
+/// ordering requirements as [`rebuild_exec_graphs`] apply.
+///
+/// # Panics
+///
+/// Panics if any rebuilt body still contains FIR variants eliminated by earlier
+/// transforms, such as `ExprKind::Struct`, `ExprKind::Closure`, or
+/// `ExprKind::Hole`.
+pub fn rebuild_exec_graphs_with_external_specs(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    pinned_items: &[StoreItemId],
+    external_specs: &[CallableSpecId],
 ) {
     // Early return if there is no entry expression — nothing to rebuild.
     {
@@ -146,8 +165,13 @@ pub fn rebuild_exec_graphs(
         collect_reachable_with_seeds(store, package_id, pinned_items)
     };
 
-    let collected = collect_callable_specs(store, package_id, &reachable);
-    rebuild_callable_exec_graphs(store, package_id, &collected);
+    let mut collected = collect_callable_specs(store, package_id, &reachable);
+    collected.extend(collect_external_callable_specs(
+        store,
+        package_id,
+        external_specs,
+    ));
+    rebuild_callable_exec_graphs(store, &collected);
     rebuild_entry_exec_graph(store, package_id);
 }
 
@@ -172,11 +196,57 @@ fn collect_callable_specs(
         let specs = collect_specs_from_impl(&decl.implementation);
         if !specs.is_empty() {
             collected.push(CallableSpecs {
+                package_id,
                 item_id: item_id.item,
                 specs,
             });
         }
     }
+    collected
+}
+
+/// Collects selected external callable specs that should be rebuilt because an
+/// earlier transform structurally mutated their FIR bodies.
+fn collect_external_callable_specs(
+    store: &PackageStore,
+    target_package_id: PackageId,
+    external_specs: &[CallableSpecId],
+) -> Vec<CallableSpecs> {
+    let mut collected: Vec<CallableSpecs> = Vec::new();
+    for spec_id in external_specs {
+        if spec_id.callable.package == target_package_id {
+            continue;
+        }
+
+        let package = store.get(spec_id.callable.package);
+        let item = package.get_item(spec_id.callable.item);
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        let Some(spec) = collect_spec_from_impl(&decl.implementation, spec_id.kind) else {
+            continue;
+        };
+
+        if let Some(callable) = collected.iter_mut().find(|callable| {
+            callable.package_id == spec_id.callable.package
+                && callable.item_id == spec_id.callable.item
+        }) {
+            if !callable
+                .specs
+                .iter()
+                .any(|existing| existing.kind == spec.kind)
+            {
+                callable.specs.push(spec);
+            }
+        } else {
+            collected.push(CallableSpecs {
+                package_id: spec_id.callable.package,
+                item_id: spec_id.callable.item,
+                specs: vec![spec],
+            });
+        }
+    }
+
     collected
 }
 
@@ -188,48 +258,82 @@ fn collect_specs_from_impl(implementation: &CallableImpl) -> Vec<SpecInfo> {
         CallableImpl::Spec(spec_impl) => {
             specs.push(SpecInfo {
                 block: spec_impl.body.block,
-                kind: SpecKind::Body,
+                kind: CallableSpecKind::Body,
             });
             if let Some(adj) = &spec_impl.adj {
                 specs.push(SpecInfo {
                     block: adj.block,
-                    kind: SpecKind::Adj,
+                    kind: CallableSpecKind::Adj,
                 });
             }
             if let Some(ctl) = &spec_impl.ctl {
                 specs.push(SpecInfo {
                     block: ctl.block,
-                    kind: SpecKind::Ctl,
+                    kind: CallableSpecKind::Ctl,
                 });
             }
             if let Some(ctl_adj) = &spec_impl.ctl_adj {
                 specs.push(SpecInfo {
                     block: ctl_adj.block,
-                    kind: SpecKind::CtlAdj,
+                    kind: CallableSpecKind::CtlAdj,
                 });
             }
         }
         CallableImpl::SimulatableIntrinsic(spec) => {
             specs.push(SpecInfo {
                 block: spec.block,
-                kind: SpecKind::SimulatableIntrinsic,
+                kind: CallableSpecKind::SimulatableIntrinsic,
             });
         }
     }
     specs
 }
 
+/// Extracts one requested specialization from a callable implementation.
+fn collect_spec_from_impl(
+    implementation: &CallableImpl,
+    kind: CallableSpecKind,
+) -> Option<SpecInfo> {
+    match (implementation, kind) {
+        (CallableImpl::Spec(spec_impl), CallableSpecKind::Body) => Some(SpecInfo {
+            block: spec_impl.body.block,
+            kind,
+        }),
+        (CallableImpl::Spec(spec_impl), CallableSpecKind::Adj) => {
+            spec_impl.adj.as_ref().map(|spec| SpecInfo {
+                block: spec.block,
+                kind,
+            })
+        }
+        (CallableImpl::Spec(spec_impl), CallableSpecKind::Ctl) => {
+            spec_impl.ctl.as_ref().map(|spec| SpecInfo {
+                block: spec.block,
+                kind,
+            })
+        }
+        (CallableImpl::Spec(spec_impl), CallableSpecKind::CtlAdj) => {
+            spec_impl.ctl_adj.as_ref().map(|spec| SpecInfo {
+                block: spec.block,
+                kind,
+            })
+        }
+        (CallableImpl::SimulatableIntrinsic(spec), CallableSpecKind::SimulatableIntrinsic) => {
+            Some(SpecInfo {
+                block: spec.block,
+                kind,
+            })
+        }
+        _ => None,
+    }
+}
+
 /// Rebuilds and writes back the exec graph for each collected callable spec.
-fn rebuild_callable_exec_graphs(
-    store: &mut PackageStore,
-    package_id: PackageId,
-    collected: &[CallableSpecs],
-) {
+fn rebuild_callable_exec_graphs(store: &mut PackageStore, collected: &[CallableSpecs]) {
     for callable in collected {
         for spec_info in &callable.specs {
             // Build graph — immutable borrow.
             let (graph, ranges) = {
-                let package = store.get(package_id);
+                let package = store.get(callable.package_id);
                 let mut builder = ExecGraphBuilder::default();
                 let mut ranges = RangeUpdates::default();
                 rebuild_block(package, &mut builder, spec_info.block, &mut ranges);
@@ -237,7 +341,7 @@ fn rebuild_callable_exec_graphs(
             };
 
             // Write back — mutable borrow.
-            let package = store.get_mut(package_id);
+            let package = store.get_mut(callable.package_id);
             apply_ranges(package, &ranges);
 
             let target_spec = get_spec_decl_mut(package, callable.item_id, spec_info.kind);
@@ -251,7 +355,7 @@ fn rebuild_callable_exec_graphs(
 fn get_spec_decl_mut(
     package: &mut Package,
     item_id: LocalItemId,
-    kind: SpecKind,
+    kind: CallableSpecKind,
 ) -> &mut FirSpecDecl {
     let item = package.items.get_mut(item_id).expect("item must exist");
     let decl = match &mut item.kind {
@@ -259,23 +363,23 @@ fn get_spec_decl_mut(
         _ => unreachable!("already verified callable"),
     };
     match kind {
-        SpecKind::Body => match &mut decl.implementation {
+        CallableSpecKind::Body => match &mut decl.implementation {
             CallableImpl::Spec(si) => &mut si.body,
             _ => unreachable!("already verified Spec"),
         },
-        SpecKind::Adj => match &mut decl.implementation {
+        CallableSpecKind::Adj => match &mut decl.implementation {
             CallableImpl::Spec(si) => si.adj.as_mut().expect("adj must exist"),
             _ => unreachable!("already verified Spec"),
         },
-        SpecKind::Ctl => match &mut decl.implementation {
+        CallableSpecKind::Ctl => match &mut decl.implementation {
             CallableImpl::Spec(si) => si.ctl.as_mut().expect("ctl must exist"),
             _ => unreachable!("already verified Spec"),
         },
-        SpecKind::CtlAdj => match &mut decl.implementation {
+        CallableSpecKind::CtlAdj => match &mut decl.implementation {
             CallableImpl::Spec(si) => si.ctl_adj.as_mut().expect("ctl_adj must exist"),
             _ => unreachable!("already verified Spec"),
         },
-        SpecKind::SimulatableIntrinsic => match &mut decl.implementation {
+        CallableSpecKind::SimulatableIntrinsic => match &mut decl.implementation {
             CallableImpl::SimulatableIntrinsic(spec) => spec,
             _ => unreachable!("already verified SimulatableIntrinsic"),
         },

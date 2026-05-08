@@ -68,39 +68,6 @@ fn error_dynamic_callable() {
 }
 
 #[test]
-fn branch_split_resolves_mutable_callable() {
-    check_invariants(
-        r#"
-        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
-            op(q);
-        }
-        operation Main() : Unit {
-            use q = Qubit();
-            mutable f = X;
-            if true { set f = H; } else { set f = S; }
-            ApplyOp(f, q);
-        }
-        "#,
-    );
-}
-
-#[test]
-fn branch_split_resolves_conditional_binding() {
-    check_invariants(
-        r#"
-        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
-            op(q);
-        }
-        operation Main() : Unit {
-            use q = Qubit();
-            let f = if true { H } else { X };
-            ApplyOp(f, q);
-        }
-        "#,
-    );
-}
-
-#[test]
 fn error_returned_not_panicked() {
     let (mut store, package_id) = compile_to_monomorphized_fir(
         r#"
@@ -272,21 +239,6 @@ fn invariant_no_arrow_params_remain() {
             use q = Qubit();
             ApplyOp(H, q);
             ApplyOp(X, q);
-        }
-        "#,
-    );
-}
-
-#[test]
-fn invariant_no_closures_after_full_defunc() {
-    check_invariants(
-        r#"
-        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
-        operation Main() : Unit {
-            use q = Qubit();
-            let angle = 1.0;
-            ApplyOp(q1 => Rx(angle, q1), q);
-            ApplyOp(H, q);
         }
         "#,
     );

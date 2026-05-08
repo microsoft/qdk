@@ -89,8 +89,9 @@ struct Specialization {
 /// reachable code, and all `ExprKind::Var` nodes have empty generic-argument
 /// lists.
 ///
-/// Returns immediately without modification if the package has no entry
-/// expression.
+/// # Panics
+///
+/// Panics if the package has no entry expression.
 pub fn monomorphize(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assigner) {
     let package = store.get(package_id);
     assert!(

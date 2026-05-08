@@ -82,16 +82,17 @@ mod tests;
 mod semantic_equivalence_tests;
 
 use crate::cloner::FirCloner;
-use crate::{EMPTY_EXEC_RANGE, reachability::collect_reachable_package_closure_from_entry};
+use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
+use crate::{CallableSpecId, CallableSpecKind, EMPTY_EXEC_RANGE};
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BlockId, Expr, ExprId, ExprKind, Field, FieldAssign, FieldPath, ItemKind, LocalItemId, Package,
-    PackageId, PackageStore, PatId, Res,
+    PackageId, PackageStore, PatId, Res, SpecDecl, StoreItemId,
 };
 use qsc_fir::ty::{Arrow, Ty};
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 /// Maps `(PackageId, LocalItemId)` → pure `Ty` for every UDT definition
 /// in the store.
@@ -101,35 +102,59 @@ type UdtCache = FxHashMap<(PackageId, LocalItemId), Ty>;
 /// target package's reachable package closure, while resolving UDT
 /// definitions from the whole store.
 ///
-/// Returns immediately without modification if the target package has no
-/// entry expression (nothing is reachable to rewrite).
-pub fn erase_udts(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assigner) {
+/// Returns the reachable callable specs whose expression structure changed.
+///
+/// # Panics
+///
+/// Panics if the package has no entry expression.
+pub fn erase_udts(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigner: &mut Assigner,
+) -> Vec<CallableSpecId> {
     let package = store.get(package_id);
-    if package.entry.is_none() {
-        return;
-    }
+    assert!(
+        package.entry.is_some(),
+        "UDT erasure requires a package entry expression"
+    );
 
     // Build a resolution cache from all UDT items across all packages.
     let udt_cache = build_udt_cache(store);
+    let reachable = collect_reachable_from_entry(store, package_id);
 
     // Erase UDTs in the target package and in any package that contains an
     // entry-reachable callable. UDT definition lookup still spans the whole
     // store so cross-package references resolve correctly.
-    let pkg_ids: Vec<PackageId> = collect_reachable_package_closure_from_entry(store, package_id)
+    let pkg_ids: Vec<PackageId> = collect_reachable_package_closure(package_id, &reachable)
         .into_iter()
         .collect();
+
+    let mut structurally_mutated_specs = FxHashSet::default();
     for pkg_id in pkg_ids {
-        if pkg_id == package_id {
+        let mutated_exprs = if pkg_id == package_id {
             // Use the threaded assigner for the target package.
             let owned = std::mem::take(assigner);
             let mut cloner = FirCloner::from_assigner(owned);
-            erase_udts_in_package(store.get_mut(pkg_id), &udt_cache, &mut cloner);
+            let mutated_exprs =
+                erase_udts_in_package(store.get_mut(pkg_id), &udt_cache, &mut cloner);
             *assigner = cloner.into_assigner();
+            mutated_exprs
         } else {
             let mut cloner = FirCloner::new(store.get(pkg_id));
-            erase_udts_in_package(store.get_mut(pkg_id), &udt_cache, &mut cloner);
-        }
+            erase_udts_in_package(store.get_mut(pkg_id), &udt_cache, &mut cloner)
+        };
+
+        let package = store.get(pkg_id);
+        structurally_mutated_specs.extend(
+            collect_structurally_mutated_specs(pkg_id, package, &mutated_exprs)
+                .into_iter()
+                .filter(|spec_id| {
+                    spec_id.callable.package == package_id || reachable.contains(&spec_id.callable)
+                }),
+        );
     }
+
+    structurally_mutated_specs.into_iter().collect()
 }
 
 /// Erases UDT types and struct expressions in a single package, rewriting
@@ -155,7 +180,13 @@ pub fn erase_udts(store: &mut PackageStore, package_id: PackageId, assigner: &mu
 ///   output types in place.
 /// - Allocates field-extraction `Expr` nodes through `cloner` for
 ///   copy-update and field-update lowering.
-fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, cloner: &mut FirCloner) {
+fn erase_udts_in_package(
+    package: &mut Package,
+    udt_cache: &UdtCache,
+    cloner: &mut FirCloner,
+) -> FxHashSet<ExprId> {
+    let mut structurally_mutated_exprs = FxHashSet::default();
+
     // Rewrite all expression types and Struct expressions.
     let expr_ids: Vec<ExprId> = package.exprs.iter().map(|(id, _)| id).collect();
     for expr_id in expr_ids {
@@ -174,6 +205,7 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, cloner: &m
                 lower_copy_update_struct(
                     package, cloner, udt_cache, expr_id, *copy_id, fields, expr_span,
                 );
+                structurally_mutated_exprs.insert(expr_id);
             } else {
                 let mut indexed: Vec<(usize, ExprId)> = fields
                     .iter()
@@ -220,19 +252,26 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, cloner: &m
                     let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
                     expr_mut.kind = ExprKind::Tuple(values);
                 }
+                structurally_mutated_exprs.insert(expr_id);
             }
         }
 
         // Eliminate UDT constructor calls.
-        eliminate_udt_constructor_call(package, udt_cache, expr_id, &kind);
+        if eliminate_udt_constructor_call(package, udt_cache, expr_id, &kind) {
+            structurally_mutated_exprs.insert(expr_id);
+        }
 
         // Lower UpdateField and AssignField with Field::Path into tuple
         // constructions.
-        lower_field_updates(package, cloner, udt_cache, expr_id, &kind, expr_span);
+        if lower_field_updates(package, cloner, udt_cache, expr_id, &kind, expr_span) {
+            structurally_mutated_exprs.insert(expr_id);
+        }
 
         // Lower Field read expressions on scalar-erased types (Field::Path
         // expressions where the record type is not a tuple).
-        lower_scalar_field_read(package, udt_cache, expr_id, &kind);
+        if lower_scalar_field_read(package, udt_cache, expr_id, &kind) {
+            structurally_mutated_exprs.insert(expr_id);
+        }
     }
 
     // Rewrite all pattern types.
@@ -271,6 +310,87 @@ fn erase_udts_in_package(package: &mut Package, udt_cache: &UdtCache, cloner: &m
             }
         }
     }
+
+    structurally_mutated_exprs
+}
+
+/// Finds callable specs whose bodies contain structurally mutated expressions.
+fn collect_structurally_mutated_specs(
+    package_id: PackageId,
+    package: &Package,
+    structurally_mutated_exprs: &FxHashSet<ExprId>,
+) -> Vec<CallableSpecId> {
+    if structurally_mutated_exprs.is_empty() {
+        return Vec::new();
+    }
+
+    let mut mutated_specs = Vec::new();
+    for (item_id, item) in &package.items {
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        let callable = StoreItemId::from((package_id, item_id));
+        match &decl.implementation {
+            qsc_fir::fir::CallableImpl::Spec(spec_impl) => {
+                push_if_spec_contains_mutated_expr(
+                    package,
+                    structurally_mutated_exprs,
+                    callable,
+                    CallableSpecKind::Body,
+                    &spec_impl.body,
+                    &mut mutated_specs,
+                );
+                for (kind, spec) in [
+                    (CallableSpecKind::Adj, &spec_impl.adj),
+                    (CallableSpecKind::Ctl, &spec_impl.ctl),
+                    (CallableSpecKind::CtlAdj, &spec_impl.ctl_adj),
+                ] {
+                    if let Some(spec) = spec {
+                        push_if_spec_contains_mutated_expr(
+                            package,
+                            structurally_mutated_exprs,
+                            callable,
+                            kind,
+                            spec,
+                            &mut mutated_specs,
+                        );
+                    }
+                }
+            }
+            qsc_fir::fir::CallableImpl::SimulatableIntrinsic(spec) => {
+                push_if_spec_contains_mutated_expr(
+                    package,
+                    structurally_mutated_exprs,
+                    callable,
+                    CallableSpecKind::SimulatableIntrinsic,
+                    spec,
+                    &mut mutated_specs,
+                );
+            }
+            qsc_fir::fir::CallableImpl::Intrinsic => {}
+        }
+    }
+    mutated_specs
+}
+
+/// Adds `spec` to `mutated_specs` when its body contains a tracked mutated
+/// expression.
+fn push_if_spec_contains_mutated_expr(
+    package: &Package,
+    structurally_mutated_exprs: &FxHashSet<ExprId>,
+    callable: StoreItemId,
+    kind: CallableSpecKind,
+    spec: &SpecDecl,
+    mutated_specs: &mut Vec<CallableSpecId>,
+) {
+    let mut contains_mutated_expr = false;
+    crate::walk_utils::for_each_expr_in_block(package, spec.block, &mut |expr_id, _| {
+        contains_mutated_expr |= structurally_mutated_exprs.contains(&expr_id);
+    });
+
+    if contains_mutated_expr {
+        mutated_specs.push(CallableSpecId::new(callable, kind));
+    }
 }
 
 /// Eliminates a UDT constructor call if `kind` is `ExprKind::Call` whose
@@ -293,16 +413,16 @@ fn eliminate_udt_constructor_call(
     udt_cache: &UdtCache,
     expr_id: ExprId,
     kind: &ExprKind,
-) {
+) -> bool {
     let ExprKind::Call(callee_id, arg_id) = kind else {
-        return;
+        return false;
     };
     let callee = package.exprs.get(*callee_id).expect("callee should exist");
     let ExprKind::Var(Res::Item(item_id), _) = &callee.kind else {
-        return;
+        return false;
     };
     let Some(pure_ty) = udt_cache.get(&(item_id.package, item_id.item)) else {
-        return;
+        return false;
     };
     let resolved_pure = resolve_ty(udt_cache, pure_ty);
     let arg = package.exprs.get(*arg_id).expect("arg should exist");
@@ -314,6 +434,7 @@ fn eliminate_udt_constructor_call(
         let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
         expr_mut.kind = ExprKind::Tuple(vec![*arg_id]);
         expr_mut.ty = resolved_pure;
+        true
     } else {
         // Argument type matches the erased constructor input (multi-field
         // or scalar newtype) — replace the call with the argument.
@@ -323,6 +444,7 @@ fn eliminate_udt_constructor_call(
         let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
         expr_mut.kind = arg_kind;
         expr_mut.ty = resolve_ty(udt_cache, &arg_ty);
+        true
     }
 }
 
@@ -476,7 +598,9 @@ fn lower_field_updates(
     expr_id: ExprId,
     kind: &ExprKind,
     span: Span,
-) {
+) -> bool {
+    let mut structurally_mutated = false;
+
     // Lower UpdateField(record, Field::Path(path), replace) into a
     // tuple construction that extracts all non-updated fields from the
     // record and inserts the replacement at the correct position.
@@ -501,6 +625,7 @@ fn lower_field_updates(
         );
         let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
         expr_mut.kind = lowered;
+        structurally_mutated = true;
     }
 
     // Lower AssignField(record, Field::Path(path), value) into
@@ -534,7 +659,10 @@ fn lower_field_updates(
         );
         let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
         expr_mut.kind = ExprKind::Assign(*record_id, update_expr_id);
+        structurally_mutated = true;
     }
+
+    structurally_mutated
 }
 
 /// Lowers `Field(record_id, Field::Path(_))` read expressions on scalar-erased
@@ -557,7 +685,7 @@ fn lower_scalar_field_read(
     udt_cache: &UdtCache,
     expr_id: ExprId,
     kind: &ExprKind,
-) {
+) -> bool {
     if let ExprKind::Field(record_id, Field::Path(_)) = kind {
         let record_raw_ty = &package
             .exprs
@@ -575,8 +703,10 @@ fn lower_scalar_field_read(
             let expr_mut = package.exprs.get_mut(expr_id).expect("expr should exist");
             expr_mut.kind = record_kind;
             expr_mut.ty = record_ty_resolved;
+            return true;
         }
     }
+    false
 }
 
 /// Builds a `(PackageId, LocalItemId) → pure Ty` cache for every UDT

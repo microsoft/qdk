@@ -5,17 +5,21 @@
 //!
 //! Provides compilation and snapshot utilities used across transform test
 //! modules. Gated behind `#[cfg(any(test, feature = "testutil"))]`.
+//!
+//! Items marked with `#[allow(dead_code)]` are intended for use in test modules and may be
+//! are used in multiple test modules, but are not used in the main crate code.
 
 use qsc_data_structures::{
     language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
 };
 use qsc_fir::fir::{
-    self, CallableImpl, ExprId, ExprKind, ItemKind, LocalVarId, Package, PackageLookup, PatKind,
-    Res, SpecDecl, StmtId, StmtKind,
+    self, CallableDecl, CallableImpl, ExprId, ExprKind, ItemKind, LocalVarId, Package,
+    PackageLookup, PatId, PatKind, Res, SpecDecl, StmtId, StmtKind,
 };
 use qsc_frontend::compile::{self as frontend_compile, PackageStore as HirPackageStore};
 use qsc_hir::hir::PackageId;
 use qsc_passes::{PackageType, lower_hir_to_fir, run_core_passes, run_default_passes};
+use rustc_hash::FxHashMap;
 
 #[cfg(test)]
 use qsc_lowerer::map_hir_package_to_fir;
@@ -48,6 +52,20 @@ pub fn assert_no_pipeline_errors(context: &str, errors: &[crate::PipelineError])
         errors.is_empty(),
         "{context} produced FIR transform pipeline errors:\n{error_messages}"
     );
+}
+
+/// Asserts that a pipeline result did not produce non-fatal warnings.
+pub fn assert_no_pipeline_warnings(context: &str, warnings: &[crate::PipelineError]) {
+    let warning_messages = format_errors(warnings);
+    assert!(
+        warnings.is_empty(),
+        "{context} produced FIR transform pipeline warnings:\n{warning_messages}"
+    );
+}
+
+/// Asserts that a warning-aware pipeline result has no fatal errors.
+pub fn assert_pipeline_succeeded(context: &str, result: &crate::PipelineResult) {
+    assert_no_pipeline_errors(context, &result.errors);
 }
 
 /// Sets up an HIR package store containing core + std libraries with default
@@ -115,6 +133,76 @@ pub fn compile_to_fir_with_capabilities(
     (fir_store, fir_pkg_id)
 }
 
+/// Compiles a library Q# source and user Q# source through
+/// core+std+lib → HIR passes → FIR lowering.
+///
+/// Returns a FIR store with 4 packages (core, std, lib, user) and the
+/// user package ID. Uses default (empty) target capabilities.
+#[must_use]
+pub fn compile_to_fir_with_library(
+    lib_source: &str,
+    user_source: &str,
+) -> (fir::PackageStore, fir::PackageId) {
+    compile_to_fir_with_library_and_capabilities(
+        lib_source,
+        user_source,
+        TargetCapabilityFlags::empty(),
+    )
+}
+
+/// Compiles a library Q# source and user Q# source through
+/// core+std+lib → HIR passes → FIR lowering using the given target
+/// capabilities.
+///
+/// Returns a FIR store with 4 packages (core, std, lib, user) and the
+/// user package ID.
+#[must_use]
+pub fn compile_to_fir_with_library_and_capabilities(
+    lib_source: &str,
+    user_source: &str,
+    capabilities: TargetCapabilityFlags,
+) -> (fir::PackageStore, fir::PackageId) {
+    let mut store = package_store_with_stdlib(capabilities);
+    let std_id = PackageId::CORE.successor();
+
+    // Compile library package
+    let lib_sources = SourceMap::new(vec![("lib.qs".into(), lib_source.into())], None);
+    let mut lib_unit = frontend_compile::compile(
+        &store,
+        &[(PackageId::CORE, None), (std_id, None)],
+        lib_sources,
+        capabilities,
+        LanguageFeatures::default(),
+    );
+    assert_no_compile_errors("library code", &lib_unit.errors);
+    let lib_pass_errors = run_default_passes(store.core(), &mut lib_unit, PackageType::Lib);
+    assert!(
+        lib_pass_errors.is_empty(),
+        "library code has compilation errors"
+    );
+    let lib_id = store.insert(lib_unit);
+
+    // Compile user package depending on core + std + lib
+    let user_sources = SourceMap::new(vec![("test.qs".into(), user_source.into())], None);
+    let mut user_unit = frontend_compile::compile(
+        &store,
+        &[(PackageId::CORE, None), (std_id, None), (lib_id, None)],
+        user_sources,
+        capabilities,
+        LanguageFeatures::default(),
+    );
+    assert_no_compile_errors("user code", &user_unit.errors);
+    let user_pass_errors = run_default_passes(store.core(), &mut user_unit, PackageType::Exe);
+    assert!(
+        user_pass_errors.is_empty(),
+        "user code has compilation errors"
+    );
+    let user_hir_id = store.insert(user_unit);
+
+    let (fir_store, fir_pkg_id, _) = lower_hir_to_fir(&store, user_hir_id);
+    (fir_store, fir_pkg_id)
+}
+
 /// Compiles Q# source through core+std → HIR passes → FIR lowering →
 /// monomorphization.
 ///
@@ -176,10 +264,10 @@ pub fn compile_to_fir_with_entry(source: &str, entry: &str) -> (fir::PackageStor
 pub(crate) fn compile_and_run_pipeline_to_with_errors(
     source: &str,
     stage: PipelineStage,
-) -> (fir::PackageStore, fir::PackageId, Vec<crate::PipelineError>) {
+) -> (fir::PackageStore, fir::PackageId, crate::PipelineResult) {
     let (mut store, pkg_id) = compile_to_fir(source);
-    let errors = crate::run_pipeline_to(&mut store, pkg_id, stage, &[]);
-    (store, pkg_id, errors)
+    let result = crate::run_pipeline_to_with_diagnostics(&mut store, pkg_id, stage, &[]);
+    (store, pkg_id, result)
 }
 
 /// Compiles Q# source and runs the FIR optimization pipeline up to the given
@@ -190,7 +278,7 @@ pub(crate) fn compile_and_run_pipeline_to(
     source: &str,
     stage: PipelineStage,
 ) -> (fir::PackageStore, fir::PackageId) {
-    let (store, pkg_id, errors) = compile_and_run_pipeline_to_with_errors(source, stage);
+    let (store, pkg_id, result) = compile_and_run_pipeline_to_with_errors(source, stage);
     if matches!(
         stage,
         PipelineStage::Defunc
@@ -203,9 +291,53 @@ pub(crate) fn compile_and_run_pipeline_to(
             | PipelineStage::ExecGraphRebuild
             | PipelineStage::Full
     ) {
-        assert_no_pipeline_errors("compile_and_run_pipeline_to", &errors);
+        assert_no_pipeline_errors("compile_and_run_pipeline_to", &result.errors);
     }
 
+    (store, pkg_id)
+}
+
+/// Compiles library + user Q# source and runs the FIR pipeline, returning errors.
+#[allow(dead_code)]
+pub(crate) fn compile_and_run_pipeline_to_with_library_and_errors(
+    lib_source: &str,
+    user_source: &str,
+    stage: PipelineStage,
+) -> (fir::PackageStore, fir::PackageId, crate::PipelineResult) {
+    let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
+    let result = crate::run_pipeline_to_with_diagnostics(&mut store, pkg_id, stage, &[]);
+    (store, pkg_id, result)
+}
+
+/// Compiles library + user Q# source and runs the FIR optimization pipeline
+/// up to the given stage.
+///
+/// # Panics
+///
+/// Panics if compilation fails, or if the requested stage reaches
+/// defunctionalization and the shared pipeline runner returns any errors.
+#[allow(dead_code)]
+pub(crate) fn compile_and_run_pipeline_to_with_library(
+    lib_source: &str,
+    user_source: &str,
+    stage: PipelineStage,
+) -> (fir::PackageStore, fir::PackageId) {
+    let (store, pkg_id, result) =
+        compile_and_run_pipeline_to_with_library_and_errors(lib_source, user_source, stage);
+    if matches!(
+        stage,
+        PipelineStage::Defunc
+            | PipelineStage::UdtErase
+            | PipelineStage::TupleCompLower
+            | PipelineStage::Sroa
+            | PipelineStage::ArgPromote
+            | PipelineStage::Gc
+            | PipelineStage::ItemDce
+            | PipelineStage::ExecGraphRebuild
+            | PipelineStage::Full
+    ) {
+        assert_no_pipeline_errors("compile_and_run_pipeline_to_with_library", &result.errors);
+    }
     (store, pkg_id)
 }
 
@@ -353,6 +485,32 @@ pub(crate) fn extract_reachable_callable_details(
     entries.join("\n")
 }
 
+/// Finds a callable by name among reachable items from a non-root package
+/// (typically a library package). Panics if the callable is not found.
+#[allow(dead_code)]
+pub(crate) fn find_library_callable(
+    store: &fir::PackageStore,
+    root_pkg_id: fir::PackageId,
+    callable_name: &str,
+) -> fir::StoreItemId {
+    crate::reachability::collect_reachable_from_entry(store, root_pkg_id)
+        .into_iter()
+        .find(|store_item_id| {
+            if store_item_id.package == root_pkg_id {
+                return false;
+            }
+            let package = store.get(store_item_id.package);
+            let item = package.get_item(store_item_id.item);
+            matches!(
+                &item.kind,
+                fir::ItemKind::Callable(decl) if decl.name.name.as_ref() == callable_name
+            )
+        })
+        .unwrap_or_else(|| {
+            panic!("library callable '{callable_name}' not found among reachable items")
+        })
+}
+
 /// Asserts that the named callable body ends in an expression whose type
 /// matches the enclosing block type.
 pub fn assert_callable_body_terminal_expr_matches_block_type(
@@ -450,6 +608,78 @@ pub(crate) fn stmt_kind_short(package: &Package, stmt_id: StmtId) -> String {
     }
 }
 
+/// Formats a pattern as a human-readable string showing binding names, types,
+/// and tuple structure.
+#[allow(dead_code)]
+pub(crate) fn format_pat(package: &Package, pat_id: PatId) -> String {
+    let pat = package.get_pat(pat_id);
+    match &pat.kind {
+        PatKind::Bind(ident) => format!("Bind({}: {})", ident.name, pat.ty),
+        PatKind::Tuple(sub_pats) => {
+            let subs: Vec<String> = sub_pats.iter().map(|&id| format_pat(package, id)).collect();
+            format!("Tuple({})", subs.join(", "))
+        }
+        PatKind::Discard => format!("Discard({})", pat.ty),
+    }
+}
+
+/// Collects all pattern bindings in a package into a map from local variable
+/// ID to its name.
+#[allow(dead_code)]
+pub(crate) fn local_names(package: &Package) -> FxHashMap<LocalVarId, String> {
+    package
+        .pats
+        .values()
+        .filter_map(|pat| match &pat.kind {
+            PatKind::Bind(ident) => Some((ident.id, ident.name.to_string())),
+            PatKind::Tuple(_) | PatKind::Discard => None,
+        })
+        .collect()
+}
+
+/// Finds a callable declaration by name in the given package. Panics if not
+/// found.
+#[allow(dead_code)]
+pub(crate) fn find_callable<'a>(package: &'a Package, callable_name: &str) -> &'a CallableDecl {
+    package
+        .items
+        .values()
+        .find_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == callable_name => {
+                Some(decl.as_ref())
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("callable '{callable_name}' not found"))
+}
+
+/// Compiles Q# source through the full FIR pipeline, then generates QIR via
+/// partial evaluation and codegen. Uses Adaptive + `IntegerComputations`
+/// capabilities so that Result-comparison programs can be lowered.
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) fn generate_qir(source: &str) -> String {
+    use qsc_codegen::qir::fir_to_qir;
+    use qsc_data_structures::target::TargetCapabilityFlags;
+    use qsc_partial_eval::ProgramEntry;
+
+    let capabilities = TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations;
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
+    let package = store.get(pkg_id);
+    let entry = ProgramEntry {
+        exec_graph: package.entry_exec_graph.clone(),
+        expr: (
+            pkg_id,
+            package
+                .entry
+                .expect("package must have an entry expression"),
+        )
+            .into(),
+    };
+    let compute_properties = qsc_rca::Analyzer::init(&store, capabilities).analyze_all();
+    fir_to_qir(&store, capabilities, &compute_properties, &entry).expect("QIR generation failed")
+}
+
 /// Evaluates the entry exec graph of the given FIR store with a fixed
 /// simulator seed for determinism. Returns `Ok(value)` on success, or
 /// `Err(error_string)` on evaluation failure.
@@ -525,6 +755,69 @@ pub(crate) fn eval_qsharp_original(source: &str) -> Result<qsc_eval::val::Value,
     try_eval_fir_entry(&fir_store, map_hir_package_to_fir(user_hir_id))
 }
 
+/// Compiles library + user Q# source to FIR using a single lowerer (no
+/// transforms) and evaluates the entry exec graph.
+///
+/// The FIR has no transforms applied — this captures the original program
+/// semantics with a cross-package library dependency.
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) fn eval_qsharp_original_with_library(
+    lib_source: &str,
+    user_source: &str,
+) -> Result<qsc_eval::val::Value, String> {
+    let mut lowerer = qsc_lowerer::Lowerer::new();
+    let mut core = frontend_compile::core();
+    run_core_passes(&mut core);
+    let fir_store = fir::PackageStore::new();
+    let core_fir = lowerer.lower_package(&core.package, &fir_store);
+    let mut hir_store = HirPackageStore::new(core);
+
+    let mut std = frontend_compile::std(&hir_store, TargetCapabilityFlags::empty());
+    assert!(std.errors.is_empty());
+    assert!(run_default_passes(hir_store.core(), &mut std, PackageType::Lib).is_empty());
+    let std_fir = lowerer.lower_package(&std.package, &fir_store);
+    let std_id = hir_store.insert(std);
+
+    // Library package
+    let lib_sources = SourceMap::new(vec![("lib.qs".into(), lib_source.into())], None);
+    let mut lib_unit = frontend_compile::compile(
+        &hir_store,
+        &[(PackageId::CORE, None), (std_id, None)],
+        lib_sources,
+        TargetCapabilityFlags::empty(),
+        LanguageFeatures::default(),
+    );
+    assert!(lib_unit.errors.is_empty(), "{:?}", lib_unit.errors);
+    let lib_pass_errors = run_default_passes(hir_store.core(), &mut lib_unit, PackageType::Lib);
+    assert!(lib_pass_errors.is_empty(), "{lib_pass_errors:?}");
+    let lib_fir = lowerer.lower_package(&lib_unit.package, &fir_store);
+    let lib_id = hir_store.insert(lib_unit);
+
+    // User package
+    let user_sources = SourceMap::new(vec![("test.qs".into(), user_source.into())], None);
+    let mut unit = frontend_compile::compile(
+        &hir_store,
+        &[(PackageId::CORE, None), (std_id, None), (lib_id, None)],
+        user_sources,
+        TargetCapabilityFlags::empty(),
+        LanguageFeatures::default(),
+    );
+    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+    let pass_errors = run_default_passes(hir_store.core(), &mut unit, PackageType::Exe);
+    assert!(pass_errors.is_empty(), "{pass_errors:?}");
+    let unit_fir = lowerer.lower_package(&unit.package, &fir_store);
+    let user_hir_id = hir_store.insert(unit);
+
+    let mut fir_store = fir::PackageStore::new();
+    fir_store.insert(map_hir_package_to_fir(PackageId::CORE), core_fir);
+    fir_store.insert(map_hir_package_to_fir(std_id), std_fir);
+    fir_store.insert(map_hir_package_to_fir(lib_id), lib_fir);
+    fir_store.insert(map_hir_package_to_fir(user_hir_id), unit_fir);
+
+    try_eval_fir_entry(&fir_store, map_hir_package_to_fir(user_hir_id))
+}
+
 /// Compiles Q# source, runs the full FIR transform pipeline, and evaluates
 /// the entry exec graph.
 #[cfg(test)]
@@ -572,6 +865,48 @@ pub(crate) fn check_semantic_equivalence(source: &str) {
     }
 }
 
+/// Asserts semantic equivalence of a cross-package Q# program before and
+/// after the full FIR transform pipeline.
+///
+/// 1. Compiles library + user Q# source (no transforms) and evaluates to
+///    get the expected return value.
+/// 2. Compiles and runs the full FIR pipeline, then evaluates to get the
+///    actual return value.
+/// 3. Asserts the two results match.
+#[cfg(test)]
+#[allow(dead_code)]
+pub(crate) fn check_semantic_equivalence_with_library(lib_source: &str, user_source: &str) {
+    let expected = eval_qsharp_original_with_library(lib_source, user_source);
+    let actual = {
+        let (store, pkg_id) =
+            compile_and_run_pipeline_to_with_library(lib_source, user_source, PipelineStage::Full);
+        try_eval_fir_entry(&store, pkg_id)
+    };
+
+    match (&expected, &actual) {
+        (Ok(exp_val), Ok(act_val)) => {
+            assert_eq!(
+                exp_val, act_val,
+                "semantic equivalence violated: original returned {exp_val}, \
+                 transformed returned {act_val}"
+            );
+        }
+        (Err(exp_err), Err(act_err)) => {
+            assert_eq!(
+                exp_err, act_err,
+                "semantic equivalence violated: original failed with {exp_err}, \
+                 transformed failed with {act_err}"
+            );
+        }
+        (Ok(exp_val), Err(err)) => {
+            panic!("original succeeded with {exp_val} but transformed failed: {err}");
+        }
+        (Err(err), Ok(act_val)) => {
+            panic!("original failed with {err} but transformed succeeded with {act_val}");
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::any::Any;
@@ -604,14 +939,15 @@ mod tests {
             }
         "#;
 
-        let (_store, _pkg_id, errors) =
+        let (_store, _pkg_id, result) =
             compile_and_run_pipeline_to_with_errors(source, PipelineStage::Full);
 
         assert!(
-            !errors.is_empty(),
+            !result.errors.is_empty(),
             "expected defunctionalization diagnostics to be returned"
         );
-        let messages = errors
+        let messages = result
+            .errors
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>()

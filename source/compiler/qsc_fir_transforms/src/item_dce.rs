@@ -32,7 +32,9 @@
 //!
 //! **Before:** `Package::items` contains unreachable callable items (original
 //! generics replaced by monomorphized copies, fully-specialized closure items)
-//! and dead type items left after UDT erasure.
+//! and dead type items left after UDT erasure. Callers may supply either
+//! entry-rooted reachability or seed-expanded reachability for validated pinned
+//! callables.
 //!
 //! **After:** Unreachable items are removed from `Package::items`. If any
 //! items were removed, `gc_unreachable` re-runs to tombstone their arena
@@ -46,8 +48,10 @@ use rustc_hash::FxHashSet;
 
 /// Eliminates unreachable items from the package's item map.
 ///
-/// The `reachable` set should be the output of
-/// [`collect_reachable_from_entry`](crate::reachability::collect_reachable_from_entry).
+/// The `reachable` set should be the output of entry-rooted reachability or
+/// seed-expanded reachability, such as
+/// [`collect_reachable_from_entry`](crate::reachability::collect_reachable_from_entry)
+/// or [`collect_reachable_with_seeds`](crate::reachability::collect_reachable_with_seeds).
 /// Only items local to this package are considered; cross-package items in the
 /// reachable set are ignored.
 ///

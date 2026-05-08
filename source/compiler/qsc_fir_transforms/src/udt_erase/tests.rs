@@ -5,6 +5,7 @@ use expect_test::{Expect, expect};
 use indoc::indoc;
 
 use super::*;
+use crate::test_utils::local_names;
 use qsc_data_structures::index_map::IndexMap;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
@@ -311,6 +312,58 @@ fn make_entry_package_for_external_callable(
     package
 }
 
+fn assert_entry_expr_ty(store: &PackageStore, pkg_id: PackageId, expected_ty: &Ty) {
+    let package = store.get(pkg_id);
+    let entry_expr = package.get_expr(package.entry.expect("entry should exist"));
+    assert_eq!(&entry_expr.ty, expected_ty);
+}
+
+fn callable_output_ty(package: &Package, callable_item_id: LocalItemId) -> &Ty {
+    let ItemKind::Callable(callable) = &package.get_item(callable_item_id).kind else {
+        panic!("item should be callable");
+    };
+    &callable.output
+}
+
+fn assert_external_callable_erased(
+    store: &PackageStore,
+    package_id: PackageId,
+    callable_item_id: LocalItemId,
+    struct_expr_id: ExprId,
+    expected_ty: &Ty,
+) {
+    let package = store.get(package_id);
+    assert_eq!(callable_output_ty(package, callable_item_id), expected_ty);
+    let struct_expr = package.get_expr(struct_expr_id);
+    assert_eq!(&struct_expr.ty, expected_ty);
+    assert!(
+        !matches!(struct_expr.kind, ExprKind::Struct(_, _, _)),
+        "reachable external package should have struct expressions erased"
+    );
+}
+
+fn assert_external_callable_left_untouched(
+    store: &PackageStore,
+    package_id: PackageId,
+    callable_item_id: LocalItemId,
+    struct_expr_id: ExprId,
+) {
+    let package = store.get(package_id);
+    assert!(
+        matches!(callable_output_ty(package, callable_item_id), Ty::Udt(_)),
+        "unreachable package callable output should remain untouched"
+    );
+    let struct_expr = package.get_expr(struct_expr_id);
+    assert!(
+        matches!(struct_expr.kind, ExprKind::Struct(_, _, _)),
+        "unreachable package struct should remain untouched"
+    );
+    assert!(
+        matches!(struct_expr.ty, Ty::Udt(_)),
+        "unreachable package expression type should remain untouched"
+    );
+}
+
 #[test]
 fn resolve_ty_replaces_udt_with_pure_type() {
     let item_id = LocalItemId::from(0usize);
@@ -494,17 +547,6 @@ fn find_callable_body_block(package: &Package, callable_name: &str) -> BlockId {
     }
 
     panic!("callable '{callable_name}' not found");
-}
-
-fn local_names(package: &Package) -> FxHashMap<LocalVarId, String> {
-    package
-        .pats
-        .values()
-        .filter_map(|pat| match &pat.kind {
-            PatKind::Bind(ident) => Some((ident.id, ident.name.to_string())),
-            PatKind::Tuple(_) | PatKind::Discard => None,
-        })
-        .collect()
 }
 
 fn local_name(local_names: &FxHashMap<LocalVarId, String>, local_id: LocalVarId) -> String {
@@ -1226,7 +1268,7 @@ fn erase_udts_rewrites_reachable_external_package_but_leaves_unreachable_package
     let mut store = PackageStore::new();
     let (reachable_udt_item_id, reachable_callable_item_id, reachable_struct_expr_id) =
         insert_struct_callable_package(&mut store, reachable_pkg_id, "Reachable", true);
-    let (_unreachable_udt_item_id, _unreachable_callable_item_id, unreachable_struct_expr_id) =
+    let (_, unreachable_callable_item_id, unreachable_struct_expr_id) =
         insert_struct_callable_package(&mut store, unreachable_pkg_id, "Unreachable", false);
 
     store.insert(
@@ -1246,42 +1288,19 @@ fn erase_udts_rewrites_reachable_external_package_but_leaves_unreachable_package
         crate::invariants::InvariantLevel::PostUdtErase,
     );
 
-    let target_package = store.get(target_pkg_id);
-    let entry_expr = target_package.get_expr(target_package.entry.expect("entry should exist"));
-    assert_eq!(entry_expr.ty, Ty::Prim(Prim::Bool));
-
-    let reachable_package = store.get(reachable_pkg_id);
-    let ItemKind::Callable(reachable_callable) =
-        &reachable_package.get_item(reachable_callable_item_id).kind
-    else {
-        panic!("reachable item should be callable");
-    };
-    assert_eq!(reachable_callable.output, Ty::Prim(Prim::Bool));
-    let reachable_struct_expr = reachable_package.get_expr(reachable_struct_expr_id);
-    assert_eq!(reachable_struct_expr.ty, Ty::Prim(Prim::Bool));
-    assert!(
-        !matches!(reachable_struct_expr.kind, ExprKind::Struct(_, _, _)),
-        "reachable external package should have struct expressions erased"
+    assert_entry_expr_ty(&store, target_pkg_id, &Ty::Prim(Prim::Bool));
+    assert_external_callable_erased(
+        &store,
+        reachable_pkg_id,
+        reachable_callable_item_id,
+        reachable_struct_expr_id,
+        &Ty::Prim(Prim::Bool),
     );
-
-    let unreachable_package = store.get(unreachable_pkg_id);
-    let ItemKind::Callable(unreachable_callable) =
-        &unreachable_package.get_item(LocalItemId::from(1usize)).kind
-    else {
-        panic!("unreachable item should be callable");
-    };
-    assert!(
-        matches!(unreachable_callable.output, Ty::Udt(_)),
-        "unreachable package callable output should remain untouched"
-    );
-    let unreachable_struct_expr = unreachable_package.get_expr(unreachable_struct_expr_id);
-    assert!(
-        matches!(unreachable_struct_expr.kind, ExprKind::Struct(_, _, _)),
-        "unreachable package struct should remain untouched"
-    );
-    assert!(
-        matches!(unreachable_struct_expr.ty, Ty::Udt(_)),
-        "unreachable package expression type should remain untouched"
+    assert_external_callable_left_untouched(
+        &store,
+        unreachable_pkg_id,
+        unreachable_callable_item_id,
+        unreachable_struct_expr_id,
     );
 }
 
@@ -1329,13 +1348,11 @@ fn post_udt_erase_invariants_cover_reachable_external_packages() {
 
 /// Single-field struct declared with struct syntax: `get_pure_ty` returns
 /// `Tuple([Int])`, so UDT erase must keep the tuple wrapper rather than
-/// unwrapping to scalar. The `PostAll` invariant checks pat/init type
-/// alignment and would panic if the expression were incorrectly unwrapped.
+/// unwrapping to scalar. The body shape assertion checks both construction
+/// and field projection after erasure.
 #[test]
-fn single_field_struct_passes_post_all_invariant() {
-    use crate::test_utils::{PipelineStage, compile_and_run_pipeline_to};
-
-    let _ = compile_and_run_pipeline_to(
+fn single_field_struct_field_access_preserves_tuple_wrapper_after_erasure() {
+    check_main_body_summary_after_erasure(
         indoc! {"
             struct Single { Value : Int }
 
@@ -1344,42 +1361,24 @@ fn single_field_struct_passes_post_all_invariant() {
                 s.Value
             }
         "},
-        PipelineStage::Full,
+        &expect![[r#"
+            [0] Local Immutable s = Tuple(Lit(Int(42)))
+            [1] Expr Field(Var(s), Path([0]))"#]],
     );
 }
 
 /// Single-field struct syntax has a constructor whose pure type is
 /// `Tuple([T])`. UDT erase eliminates the constructor call while preserving
-/// the tuple wrapper, so the full pipeline passes without type mismatches.
+/// the tuple wrapper.
 #[test]
-fn single_field_struct_constructor_passes_post_all_invariant() {
-    use crate::test_utils::{PipelineStage, compile_and_run_pipeline_to};
-
-    let _ = compile_and_run_pipeline_to(
+fn single_field_struct_constructor_preserves_tuple_wrapper_after_erasure() {
+    check_main_local_summaries_after_erasure(
         indoc! {"
             struct Wrapper { Value : Int }
 
             function Main() : Int {
                 let w = new Wrapper { Value = 42 };
                 0
-            }
-        "},
-        PipelineStage::Full,
-    );
-}
-
-/// Single-field struct syntax produces `UdtDefKind::Tuple([Field])`. Verify
-/// UDT erase keeps the tuple wrapper.
-#[test]
-fn single_field_struct_erased_to_tuple() {
-    check_main_local_summaries_after_erasure(
-        indoc! {"
-            namespace Test {
-                struct Wrapper { Value : Int }
-                @EntryPoint()
-                function Main() : Unit {
-                    let w = new Wrapper { Value = 42 };
-                }
             }
         "},
         &expect![[r#"
@@ -1582,4 +1581,185 @@ fn unreachable_callable_in_reachable_package_is_erased() {
         has_udt,
         "UDT type item should still exist after erase_udts (removed by item_dce later)"
     );
+}
+
+#[test]
+fn cross_package_udt_copy_update_erased() {
+    use crate::test_utils::compile_to_fir_with_library;
+
+    let lib_source = indoc! {"
+        namespace TestLib {
+            struct Pair { Fst: Int, Snd: Int }
+
+            function MakePair(fst: Int, snd: Int) : Pair {
+                new Pair { Fst = fst, Snd = snd }
+            }
+
+            function UpdateFst(p: Pair, newFst: Int) : Pair {
+                new Pair { ...p, Fst = newFst }
+            }
+
+            export Pair, MakePair, UpdateFst;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+
+        @EntryPoint()
+        operation Main() : (Int, Int) {
+            let p = MakePair(1, 2);
+            let updated = UpdateFst(p, 42);
+            (updated.Fst, updated.Snd)
+        }
+    "};
+
+    let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
+    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
+    erase_udts(&mut store, pkg_id, &mut assigner);
+
+    // Verify that mutated specs in the user package are non-empty after erasure.
+    let package = store.get(pkg_id);
+    for item in package.items.values() {
+        if let ItemKind::Callable(decl) = &item.kind
+            && let CallableImpl::Spec(spec) = &decl.implementation
+        {
+            let block = package.get_block(spec.body.block);
+            assert!(
+                !block.stmts.is_empty(),
+                "callable '{}' body should have non-empty stmts after UDT erasure",
+                decl.name.name
+            );
+        }
+    }
+}
+
+#[test]
+fn cross_package_udt_copy_update_semantic_equivalence() {
+    use crate::test_utils::check_semantic_equivalence_with_library;
+
+    let lib_source = indoc! {"
+        namespace TestLib {
+            struct Pair { Fst: Int, Snd: Int }
+
+            function MakePair(fst: Int, snd: Int) : Pair {
+                new Pair { Fst = fst, Snd = snd }
+            }
+
+            function UpdateFst(p: Pair, newFst: Int) : Pair {
+                new Pair { ...p, Fst = newFst }
+            }
+
+            export Pair, MakePair, UpdateFst;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+
+        @EntryPoint()
+        operation Main() : (Int, Int) {
+            let p = MakePair(1, 2);
+            let updated = UpdateFst(p, 42);
+            (updated.Fst, updated.Snd)
+        }
+    "};
+
+    check_semantic_equivalence_with_library(lib_source, user_source);
+}
+
+/// Verifies that a `@SimulatableIntrinsic()` operation in a library package
+/// whose signature takes and returns a struct defined in that library has its
+/// UDT types correctly erased. The simulatable intrinsic body is preserved
+/// for simulation and must be rewritten just like a normal spec body.
+#[test]
+fn cross_package_simulatable_intrinsic_with_struct_param_and_return() {
+    use crate::test_utils::compile_to_fir_with_library;
+
+    let lib_source = indoc! {"
+        namespace TestLib {
+            struct Pair { Fst: Int, Snd: Int }
+
+            @SimulatableIntrinsic()
+            operation TransformPair(p: Pair) : Pair {
+                new Pair { Fst = p.Snd, Snd = p.Fst }
+            }
+
+            export Pair, TransformPair;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+
+        @EntryPoint()
+        operation Main() : (Int, Int) {
+            let p = new Pair { Fst = 1, Snd = 2 };
+            let swapped = TransformPair(p);
+            (swapped.Fst, swapped.Snd)
+        }
+    "};
+
+    let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
+    let mut assigner = qsc_fir::assigner::Assigner::from_package(store.get(pkg_id));
+    erase_udts(&mut store, pkg_id, &mut assigner);
+
+    // Run post-UDT-erase invariants to confirm no Ty::Udt survives in
+    // reachable packages and no Field::Path on non-tuple types remains.
+    crate::invariants::check(
+        &store,
+        pkg_id,
+        crate::invariants::InvariantLevel::PostUdtErase,
+    );
+
+    // Verify the library callable's SimulatableIntrinsic body is non-empty
+    // (erasure must rewrite the body, not discard it).
+    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
+    for store_id in &reachable {
+        if store_id.package == pkg_id {
+            continue;
+        }
+        let ext_package = store.get(store_id.package);
+        let item = ext_package.get_item(store_id.item);
+        if let ItemKind::Callable(decl) = &item.kind
+            && let CallableImpl::SimulatableIntrinsic(spec) = &decl.implementation
+        {
+            let block = ext_package.get_block(spec.block);
+            assert!(
+                !block.stmts.is_empty(),
+                "SimulatableIntrinsic callable '{}' body should have non-empty stmts after UDT erasure",
+                decl.name.name
+            );
+        }
+    }
+}
+
+/// Semantic equivalence companion for the simulatable intrinsic cross-package
+/// test: evaluates the program before and after the full FIR pipeline and
+/// confirms matching results.
+#[test]
+fn cross_package_simulatable_intrinsic_with_struct_semantic_equivalence() {
+    use crate::test_utils::check_semantic_equivalence_with_library;
+
+    let lib_source = indoc! {"
+        namespace TestLib {
+            struct Pair { Fst: Int, Snd: Int }
+
+            @SimulatableIntrinsic()
+            operation TransformPair(p: Pair) : Pair {
+                new Pair { Fst = p.Snd, Snd = p.Fst }
+            }
+
+            export Pair, TransformPair;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+
+        @EntryPoint()
+        operation Main() : (Int, Int) {
+            let p = new Pair { Fst = 1, Snd = 2 };
+            let swapped = TransformPair(p);
+            (swapped.Fst, swapped.Snd)
+        }
+    "};
+
+    check_semantic_equivalence_with_library(lib_source, user_source);
 }

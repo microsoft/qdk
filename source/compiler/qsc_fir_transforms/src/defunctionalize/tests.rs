@@ -359,8 +359,8 @@ fn check_errors(source: &str, expect: &Expect) {
 /// defunctionalization, and subsequent passes.
 fn check_pipeline(source: &str) {
     let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_fir(source);
-    let errors = crate::run_pipeline(&mut fir_store, fir_pkg_id);
-    crate::test_utils::assert_no_pipeline_errors("run_pipeline", &errors);
+    let result = crate::run_pipeline_with_diagnostics(&mut fir_store, fir_pkg_id);
+    crate::test_utils::assert_no_pipeline_errors("run_pipeline", &result.errors);
 }
 
 #[test]

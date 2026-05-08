@@ -369,6 +369,15 @@ pub enum Error {
     ),
 }
 
+impl Error {
+    /// Returns `true` when the diagnostic is non-fatal to the FIR transform
+    /// pipeline.
+    #[must_use]
+    pub fn is_warning(&self) -> bool {
+        matches!(self, Self::ExcessiveSpecializations(..))
+    }
+}
+
 /// Composes two `FunctorApp` values.
 ///
 /// Adjoint toggles (XOR) and controlled counts stack (saturating addition).

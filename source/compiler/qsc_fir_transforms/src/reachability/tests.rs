@@ -375,6 +375,77 @@ fn seeds_include_transitive_deps_unreachable_from_entry() {
 }
 
 #[test]
+fn collect_reachable_with_seeds_missing_seed_is_documented() {
+    let (mut store, pkg_id) = crate::test_utils::compile_to_fir(indoc! {"
+            namespace Test {
+                function Pinned() : Unit {}
+                @EntryPoint()
+                function Main() : Unit {}
+            }
+        "});
+
+    let package = store.get(pkg_id);
+    let pinned_id = package
+        .items
+        .values()
+        .find_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "Pinned" => Some(item.id),
+            _ => None,
+        })
+        .expect("Pinned should exist");
+    let pinned_store_id = StoreItemId::from((pkg_id, pinned_id));
+
+    store.get_mut(pkg_id).items.remove(pinned_id);
+
+    let reachable = collect_reachable_with_seeds(&store, pkg_id, &[pinned_store_id]);
+
+    assert!(
+        !reachable.contains(&pinned_store_id),
+        "generic seeded reachability should skip a missing seed item"
+    );
+}
+
+#[test]
+fn collect_reachable_with_seeds_missing_transitive_item_is_documented() {
+    let (mut store, pkg_id) = crate::test_utils::compile_to_fir(indoc! {"
+            namespace Test {
+                function Helper() : Unit {}
+                function Pinned() : Unit { Helper(); }
+                @EntryPoint()
+                function Main() : Unit {}
+            }
+        "});
+
+    let package = store.get(pkg_id);
+    let find_callable = |name: &str| -> StoreItemId {
+        let local_id = package
+            .items
+            .values()
+            .find_map(|item| match &item.kind {
+                ItemKind::Callable(decl) if decl.name.name.as_ref() == name => Some(item.id),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{name} should exist"));
+        StoreItemId::from((pkg_id, local_id))
+    };
+
+    let pinned_id = find_callable("Pinned");
+    let helper_id = find_callable("Helper");
+    store.get_mut(pkg_id).items.remove(helper_id.item);
+
+    let reachable = collect_reachable_with_seeds(&store, pkg_id, &[pinned_id]);
+
+    assert!(
+        reachable.contains(&pinned_id),
+        "existing seed item should remain reachable"
+    );
+    assert!(
+        !reachable.contains(&helper_id),
+        "generic seeded reachability should skip a missing transitive item"
+    );
+}
+
+#[test]
 fn reachability_is_idempotent() {
     let source = indoc! {"
         namespace Test {
