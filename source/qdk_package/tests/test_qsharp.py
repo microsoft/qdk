@@ -990,9 +990,9 @@ def test_udts_are_accepted_as_input() -> None:
 def test_lambdas_not_exposed_into_env() -> None:
     qsharp.init()
     qsharp.eval("a -> a + 1")
-    assert not hasattr(qsharp.code, "<lambda>")
+    assert not hasattr(qdk.code, "<lambda>")
     qsharp.eval("q => I(q)")
-    assert not hasattr(qsharp.code, "<lambda>")
+    assert not hasattr(qdk.code, "<lambda>")
 
 
 def test_function_defined_before_namespace_keeps_both_accessible() -> None:

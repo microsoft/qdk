@@ -7,7 +7,8 @@ import pytest
 
 cirq = pytest.importorskip("cirq")
 
-import qdk as qsharp
+from qdk import qsharp
+import qdk.code
 from qdk.qre.application import QSharpApplication, QIRApplication
 from qdk.qre.interop import trace_from_qir
 
@@ -251,7 +252,7 @@ def test_qsharp_from_callable():
     )
 
     for num_ts in range(1, 6):
-        app = QSharpApplication(qsharp.code.Test, args=(num_ts,))  # type: ignore
+        app = QSharpApplication(qdk.code.Test, args=(num_ts,))  # type: ignore
         trace = app.get_trace()
 
         assert trace.total_qubits == 3, "unexpected number of qubits in trace"

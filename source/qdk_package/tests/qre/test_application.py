@@ -7,7 +7,7 @@ cirq = pytest.importorskip("cirq")
 
 from dataclasses import dataclass, field
 
-import qdk as qsharp
+from qdk import qsharp
 
 from qdk.qre import (
     Application,
