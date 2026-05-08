@@ -665,3 +665,635 @@ fn circuit_with_ctrl_adj_sqrt_x_gate() {
         "#]],
     );
 }
+
+// ---------------------------------------------------------------------------
+// Recursive emission of structural groups (loops, conditionals, scopes,
+// loop-iteration wrappers). These groups are produced by the circuit tracer
+// and don't correspond to real callable operations — emitting them as a call
+// to e.g. `loop: 0..3(qs)` would be nonsense. Instead the emitter recurses
+// into their children and surfaces the structure as Q# comments.
+//
+// Custom-gate groups (a Unitary whose name *does* refer to a real operation
+// in the user's project) are deliberately preserved as a call so the emitted
+// preview keeps the user's abstraction.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn custom_gate_with_children_emits_call_not_inline() {
+    // A custom gate `Foo` carries its body in `children` for visualization
+    // purposes. We must keep emitting `Foo(...)` — inlining would duplicate
+    // code that the user has already defined elsewhere in the project.
+    //
+    // The test uses two top-level components so the entry-point-wrapper
+    // unwrap heuristic doesn't apply (which is reserved for the case where
+    // the trace wraps the entire body in a single non-existent operation).
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "Foo",
+          "targets": [{ "qubit": 0 }, { "qubit": 1 }],
+          "children": [
+            {
+              "components": [
+                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+              ]
+            },
+            {
+              "components": [
+                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 1 }] }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "Foo",
+          "targets": [{ "qubit": 0 }, { "qubit": 1 }],
+          "children": [
+            {
+              "components": [
+                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0 }, { "id": 1 }]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 2 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 2 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 2 qubits.";
+                }
+                Foo(qs[0], qs[1]);
+                Foo(qs[0], qs[1]);
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn loop_group_inlines_with_comment_header() {
+    // The `loop: 0..3` outer group becomes a `// loop:` … `// end loop`
+    // pair; each `(N)` iteration wrapper becomes a single-line
+    // `// iteration (N)` marker so the reader can see iteration
+    // boundaries even when iteration bodies differ structurally.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "loop: 0..3",
+          "targets": [{ "qubit": 0 }, { "qubit": 1 }],
+          "children": [
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(0)",
+                  "targets": [{ "qubit": 0 }],
+                  "children": [
+                    {
+                      "components": [
+                        { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(1)",
+                  "targets": [{ "qubit": 1 }],
+                  "children": [
+                    {
+                      "components": [
+                        { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 1 }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0 }, { "id": 1 }]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 2 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 2 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 2 qubits.";
+                }
+                // loop: 0..3
+                // iteration (0)
+                H(qs[0]);
+                // iteration (1)
+                H(qs[1]);
+                // end loop
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn conditional_group_inlines_with_comment_header() {
+    // The `if:` group's header becomes a comment; its body inlines.
+    // The inner H carries no classical controls itself (those live on the
+    // outer group), so it emits as a plain `H(qs[0])` — exactly what we
+    // want when the outer conditional is rendered as a comment.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        { "kind": "measurement", "gate": "M", "qubits": [{ "qubit": 0 }], "results": [{ "qubit": 0, "result": 0 }] }
+      ]
+    },
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "if: c_0 == One",
+          "targets": [{ "qubit": 0 }, { "qubit": 0, "result": 0 }],
+          "controls": [{ "qubit": 0, "result": 0 }],
+          "isConditional": true,
+          "children": [
+            {
+              "components": [
+                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0, "numResults": 1 }]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Result {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                let c0_0 = M(qs[0]);
+                // if: c_0 == One
+                H(qs[0]);
+                // end if
+                return c0_0;
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn anonymous_scope_inlines_with_comment_header() {
+    // `<lambda>` and `<scope>` are compiler-synthesized labels for groupings
+    // that have no callable name. They emit as anonymous scope comments.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "<lambda>",
+          "targets": [{ "qubit": 0 }],
+          "children": [
+            {
+              "components": [
+                { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 0 }] }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0 }]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                // <lambda>
+                X(qs[0]);
+                // end scope
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn measurement_nested_in_loop_disqualifies_ctl_adj() {
+    // The grid_is_all_unitary check must descend into structural groups —
+    // a measurement inside a loop body is just as much a non-unitary as
+    // one at the top level, and the emitted operation must NOT declare
+    // `is Ctl + Adj`.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "loop: 0..1",
+          "targets": [{ "qubit": 0 }, { "qubit": 0, "result": 0 }],
+          "children": [
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(0)",
+                  "targets": [{ "qubit": 0 }],
+                  "children": [
+                    {
+                      "components": [
+                        { "kind": "measurement", "gate": "M", "qubits": [{ "qubit": 0 }], "results": [{ "qubit": 0, "result": 0 }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0, "numResults": 1 }]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Result {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                // loop: 0..1
+                // iteration (0)
+                let c0_0 = M(qs[0]);
+                // end loop
+                return c0_0;
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn nested_structural_groups_compose() {
+    // A loop with two iterations, the second of which contains an `if:`
+    // group. Verifies that nested structural groups compose cleanly and
+    // that the inner conditional's children are reachable.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "loop: 0..1",
+          "targets": [{ "qubit": 0 }],
+          "children": [
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(0)",
+                  "targets": [{ "qubit": 0 }],
+                  "children": [
+                    {
+                      "components": [
+                        { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(1)",
+                  "targets": [{ "qubit": 0 }],
+                  "children": [
+                    {
+                      "components": [
+                        {
+                          "kind": "unitary",
+                          "gate": "if: c_0 == One",
+                          "targets": [{ "qubit": 0 }],
+                          "controls": [{ "qubit": 0, "result": 0 }],
+                          "isConditional": true,
+                          "children": [
+                            {
+                              "components": [
+                                { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 0 }] }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0 }]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                // loop: 0..1
+                // iteration (0)
+                H(qs[0]);
+                // iteration (1)
+                // if: c_0 == One
+                X(qs[0]);
+                // end if
+                // end loop
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn bare_iteration_marker_emits_visible_header() {
+    // A bare `(0)` wrapper is rare — the tracer normally produces them
+    // only inside a `loop:` group — but if one shows up at the top level
+    // we still want it visible. The header is a single-line marker (no
+    // closing comment), since iteration boundaries are implicitly closed
+    // by the next iteration or the enclosing loop's `// end loop`.
+    //
+    // (Two top-level components keep the entry-point-wrapper unwrap from
+    // hiding the marker.)
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "(0)",
+          "targets": [{ "qubit": 0 }],
+          "children": [
+            {
+              "components": [
+                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "components": [
+        { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 0 }] }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0 }]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                // iteration (0)
+                H(qs[0]);
+                X(qs[0]);
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // long because the inline JSON mirrors a real trace
+fn group_splitting_test_shape_emits_loop_with_asymmetric_iterations() {
+    // Trims a real trace produced by samples/circuit_integration/GroupSplittingTest.qs
+    // (entry-point wrapper, an outer `loop: 0..3` with structurally
+    // different iterations, including a conditional that only appears in
+    // later iterations and a custom-gate call to `Foo`). The point of
+    // this test is to lock down what the user sees when they open such a
+    // trace as a `.qsc` file: a flat sequence of gates inside `// loop`
+    // and `// if` markers, with custom gates preserved as calls.
+    //
+    // This test intentionally lives alongside the unit tests rather than
+    // in an integration harness so it stays in sync with the emitter
+    // output as we extend the structural-group handling. If it breaks
+    // because we taught the emitter real `for` / `if` syntax, the new
+    // expectation is the contract going forward.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "Main",
+          "targets": [{ "qubit": 0 }, { "qubit": 1 }, { "qubit": 2 }, { "qubit": 3 }],
+          "children": [
+            {
+              "components": [
+                { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 1 }] },
+                { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 2 }] }
+              ]
+            },
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "loop: 0..3",
+                  "targets": [{ "qubit": 0 }, { "qubit": 2 }, { "qubit": 3 }],
+                  "children": [
+                    {
+                      "components": [
+                        {
+                          "kind": "unitary",
+                          "gate": "(1)",
+                          "targets": [{ "qubit": 0 }, { "qubit": 2 }, { "qubit": 3 }],
+                          "children": [
+                            {
+                              "components": [
+                                { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 3 }] },
+                                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                              ]
+                            },
+                            {
+                              "components": [
+                                { "kind": "measurement", "gate": "M", "qubits": [{ "qubit": 0 }], "results": [{ "qubit": 0, "result": 0 }] }
+                              ]
+                            },
+                            {
+                              "components": [
+                                { "kind": "ket", "gate": "0", "targets": [{ "qubit": 0 }] }
+                              ]
+                            },
+                            {
+                              "components": [
+                                {
+                                  "kind": "unitary",
+                                  "gate": "Foo",
+                                  "targets": [{ "qubit": 0 }, { "qubit": 2 }],
+                                  "children": [
+                                    {
+                                      "components": [
+                                        { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] },
+                                        { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 2 }] }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "components": [
+                        {
+                          "kind": "unitary",
+                          "gate": "(2)",
+                          "targets": [{ "qubit": 0 }, { "qubit": 2 }, { "qubit": 3 }],
+                          "children": [
+                            {
+                              "components": [
+                                { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 3 }] },
+                                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                              ]
+                            },
+                            {
+                              "components": [
+                                {
+                                  "kind": "unitary",
+                                  "gate": "if: (f(c_0)) > (2)",
+                                  "targets": [{ "qubit": 0 }, { "qubit": 0, "result": 0 }],
+                                  "controls": [{ "qubit": 0, "result": 0 }],
+                                  "isConditional": true,
+                                  "children": [
+                                    {
+                                      "components": [
+                                        { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "components": [
+                                { "kind": "measurement", "gate": "M", "qubits": [{ "qubit": 0 }], "results": [{ "qubit": 0, "result": 1 }] }
+                              ]
+                            },
+                            {
+                              "components": [
+                                { "kind": "ket", "gate": "0", "targets": [{ "qubit": 0 }] }
+                              ]
+                            },
+                            {
+                              "components": [
+                                {
+                                  "kind": "unitary",
+                                  "gate": "Foo",
+                                  "targets": [{ "qubit": 0 }, { "qubit": 2 }]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qubits": [
+    { "id": 0, "numResults": 2 },
+    { "id": 1 },
+    { "id": 2 },
+    { "id": 3 }
+  ]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 4 qubits.
+            operation Test(qs : Qubit[]) : Result[] {
+                if Length(qs) < 4 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 4 qubits.";
+                }
+                X(qs[1]);
+                X(qs[2]);
+                // loop: 0..3
+                // iteration (1)
+                X(qs[3]);
+                H(qs[0]);
+                let c0_0 = M(qs[0]);
+                Reset(qs[0]);
+                Foo(qs[0], qs[2]);
+                // iteration (2)
+                X(qs[3]);
+                H(qs[0]);
+                // if: (f(c_0)) > (2)
+                H(qs[0]);
+                // end if
+                let c0_1 = M(qs[0]);
+                Reset(qs[0]);
+                Foo(qs[0], qs[2]);
+                // end loop
+                return [c0_0, c0_1];
+            }
+
+        "#]],
+    );
+}

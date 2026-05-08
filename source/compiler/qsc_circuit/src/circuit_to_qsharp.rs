@@ -10,7 +10,7 @@ use std::fmt::Write;
 
 use crate::{
     Circuit, Operation,
-    circuit::{Ket, Measurement, Unitary},
+    circuit::{ComponentGrid, Ket, Measurement, Unitary},
     json_to_circuit::json_to_circuits,
 };
 
@@ -58,12 +58,12 @@ fn build_operation_def(circuit_name: &str, circuit: &Circuit) -> String {
         _ => "Result[]",
     };
 
-    // Check if all operations are Unitary
-    let is_ctl_adj = !circuit.component_grid.iter().any(|col| {
-        col.components
-            .iter()
-            .any(|op| !matches!(op, Operation::Unitary(_)))
-    });
+    // Check if all operations (recursively) are unitaries — only then can the
+    // emitted operation declare `is Ctl + Adj`. We have to descend into
+    // structural groups (loops, conditionals) because a measurement nested
+    // inside a loop disqualifies the operation just as much as a measurement
+    // at the top level.
+    let is_ctl_adj = grid_is_all_unitary(&circuit.component_grid);
 
     let characteristics = if is_ctl_adj { "is Ctl + Adj " } else { "" };
     let summary = if qubits.is_empty() {
@@ -100,36 +100,25 @@ fn build_operation_def(circuit_name: &str, circuit: &Circuit) -> String {
     let mut body_str = String::new();
     let mut should_add_pi = false;
 
-    // Note: In the future we may want to add support for children operations
-    for col in &circuit.component_grid {
-        for op in &col.components {
-            match &op {
-                Operation::Measurement(measurement) => {
-                    body_str.push_str(
-                        generate_measurement_call(
-                            measurement,
-                            &qubits,
-                            &indent,
-                            &mut measure_results,
-                        )
-                        .as_str(),
-                    );
-                }
-                Operation::Unitary(unitary) => {
-                    body_str.push_str(generate_unitary_call(unitary, &qubits, &indent).as_str());
-                }
-                Operation::Ket(ket) => {
-                    body_str.push_str(generate_ket_call(ket, &qubits, &indent).as_str());
-                }
-            }
+    // The trace-derived form of a circuit wraps the entire body in a single
+    // outer call to the entry-point operation (e.g. `Main` with the whole
+    // body in `children`). Calling that name here would emit a call to a
+    // non-existent operation and skip the body entirely, so we unwrap one
+    // level when we see that shape. Editor-authored circuits never produce
+    // this shape — custom-gate calls don't carry their body as children.
+    let body_grid = match unwrap_entry_point_wrapper(&circuit.component_grid) {
+        Some(inner) => inner,
+        None => &circuit.component_grid,
+    };
 
-            // Look for a "π" in the args
-            let args = op.args();
-            if !should_add_pi && !args.is_empty() {
-                should_add_pi = args.iter().any(|arg| arg.contains("π"));
-            }
-        }
-    }
+    process_components(
+        body_grid,
+        &qubits,
+        indentation_level,
+        &mut measure_results,
+        &mut should_add_pi,
+        &mut body_str,
+    );
 
     if should_add_pi {
         // Add the π constant
@@ -141,6 +130,206 @@ fn build_operation_def(circuit_name: &str, circuit: &Circuit) -> String {
     qsharp_str.push_str(&generate_return_statement(&mut measure_results, &indent));
     qsharp_str.push_str("}\n\n");
     qsharp_str
+}
+
+/// Recursively emits Q# for the given grid of components into `out`.
+///
+/// Most operations emit a single call. The exception is structural groups
+/// (loops, conditionals, anonymous scopes, loop-iteration wrappers) — these
+/// don't correspond to real Q# operations, so calling them by name would
+/// produce code that doesn't compile. Instead we recurse into their children
+/// and surface the structure as Q# comments. As the editor learns to author
+/// these constructs natively (loops, conditionals, …), each case here will
+/// graduate from a `// loop: …` comment to a real `for` / `if` block.
+///
+/// Custom-gate groups (e.g. `Foo` with a `children` expansion of its body)
+/// are *not* treated as structural — the call to `Foo` is what we want to
+/// preserve, and the user's project supplies the body.
+fn process_components(
+    grid: &ComponentGrid,
+    qubits: &FxHashMap<usize, String>,
+    indentation_level: usize,
+    measure_results: &mut Vec<(String, (usize, usize))>,
+    should_add_pi: &mut bool,
+    out: &mut String,
+) {
+    let indent = "    ".repeat(indentation_level);
+    for col in grid {
+        for op in &col.components {
+            // Structural groups are inlined rather than emitted as a call.
+            if let Operation::Unitary(u) = op
+                && !u.children.is_empty()
+                && let Some(kind) = structural_group_kind(&u.gate)
+            {
+                emit_structural_group(
+                    kind,
+                    &u.gate,
+                    &u.children,
+                    qubits,
+                    indentation_level,
+                    measure_results,
+                    should_add_pi,
+                    out,
+                );
+                continue;
+            }
+
+            match &op {
+                Operation::Measurement(measurement) => {
+                    out.push_str(&generate_measurement_call(
+                        measurement,
+                        qubits,
+                        &indent,
+                        measure_results,
+                    ));
+                }
+                Operation::Unitary(unitary) => {
+                    out.push_str(&generate_unitary_call(unitary, qubits, &indent));
+                }
+                Operation::Ket(ket) => {
+                    out.push_str(&generate_ket_call(ket, qubits, &indent));
+                }
+            }
+
+            // Look for a "π" in the args
+            let args = op.args();
+            if !*should_add_pi && !args.is_empty() {
+                *should_add_pi = args.iter().any(|arg| arg.contains("π"));
+            }
+        }
+    }
+}
+
+/// Categorization of structural group names produced by the circuit tracer.
+/// Any variant other than [`StructuralGroupKind::Iteration`] gets a
+/// human-readable comment header in the emitted Q#.
+#[derive(Clone, Copy)]
+enum StructuralGroupKind {
+    Loop,
+    Conditional,
+    /// A loop-iteration wrapper such as `(0)`, `(1)`. Its children are the
+    /// iteration body and we recurse silently — adding visible markers for
+    /// every iteration would dwarf the actual Q#.
+    Iteration,
+    /// `<lambda>`, `<scope>`, or any other compiler-synthesized scope label
+    /// that doesn't map to a callable.
+    AnonymousScope,
+}
+
+fn structural_group_kind(name: &str) -> Option<StructuralGroupKind> {
+    if name.starts_with("loop:") {
+        Some(StructuralGroupKind::Loop)
+    } else if name.starts_with("if:") {
+        Some(StructuralGroupKind::Conditional)
+    } else if is_iteration_marker(name) {
+        Some(StructuralGroupKind::Iteration)
+    } else if name == "<lambda>" || name == "<scope>" {
+        Some(StructuralGroupKind::AnonymousScope)
+    } else {
+        None
+    }
+}
+
+/// Matches a loop-iteration wrapper name like `(0)`, `(12)`. We deliberately
+/// require ASCII digits and the literal parens so we don't accidentally
+/// classify a custom gate named e.g. `(Reset)` as an iteration wrapper.
+fn is_iteration_marker(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    bytes.len() >= 3
+        && bytes[0] == b'('
+        && bytes[bytes.len() - 1] == b')'
+        && bytes[1..bytes.len() - 1].iter().all(u8::is_ascii_digit)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_structural_group(
+    kind: StructuralGroupKind,
+    name: &str,
+    children: &ComponentGrid,
+    qubits: &FxHashMap<usize, String>,
+    indentation_level: usize,
+    measure_results: &mut Vec<(String, (usize, usize))>,
+    should_add_pi: &mut bool,
+    out: &mut String,
+) {
+    let indent = "    ".repeat(indentation_level);
+
+    // Iteration markers emit a single header comment with no closing
+    // marker — the next iteration (or the enclosing `// end loop`) closes
+    // the visual scope. Keeping them visible (rather than transparent) is
+    // important when loop iterations are structurally different: without
+    // these markers there's no way for the reader to tell which gates
+    // belong to which iteration.
+    if matches!(kind, StructuralGroupKind::Iteration) {
+        writeln!(out, "{indent}// iteration {name}").expect("could not write to out");
+        process_components(
+            children,
+            qubits,
+            indentation_level,
+            measure_results,
+            should_add_pi,
+            out,
+        );
+        return;
+    }
+
+    let footer = match kind {
+        StructuralGroupKind::Loop => "// end loop",
+        StructuralGroupKind::Conditional => "// end if",
+        StructuralGroupKind::AnonymousScope => "// end scope",
+        StructuralGroupKind::Iteration => unreachable!("handled above"),
+    };
+    writeln!(out, "{indent}// {name}").expect("could not write to out");
+    process_components(
+        children,
+        qubits,
+        indentation_level,
+        measure_results,
+        should_add_pi,
+        out,
+    );
+    writeln!(out, "{indent}{footer}").expect("could not write to out");
+}
+
+/// Returns true iff every operation in `grid` (and recursively in any
+/// children) is a [`Operation::Unitary`]. Used to decide whether the emitted
+/// operation can declare `is Ctl + Adj`.
+fn grid_is_all_unitary(grid: &ComponentGrid) -> bool {
+    grid.iter().all(|col| {
+        col.components
+            .iter()
+            .all(|op| matches!(op, Operation::Unitary(_)) && grid_is_all_unitary(op.children()))
+    })
+}
+
+/// Detects the trace-derived "entry-point wrapper" shape: a top-level grid
+/// containing exactly one column with exactly one unitary that has children
+/// AND whose name does *not* identify a structural group (loops,
+/// conditionals, scopes — those are real circuit structure that we must
+/// preserve, not wrappers to unwrap). The wrapper's name is the entry-point
+/// operation that was traced (e.g. `Main`). Emitting it as a call would
+/// point at an operation that doesn't exist in the user's preview and would
+/// skip the body entirely.
+///
+/// Returns the inner grid to use as the body, or `None` if the grid is not
+/// in entry-point-wrapper shape.
+fn unwrap_entry_point_wrapper(grid: &ComponentGrid) -> Option<&ComponentGrid> {
+    if grid.len() != 1 {
+        return None;
+    }
+    let col = grid.first()?;
+    if col.components.len() != 1 {
+        return None;
+    }
+    let only = col.components.first()?;
+    match only {
+        Operation::Unitary(u)
+            if !u.children.is_empty() && structural_group_kind(&u.gate).is_none() =>
+        {
+            Some(&u.children)
+        }
+        _ => None,
+    }
 }
 
 fn generate_qubit_validation(
