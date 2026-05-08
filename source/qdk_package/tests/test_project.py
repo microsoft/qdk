@@ -7,16 +7,16 @@ import os
 
 @pytest.fixture
 def qsharp():
-    import qdk as qsharp
+    from qdk import qsharp
     import qdk._fs
     import qdk._http
 
-    qsharp._fs.read_file = read_file_memfs
-    qsharp._fs.list_directory = list_directory_memfs
-    qsharp._fs.exists = exists_memfs
-    qsharp._fs.join = join_memfs
-    qsharp._fs.resolve = resolve_memfs
-    qsharp._http.fetch_github = fetch_github_test
+    qdk._fs.read_file = read_file_memfs
+    qdk._fs.list_directory = list_directory_memfs
+    qdk._fs.exists = exists_memfs
+    qdk._fs.join = join_memfs
+    qdk._fs.resolve = resolve_memfs
+    qdk._http.fetch_github = fetch_github_test
 
     return qsharp
 
@@ -81,9 +81,11 @@ def test_circuit(qsharp) -> None:
 
 
 def test_src_package_udt(qsharp) -> None:
+    import qdk.code
+
     qsharp.init(project_root="/src_package_udt")
-    arg = qsharp.code.Test.Data(42)
-    result = qsharp.run(qsharp.code.Test.Op, 1, arg)
+    arg = qdk.code.Test.Data(42)
+    result = qsharp.run(qdk.code.Test.Op, 1, arg)
     assert result == [42]
 
 

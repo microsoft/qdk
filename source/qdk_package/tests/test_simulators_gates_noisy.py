@@ -4,7 +4,7 @@
 from collections import Counter
 import os
 import pytest
-import qdk as qsharp
+from qdk import qsharp
 from qdk._interpreter import compile
 from qdk import Result, TargetProfile
 from qdk.simulation import run_qir as _run_qir, NoiseConfig

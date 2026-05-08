@@ -1,7 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import qdk as qsharp
+from qdk import qsharp
+import qdk.code
 from qdk.estimator import EstimatorParams, QubitParams, QECScheme, LogicalCounts
 
 
@@ -204,7 +205,7 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable() -> None:
         """
     )
 
-    res = qsharp.estimate(qsharp.code.Test, params=params)
+    res = qsharp.estimate(qdk.code.Test, params=params)
 
     for idx in res:
         assert res[idx]["status"] == "success"
@@ -225,7 +226,7 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable() -> None:
         )
     assert res[2]["jobParams"]["qecScheme"]["name"] == QECScheme.FLOQUET_CODE
 
-    res_logical = qsharp.logical_counts(qsharp.code.Test)
+    res_logical = qsharp.logical_counts(qdk.code.Test)
     assert res_logical == res[0]["logicalCounts"]
 
 
@@ -339,7 +340,7 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable_with_arg() 
         """
     )
 
-    res = qsharp.estimate(qsharp.code.Test, params, 7)
+    res = qsharp.estimate(qdk.code.Test, params, 7)
 
     for idx in res:
         assert res[idx]["status"] == "success"
@@ -360,7 +361,7 @@ def test_qsharp_estimation_with_multiple_params_from_python_callable_with_arg() 
         )
     assert res[2]["jobParams"]["qecScheme"]["name"] == QECScheme.FLOQUET_CODE
 
-    res_logical = qsharp.logical_counts(qsharp.code.Test, 7)
+    res_logical = qsharp.logical_counts(qdk.code.Test, 7)
     assert res_logical == res[0]["logicalCounts"]
 
 

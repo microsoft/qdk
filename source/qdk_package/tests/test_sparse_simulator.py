@@ -11,7 +11,7 @@ import pytest
 
 from qdk._native import Result
 
-import qdk as qsharp
+from qdk import qsharp
 from qdk import TargetProfile
 from qdk import openqasm, run
 

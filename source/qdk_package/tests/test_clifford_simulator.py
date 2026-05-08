@@ -8,7 +8,8 @@ import pyqir
 import pytest
 import math
 
-import qdk as qsharp
+from qdk import qsharp
+import qdk.code
 from qdk import openqasm
 from qdk.qsharp import QSharpError
 from qdk.simulation import NoiseConfig
@@ -242,7 +243,7 @@ def test_clifford_run_no_noise():
 
     # Same execution should work with the operation itself.
     output = qsharp.run(
-        qsharp.code.IsingModel2DEvolution,
+        qdk.code.IsingModel2DEvolution,
         1,
         4,
         4,
@@ -281,7 +282,7 @@ def test_clifford_run_bitflip_noise():
 
     # Same execution should work with the operation itself.
     output = qsharp.run(
-        qsharp.code.IsingModel2DEvolution,
+        qdk.code.IsingModel2DEvolution,
         1,
         4,
         4,

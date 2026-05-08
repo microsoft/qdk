@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-import qdk as qsharp
+from qdk import qsharp
 from expecttest import assert_expected_inline
 from textwrap import dedent
 

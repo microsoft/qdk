@@ -3,7 +3,7 @@
 
 from textwrap import dedent
 import pytest
-import qdk as qsharp
+from qdk import qsharp
 import qdk.code
 from contextlib import redirect_stdout
 import io

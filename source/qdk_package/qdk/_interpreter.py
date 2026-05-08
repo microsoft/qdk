@@ -35,6 +35,7 @@ from ._native import (  # type: ignore
     CircuitConfig,
     CircuitGenerationMethod,
     NoiseConfig,
+    estimate_custom,
 )
 from typing import (
     Any,
@@ -1048,6 +1049,7 @@ __all__ = [
     "EstimatorResult",
     "EstimatorParams",
     "LogicalCounts",
+    "estimate_custom",
     # Interpreter lifecycle
     "init",
     "get_interpreter",

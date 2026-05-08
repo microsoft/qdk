@@ -34,7 +34,7 @@ except OSError as e:
     SKIP_REASON = str(e)
 
 
-import qdk as qsharp
+from qdk import qsharp
 from qdk import TargetProfile
 from qdk import openqasm
 
