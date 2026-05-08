@@ -1799,6 +1799,8 @@ impl<'a> PartialEvaluator<'a> {
             | "BeginRepeatEstimatesInternal"
             | "EndRepeatEstimatesInternal"
             | "EnableMemoryComputeArchitecture"
+            | "MemoryQubitLoad"
+            | "MemoryQubitStore"
             | "ApplyIdleNoise"
             | "GlobalPhase"
             | "Message"

@@ -3,6 +3,7 @@
 
 use std::convert::Into;
 
+use crate::system::LogicalResourceCounts;
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use miette::Report;
@@ -14,7 +15,7 @@ use qsc::{
 
 use super::LogicalCounter;
 
-fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
+fn run_logical_counts(source: &str, entry: Option<&str>) -> Result<LogicalResourceCounts, String> {
     let source_map = SourceMap::new([("test".into(), source.into())], entry.map(Into::into));
     let (std_id, store) = qsc::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
 
@@ -28,11 +29,12 @@ fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
     ) {
         Ok(interpreter) => interpreter,
         Err(err) => {
+            let mut messages = Vec::new();
             for e in err {
                 let report = Report::from(e);
-                eprintln!("{report:?}");
+                messages.push(format!("{report:?}"));
             }
-            panic!("compilation failed");
+            return Err(format!("compilation failed:\n{}", messages.join("\n")));
         }
     };
     let mut counter = LogicalCounter::default();
@@ -40,17 +42,21 @@ fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
     let mut out = GenericReceiver::new(&mut stdout);
 
     match interpreter.eval_entry_with_sim(&mut counter, &mut out) {
-        Ok(_) => {
-            expect.assert_debug_eq(&counter.logical_resources());
-        }
+        Ok(_) => Ok(counter.logical_resources()),
         Err(err) => {
+            let mut messages = Vec::new();
             for e in err {
                 let report = Report::from(e);
-                eprintln!("{report:?}");
+                messages.push(format!("{report:?}"));
             }
-            panic!("evaluation failed");
+            Err(format!("evaluation failed:\n{}", messages.join("\n")))
         }
     }
+}
+
+fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
+    let logical_counts = run_logical_counts(source, entry).unwrap();
+    expect.assert_debug_eq(&logical_counts);
 }
 
 #[test]
@@ -425,5 +431,88 @@ fn post_selection_can_take_impossible_branch() {
                 write_to_memory_count: None,
             }
         "#]],
+    );
+}
+
+#[test]
+fn manual_memory_load_store() {
+    let counts = run_logical_counts(
+        indoc! {"
+                operation Main() : Unit {
+                    Std.ResourceEstimation.EnableMemoryComputeArchitecture(100000, 2);
+
+                    use qs = Qubit[2];
+                    Std.Memory.MemoryQubitStore(qs[0]);
+                    Std.Memory.MemoryQubitLoad(qs[0]);
+                }
+            "},
+        None,
+    )
+    .unwrap();
+    assert_eq!(counts.write_to_memory_count, Some(1));
+    assert_eq!(counts.read_from_memory_count, Some(1));
+    assert_eq!(counts.num_compute_qubits, Some(2));
+    assert_eq!(counts.num_qubits, 3);
+}
+
+#[test]
+fn manual_memory_complex_circuit_counts() {
+    let counts = run_logical_counts(
+        indoc! {"
+                operation Main() : Unit {
+                    Std.ResourceEstimation.EnableMemoryComputeArchitecture(100000, 2);
+
+                    use qs = Qubit[4];
+
+                    // Move two qubits to memory.
+                    Std.Memory.MemoryQubitStore(qs[2]);
+                    Std.Memory.MemoryQubitStore(qs[3]);
+
+                    // Compute on hot qubits.
+                    H(qs[0]);
+                    CNOT(qs[0], qs[1]);
+
+                    // Bring one memory qubit back and use it in a 3-qubit gate.
+                    Std.Memory.MemoryQubitLoad(qs[2]);
+                    CCNOT(qs[0], qs[1], qs[2]);
+
+                    // Evict another qubit and load a different one.
+                    Std.Memory.MemoryQubitStore(qs[1]);
+                    Std.Memory.MemoryQubitLoad(qs[3]);
+
+                    // Two-qubit operation on currently loaded qubits.
+                    Controlled Z([qs[2]], qs[3]);
+                }
+            "},
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(counts.write_to_memory_count, Some(3));
+    assert_eq!(counts.read_from_memory_count, Some(2));
+    assert_eq!(counts.num_compute_qubits, Some(4));
+    assert_eq!(counts.num_qubits, 6);
+    assert_eq!(counts.ccz_count, 1);
+}
+
+#[test]
+fn manual_memory_rejects_gate_application() {
+    let result = run_logical_counts(
+        indoc! {"
+                operation Main() : Unit {
+                    Std.ResourceEstimation.EnableMemoryComputeArchitecture(0, 2);
+
+                    use q = Qubit();
+                    Std.Memory.MemoryQubitStore(q);
+                    X(q);
+                }
+            "},
+        None,
+    );
+
+    let err = result.expect_err("expected gate application on memory qubit to fail");
+    assert!(
+        err.contains("Tried to do computation on memory qubit"),
+        "unexpected error: {err}"
     );
 }

@@ -185,6 +185,13 @@ operation RepeatEstimates(count : Int) : Unit is Adj {
 /// automatically move qubits from and back into the memory such that never
 /// more than `computeCapacity` qubits are used to compute at any time.
 ///
+/// When using "Manual" strategy:
+///   * Qubits must be moved between memory and compute by explicit instructions
+///       Std.Memory.MemoryQubitLoad and Std.Memory.MemoryQubitStore.
+///   * All qubits are initially allocated as Compute qubits.
+///   * Capacity is ignored.
+///   * Calling gate or measurement on memory qubit will result in a runtime error.
+///
 /// # Input
 /// ## computeCapacity
 /// The maximum number of compute qubits which can be used to perform
@@ -192,7 +199,7 @@ operation RepeatEstimates(count : Int) : Unit is Adj {
 /// ## strategy
 /// The strategy applied when evicting qubits from the compute qubits in case
 /// of maximum capacity: 0 = LRU (least recently used), 1 = LFU (least
-/// frequently used)
+/// frequently used), 2 = Manual.
 function EnableMemoryComputeArchitecture(computeCapacity : Int, strategy : Int) : Unit {
     body intrinsic;
 }

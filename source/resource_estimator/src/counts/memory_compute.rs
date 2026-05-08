@@ -1,4 +1,5 @@
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::cmp::max;
 use std::collections::VecDeque;
 use std::hash::Hash;
 
@@ -336,4 +337,75 @@ impl<K: Eq + Hash + Clone> LeastFrequentlyUsedPriorityQueue<K> {
             self.removed += 1;
         }
     }
+}
+
+/// For each qubit in use, stores whether it's Compute or Memory qubit.
+/// Allows user to directly move qubits between "Memory" and "Compute" sets.
+/// Keeps track of maximal usage of compute and memory qubits.
+#[derive(Debug, Default)]
+pub struct ManualMemoryCompute {
+    compute_qubits: FxHashSet<usize>,
+    memory_qubits: FxHashSet<usize>,
+    pub(crate) max_memory_qubits_count: usize,
+    pub(crate) max_compute_qubits_count: usize,
+    pub(crate) reads_count: usize,
+    pub(crate) writes_count: usize,
+}
+
+impl ManualMemoryCompute {
+    /// Moves this qubit to set of compute qubits.
+    /// If it was a memory qubit, records that as "read" operation.
+    pub fn move_to_compute(&mut self, qid: usize) {
+        if self.memory_qubits.contains(&qid) {
+            self.memory_qubits.remove(&qid);
+            self.reads_count += 1;
+        }
+        self.compute_qubits.insert(qid);
+        self.max_compute_qubits_count =
+            max(self.max_compute_qubits_count, self.compute_qubits.len());
+    }
+
+    /// Moves this qubit to set of memory qubits.
+    /// If it was a compute qubit, records that as "write" operation.
+    pub fn move_to_memory(&mut self, qid: usize) {
+        if !self.memory_qubits.contains(&qid) {
+            self.compute_qubits.remove(&qid);
+            self.writes_count += 1;
+            self.memory_qubits.insert(qid);
+            self.max_memory_qubits_count =
+                max(self.max_memory_qubits_count, self.memory_qubits.len());
+        }
+    }
+
+    /// Releases the qubit.
+    pub fn release(&mut self, qid: usize) {
+        self.compute_qubits.remove(&qid);
+        self.memory_qubits.remove(&qid);
+    }
+
+    pub fn assert_compute_qubits(
+        &self,
+        qubits: impl IntoIterator<Item = usize>,
+    ) -> Result<(), String> {
+        for qid in qubits {
+            if self.memory_qubits.contains(&qid) {
+                return Result::Err("Tried to do computation on memory qubit".to_string());
+            }
+        }
+        Result::Ok(())
+    }
+}
+
+pub enum MemoryCompute {
+    /// No memory-compute architecture, all qubits are "compute" qubits.
+    /// Load/Store instructions are ignored.
+    None,
+    /// Automatically manages memory and compute qubits by evicting compute qubits to
+    /// memory if needed.
+    /// Load/Store instructions are ignored.
+    /// Gates/measurements on memory qubit will be automatically prepended by load.
+    Auto(MemoryComputeInfo),
+    /// Qubits are loaded and stored by explicit Load/Store instructions.
+    /// Gates/measurements on memory qubit resul tin error.
+    Manual(ManualMemoryCompute),
 }
