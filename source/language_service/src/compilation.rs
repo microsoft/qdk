@@ -425,19 +425,28 @@ fn run_fir_passes(
         //   - No `Ty::Param` in reachable code (monomorphization completed).
         //   - No `ExprKind::Return` in reachable code (return unification completed).
         //   - No `Ty::Arrow` params / `ExprKind::Closure` (defunctionalization completed).
-        //   - No `Ty::Udt` / `ExprKind::Struct` / `Field::Path` (UDT erasure completed).
+        //   - No `Ty::Udt` / `ExprKind::Struct`; `Field::Path` only on tuple records
+        //     (UDT erasure completed).
         //   - All exec-graph ranges populated (exec-graph rebuild completed).
         // RCA (capability checking) assumes these invariants hold. See
         // `qsc_fir_transforms::invariants::check` for the authoritative checker.
-        let transform_errors = qsc::fir_transforms::run_pipeline(&mut fir_store, fir_package_id);
-        if !transform_errors.is_empty() {
-            for err in transform_errors {
+        let transform_result =
+            qsc::fir_transforms::run_pipeline_with_diagnostics(&mut fir_store, fir_package_id);
+        if !transform_result.errors.is_empty() {
+            for err in transform_result.errors {
                 errors.push(WithSource::from_map(
                     &unit.sources,
                     compile::ErrorKind::FirTransform(err),
                 ));
             }
             return; // Don't run RCA on invalid FIR
+        }
+
+        for warning in transform_result.warnings {
+            errors.push(WithSource::from_map(
+                &unit.sources,
+                compile::ErrorKind::FirTransform(warning),
+            ));
         }
     }
 

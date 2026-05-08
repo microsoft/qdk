@@ -3,6 +3,7 @@
 
 use super::*;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn analysis_apply_operation_power_ca_consumer() {
@@ -433,4 +434,50 @@ fn partial_application_sample_shape_has_no_defunctionalization_errors() {
         "#,
         &expect!["(no error)"],
     );
+}
+
+#[test]
+fn cross_package_callable_value_defunctionalized() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            function ApplyFunc(f: Int -> Int, x: Int) : Int { f(x) }
+            function Double(x: Int) : Int { x * 2 }
+            export ApplyFunc, Double;
+        }
+    "};
+
+    let user_source = indoc! {"
+        import TestLib.*;
+        @EntryPoint()
+        operation Main() : Int {
+            ApplyFunc(Double, 5)
+        }
+    "};
+
+    let (_store, _pkg_id) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+        lib_source,
+        user_source,
+        crate::test_utils::PipelineStage::Defunc,
+    );
+}
+
+#[test]
+fn cross_package_callable_value_semantic_equivalence() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            function ApplyFunc(f: Int -> Int, x: Int) : Int { f(x) }
+            function Double(x: Int) : Int { x * 2 }
+            export ApplyFunc, Double;
+        }
+    "};
+
+    let user_source = indoc! {"
+        import TestLib.*;
+        @EntryPoint()
+        operation Main() : Int {
+            ApplyFunc(Double, 5)
+        }
+    "};
+
+    crate::test_utils::check_semantic_equivalence_with_library(lib_source, user_source);
 }

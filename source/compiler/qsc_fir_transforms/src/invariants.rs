@@ -19,21 +19,27 @@
 //! | `PostSroa` | SROA — tuple decomposition patterns match types. |
 //! | `PostArgPromote` | Argument promotion — input patterns match types. |
 //! | `PostGc` | Unreachable GC — no orphaned arena node references. |
+//! | `PostItemDce` | Item DCE — no orphaned live-tree references after item pruning. |
 //! | `PostAll` | All passes — full structural + type checks. |
-//!
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod test_utils;
 
 use crate::fir_builder::functored_specs;
 use qsc_fir::fir::{
     BinOp, BlockId, CallableDecl, CallableImpl, ExecGraphConfig, ExecGraphDebugNode, ExecGraphNode,
-    ExprId, ExprKind, Field, ItemKind, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
-    PackageStore, PatId, PatKind, Res, SpecDecl, StmtKind, StoreItemId,
+    ExprId, ExprKind, Field, Functor, ItemId, ItemKind, LocalItemId, LocalVarId, Package,
+    PackageId, PackageLookup, PackageStore, PatId, PatKind, Res, SpecDecl, StmtKind, StoreItemId,
+    UnOp,
 };
-use qsc_fir::ty::{FunctorSet, Ty};
+use qsc_fir::ty::{FunctorSet, Prim, Ty};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
+use crate::{CallableSpecId, CallableSpecKind};
 
 /// The level of invariant checking to perform, corresponding to which passes
 /// have already been applied.
@@ -62,6 +68,10 @@ pub enum InvariantLevel {
     /// live FIR tree. Inherits all [`PostArgPromote`](Self::PostArgPromote)
     /// checks.
     PostGc,
+    /// After item DCE: live FIR tree references remain valid after item pruning.
+    /// `StmtKind::Item` definitions may still point at removed items, because
+    /// they are declarations rather than executable tree edges.
+    PostItemDce,
     /// After all passes: all structural checks plus per-pass type constraints.
     PostAll,
 }
@@ -79,6 +89,7 @@ impl InvariantLevel {
                 | Self::PostSroa
                 | Self::PostArgPromote
                 | Self::PostGc
+                | Self::PostItemDce
                 | Self::PostAll
         )
     }
@@ -94,6 +105,7 @@ impl InvariantLevel {
                 | Self::PostSroa
                 | Self::PostArgPromote
                 | Self::PostGc
+                | Self::PostItemDce
                 | Self::PostAll
         )
     }
@@ -108,6 +120,7 @@ impl InvariantLevel {
                 | Self::PostSroa
                 | Self::PostArgPromote
                 | Self::PostGc
+                | Self::PostItemDce
                 | Self::PostAll
         )
     }
@@ -121,6 +134,7 @@ impl InvariantLevel {
                 | Self::PostSroa
                 | Self::PostArgPromote
                 | Self::PostGc
+                | Self::PostItemDce
                 | Self::PostAll
         )
     }
@@ -133,6 +147,7 @@ impl InvariantLevel {
                 | Self::PostSroa
                 | Self::PostArgPromote
                 | Self::PostGc
+                | Self::PostItemDce
                 | Self::PostAll
         )
     }
@@ -141,13 +156,20 @@ impl InvariantLevel {
     fn is_post_sroa_or_later(self) -> bool {
         matches!(
             self,
-            Self::PostSroa | Self::PostArgPromote | Self::PostGc | Self::PostAll
+            Self::PostSroa
+                | Self::PostArgPromote
+                | Self::PostGc
+                | Self::PostItemDce
+                | Self::PostAll
         )
     }
 
     /// Returns `true` when this level is at or after argument promotion.
     fn is_post_arg_promote_or_later(self) -> bool {
-        matches!(self, Self::PostArgPromote | Self::PostGc | Self::PostAll)
+        matches!(
+            self,
+            Self::PostArgPromote | Self::PostGc | Self::PostItemDce | Self::PostAll
+        )
     }
 }
 
@@ -204,6 +226,71 @@ pub fn check(store: &PackageStore, package_id: qsc_fir::fir::PackageId, level: I
             let nodes = package.entry_exec_graph.select_ref(config);
             check_configured_exec_graph(package, nodes, "entry_exec_graph", label);
         }
+    }
+}
+
+/// Checks exec graph integrity for selected external callable specs.
+///
+/// This intentionally validates only the exec graph surface needed after UDT
+/// erasure mutates reachable external specs; it does not apply the full
+/// target-package `PostAll` invariant set to external packages.
+pub(crate) fn check_external_spec_exec_graphs(
+    store: &PackageStore,
+    external_specs: &[CallableSpecId],
+) {
+    for spec_id in external_specs {
+        let package = store.get(spec_id.callable.package);
+        let item = package.get_item(spec_id.callable.item);
+        let ItemKind::Callable(decl) = &item.kind else {
+            panic!("external exec graph invariant expected callable item {spec_id:?}");
+        };
+        let spec = get_spec_decl(package, decl, spec_id.kind);
+        let context = format!(
+            "external {}/{}",
+            decl.name.name,
+            spec_kind_label(spec_id.kind)
+        );
+        check_spec_exec_graph(package, spec, &context);
+        check_spec_exec_graph_ranges(package, spec, &context);
+    }
+}
+
+/// Selects the requested specialization declaration from a callable.
+fn get_spec_decl<'a>(
+    _package: &'a Package,
+    decl: &'a CallableDecl,
+    kind: CallableSpecKind,
+) -> &'a SpecDecl {
+    match (kind, &decl.implementation) {
+        (CallableSpecKind::Body, CallableImpl::Spec(spec_impl)) => &spec_impl.body,
+        (CallableSpecKind::Adj, CallableImpl::Spec(spec_impl)) => {
+            spec_impl.adj.as_ref().expect("adjoint spec should exist")
+        }
+        (CallableSpecKind::Ctl, CallableImpl::Spec(spec_impl)) => spec_impl
+            .ctl
+            .as_ref()
+            .expect("controlled spec should exist"),
+        (CallableSpecKind::CtlAdj, CallableImpl::Spec(spec_impl)) => spec_impl
+            .ctl_adj
+            .as_ref()
+            .expect("controlled adjoint spec should exist"),
+        (CallableSpecKind::SimulatableIntrinsic, CallableImpl::SimulatableIntrinsic(spec)) => spec,
+        _ => panic!(
+            "external exec graph invariant expected spec kind {} on callable '{}'",
+            spec_kind_label(kind),
+            decl.name.name
+        ),
+    }
+}
+
+/// Returns a stable diagnostic label for a callable specialization kind.
+fn spec_kind_label(kind: CallableSpecKind) -> &'static str {
+    match kind {
+        CallableSpecKind::Body => "body",
+        CallableSpecKind::Adj => "adj",
+        CallableSpecKind::Ctl => "ctl",
+        CallableSpecKind::CtlAdj => "ctl_adj",
+        CallableSpecKind::SimulatableIntrinsic => "sim_intrinsic",
     }
 }
 
@@ -985,6 +1072,14 @@ fn check_expr_type(
     let expr = package.get_expr(expr_id);
     check_type_invariants(&expr.ty, level, &format!("Expr {expr_id}"));
 
+    if let Some(kind_name) = assignment_kind_name(&expr.kind) {
+        assert!(
+            expr.ty == Ty::UNIT,
+            "Assignment type invariant violation: Expr {expr_id} is {kind_name} but has type {:?}",
+            expr.ty,
+        );
+    }
+
     // After defunctionalization, no closures should remain in reachable code.
     if level.is_post_defunc_or_later() {
         assert!(
@@ -1068,6 +1163,17 @@ fn check_expr_type(
     }
 }
 
+/// Names assignment expression variants whose result type must be `Unit`.
+fn assignment_kind_name(kind: &ExprKind) -> Option<&'static str> {
+    match kind {
+        ExprKind::Assign(_, _) => Some("Assign"),
+        ExprKind::AssignField(_, _, _) => Some("AssignField"),
+        ExprKind::AssignIndex(_, _, _) => Some("AssignIndex"),
+        ExprKind::AssignOp(_, _, _) => Some("AssignOp"),
+        _ => None,
+    }
+}
+
 /// Verifies that a `ExprKind::Call` expression's argument type matches the
 /// callee's declared input type and that the call's result type matches the
 /// callee's declared output type.
@@ -1093,15 +1199,23 @@ fn check_call_shape_matches_callee(
         );
     };
 
-    assert!(
-        arg.ty == expected_input,
-        "PostArgPromote/PostAll call invariant violation: Expr {call_expr_id} passes Expr \
-         {arg_id} with type {:?} to callee Expr {callee_id} expecting input type \
-         {expected_input:?}",
-        arg.ty,
-    );
-
     let call = package.get_expr(call_expr_id);
+    if arg.ty != expected_input {
+        if let Some((arrow_input, arrow_output)) = resolve_arrow_expr_signature(package, callee_id)
+            && arg.ty == arrow_input
+            && call.ty == arrow_output
+        {
+            return;
+        }
+
+        panic!(
+            "PostArgPromote/PostAll call invariant violation: Expr {call_expr_id} passes Expr \
+             {arg_id} with type {:?} to callee Expr {callee_id} expecting input type \
+             {expected_input:?}",
+            arg.ty,
+        );
+    }
+
     assert!(
         call.ty == expected_output,
         "PostArgPromote/PostAll call invariant violation: Expr {call_expr_id} has type {:?} \
@@ -1112,31 +1226,75 @@ fn check_call_shape_matches_callee(
 
 /// Resolves a callee expression to its `(input_ty, output_ty)` signature.
 ///
-/// Handles the two callee forms that can appear after the pipeline runs: a
-/// direct `Ty::Arrow`-typed expression (e.g., a captured callable value), and
-/// an `ExprKind::Var(Res::Item, _)` pointing at a `Callable` item in any
-/// package. Returns `None` when the callee is neither form; callers treat
-/// `None` as an invariant violation.
+/// Handles direct item callees, including `UnOp(Functor, Var(Item))` wrappers,
+/// before falling back to a direct `Ty::Arrow`-typed expression such as a
+/// captured callable value. Returns `None` when the callee is neither form;
+/// callers treat `None` as an invariant violation.
 fn resolve_call_signature(
     store: &PackageStore,
     package: &Package,
     callee_id: ExprId,
 ) -> Option<(Ty, Ty)> {
+    if let Some((item_id, controlled_depth)) = resolve_direct_item_callee(package, callee_id)
+        && let Some((_, callee_package)) = store
+            .iter()
+            .find(|(package_id, _)| *package_id == item_id.package)
+        && let Some(item) = callee_package.items.get(item_id.item)
+        && let ItemKind::Callable(decl) = &item.kind
+    {
+        let input_ty = callee_package.get_pat(decl.input).ty.clone();
+        return Some((
+            apply_controlled_input_layers(input_ty, controlled_depth),
+            decl.output.clone(),
+        ));
+    }
+
     let callee = package.get_expr(callee_id);
     if let Ty::Arrow(arrow) = &callee.ty {
         return Some(((*arrow.input).clone(), (*arrow.output).clone()));
     }
 
-    if let ExprKind::Var(Res::Item(item_id), _) = &callee.kind {
-        let callee_package = store.get(item_id.package);
-        let item = callee_package.get_item(item_id.item);
-        if let ItemKind::Callable(decl) = &item.kind {
-            let input_ty = callee_package.get_pat(decl.input).ty.clone();
-            return Some((input_ty, decl.output.clone()));
+    None
+}
+
+/// Resolves a callee expression from its stored arrow type metadata.
+fn resolve_arrow_expr_signature(package: &Package, callee_id: ExprId) -> Option<(Ty, Ty)> {
+    let callee = package.get_expr(callee_id);
+    let Ty::Arrow(arrow) = &callee.ty else {
+        return None;
+    };
+
+    Some(((*arrow.input).clone(), (*arrow.output).clone()))
+}
+
+/// Resolves a direct item callee through adjoint and controlled functor
+/// wrappers, returning the item and controlled depth.
+fn resolve_direct_item_callee(package: &Package, callee_id: ExprId) -> Option<(ItemId, usize)> {
+    let mut current = callee_id;
+    let mut controlled_depth = 0usize;
+
+    loop {
+        let expr = package.get_expr(current);
+        match &expr.kind {
+            ExprKind::Var(Res::Item(item_id), _) => return Some((*item_id, controlled_depth)),
+            ExprKind::UnOp(UnOp::Functor(Functor::Adj), inner_id) => {
+                current = *inner_id;
+            }
+            ExprKind::UnOp(UnOp::Functor(Functor::Ctl), inner_id) => {
+                controlled_depth += 1;
+                current = *inner_id;
+            }
+            _ => return None,
         }
     }
+}
 
-    None
+/// Applies one controlled-call input tuple layer for each controlled wrapper.
+fn apply_controlled_input_layers(mut input_ty: Ty, controlled_depth: usize) -> Ty {
+    for _ in 0..controlled_depth {
+        input_ty = Ty::Tuple(vec![Ty::Array(Box::new(Ty::Prim(Prim::Qubit))), input_ty]);
+    }
+    input_ty
 }
 
 /// Validates a pattern's declared type by delegating to
@@ -1203,53 +1361,67 @@ fn check_type_invariants(ty: &Ty, level: InvariantLevel, context: &str) {
     }
 }
 
-/// Verifies that every `Res::Local(id)` in a callable body refers to a
-/// `LocalVarId` that is bound by:
+/// Verifies that every `Res::Local(id)` in a callable implementation refers to
+/// a `LocalVarId` that is visible in the current lexical scope:
 /// - the callable's input pattern,
-/// - a specialization input pattern, or
-/// - a `PatKind::Bind` in a body-internal `StmtKind::Local`.
+/// - the current specialization input pattern, or
+/// - an earlier `PatKind::Bind` in the current block scope.
 ///
 /// # Panics
 ///
 /// Panics if a local reference is found that is not in the bound set.
 fn check_local_var_consistency(package: &Package, decl: &CallableDecl) {
-    let mut bound: FxHashSet<LocalVarId> = FxHashSet::default();
-    let mut refs: Vec<(ExprId, LocalVarId)> = Vec::new();
-
-    // Collect bindings from the callable's input pattern.
-    collect_pat_bindings(package, decl.input, &mut bound);
+    let mut callable_scope: FxHashSet<LocalVarId> = FxHashSet::default();
+    collect_pat_bindings(package, decl.input, &mut callable_scope);
 
     match &decl.implementation {
         CallableImpl::Spec(spec_impl) => {
-            for spec in std::iter::once(&spec_impl.body)
-                .chain(spec_impl.adj.iter())
-                .chain(spec_impl.ctl.iter())
-                .chain(spec_impl.ctl_adj.iter())
-            {
-                if let Some(input_pat) = spec.input {
-                    collect_pat_bindings(package, input_pat, &mut bound);
+            check_spec_local_var_consistency(
+                package,
+                decl,
+                "body",
+                &spec_impl.body,
+                &callable_scope,
+            );
+            for (label, spec) in [
+                ("adj", spec_impl.adj.as_ref()),
+                ("ctl", spec_impl.ctl.as_ref()),
+                ("ctl_adj", spec_impl.ctl_adj.as_ref()),
+            ] {
+                if let Some(spec) = spec {
+                    check_spec_local_var_consistency(package, decl, label, spec, &callable_scope);
                 }
-                walk_block_for_locals(package, spec.block, &mut bound, &mut refs);
             }
         }
         CallableImpl::SimulatableIntrinsic(spec) => {
-            if let Some(input_pat) = spec.input {
-                collect_pat_bindings(package, input_pat, &mut bound);
-            }
-            walk_block_for_locals(package, spec.block, &mut bound, &mut refs);
+            check_spec_local_var_consistency(
+                package,
+                decl,
+                "simulatable intrinsic",
+                spec,
+                &callable_scope,
+            );
         }
         CallableImpl::Intrinsic => {}
     }
+}
 
-    // Assert every referenced local is bound.
-    for (expr_id, var_id) in &refs {
-        assert!(
-            bound.contains(var_id),
-            "LocalVarId consistency: Expr {expr_id} references {var_id}, \
-             which is not bound in callable \"{}\"",
-            decl.name.name,
-        );
+/// Checks one callable specialization with callable-level and spec-level input
+/// bindings already in scope.
+fn check_spec_local_var_consistency(
+    package: &Package,
+    decl: &CallableDecl,
+    label: &str,
+    spec: &SpecDecl,
+    callable_scope: &FxHashSet<LocalVarId>,
+) {
+    let mut spec_scope = callable_scope.clone();
+    if let Some(input_pat) = spec.input {
+        collect_pat_bindings(package, input_pat, &mut spec_scope);
     }
+
+    let context = format!("callable \"{}\" {label}", decl.name.name);
+    walk_block_for_locals(package, spec.block, &mut spec_scope, &context);
 }
 
 /// Recursively collects all `LocalVarId`s from `PatKind::Bind` nodes.
@@ -1268,55 +1440,55 @@ fn collect_pat_bindings(package: &Package, pat_id: PatId, bound: &mut FxHashSet<
     }
 }
 
-/// Walks a block, collecting both bindings and local references.
+/// Walks a block, validating references and extending the current block scope
+/// with local bindings after their initializer expressions have been checked.
 fn walk_block_for_locals(
     package: &Package,
     block_id: BlockId,
     bound: &mut FxHashSet<LocalVarId>,
-    refs: &mut Vec<(ExprId, LocalVarId)>,
+    context: &str,
 ) {
     let block = package.get_block(block_id);
     for &stmt_id in &block.stmts {
         let stmt = package.get_stmt(stmt_id);
         match &stmt.kind {
             StmtKind::Expr(e) | StmtKind::Semi(e) => {
-                walk_expr_for_locals(package, *e, bound, refs);
+                walk_expr_for_locals(package, *e, bound, context);
             }
             StmtKind::Local(_, pat, expr) => {
+                walk_expr_for_locals(package, *expr, bound, context);
                 collect_pat_bindings(package, *pat, bound);
-                walk_expr_for_locals(package, *expr, bound, refs);
             }
             StmtKind::Item(_) => {}
         }
     }
 }
 
-/// Walks an expression tree, recording `Res::Local` references and recursing
-/// into sub-expressions and nested blocks.
+/// Walks an expression tree, validating `Res::Local` references and recursing
+/// into sub-expressions. Nested block scopes inherit outer bindings but do not
+/// leak their local bindings back out to the enclosing block.
 fn walk_expr_for_locals(
     package: &Package,
     expr_id: ExprId,
-    bound: &mut FxHashSet<LocalVarId>,
-    refs: &mut Vec<(ExprId, LocalVarId)>,
+    bound: &FxHashSet<LocalVarId>,
+    context: &str,
 ) {
     let expr = package.get_expr(expr_id);
 
-    // Record local references.
     match &expr.kind {
-        ExprKind::Var(Res::Local(id), _) => refs.push((expr_id, *id)),
+        ExprKind::Var(Res::Local(id), _) => check_local_reference(expr_id, *id, bound, context),
         ExprKind::Closure(ids, _) => {
             for id in ids {
-                refs.push((expr_id, *id));
+                check_local_reference(expr_id, *id, bound, context);
             }
         }
         _ => {}
     }
 
-    // Recurse into sub-expressions and sub-blocks.
     match &expr.kind {
         ExprKind::Array(es) | ExprKind::ArrayLit(es) | ExprKind::Tuple(es) => {
             for &e in es {
-                walk_expr_for_locals(package, e, bound, refs);
+                walk_expr_for_locals(package, e, bound, context);
             }
         }
         ExprKind::ArrayRepeat(a, b)
@@ -1327,57 +1499,75 @@ fn walk_expr_for_locals(
         | ExprKind::Index(a, b)
         | ExprKind::AssignField(a, _, b)
         | ExprKind::UpdateField(a, _, b) => {
-            walk_expr_for_locals(package, *a, bound, refs);
-            walk_expr_for_locals(package, *b, bound, refs);
+            walk_expr_for_locals(package, *a, bound, context);
+            walk_expr_for_locals(package, *b, bound, context);
         }
         ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
-            walk_expr_for_locals(package, *a, bound, refs);
-            walk_expr_for_locals(package, *b, bound, refs);
-            walk_expr_for_locals(package, *c, bound, refs);
+            walk_expr_for_locals(package, *a, bound, context);
+            walk_expr_for_locals(package, *b, bound, context);
+            walk_expr_for_locals(package, *c, bound, context);
         }
-        ExprKind::Block(block_id) => walk_block_for_locals(package, *block_id, bound, refs),
+        ExprKind::Block(block_id) => {
+            let mut block_scope = bound.clone();
+            walk_block_for_locals(package, *block_id, &mut block_scope, context);
+        }
         ExprKind::Fail(e) | ExprKind::Field(e, _) | ExprKind::Return(e) | ExprKind::UnOp(_, e) => {
-            walk_expr_for_locals(package, *e, bound, refs);
+            walk_expr_for_locals(package, *e, bound, context);
         }
         ExprKind::If(cond, body, otherwise) => {
-            walk_expr_for_locals(package, *cond, bound, refs);
-            walk_expr_for_locals(package, *body, bound, refs);
+            walk_expr_for_locals(package, *cond, bound, context);
+            walk_expr_for_locals(package, *body, bound, context);
             if let Some(e) = otherwise {
-                walk_expr_for_locals(package, *e, bound, refs);
+                walk_expr_for_locals(package, *e, bound, context);
             }
         }
         ExprKind::Range(s, st, e) => {
             if let Some(x) = s {
-                walk_expr_for_locals(package, *x, bound, refs);
+                walk_expr_for_locals(package, *x, bound, context);
             }
             if let Some(x) = st {
-                walk_expr_for_locals(package, *x, bound, refs);
+                walk_expr_for_locals(package, *x, bound, context);
             }
             if let Some(x) = e {
-                walk_expr_for_locals(package, *x, bound, refs);
+                walk_expr_for_locals(package, *x, bound, context);
             }
         }
         ExprKind::Struct(_, copy, fields) => {
             if let Some(c) = copy {
-                walk_expr_for_locals(package, *c, bound, refs);
+                walk_expr_for_locals(package, *c, bound, context);
             }
             for fa in fields {
-                walk_expr_for_locals(package, fa.value, bound, refs);
+                walk_expr_for_locals(package, fa.value, bound, context);
             }
         }
         ExprKind::String(components) => {
             for c in components {
                 if let qsc_fir::fir::StringComponent::Expr(e) = c {
-                    walk_expr_for_locals(package, *e, bound, refs);
+                    walk_expr_for_locals(package, *e, bound, context);
                 }
             }
         }
         ExprKind::While(cond, block) => {
-            walk_expr_for_locals(package, *cond, bound, refs);
-            walk_block_for_locals(package, *block, bound, refs);
+            walk_expr_for_locals(package, *cond, bound, context);
+            let mut block_scope = bound.clone();
+            walk_block_for_locals(package, *block, &mut block_scope, context);
         }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
+}
+
+/// Asserts that a local reference is bound in the current lexical context.
+fn check_local_reference(
+    expr_id: ExprId,
+    var_id: LocalVarId,
+    bound: &FxHashSet<LocalVarId>,
+    context: &str,
+) {
+    assert!(
+        bound.contains(&var_id),
+        "LocalVarId consistency: Expr {expr_id} references {var_id}, \
+         which is not bound in {context}",
+    );
 }
 
 /// Validates structural integrity of a single configured exec graph.
@@ -1482,6 +1672,30 @@ fn check_spec_exec_graph(package: &Package, spec: &SpecDecl, context: &str) {
         let nodes = spec.exec_graph.select_ref(config);
         check_configured_exec_graph(package, nodes, context, label);
     }
+}
+
+/// Validates that every expression in a spec has a non-empty exec graph range
+/// within both configured graph views.
+fn check_spec_exec_graph_ranges(package: &Package, spec: &SpecDecl, context: &str) {
+    let no_debug_len = spec.exec_graph.select_ref(ExecGraphConfig::NoDebug).len();
+    let debug_len = spec.exec_graph.select_ref(ExecGraphConfig::Debug).len();
+
+    crate::walk_utils::for_each_expr_in_block(package, spec.block, &mut |expr_id, expr| {
+        let range = &expr.exec_graph_range;
+        assert!(
+            range.start != range.end,
+            "Exec graph range for {context} Expr {expr_id} is empty"
+        );
+        assert!(
+            range.start.no_debug_idx <= range.end.no_debug_idx
+                && range.end.no_debug_idx <= no_debug_len,
+            "Exec graph range for {context} Expr {expr_id} no_debug indices {range:?} exceed graph length {no_debug_len}"
+        );
+        assert!(
+            range.start.debug_idx <= range.end.debug_idx && range.end.debug_idx <= debug_len,
+            "Exec graph range for {context} Expr {expr_id} debug indices {range:?} exceed graph length {debug_len}"
+        );
+    });
 }
 
 /// Verifies two ownership properties of `ExprId`s after defunctionalization:

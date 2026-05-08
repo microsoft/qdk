@@ -191,7 +191,7 @@ fn dce_removes_generic_after_pipeline() {
 }
 
 #[test]
-fn dce_benchmark_generic_multiple_instantiations() {
+fn dce_removes_unreachable_generic_instantiations() {
     let source = indoc! {"
         namespace Test {
             function Id<'T>(x : 'T) : 'T { x }
@@ -218,7 +218,7 @@ fn dce_benchmark_generic_multiple_instantiations() {
 }
 
 #[test]
-fn dce_benchmark_type_declarations_removed() {
+fn dce_removes_unreachable_type_declarations() {
     let source = indoc! {"
         namespace Test {
             newtype Pair = (First : Int, Second : Int);
@@ -242,7 +242,7 @@ fn dce_benchmark_type_declarations_removed() {
 }
 
 #[test]
-fn dce_benchmark_closure_and_generic() {
+fn dce_removes_unreachable_closure_and_generic() {
     let source = indoc! {"
         namespace Test {
             function Apply<'T>(f : 'T -> 'T, x : 'T) : 'T { f(x) }
@@ -655,13 +655,13 @@ fn pinned_item_survives_item_dce() {
         item: pinned_local,
     };
 
-    let errors = crate::run_pipeline_to(
+    let result = crate::run_pipeline_to_with_diagnostics(
         &mut store,
         pkg_id,
         PipelineStage::ItemDce,
         &[pinned_store_id],
     );
-    assert!(errors.is_empty());
+    assert!(result.is_success());
 
     // Pinned item should survive DCE.
     let package = store.get(pkg_id);
@@ -691,13 +691,13 @@ fn pinned_item_transitive_deps_survive_item_dce() {
         item: pinned_local,
     };
 
-    let errors = crate::run_pipeline_to(
+    let result = crate::run_pipeline_to_with_diagnostics(
         &mut store,
         pkg_id,
         PipelineStage::ItemDce,
         &[pinned_store_id],
     );
-    assert!(errors.is_empty());
+    assert!(result.is_success());
 
     // Both pinned item and its transitive dep should survive DCE.
     let package = store.get(pkg_id);

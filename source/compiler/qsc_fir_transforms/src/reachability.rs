@@ -12,8 +12,9 @@
 //! expression trees, adding newly discovered
 //! callables to the worklist until a fixed point is reached.
 //!
-//! [`collect_reachable_with_seeds`] extends this by accepting additional
-//! pinned items as extra roots alongside the entry expression.
+//! [`collect_reachable_with_seeds`] extends this by accepting additional seed
+//! items as extra roots alongside the entry expression. The production pipeline
+//! validates explicit pinned items before using this generic seeded walker.
 //!
 //! [`collect_reachable_package_closure`] computes the cross-package
 //! reachability closure needed by UDT erasure to determine which packages
@@ -91,6 +92,10 @@ pub fn collect_reachable_from_entry(
 /// Seeds are added to the worklist alongside the items discovered from the
 /// entry expression, so their transitive dependencies are also included in
 /// the output set.
+///
+/// Missing seed and transitive item IDs are silently skipped when their package
+/// exists, matching [`collect_reachable_from_entry`]. Pipeline callers that use
+/// explicit pinned items validate those pins before calling this generic walker.
 ///
 /// # Panics
 ///

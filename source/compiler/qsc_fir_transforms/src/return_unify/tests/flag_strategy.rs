@@ -635,13 +635,19 @@ fn lowered_reachable_callables_do_not_emit_while_local_initializers() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn synthetic_while_local_initializer_shape_still_eliminates_returns() {
+    // Normal lowering should not emit a `Local` initializer whose expression is
+    // a `while`; this test creates that synthetic FIR shape below by replacing
+    // `marker`'s unit initializer with a cloned loop. Keep `marker` after `i`
+    // so the cloned loop's `i` reads and writes are already in lexical scope,
+    // letting the test exercise return unification instead of fixture validity.
     let source = indoc! {r#"
         namespace Test {
             @EntryPoint()
             function Main() : Int {
-                let marker = ();
                 mutable i = 0;
+                let marker = ();
                 while i < 2 {
                     if i == 1 {
                         return 9;
@@ -721,9 +727,14 @@ fn synthetic_while_local_initializer_shape_still_eliminates_returns() {
         );
     }
 
-    let errors = crate::run_pipeline_to(&mut store, pkg_id, PipelineStage::ReturnUnify, &[]);
+    let result = crate::run_pipeline_to_with_diagnostics(
+        &mut store,
+        pkg_id,
+        PipelineStage::ReturnUnify,
+        &[],
+    );
     assert!(
-        errors.is_empty(),
+        result.is_success(),
         "return_unify pipeline should complete on synthetic while-local-initializer shape"
     );
 

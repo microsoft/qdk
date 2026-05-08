@@ -8,7 +8,6 @@
 
 use crate::PipelineStage;
 use crate::test_utils::compile_and_run_pipeline_to;
-use expect_test::{Expect, expect};
 use indoc::indoc;
 
 /// Counts total live entries across all four arena types.
@@ -159,66 +158,5 @@ fn gc_is_idempotent() {
     assert_eq!(
         second_pass, 0,
         "second GC pass should find nothing to remove"
-    );
-}
-
-fn render_before_after_gc(source: &str) -> (String, String) {
-    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
-    let before = crate::pretty::write_package_qsharp(&store, pkg_id);
-    super::gc_unreachable(store.get_mut(pkg_id));
-    let after = crate::pretty::write_package_qsharp(&store, pkg_id);
-    (before, after)
-}
-
-fn check_before_after_gc(source: &str, expect: &Expect) {
-    let (before, after) = render_before_after_gc(source);
-    expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
-}
-
-#[test]
-fn before_after_gc_removes_orphans() {
-    check_before_after_gc(
-        indoc! {"
-            namespace Test {
-                @EntryPoint()
-                function Main() : Int {
-                    if true {
-                        return 1;
-                    }
-                    return 2;
-                }
-            }
-        "},
-        &expect![[r#"
-            BEFORE:
-            // namespace Test
-            function Main() : Int {
-                body {
-                    if true {
-                        1
-                    } else {
-                        2
-                    }
-
-                }
-            }
-            // entry
-            Main()
-
-            AFTER:
-            // namespace Test
-            function Main() : Int {
-                body {
-                    if true {
-                        1
-                    } else {
-                        2
-                    }
-
-                }
-            }
-            // entry
-            Main()
-        "#]], // snapshot populated by UPDATE_EXPECT=1
     );
 }

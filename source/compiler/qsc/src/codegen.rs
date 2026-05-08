@@ -178,17 +178,23 @@ pub mod qir {
         //   - No `Ty::Param` in reachable code (monomorphization completed).
         //   - No `ExprKind::Return` in reachable code (return unification completed).
         //   - No `Ty::Arrow` params / `ExprKind::Closure` (defunctionalization completed).
-        //   - No `Ty::Udt` / `ExprKind::Struct` / `Field::Path` (UDT erasure completed).
+        //   - No `Ty::Udt` / `ExprKind::Struct`; `Field::Path` only on tuple records
+        //     (UDT erasure completed).
         //   - All exec-graph ranges populated (exec-graph rebuild completed).
         // Downstream codegen (QIR lowering, partial evaluation) assumes these invariants hold.
         // See `qsc_fir_transforms::invariants::check` for the authoritative checker.
-        let pipeline_errors =
-            qsc_fir_transforms::run_pipeline_to(fir_store, fir_package_id, stage, pinned_items);
-        if !pipeline_errors.is_empty() {
+        let pipeline_result = qsc_fir_transforms::run_pipeline_to_with_diagnostics(
+            fir_store,
+            fir_package_id,
+            stage,
+            pinned_items,
+        );
+        if !pipeline_result.errors.is_empty() {
             let source_package = package_store
                 .get(package_id)
                 .expect("package should be in store");
-            return Err(pipeline_errors
+            return Err(pipeline_result
+                .errors
                 .into_iter()
                 .map(|e| Error::FirTransform(WithSource::from_map(&source_package.sources, e)))
                 .collect());

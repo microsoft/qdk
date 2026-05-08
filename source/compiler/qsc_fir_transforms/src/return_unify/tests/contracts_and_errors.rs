@@ -100,17 +100,24 @@ fn unsupported_return_slot_default_in_flag_strategy_produces_error() {
         }
     "#};
 
-    let (_store, _pkg_id, errors) =
+    let (_store, _pkg_id, result) =
         compile_and_run_pipeline_to_with_errors(source, PipelineStage::ReturnUnify);
 
     assert!(
-        !errors.is_empty(),
+        !result.errors.is_empty(),
         "expected an UnsupportedLoopReturnType error for Qubit return in while"
     );
     assert!(
-        errors.iter().any(|e| e.to_string().contains("Qubit")),
+        result
+            .errors
+            .iter()
+            .any(|e| e.to_string().contains("Qubit")),
         "error should mention the Qubit type, got: {:?}",
-        errors.iter().map(ToString::to_string).collect::<Vec<_>>()
+        result
+            .errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
     );
 }
 
@@ -131,38 +138,6 @@ fn unsupported_guarded_local_default_in_flag_strategy_is_explicit_contract() {
     "#};
 
     let _ = compile_and_run_pipeline_to(source, PipelineStage::ReturnUnify);
-}
-
-#[test]
-fn qubit_return_in_while_produces_error() {
-    let source = indoc! {r#"
-        namespace Test {
-            operation Main() : Qubit {
-                use q = Qubit();
-                mutable i = 0;
-                while i < 5 {
-                    if i == 3 {
-                        return q;
-                    }
-                    i += 1;
-                }
-                q
-            }
-        }
-    "#};
-
-    let (_store, _pkg_id, errors) =
-        compile_and_run_pipeline_to_with_errors(source, PipelineStage::ReturnUnify);
-
-    assert!(
-        !errors.is_empty(),
-        "expected an UnsupportedLoopReturnType error for Qubit return in while"
-    );
-    assert!(
-        errors.iter().any(|e| e.to_string().contains("Qubit")),
-        "error should mention the Qubit type, got: {:?}",
-        errors.iter().map(ToString::to_string).collect::<Vec<_>>()
-    );
 }
 
 #[test]
@@ -310,86 +285,5 @@ fn test_reachable_only_transformation() {
     assert!(
         !is_unused_reachable,
         "UnusedHelper must not be in the reachable set"
-    );
-}
-
-/// Verify that dead code with return statements is not transformed by `return_unify`,
-/// even if it would benefit from normalization. This documents that `return_unify`
-/// strictly scopes its transformation to reachable code.
-
-#[test]
-fn test_unreachable_callables_untouched() {
-    // Arrange: Create a package where a dead callable has return statements
-    // that would normally need transformation if it were reachable.
-    let source = indoc! {r#"
-        namespace Test {
-            // Dead callable with multiple returns that would trigger flag-based
-            // transformation if it were reachable (due to nested control flow)
-            function DeadCode(x : Int) : Int {
-                mutable i = 0;
-                while i < 5 {
-                    if x == i {
-                        return i;
-                    }
-                    i += 1;
-                }
-                -1
-            }
-
-            // Entry point that never calls DeadCode
-            @EntryPoint()
-            function Main() : Int {
-                42
-            }
-        }
-    "#};
-
-    // Act: Compile and run return_unify
-    let (store, pkg_id) = compile_return_unified(source);
-    let package = store.get(pkg_id);
-    let reachable = collect_reachable_from_entry(&store, pkg_id);
-
-    // Assert: Verify DeadCode is not in reachable set
-    let is_deadcode_reachable = reachable.iter().any(|store_id| {
-        if store_id.package != pkg_id {
-            return false;
-        }
-        let item = package.get_item(store_id.item);
-        matches!(
-            &item.kind,
-            ItemKind::Callable(decl) if decl.name.name.as_ref() == "DeadCode"
-        )
-    });
-    assert!(
-        !is_deadcode_reachable,
-        "DeadCode should not be in reachable set"
-    );
-
-    // Assert: Verify DeadCode still has Return nodes (was not transformed)
-    // This is the core contract: unreachable code is left untouched
-    let mut deadcode_has_return = false;
-    {
-        let deadcode_item = package
-            .items
-            .values()
-            .find(|item| {
-                matches!(
-                    &item.kind,
-                    ItemKind::Callable(decl) if decl.name.name.as_ref() == "DeadCode"
-                )
-            })
-            .expect("DeadCode should exist");
-
-        if let ItemKind::Callable(decl) = &deadcode_item.kind {
-            for_each_expr_in_callable_impl(package, &decl.implementation, &mut |_id, expr| {
-                deadcode_has_return |= matches!(expr.kind, ExprKind::Return(_));
-            });
-        }
-    }
-    assert!(
-        deadcode_has_return,
-        "Unreachable DeadCode should retain Return nodes (reachable-only transformation contract)\n\
-         CRITICAL INVARIANT: return_unify must not transform unreachable code, as later passes assume \
-         only reachable code is normalized. Any resurrections of dead code would violate the no-return invariant."
     );
 }

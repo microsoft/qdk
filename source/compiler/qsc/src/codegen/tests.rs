@@ -187,6 +187,41 @@ fn code_with_errors_returns_errors() {
 }
 
 #[test]
+fn excessive_specializations_warning_does_not_block_qir_generation() {
+    let source = r#"
+        namespace Test {
+            operation Apply(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                Apply(q1 => Rx(1.0, q1), q);
+                Apply(q1 => Rx(2.0, q1), q);
+                Apply(q1 => Rx(3.0, q1), q);
+                Apply(q1 => Rx(4.0, q1), q);
+                Apply(q1 => Rx(5.0, q1), q);
+                Apply(q1 => Rx(6.0, q1), q);
+                Apply(q1 => Rx(7.0, q1), q);
+                Apply(q1 => Rx(8.0, q1), q);
+                Apply(q1 => Rx(9.0, q1), q);
+                Apply(q1 => Rx(10.0, q1), q);
+                Apply(q1 => Rx(11.0, q1), q);
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(
+        source,
+        TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::FloatingPointComputations,
+    );
+
+    assert!(
+        qir.contains("__quantum__qis__rx__body"),
+        "expected QIR generation to continue through warning-only FIR transforms"
+    );
+}
+
+#[test]
 fn unsupported_profile_patterns_return_pass_errors() {
     let res = compile_source_to_qir_result(
         indoc::indoc! {r#"
@@ -5047,7 +5082,9 @@ mod adaptive_rifla_profile {
     }
 
     #[test]
-    #[ignore = "CapabilitiesCk(UseOfDynamicResult) — mutable Result re-measurement requires UseOfDynamicResult, not in RIFLA profile"]
+    #[should_panic(
+        expected = "CapabilitiesCk(UseOfDynamicResult) — mutable Result re-measurement requires UseOfDynamicResult, not in RIFLA profile"
+    )]
     fn mutable_result_variable_succeeds() {
         let source = "namespace Test {
             import Std.Intrinsic.*;
@@ -5064,7 +5101,7 @@ mod adaptive_rifla_profile {
             }
         }";
         let qir = compile_source_to_qir_result(source, *CAPABILITIES)
-            .expect("mutable Result variable should compile");
+            .expect("CapabilitiesCk(UseOfDynamicResult) — mutable Result re-measurement requires UseOfDynamicResult, not in RIFLA profile");
         assert!(qir.contains("@ENTRYPOINT__main"));
     }
 

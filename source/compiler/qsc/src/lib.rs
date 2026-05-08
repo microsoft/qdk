@@ -89,5 +89,8 @@ pub mod target {
 pub mod openqasm;
 
 pub mod fir_transforms {
-    pub use qsc_fir_transforms::{defunctionalize, run_pipeline};
+    pub use qsc_fir_transforms::{
+        PipelineResult, PipelineStage, defunctionalize, run_pipeline_to_with_diagnostics,
+        run_pipeline_with_diagnostics,
+    };
 }

@@ -2,12 +2,14 @@
 // Licensed under the MIT License.
 
 use super::*;
-use crate::test_utils::{PipelineStage, compile_and_run_pipeline_to};
+use crate::test_utils::{
+    PipelineStage, compile_and_run_pipeline_to, format_pat, generate_qir, local_names,
+};
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BinOp, CallableImpl, ExprKind, ItemKind, Mutability, PackageLookup, PatKind, Res, StmtKind,
+    BinOp, CallableImpl, ExprKind, ItemKind, Mutability, PackageLookup, Res, StmtKind,
 };
 use rustc_hash::FxHashMap;
 
@@ -21,31 +23,6 @@ fn check(source: &str, expect: &Expect) {
 
 fn run_real_pipeline_to_sroa(source: &str) -> (PackageStore, PackageId) {
     compile_and_run_pipeline_to(source, PipelineStage::Sroa)
-}
-
-/// Compiles Q# source through the full FIR pipeline, then generates QIR via
-/// partial evaluation and codegen. Uses Adaptive + `IntegerComputations`
-/// capabilities so that Result-comparison programs can be lowered.
-fn generate_qir(source: &str) -> String {
-    use qsc_codegen::qir::fir_to_qir;
-    use qsc_data_structures::target::TargetCapabilityFlags;
-    use qsc_partial_eval::ProgramEntry;
-
-    let capabilities = TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations;
-    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
-    let package = store.get(pkg_id);
-    let entry = ProgramEntry {
-        exec_graph: package.entry_exec_graph.clone(),
-        expr: (
-            pkg_id,
-            package
-                .entry
-                .expect("package must have an entry expression"),
-        )
-            .into(),
-    };
-    let compute_properties = qsc_rca::Analyzer::init(&store, capabilities).analyze_all();
-    fir_to_qir(&store, capabilities, &compute_properties, &entry).expect("QIR generation failed")
 }
 
 fn extract_result(store: &PackageStore, pkg_id: PackageId) -> String {
@@ -89,29 +66,6 @@ fn extract_result(store: &PackageStore, pkg_id: PackageId) -> String {
     entries.join("\n")
 }
 
-fn format_pat(package: &qsc_fir::fir::Package, pat_id: PatId) -> String {
-    let pat = package.get_pat(pat_id);
-    match &pat.kind {
-        PatKind::Bind(ident) => format!("Bind({}: {})", ident.name, pat.ty),
-        PatKind::Tuple(sub_pats) => {
-            let subs: Vec<String> = sub_pats.iter().map(|&id| format_pat(package, id)).collect();
-            format!("Tuple({})", subs.join(", "))
-        }
-        PatKind::Discard => format!("Discard({})", pat.ty),
-    }
-}
-
-fn local_names(package: &qsc_fir::fir::Package) -> FxHashMap<LocalVarId, String> {
-    package
-        .pats
-        .values()
-        .filter_map(|pat| match &pat.kind {
-            PatKind::Bind(ident) => Some((ident.id, ident.name.to_string())),
-            PatKind::Tuple(_) | PatKind::Discard => None,
-        })
-        .collect()
-}
-
 fn local_name(names: &FxHashMap<LocalVarId, String>, local_id: LocalVarId) -> String {
     names
         .get(&local_id)
@@ -128,6 +82,48 @@ fn var_local_name(
     match &expr.kind {
         ExprKind::Var(Res::Local(local_id), _) => Some(local_name(names, *local_id)),
         _ => None,
+    }
+}
+
+fn assert_assignment_exprs_are_unit_after_sroa(source: &str, expected_assignments: usize) {
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::UdtErase);
+    let mut assigner = Assigner::from_package(store.get(pkg_id));
+    sroa(&mut store, pkg_id, &mut assigner);
+
+    let package = store.get(pkg_id);
+    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
+    let mut assignment_types = Vec::new();
+
+    for store_id in &reachable {
+        if store_id.package != pkg_id {
+            continue;
+        }
+        let item = package.get_item(store_id.item);
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &decl.implementation,
+            &mut |expr_id, expr| {
+                if matches!(expr.kind, ExprKind::Assign(_, _)) {
+                    assignment_types.push((expr_id, expr.ty.clone()));
+                }
+            },
+        );
+    }
+
+    assert_eq!(
+        assignment_types.len(),
+        expected_assignments,
+        "post-SROA assignment expression count should match the split tuple assignment shape"
+    );
+    for (expr_id, ty) in assignment_types {
+        assert_eq!(
+            ty,
+            Ty::UNIT,
+            "post-SROA assignment Expr {expr_id:?} should have Unit result type"
+        );
     }
 }
 
@@ -176,6 +172,51 @@ fn collect_eq_pairs_and_invalid_fields(source: &str) -> (Vec<(String, String)>, 
     eq_pairs.sort();
     invalid_fields.sort();
     (eq_pairs, invalid_fields)
+}
+
+fn collect_assignment_targets_and_stale_assign_fields_after_sroa(
+    source: &str,
+) -> (Vec<String>, Vec<String>) {
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleCompLower);
+    let mut assigner = Assigner::from_package(store.get(pkg_id));
+    sroa(&mut store, pkg_id, &mut assigner);
+
+    let package = store.get(pkg_id);
+    let names = local_names(package);
+    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
+    let mut stale_assign_fields = Vec::new();
+    let mut assignments = Vec::new();
+
+    for store_id in &reachable {
+        if store_id.package != pkg_id {
+            continue;
+        }
+        let item = package.get_item(store_id.item);
+        let ItemKind::Callable(decl) = &item.kind else {
+            continue;
+        };
+        crate::walk_utils::for_each_expr_in_callable_impl(
+            package,
+            &decl.implementation,
+            &mut |_expr_id, expr| match &expr.kind {
+                ExprKind::Assign(lhs_id, _) => {
+                    if let Some(name) = var_local_name(package, &names, *lhs_id) {
+                        assignments.push(name);
+                    }
+                }
+                ExprKind::AssignField(record_id, Field::Path(path), _) => {
+                    if let Some(name) = var_local_name(package, &names, *record_id) {
+                        stale_assign_fields.push(format!("{name}::{:?}", path.indices));
+                    }
+                }
+                _ => {}
+            },
+        );
+    }
+
+    assignments.sort();
+    stale_assign_fields.sort();
+    (assignments, stale_assign_fields)
 }
 
 const SHARED_VAR_TUPLE_COMPARE_SOURCE: &str = "operation Main() : Bool {
@@ -547,34 +588,71 @@ fn nested_tuple_fully_flattened() {
 fn mutable_tuple_literal_reassignment_decomposes() {
     // `set x = (3, 4)` with a tuple literal RHS is recognized as
     // decomposable, so `x` is decomposed into `x_0`, `x_1`.
-    check(
-        "struct Pair { A : Int, B : Int }
+    let source = "struct Pair { A : Int, B : Int }
             function Main() : Int {
                 mutable x = new Pair { A = 1, B = 2 };
                 x = new Pair { A = 3, B = 4 };
                 x.A + x.B
-            }",
+            }";
+
+    check(
+        source,
         &expect![[r#"
                 Callable Main: input=Tuple()
                   local: mutable Tuple(Bind(x_0: Int), Bind(x_1: Int))"#]],
     );
+    assert_assignment_exprs_are_unit_after_sroa(source, 2);
 }
 
 #[test]
 fn mutable_tuple_var_reassignment_no_decompose() {
     // `set x = other` is NOT a tuple-literal RHS, so `x` is NOT decomposed.
-    check(
-        "struct Pair { A : Int, B : Int }
+    let source = "struct Pair { A : Int, B : Int }
             function Main() : Int {
                 let other = new Pair { A = 5, B = 6 };
                 mutable x = new Pair { A = 1, B = 2 };
                 x = other;
                 x.A
-            }",
+            }";
+
+    check(
+        source,
         &expect![[r#"
                 Callable Main: input=Tuple()
                   local: Bind(other: (Int, Int))
                   local: mutable Bind(x: (Int, Int))"#]],
+    );
+    check_before_after_sroa(
+        source,
+        &expect![[r#"
+            BEFORE:
+            // namespace test
+            newtype Pair = (Int, Int);
+            function Main() : Int {
+                body {
+                    let other : (Int, Int) = (5, 6);
+                    mutable x : (Int, Int) = (1, 2);
+                    x = other;
+                    x::Item < 0 >
+                }
+            }
+            // entry
+            Main()
+
+            AFTER:
+            // namespace test
+            newtype Pair = (Int, Int);
+            function Main() : Int {
+                body {
+                    let other : (Int, Int) = (5, 6);
+                    mutable x : (Int, Int) = (1, 2);
+                    x = other;
+                    x::Item < 0 >
+                }
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -627,52 +705,15 @@ fn multi_index_assign_field_decomposes_iteratively() {
             }
         }
     "};
-    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::TupleCompLower);
-    let mut assigner = Assigner::from_package(store.get(pkg_id));
-    sroa(&mut store, pkg_id, &mut assigner);
-
-    let package = store.get(pkg_id);
-    let names = local_names(package);
-    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
-    let mut stale_uses = Vec::new();
-    let mut assignments = Vec::new();
-
-    for store_id in &reachable {
-        if store_id.package != pkg_id {
-            continue;
-        }
-        let item = package.get_item(store_id.item);
-        let ItemKind::Callable(decl) = &item.kind else {
-            continue;
-        };
-        crate::walk_utils::for_each_expr_in_callable_impl(
-            package,
-            &decl.implementation,
-            &mut |_expr_id, expr| match &expr.kind {
-                ExprKind::Assign(lhs_id, _) => {
-                    if let Some(name) = var_local_name(package, &names, *lhs_id) {
-                        assignments.push(name);
-                    }
-                }
-                ExprKind::AssignField(record_id, Field::Path(path), _) => {
-                    if let Some(name) = var_local_name(package, &names, *record_id) {
-                        stale_uses.push(format!("{name}::{:?}", path.indices));
-                    }
-                }
-                _ => {}
-            },
-        );
-    }
-
-    assignments.sort();
-    stale_uses.sort();
+    let (assignments, stale_assign_fields) =
+        collect_assignment_targets_and_stale_assign_fields_after_sroa(source);
     assert_eq!(
         assignments,
         vec!["f_0".to_string(), "f_1_0".to_string(), "f_1_1".to_string(),]
     );
     assert!(
-        stale_uses.is_empty(),
-        "nested AssignField uses should be fully rewritten after iterative SROA: {stale_uses:?}"
+        stale_assign_fields.is_empty(),
+        "nested AssignField uses should be fully rewritten after iterative SROA: {stale_assign_fields:?}"
     );
 }
 
@@ -934,5 +975,51 @@ fn unreachable_callable_tuple_local_behavior() {
               local: Bind(t: (Int, Int))
               local: Tuple(Bind(a: Int), Bind(b: Int))
             Callable Main: input=Tuple()"#]],
+    );
+}
+
+#[test]
+fn cross_package_tuple_return_sroa() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            function MakePair(a: Int, b: Int) : (Int, Int) { (a, b) }
+            export MakePair;
+        }
+    "};
+
+    let user_source = indoc! {"
+        import TestLib.*;
+        @EntryPoint()
+        operation Main() : Int {
+            let (x, y) = MakePair(3, 4);
+            x + y
+        }
+    "};
+
+    crate::test_utils::check_semantic_equivalence_with_library(lib_source, user_source);
+}
+
+#[test]
+fn cross_package_tuple_pipeline_completes() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            function MakePair(a: Int, b: Int) : (Int, Int) { (a, b) }
+            export MakePair;
+        }
+    "};
+
+    let user_source = indoc! {"
+        import TestLib.*;
+        @EntryPoint()
+        operation Main() : Int {
+            let (x, y) = MakePair(3, 4);
+            x + y
+        }
+    "};
+
+    let (_store, _pkg_id) = crate::test_utils::compile_and_run_pipeline_to_with_library(
+        lib_source,
+        user_source,
+        crate::test_utils::PipelineStage::Sroa,
     );
 }

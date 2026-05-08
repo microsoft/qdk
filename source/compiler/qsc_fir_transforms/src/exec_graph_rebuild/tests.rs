@@ -7,7 +7,8 @@
 // graph node sequences, which is better served by targeted snapshot tests.
 
 use crate::test_utils::{
-    PipelineStage, compile_and_run_pipeline_to, expr_kind_short, stmt_kind_short,
+    PipelineStage, assert_pipeline_succeeded, compile_and_run_pipeline_to, expr_kind_short,
+    find_callable, stmt_kind_short,
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
@@ -66,19 +67,6 @@ fn format_callable_exec_graph(
         }
     }
     panic!("Main callable not found");
-}
-
-fn find_callable<'a>(package: &'a qsc_fir::fir::Package, callable_name: &str) -> &'a CallableDecl {
-    package
-        .items
-        .values()
-        .find_map(|item| match &item.kind {
-            ItemKind::Callable(decl) if decl.name.name.as_ref() == callable_name => {
-                Some(decl.as_ref())
-            }
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("callable '{callable_name}' not found"))
 }
 
 fn collect_pat_names(
@@ -311,6 +299,49 @@ fn callable_body_exec_graph_len(
     }
 }
 
+fn assert_callable_exec_graph_is_empty(
+    store: &qsc_fir::fir::PackageStore,
+    store_item_id: StoreItemId,
+    message: &str,
+) {
+    assert_eq!(
+        callable_body_exec_graph_len(store, store_item_id),
+        0,
+        "{message}"
+    );
+}
+
+fn assert_rebuild_restores_only_local_callable(
+    store: &mut qsc_fir::fir::PackageStore,
+    pkg_id: qsc_fir::fir::PackageId,
+    local_callable: StoreItemId,
+    cross_package_callable: StoreItemId,
+    expected_local_graph: &str,
+) {
+    clear_store_callable_exec_graph(store, local_callable);
+    clear_store_callable_exec_graph(store, cross_package_callable);
+
+    assert_callable_exec_graph_is_empty(store, local_callable, "local graph should start cleared");
+    assert_callable_exec_graph_is_empty(
+        store,
+        cross_package_callable,
+        "cross-package graph should start cleared",
+    );
+
+    super::rebuild_exec_graphs(store, pkg_id, &[]);
+
+    assert_eq!(
+        format_store_callable_exec_graph(store, local_callable, ExecGraphConfig::NoDebug),
+        expected_local_graph,
+        "reachable local specialization should be rebuilt"
+    );
+    assert_callable_exec_graph_is_empty(
+        store,
+        cross_package_callable,
+        "reachable cross-package callable should not be rebuilt",
+    );
+}
+
 fn reachable_callable_names_with_packages(
     store: &qsc_fir::fir::PackageStore,
     pkg_id: qsc_fir::fir::PackageId,
@@ -357,6 +388,28 @@ fn find_reachable_callable_by_name(
                 reachable_callable_names_with_packages(store, root_pkg_id).join("\n")
             )
         })
+}
+
+fn assert_external_copy_update_field_range_rebuilt(
+    store: &qsc_fir::fir::PackageStore,
+    external_callable: StoreItemId,
+) {
+    let package = store.get(external_callable.package);
+    let field_expr = package
+        .exprs
+        .values()
+        .find(|expr| {
+            matches!(
+                &expr.kind,
+                qsc_fir::fir::ExprKind::Field(_, Field::Path(path)) if path.indices.as_slice() == [1]
+            )
+        })
+        .expect("external UDT copy-update should synthesize a field read");
+
+    assert!(
+        field_expr.exec_graph_range.start != field_expr.exec_graph_range.end,
+        "synthesized external field read should receive a rebuilt exec graph range"
+    );
 }
 
 /// Compiles Q# source through the pipeline (including exec graph rebuild)
@@ -626,23 +679,6 @@ fn exec_graph_unary_not() {
 }
 
 #[test]
-fn exec_graph_update_index_emits_store() {
-    check_exec_graph(
-        "function Main() : Int[] { mutable arr = [1, 2, 3]; set arr w/= 0 <- 42; arr }",
-        &expect![[r#"
-            0: Expr(ExprId(3)) [ArrayLit(len=3)]
-            1: Bind(PatId(1))
-            2: Expr(ExprId(8)) [Lit(Int(0))]
-            3: Store
-            4: Expr(ExprId(9)) [Lit(Int(42))]
-            5: Expr(ExprId(7)) [AssignIndex]
-            6: Unit
-            7: Expr(ExprId(11)) [Var]
-            8: Ret"#]],
-    );
-}
-
-#[test]
 fn exec_graph_callable_with_adjoint_spec_rebuilds_body_and_adj_independently() {
     let source = "operation Foo(q : Qubit) : Unit is Adj { body ... { H(q); } adjoint ... { X(q); } } operation Main() : Unit { use q = Qubit(); Foo(q); Adjoint Foo(q); }";
     check_callable_spec_exec_graph(
@@ -832,30 +868,62 @@ fn reachable_cross_package_callables_keep_existing_exec_graphs_while_local_speci
         "reachable cross-package callable should start with a lowered exec graph"
     );
 
-    clear_store_callable_exec_graph(&mut store, local_specialization);
-    clear_store_callable_exec_graph(&mut store, cross_package_callable);
+    assert_rebuild_restores_only_local_callable(
+        &mut store,
+        pkg_id,
+        local_specialization,
+        cross_package_callable,
+        &expected_local_graph,
+    );
+}
 
-    assert_eq!(
-        callable_body_exec_graph_len(&store, local_specialization),
-        0
-    );
-    assert_eq!(
-        callable_body_exec_graph_len(&store, cross_package_callable),
-        0
+#[test]
+fn external_udt_copy_update_exec_graph_rebuilds_mutated_external_spec() {
+    let lib_source = indoc! {"
+        namespace TestLib {
+            struct Pair { Fst: Int, Snd: Int }
+            function MakeUpdated() : Pair {
+                let p = new Pair { Fst = 1, Snd = 2 };
+                new Pair { ...p, Fst = 42 }
+            }
+            export Pair, MakeUpdated;
+        }
+    "};
+    let user_source = indoc! {"
+        import TestLib.*;
+
+        @EntryPoint()
+        function Main() : (Int, Int) {
+            let r = MakeUpdated();
+            (r.Fst, r.Snd)
+        }
+    "};
+
+    let (mut store, pkg_id) =
+        crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
+    let result = crate::run_pipeline_to_with_diagnostics(
+        &mut store,
+        pkg_id,
+        PipelineStage::ExecGraphRebuild,
+        &[],
     );
 
-    super::rebuild_exec_graphs(&mut store, pkg_id, &[]);
-
-    assert_eq!(
-        format_store_callable_exec_graph(&store, local_specialization, ExecGraphConfig::NoDebug),
-        expected_local_graph,
-        "reachable local specialization should be rebuilt"
+    assert_pipeline_succeeded("external UDT copy-update pipeline", &result);
+    let external_callable = crate::test_utils::find_library_callable(&store, pkg_id, "MakeUpdated");
+    let graph = format_store_callable_exec_graph(
+        &store,
+        external_callable,
+        qsc_fir::fir::ExecGraphConfig::NoDebug,
     );
-    assert_eq!(
-        callable_body_exec_graph_len(&store, cross_package_callable),
-        0,
-        "reachable cross-package callable should not be rebuilt"
+    assert!(
+        graph.contains(".1"),
+        "external copy-update exec graph should include the synthesized untouched-field read:\n{graph}"
     );
+    assert!(
+        graph.contains("Tuple(len=2)"),
+        "external copy-update exec graph should include the erased update tuple:\n{graph}"
+    );
+    assert_external_copy_update_field_range_rebuilt(&store, external_callable);
 }
 
 #[test]
@@ -897,7 +965,7 @@ fn exec_graph_rebuild_rejects_struct_expressions() {
 #[test]
 fn pinned_item_rebuilt_in_exec_graph() {
     // After full pipeline with pinned items, verify the pinned callable has
-    // non-empty exec graph nodes — proving it participates in exec graph rebuild.
+    // the expected rebuilt exec graph nodes — proving it participates in exec graph rebuild.
     use crate::test_utils::compile_to_fir;
 
     let (mut store, pkg_id) = compile_to_fir(indoc! {"
@@ -922,31 +990,17 @@ fn pinned_item_rebuilt_in_exec_graph() {
         item: pinned_local,
     };
 
-    let errors = crate::run_pipeline_to(
+    let result = crate::run_pipeline_to_with_diagnostics(
         &mut store,
         pkg_id,
         PipelineStage::ExecGraphRebuild,
         &[pinned_store_id],
     );
-    assert!(errors.is_empty(), "pipeline errors: {errors:?}");
+    assert!(result.is_success(), "pipeline errors: {:?}", result.errors);
 
-    // Verify the pinned callable's spec has a non-empty exec graph.
-    let package = store.get(pkg_id);
-    let item = package.get_item(pinned_local);
-    if let ItemKind::Callable(decl) = &item.kind {
-        if let CallableImpl::Spec(spec) = &decl.implementation {
-            let graph = spec
-                .body
-                .exec_graph
-                .select_ref(qsc_fir::fir::ExecGraphConfig::NoDebug);
-            assert!(
-                !graph.is_empty(),
-                "pinned callable should have non-empty exec graph after rebuild"
-            );
-        } else {
-            panic!("pinned callable should have Spec implementation");
-        }
-    } else {
-        panic!("pinned item should be a callable");
-    }
+    let graph = format_store_callable_exec_graph(&store, pinned_store_id, ExecGraphConfig::NoDebug);
+    expect![[r#"
+        0: Lit(Int(99))
+        1: Ret"#]]
+    .assert_eq(&graph);
 }

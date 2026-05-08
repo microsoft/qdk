@@ -18,19 +18,20 @@
 //! parameters remain in reachable declarations, and all indirect dispatch
 //! is rewritten to direct dispatch.
 //!
-//! Each iteration of the fixpoint loop consists of three phases:
+//! Each iteration of the fixpoint loop consists of four phases:
 //!
-//! - **Analysis** — discovers callable-typed parameters in HOFs, collects
-//!   call sites where those HOFs are invoked with concrete callable arguments,
-//!   and runs an identity-closure peephole optimization that replaces
-//!   `(args) => f(args)` wrappers with direct references to `f`.
-//! - **Specialization** — clones each HOF for each concrete argument
+//! - The pre-pass promotes single-use callable locals within their owner
+//!   scopes and replaces identity closures `(args) => f(args)` with direct
+//!   references to `f`.
+//! - Analysis discovers callable-typed parameters in HOFs and collects call
+//!   sites where those HOFs are invoked with concrete callable arguments.
+//! - Specialization clones each HOF for each concrete argument
 //!   combination, replacing the callable parameter reference with a direct
 //!   call to the concrete callee. A deduplication map keyed by [`types::SpecKey`]
 //!   ensures identical specializations are created only once.
-//! - **Rewrite** — redirects original call sites to invoke the specialized
-//!   clones, removes the callable argument from the argument tuple, and
-//!   threads closure captures as extra arguments.
+//! - Rewrite redirects original call sites to invoke the specialized clones,
+//!   removes the callable argument from the argument tuple, and threads closure
+//!   captures as extra arguments.
 //!
 //! These phases iterate until no reachable closures or arrow-typed parameters
 //! remain in the target package. The iteration limit is dynamically scaled on
@@ -121,8 +122,11 @@ const MAX_ITERATIONS: usize = 5;
 /// - No arrow-typed parameters remain in reachable callable declarations.
 /// - All indirect callable dispatch is replaced with direct dispatch calls.
 ///
-/// Returns a vector of errors encountered during defunctionalization.
-/// An empty vector indicates success.
+/// Returns diagnostics encountered during defunctionalization.
+///
+/// [`Error::ExcessiveSpecializations`] is a non-fatal warning. Other
+/// diagnostics are fatal to the production pipeline because the intermediate
+/// FIR may not satisfy downstream invariants.
 pub fn defunctionalize(
     store: &mut PackageStore,
     package_id: PackageId,

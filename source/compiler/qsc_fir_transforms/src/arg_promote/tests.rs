@@ -2,13 +2,16 @@
 // Licensed under the MIT License.
 
 use super::*;
-use crate::test_utils::{PipelineStage, compile_and_run_pipeline_to, compile_to_fir};
+use crate::test_utils::{
+    PipelineStage, compile_and_run_pipeline_to, compile_to_fir, find_callable, format_pat,
+    local_names,
+};
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    CallableDecl, CallableImpl, ExprId, ExprKind, Field, FieldPath, ItemKind, LocalVarId,
-    Mutability, PackageLookup, PatKind, Res, StmtKind,
+    BlockId, CallableImpl, ExprId, ExprKind, Field, FieldPath, Functor, ItemKind, LocalVarId,
+    Mutability, PackageLookup, PatKind, Res, StmtKind, UnOp,
 };
 use rustc_hash::FxHashMap;
 
@@ -57,42 +60,6 @@ fn extract_result(store: &PackageStore, pkg_id: PackageId) -> String {
     }
     entries.sort();
     entries.join("\n")
-}
-
-fn format_pat(package: &qsc_fir::fir::Package, pat_id: PatId) -> String {
-    let pat = package.get_pat(pat_id);
-    match &pat.kind {
-        PatKind::Bind(ident) => format!("Bind({}: {})", ident.name, pat.ty),
-        PatKind::Tuple(sub_pats) => {
-            let subs: Vec<String> = sub_pats.iter().map(|&id| format_pat(package, id)).collect();
-            format!("Tuple({})", subs.join(", "))
-        }
-        PatKind::Discard => format!("Discard({})", pat.ty),
-    }
-}
-
-fn find_callable<'a>(package: &'a qsc_fir::fir::Package, callable_name: &str) -> &'a CallableDecl {
-    package
-        .items
-        .values()
-        .find_map(|item| match &item.kind {
-            ItemKind::Callable(decl) if decl.name.name.as_ref() == callable_name => {
-                Some(decl.as_ref())
-            }
-            _ => None,
-        })
-        .unwrap_or_else(|| panic!("callable '{callable_name}' not found"))
-}
-
-fn local_names(package: &qsc_fir::fir::Package) -> FxHashMap<LocalVarId, String> {
-    package
-        .pats
-        .values()
-        .filter_map(|pat| match &pat.kind {
-            PatKind::Bind(ident) => Some((ident.id, ident.name.to_string())),
-            PatKind::Tuple(_) | PatKind::Discard => None,
-        })
-        .collect()
 }
 
 fn find_pat_binding_id_by_name(
@@ -239,6 +206,183 @@ fn expect_direct_item_call(
     *arg_id
 }
 
+/// Finds the argument expression for a direct item call wrapped in the given
+/// functor inside `callable_name`.
+///
+/// This is a test probe for call-site rewrites such as `Controlled Foo(args)`
+/// or `Adjoint Foo(args)`: it walks the callable body, looks for a call whose
+/// callee is `UnOp(Functor(functor), Var(Item(expected_callee)))`, and returns
+/// that call's `args` expression so the test can inspect how arg promotion
+/// rewrote the payload.
+fn find_functor_call_arg(
+    package: &qsc_fir::fir::Package,
+    callable_name: &str,
+    functor: Functor,
+    expected_callee: &str,
+) -> ExprId {
+    let callable = find_callable(package, callable_name);
+    let mut found = None;
+
+    crate::walk_utils::for_each_expr_in_callable_impl(
+        package,
+        &callable.implementation,
+        &mut |_expr_id, expr| {
+            if found.is_some() {
+                return;
+            }
+
+            let ExprKind::Call(callee_id, arg_id) = expr.kind else {
+                return;
+            };
+            let callee = package.get_expr(callee_id);
+            let ExprKind::UnOp(UnOp::Functor(actual_functor), inner_id) = &callee.kind else {
+                return;
+            };
+            if *actual_functor != functor {
+                return;
+            }
+            let inner = package.get_expr(*inner_id);
+            let ExprKind::Var(Res::Item(item_id), _) = &inner.kind else {
+                return;
+            };
+            if item_name(package, item_id) == expected_callee {
+                found = Some(arg_id);
+            }
+        },
+    );
+
+    found.unwrap_or_else(|| {
+        panic!("{functor:?} call to '{expected_callee}' not found in '{callable_name}'")
+    })
+}
+
+fn expect_single_expr_block_in_callable(
+    package: &qsc_fir::fir::Package,
+    callable_name: &str,
+) -> BlockId {
+    let body = package.get_block(callable_body_block_id(package, callable_name));
+    let [stmt_id] = body.stmts.as_slice() else {
+        panic!("expected callable '{callable_name}' to contain one expression statement");
+    };
+    let stmt = package.get_stmt(*stmt_id);
+    let StmtKind::Expr(block_expr_id) = stmt.kind else {
+        panic!("expected callable '{callable_name}' to end with an expression statement");
+    };
+    let ExprKind::Block(block_id) = package.get_expr(block_expr_id).kind else {
+        panic!("expected callable '{callable_name}' expression to be a rewritten block");
+    };
+    block_id
+}
+
+fn expect_block_binds_call_then_returns_expr(
+    package: &qsc_fir::fir::Package,
+    block_id: BlockId,
+    expected_callee: &str,
+) -> (LocalVarId, ExprId) {
+    let block = package.get_block(block_id);
+    let [bind_stmt_id, result_stmt_id] = block.stmts.as_slice() else {
+        panic!("expected rewritten block to bind once and then return an expression");
+    };
+
+    let bind_stmt = package.get_stmt(*bind_stmt_id);
+    let StmtKind::Local(Mutability::Immutable, temp_pat_id, init_expr_id) = bind_stmt.kind else {
+        panic!("expected rewritten block to start with an immutable temporary binding");
+    };
+    expect_direct_item_call(package, init_expr_id, expected_callee);
+    let temp_pat = package.get_pat(temp_pat_id);
+    let PatKind::Bind(temp_ident) = &temp_pat.kind else {
+        panic!("expected rewritten block binding to use a named temporary");
+    };
+
+    let result_stmt = package.get_stmt(*result_stmt_id);
+    let StmtKind::Expr(result_expr_id) = result_stmt.kind else {
+        panic!("expected rewritten block to end with an expression");
+    };
+    (temp_ident.id, result_expr_id)
+}
+
+fn expect_projected_tuple_from_local(
+    package: &qsc_fir::fir::Package,
+    tuple_expr_id: ExprId,
+    expected_local: LocalVarId,
+    expected_field_count: usize,
+) {
+    let ExprKind::Tuple(field_expr_ids) = &package.get_expr(tuple_expr_id).kind else {
+        panic!("expected promoted payload to be rebuilt as a tuple");
+    };
+    assert_eq!(
+        field_expr_ids.len(),
+        expected_field_count,
+        "expected promoted payload field count"
+    );
+
+    for (index, field_expr_id) in field_expr_ids.iter().enumerate() {
+        let field_expr = package.get_expr(*field_expr_id);
+        let ExprKind::Field(base_expr_id, Field::Path(path)) = &field_expr.kind else {
+            panic!("expected promoted payload tuple element to be a field projection");
+        };
+        let ExprKind::Var(Res::Local(local_id), _) = &package.get_expr(*base_expr_id).kind else {
+            panic!("expected promoted payload projection to read the synthesized binding");
+        };
+        assert_eq!(*local_id, expected_local);
+        assert_eq!(path.indices, vec![index]);
+    }
+}
+
+fn expect_controlled_payload_block(
+    package: &qsc_fir::fir::Package,
+    callable_name: &str,
+    expected_callee: &str,
+) -> BlockId {
+    let controlled_arg_id =
+        find_functor_call_arg(package, callable_name, Functor::Ctl, expected_callee);
+    let ExprKind::Tuple(controlled_items) = &package.get_expr(controlled_arg_id).kind else {
+        panic!("expected controlled argument to remain a controls/payload tuple");
+    };
+    let [controls_id, payload_id] = controlled_items.as_slice() else {
+        panic!("expected controlled argument to have controls and payload elements");
+    };
+    assert!(
+        matches!(package.get_expr(*controls_id).kind, ExprKind::Array(_)),
+        "controls should stay in the first tuple position"
+    );
+    let ExprKind::Block(payload_block_id) = package.get_expr(*payload_id).kind else {
+        panic!("expected unsafe payload rewrite to stay in the payload position");
+    };
+    payload_block_id
+}
+
+fn assert_call_shape_count(
+    store: &PackageStore,
+    pkg_id: PackageId,
+    callable_name: &str,
+    line_prefix: &str,
+    expected_count: usize,
+) {
+    let call_shapes = extract_call_shapes(store, pkg_id, callable_name);
+    assert_eq!(
+        call_shapes
+            .lines()
+            .filter(|line| line.starts_with(line_prefix))
+            .count(),
+        expected_count,
+        "expected {expected_count} call shape(s) starting with '{line_prefix}':\n{call_shapes}"
+    );
+}
+
+fn assert_call_shapes_contain(
+    store: &PackageStore,
+    pkg_id: PackageId,
+    callable_name: &str,
+    expected_line: &str,
+) {
+    let call_shapes = extract_call_shapes(store, pkg_id, callable_name);
+    assert!(
+        call_shapes.contains(expected_line),
+        "expected call shapes to contain '{expected_line}':\n{call_shapes}"
+    );
+}
+
 fn force_shared_nested_field_inner_expr(
     store: &mut PackageStore,
     pkg_id: PackageId,
@@ -320,6 +464,34 @@ fn collect_pat_binding_names(
         }
         PatKind::Discard => {}
     }
+}
+
+fn callable_input_binding_names(
+    package: &qsc_fir::fir::Package,
+    callable_name: &str,
+) -> Vec<String> {
+    let callable = find_callable(package, callable_name);
+    let mut binding_names = Vec::new();
+    collect_pat_binding_names(package, callable.input, &mut binding_names);
+    binding_names.sort();
+    binding_names
+}
+
+fn closure_target_names(store: &PackageStore, pkg_id: PackageId) -> Vec<String> {
+    let package = store.get(pkg_id);
+    let reachable = crate::reachability::collect_reachable_from_entry(store, pkg_id);
+    let mut names = super::collect_closure_targets(package, pkg_id, &reachable)
+        .iter()
+        .map(|item_id| {
+            let item = package.get_item(*item_id);
+            let ItemKind::Callable(decl) = &item.kind else {
+                panic!("closure target should be callable");
+            };
+            decl.name.name.to_string()
+        })
+        .collect::<Vec<_>>();
+    names.sort();
+    names
 }
 
 #[test]
@@ -628,22 +800,126 @@ fn controlled_specialization_params_promoted() {
 }
 
 #[test]
+fn functor_applied_adjoint_call_site_payload_is_projected() {
+    let source = "struct Pair { X : Int, Y : Int }
+        operation Op(p : Pair) : Unit is Adj {
+            body ... {
+                let _ = p.X + p.Y;
+            }
+            adjoint self;
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            let pair = new Pair { X = 1, Y = 2 };
+            Adjoint Op(pair);
+        }";
+
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
+
+    expect![[r#"
+        Functor(Adj)(Op)((pair.0, pair.1))"#]]
+    .assert_eq(&extract_call_shapes(&store, pkg_id, "Main"));
+}
+
+#[test]
+fn functor_applied_controlled_call_site_payload_is_projected() {
+    let source = "struct Pair { X : Int, Y : Int }
+        operation Foo(p : Pair) : Unit is Ctl + Adj {
+            body ... {
+                let _ = p.X + p.Y;
+            }
+            adjoint self;
+            controlled (cs, ...) {
+                let _ = p.X + p.Y;
+            }
+            controlled adjoint self;
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let pair = new Pair { X = 3, Y = 4 };
+            Controlled Foo([q], pair);
+        }";
+
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
+
+    let call_shapes = extract_call_shapes(&store, pkg_id, "Main");
+    let controlled_foo_calls = call_shapes
+        .lines()
+        .filter(|line| line.contains("Functor(Ctl)(Foo)"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        controlled_foo_calls,
+        vec!["Functor(Ctl)(Foo)((Array(len=1), (pair.0, pair.1)))"],
+        "expected only the payload of the controlled direct item call to be projected:\n{call_shapes}"
+    );
+}
+
+#[test]
+fn functor_applied_controlled_payload_is_evaluated_once_after_controls() {
+    let source = "struct Pair { X : Int, Y : Int }
+        function BuildPair() : Pair {
+            new Pair { X = 1, Y = 2 }
+        }
+        operation Foo(p : Pair) : Unit is Ctl {
+            body ... {
+                let _ = p.X + p.Y;
+            }
+            controlled (cs, ...) {
+                let _ = p.X + p.Y;
+            }
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            Controlled Foo([q], BuildPair());
+        }";
+
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
+    let package = store.get(pkg_id);
+    let payload_block_id = expect_controlled_payload_block(package, "Main", "Foo");
+    let (temp_id, payload_result_id) =
+        expect_block_binds_call_then_returns_expr(package, payload_block_id, "BuildPair");
+    expect_projected_tuple_from_local(package, payload_result_id, temp_id, 2);
+    assert_call_shape_count(&store, pkg_id, "Main", "BuildPair(", 1);
+    assert_call_shapes_contain(
+        &store,
+        pkg_id,
+        "Main",
+        "Functor(Ctl)(Foo)((Array(len=1), Block))",
+    );
+}
+
+#[test]
 fn direct_callable_alias_does_not_block_promotion() {
     // A used direct callable alias is rewritten back to the callee before
     // arg_promote runs, so the alias itself does not keep the callable from
     // having its tuple parameter promoted.
-    check(
-        "struct Pair { X : Int, Y : Int }
+    let source = "struct Pair { X : Int, Y : Int }
             function UsePair(p : Pair) : Int {
                 p.X + p.Y
             }
             function Main() : Int {
                 let f = UsePair;
                 f(new Pair { X = 3, Y = 4 })
-            }",
+            }";
+
+    check(
+        source,
         &expect![[r#"
                         Callable Main: input=Tuple()
                         Callable UsePair: input=Tuple(Bind(p_0: Int), Bind(p_1: Int))"#]],
+    );
+
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
+    let call_shapes = extract_call_shapes(&store, pkg_id, "Main");
+    assert!(
+        call_shapes.contains("UsePair("),
+        "alias call should be rewritten back to the promoted callable:\n{call_shapes}"
+    );
+    assert!(
+        !call_shapes.contains("f("),
+        "call site should not retain the local callable alias:\n{call_shapes}"
     );
 }
 
@@ -688,76 +964,12 @@ fn aggregate_argument_expression_is_bound_once_before_field_projection() {
 
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
     let package = store.get(pkg_id);
-
-    let main_block = package.get_block(callable_body_block_id(package, "Main"));
-    assert_eq!(
-        main_block.stmts.len(),
-        1,
-        "expected Main to contain one rewritten expression"
-    );
-
-    let outer_stmt = package.get_stmt(main_block.stmts[0]);
-    let StmtKind::Expr(block_expr_id) = &outer_stmt.kind else {
-        panic!("expected Main body to end with an expression statement");
-    };
-
-    let block_expr = package.get_expr(*block_expr_id);
-    let ExprKind::Block(rewritten_block_id) = block_expr.kind else {
-        panic!("expected promoted call to be wrapped in a block");
-    };
-
-    let rewritten_block = package.get_block(rewritten_block_id);
-    assert_eq!(
-        rewritten_block.stmts.len(),
-        2,
-        "expected rewritten block to bind the aggregate once and then call Sum"
-    );
-
-    let bind_stmt = package.get_stmt(rewritten_block.stmts[0]);
-    let StmtKind::Local(Mutability::Immutable, temp_pat_id, init_expr_id) = &bind_stmt.kind else {
-        panic!("expected first rewritten block statement to bind the aggregate argument");
-    };
-
-    let temp_pat = package.get_pat(*temp_pat_id);
-    let PatKind::Bind(temp_ident) = &temp_pat.kind else {
-        panic!("expected synthesized binding pattern for aggregate argument");
-    };
-    expect_direct_item_call(package, *init_expr_id, "BuildPair");
-
-    let call_stmt = package.get_stmt(rewritten_block.stmts[1]);
-    let StmtKind::Expr(sum_call_id) = &call_stmt.kind else {
-        panic!("expected second rewritten block statement to be the promoted call");
-    };
-
-    let promoted_arg_id = expect_direct_item_call(package, *sum_call_id, "Sum");
-    let promoted_arg = package.get_expr(promoted_arg_id);
-    let ExprKind::Tuple(field_expr_ids) = &promoted_arg.kind else {
-        panic!("expected promoted call argument to be rebuilt as a tuple");
-    };
-    assert_eq!(field_expr_ids.len(), 2, "expected two projected fields");
-
-    for (index, field_expr_id) in field_expr_ids.iter().enumerate() {
-        let field_expr = package.get_expr(*field_expr_id);
-        let ExprKind::Field(base_expr_id, Field::Path(path)) = &field_expr.kind else {
-            panic!("expected promoted tuple element to be a field projection");
-        };
-        let base_expr = package.get_expr(*base_expr_id);
-        let ExprKind::Var(Res::Local(local_id), _) = &base_expr.kind else {
-            panic!("expected promoted field projection to read from the synthesized binding");
-        };
-        assert_eq!(*local_id, temp_ident.id);
-        assert_eq!(path.indices, vec![index]);
-    }
-
-    let call_shapes = extract_call_shapes(&store, pkg_id, "Main");
-    assert_eq!(
-        call_shapes
-            .lines()
-            .filter(|line| line.starts_with("BuildPair("))
-            .count(),
-        1,
-        "expected BuildPair to be evaluated once after promotion:\n{call_shapes}"
-    );
+    let rewritten_block_id = expect_single_expr_block_in_callable(package, "Main");
+    let (temp_id, sum_call_id) =
+        expect_block_binds_call_then_returns_expr(package, rewritten_block_id, "BuildPair");
+    let promoted_arg_id = expect_direct_item_call(package, sum_call_id, "Sum");
+    expect_projected_tuple_from_local(package, promoted_arg_id, temp_id, 2);
+    assert_call_shape_count(&store, pkg_id, "Main", "BuildPair(", 1);
 }
 
 #[test]
@@ -823,31 +1035,16 @@ fn closure_targets_are_excluded_from_promotion() {
         }";
 
     let (mut store, pkg_id) = compile_to_fir(source);
-    let package = store.get(pkg_id);
-    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
-    let closure_targets = super::collect_closure_targets(package, pkg_id, &reachable);
-    let mut closure_target_names = closure_targets
-        .iter()
-        .map(|item_id| {
-            let item = package.get_item(*item_id);
-            let ItemKind::Callable(decl) = &item.kind else {
-                panic!("closure target should be callable");
-            };
-            decl.name.name.to_string()
-        })
-        .collect::<Vec<_>>();
-    closure_target_names.sort();
-    assert_eq!(closure_target_names, vec!["<lambda>".to_string()]);
+    assert_eq!(closure_target_names(&store, pkg_id), vec!["<lambda>"]);
 
     let mut assigner = Assigner::from_package(store.get(pkg_id));
     arg_promote(&mut store, pkg_id, &mut assigner);
 
     let package = store.get(pkg_id);
-    let lambda = find_callable(package, "<lambda>");
-    let mut binding_names = Vec::new();
-    collect_pat_binding_names(package, lambda.input, &mut binding_names);
-    binding_names.sort();
-    assert_eq!(binding_names, vec!["pair".to_string()]);
+    assert_eq!(
+        callable_input_binding_names(package, "<lambda>"),
+        vec!["pair"]
+    );
 }
 
 #[test]

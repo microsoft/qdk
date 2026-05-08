@@ -29,6 +29,55 @@ mod single_use_callable_local_promotion {
         );
     }
 
+    #[test]
+    fn same_local_var_id_in_unreachable_callable_does_not_rewrite_reachable_alias() {
+        let targets = callable_call_targets_after_defunc(
+            r#"
+        function Inc(x : Int) : Int { x + 1 }
+        function Dec(x : Int) : Int { x - 1 }
+        function Unused() : Int {
+            let f = Dec;
+            f(10)
+        }
+        function Reachable() : Int {
+            let f = Inc;
+            f(10)
+        }
+        function Main() : Int { Reachable() }
+        "#,
+            "Reachable",
+        );
+
+        expect![[r#"Inc"#]].assert_eq(&targets.join("\n"));
+    }
+
+    /// Locals with the same `LocalVarId` in different callables should promote
+    /// independently — the reachable alias resolves to `Inc` even though an
+    /// unreachable callable binds the same variable id to `Dec`.
+    #[test]
+    fn promote_scopes_alias_to_owning_callable_not_global_var_id() {
+        check(
+            r#"
+        function Inc(x : Int) : Int { x + 1 }
+        function Dec(x : Int) : Int { x - 1 }
+        function Unused() : Int {
+            let f = Dec;
+            f(10)
+        }
+        function Reachable() : Int {
+            let f = Inc;
+            f(10)
+        }
+        @EntryPoint()
+        function Main() : Int { Reachable() }
+        "#,
+            &expect![[r#"
+            Inc: input_ty=Int
+            Main: input_ty=Unit
+            Reachable: input_ty=Unit"#]],
+        );
+    }
+
     /// Single-use callable local in HOF call should be promoted.
     #[test]
     fn promote_single_use_in_hof_call() {

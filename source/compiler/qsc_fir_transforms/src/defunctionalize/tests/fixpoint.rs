@@ -31,6 +31,7 @@ fn fixpoint_no_hof_call_sites_prunes_dead_callable_local_chain() {
     );
 }
 
+// Covers both snapshot and invariant verification for the 2-level HOF forwarding chain.
 #[test]
 fn fixpoint_multi_level_hof() {
     check_invariants(
@@ -50,24 +51,6 @@ fn fixpoint_multi_level_hof() {
 }
 
 #[test]
-fn invariant_after_fixpoint() {
-    check_invariants(
-        r#"
-        operation Inner(op : Qubit => Unit, q : Qubit) : Unit {
-            op(q);
-        }
-        operation Outer(op : Qubit => Unit, q : Qubit) : Unit {
-            Inner(op, q);
-        }
-        operation Main() : Unit {
-            use q = Qubit();
-            Outer(H, q);
-        }
-        "#,
-    );
-}
-
-#[test]
 fn full_pipeline_succeeds_for_simple_hof() {
     check_pipeline(
         r#"
@@ -77,24 +60,6 @@ fn full_pipeline_succeeds_for_simple_hof() {
         operation Main() : Unit {
             use q = Qubit();
             ApplyOp(H, q);
-        }
-        "#,
-    );
-}
-
-#[test]
-fn nested_hof_two_levels() {
-    check_invariants(
-        r#"
-        operation Level1(op : Qubit => Unit, q : Qubit) : Unit {
-            op(q);
-        }
-        operation Level2(op : Qubit => Unit, q : Qubit) : Unit {
-            Level1(op, q);
-        }
-        operation Main() : Unit {
-            use q = Qubit();
-            Level2(H, q);
         }
         "#,
     );

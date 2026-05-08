@@ -13,9 +13,6 @@
 //!   (via [`find_callable_params`] / [`extract_arrow_params_from_ty`]).
 //! - Collect direct and HOF call sites (via [`collect_call_sites`] /
 //!   [`inspect_call_expr`] / [`inspect_direct_call_expr`]).
-//! - Run the identity-closure peephole that replaces `(args) => f(args)`
-//!   closures with direct references to `f` (via
-//!   [`identity_closure_peephole`]).
 //! - Resolve callee expressions to concrete callables using flow-sensitive
 //!   reaching definitions, closure captures, functor applications, indexed
 //!   array elements, struct field accesses, and same-package callable
@@ -23,6 +20,9 @@
 //! - Build per-callable lattice states that expose reaching-definition
 //!   information back to the specialization and rewrite phases (via
 //!   [`build_callable_flow_state`] / [`analyze_spec_flow`]).
+//!
+//! The defunctionalization pre-pass runs before this phase and owns callable
+//! local promotion plus identity-closure peephole rewrites.
 
 use super::types::{
     AnalysisResult, CallSite, CallableParam, CalleeLattice, CapturedVar, ConcreteCallable,
