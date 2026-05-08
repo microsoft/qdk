@@ -680,9 +680,8 @@ impl Backend for LogicalCounter {
             index
         };
 
-        match &mut self.memory_compute {
-            MemoryCompute::Manual(mc) => mc.move_to_compute(index),
-            _ => (),
+        if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+            mc.move_to_compute(index);
         }
 
         Ok(index)
@@ -690,9 +689,8 @@ impl Backend for LogicalCounter {
 
     fn qubit_release(&mut self, q: usize) -> Result<bool, String> {
         self.free_list.push(q);
-        match &mut self.memory_compute {
-            MemoryCompute::Manual(mc) => mc.release(q),
-            _ => (),
+        if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+            mc.release(q);
         }
         Ok(true)
     }
@@ -711,9 +709,8 @@ impl Backend for LogicalCounter {
             self.post_select_measurements.insert(q0, val);
         }
 
-        match &self.memory_compute {
-            MemoryCompute::Manual(mc) => mc.assert_compute_qubits([q0, q1])?,
-            _ => (),
+        if let MemoryCompute::Manual(mc) = &self.memory_compute {
+            mc.assert_compute_qubits([q0, q1])?;
         }
 
         Ok(())
@@ -781,17 +778,15 @@ impl Backend for LogicalCounter {
             }
             "MemoryQubitLoad" => {
                 let qid = arg.unwrap_qubit().deref().0;
-                match &mut self.memory_compute {
-                    MemoryCompute::Manual(mc) => mc.move_to_compute(qid),
-                    _ => (),
+                if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+                    mc.move_to_compute(qid);
                 }
                 Some(Ok(Value::unit()))
             }
             "MemoryQubitStore" => {
                 let qid = arg.unwrap_qubit().deref().0;
-                match &mut self.memory_compute {
-                    MemoryCompute::Manual(mc) => mc.move_to_memory(qid),
-                    _ => (),
+                if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+                    mc.move_to_memory(qid);
                 }
                 Some(Ok(Value::unit()))
             }

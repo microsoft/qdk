@@ -1718,6 +1718,7 @@ impl<'a> PartialEvaluator<'a> {
         Ok((callee_control_flow, args_control_flow))
     }
 
+    #[allow(clippy::too_many_lines)]
     fn eval_expr_call_to_intrinsic(
         &mut self,
         store_item_id: StoreItemId,

@@ -15,7 +15,10 @@ use qsc::{
 
 use super::LogicalCounter;
 
-fn run_logical_counts(source: &str, entry: Option<&str>) -> Result<LogicalResourceCounts, String> {
+fn run_logical_counts_result(
+    source: &str,
+    entry: Option<&str>,
+) -> Result<LogicalResourceCounts, String> {
     let source_map = SourceMap::new([("test".into(), source.into())], entry.map(Into::into));
     let (std_id, store) = qsc::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
 
@@ -54,8 +57,14 @@ fn run_logical_counts(source: &str, entry: Option<&str>) -> Result<LogicalResour
     }
 }
 
+fn run_logical_counts(source: &str) -> LogicalResourceCounts {
+    run_logical_counts_result(source, None)
+        .unwrap_or_else(|err| panic!("failed to compute logical counts: {err}"))
+}
+
 fn verify_logical_counts(source: &str, entry: Option<&str>, expect: &Expect) {
-    let logical_counts = run_logical_counts(source, entry).unwrap();
+    let logical_counts = run_logical_counts_result(source, entry)
+        .unwrap_or_else(|err| panic!("failed to compute logical counts: {err}"));
     expect.assert_debug_eq(&logical_counts);
 }
 
@@ -436,19 +445,15 @@ fn post_selection_can_take_impossible_branch() {
 
 #[test]
 fn manual_memory_load_store() {
-    let counts = run_logical_counts(
-        indoc! {"
-                operation Main() : Unit {
-                    Std.ResourceEstimation.EnableMemoryComputeArchitecture(100000, 2);
+    let counts = run_logical_counts(indoc! {"
+        operation Main() : Unit {
+            Std.ResourceEstimation.EnableMemoryComputeArchitecture(0, 2);
 
-                    use qs = Qubit[2];
-                    Std.Memory.MemoryQubitStore(qs[0]);
-                    Std.Memory.MemoryQubitLoad(qs[0]);
-                }
-            "},
-        None,
-    )
-    .unwrap();
+            use qs = Qubit[2];
+            Std.Memory.MemoryQubitStore(qs[0]);
+            Std.Memory.MemoryQubitLoad(qs[0]);
+        }
+    "});
     assert_eq!(counts.write_to_memory_count, Some(1));
     assert_eq!(counts.read_from_memory_count, Some(1));
     assert_eq!(counts.num_compute_qubits, Some(2));
@@ -457,36 +462,32 @@ fn manual_memory_load_store() {
 
 #[test]
 fn manual_memory_complex_circuit_counts() {
-    let counts = run_logical_counts(
-        indoc! {"
-                operation Main() : Unit {
-                    Std.ResourceEstimation.EnableMemoryComputeArchitecture(100000, 2);
+    let counts = run_logical_counts(indoc! {"
+        operation Main() : Unit {
+            Std.ResourceEstimation.EnableMemoryComputeArchitecture(0, 2);
 
-                    use qs = Qubit[4];
+            use qs = Qubit[4];
 
-                    // Move two qubits to memory.
-                    Std.Memory.MemoryQubitStore(qs[2]);
-                    Std.Memory.MemoryQubitStore(qs[3]);
+            // Move two qubits to memory.
+            Std.Memory.MemoryQubitStore(qs[2]);
+            Std.Memory.MemoryQubitStore(qs[3]);
 
-                    // Compute on hot qubits.
-                    H(qs[0]);
-                    CNOT(qs[0], qs[1]);
+            // Compute on hot qubits.
+            H(qs[0]);
+            CNOT(qs[0], qs[1]);
 
-                    // Bring one memory qubit back and use it in a 3-qubit gate.
-                    Std.Memory.MemoryQubitLoad(qs[2]);
-                    CCNOT(qs[0], qs[1], qs[2]);
+            // Bring one memory qubit back and use it in a 3-qubit gate.
+            Std.Memory.MemoryQubitLoad(qs[2]);
+            CCNOT(qs[0], qs[1], qs[2]);
 
-                    // Evict another qubit and load a different one.
-                    Std.Memory.MemoryQubitStore(qs[1]);
-                    Std.Memory.MemoryQubitLoad(qs[3]);
+            // Evict another qubit and load a different one.
+            Std.Memory.MemoryQubitStore(qs[1]);
+            Std.Memory.MemoryQubitLoad(qs[3]);
 
-                    // Two-qubit operation on currently loaded qubits.
-                    Controlled Z([qs[2]], qs[3]);
-                }
-            "},
-        None,
-    )
-    .unwrap();
+            // Two-qubit operation on currently loaded qubits.
+            Controlled Z([qs[2]], qs[3]);
+        }
+    "});
 
     assert_eq!(counts.write_to_memory_count, Some(3));
     assert_eq!(counts.read_from_memory_count, Some(2));
@@ -497,7 +498,7 @@ fn manual_memory_complex_circuit_counts() {
 
 #[test]
 fn manual_memory_rejects_gate_application() {
-    let result = run_logical_counts(
+    let result = run_logical_counts_result(
         indoc! {"
                 operation Main() : Unit {
                     Std.ResourceEstimation.EnableMemoryComputeArchitecture(0, 2);
