@@ -258,6 +258,12 @@ pub fn interpret_errors_into_qsharp_errors(errs: &[interpret::Error]) -> Vec<QSh
         .collect()
 }
 
+#[allow(clippy::needless_pass_by_value)]
+pub fn interpret_errors_into_qsharp_errors_json(errs: Vec<qsc::interpret::Error>) -> String {
+    serde_json::to_string(&interpret_errors_into_qsharp_errors(&errs))
+        .expect("serializing errors to json should succeed")
+}
+
 pub fn project_errors_into_qsharp_errors(
     project_dir: &str,
     errs: &[project::Error],

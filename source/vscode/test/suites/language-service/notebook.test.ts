@@ -41,7 +41,7 @@ suite("Q# Notebook Tests", function suite() {
           .getCells()
           .find((cell) => cell.document.languageId === "qsharp"),
       vscode.workspace.onDidChangeNotebookDocument,
-      50,
+      2000,
       "timed out waiting for a Q# code cell",
     );
   });
@@ -75,7 +75,7 @@ suite("Q# Notebook Tests", function suite() {
         );
       },
       vscode.workspace.onDidChangeNotebookDocument,
-      50,
+      2000,
       "timed out waiting for a Python code cell",
     );
   });

@@ -517,12 +517,10 @@ impl SparseStateSim {
         let (q1, q2) = (qubit1 as u64, qubit2 as u64);
 
         // Swap entries in the sparse state to correspond to swapping of two qubits' locations.
+        let mask = (BigUint::one() << q1) | (BigUint::one() << q2);
         self.state.iter_mut().for_each(|(k, _)| {
             if k.bit(q1) != k.bit(q2) {
-                let mut new_k = k.clone();
-                new_k.set_bit(q1, !k.bit(q1));
-                new_k.set_bit(q2, !k.bit(q2));
-                *k = new_k;
+                *k ^= &mask;
             }
         });
     }
@@ -960,66 +958,70 @@ impl SparseStateSim {
 
         // This operation requires reading other entries in the state vector while modifying one, so convert it into a state map
         // to support lookups. Apply any pending operations in the process.
+        // Split the state vector into the states where the target bit is zero and where it is one, allowing separate processing of the
+        // transformation of the states.
         let ops = self.take_ops();
-        let mapped_state: SparseStateMap = self
-            .state
-            .drain(..)
-            .map(|(mut index, mut val)| {
-                apply_ops(&ops, &mut index, &mut val);
-                (index, val)
-            })
-            .collect();
+        let mut zero_bit_states = Vec::with_capacity(self.state.len());
+        let mut one_bit_states =
+            SparseStateMap::with_capacity_and_hasher(self.state.len(), Default::default());
+        for (mut index, mut value) in self.state.drain(..) {
+            apply_ops(&ops, &mut index, &mut value);
+            if index.bit(target) {
+                one_bit_states.insert(index, value);
+            } else {
+                zero_bit_states.push((index, value));
+            }
+        }
 
         let mut flipped = BigUint::zero();
         flipped.set_bit(target, true);
 
-        self.state.extend(mapped_state.iter().fold(
-            SparseState::default(),
-            |mut accum, (index, value)| {
-                if ctls.iter().all(|c| index.bit(*c)) {
-                    let flipped_index = index ^ &flipped;
-                    if !mapped_state.contains_key(&flipped_index) {
-                        // The state vector does not have an entry for the state where the target is flipped
-                        // and all other qubits are the same, meaning there is no superposition for this state.
-                        // Create the additional state caluclating the resulting superposition.
-                        let mut zero_bit_index = index.clone();
-                        zero_bit_index.set_bit(target, false);
-                        accum.push((zero_bit_index, value * std::f64::consts::FRAC_1_SQRT_2));
-
-                        let mut one_bit_index = index.clone();
-                        one_bit_index.set_bit(target, true);
-                        accum.push((
-                            one_bit_index,
-                            value
-                                * std::f64::consts::FRAC_1_SQRT_2
-                                * (if index.bit(target) { -1.0 } else { 1.0 }),
-                        ));
-                    } else if !index.bit(target) {
-                        // The state vector already has a superposition for this state, so calculate the resulting
-                        // updates using the value from the flipped state. Note we only want to perform this for one
-                        // of the states to avoid duplication, so we pick the Zero state by checking the target bit
-                        // in the index is not set.
-                        let flipped_value = &mapped_state[&flipped_index];
-
-                        let new_val = (value + flipped_value) as Complex64;
-                        if !new_val.is_nearly_zero() {
-                            accum.push((index.clone(), new_val * std::f64::consts::FRAC_1_SQRT_2));
-                        }
-
-                        let new_val = (value - flipped_value) as Complex64;
-                        if !new_val.is_nearly_zero() {
-                            accum.push((
-                                index | &flipped,
-                                new_val * std::f64::consts::FRAC_1_SQRT_2,
-                            ));
-                        }
+        // First, process all the zero bit states, splitting them into superposition if there is no corresponding one bit state or
+        // calculating the new state from the combination of the zero and one bit states.
+        for (zero_bit_index, zero_bit_value) in zero_bit_states {
+            if ctls.iter().all(|c| zero_bit_index.bit(*c)) {
+                let one_bit_index = &zero_bit_index | &flipped;
+                let one_bit_value = one_bit_states.get(&one_bit_index);
+                if one_bit_value.is_none() {
+                    // The state vector does not have an entry for the state where the target is flipped
+                    // and all other qubits are the same, meaning there is no superposition for this state.
+                    // Create the additional state calculating the resulting superposition.
+                    let new_val = zero_bit_value * std::f64::consts::FRAC_1_SQRT_2;
+                    self.state.push((zero_bit_index, new_val));
+                    self.state.push((one_bit_index, new_val));
+                } else if let Some(one_bit_value) = one_bit_value {
+                    // The state vector already has a superposition for this state, so calculate the resulting
+                    // updates using the value from the flipped state.
+                    let new_val = zero_bit_value + one_bit_value;
+                    if !new_val.is_nearly_zero() {
+                        self.state
+                            .push((zero_bit_index, new_val * std::f64::consts::FRAC_1_SQRT_2));
                     }
-                } else {
-                    accum.push((index.clone(), *value));
+                    let new_val = zero_bit_value - one_bit_value;
+                    // Since we are already handling this state, remove it from the one states map.
+                    one_bit_states.remove(&one_bit_index);
+                    if !new_val.is_nearly_zero() {
+                        self.state
+                            .push((one_bit_index, new_val * std::f64::consts::FRAC_1_SQRT_2));
+                    }
                 }
-                accum
-            },
-        ));
+            } else {
+                self.state.push((zero_bit_index, zero_bit_value));
+            }
+        }
+
+        // The remaining one bit states either do not satisfy the control condition or must be brought into superposition
+        // by computing a new pair of states.
+        for (one_bit_index, one_bit_value) in one_bit_states {
+            if ctls.iter().all(|c| one_bit_index.bit(*c)) {
+                let zero_index = &one_bit_index ^ &flipped;
+                let new_val = one_bit_value * std::f64::consts::FRAC_1_SQRT_2;
+                self.state.push((zero_index, new_val));
+                self.state.push((one_bit_index, -new_val));
+            } else {
+                self.state.push((one_bit_index, one_bit_value));
+            }
+        }
     }
 
     /// Performs a rotation in the non-computational basis, which cannot be done in-place. This
@@ -1081,53 +1083,68 @@ impl SparseStateSim {
 
             // This operation requires reading other entries in the state vector while modifying one, so convert it into a state map
             // to support lookups. Apply any pending operations in the process.
+            // Split the state vector into the states where the target bit is zero and where it is one, allowing separate processing of the
+            // transformation of the states.
             let ops = self.take_ops();
-            let mapped_state: SparseStateMap = self
-                .state
-                .drain(..)
-                .map(|(mut index, mut val)| {
-                    apply_ops(&ops, &mut index, &mut val);
-                    (index, val)
-                })
-                .collect();
+            let mut zero_bit_states = Vec::with_capacity(self.state.len());
+            let mut one_bit_states =
+                SparseStateMap::with_capacity_and_hasher(self.state.len(), Default::default());
+            for (mut index, mut value) in self.state.drain(..) {
+                apply_ops(&ops, &mut index, &mut value);
+                if index.bit(target) {
+                    one_bit_states.insert(index, value);
+                } else {
+                    zero_bit_states.push((index, value));
+                }
+            }
 
-            self.state.extend(mapped_state.iter().fold(
-                SparseState::default(),
-                |mut accum, (index, value)| {
-                    if ctls.iter().all(|c| index.bit(*c)) {
-                        let flipped_index = index ^ &flipped;
-                        if !mapped_state.contains_key(&flipped_index) {
-                            // The state vector doesn't have an entry for the flipped target bit, so there
-                            // isn't a superposition. Calculate the superposition using the matrix entries.
-                            if index.bit(target) {
-                                accum.push((flipped_index, value * m01));
-                                accum.push((index.clone(), value * m00));
-                            } else {
-                                accum.push((index.clone(), value * m00));
-                                accum.push((flipped_index, value * m10));
-                            }
-                        } else if !index.bit(target) {
-                            // There is already a superposition of the target for this state, so calculate the new
-                            // entries using the values from the flipped state. Note we only want to do this for one of
-                            // the states, so we pick the Zero state by checking the target bit in the index is not set.
-                            let flipped_val = mapped_state[&flipped_index];
-
-                            let new_val = (value * m00 + flipped_val * m01) as Complex64;
-                            if !new_val.is_nearly_zero() {
-                                accum.push((index.clone(), new_val));
-                            }
-
-                            let new_val = (value * m10 + flipped_val * m00) as Complex64;
-                            if !new_val.is_nearly_zero() {
-                                accum.push((flipped_index, new_val));
-                            }
+            // Process all the zero bit states, splitting them into superposition if there is no corresponding one bit state or
+            // calculating the new state from the combination of the zero and one bit states.
+            for (zero_bit_index, zero_bit_value) in zero_bit_states {
+                if ctls.iter().all(|c| zero_bit_index.bit(*c)) {
+                    let one_bit_index = &zero_bit_index | &flipped;
+                    let one_bit_value = one_bit_states.get(&one_bit_index);
+                    if one_bit_value.is_none() {
+                        // The state vector doesn't have an entry for the flipped target bit, so there
+                        // isn't a superposition. Calculate the superposition using the matrix entries.
+                        self.state.push((zero_bit_index, zero_bit_value * m00));
+                        self.state.push((one_bit_index, zero_bit_value * m10));
+                    } else if let Some(one_bit_value) = one_bit_value {
+                        // There is already a superposition of the target for this state, so calculate the new
+                        // entries using the values from the flipped state.
+                        let new_val = (zero_bit_value * m00) + (one_bit_value * m01);
+                        if !new_val.is_nearly_zero() {
+                            self.state.push((zero_bit_index, new_val));
                         }
-                    } else {
-                        accum.push((index.clone(), *value));
+
+                        let new_val = (zero_bit_value * m10) + (one_bit_value * m00);
+                        // Since we are already handling this state, remove it from the one states map.
+                        one_bit_states.remove(&one_bit_index);
+                        if !new_val.is_nearly_zero() {
+                            self.state.push((one_bit_index, new_val));
+                        }
                     }
-                    accum
-                },
-            ));
+                } else {
+                    self.state.push((zero_bit_index, zero_bit_value));
+                }
+            }
+
+            // The remaining one bit states either do not satisfy the control condition or must be brought into superposition
+            // by computing a new pair of states.
+            for (one_bit_index, one_bit_value) in one_bit_states {
+                if ctls.iter().all(|c| one_bit_index.bit(*c)) {
+                    let zero_bit_value = one_bit_value * m01;
+                    let new_one_bit_value = one_bit_value * m00;
+                    if !zero_bit_value.is_nearly_zero() {
+                        self.state.push((&one_bit_index ^ &flipped, zero_bit_value));
+                    }
+                    if !new_one_bit_value.is_nearly_zero() {
+                        self.state.push((one_bit_index, new_one_bit_value));
+                    }
+                } else {
+                    self.state.push((one_bit_index, one_bit_value));
+                }
+            }
         }
     }
 

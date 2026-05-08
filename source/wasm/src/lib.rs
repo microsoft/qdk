@@ -4,7 +4,6 @@
 #![allow(unknown_lints, clippy::empty_docs)]
 #![allow(non_snake_case)]
 
-use diagnostic::interpret_errors_into_qsharp_errors;
 use katas::check_solution;
 use language_service::IOperationInfo;
 use num_bigint::BigUint;
@@ -29,7 +28,7 @@ use serde_json::json;
 use std::{fmt::Write, sync::Arc};
 use wasm_bindgen::prelude::*;
 
-use crate::diagnostic::interpret_errors_to_run_result;
+use crate::diagnostic::{interpret_errors_into_qsharp_errors_json, interpret_errors_to_run_result};
 
 mod debug_service;
 mod diagnostic;
@@ -228,12 +227,6 @@ pub fn get_circuit(
 
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())
     }
-}
-
-#[allow(clippy::needless_pass_by_value)]
-fn interpret_errors_into_qsharp_errors_json(errs: Vec<qsc::interpret::Error>) -> String {
-    serde_json::to_string(&interpret_errors_into_qsharp_errors(&errs))
-        .expect("serializing errors to json should succeed")
 }
 
 fn compile_errors_into_qsharp_errors_json(errs: Vec<qsc::compile::Error>) -> String {
