@@ -10,7 +10,7 @@ use std::fmt::Write;
 
 use crate::{
     Circuit, Operation,
-    circuit::{ComponentGrid, Ket, Measurement, Unitary},
+    circuit::{ComponentGrid, Ket, Measurement, SourceLocation, Unitary},
     json_to_circuit::json_to_circuits,
 };
 
@@ -111,6 +111,14 @@ fn build_operation_def(circuit_name: &str, circuit: &Circuit) -> String {
         None => &circuit.component_grid,
     };
 
+    // Scan the body for trace-only patterns the emitter can't faithfully
+    // recreate as Q# (e.g. loops with structurally divergent iterations,
+    // conditionals with opaque expressions). Any findings become a banner
+    // above the operation declaration so the reader knows the preview is
+    // approximate. Editor-authored circuits never trigger this banner
+    // because they only contain shapes the emitter can recreate exactly.
+    let divergence_banner = format_divergence_banner(&detect_divergences(body_grid));
+
     process_components(
         body_grid,
         &qubits,
@@ -129,7 +137,14 @@ fn build_operation_def(circuit_name: &str, circuit: &Circuit) -> String {
     qsharp_str.push_str(body_str.as_str());
     qsharp_str.push_str(&generate_return_statement(&mut measure_results, &indent));
     qsharp_str.push_str("}\n\n");
-    qsharp_str
+    // Prepend the divergence banner (if any) so it sits above the doc-comment
+    // and operation declaration. Computed earlier from the same body grid we
+    // emitted, so its line references stay consistent with what the user sees.
+    if divergence_banner.is_empty() {
+        qsharp_str
+    } else {
+        format!("{divergence_banner}{qsharp_str}")
+    }
 }
 
 /// Recursively emits Q# for the given grid of components into `out`.
@@ -330,6 +345,204 @@ fn unwrap_entry_point_wrapper(grid: &ComponentGrid) -> Option<&ComponentGrid> {
         }
         _ => None,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Trace-divergence detection
+//
+// The trace-derived form of a circuit can contain shapes that the editor
+// (and therefore the emitter) can't recreate exactly as Q#:
+//
+//   * `loop:` groups whose iterations are structurally different — produced
+//     when partial evaluation specialises iterations differently (e.g. an
+//     `if` body gets eliminated in iteration 0 but appears in iteration 2).
+//     A `for` loop has one body, so no `for` we emit could reproduce these
+//     iterations as-is. The recursive emitter already prints them as
+//     unrolled `// iteration (N)` blocks; the banner just calibrates the
+//     reader's expectation.
+//
+//   * `if:` groups whose label is an opaque expression (e.g.
+//     `(f(c_0, c_1)) > (2)`) rather than a literal `c_N == One` / `Zero`
+//     comparison. The trace summarises arbitrary classical conditions
+//     opaquely; the original Q# expression is lost.
+//
+// Detection runs after `unwrap_entry_point_wrapper` so it walks the same
+// grid the emitter prints. Findings are surfaced as a single banner above
+// the operation declaration, naming each issue and (when available) its
+// source line.
+// ---------------------------------------------------------------------------
+
+/// One actionable finding from the divergence detector. Each becomes a
+/// bullet line in the banner above the emitted operation.
+struct DivergenceFinding {
+    kind: DivergenceKind,
+    /// The structural group's label as written in the circuit (e.g.
+    /// `"loop: 0..3"`, `"if: (f(c_0)) > (2)"`). Surfaced verbatim so the
+    /// reader can correlate it with the inline `// loop: ...` / `// if: ...`
+    /// comments in the body.
+    label: String,
+    location: Option<SourceLocation>,
+}
+
+#[derive(Clone, Copy)]
+enum DivergenceKind {
+    DivergentLoopIterations,
+    OpaqueConditional,
+}
+
+fn detect_divergences(grid: &ComponentGrid) -> Vec<DivergenceFinding> {
+    let mut findings = vec![];
+    walk_for_divergences(grid, &mut findings);
+    findings
+}
+
+fn walk_for_divergences(grid: &ComponentGrid, findings: &mut Vec<DivergenceFinding>) {
+    for col in grid {
+        for op in &col.components {
+            if let Operation::Unitary(u) = op
+                && !u.children.is_empty()
+            {
+                match structural_group_kind(&u.gate) {
+                    Some(StructuralGroupKind::Loop) => check_loop(u, findings),
+                    Some(StructuralGroupKind::Conditional) => check_conditional(u, findings),
+                    _ => {}
+                }
+            }
+            // Recurse into all children — divergences can be nested arbitrarily,
+            // and we want to surface every one in the banner.
+            walk_for_divergences(op.children(), findings);
+        }
+    }
+}
+
+fn check_loop(loop_op: &Unitary, findings: &mut Vec<DivergenceFinding>) {
+    let iterations: Vec<&Unitary> = loop_op
+        .children
+        .iter()
+        .flat_map(|col| col.components.iter())
+        .filter_map(|op| match op {
+            Operation::Unitary(u) if is_iteration_marker(&u.gate) => Some(u),
+            _ => None,
+        })
+        .collect();
+
+    if iterations.len() < 2 {
+        return;
+    }
+
+    let first_body = &iterations[0].children;
+    let all_equiv = iterations
+        .iter()
+        .skip(1)
+        .all(|it| grids_skeleton_equal(&it.children, first_body));
+
+    if !all_equiv {
+        findings.push(DivergenceFinding {
+            kind: DivergenceKind::DivergentLoopIterations,
+            label: loop_op.gate.clone(),
+            location: location_from_metadata(loop_op),
+        });
+    }
+}
+
+fn check_conditional(if_op: &Unitary, findings: &mut Vec<DivergenceFinding>) {
+    let label = if_op.gate.trim_start_matches("if:").trim();
+    if !is_simple_conditional(label) {
+        findings.push(DivergenceFinding {
+            kind: DivergenceKind::OpaqueConditional,
+            label: if_op.gate.clone(),
+            location: location_from_metadata(if_op),
+        });
+    }
+}
+
+/// True iff `label` is a comparison the emitter could reproduce literally:
+/// `<identifier> == One` or `<identifier> == Zero`. Anything more complex
+/// (function calls, numeric comparisons, conjunctions) is opaque.
+fn is_simple_conditional(label: &str) -> bool {
+    let Some((lhs, rhs)) = label.split_once("==") else {
+        return false;
+    };
+    let lhs = lhs.trim();
+    let rhs = rhs.trim();
+    let lhs_is_ident =
+        !lhs.is_empty() && lhs.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let rhs_is_result = rhs == "One" || rhs == "Zero";
+    lhs_is_ident && rhs_is_result
+}
+
+/// Two grids are skeleton-equal if their structure matches when register
+/// indices are ignored. This is the equivalence we care about for loop
+/// iterations: a uniform `for i in 0..N { H(qs[i]); }` produces N
+/// iterations whose bodies share the same shape but reference different
+/// qubits, and we must consider those equivalent. A divergent loop changes
+/// the *shape* — different gates, an extra `if:` group, missing operations.
+fn grids_skeleton_equal(a: &ComponentGrid, b: &ComponentGrid) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter().zip(b.iter()).all(|(ca, cb)| {
+        ca.components.len() == cb.components.len()
+            && ca
+                .components
+                .iter()
+                .zip(cb.components.iter())
+                .all(|(oa, ob)| operations_skeleton_equal(oa, ob))
+    })
+}
+
+fn operations_skeleton_equal(a: &Operation, b: &Operation) -> bool {
+    let same_kind = matches!(
+        (a, b),
+        (Operation::Measurement(_), Operation::Measurement(_))
+            | (Operation::Unitary(_), Operation::Unitary(_))
+            | (Operation::Ket(_), Operation::Ket(_))
+    );
+    if !same_kind {
+        return false;
+    }
+    if a.gate() != b.gate() {
+        return false;
+    }
+    grids_skeleton_equal(a.children(), b.children())
+}
+
+/// Pulls the most useful source location off a structural group's metadata.
+/// Prefers `scope_location` (the `for`/`if` keyword) over `source` (often
+/// the first gate inside the body).
+fn location_from_metadata(u: &Unitary) -> Option<SourceLocation> {
+    let md = u.metadata.as_ref()?;
+    md.scope_location.clone().or_else(|| md.source.clone())
+}
+
+fn format_divergence_banner(findings: &[DivergenceFinding]) -> String {
+    if findings.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    out.push_str(
+        "// NOTE: This Q# preview was reconstructed from a circuit trace and is approximate.\n",
+    );
+    out.push_str("// The original Q# source is the authoritative version.\n");
+
+    for finding in findings {
+        let location_suffix = finding
+            .location
+            .as_ref()
+            // Source locations are 0-indexed; editors display 1-indexed.
+            .map(|loc| format!(" (line {})", loc.line + 1))
+            .unwrap_or_default();
+        let descr = match finding.kind {
+            DivergenceKind::DivergentLoopIterations => {
+                "loop has structurally divergent iterations"
+            }
+            DivergenceKind::OpaqueConditional => "conditional uses an opaque expression",
+        };
+        let _ = writeln!(out, "//   - {descr}{location_suffix}: {}", finding.label);
+    }
+
+    out
 }
 
 fn generate_qubit_validation(

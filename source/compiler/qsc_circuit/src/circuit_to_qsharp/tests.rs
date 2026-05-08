@@ -1040,6 +1040,9 @@ fn nested_structural_groups_compose() {
   "qubits": [{ "id": 0 }]
 }"#,
         &expect![[r#"
+            // NOTE: This Q# preview was reconstructed from a circuit trace and is approximate.
+            // The original Q# source is the authoritative version.
+            //   - loop has structurally divergent iterations: loop: 0..1
             /// Expects a qubit register of at least 1 qubits.
             operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
                 if Length(qs) < 1 {
@@ -1267,6 +1270,10 @@ fn group_splitting_test_shape_emits_loop_with_asymmetric_iterations() {
   ]
 }"#,
         &expect![[r#"
+            // NOTE: This Q# preview was reconstructed from a circuit trace and is approximate.
+            // The original Q# source is the authoritative version.
+            //   - loop has structurally divergent iterations: loop: 0..3
+            //   - conditional uses an opaque expression: if: (f(c_0)) > (2)
             /// Expects a qubit register of at least 4 qubits.
             operation Test(qs : Qubit[]) : Result[] {
                 if Length(qs) < 4 {
@@ -1292,6 +1299,456 @@ fn group_splitting_test_shape_emits_loop_with_asymmetric_iterations() {
                 Foo(qs[0], qs[2]);
                 // end loop
                 return [c0_0, c0_1];
+            }
+
+        "#]],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Trace-divergence detection
+//
+// These tests exercise the banner that appears above the operation when the
+// circuit contains shapes the emitter can't faithfully recreate as Q#.
+// Editor-authored circuits should never trigger the banner; trace-derived
+// circuits with non-uniform loops or opaque conditionals should.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn uniform_loop_emits_no_banner() {
+    // Two iterations whose bodies share the same shape (only the qubit
+    // index differs) — the canonical `for i in 0..1 { H(qs[i]); }` pattern.
+    // The detector must treat this as uniform and *not* emit a banner.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "loop: 0..1",
+          "targets": [{ "qubit": 0 }, { "qubit": 1 }],
+          "children": [
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(0)",
+                  "targets": [{ "qubit": 0 }],
+                  "children": [
+                    {
+                      "components": [
+                        { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(1)",
+                  "targets": [{ "qubit": 1 }],
+                  "children": [
+                    {
+                      "components": [
+                        { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 1 }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0 }, { "id": 1 }]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 2 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 2 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 2 qubits.";
+                }
+                // loop: 0..1
+                // iteration (0)
+                H(qs[0]);
+                // iteration (1)
+                H(qs[1]);
+                // end loop
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn divergent_loop_emits_banner_with_label() {
+    // Iteration (0) is just `H`; iteration (1) is `H` followed by `X`.
+    // The shapes don't match — divergence finding expected.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "loop: 0..1",
+          "targets": [{ "qubit": 0 }],
+          "children": [
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(0)",
+                  "targets": [{ "qubit": 0 }],
+                  "children": [
+                    {
+                      "components": [
+                        { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(1)",
+                  "targets": [{ "qubit": 0 }],
+                  "children": [
+                    {
+                      "components": [
+                        { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] },
+                        { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 0 }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0 }]
+}"#,
+        &expect![[r#"
+            // NOTE: This Q# preview was reconstructed from a circuit trace and is approximate.
+            // The original Q# source is the authoritative version.
+            //   - loop has structurally divergent iterations: loop: 0..1
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                // loop: 0..1
+                // iteration (0)
+                H(qs[0]);
+                // iteration (1)
+                H(qs[0]);
+                X(qs[0]);
+                // end loop
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn simple_conditional_emits_no_banner() {
+    // `if: c_0 == One` is a label the emitter could reproduce literally as
+    // `if c_0 == One { ... }`, so no opaque-conditional finding is expected.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        { "kind": "measurement", "gate": "M", "qubits": [{ "qubit": 0 }], "results": [{ "qubit": 0, "result": 0 }] }
+      ]
+    },
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "if: c_0 == One",
+          "targets": [{ "qubit": 0 }, { "qubit": 0, "result": 0 }],
+          "controls": [{ "qubit": 0, "result": 0 }],
+          "isConditional": true,
+          "children": [
+            {
+              "components": [
+                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0, "numResults": 1 }]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Result {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                let c0_0 = M(qs[0]);
+                // if: c_0 == One
+                H(qs[0]);
+                // end if
+                return c0_0;
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn opaque_conditional_emits_banner_with_label() {
+    // Function-call / inequality labels can't be reproduced literally
+    // because the trace lost the original Q# expression. Expect a banner.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        { "kind": "measurement", "gate": "M", "qubits": [{ "qubit": 0 }], "results": [{ "qubit": 0, "result": 0 }] }
+      ]
+    },
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "if: (f(c_0)) > (2)",
+          "targets": [{ "qubit": 0 }, { "qubit": 0, "result": 0 }],
+          "controls": [{ "qubit": 0, "result": 0 }],
+          "isConditional": true,
+          "children": [
+            {
+              "components": [
+                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0, "numResults": 1 }]
+}"#,
+        &expect![[r#"
+            // NOTE: This Q# preview was reconstructed from a circuit trace and is approximate.
+            // The original Q# source is the authoritative version.
+            //   - conditional uses an opaque expression: if: (f(c_0)) > (2)
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Result {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                let c0_0 = M(qs[0]);
+                // if: (f(c_0)) > (2)
+                H(qs[0]);
+                // end if
+                return c0_0;
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn divergence_banner_includes_source_line_when_available() {
+    // When the structural group carries a `scopeLocation` in its metadata,
+    // the banner surfaces the (1-indexed) line number so the reader can
+    // jump to the construct in the original `.qs` source. The trace stores
+    // line numbers 0-indexed, so a `"line": 5` should display as `line 6`.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "if: (a + b) > 0",
+          "targets": [{ "qubit": 0 }],
+          "metadata": {
+            "scopeLocation": { "file": "test.qs", "line": 5, "column": 4 },
+            "controlResultIds": []
+          },
+          "children": [
+            {
+              "components": [
+                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "components": [
+        { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 0 }] }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0 }]
+}"#,
+        &expect![[r#"
+            // NOTE: This Q# preview was reconstructed from a circuit trace and is approximate.
+            // The original Q# source is the authoritative version.
+            //   - conditional uses an opaque expression (line 6): if: (a + b) > 0
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                // if: (a + b) > 0
+                H(qs[0]);
+                // end if
+                X(qs[0]);
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)] // long because the inline JSON describes two distinct loops
+fn divergence_banner_is_per_finding_not_global() {
+    // Two divergent loops at different points produce two findings, each
+    // named individually. This confirms the banner doesn't collapse to a
+    // single generic "something is wrong" line.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "loop: 0..1",
+          "targets": [{ "qubit": 0 }],
+          "children": [
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(0)",
+                  "targets": [{ "qubit": 0 }],
+                  "children": [
+                    {
+                      "components": [
+                        { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(1)",
+                  "targets": [{ "qubit": 0 }],
+                  "children": [
+                    {
+                      "components": [
+                        { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 0 }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "loop: 0..1",
+          "targets": [{ "qubit": 0 }],
+          "children": [
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(0)",
+                  "targets": [{ "qubit": 0 }],
+                  "children": [
+                    {
+                      "components": [
+                        { "kind": "unitary", "gate": "Y", "targets": [{ "qubit": 0 }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "(1)",
+                  "targets": [{ "qubit": 0 }],
+                  "children": [
+                    {
+                      "components": [
+                        { "kind": "unitary", "gate": "Z", "targets": [{ "qubit": 0 }] },
+                        { "kind": "unitary", "gate": "S", "targets": [{ "qubit": 0 }] }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0 }]
+}"#,
+        &expect![[r#"
+            // NOTE: This Q# preview was reconstructed from a circuit trace and is approximate.
+            // The original Q# source is the authoritative version.
+            //   - loop has structurally divergent iterations: loop: 0..1
+            //   - loop has structurally divergent iterations: loop: 0..1
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                // loop: 0..1
+                // iteration (0)
+                H(qs[0]);
+                // iteration (1)
+                X(qs[0]);
+                // end loop
+                // loop: 0..1
+                // iteration (0)
+                Y(qs[0]);
+                // iteration (1)
+                Z(qs[0]);
+                S(qs[0]);
+                // end loop
             }
 
         "#]],
