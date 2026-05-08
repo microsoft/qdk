@@ -1,0 +1,17 @@
+// Dev container for using the QDK (Q# + Python + VS Code extension).
+// Open this in GitHub Codespaces to get started with quantum development right away.
+// For format details, see https://aka.ms/devcontainer.json.
+{
+	"name": "QDK (stable release)",
+	"image": "mcr.microsoft.com/devcontainers/python:3.13",
+	"postCreateCommand": "pip install 'qdk[all]'",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"quantum.qsharp-lang-vscode",
+				"ms-python.python",
+				"ms-toolsai.jupyter"
+			]
+		}
+	}
+}
