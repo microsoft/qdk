@@ -16,7 +16,7 @@ import warnings as _warnings
 _warnings.warn(
     "The 'qsharp' package is deprecated and will be removed in a future release. "
     "Please use the 'qdk' package instead. "
-    "See https://github.com/microsoft/qdk for migration guidance.",
+    "See https://github.com/microsoft/qdk/wiki/Migrating-from-qsharp-to-qdk for migration guidance.",
     DeprecationWarning,
     stacklevel=2,
 )
