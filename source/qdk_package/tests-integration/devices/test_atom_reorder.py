@@ -4,7 +4,7 @@
 import pytest
 from expecttest import assert_expected_inline
 
-import qdk as qsharp
+from qdk import qsharp
 from qdk._device._atom._reorder import Reorder
 from qdk._device._atom import NeutralAtomDevice
 from .validation import PerQubitOrdering, check_qubit_ordering_unchanged

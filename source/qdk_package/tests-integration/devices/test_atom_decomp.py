@@ -4,7 +4,7 @@
 import pytest
 from expecttest import assert_expected_inline
 
-import qdk as qsharp
+from qdk import qsharp
 from qdk._device._atom._decomp import (
     DecomposeMultiQubitToCZ,
     DecomposeSingleRotationToRz,
