@@ -1,6 +1,7 @@
 use super::{LeastFrequentlyUsedPriorityQueue, LeastRecentlyUsedPriorityQueue};
 
 // ---------------- LRU tests -----------------
+
 #[test]
 fn lru_insert_all_all_existing() {
     let mut lru = LeastRecentlyUsedPriorityQueue::new(4);

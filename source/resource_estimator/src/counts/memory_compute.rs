@@ -1,4 +1,5 @@
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::cmp::max;
 use std::collections::VecDeque;
 use std::hash::Hash;
 
@@ -8,6 +9,7 @@ mod tests;
 pub enum CachingStrategy {
     LeastRecentlyUsed(LeastRecentlyUsedPriorityQueue<usize>),
     LeastFrequentlyUsed(LeastFrequentlyUsedPriorityQueue<usize>),
+    Manual,
 }
 
 impl CachingStrategy {
@@ -18,65 +20,105 @@ impl CachingStrategy {
     pub fn least_frequently_used(capacity: usize) -> Self {
         CachingStrategy::LeastFrequentlyUsed(LeastFrequentlyUsedPriorityQueue::new(capacity))
     }
+
+    pub fn manual() -> Self {
+        CachingStrategy::Manual
+    }
+
+    /// Inserts given qubits ids into the set of compute qubits.
+    /// Returns which compute qubits must be evicted to memory before given qubits can
+    /// be read or allocated.
+    fn insert_all(&mut self, qubit_ids: impl IntoIterator<Item = usize>) -> Vec<usize> {
+        match self {
+            CachingStrategy::LeastRecentlyUsed(lru) => lru.insert_all(qubit_ids),
+            CachingStrategy::LeastFrequentlyUsed(lfu) => lfu.insert_all(qubit_ids),
+            CachingStrategy::Manual => vec![],
+        }
+    }
 }
 
 pub struct MemoryComputeInfo {
-    /// LRU or LFU set with qubits currently in compute mode
-    compute_qubits: CachingStrategy,
-
-    /// Additional reads/writes not captured by the LRU or LFU set (e.g. when
-    /// manually counted for caching functions)
-    pub(crate) rfm_extra: usize,
-    pub(crate) wtm_extra: usize,
+    /// LRU or LFU set with qubits currently in compute mode.
+    strategy: CachingStrategy,
+    compute_qubits: FxHashSet<usize>,
+    memory_qubits: FxHashSet<usize>,
+    pub(crate) max_memory_qubits_count: usize,
+    pub(crate) max_compute_qubits_count: usize,
+    reads_count: usize,
+    writes_count: usize,
 }
 
 impl MemoryComputeInfo {
     pub fn new(strategy: CachingStrategy) -> Self {
         Self {
-            compute_qubits: strategy,
-            rfm_extra: 0,
-            wtm_extra: 0,
+            strategy: strategy,
+            compute_qubits: FxHashSet::default(),
+            memory_qubits: FxHashSet::default(),
+            max_memory_qubits_count: 0,
+            max_compute_qubits_count: 0,
+            reads_count: 0,
+            writes_count: 0,
         }
     }
 
+    /// Moves this qubit to set of compute qubits.
+    /// If it was a memory qubit, records that as "read" operation.
+    /// External callers must call `assert_compute_qubits` instead of this method (so
+    /// automatic eviction can happen).
+    fn move_to_compute(&mut self, qid: usize) {
+        if self.memory_qubits.contains(&qid) {
+            self.memory_qubits.remove(&qid);
+            self.reads_count += 1;
+        }
+        self.compute_qubits.insert(qid);
+        self.max_compute_qubits_count =
+            max(self.max_compute_qubits_count, self.compute_qubits.len());
+    }
+
+    /// Moves this qubit to set of memory qubits.
+    /// If it was a compute qubit, records that as "write" operation.
+    pub fn move_to_memory(&mut self, qid: usize) {
+        if self.compute_qubits.contains(&qid) {
+            self.compute_qubits.remove(&qid);
+            self.writes_count += 1;
+        }
+        self.memory_qubits.insert(qid);
+        self.max_memory_qubits_count = max(self.max_memory_qubits_count, self.memory_qubits.len());
+    }
+
+    /// Releases the qubit.
+    pub fn release(&mut self, qid: usize) {
+        self.compute_qubits.remove(&qid);
+        self.memory_qubits.remove(&qid);
+    }
+
+    /// Ensures that these qubits are compute qubits by doing reads if necessary.
+    /// If this requires evicting (writing) some qubits to memory, does that first.
     pub fn assert_compute_qubits(&mut self, qubits: impl IntoIterator<Item = usize>) {
-        match &mut self.compute_qubits {
-            CachingStrategy::LeastRecentlyUsed(lru) => lru.insert_all(qubits),
-            CachingStrategy::LeastFrequentlyUsed(lfu) => lfu.insert_all(qubits),
+        let qubits_copy: Vec<usize> = qubits.into_iter().collect();
+        let qubits_to_evict = self.strategy.insert_all(qubits_copy.clone());
+        for qid in qubits_to_evict {
+            self.move_to_memory(qid);
         }
-    }
-
-    pub fn store_to_memory(&mut self, qubit: usize) {
-        // TODO: implement.
-    }
-
-    pub fn compute_size(&self) -> usize {
-        match &self.compute_qubits {
-            CachingStrategy::LeastRecentlyUsed(lru) => lru.max_size(),
-            CachingStrategy::LeastFrequentlyUsed(lfu) => lfu.max_size(),
+        for qid in qubits_copy {
+            self.move_to_compute(qid);
         }
     }
 
     pub fn read_from_memory_count(&self) -> usize {
-        match &self.compute_qubits {
-            CachingStrategy::LeastRecentlyUsed(lru) => lru.inserted_new_count() + self.rfm_extra,
-            CachingStrategy::LeastFrequentlyUsed(lfu) => lfu.inserted_new_count() + self.rfm_extra,
-        }
+        self.reads_count
     }
 
     pub fn write_to_memory_count(&self) -> usize {
-        match &self.compute_qubits {
-            CachingStrategy::LeastRecentlyUsed(lru) => lru.removed_count() + self.wtm_extra,
-            CachingStrategy::LeastFrequentlyUsed(lfu) => lfu.removed_count() + self.wtm_extra,
-        }
+        self.writes_count
     }
 
     pub fn increase_read_from_memory_count(&mut self, count: usize) {
-        self.rfm_extra += count;
+        self.reads_count += count;
     }
 
     pub fn increase_write_to_memory_count(&mut self, count: usize) {
-        self.wtm_extra += count;
+        self.writes_count += count;
     }
 }
 
@@ -129,9 +171,9 @@ impl<K: Eq + Hash + Clone> LeastRecentlyUsedPriorityQueue<K> {
     /// Insert multiple keys ensuring they are all present afterwards. If more
     /// unique new keys are provided than capacity, only the most recently
     /// processed up to `capacity` will remain.
-    pub fn insert_all<I: IntoIterator<Item = K>>(&mut self, keys: I) {
+    pub fn insert_all<I: IntoIterator<Item = K>>(&mut self, keys: I) -> Vec<K> {
         if self.capacity == 0 {
-            return;
+            return vec![];
         }
         // Collect unique keys from input preserving order of first occurrence.
         let mut seen_input = FxHashSet::default();
@@ -148,6 +190,7 @@ impl<K: Eq + Hash + Clone> LeastRecentlyUsedPriorityQueue<K> {
 
         // Process each key in order; we evict as we go and since new elements
         // are moved front they will be retained if we exceed capacity.
+        let mut removed_keys: Vec<K> = Vec::new();
         for k in ordered {
             if self.contains(&k) {
                 // Just update recency by moving element to front of deque
@@ -166,6 +209,7 @@ impl<K: Eq + Hash + Clone> LeastRecentlyUsedPriorityQueue<K> {
                 {
                     self.map.remove(&key);
                     self.removed += 1;
+                    removed_keys.push(key);
                 }
                 self.map.insert(k.clone());
                 self.nodes.push_front(k);
@@ -176,6 +220,8 @@ impl<K: Eq + Hash + Clone> LeastRecentlyUsedPriorityQueue<K> {
         if self.map.len() > self.max_size {
             self.max_size = self.map.len();
         }
+
+        return removed_keys;
     }
 }
 
@@ -226,9 +272,10 @@ impl<K: Eq + Hash + Clone> LeastFrequentlyUsedPriorityQueue<K> {
 
     /// Insert multiple keys ensuring they are all present afterwards. If unique
     /// keys exceed capacity, only a subset up to capacity will remain.
-    pub fn insert_all<I: IntoIterator<Item = K>>(&mut self, keys: I) {
+    /// Returns evicted keys.
+    pub fn insert_all<I: IntoIterator<Item = K>>(&mut self, keys: I) -> Vec<K> {
         if self.capacity == 0 {
-            return;
+            return vec![];
         }
         let mut seen = FxHashSet::default();
         let mut ordered: Vec<K> = Vec::new();
@@ -245,6 +292,7 @@ impl<K: Eq + Hash + Clone> LeastFrequentlyUsedPriorityQueue<K> {
         // Evict as needed to make space for new keys.  We need to evict before
         // adding the new elements, since frequency counters are low for new
         // elements and we risk to evict them before processing the whole input.
+        let mut removed_keys: Vec<K> = Vec::new();
         let new_missing = ordered
             .iter()
             .filter(|k| !self.map.contains_key(*k))
@@ -274,6 +322,7 @@ impl<K: Eq + Hash + Clone> LeastFrequentlyUsedPriorityQueue<K> {
                 }
                 if let Some(v) = victim {
                     self.remove_key_internal(&v);
+                    removed_keys.push(v);
                     needed -= 1;
                 } else {
                     break;
@@ -299,6 +348,8 @@ impl<K: Eq + Hash + Clone> LeastFrequentlyUsedPriorityQueue<K> {
         if self.map.len() > self.max_size {
             self.max_size = self.map.len();
         }
+
+        return removed_keys;
     }
 
     fn bump_bucket(&mut self, key: K, old_freq: u64, new_freq: u64) {

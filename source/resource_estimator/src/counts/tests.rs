@@ -307,7 +307,7 @@ fn memory_annotations_work() {
         None,
         &expect![[r#"
             LogicalResourceCounts {
-                num_qubits: 20,
+                num_qubits: 21,
                 t_count: 4,
                 rotation_count: 8,
                 rotation_depth: 5,
@@ -318,10 +318,10 @@ fn memory_annotations_work() {
                     10,
                 ),
                 read_from_memory_count: Some(
-                    28,
+                    8,
                 ),
                 write_to_memory_count: Some(
-                    18,
+                    17,
                 ),
             }
         "#]],
@@ -437,7 +437,11 @@ fn manual_memory_qubits_load_store() {
     let counts = run_logical_counts(
         indoc! {"
                 operation Main() : Unit {
+                    Std.ResourceEstimation.EnableMemoryComputeArchitecture(100000, 0);
+
                     use qs = Qubit[2];
+                    X(qs[0]);
+                    X(qs[1]);
                     Std.Memory.MemoryQubitStore(qs[0]);
                     Std.Memory.MemoryQubitLoad(qs[0]);
                 }
