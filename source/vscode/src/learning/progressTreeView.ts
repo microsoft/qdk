@@ -28,7 +28,6 @@ export function registerLearningProgressView(
   context.subscriptions.push(
     service.onDidChangeProgress((snapshot) => {
       treeDataProvider.update(snapshot, service.getCourses());
-      treeView.message = buildTreeMessage(snapshot);
     }),
     treeView.onDidChangeVisibility((e) => {
       if (e.visible) {
@@ -44,42 +43,6 @@ export function registerLearningProgressView(
   if (treeView.visible) {
     service.ensureInitialized();
   }
-}
-
-function buildTreeMessage(
-  snapshot: OverallProgress | undefined,
-): string | undefined {
-  if (!snapshot) {
-    return undefined;
-  }
-
-  const units = snapshot.units;
-  if (units.length === 0) {
-    return undefined;
-  }
-
-  const completedUnits = units.filter(
-    (u) => u.total > 0 && u.completed === u.total,
-  ).length;
-
-  const ratio = completedUnits / units.length;
-
-  let encouragement: string;
-  if (ratio >= 1) {
-    return `All ${units.length} units complete — nicely done!`;
-  } else if (ratio === 0) {
-    encouragement = "let's get started!";
-  } else if (ratio < 0.25) {
-    encouragement = "great start!";
-  } else if (ratio < 0.5) {
-    encouragement = "making progress!";
-  } else if (ratio < 0.75) {
-    encouragement = "over halfway there!";
-  } else {
-    encouragement = "almost there!";
-  }
-
-  return `${completedUnits}/${units.length} units complete — ${encouragement}`;
 }
 
 export class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningProgressNode> {
