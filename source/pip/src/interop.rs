@@ -91,7 +91,7 @@ pub(crate) fn run_qasm_program(
 
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
 
-    let target = get_target_profile(&kwargs)?;
+    let user_profile = get_target_profile(&kwargs)?;
     let operation_name = get_operation_name(&kwargs)?;
     let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::OpenQasm)?;
     let seed = get_seed(&kwargs);
@@ -110,7 +110,7 @@ pub(crate) fn run_qasm_program(
         ));
     };
     let res = qsc::openqasm::semantic::parse_sources(&sources);
-    let (package, source_map, signature) = compile_qasm_enriching_errors(
+    let (package, source_map, signature, pragma_profile) = compile_qasm_enriching_errors(
         res,
         &operation_name,
         ProgramType::File,
@@ -120,6 +120,7 @@ pub(crate) fn run_qasm_program(
 
     let package_type = PackageType::Exe;
     let language_features = LanguageFeatures::default();
+    let target = user_profile.unwrap_or(pragma_profile.unwrap_or(Profile::Unrestricted));
     let mut interpreter =
         create_interpreter_from_ast(package, source_map, target, language_features, package_type)
             .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
@@ -268,7 +269,7 @@ pub(crate) fn resource_estimate_qasm_program(
 
     let program_type = ProgramType::File;
     let output_semantics = OutputSemantics::ResourceEstimation;
-    let (package, source_map, _) =
+    let (package, source_map, _, _) =
         compile_qasm_enriching_errors(res, &operation_name, program_type, output_semantics, false)?;
 
     match crate::interop::estimate_qasm(package, source_map, job_params) {
@@ -339,7 +340,7 @@ pub(crate) fn compile_qasm_program_to_qir(
 ) -> PyResult<String> {
     let kwargs = kwargs.unwrap_or_else(|| PyDict::new(py));
 
-    let target = get_target_profile(&kwargs)?;
+    let user_profile = get_target_profile(&kwargs)?;
     let operation_name = get_operation_name(&kwargs)?;
     let search_path = get_search_path(&kwargs)?;
 
@@ -357,11 +358,12 @@ pub(crate) fn compile_qasm_program_to_qir(
 
     let program_ty = ProgramType::File;
     let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::OpenQasm)?;
-    let (package, source_map, signature) =
+    let (package, source_map, signature, pragma_profile) =
         compile_qasm_enriching_errors(res, &operation_name, program_ty, output_semantics, false)?;
 
     let package_type = PackageType::Lib;
     let language_features = LanguageFeatures::default();
+    let target = user_profile.unwrap_or(pragma_profile.unwrap_or(Profile::Unrestricted));
     let mut interpreter =
         create_interpreter_from_ast(package, source_map, target, language_features, package_type)
             .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
@@ -376,7 +378,7 @@ pub(crate) fn compile_qasm_enriching_errors<S: AsRef<str>>(
     program_ty: ProgramType,
     output_semantics: OutputSemantics,
     allow_input_params: bool,
-) -> PyResult<(Package, SourceMap, OperationSignature)> {
+) -> PyResult<(Package, SourceMap, OperationSignature, Option<Profile>)> {
     let config = qsc::openqasm::CompilerConfig::new(
         QubitSemantics::Qiskit,
         output_semantics.into(),
@@ -387,7 +389,7 @@ pub(crate) fn compile_qasm_enriching_errors<S: AsRef<str>>(
 
     let unit = compile_to_qsharp_ast_with_config(semantic_parse_result, config);
 
-    let (source_map, errors, package, sig, _) = unit.into_tuple();
+    let (source_map, errors, package, sig, pragma_profile) = unit.into_tuple();
     if !errors.is_empty() {
         return Err(QasmError::new_err(format_qasm_errors(errors)));
     }
@@ -408,7 +410,7 @@ pub(crate) fn compile_qasm_enriching_errors<S: AsRef<str>>(
         return Err(QSharpError::new_err(message));
     }
 
-    Ok((package, source_map, signature))
+    Ok((package, source_map, signature, pragma_profile))
 }
 
 fn generate_qir_from_ast<S: AsRef<str>>(
@@ -456,7 +458,7 @@ pub(crate) fn compile_qasm_to_qsharp(
 
     let program_ty = get_program_type(&kwargs, || ProgramType::File)?;
     let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::OpenQasm)?;
-    let (package, _, _) =
+    let (package, _, _, _) =
         compile_qasm_enriching_errors(res, &operation_name, program_ty, output_semantics, true)?;
 
     let qsharp = qsc::codegen::qsharp::write_package_string(&package);
@@ -619,7 +621,7 @@ pub(crate) fn circuit_qasm_program(
     };
     let res = qsc::openqasm::semantic::parse_sources(&sources);
 
-    let (package, source_map, signature) = compile_qasm_enriching_errors(
+    let (package, source_map, signature, pragma_profile) = compile_qasm_enriching_errors(
         res,
         &operation_name,
         ProgramType::File,
@@ -635,7 +637,7 @@ pub(crate) fn circuit_qasm_program(
     ) {
         TargetProfile::Adaptive_RIF.into()
     } else {
-        TargetProfile::Unrestricted.into()
+        pragma_profile.unwrap_or(Profile::Unrestricted)
     };
 
     let mut interpreter = create_interpreter_from_ast(
@@ -866,10 +868,10 @@ pub(crate) fn get_operation_name(kwargs: &Bound<'_, PyDict>) -> PyResult<String>
 ///
 /// This also maps the `TargetProfile` exposed to Python to a `Profile`
 /// used by the interpreter.
-pub(crate) fn get_target_profile(kwargs: &Bound<'_, PyDict>) -> PyResult<Profile> {
+pub(crate) fn get_target_profile(kwargs: &Bound<'_, PyDict>) -> PyResult<Option<Profile>> {
     match kwargs.get_item("target_profile")? {
-        Some(obj) => Ok(obj.extract::<TargetProfile>()?.into()),
-        None => Ok(TargetProfile::Unrestricted.into()),
+        Some(obj) => Ok(Some(obj.extract::<TargetProfile>()?.into())),
+        None => Ok(None),
     }
 }
 

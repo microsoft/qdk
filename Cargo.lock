@@ -2137,6 +2137,7 @@ dependencies = [
  "qsc_doc_gen",
  "qsc_eval",
  "qsc_fir",
+ "qsc_fir_transforms",
  "qsc_formatter",
  "qsc_frontend",
  "qsc_hir",
@@ -2275,6 +2276,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "qsc_fir_transforms"
+version = "0.0.0"
+dependencies = [
+ "expect-test",
+ "indoc",
+ "miette",
+ "num-bigint",
+ "proptest",
+ "qsc_codegen",
+ "qsc_data_structures",
+ "qsc_eval",
+ "qsc_fir",
+ "qsc_fir_transforms",
+ "qsc_formatter",
+ "qsc_frontend",
+ "qsc_hir",
+ "qsc_lowerer",
+ "qsc_parse",
+ "qsc_partial_eval",
+ "qsc_passes",
+ "qsc_rca",
+ "rustc-hash",
+ "thiserror",
+]
+
+[[package]]
 name = "qsc_formatter"
 version = "0.0.0"
 dependencies = [
@@ -2410,6 +2437,7 @@ dependencies = [
  "qsc_fir",
  "qsc_frontend",
  "qsc_lowerer",
+ "qsc_passes",
  "qsc_rca",
  "qsc_rir",
  "rustc-hash",
@@ -2468,6 +2496,7 @@ dependencies = [
  "qsc",
  "qsc_data_structures",
  "qsc_fir",
+ "qsc_fir_transforms",
  "qsc_frontend",
  "qsc_lowerer",
  "qsc_passes",

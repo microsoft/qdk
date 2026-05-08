@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import json
 from textwrap import dedent
 from qsharp._native import (
     Interpreter,
@@ -430,6 +431,52 @@ def test_qirgen() -> None:
     assert isinstance(qir, str)
 
 
+def test_estimate_from_udt_returning_callable_matches_logical_counts_on_base_profile() -> (
+    None
+):
+    counted = None
+
+    def make_callable(callable_value, _namespace, callable_name):
+        nonlocal counted
+        if callable_name == "Counted":
+            counted = callable_value
+
+    e = Interpreter(TargetProfile.Base, make_callable=make_callable)
+    e.interpret(
+        dedent(
+            """
+            struct Data { tally: Int }
+
+            // The UDT output makes this a useful regression for callable
+            // estimation and counting on the live interpreter path.
+            operation Counted() : Data {
+                use q = Qubit();
+                T(q);
+                MResetZ(q);
+                new Data { tally = 0 }
+            }
+            """
+        )
+    )
+
+    assert counted is not None
+
+    estimate = json.loads(e.estimate("", callable=counted))
+    logical_counts = e.logical_counts(callable=counted)
+
+    assert estimate[0]["status"] == "success"
+    assert estimate[0]["logicalCounts"] == logical_counts
+    assert logical_counts == {
+        "numQubits": 1,
+        "tCount": 1,
+        "rotationCount": 0,
+        "rotationDepth": 0,
+        "cczCount": 0,
+        "ccixCount": 0,
+        "measurementCount": 1,
+    }
+
+
 def test_run_with_shots() -> None:
     e = Interpreter(TargetProfile.Unrestricted)
 
@@ -560,7 +607,7 @@ def test_adaptive_errors_are_raised_from_entry_expr() -> None:
     assert "Qsc.CapabilitiesCk.UseOfDynamicDouble" in str(excinfo)
 
 
-def test_adaptive_ri_qir_can_be_generated() -> None:
+def test_adaptive_ri_entrypoint_generates_expected_qir() -> None:
     adaptive_input = """
         namespace Test {
             import Std.Math.*;
@@ -581,7 +628,9 @@ def test_adaptive_ri_qir_can_be_generated() -> None:
     e = Interpreter(TargetProfile.Adaptive_RI)
     e.interpret(adaptive_input)
     qir = e.qir("Test.Main()")
-    assert_expected_inline(qir, """\
+    assert_expected_inline(
+        qir,
+        """\
 %Result = type opaque
 %Qubit = type opaque
 
@@ -618,10 +667,11 @@ attributes #1 = { "irreversible" }
 !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
 !3 = !{i32 1, !"dynamic_result_management", i1 false}
 !4 = !{i32 5, !"int_computations", !{!"i64"}}
-""")
+""",
+    )
 
 
-def test_base_qir_can_be_generated() -> None:
+def test_base_profile_entrypoint_generates_expected_qir() -> None:
     base_input = """
         namespace Test {
             import Std.Math.*;
@@ -642,7 +692,9 @@ def test_base_qir_can_be_generated() -> None:
     e = Interpreter(TargetProfile.Base)
     e.interpret(base_input)
     qir = e.qir("Test.Main()")
-    assert_expected_inline(qir, """\
+    assert_expected_inline(
+        qir,
+        """\
 %Result = type opaque
 %Qubit = type opaque
 
@@ -678,7 +730,8 @@ attributes #1 = { "irreversible" }
 !1 = !{i32 7, !"qir_minor_version", i32 0}
 !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
 !3 = !{i32 1, !"dynamic_result_management", i1 false}
-""")
+""",
+    )
 
 
 def test_operation_circuit() -> None:
