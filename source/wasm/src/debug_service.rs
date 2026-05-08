@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::diagnostic::interpret_errors_to_run_result;
+use crate::diagnostic::{interpret_errors_into_qsharp_errors_json, interpret_errors_to_run_result};
 use crate::line_column::{Location, Range};
 use crate::project_system::{ProgramConfig, into_qsc_args};
 use crate::{
@@ -99,7 +99,7 @@ impl DebugService {
         &mut self,
         event_cb: &js_sys::Function,
         ids: &[u32],
-    ) -> Result<IStructStepResult, JsValue> {
+    ) -> Result<IStructStepResult, String> {
         self.eval(event_cb, ids, StepAction::Next)
     }
 
@@ -107,7 +107,7 @@ impl DebugService {
         &mut self,
         event_cb: &js_sys::Function,
         ids: &[u32],
-    ) -> Result<IStructStepResult, JsValue> {
+    ) -> Result<IStructStepResult, String> {
         self.eval(event_cb, ids, StepAction::Continue)
     }
 
@@ -115,7 +115,7 @@ impl DebugService {
         &mut self,
         event_cb: &js_sys::Function,
         ids: &[u32],
-    ) -> Result<IStructStepResult, JsValue> {
+    ) -> Result<IStructStepResult, String> {
         self.eval(event_cb, ids, StepAction::In)
     }
 
@@ -123,7 +123,7 @@ impl DebugService {
         &mut self,
         event_cb: &js_sys::Function,
         ids: &[u32],
-    ) -> Result<IStructStepResult, JsValue> {
+    ) -> Result<IStructStepResult, String> {
         self.eval(event_cb, ids, StepAction::Out)
     }
 
@@ -132,9 +132,9 @@ impl DebugService {
         event_cb: &js_sys::Function,
         ids: &[u32],
         step: StepAction,
-    ) -> Result<IStructStepResult, JsValue> {
+    ) -> Result<IStructStepResult, String> {
         if !event_cb.is_function() {
-            return Err(JsError::new("Events callback function must be provided").into());
+            return Err("Events callback function must be provided".into());
         }
         let bps: Vec<_> = ids.iter().map(|f| StmtId::from(*f)).collect();
 
@@ -144,7 +144,7 @@ impl DebugService {
         };
         match self.run_internal(event_cb, &bps, step) {
             Ok(value) => Ok(StructStepResult::from(value).into()),
-            Err(e) => Err(JsError::from(&e[0]).into()),
+            Err(e) => Err(interpret_errors_into_qsharp_errors_json(e)),
         }
     }
 
