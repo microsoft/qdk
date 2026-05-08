@@ -140,7 +140,7 @@ math[display="block"] {
 
 /* Content — full panel, scrollable (no max-height cap) */
 .content {
-  padding: 0.75rem 1rem;
+  padding: 1rem 1.5rem;
   overflow-y: auto;
   flex: 1;
   min-height: 0;

@@ -441,7 +441,7 @@
         },
         {
           "id": "qsharp-vscode.learningTree",
-          "name": "Katas",
+          "name": "Learning",
           "when": "qsharp-vscode.katasDetected"
         }
       ]
