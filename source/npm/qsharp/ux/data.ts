@@ -76,6 +76,13 @@ export type CircuitProps = {
   // Editor-specific handlers (callbacks, state-viz host offload, etc.).
   // When omitted, the circuit is rendered read-only.
   editor?: EditorHandlers;
+  /**
+   * Optional handler invoked when the user clicks "Save as Circuit (.qsc)…"
+   * in the panel toolbar. When provided, a button is rendered alongside the
+   * circuit; when omitted, no button appears (preserving the read-only
+   * panel UX for hosts that can't save, such as the Python widget).
+   */
+  onSaveAsCircuit?: () => void;
 };
 
 export type EditorHandlers = import("./circuit-vis/index.js").EditorHandlers;

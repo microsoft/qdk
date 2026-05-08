@@ -205,6 +205,16 @@ export function CircuitPanel(props: CircuitProps) {
     </div>
   ) : null;
 
+  // Only offer the "Save as .qsc" affordance when the host wired up a
+  // handler AND we actually have a circuit to save. We deliberately keep
+  // the button hidden while calculating to avoid racing the underlying
+  // payload, and hidden in editor mode (the .qsc *is* the source there).
+  const canSave =
+    !!props.onSaveAsCircuit &&
+    !!props.circuit &&
+    !props.calculating &&
+    !isEditable;
+
   return (
     <div class="qs-circuit-panel">
       <div>
@@ -218,6 +228,21 @@ export function CircuitPanel(props: CircuitProps) {
         <p>
           WARNING: This diagram shows the result of tracing a dynamic circuit,
           and may change from run to run.
+        </p>
+      )}
+      {canSave && (
+        <p>
+          <button
+            class="qs-circuit-save-button"
+            onClick={() => props.onSaveAsCircuit?.()}
+            title={
+              props.simulated
+                ? "Save this trace as a .qsc snapshot. The Q# preview will mark trace-derived shapes as approximate."
+                : "Save this circuit to a .qsc file and open it in the Circuit Editor."
+            }
+          >
+            Save as Circuit (.qsc)…
+          </button>
         </p>
       )}
       <p>

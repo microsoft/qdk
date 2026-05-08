@@ -1754,3 +1754,60 @@ fn divergence_banner_is_per_finding_not_global() {
         "#]],
     );
 }
+
+#[test]
+fn metadata_omitted_entirely_still_parses_and_emits_banner() {
+    // When a circuit is saved to a .qsc, the host strips `metadata` per the
+    // schema's documented intent. Regression-guard for two things at once:
+    // (1) deserialization succeeds without `controlResultIds` (it used to
+    //     fail with "missing field controlResultIds" because `Vec` had
+    //     `skip_serializing_if` but no matching `#[serde(default)]`).
+    // (2) the divergence detector still produces a banner from the gate
+    //     label alone, just without the `(line N)` suffix that depends on
+    //     `metadata.scopeLocation`.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "if: (a + b) > 0",
+          "targets": [{ "qubit": 0 }],
+          "children": [
+            {
+              "components": [
+                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "components": [
+        { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 0 }] }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0 }]
+}"#,
+        &expect![[r#"
+            // NOTE: This Q# preview was reconstructed from a circuit trace and is approximate.
+            // The original Q# source is the authoritative version.
+            //   - conditional uses an opaque expression: if: (a + b) > 0
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                // if: (a + b) > 0
+                H(qs[0]);
+                // end if
+                X(qs[0]);
+            }
+
+        "#]],
+    );
+}
