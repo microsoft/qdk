@@ -87,8 +87,15 @@ export async function activate(
   context.subscriptions.push(...(await activateLanguageService(context)));
   context.subscriptions.push(...startOtherQSharpDiagnostics());
   context.subscriptions.push(...registerQSharpNotebookHandlers());
-  context.subscriptions.push(registerCircuitPreviewProvider());
+  context.subscriptions.push(
+    registerCircuitPreviewProvider(context.extensionUri),
+  );
   context.subscriptions.push(CircuitEditorProvider.register(context));
+
+  // Note: previews restored from a previous session are repopulated
+  // lazily by `CircuitPreviewProvider.regenerateFromSource`, which
+  // reads the source `.qsc` file and regenerates Q# without depending
+  // on the custom editor having activated. See `circuitPreview.ts`.
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "qsharp-vscode.showCircuitCodePreview",

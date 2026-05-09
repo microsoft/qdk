@@ -5,8 +5,16 @@ use super::*;
 use expect_test::{Expect, expect};
 
 fn check(contents: &str, expect: &Expect) {
+    // The `check` helper exercises `build_operation_def` in isolation — no
+    // global pre-walk for custom gates. Tests that rely on this path are
+    // verifying basic emission of built-in gates (where the array-wrap
+    // convention doesn't apply), so an empty `custom_gates` set is the
+    // right default. Tests that need custom-gate behaviour use
+    // `check_circuit_group`, which routes through `circuits_to_qsharp`
+    // and computes the set itself.
+    let custom_gates = FxHashSet::default();
     let actual = match serde_json::from_str::<Circuit>(contents) {
-        Ok(circuit) => build_operation_def("Test", &circuit),
+        Ok(circuit) => build_operation_def("Test", &circuit, &custom_gates),
         Err(e) => format!("Error: {e}"),
     };
     expect.assert_eq(&actual);
@@ -687,49 +695,59 @@ fn custom_gate_with_children_emits_call_not_inline() {
     // The test uses two top-level components so the entry-point-wrapper
     // unwrap heuristic doesn't apply (which is reserved for the case where
     // the trace wraps the entire body in a single non-existent operation).
-    check(
+    //
+    // Routes through `circuits_to_qsharp` so the global custom-gate set is
+    // populated; the call sites accordingly use the array-wrap convention
+    // (`Foo([qs[0], qs[1]])`) matching the extracted operation's
+    // `(qs : Qubit[])` signature.
+    check_circuit_group(
         r#"
 {
-  "componentGrid": [
+  "version": 1,
+  "circuits": [
     {
-      "components": [
+      "componentGrid": [
         {
-          "kind": "unitary",
-          "gate": "Foo",
-          "targets": [{ "qubit": 0 }, { "qubit": 1 }],
-          "children": [
+          "components": [
             {
-              "components": [
-                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+              "kind": "unitary",
+              "gate": "Foo",
+              "targets": [{ "qubit": 0 }, { "qubit": 1 }],
+              "children": [
+                {
+                  "components": [
+                    { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                  ]
+                },
+                {
+                  "components": [
+                    { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 1 }] }
+                  ]
+                }
               ]
-            },
+            }
+          ]
+        },
+        {
+          "components": [
             {
-              "components": [
-                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 1 }] }
+              "kind": "unitary",
+              "gate": "Foo",
+              "targets": [{ "qubit": 0 }, { "qubit": 1 }],
+              "children": [
+                {
+                  "components": [
+                    { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                  ]
+                }
               ]
             }
           ]
         }
-      ]
-    },
-    {
-      "components": [
-        {
-          "kind": "unitary",
-          "gate": "Foo",
-          "targets": [{ "qubit": 0 }, { "qubit": 1 }],
-          "children": [
-            {
-              "components": [
-                { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
-              ]
-            }
-          ]
-        }
-      ]
+      ],
+      "qubits": [{ "id": 0 }, { "id": 1 }]
     }
-  ],
-  "qubits": [{ "id": 0 }, { "id": 1 }]
+  ]
 }"#,
         &expect![[r#"
             /// Expects a qubit register of at least 2 qubits.
@@ -737,8 +755,17 @@ fn custom_gate_with_children_emits_call_not_inline() {
                 if Length(qs) < 2 {
                     fail "Invalid number of qubits. Operation Test expects a qubit register of at least 2 qubits.";
                 }
-                Foo(qs[0], qs[1]);
-                Foo(qs[0], qs[1]);
+                Foo([qs[0], qs[1]]);
+                Foo([qs[0], qs[1]]);
+            }
+
+            /// Expects a qubit register of at least 2 qubits.
+            operation Foo(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 2 {
+                    fail "Invalid number of qubits. Operation Foo expects a qubit register of at least 2 qubits.";
+                }
+                H(qs[0]);
+                H(qs[1]);
             }
 
         "#]],
@@ -1123,18 +1150,25 @@ fn group_splitting_test_shape_emits_loop_with_asymmetric_iterations() {
     // different iterations, including a conditional that only appears in
     // later iterations and a custom-gate call to `Foo`). The point of
     // this test is to lock down what the user sees when they open such a
-    // trace as a `.qsc` file: a flat sequence of gates inside `// loop`
-    // and `// if` markers, with custom gates preserved as calls.
+    // trace as a `.qsc` file: the `Main` trace-wrapper is unwrapped at
+    // the top so the body inlines into `Test`, and the `Foo` custom gate
+    // is extracted into its own appended operation definition.
     //
     // This test intentionally lives alongside the unit tests rather than
     // in an integration harness so it stays in sync with the emitter
     // output as we extend the structural-group handling. If it breaks
     // because we taught the emitter real `for` / `if` syntax, the new
     // expectation is the contract going forward.
-    check(
+    //
+    // Uses `check_circuit_group` (not `check`) so the full pipeline runs:
+    // wrapper unwrap, divergence detection, and custom-gate extraction.
+    check_circuit_group(
         r#"
 {
-  "componentGrid": [
+  "version": 1,
+  "circuits": [
+    {
+      "componentGrid": [
     {
       "components": [
         {
@@ -1262,11 +1296,13 @@ fn group_splitting_test_shape_emits_loop_with_asymmetric_iterations() {
       ]
     }
   ],
-  "qubits": [
-    { "id": 0, "numResults": 2 },
-    { "id": 1 },
-    { "id": 2 },
-    { "id": 3 }
+      "qubits": [
+        { "id": 0, "numResults": 2 },
+        { "id": 1 },
+        { "id": 2 },
+        { "id": 3 }
+      ]
+    }
   ]
 }"#,
         &expect![[r#"
@@ -1287,7 +1323,7 @@ fn group_splitting_test_shape_emits_loop_with_asymmetric_iterations() {
                 H(qs[0]);
                 let c0_0 = M(qs[0]);
                 Reset(qs[0]);
-                Foo(qs[0], qs[2]);
+                Foo([qs[0], qs[2]]);
                 // iteration (2)
                 X(qs[3]);
                 H(qs[0]);
@@ -1296,9 +1332,18 @@ fn group_splitting_test_shape_emits_loop_with_asymmetric_iterations() {
                 // end if
                 let c0_1 = M(qs[0]);
                 Reset(qs[0]);
-                Foo(qs[0], qs[2]);
+                Foo([qs[0], qs[2]]);
                 // end loop
                 return [c0_0, c0_1];
+            }
+
+            /// Expects a qubit register of at least 2 qubits.
+            operation Foo(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 2 {
+                    fail "Invalid number of qubits. Operation Foo expects a qubit register of at least 2 qubits.";
+                }
+                H(qs[0]);
+                H(qs[1]);
             }
 
         "#]],
@@ -1810,4 +1855,570 @@ fn metadata_omitted_entirely_still_parses_and_emits_banner() {
 
         "#]],
     );
+}
+
+// ---------------------------------------------------------------------------
+// Custom-gate extraction
+//
+// Saved trace snapshots live in standalone .qsc files, disconnected from
+// the .qs project that defined the user's custom gates. The trace stores a
+// custom gate's body in the call's `children`, so the emitter can use that
+// to synthesize a definition alongside the call. Without this, a snapshot
+// of any program that calls a user-defined operation would generate Q#
+// that doesn't compile.
+//
+// All tests in this section drive the public `circuits_to_qsharp` entry
+// point so they exercise the full extraction pipeline (including the
+// transitive walk and dedup), not just `build_operation_def`.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn custom_gate_extraction_emits_separate_definition() {
+    // Single call to `Foo` with a 2-qubit body. Expect both `Test` and an
+    // appended `Foo` definition. The call site keeps the existing
+    // call-not-inline behaviour.
+    //
+    // The trailing `X` adds a sibling component at the top level so the
+    // trace-wrapper heuristic in `unwrap_trace_entry_point_wrapper` does
+    // not mistake `Foo` for the trace's entry-point wrapper. Real saved
+    // .qsc files almost always have multiple top-level columns, so this
+    // shape is more representative than a bare single-call body.
+    check_circuit_group(
+        r#"
+{
+  "version": 1,
+  "circuits": [
+    {
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Foo",
+              "targets": [{ "qubit": 0 }, { "qubit": 1 }],
+              "children": [
+                {
+                  "components": [
+                    { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                  ]
+                },
+                {
+                  "components": [
+                    { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 1 }] }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 0 }] }
+          ]
+        }
+      ],
+      "qubits": [{ "id": 0 }, { "id": 1 }]
+    }
+  ]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 2 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 2 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 2 qubits.";
+                }
+                Foo([qs[0], qs[1]]);
+                X(qs[0]);
+            }
+
+            /// Expects a qubit register of at least 2 qubits.
+            operation Foo(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 2 {
+                    fail "Invalid number of qubits. Operation Foo expects a qubit register of at least 2 qubits.";
+                }
+                H(qs[0]);
+                H(qs[1]);
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn custom_gate_extracted_only_once_when_called_multiple_times() {
+    // Two calls to `Foo` should produce one extracted `Foo` definition.
+    // The first occurrence's children win (silently — divergent bodies
+    // are a separate concern handled by the divergence detector in the
+    // future).
+    check_circuit_group(
+        r#"
+{
+  "version": 1,
+  "circuits": [
+    {
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Foo",
+              "targets": [{ "qubit": 0 }],
+              "children": [
+                {
+                  "components": [
+                    { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Foo",
+              "targets": [{ "qubit": 0 }],
+              "children": [
+                {
+                  "components": [
+                    { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "qubits": [{ "id": 0 }]
+    }
+  ]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                Foo([qs[0]]);
+                Foo([qs[0]]);
+            }
+
+            /// Expects a qubit register of at least 1 qubits.
+            operation Foo(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Foo expects a qubit register of at least 1 qubits.";
+                }
+                H(qs[0]);
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn nested_custom_gates_are_transitively_extracted() {
+    // `Foo` calls `Bar`. The single walk should surface `Foo` immediately,
+    // then walk `Foo`'s body to surface `Bar` — both end up as appended
+    // operations after `Test`.
+    //
+    // The trailing `X` keeps the trace-wrapper heuristic from eating the
+    // top-level `Foo` call (see `custom_gate_extraction_emits_separate_definition`
+    // for the rationale).
+    check_circuit_group(
+        r#"
+{
+  "version": 1,
+  "circuits": [
+    {
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Foo",
+              "targets": [{ "qubit": 0 }],
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "Bar",
+                      "targets": [{ "qubit": 0 }],
+                      "children": [
+                        {
+                          "components": [
+                            { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 0 }] }
+          ]
+        }
+      ],
+      "qubits": [{ "id": 0 }]
+    }
+  ]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                Foo([qs[0]]);
+                X(qs[0]);
+            }
+
+            /// Expects a qubit register of at least 1 qubits.
+            operation Foo(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Foo expects a qubit register of at least 1 qubits.";
+                }
+                Bar([qs[0]]);
+            }
+
+            /// Expects a qubit register of at least 1 qubits.
+            operation Bar(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Bar expects a qubit register of at least 1 qubits.";
+                }
+                H(qs[0]);
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn custom_gate_inside_structural_group_is_still_extracted() {
+    // The body of a `loop:` group contains a call to `Foo`. Even though
+    // the loop itself is inlined as comments rather than emitted as a
+    // call, we must still walk into its children to discover and extract
+    // `Foo` — otherwise the loop's call site would reference an undefined
+    // operation in the preview.
+    check_circuit_group(
+        r#"
+{
+  "version": 1,
+  "circuits": [
+    {
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "loop: 0..1",
+              "targets": [{ "qubit": 0 }],
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "(0)",
+                      "targets": [{ "qubit": 0 }],
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "Foo",
+                              "targets": [{ "qubit": 0 }],
+                              "children": [
+                                {
+                                  "components": [
+                                    { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "qubits": [{ "id": 0 }]
+    }
+  ]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                // loop: 0..1
+                // iteration (0)
+                Foo([qs[0]]);
+                // end loop
+            }
+
+            /// Expects a qubit register of at least 1 qubits.
+            operation Foo(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Foo expects a qubit register of at least 1 qubits.";
+                }
+                H(qs[0]);
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn custom_gate_with_internal_measurement_returns_result() {
+    // `Foo`'s body measures its qubit. The synthesized definition's
+    // `num_results` should reflect this so the return type becomes
+    // `Result` instead of `Unit` — and the body should both bind and
+    // return that measurement.
+    //
+    // The trailing `X` keeps the trace-wrapper heuristic from eating the
+    // top-level `Foo` call.
+    check_circuit_group(
+        r#"
+{
+  "version": 1,
+  "circuits": [
+    {
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Foo",
+              "targets": [{ "qubit": 0 }],
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "measurement",
+                      "gate": "M",
+                      "qubits": [{ "qubit": 0 }],
+                      "results": [{ "qubit": 0, "result": 0 }]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "components": [
+            { "kind": "unitary", "gate": "X", "targets": [{ "qubit": 0 }] }
+          ]
+        }
+      ],
+      "qubits": [{ "id": 0 }]
+    }
+  ]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Unit {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                Foo([qs[0]]);
+                X(qs[0]);
+            }
+
+            /// Expects a qubit register of at least 1 qubits.
+            operation Foo(qs : Qubit[]) : Result {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Foo expects a qubit register of at least 1 qubits.";
+                }
+                let c0_0 = M(qs[0]);
+                return c0_0;
+            }
+
+        "#]],
+    );
+}
+
+// ---------------------------------------------------------------------------
+// File-name sanitization
+//
+// `circuits_to_qsharp` is the only entry point that ever sees a raw
+// filename. The Rust emitter pastes the name verbatim into `operation
+// <name>(...)`, and downstream the language service derives an implicit
+// namespace from the same string when compiling the preview as a single-
+// file project. Both consumers require a valid Q# identifier, but real
+// `.qsc` filenames can contain `.`, spaces, leading digits, and so on
+// (most commonly `<source>.<operation>.qsc` for circuits exported from a
+// `.qs` file). Sanitization at the entry point keeps every downstream
+// caller — preview, full project compile, future tooling — working on
+// any reasonable filename without each one having to re-implement the
+// same character rules.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn file_name_with_embedded_dot_is_sanitized() {
+    // `GroupSplittingTest.Main.qsc` is the canonical "exported from a
+    // .qs file" shape. The basename passed in is the file stem
+    // (`GroupSplittingTest.Main`). Without sanitization, the emitted
+    // `operation GroupSplittingTest.Main(...)` is a syntax error.
+    check_circuit_group_with_name(
+        "GroupSplittingTest.Main",
+        r#"
+{
+  "version": 1,
+  "circuits": [
+    {
+      "componentGrid": [
+        {
+          "components": [
+            { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+          ]
+        }
+      ],
+      "qubits": [{ "id": 0 }]
+    }
+  ]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation GroupSplittingTest_Main(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation GroupSplittingTest_Main expects a qubit register of at least 1 qubits.";
+                }
+                H(qs[0]);
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn file_name_with_spaces_and_unicode_is_sanitized() {
+    // Spaces, dashes, and non-ASCII letters all map to `_` so the
+    // generated operation parses on every platform. We don't try to be
+    // clever about transliteration — predictable replacement keeps the
+    // emitter deterministic and easy to reason about.
+    check_circuit_group_with_name(
+        "my circuit-\u{00e9}",
+        r#"
+{
+  "version": 1,
+  "circuits": [
+    {
+      "componentGrid": [
+        {
+          "components": [
+            { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+          ]
+        }
+      ],
+      "qubits": [{ "id": 0 }]
+    }
+  ]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation my_circuit__(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation my_circuit__ expects a qubit register of at least 1 qubits.";
+                }
+                H(qs[0]);
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn file_name_starting_with_digit_gets_underscore_prefix() {
+    // Q# identifiers can't start with a digit; the sanitizer prepends
+    // `_` rather than dropping the digit so the user can still
+    // recognize their original filename in the generated code.
+    check_circuit_group_with_name(
+        "1_qubit_circuit",
+        r#"
+{
+  "version": 1,
+  "circuits": [
+    {
+      "componentGrid": [
+        {
+          "components": [
+            { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+          ]
+        }
+      ],
+      "qubits": [{ "id": 0 }]
+    }
+  ]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation _1_qubit_circuit(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation _1_qubit_circuit expects a qubit register of at least 1 qubits.";
+                }
+                H(qs[0]);
+            }
+
+        "#]],
+    );
+}
+
+#[test]
+fn empty_file_name_becomes_underscore() {
+    // Defensive: callers should never hand us an empty name, but if
+    // they do, fall back to a one-character placeholder that at least
+    // parses. Better than panicking inside the emitter.
+    check_circuit_group_with_name(
+        "",
+        r#"
+{
+  "version": 1,
+  "circuits": [
+    {
+      "componentGrid": [
+        {
+          "components": [
+            { "kind": "unitary", "gate": "H", "targets": [{ "qubit": 0 }] }
+          ]
+        }
+      ],
+      "qubits": [{ "id": 0 }]
+    }
+  ]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation _(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation _ expects a qubit register of at least 1 qubits.";
+                }
+                H(qs[0]);
+            }
+
+        "#]],
+    );
+}
+
+/// Like `check_circuit_group`, but threads the operation name through so
+/// tests can exercise sanitization paths. Other tests pin the name to
+/// `"Test"` (already a valid identifier) and don't need this variant.
+fn check_circuit_group_with_name(name: &str, contents: &str, expect: &Expect) {
+    let actual = match circuits_to_qsharp(name, contents) {
+        Ok(circuit) => circuit,
+        Err(e) => e,
+    };
+    expect.assert_eq(&actual);
 }
