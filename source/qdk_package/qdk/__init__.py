@@ -36,6 +36,7 @@ from ._interpreter import (
     dump_machine,
     init,
 )
+from ._session import Session
 
 # Register the %%qsharp cell magic when running inside IPython/Jupyter.
 try:
@@ -61,4 +62,5 @@ __all__ = [
     "DepolarizingNoise",
     "BitFlipNoise",
     "PhaseFlipNoise",
+    "Session",
 ]
