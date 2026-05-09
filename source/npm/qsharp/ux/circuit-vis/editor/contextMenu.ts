@@ -1,14 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { Parameter } from "./circuit.js";
-import { removeControl, removeOperation } from "./circuitManipulation.js";
+import { Parameter } from "../data/circuit.js";
+import { removeControl, removeOperation } from "../actions/circuitActions.js";
 import { CircuitEvents } from "./events.js";
-import { findGateElem, findOperation } from "./utils.js";
+import { findGateElem, findOperation } from "../utils.js";
 import {
   isValidAngleExpression,
   normalizeAngleExpression,
-} from "./angleExpression.js";
+} from "../angleExpression.js";
 
 /**
  * Adds a context menu to a host element in the circuit visualization.
@@ -57,7 +57,7 @@ const addContextMenuToHostElem = (
       hostElem.classList.contains("control-dot") && dataWire != null;
 
     const deleteOption = _createContextMenuItem("Delete", () => {
-      removeOperation(circuitEvents, selectedLocation);
+      removeOperation(circuitEvents.model, selectedLocation);
       circuitEvents.renderFn();
     });
 
@@ -70,7 +70,7 @@ const addContextMenuToHostElem = (
       const removeControlOption = _createContextMenuItem(
         "Remove control",
         () => {
-          removeControl(circuitEvents, selectedOperation, dataWire);
+          removeControl(circuitEvents.model, selectedOperation, dataWire);
           circuitEvents.renderFn();
         },
       );

@@ -10,14 +10,24 @@ import {
   groupTopPadding,
   groupBottomPadding,
 } from "./constants.js";
-import { ComponentGrid, Operation, SourceLocation } from "./circuit.js";
+import { ComponentGrid, Operation, SourceLocation } from "../data/circuit.js";
 import { GateRenderData, GateType } from "./gateRenderData.js";
-import { Register, RegisterMap } from "./register.js";
-import { getMinGateWidth } from "./utils.js";
+import { LayoutScope } from "./layoutMap.js";
+import { Register, RegisterMap } from "../data/register.js";
+import { getMinGateWidth } from "../utils.js";
 
 /**
  * Takes in a component grid and maps the operations to `GateRenderData` objects which
  * contains information for formatting the corresponding SVG.
+ *
+ * Also returns layout information for this scope (the column x-offsets
+ * and widths) and a map of all *child* scopes encountered while
+ * recursing into expanded groups. The map's keys are the parent op's
+ * location string (e.g. `"0,0"` for the children of the op at
+ * top-level column 0 / opIndex 0); values are absolute coords. The
+ * caller decides whether `localScope` should be merged into a wider
+ * `LayoutMap` under `""` (top level) or under a parent op's location
+ * after shifting by that op's `offset` (nested).
  *
  * @param componentGrid Grid of circuit components.
  * @param registers  Mapping from qubit IDs to register render data.
@@ -25,8 +35,9 @@ import { getMinGateWidth } from "./utils.js";
  * @param bottomY y-coordinate of the bottommost register involved in the operation.
  * @param renderLocations Optional function to map source locations to link hrefs and titles.
  *
- * @returns An object containing `renderDataArray` (2D Array of GateRenderData objects) and
- *          `svgWidth` which is the width of the entire SVG.
+ * @returns An object containing `renderDataArray` (2D Array of GateRenderData objects),
+ *          `svgWidth` (width of the entire SVG), and layout info
+ *          (`localScope`, `childScopes`) for the LayoutMap.
  */
 const processOperations = (
   componentGrid: ComponentGrid,
@@ -39,6 +50,23 @@ const processOperations = (
   svgWidth: number;
   maxTopPadding: number;
   maxBottomPadding: number;
+  /**
+   * The local layout scope for this `processOperations` call.
+   *
+   * Coordinates are anchored at `startX` from `constants.ts` — they
+   * are absolute for the top-level call and need to be shifted by the
+   * caller's `offset` for nested calls. (See the recursion in
+   * `_fillRenderDataX`'s `GateType.Group` branch.)
+   */
+  localScope: LayoutScope;
+  /**
+   * Already-absolute scopes for any expanded groups encountered
+   * during this call (and recursively beneath them). Keyed by the
+   * parent op's `dataAttributes["location"]`. Does NOT include
+   * `localScope` itself — the caller is responsible for keying that
+   * appropriately.
+   */
+  childScopes: Map<string, LayoutScope>;
 } => {
   if (componentGrid.length === 0) {
     return {
@@ -46,6 +74,8 @@ const processOperations = (
       svgWidth: startX + gatePadding * 2,
       maxTopPadding: 0,
       maxBottomPadding: 0,
+      localScope: { columnXOffsets: [], columnWidths: [] },
+      childScopes: new Map(),
     };
   }
 
@@ -162,14 +192,25 @@ const processOperations = (
     ({ colIndex }) => columnsWidths[colIndex],
   );
 
-  // Fill in x coord of each gate
-  const endX: number = _fillRenderDataX(filteredArray, filteredColumnWidths);
+  // Fill in x coord of each gate. `_fillRenderDataX` also returns the
+  // local column x-offsets it computed, plus the merged absolute child
+  // scopes harvested from any expanded groups in this grid (their
+  // `_childLayout` field, populated by `_processChildren`).
+  const { endX, colStartX, childScopes } = _fillRenderDataX(
+    filteredArray,
+    filteredColumnWidths,
+  );
 
   return {
     renderDataArray: filteredArray,
     svgWidth: endX,
     maxTopPadding,
     maxBottomPadding,
+    localScope: {
+      columnXOffsets: colStartX,
+      columnWidths: filteredColumnWidths,
+    },
+    childScopes,
   };
 };
 
@@ -518,17 +559,34 @@ const _splitTargetsY = (
 };
 
 /**
- * Updates the x coord of each render data object in the given 2D array and returns rightmost x coord.
+ * Updates the x coord of each render data object in the given 2D
+ * array and returns layout info needed by `processOperations` to build
+ * the `LayoutMap`.
+ *
+ * In addition to setting each gate's center x, this function:
+ *  - Returns `colStartX` (the per-column left-edge x in this scope's
+ *    local coordinate system, anchored at `startX`).
+ *  - For each expanded group encountered, shifts the group's
+ *    `_childLayout` (set by `_processChildren`) from the child's local
+ *    coords to absolute coords by applying the group's `offset`, then
+ *    merges those absolute child scopes into a single `childScopes`
+ *    map keyed by the child's parent op's location string.
  *
  * @param renderDataArray  2D array of render data.
  * @param columnWidths Array of column widths.
  *
- * @returns Rightmost x coord.
+ * @returns `endX` (rightmost x coord), `colStartX` (per-column
+ *          left-edge x), and `childScopes` (absolute scopes from
+ *          expanded groups in this grid).
  */
 const _fillRenderDataX = (
   renderDataArray: GateRenderData[][],
   columnWidths: number[],
-): number => {
+): {
+  endX: number;
+  colStartX: number[];
+  childScopes: Map<string, LayoutScope>;
+} => {
   let endX: number = startX;
 
   const colStartX: number[] = columnWidths.map((width) => {
@@ -536,6 +594,10 @@ const _fillRenderDataX = (
     endX += width + gatePadding * 2;
     return x;
   });
+
+  // Absolute scopes harvested from any expanded groups in this grid,
+  // including their own (already-shifted) descendant scopes.
+  const childScopes = new Map<string, LayoutScope>();
 
   renderDataArray.forEach((col, colIndex) =>
     col.forEach((renderData) => {
@@ -558,6 +620,35 @@ const _fillRenderDataX = (
             // Offset each x coord in children gates
             _offsetChildrenX(renderData.children, offset);
 
+            // LayoutMap accumulation: shift the child layout info
+            // (computed in the child's local coords) by `offset`,
+            // making it absolute. Key the child's `localScope` under
+            // *this* group's location — that's the scope key the
+            // editor will look up when emitting dropzones inside this
+            // group's body. Already-absolute deeper scopes also get
+            // shifted by `offset` (they were originally computed in
+            // the same child-local coordinate system).
+            const childLayout = renderData._childLayout;
+            if (childLayout != null) {
+              const myLocation = renderData.dataAttributes?.["location"];
+              if (myLocation != null) {
+                childScopes.set(myLocation, {
+                  columnXOffsets: childLayout.localScope.columnXOffsets.map(
+                    (v) => v + offset,
+                  ),
+                  columnWidths: childLayout.localScope.columnWidths,
+                });
+                for (const [key, scope] of childLayout.childScopes) {
+                  childScopes.set(key, {
+                    columnXOffsets: scope.columnXOffsets.map((v) => v + offset),
+                    columnWidths: scope.columnWidths,
+                  });
+                }
+              }
+              // Clear the temp side-channel; nothing else reads it.
+              renderData._childLayout = undefined;
+            }
+
             // Center gate in column
             renderData.x = columnCenterX;
           }
@@ -571,7 +662,7 @@ const _fillRenderDataX = (
     }),
   );
 
-  return endX + gatePadding;
+  return { endX: endX + gatePadding, colStartX, childScopes };
 };
 
 /**
@@ -624,6 +715,16 @@ function _processChildren(
   renderData.topPadding = childrenInstrs.maxTopPadding + groupTopPadding;
   renderData.bottomPadding =
     childrenInstrs.maxBottomPadding + groupBottomPadding;
+
+  // Stash the child layout info on the parent's render data so that
+  // when the parent's `_fillRenderDataX` runs later, it can shift the
+  // child's local coords to absolute (using the group's `offset`) and
+  // merge them into the parent call's `childScopes` accumulator.
+  // See `_fillRenderDataX` for where this is consumed.
+  renderData._childLayout = {
+    localScope: childrenInstrs.localScope,
+    childScopes: childrenInstrs.childScopes,
+  };
 }
 
 export { processOperations };

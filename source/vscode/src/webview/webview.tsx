@@ -235,8 +235,7 @@ function App({ state }: { state: State }) {
           runNames={[]}
         />
       );
-    case "circuit": // Hydrate the boolean `canSaveAsCircuit` capability flag into a real
-    // postMessage callback. Done at render time (not in state) so we
+    case "circuit": // postMessage callback. Done at render time (not in state) so we // Hydrate the boolean `canSaveAsCircuit` capability flag into a real
     // never persist a function via `vscodeApi.setState`.
     {
       const { canSaveAsCircuit, ...rest } = state.props;

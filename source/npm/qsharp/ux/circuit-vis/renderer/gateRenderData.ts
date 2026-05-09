@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { DataAttributes } from "./circuit.js";
-import { Register } from "./register.js";
+import { DataAttributes } from "../data/circuit.js";
+import { LayoutScope } from "./layoutMap.js";
+import { Register } from "../data/register.js";
 
 /**
  * Enum for the various gate operations handled.
@@ -70,4 +71,19 @@ export interface GateRenderData {
    * this gate body without forcing a split.
    */
   classicalControlRegs?: Register[];
+  /**
+   * @internal Used during layout to surface child-scope geometry from
+   * `_processChildren` up to the parent's `_fillRenderDataX`. Cleared
+   * (set to `undefined`) once consumed. Not used outside `process.ts`.
+   *
+   * Holds the recursive `processOperations` call's `localScope` (in
+   * the child's local startX-anchored coords) and any deeper scopes
+   * already absolute. The parent's `_fillRenderDataX` shifts the local
+   * scope by the group's `offset` and merges everything into its own
+   * absolute scope accumulator.
+   */
+  _childLayout?: {
+    localScope: LayoutScope;
+    childScopes: Map<string, LayoutScope>;
+  };
 }

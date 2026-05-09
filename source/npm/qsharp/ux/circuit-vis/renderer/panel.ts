@@ -7,10 +7,10 @@ import {
   Operation,
   Unitary,
   type Circuit,
-} from "./circuit.js";
-import { ensureStateVisualization } from "./state-viz/stateVizController.js";
-import type { StateColumn } from "./state-viz/stateViz.js";
-import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
+} from "../data/circuit.js";
+import { ensureStateVisualization } from "../state-viz/stateVizController.js";
+import type { StateColumn } from "../state-viz/stateViz.js";
+import type { PrepareStateVizOptions } from "../state-viz/worker/stateVizPrep.js";
 import {
   gateHeight,
   horizontalGap,
@@ -19,7 +19,7 @@ import {
 } from "./constants.js";
 import { formatGate } from "./formatters/gateFormatter.js";
 import { GateType, GateRenderData } from "./gateRenderData.js";
-import { getMinGateWidth } from "./utils.js";
+import { getMinGateWidth } from "../utils.js";
 
 const getOrCreateCircuitWrapper = (container: HTMLElement) => {
   let wrapper: HTMLElement | null = container.querySelector(".circuit-wrapper");

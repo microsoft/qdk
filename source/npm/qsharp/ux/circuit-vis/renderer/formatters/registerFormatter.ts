@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { RegisterMap } from "../register.js";
+import { RegisterMap } from "../../data/register.js";
 import { regLineStart } from "../constants.js";
 import { GateRenderData, GateType } from "../gateRenderData.js";
 import { group, line } from "./formatUtils.js";

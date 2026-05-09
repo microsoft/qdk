@@ -27,7 +27,7 @@ import {
   dashedBox,
 } from "./formatUtils.js";
 
-import { mathChars } from "../utils.js";
+import { mathChars } from "../../utils.js";
 
 /**
  * Given an array of operations render data, return the SVG representation.

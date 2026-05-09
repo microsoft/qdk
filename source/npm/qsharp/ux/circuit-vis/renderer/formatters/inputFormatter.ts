@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { Qubit, SourceLocation } from "../circuit.js";
-import { RegisterType, RegisterMap, RegisterRenderData } from "../register.js";
+import { Qubit, SourceLocation } from "../../data/circuit.js";
+import { RegisterType, RegisterMap, RegisterRenderData } from "../../data/register.js";
 import {
   leftPadding,
   startY,
@@ -13,7 +13,7 @@ import {
   gatePadding,
 } from "../constants.js";
 import { createSvgElement, group, text } from "./formatUtils.js";
-import { mathChars } from "../utils.js";
+import { mathChars } from "../../utils.js";
 
 /**
  * `formatInputs` takes in an array of Qubits and outputs the SVG string of formatted

@@ -1,22 +1,39 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { getOperationRegisters } from "../../src/utils.js";
-import { Column, ComponentGrid, Operation, Unitary } from "./circuit.js";
-import { CircuitEvents } from "./events.js";
-import { Register } from "./register.js";
+import { getOperationRegisters } from "../utils.js";
+import { Column, ComponentGrid, Operation, Unitary } from "../data/circuit.js";
+import { CircuitModel } from "../data/circuitModel.js";
+import { Location } from "../data/location.js";
+import { Register } from "../data/register.js";
 import {
   findOperation,
   findParentArray,
   findParentOperation,
   getChildTargets,
-  locationStringToIndexes,
-} from "./utils.js";
+} from "../utils.js";
+
+/*
+ * `circuitActions.ts` — the **Action layer** in the circuit editor's
+ * three-layer architecture (Data / Action / View — see
+ * [CIRCUIT_EDITOR_TODO.md](CIRCUIT_EDITOR_TODO.md)).
+ *
+ * Each exported function takes a `CircuitModel` (Data layer) as its
+ * first argument and mutates it in place. **No DOM. No interaction
+ * state. No rendering.** Functions return either the new/affected
+ * `Operation` (when the caller needs a handle to it) or a `boolean`
+ * status flag — the choice matches each function's pre-R3 contract,
+ * to minimize churn in the UI code that calls them.
+ *
+ * Direct unit-testability of this module is the main R3 win — Actions
+ * can be exercised against a freshly-constructed `CircuitModel` with
+ * no JSDOM and no `CircuitEvents` stub.
+ */
 
 /**
  * Move an operation in the circuit.
  *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
+ * @param model The circuit model to mutate.
  * @param sourceLocation The location string of the source operation.
  * @param targetLocation The location string of the target position.
  * @param sourceWire The wire index of the source operation.
@@ -26,7 +43,7 @@ import {
  * @returns The moved operation or null if the move was unsuccessful.
  */
 const moveOperation = (
-  circuitEvents: CircuitEvents,
+  model: CircuitModel,
   sourceLocation: string,
   targetLocation: string,
   sourceWire: number,
@@ -34,10 +51,7 @@ const moveOperation = (
   movingControl: boolean,
   insertNewColumn: boolean = false,
 ): Operation | null => {
-  const originalOperation = findOperation(
-    circuitEvents.componentGrid,
-    sourceLocation,
-  );
+  const originalOperation = findOperation(model.componentGrid, sourceLocation);
 
   if (originalOperation == null) return null;
 
@@ -46,11 +60,11 @@ const moveOperation = (
     JSON.stringify(originalOperation),
   );
 
-  _ensureQubitCount(circuitEvents, targetWire);
+  model.ensureQubitCount(targetWire);
 
   // Update operation's targets and controls
   _moveY(
-    circuitEvents,
+    model,
     newSourceOperation,
     sourceLocation,
     sourceWire,
@@ -60,7 +74,7 @@ const moveOperation = (
 
   // Move horizontally
   _moveX(
-    circuitEvents,
+    model,
     newSourceOperation,
     originalOperation,
     targetLocation,
@@ -68,44 +82,38 @@ const moveOperation = (
   );
 
   const sourceOperationParent = findParentArray(
-    circuitEvents.componentGrid,
+    model.componentGrid,
     sourceLocation,
   );
   if (sourceOperationParent == null) return null;
-  _removeOp(circuitEvents, originalOperation, sourceOperationParent);
-  removeTrailingUnusedQubits(circuitEvents);
+  _removeOp(model, originalOperation, sourceOperationParent);
+  model.removeTrailingUnusedQubits();
 
   return newSourceOperation;
 };
 
 /**
  * Move an operation horizontally.
- *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
- * @param sourceOperation The operation to be moved.
- * @param originalOperation The original source operation to be ignored during the check for existing operations.
- * @param targetLocation The location string of the target position.
- * @param insertNewColumn Whether to insert a new column when adding the operation.
  */
 const _moveX = (
-  circuitEvents: CircuitEvents,
+  model: CircuitModel,
   sourceOperation: Operation,
   originalOperation: Operation,
   targetLocation: string,
   insertNewColumn: boolean = false,
 ) => {
   const targetOperationParent = findParentArray(
-    circuitEvents.componentGrid,
+    model.componentGrid,
     targetLocation,
   );
 
-  const targetLastIndex = locationStringToIndexes(targetLocation).pop();
+  const targetLastIndex = Location.parse(targetLocation).last();
 
   if (targetOperationParent == null || targetLastIndex == null) return;
 
   // Insert sourceOperation to target last index
   _addOp(
-    circuitEvents,
+    model,
     sourceOperation,
     targetOperationParent,
     targetLastIndex,
@@ -116,16 +124,9 @@ const _moveX = (
 
 /**
  * Move an operation vertically by changing its controls and targets.
- *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
- * @param sourceOperation The operation to be moved.
- * @param sourceLocation The location string of the source operation.
- * @param sourceWire The wire index of the source operation.
- * @param targetWire The wire index to move the operation to.
- * @param movingControl Whether the operation is being moved as a control.
  */
 const _moveY = (
-  circuitEvents: CircuitEvents,
+  model: CircuitModel,
   sourceOperation: Operation,
   sourceLocation: string,
   sourceWire: number,
@@ -202,7 +203,7 @@ const _moveY = (
 
   // Update parent operation targets
   const parentOperation = findParentOperation(
-    circuitEvents.componentGrid,
+    model.componentGrid,
     sourceLocation,
   );
   if (parentOperation) {
@@ -222,25 +223,20 @@ const _moveY = (
 /**
  * Add an operation into the circuit.
  *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
- * @param sourceOperation The operation to be added.
- * @param targetLocation The location string of the target position.
- * @param targetWire The wire index to add the operation to.
- * @param insertNewColumn Whether to insert a new column when adding the operation.
  * @returns The added operation or null if the addition was unsuccessful.
  */
 const addOperation = (
-  circuitEvents: CircuitEvents,
+  model: CircuitModel,
   sourceOperation: Operation,
   targetLocation: string,
   targetWire: number,
   insertNewColumn: boolean = false,
 ): Operation | null => {
   const targetOperationParent = findParentArray(
-    circuitEvents.componentGrid,
+    model.componentGrid,
     targetLocation,
   );
-  const targetLastIndex = locationStringToIndexes(targetLocation).pop();
+  const targetLastIndex = Location.parse(targetLocation).last();
 
   if (targetOperationParent == null || targetLastIndex == null) return null;
   // Create a deep copy of the source operation
@@ -258,10 +254,10 @@ const addOperation = (
     newSourceOperation.targets = [{ qubit: targetWire }];
   }
 
-  _ensureQubitCount(circuitEvents, targetWire);
+  model.ensureQubitCount(targetWire);
 
   _addOp(
-    circuitEvents,
+    model,
     newSourceOperation,
     targetOperationParent,
     targetLastIndex,
@@ -273,37 +269,25 @@ const addOperation = (
 
 /**
  * Remove an operation from the circuit.
- *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
- * @param sourceLocation The location string of the operation to be removed.
  */
-const removeOperation = (
-  circuitEvents: CircuitEvents,
-  sourceLocation: string,
-) => {
-  const sourceOperation = findOperation(
-    circuitEvents.componentGrid,
-    sourceLocation,
-  );
+const removeOperation = (model: CircuitModel, sourceLocation: string) => {
+  const sourceOperation = findOperation(model.componentGrid, sourceLocation);
   const sourceOperationParent = findParentArray(
-    circuitEvents.componentGrid,
+    model.componentGrid,
     sourceLocation,
   );
 
   if (sourceOperation == null || sourceOperationParent == null) return null;
 
-  _removeOp(circuitEvents, sourceOperation, sourceOperationParent);
-  removeTrailingUnusedQubits(circuitEvents);
+  _removeOp(model, sourceOperation, sourceOperationParent);
+  model.removeTrailingUnusedQubits();
 };
 
 /**
  * Find and remove operations in-place that return `true` for a predicate function.
- *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
- * @param pred The predicate function to determine which operations to remove.
  */
 const findAndRemoveOperations = (
-  circuitEvents: CircuitEvents,
+  model: CircuitModel,
   pred: (op: Operation) => boolean,
 ) => {
   // Remove operations that are true for the predicate function
@@ -317,7 +301,7 @@ const findAndRemoveOperations = (
           inPlaceFilter(op.children);
         }
         if (pred(op)) {
-          circuitEvents.decrementQubitUseCountForOp(op);
+          model.decrementQubitUseCountForOp(op);
           grid[i].components.splice(j, 1);
         } else {
           j++;
@@ -331,19 +315,16 @@ const findAndRemoveOperations = (
     }
   };
 
-  inPlaceFilter(circuitEvents.componentGrid);
+  inPlaceFilter(model.componentGrid);
 };
 
 /**
  * Add a control to the specified operation on the given wire index.
  *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
- * @param op The unitary operation to which the control will be added.
- * @param wireIndex The index of the wire where the control will be added.
  * @returns True if the control was added, false if it already existed.
  */
 const addControl = (
-  circuitEvents: CircuitEvents,
+  model: CircuitModel,
   op: Unitary,
   wireIndex: number,
 ): boolean => {
@@ -356,8 +337,8 @@ const addControl = (
   if (!existingControl) {
     op.controls.push({ qubit: wireIndex });
     op.controls.sort((a, b) => a.qubit - b.qubit);
-    _ensureQubitCount(circuitEvents, wireIndex);
-    circuitEvents.qubitUseCounts[wireIndex]++;
+    model.ensureQubitCount(wireIndex);
+    model.qubitUseCounts[wireIndex]++;
     return true;
   }
   return false;
@@ -366,13 +347,10 @@ const addControl = (
 /**
  * Remove a control from the specified operation on the given wire index.
  *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
- * @param op The unitary operation from which the control will be removed.
- * @param wireIndex The index of the wire where the control will be removed.
  * @returns True if the control was removed, false if it did not exist.
  */
 const removeControl = (
-  circuitEvents: CircuitEvents,
+  model: CircuitModel,
   op: Unitary,
   wireIndex: number,
 ): boolean => {
@@ -382,9 +360,9 @@ const removeControl = (
     );
     if (controlIndex !== -1) {
       op.controls.splice(controlIndex, 1);
-      circuitEvents.qubitUseCounts[wireIndex]--;
-      if (wireIndex === circuitEvents.qubits.length - 1) {
-        removeTrailingUnusedQubits(circuitEvents);
+      model.qubitUseCounts[wireIndex]--;
+      if (wireIndex === model.qubits.length - 1) {
+        model.removeTrailingUnusedQubits();
       }
       return true;
     }
@@ -393,12 +371,128 @@ const removeControl = (
 };
 
 /**
+ * Move a qubit line from `sourceWire` to `targetWire`. Two modes:
+ *
+ *   - `isBetween: true`  — insert before `targetWire` (drop "between" wires).
+ *   - `isBetween: false` — swap with `targetWire`.
+ *
+ * Updates qubit IDs, every operation's register references, sorts each
+ * column by lowest-numbered register, and re-resolves any overlaps that
+ * the rewire produced.
+ *
+ * No-op if `sourceWire === targetWire` or either is null/undefined.
+ */
+const moveQubit = (
+  model: CircuitModel,
+  sourceWire: number,
+  targetWire: number,
+  isBetween: boolean,
+): void => {
+  if (sourceWire === targetWire || sourceWire == null || targetWire == null) {
+    return;
+  }
+
+  if (isBetween) {
+    // Moving sourceWire to just before targetWire.
+    let insertAt = targetWire;
+    // If moving down and passing over itself, adjust index.
+    if (sourceWire < insertAt) insertAt--;
+    _moveArrayElement(model.qubits, sourceWire, insertAt);
+    _moveArrayElement(model.qubitUseCounts, sourceWire, insertAt);
+  } else {
+    // Swap sourceWire and targetWire.
+    [model.qubits[sourceWire], model.qubits[targetWire]] = [
+      model.qubits[targetWire],
+      model.qubits[sourceWire],
+    ];
+    [model.qubitUseCounts[sourceWire], model.qubitUseCounts[targetWire]] = [
+      model.qubitUseCounts[targetWire],
+      model.qubitUseCounts[sourceWire],
+    ];
+  }
+
+  // Update qubit ids to match their new positions
+  model.qubits.forEach((q, idx) => {
+    q.id = idx;
+  });
+
+  // Update all operations in componentGrid to reflect new qubit order
+  for (const column of model.componentGrid) {
+    for (const op of column.components) {
+      getOperationRegisters(op).forEach((reg) => {
+        if (isBetween) {
+          // Move: update qubit indices
+          if (reg.qubit === sourceWire) {
+            reg.qubit = sourceWire < targetWire ? targetWire - 1 : targetWire;
+          } else if (
+            sourceWire < targetWire &&
+            reg.qubit > sourceWire &&
+            reg.qubit < targetWire
+          ) {
+            reg.qubit -= 1;
+          } else if (
+            sourceWire > targetWire &&
+            reg.qubit >= targetWire &&
+            reg.qubit < sourceWire
+          ) {
+            reg.qubit += 1;
+          }
+        } else {
+          // Swap: swap indices
+          if (reg.qubit === sourceWire) reg.qubit = targetWire;
+          else if (reg.qubit === targetWire) reg.qubit = sourceWire;
+        }
+      });
+    }
+    // Sort operations in this column by their lowest-numbered register
+    column.components.sort((a, b) => {
+      const aRegs = getOperationRegisters(a);
+      const bRegs = getOperationRegisters(b);
+      const aMin = Math.min(...aRegs.map((r) => r.qubit));
+      const bMin = Math.min(...bRegs.map((r) => r.qubit));
+      return aMin - bMin;
+    });
+  }
+
+  resolveOverlappingOperations(model.componentGrid);
+  model.removeTrailingUnusedQubits();
+};
+
+/**
+ * Remove a qubit line at `qubitIdx`. Caller is responsible for asking
+ * the user to confirm if the wire still has operations on it; this
+ * function only does the data mutation.
+ *
+ * Decrements all references on higher-numbered wires by 1 (since their
+ * indices shift down) and renumbers qubit ids to match. Operations
+ * that touched `qubitIdx` are **not** removed by this call — caller
+ * should `findAndRemoveOperations` first if that's the intent.
+ */
+const removeQubit = (model: CircuitModel, qubitIdx: number): void => {
+  model.qubits.splice(qubitIdx, 1);
+  model.qubitUseCounts.splice(qubitIdx, 1);
+  model.removeTrailingUnusedQubits();
+
+  // Update all remaining operation references
+  for (const column of model.componentGrid) {
+    for (const op of column.components) {
+      getOperationRegisters(op).forEach((reg) => {
+        if (reg.qubit > qubitIdx) reg.qubit -= 1;
+      });
+    }
+  }
+
+  // Update qubit ids to match their new positions
+  model.qubits.forEach((q, idx) => {
+    q.id = idx;
+  });
+};
+
+/**
  * Resolves overlapping operations in each column of the component grid.
  * For each column, splits overlapping operations into separate columns so that
  * no two operations in the same column overlap on their register ranges.
  * Modifies the component grid in-place.
- *
- * @param parentArray The component grid (array of columns) to process.
  */
 const resolveOverlappingOperations = (parentArray: ComponentGrid): void => {
   // Helper to resolve a single column into non-overlapping columns
@@ -441,28 +535,7 @@ const resolveOverlappingOperations = (parentArray: ComponentGrid): void => {
   }
 };
 
-/**
- * Remove trailing unused qubits from the circuit.
- *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
- */
-const removeTrailingUnusedQubits = (circuitEvents: CircuitEvents) => {
-  while (
-    circuitEvents.qubitUseCounts.length > 0 &&
-    circuitEvents.qubitUseCounts[circuitEvents.qubitUseCounts.length - 1] === 0
-  ) {
-    circuitEvents.qubits.pop();
-    circuitEvents.qubitUseCounts.pop();
-  }
-};
-
-/**
- * Determines whether two register index ranges overlap.
- *
- * @param op1 The [min, max] register indices of the first operation.
- * @param op2 The [min, max] register indices of the second operation.
- * @returns True if the ranges overlap, false otherwise.
- */
+/** Determines whether two register index ranges overlap. */
 const _doesOverlap = (
   op1: [number, number],
   op2: [number, number],
@@ -472,21 +545,20 @@ const _doesOverlap = (
   return max1 >= min2 && max2 >= min1;
 };
 
+/** Move an element of `arr` from index `from` to index `to`. */
+const _moveArrayElement = <T>(arr: T[], from: number, to: number) => {
+  const el = arr.splice(from, 1)[0];
+  arr.splice(to, 0, el);
+};
+
 /**
  * Add an operation to the circuit at the specified location.
- *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
- * @param sourceOperation The operation to be added.
- * @param targetOperationParent The parent grid where the operation will be added.
- * @param targetLastIndex The index within the parent array where the operation will be added.
- * @param insertNewColumn Whether to insert a new column when adding the operation.
- * @param originalOperation The original source operation to be ignored during the check for existing operations.
  */
 const _addOp = (
-  circuitEvents: CircuitEvents,
+  model: CircuitModel,
   sourceOperation: Operation,
   targetOperationParent: ComponentGrid,
-  targetLastIndex: [number, number],
+  targetLastIndex: readonly [number, number],
   insertNewColumn: boolean = false,
   originalOperation: Operation | null = null,
 ) => {
@@ -525,11 +597,11 @@ const _addOp = (
     );
   }
 
-  circuitEvents.incrementQubitUseCountForOp(sourceOperation);
+  model.incrementQubitUseCountForOp(sourceOperation);
 
   if (sourceOperation.kind === "measurement") {
     for (const targetWire of sourceOperation.qubits) {
-      _updateMeasurementLines(circuitEvents, targetWire.qubit);
+      _updateMeasurementLines(model, targetWire.qubit);
     }
   }
 };
@@ -537,9 +609,6 @@ const _addOp = (
 /**
  * Get the minimum and maximum register indices for a given operation.
  * Based on getMinMaxRegIdx in process.ts, but without the numQubits.
- *
- * @param operation The operation for which to get the register indices.
- * @returns A tuple containing the minimum and maximum register indices.
  */
 const _getMinMaxRegIdx = (operation: Operation): [number, number] => {
   const qRegs: Register[] = getOperationRegisters(operation).filter(
@@ -554,12 +623,7 @@ const _getMinMaxRegIdx = (operation: Operation): [number, number] => {
   return [minRegIdx, maxRegIdx];
 };
 
-/**
- * Check if an operation is classically controlled.
- *
- * @param operation The operation for which to get the register indices.
- * @returns True if the operation is classically controlled, false otherwise.
- */
+/** Check if an operation is classically controlled. */
 const _isClassicallyControlled = (operation: Operation): boolean => {
   if (operation.kind !== "unitary") return false;
   if (operation.controls === undefined) return false;
@@ -569,15 +633,9 @@ const _isClassicallyControlled = (operation: Operation): boolean => {
   return clsControl !== undefined;
 };
 
-/**
- * Remove an operation from the circuit.
- *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
- * @param sourceOperation The operation to be removed.
- * @param sourceOperationParent The parent grid from which the operation will be removed.
- */
+/** Remove an operation from the circuit. */
 const _removeOp = (
-  circuitEvents: CircuitEvents,
+  model: CircuitModel,
   sourceOperation: Operation,
   sourceOperationParent: ComponentGrid,
 ) => {
@@ -603,28 +661,20 @@ const _removeOp = (
     }
   }
 
-  circuitEvents.decrementQubitUseCountForOp(sourceOperation);
+  model.decrementQubitUseCountForOp(sourceOperation);
 
   if (sourceOperation.kind === "measurement") {
     for (const result of sourceOperation.results) {
-      _updateMeasurementLines(circuitEvents, result.qubit);
+      _updateMeasurementLines(model, result.qubit);
     }
   }
 };
 
-/**
- * Update measurement lines for a specific wire.
- *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
- * @param wireIndex The index of the wire to update the measurement lines for.
- */
-const _updateMeasurementLines = (
-  circuitEvents: CircuitEvents,
-  wireIndex: number,
-) => {
-  _ensureQubitCount(circuitEvents, wireIndex);
+/** Update measurement-result indices for a specific wire. */
+const _updateMeasurementLines = (model: CircuitModel, wireIndex: number) => {
+  model.ensureQubitCount(wireIndex);
   let resultIndex = 0;
-  for (const col of circuitEvents.componentGrid) {
+  for (const col of model.componentGrid) {
     for (const comp of col.components) {
       if (comp.kind === "measurement") {
         // Find measurements on the correct wire based on their qubit.
@@ -636,33 +686,18 @@ const _updateMeasurementLines = (
       }
     }
   }
-  circuitEvents.qubits[wireIndex].numResults =
+  model.qubits[wireIndex].numResults =
     resultIndex > 0 ? resultIndex : undefined;
 };
 
-/**
- * Ensure that the qubit count in the circuit is sufficient for the given wire index.
- *
- * @param circuitEvents The CircuitEvents instance to handle circuit-related events.
- * @param wireIndex The index of the wire to check.
- */
-const _ensureQubitCount = (circuitEvents: CircuitEvents, wireIndex: number) => {
-  while (circuitEvents.qubits.length <= wireIndex) {
-    circuitEvents.qubits.push({
-      id: circuitEvents.qubits.length,
-      numResults: undefined,
-    });
-    circuitEvents.qubitUseCounts.push(0);
-  }
-};
-
 export {
-  moveOperation,
-  addOperation,
-  removeOperation,
-  findAndRemoveOperations,
   addControl,
+  addOperation,
+  findAndRemoveOperations,
+  moveOperation,
+  moveQubit,
   removeControl,
+  removeOperation,
+  removeQubit,
   resolveOverlappingOperations,
-  removeTrailingUnusedQubits,
 };

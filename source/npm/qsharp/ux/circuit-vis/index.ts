@@ -2,7 +2,7 @@
 // Licensed under the MIT license.
 
 import { DrawOptions, Sqore } from "./sqore.js";
-import { CircuitGroup } from "./circuit.js";
+import { CircuitGroup } from "./data/circuit.js";
 
 /**
  * Render `circuit` into `container` at the specified layer depth.
@@ -47,4 +47,4 @@ export type {
   Column,
   Qubit,
   Operation,
-} from "./circuit.js";
+} from "./data/circuit.js";

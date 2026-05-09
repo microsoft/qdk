@@ -1,16 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { GateRenderData, GateType } from "./gateRenderData.js";
+import { GateRenderData, GateType } from "./renderer/gateRenderData.js";
 import {
   minGateWidth,
   labelPaddingX,
   labelFontSize,
   argsFontSize,
   controlCircleOffset,
-} from "./constants.js";
-import { ComponentGrid, Operation } from "./circuit.js";
-import { Register } from "./register.js";
+} from "./renderer/constants.js";
+import { ComponentGrid, Operation } from "./data/circuit.js";
+import { Location } from "./data/location.js";
+import { Register } from "./data/register.js";
 
 /**
  * Performs a deep equality check between two objects or arrays.
@@ -208,25 +209,6 @@ const getChildTargets = (operation: Operation): Register[] | [] => {
 };
 
 /**
- * Split a location string into an array of index tuples.
- *
- * Example:
- * "0,1-0,2-2,3" -> [[0,1], [0,2], [2,3]]
- *
- * @param location The location string to split.
- * @returns An array of indexes.
- */
-const locationStringToIndexes = (location: string): [number, number][] => {
-  return location !== ""
-    ? location.split("-").map((segment) => {
-        const coords = segment.split(",");
-        if (coords.length !== 2) throw new Error("Invalid location");
-        return [parseInt(coords[0]), parseInt(coords[1])];
-      })
-    : [];
-};
-
-/**
  * Gets the location of an operation, if it has one.
  *
  * @param operation The operation to get the location for.
@@ -269,6 +251,39 @@ function getMinMaxRegIdx(operation: Operation): [number, number] {
   return [minRegIdx, maxRegIdx];
 }
 
+/**
+ * Get every `Register` referenced by an operation, including both
+ * its controls and its targets/qubits/results. Returned references
+ * are the live objects on the operation, so callers may mutate
+ * `reg.qubit` / `reg.result` in place to renumber wires.
+ *
+ * Mirrors the union that `getMinMaxRegIdx` walks; centralized here
+ * so the action layer (R3) and the data layer (R3) don't each
+ * re-spell the per-`kind` switch.
+ *
+ * @param operation The operation to enumerate registers for.
+ * @returns All registers (controls + targets/qubits/results) of `operation`.
+ */
+const getOperationRegisters = (operation: Operation): Register[] => {
+  let targets: Register[];
+  let controls: Register[];
+  switch (operation.kind) {
+    case "measurement":
+      targets = operation.results;
+      controls = operation.qubits;
+      break;
+    case "unitary":
+      targets = operation.targets;
+      controls = operation.controls || [];
+      break;
+    case "ket":
+      targets = operation.targets;
+      controls = [];
+      break;
+  }
+  return [...controls, ...targets];
+};
+
 /**********************
  *  Finder Functions  *
  **********************/
@@ -284,18 +299,11 @@ const findGateElem = (hostElem: SVGElement): SVGElement | null => {
 };
 
 /**
- * Find the location of the gate surrounding a host element.
- *
- * @param hostElem The SVG element representing the host element.
- * @returns The location string of the surrounding gate or null if not found.
- */
-const findLocation = (hostElem: SVGElement) => {
-  const gateElem = findGateElem(hostElem);
-  return gateElem != null ? gateElem.getAttribute("data-location") : null;
-};
-
-/**
  * Find the parent operation of the operation specified by location.
+ *
+ * R4: navigates via [`Location`](data/location.ts) instead of the
+ * legacy `locationStringToIndexes` helper, so the addressing format
+ * is owned by exactly one module.
  *
  * @param componentGrid The grid of components to search through.
  * @param location The location string of the operation.
@@ -307,23 +315,28 @@ const findParentOperation = (
 ): Operation | null => {
   if (!location) return null;
 
-  const indexes = locationStringToIndexes(location);
-  indexes.pop();
-  const lastIndex = indexes.pop();
+  const parsed = Location.parse(location);
+  // Need at least two segments: one for the op itself, one for its parent.
+  if (parsed.depth < 2) return null;
 
-  if (lastIndex == null) return null;
+  const parentOpLocation = parsed.parent();
+  const parentOpSegment = parentOpLocation.last();
+  if (parentOpSegment == null) return null;
 
-  let parentOperation = componentGrid;
-  for (const index of indexes) {
-    parentOperation =
-      parentOperation[index[0]].components[index[1]].children ||
-      parentOperation;
+  // Walk down to the grid that contains the parent op.
+  let grid = componentGrid;
+  for (const [colIdx, opIdx] of parentOpLocation.parent().segments) {
+    grid = grid[colIdx].components[opIdx].children || grid;
   }
-  return parentOperation[lastIndex[0]].components[lastIndex[1]];
+  const [parentCol, parentOp] = parentOpSegment;
+  return grid[parentCol].components[parentOp];
 };
 
 /**
  * Find the parent component grid of an operation based on its location.
+ *
+ * R4: navigates via [`Location`](data/location.ts) instead of the
+ * legacy `locationStringToIndexes` helper.
  *
  * @param componentGrid The grid of components to search through.
  * @param location The location string of the operation.
@@ -335,19 +348,22 @@ const findParentArray = (
 ): ComponentGrid | null => {
   if (!location) return null;
 
-  const indexes = locationStringToIndexes(location);
-  indexes.pop(); // The last index refers to the operation itself, remove it so that the last index instead refers to the parent operation
+  // Drop the last segment — it addresses the op itself; we want the grid that
+  // contains it, which is keyed by its parent's segments.
+  const parentScope = Location.parse(location).parent();
 
-  let parentArray = componentGrid;
-  for (const index of indexes) {
-    parentArray =
-      parentArray[index[0]].components[index[1]].children || parentArray;
+  let grid = componentGrid;
+  for (const [colIdx, opIdx] of parentScope.segments) {
+    grid = grid[colIdx].components[opIdx].children || grid;
   }
-  return parentArray;
+  return grid;
 };
 
 /**
  * Find an operation based on its location.
+ *
+ * R4: navigates via [`Location`](data/location.ts) instead of the
+ * legacy `locationStringToIndexes` helper.
  *
  * @param componentGrid The grid of components to search through.
  * @param location The location string of the operation.
@@ -359,12 +375,13 @@ const findOperation = (
 ): Operation | null => {
   if (!location) return null;
 
-  const index = locationStringToIndexes(location).pop();
+  const last = Location.parse(location).last();
   const operationParent = findParentArray(componentGrid, location);
 
-  if (operationParent == null || index == null) return null;
+  if (operationParent == null || last == null) return null;
 
-  return operationParent[index[0]].components[index[1]];
+  const [col, op] = last;
+  return operationParent[col].components[op];
 };
 
 /**********************
@@ -458,11 +475,10 @@ export {
   deepEqual,
   getMinGateWidth,
   getChildTargets,
-  locationStringToIndexes,
   getGateLocationString,
   getMinMaxRegIdx,
+  getOperationRegisters,
   findGateElem,
-  findLocation,
   findParentOperation,
   findParentArray,
   findOperation,

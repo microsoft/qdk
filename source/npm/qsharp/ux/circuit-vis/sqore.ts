@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { formatInputs } from "./formatters/inputFormatter.js";
-import { formatGates } from "./formatters/gateFormatter.js";
-import { formatRegisters } from "./formatters/registerFormatter.js";
-import { processOperations } from "./process.js";
+import { formatInputs } from "./renderer/formatters/inputFormatter.js";
+import { formatGates } from "./renderer/formatters/gateFormatter.js";
+import { formatRegisters } from "./renderer/formatters/registerFormatter.js";
+import { processOperations } from "./renderer/process.js";
 import {
   Circuit,
   CircuitGroup,
@@ -12,17 +12,19 @@ import {
   Operation,
   SourceLocation,
   Qubit,
-} from "./circuit.js";
-import { GateRenderData } from "./gateRenderData.js";
+} from "./data/circuit.js";
+import { GateRenderData } from "./renderer/gateRenderData.js";
+import { LayoutMap, emptyLayoutMap } from "./renderer/layoutMap.js";
+import { Location } from "./data/location.js";
 import {
   gateHeight,
   minGateWidth,
   minToolboxHeight,
   svgNS,
-} from "./constants.js";
-import { createDropzones } from "./draggable.js";
-import { enableEvents } from "./events.js";
-import { createPanel, enableRunButton } from "./panel.js";
+} from "./renderer/constants.js";
+import { createDropzones } from "./editor/draggable.js";
+import { enableEvents } from "./editor/events.js";
+import { createPanel, enableRunButton } from "./renderer/panel.js";
 import { getMinMaxRegIdx } from "./utils.js";
 import type { StateColumn } from "./state-viz/stateViz.js";
 import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
@@ -37,6 +39,13 @@ interface ComposedSqore {
   height: number;
   /** SVG elements the make up the visualization. */
   elements: SVGElement[];
+  /**
+   * Geometry from the layout pass (R1). Captured here so the editor
+   * can position dropzones from the same numbers `processOperations`
+   * already computed, instead of reverse-engineering them from
+   * rendered SVG attributes. See [`layoutMap.ts`](renderer/layoutMap.ts).
+   */
+  layoutMap: LayoutMap;
 }
 
 /**
@@ -209,7 +218,7 @@ export class Sqore {
     // Assign unique locations to each operation
     _circuit.componentGrid.forEach((col, colIndex) =>
       col.components.forEach((op, i) =>
-        this.fillGateRegistry(op, `${colIndex},${i}`),
+        this.fillGateRegistry(op, Location.root().child(colIndex, i)),
       ),
     );
 
@@ -242,12 +251,14 @@ export class Sqore {
     const editor = this.options.editor;
     const isEditable = editor != null;
     if (isEditable) {
-      createDropzones(container, this);
+      createDropzones(container, this, composedSqore.layoutMap);
       createPanel(container, editor.computeStateVizColumnsForCircuitModel);
       if (editor.runCallback) {
         enableRunButton(container, editor.runCallback);
       }
-      enableEvents(container, this, () => this.renderCircuit(container));
+      enableEvents(container, this, composedSqore.layoutMap, () =>
+        this.renderCircuit(container),
+      );
       editor.editCallback(this.minimizeCircuits(this.circuitGroup));
     }
   }
@@ -354,13 +365,29 @@ export class Sqore {
     const bottomY = qubits[qubits.length - 1]
       ? registers[qubits[qubits.length - 1].id].y
       : -1;
-    const { renderDataArray, svgWidth } = processOperations(
-      componentGrid,
-      topY,
-      bottomY,
-      registers,
-      isEditable ? undefined : this.options.renderLocations,
-    );
+    const { renderDataArray, svgWidth, localScope, childScopes } =
+      processOperations(
+        componentGrid,
+        topY,
+        bottomY,
+        registers,
+        isEditable ? undefined : this.options.renderLocations,
+      );
+
+    // Assemble the LayoutMap from the layout pass.
+    //
+    // - The top-level scope is keyed by `""` (matches the existing
+    //   `LayoutMap` convention; see [`layoutMap.ts`](renderer/layoutMap.ts)).
+    // - `childScopes` is already keyed by each parent op's location
+    //   string, with absolute coords.
+    // - `wireYs` mirrors the y-coords of the real qubit wires before
+    //   any editor chrome (e.g. the ghost qubit wire) is added.
+    const layoutMap: LayoutMap = emptyLayoutMap();
+    layoutMap.scopes.set("", localScope);
+    for (const [key, scope] of childScopes) {
+      layoutMap.scopes.set(key, scope);
+    }
+    layoutMap.wireYs = qubits.map((q) => registers[q.id].y);
 
     // Draw the operations.
     const formattedGates: SVGElement = formatGates(renderDataArray);
@@ -376,6 +403,7 @@ export class Sqore {
       width: svgWidth,
       height: svgHeight,
       elements: [qubitLabels, formattedRegs, formattedGates],
+      layoutMap,
     };
     return composedSqore;
   }
@@ -416,18 +444,24 @@ export class Sqore {
   }
 
   /**
-   * Depth-first traversal to assign unique location string to `operation`.
-   * The operation is assigned the location `location` and its `i`th child
-   * in its `colIndex` column is recursively given the location
-   * `${location}-${colIndex},${i}`.
+   * Depth-first traversal to assign a unique location string to
+   * `operation`. The operation is assigned `location.toString()` and
+   * its `i`th child in its `colIndex` column is recursively given
+   * `location.child(colIndex, i)`.
+   *
+   * R4: takes a [`Location`](data/location.ts) value rather than a
+   * raw string, so the addressing format is owned by exactly one
+   * module. The string form is still what gets stored in
+   * `dataAttributes["location"]` / used as `gateRegistry` keys, since
+   * the rest of the codebase reads those as strings.
    *
    * @param operation Operation to be assigned.
-   * @param location: Location to assign to `operation`.
-   *
+   * @param location  Hierarchical location to assign to `operation`.
    */
-  private fillGateRegistry(operation: Operation, location: string): void {
+  private fillGateRegistry(operation: Operation, location: Location): void {
     if (operation.dataAttributes == null) operation.dataAttributes = {};
-    operation.dataAttributes["location"] = location;
+    const locationStr = location.toString();
+    operation.dataAttributes["location"] = locationStr;
 
     // Note: `dataAttributes["expanded"]` is intentionally not defaulted here.
     // Expansion is controlled by:
@@ -435,10 +469,10 @@ export class Sqore {
     // - user interaction (expand/collapse), and
     // - `expandIfSingleOperation`, which auto-expands a single top-level op
     //   unless it has been explicitly collapsed.
-    this.gateRegistry[location] = operation;
+    this.gateRegistry[locationStr] = operation;
     operation.children?.forEach((col, colIndex) =>
       col.components.forEach((childOp, i) => {
-        this.fillGateRegistry(childOp, `${location}-${colIndex},${i}`);
+        this.fillGateRegistry(childOp, location.child(colIndex, i));
       }),
     );
   }
@@ -650,7 +684,7 @@ function updateRowHeights(
  * An "expanded group" here is any operation that is to be rendered showing
  * its children, with a dashed box around the children.
  */
-function isExpandedGroup(component: Operation) {
+export function isExpandedGroup(component: Operation) {
   const expandedAttr = component.dataAttributes?.["expanded"];
   if (expandedAttr != null) {
     return expandedAttr === "true";

@@ -15,7 +15,7 @@ export {
   type Parameter,
   type Qubit,
   type SourceLocation,
-} from "../../src/data-structures/circuit.js";
+} from "../../../src/data-structures/circuit.js";
 
-export { CURRENT_VERSION } from "../../src/data-structures/circuit.js";
-export { toCircuitGroup } from "../../src/data-structures/legacyCircuitUpdate.js";
+export { CURRENT_VERSION } from "../../../src/data-structures/circuit.js";
+export { toCircuitGroup } from "../../../src/data-structures/legacyCircuitUpdate.js";
