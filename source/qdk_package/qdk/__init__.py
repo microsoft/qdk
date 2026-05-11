@@ -15,20 +15,14 @@ Optional extras install additional dependencies and submodules:
 
 """
 
-
-from qsharp.telemetry_events import on_qdk_import
+from .telemetry_events import on_qdk_import
 
 on_qdk_import()
 
 # Some common utilities are lifted to the qdk root.
-from qsharp import code
-from qsharp import (
-    set_quantum_seed,
-    set_classical_seed,
-    dump_machine,
-    init,
-    Result,
-    TargetProfile,
+from . import code
+from ._native import Result, TargetProfile
+from ._types import (
     StateDump,
     ShotResult,
     PauliNoise,
@@ -36,6 +30,21 @@ from qsharp import (
     BitFlipNoise,
     PhaseFlipNoise,
 )
+from ._interpreter import (
+    set_quantum_seed,
+    set_classical_seed,
+    dump_machine,
+    init,
+)
+
+# Register the %%qsharp cell magic when running inside IPython/Jupyter.
+try:
+    if __IPYTHON__:  # type: ignore
+        from ._ipython import register_magic
+
+        register_magic()
+except NameError:
+    pass
 
 # utilities lifted from qsharp
 __all__ = [

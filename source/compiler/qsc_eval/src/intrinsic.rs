@@ -56,7 +56,9 @@ pub(crate) fn call<B: Backend>(
             }
         }
         "DumpMachine" => {
-            let (state, qubit_count) = sim.capture_quantum_state();
+            let (state, qubit_count) = sim
+                .capture_quantum_state()
+                .map_err(|e| Error::SimulationError(e, name_span))?;
             match out.state(state, qubit_count) {
                 Ok(()) => Ok(Value::unit()),
                 Err(_) => Err(Error::OutputFail(name_span)),
@@ -75,7 +77,9 @@ pub(crate) fn call<B: Backend>(
             if qubits.len() != qubits.iter().collect::<FxHashSet<_>>().len() {
                 return Err(Error::QubitUniqueness(arg_span));
             }
-            let (state, qubit_count) = sim.capture_quantum_state();
+            let (state, qubit_count) = sim
+                .capture_quantum_state()
+                .map_err(|e| Error::SimulationError(e, name_span))?;
             let state = utils::split_state(&qubits, &state, qubit_count)
                 .map_err(|()| Error::QubitsNotSeparable(arg_span))?;
             match out.state(state, qubits.len()) {
@@ -96,7 +100,9 @@ pub(crate) fn call<B: Backend>(
             if qubits.len() != qubits.iter().collect::<FxHashSet<_>>().len() {
                 return Err(Error::QubitUniqueness(arg_span));
             }
-            let (state, qubit_count) = sim.capture_quantum_state();
+            let (state, qubit_count) = sim
+                .capture_quantum_state()
+                .map_err(|e| Error::SimulationError(e, name_span))?;
             let state = utils::split_state(&qubits, &state, qubit_count)
                 .map_err(|()| Error::QubitsNotSeparable(arg_span))?;
             let matrix = utils::state_to_matrix(state, qubits.len() / 2);
@@ -105,8 +111,8 @@ pub(crate) fn call<B: Backend>(
                 Err(_) => Err(Error::OutputFail(name_span)),
             }
         }
-        "PermuteLabels" => qubit_relabel(arg, arg_span, |q0, q1| {
-            sim.qubit_swap_id(q0, q1, call_stack);
+        "PermuteLabels" => qubit_relabel(arg, name_span, arg_span, |q0, q1| {
+            sim.qubit_swap_id(q0, q1, call_stack)
         }),
         "Message" => match out.message(&arg.unwrap_string()) {
             Ok(()) => Ok(Value::unit()),
@@ -118,7 +124,8 @@ pub(crate) fn call<B: Backend>(
                     .try_deref()
                     .ok_or(Error::QubitUsedAfterRelease(arg_span))?
                     .0,
-            ),
+            )
+            .map_err(|e| Error::SimulationError(e, name_span))?,
         )),
         "ArcCos" => Ok(Value::Double(arg.unwrap_double().acos())),
         "ArcSin" => Ok(Value::Double(arg.unwrap_double().asin())),
@@ -164,55 +171,98 @@ pub(crate) fn call<B: Backend>(
         "__quantum__qis__ccx__body" => three_qubit_gate(
             |ctl0, ctl1, q| sim.ccx(ctl0, ctl1, q, call_stack),
             arg,
+            name_span,
             arg_span,
         ),
-        "__quantum__qis__cx__body" => {
-            two_qubit_gate(|ctl, q| sim.cx(ctl, q, call_stack), arg, arg_span)
-        }
-        "__quantum__qis__cy__body" => {
-            two_qubit_gate(|ctl, q| sim.cy(ctl, q, call_stack), arg, arg_span)
-        }
-        "__quantum__qis__cz__body" => {
-            two_qubit_gate(|ctl, q| sim.cz(ctl, q, call_stack), arg, arg_span)
-        }
-        "__quantum__qis__rx__body" => {
-            one_qubit_rotation(|theta, q| sim.rx(theta, q, call_stack), arg, arg_span)
-        }
+        "__quantum__qis__cx__body" => two_qubit_gate(
+            |ctl, q| sim.cx(ctl, q, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
+        "__quantum__qis__cy__body" => two_qubit_gate(
+            |ctl, q| sim.cy(ctl, q, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
+        "__quantum__qis__cz__body" => two_qubit_gate(
+            |ctl, q| sim.cz(ctl, q, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
+        "__quantum__qis__rx__body" => one_qubit_rotation(
+            |theta, q| sim.rx(theta, q, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
         "__quantum__qis__rxx__body" => two_qubit_rotation(
             |theta, q0, q1| sim.rxx(theta, q0, q1, call_stack),
             arg,
+            name_span,
             arg_span,
         ),
-        "__quantum__qis__ry__body" => {
-            one_qubit_rotation(|theta, q| sim.ry(theta, q, call_stack), arg, arg_span)
-        }
+        "__quantum__qis__ry__body" => one_qubit_rotation(
+            |theta, q| sim.ry(theta, q, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
         "__quantum__qis__ryy__body" => two_qubit_rotation(
             |theta, q0, q1| sim.ryy(theta, q0, q1, call_stack),
             arg,
+            name_span,
             arg_span,
         ),
-        "__quantum__qis__rz__body" => {
-            one_qubit_rotation(|theta, q| sim.rz(theta, q, call_stack), arg, arg_span)
-        }
+        "__quantum__qis__rz__body" => one_qubit_rotation(
+            |theta, q| sim.rz(theta, q, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
         "__quantum__qis__rzz__body" => two_qubit_rotation(
             |theta, q0, q1| sim.rzz(theta, q0, q1, call_stack),
             arg,
+            name_span,
             arg_span,
         ),
-        "__quantum__qis__h__body" => one_qubit_gate(|q| sim.h(q, call_stack), arg, arg_span),
-        "__quantum__qis__s__body" => one_qubit_gate(|q| sim.s(q, call_stack), arg, arg_span),
-        "__quantum__qis__s__adj" => one_qubit_gate(|q| sim.sadj(q, call_stack), arg, arg_span),
-        "__quantum__qis__sx__body" => one_qubit_gate(|q| sim.sx(q, call_stack), arg, arg_span),
-        "__quantum__qis__t__body" => one_qubit_gate(|q| sim.t(q, call_stack), arg, arg_span),
-        "__quantum__qis__t__adj" => one_qubit_gate(|q| sim.tadj(q, call_stack), arg, arg_span),
-        "__quantum__qis__x__body" => one_qubit_gate(|q| sim.x(q, call_stack), arg, arg_span),
-        "__quantum__qis__y__body" => one_qubit_gate(|q| sim.y(q, call_stack), arg, arg_span),
-        "__quantum__qis__z__body" => one_qubit_gate(|q| sim.z(q, call_stack), arg, arg_span),
-        "__quantum__qis__swap__body" => {
-            two_qubit_gate(|q0, q1| sim.swap(q0, q1, call_stack), arg, arg_span)
+        "__quantum__qis__h__body" => {
+            one_qubit_gate(|q| sim.h(q, call_stack), arg, name_span, arg_span)
         }
+        "__quantum__qis__s__body" => {
+            one_qubit_gate(|q| sim.s(q, call_stack), arg, name_span, arg_span)
+        }
+        "__quantum__qis__s__adj" => {
+            one_qubit_gate(|q| sim.sadj(q, call_stack), arg, name_span, arg_span)
+        }
+        "__quantum__qis__sx__body" => {
+            one_qubit_gate(|q| sim.sx(q, call_stack), arg, name_span, arg_span)
+        }
+        "__quantum__qis__t__body" => {
+            one_qubit_gate(|q| sim.t(q, call_stack), arg, name_span, arg_span)
+        }
+        "__quantum__qis__t__adj" => {
+            one_qubit_gate(|q| sim.tadj(q, call_stack), arg, name_span, arg_span)
+        }
+        "__quantum__qis__x__body" => {
+            one_qubit_gate(|q| sim.x(q, call_stack), arg, name_span, arg_span)
+        }
+        "__quantum__qis__y__body" => {
+            one_qubit_gate(|q| sim.y(q, call_stack), arg, name_span, arg_span)
+        }
+        "__quantum__qis__z__body" => {
+            one_qubit_gate(|q| sim.z(q, call_stack), arg, name_span, arg_span)
+        }
+        "__quantum__qis__swap__body" => two_qubit_gate(
+            |q0, q1| sim.swap(q0, q1, call_stack),
+            arg,
+            name_span,
+            arg_span,
+        ),
         "__quantum__qis__reset__body" => {
-            one_qubit_gate(|q| sim.reset(q, call_stack), arg, arg_span)
+            one_qubit_gate(|q| sim.reset(q, call_stack), arg, name_span, arg_span)
         }
         "__quantum__qis__m__body" => Ok(Value::Result(
             sim.m(
@@ -221,7 +271,8 @@ pub(crate) fn call<B: Backend>(
                     .ok_or(Error::QubitUsedAfterRelease(arg_span))?
                     .0,
                 call_stack,
-            ),
+            )
+            .map_err(|e| Error::SimulationError(e, name_span))?,
         )),
         "__quantum__qis__mresetz__body" => Ok(Value::Result(
             sim.mresetz(
@@ -230,7 +281,8 @@ pub(crate) fn call<B: Backend>(
                     .ok_or(Error::QubitUsedAfterRelease(arg_span))?
                     .0,
                 call_stack,
-            ),
+            )
+            .map_err(|e| Error::SimulationError(e, name_span))?,
         )),
         "__quantum__rt__read_loss" => Ok(Value::Bool(arg == Value::Result(val::Result::Loss))),
         _ => {
@@ -256,8 +308,9 @@ pub(crate) fn call<B: Backend>(
 }
 
 fn one_qubit_gate(
-    mut gate: impl FnMut(usize),
+    mut gate: impl FnMut(usize) -> Result<(), String>,
     arg: Value,
+    name_span: PackageSpan,
     arg_span: PackageSpan,
 ) -> Result<Value, Error> {
     gate(
@@ -265,13 +318,15 @@ fn one_qubit_gate(
             .try_deref()
             .ok_or(Error::QubitUsedAfterRelease(arg_span))?
             .0,
-    );
+    )
+    .map_err(|e| Error::SimulationError(e, name_span))?;
     Ok(Value::unit())
 }
 
 fn two_qubit_gate(
-    mut gate: impl FnMut(usize, usize),
+    mut gate: impl FnMut(usize, usize) -> Result<(), String>,
     arg: Value,
+    name_span: PackageSpan,
     arg_span: PackageSpan,
 ) -> Result<Value, Error> {
     let [x, y] = unwrap_tuple(arg);
@@ -287,14 +342,16 @@ fn two_qubit_gate(
                 .try_deref()
                 .ok_or(Error::QubitUsedAfterRelease(arg_span))?
                 .0,
-        );
+        )
+        .map_err(|e| Error::SimulationError(e, name_span))?;
         Ok(Value::unit())
     }
 }
 
 fn one_qubit_rotation(
-    mut gate: impl FnMut(f64, usize),
+    mut gate: impl FnMut(f64, usize) -> Result<(), String>,
     arg: Value,
+    name_span: PackageSpan,
     arg_span: PackageSpan,
 ) -> Result<Value, Error> {
     let [x, y] = unwrap_tuple(arg);
@@ -308,14 +365,16 @@ fn one_qubit_rotation(
                 .try_deref()
                 .ok_or(Error::QubitUsedAfterRelease(arg_span))?
                 .0,
-        );
+        )
+        .map_err(|e| Error::SimulationError(e, name_span))?;
         Ok(Value::unit())
     }
 }
 
 fn three_qubit_gate(
-    mut gate: impl FnMut(usize, usize, usize),
+    mut gate: impl FnMut(usize, usize, usize) -> Result<(), String>,
     arg: Value,
+    name_span: PackageSpan,
     arg_span: PackageSpan,
 ) -> Result<Value, Error> {
     let [x, y, z] = unwrap_tuple(arg);
@@ -335,14 +394,16 @@ fn three_qubit_gate(
                 .try_deref()
                 .ok_or(Error::QubitUsedAfterRelease(arg_span))?
                 .0,
-        );
+        )
+        .map_err(|e| Error::SimulationError(e, name_span))?;
         Ok(Value::unit())
     }
 }
 
 fn two_qubit_rotation(
-    mut gate: impl FnMut(f64, usize, usize),
+    mut gate: impl FnMut(f64, usize, usize) -> Result<(), String>,
     arg: Value,
+    name_span: PackageSpan,
     arg_span: PackageSpan,
 ) -> Result<Value, Error> {
     let [x, y, z] = unwrap_tuple(arg);
@@ -362,7 +423,8 @@ fn two_qubit_rotation(
                 .try_deref()
                 .ok_or(Error::QubitUsedAfterRelease(arg_span))?
                 .0,
-        );
+        )
+        .map_err(|e| Error::SimulationError(e, name_span))?;
         Ok(Value::unit())
     }
 }
@@ -372,8 +434,9 @@ fn two_qubit_rotation(
 /// if the qubits are not unique or if the relabeling is not a valid permutation.
 pub fn qubit_relabel(
     arg: Value,
+    name_span: PackageSpan,
     arg_span: PackageSpan,
-    mut swap: impl FnMut(usize, usize),
+    mut swap: impl FnMut(usize, usize) -> Result<(), String>,
 ) -> Result<Value, Error> {
     let [left, right] = unwrap_tuple(arg);
     let left = left.unwrap_array();
@@ -424,7 +487,7 @@ pub fn qubit_relabel(
                 .keys()
                 .find(|k| mappings[*k] == r)
                 .expect("mapped qubit should be present as both key and value");
-            swap(l, label_r);
+            swap(l, label_r).map_err(|e| Error::SimulationError(e, name_span))?;
             mappings.insert(label_r, mapped_l);
             mappings.insert(l, mapped_r);
         }
