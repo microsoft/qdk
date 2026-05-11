@@ -576,23 +576,8 @@ class AdaptiveProfilePass:
         """Scan module for global constant arrays and populate constant_data.
 
         Uses ``Module.global_variables`` to iterate globals, reads each
-        initializer via ``GlobalVariable.initializer`` (returns an
-        ``ArrayConstant``), and encodes element values into
-        ``constant_data``.
-
-        Supported element types:
-
-        * ``IntConstant`` — stored as masked integer values.
-        * ``FloatConstant`` — stored as IEEE-754 bit patterns.
-        * ``Constant`` with ``PointerType`` — pointer expressions such as
-          ``inttoptr (i64 N to ptr)`` are resolved via ``pyqir.ptr_id``.
-        * ``GlobalVariable`` — references to other globals (e.g. pointer
-          arrays ``[N x ptr] [ptr @row0, ptr @row1]``) are resolved to the
-          address previously assigned to the referenced global.
-
-        Byte-string globals (e.g. ``[4 x i8] c"0_a\\00"``) used as output
-        labels are skipped; they are handled by ``_extract_label`` at the
-        point of use.
+        initializer via ``GlobalVariable.initializer``, and encodes element
+        values into ``constant_data``.
         """
         mask = (1 << self._int_bits) - 1
 
@@ -1144,13 +1129,7 @@ class AdaptiveProfilePass:
             if isinstance(pointee, pyqir.ArrayType):
                 num_words = pointee.count
             else:
-                # Under LLVM opaque pointers (LLVM 15+), `pointee` is the
-                # generic `Type` rather than the original `ArrayType`, so
-                # `pyqir` cannot recover the allocated element count from
-                # the result pointer type alone. Fall back to inspecting
-                # the printed instruction to detect aggregate allocations
-                # (e.g. ``alloca [N x i64]`` or ``alloca {{...}}``) that
-                # would otherwise be silently undersized to a single word.
+                # Reject alloca of aggregate data (arrays and structs).
                 text = str(instr).lstrip()
                 _, _, after_alloca = text.partition("alloca ")
                 if after_alloca.startswith("[") or after_alloca.startswith("{"):
