@@ -4,8 +4,8 @@ version = "0.0.0"
 readme = "README.md"
 requires-python = ">= 3.10"
 dependencies = ["qdk==0.0.0"]
-license = "MIT"
 classifiers = [
+    "License :: OSI Approved :: MIT License",
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
