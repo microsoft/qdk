@@ -24,7 +24,7 @@ import {
 } from "./renderer/constants.js";
 import { createDropzones } from "./editor/draggable.js";
 import { enableEvents } from "./editor/events.js";
-import { createPanel, enableRunButton } from "./editor/panel.js";
+import { createPanel } from "./editor/panel.js";
 import { getMinMaxRegIdx } from "./utils.js";
 import type { StateColumn } from "./state-viz/stateViz.js";
 import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
@@ -252,10 +252,11 @@ export class Sqore {
     const isEditable = editor != null;
     if (isEditable) {
       createDropzones(container, this, composedSqore.layoutMap);
-      createPanel(container, editor.computeStateVizColumnsForCircuitModel);
-      if (editor.runCallback) {
-        enableRunButton(container, editor.runCallback);
-      }
+      createPanel(
+        container,
+        editor.computeStateVizColumnsForCircuitModel,
+        editor.runCallback,
+      );
       enableEvents(container, this, composedSqore.layoutMap, () =>
         this.renderCircuit(container),
       );

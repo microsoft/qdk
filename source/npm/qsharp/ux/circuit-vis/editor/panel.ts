@@ -76,10 +76,18 @@ const applyCircuitEditorLayoutClasses = (
 
 /**
  * Create a panel for the circuit visualization.
+ *
+ * The toolbox always renders. The Run button only renders when
+ * `runCallback` is provided. Hosts that can't run circuits (e.g. a
+ * read-only preview, or any embedding without execution support)
+ * just omit the callback and no button is created.
+ *
  * @param container         HTML element for rendering visualization into
  * @param computeStateVizColumnsForCircuitModel Optional callback to compute
- * state visualization columns from a circuit model, which enables state
- * visualization features when provided.
+ *   state visualization columns from a circuit model, which enables state
+ *   visualization features when provided.
+ * @param runCallback       Optional callback invoked when the user clicks
+ *   the Run button. When omitted, no Run button is rendered.
  */
 const createPanel = (
   container: HTMLElement,
@@ -87,10 +95,11 @@ const createPanel = (
     model: Circuit,
     opts?: PrepareStateVizOptions,
   ) => Promise<StateColumn[]>,
+  runCallback?: () => void,
 ): void => {
   const { wrapper, circuit } = getOrCreateCircuitWrapper(container);
   removeEmptyCircuitMessage(wrapper);
-  attachToolboxPanelIfMissing(container, _panel);
+  attachToolboxPanelIfMissing(container, () => _panel(runCallback));
   addEmptyCircuitMessageIfEmpty(wrapper, circuit);
   applyCircuitEditorLayoutClasses(container, wrapper);
 
@@ -98,38 +107,25 @@ const createPanel = (
 };
 
 /**
- * Enable the run button in the toolbox panel.
- * This function makes the run button visible and adds a click event listener.
- * @param container     HTML element containing the toolbox panel
- * @param callback      Callback function to execute when the run button is clicked
- */
-const enableRunButton = (
-  container: HTMLElement,
-  callback: () => void,
-): void => {
-  const runButton = container.querySelector(".svg-run-button");
-  if (runButton && runButton.getAttribute("visibility") !== "visible") {
-    runButton.setAttribute("visibility", "visible");
-    runButton.addEventListener("click", callback);
-  }
-};
-
-/**
  * Function to produce panel element
+ * @param runCallback   Optional Run-button click handler. When omitted,
+ *                      no Run button is rendered.
  * @returns             HTML element for panel
  */
-const _panel = (): HTMLElement => {
+const _panel = (runCallback?: () => void): HTMLElement => {
   const panelElem = _elem("div");
   panelElem.className = "panel";
-  _children(panelElem, [_createToolbox()]);
+  _children(panelElem, [_createToolbox(runCallback)]);
   return panelElem;
 };
 
 /**
  * Function to produce toolbox element
+ * @param runCallback   Optional Run-button click handler. When omitted,
+ *                      no Run button is rendered.
  * @returns             HTML element for toolbox
  */
-const _createToolbox = (): HTMLElement => {
+const _createToolbox = (runCallback?: () => void): HTMLElement => {
   // Generate gate elements in a 3xN grid
   let prefixX = 0;
   let prefixY = 0;
@@ -157,12 +153,21 @@ const _createToolbox = (): HTMLElement => {
   svgElem.classList.add("toolbox-panel-svg");
   _childrenSvg(svgElem, gateElems);
 
-  // Append run button
-  const runButtonGroup = _createRunButton(prefixY + gateHeight + 20);
-  svgElem.appendChild(runButtonGroup);
+  // Append run button only when the host provided a click handler.
+  // Hosts that can't run circuits omit the callback and get no button.
+  let totalSvgHeight: number;
+  if (runCallback != null) {
+    const runButtonGroup = _createRunButton(
+      prefixY + gateHeight + 20,
+      runCallback,
+    );
+    svgElem.appendChild(runButtonGroup);
+    totalSvgHeight = prefixY + 2 * gateHeight + 32; // gates + button + padding
+  } else {
+    totalSvgHeight = prefixY + gateHeight + 16; // gates + padding (no button)
+  }
 
   // Size SVG to content height so the toolbox panel can scroll when window is short
-  const totalSvgHeight = prefixY + 2 * gateHeight + 32; // gates + button + padding
   svgElem.setAttribute("height", totalSvgHeight.toString());
   svgElem.setAttribute("width", "100%");
 
@@ -177,9 +182,15 @@ const _createToolbox = (): HTMLElement => {
 /**
  * Function to create the run button in the toolbox panel
  * @param buttonY      Y coordinate for the top of the button
+ * @param onClick      Click handler. The button is created visible and
+ *                     pre-wired. Callers only get this far if they
+ *                     actually want a Run button.
  * @returns            SVG group element containing the run button
  */
-const _createRunButton = (buttonY: number): SVGGElement => {
+const _createRunButton = (
+  buttonY: number,
+  onClick: () => void,
+): SVGGElement => {
   const buttonWidth = minGateWidth * 2 + horizontalGap;
   const buttonHeight = gateHeight;
   const buttonX = 1;
@@ -211,8 +222,7 @@ const _createRunButton = (buttonY: number): SVGGElement => {
   runButtonGroup.appendChild(rect);
   runButtonGroup.appendChild(text);
 
-  // The run button should be hidden by default
-  runButtonGroup.setAttribute("visibility", "hidden");
+  runButtonGroup.addEventListener("click", onClick);
   return runButtonGroup;
 };
 
@@ -434,4 +444,4 @@ toolboxGateDictionary["RX"].params = [{ name: "theta", type: "Double" }];
 toolboxGateDictionary["RY"].params = [{ name: "theta", type: "Double" }];
 toolboxGateDictionary["RZ"].params = [{ name: "theta", type: "Double" }];
 
-export { createPanel, enableRunButton, toolboxGateDictionary, toRenderData };
+export { createPanel, toolboxGateDictionary, toRenderData };
