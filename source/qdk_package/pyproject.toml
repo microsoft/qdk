@@ -49,4 +49,5 @@ testpaths = ["tests"]
 
 [tool.maturin]
 module-name = "qdk._native"
+exclude = ["tests/**", "tests-integration/**", "benchmarks/**"]
 
