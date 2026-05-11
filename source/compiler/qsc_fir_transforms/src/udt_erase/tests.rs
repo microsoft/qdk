@@ -1732,11 +1732,11 @@ fn cross_package_simulatable_intrinsic_with_struct_param_and_return() {
 }
 
 /// Semantic equivalence companion for the simulatable intrinsic cross-package
-/// test: evaluates the program before and after the full FIR pipeline and
-/// confirms matching results.
+/// test: the intrinsic precheck now rejects `SimulatableIntrinsic` callables
+/// with UDT parameter/return types before the pipeline reaches UDT erasure.
 #[test]
 fn cross_package_simulatable_intrinsic_with_struct_semantic_equivalence() {
-    use crate::test_utils::check_semantic_equivalence_with_library;
+    use crate::test_utils::compile_and_run_pipeline_to_with_library_and_errors;
 
     let lib_source = indoc! {"
         namespace TestLib {
@@ -1761,5 +1761,13 @@ fn cross_package_simulatable_intrinsic_with_struct_semantic_equivalence() {
         }
     "};
 
-    check_semantic_equivalence_with_library(lib_source, user_source);
+    let (_, _, result) = compile_and_run_pipeline_to_with_library_and_errors(
+        lib_source,
+        user_source,
+        crate::PipelineStage::Full,
+    );
+    assert!(
+        !result.is_success(),
+        "expected precheck errors for SimulatableIntrinsic with UDT parameter/return types"
+    );
 }
