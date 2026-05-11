@@ -18,7 +18,6 @@
       // Use this to test the browser-based version of the extension.
       "name": "(web) VS Code Extension Debug",
       "type": "extensionHost",
-      "debugWebWorkerHost": true,
       "request": "launch",
       "args": [
         "--profile=dev",
@@ -35,7 +34,6 @@
       // Launch once, install the WSL Extension, and then launch again.
       "name": "(wsl) VS Code Extension Debug",
       "type": "extensionHost",
-      "debugWebWorkerHost": true,
       "request": "launch",
       "args": [
         "--profile=dev",
