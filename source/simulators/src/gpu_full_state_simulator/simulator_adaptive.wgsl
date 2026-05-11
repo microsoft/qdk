@@ -6,6 +6,7 @@
 const ERR_CALL_STACK_OVERFLOW = 3u;
 const ERR_CALL_STACK_UNDERFLOW = 4u;
 const ERR_INVALID_INSTRUCTION = 5u;
+const ERR_ALLOCA_OUT_OF_BOUNDS = 6u;
 
 @group(0) @binding(0)
 var<storage, read_write> workgroup_collation: WorkgroupCollationBuffer;
@@ -206,6 +207,7 @@ const FUNCTION_TABLE_SIZE: u32 = {{FUNCTION_TABLE_SIZE}};
 const PHI_TABLE_SIZE: u32 = {{PHI_TABLE_SIZE}};
 const SWITCH_CASES_SIZE: u32 = {{SWITCH_CASES_SIZE}};
 const CALL_ARGS_SIZE: u32 = {{CALL_ARGS_SIZE}};
+const CONSTANT_DATA_SIZE: u32 = {{CONSTANT_DATA_SIZE}};
 
 struct Program {
     /// Bytecode instructions.
@@ -220,6 +222,8 @@ struct Program {
     switch_table: array<SwitchCase, SWITCH_CASES_SIZE>,
     /// Call argument register indices.
     call_arg_table: array<u32, CALL_ARGS_SIZE>,
+    /// Constant data pool (flattened array constant values).
+    constant_data: array<u32, CONSTANT_DATA_SIZE>,
 }
 
 struct CallStackFrame {
@@ -235,6 +239,7 @@ struct CallStackFrame {
 
 // MAX_REGISTERS must be declared before InterpreterState which uses it.
 const MAX_REGISTERS: u32 = {{MAX_REGISTERS}};
+const MAX_MEMORY: u32 = {{MAX_MEMORY}};
 
 /// Per-shot interpreter state.
 struct InterpreterState {
@@ -258,6 +263,8 @@ struct InterpreterState {
     call_stack_frames: array<CallStackFrame, 14>,
     /// Per-shot register file.
     registers: array<u32, MAX_REGISTERS>,
+    /// Per-shot memory (constant_data + alloca'd values).
+    memory: array<u32, MAX_MEMORY>,
 }
 
 // -----------------------------------------------------------------------------
@@ -366,6 +373,12 @@ const OP_PHI:           u32 = 0x50;
 const OP_SELECT:        u32 = 0x51;
 const OP_MOV:           u32 = 0x52;
 const OP_CONST:         u32 = 0x53;
+
+// -- Memory Operations --------------------------------------------------------
+const OP_ALLOCA:        u32 = 0x60;
+const OP_LOAD:          u32 = 0x61;
+const OP_STORE:         u32 = 0x62;
+const OP_GEP:           u32 = 0x63;
 
 // -- ICmp condition codes (sub-opcode, placed in bits[15:8] via << 8) ---------
 // Reference: https://llvm.org/docs/LangRef.html#icmp-instruction
@@ -578,6 +591,15 @@ fn initialize(
         let results_base = u32(params.shot_idx) * RESULT_COUNT;
         for (var r = 0u; r < RESULT_COUNT; r++) {
             atomicStore(&results[results_base + r], 0u);
+        }
+
+        // Initialize memory from constant_data
+        for (var m = 0u; m < CONSTANT_DATA_SIZE; m++) {
+            shots[params.shot_idx].interp.memory[m] = batch_data.program.constant_data[m];
+        }
+        // Zero the alloca region for CPU-GPU parity
+        for (var m = CONSTANT_DATA_SIZE; m < MAX_MEMORY; m++) {
+            shots[params.shot_idx].interp.memory[m] = 0u;
         }
     }
 }
@@ -1310,6 +1332,57 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // dst = src0 (always treated as a literal value, not a register).
             case OP_CONST {
                 write_reg(shot_idx, instr.dst, instr.src0);
+                pc++;
+            }
+
+            // -------------------------------------------------------------
+            // MEMORY OPERATIONS
+            // -------------------------------------------------------------
+
+            // ALLOCA: Reserve memory and write the address to dst.
+            // Encoding: src0 = number of words, src1 = compile-time assigned address.
+            case OP_ALLOCA {
+                let num_words = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                let addr = resolve_u32(shot_idx, instr.src1, flags, 1u);
+                if addr + num_words > MAX_MEMORY {
+                    shots[shot_idx].interp.exit_code = ERR_ALLOCA_OUT_OF_BOUNDS;
+                    let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
+                    atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_ALLOCA_OUT_OF_BOUNDS);
+                    shots[shot_idx].interp.status = STATUS_ERROR;
+                    atomicAdd(&diagnostics.termination_count, 1u);
+                    should_break = true;
+                    break;
+                }
+                write_reg(shot_idx, instr.dst, addr);
+                pc++;
+            }
+
+            // LOAD: Read a value from memory at the given address.
+            // Encoding: src0 = memory address, dst = destination register.
+            case OP_LOAD {
+                let addr = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                let val = shots[shot_idx].interp.memory[addr];
+                write_reg(shot_idx, instr.dst, val);
+                pc++;
+            }
+
+            // STORE: Write a value to memory at the given address.
+            // Encoding: src0 = value to store, src1 = memory address.
+            case OP_STORE {
+                let val = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                let addr = resolve_u32(shot_idx, instr.src1, flags, 1u);
+                shots[shot_idx].interp.memory[addr] = val;
+                pc++;
+            }
+
+            // GEP: Get element pointer — compute address from base + index * elem_size.
+            // Encoding: src0 = base address, src1 = index, aux0 = element size.
+            case OP_GEP {
+                let base = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                let index = resolve_u32(shot_idx, instr.src1, flags, 1u);
+                let elem_size = resolve_u32(shot_idx, instr.aux0, flags, 3u);
+                let addr = base + index * elem_size;
+                write_reg(shot_idx, instr.dst, addr);
                 pc++;
             }
 

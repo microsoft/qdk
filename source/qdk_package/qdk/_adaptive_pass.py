@@ -125,6 +125,8 @@ class AdaptiveProgram:
     call_args: List[CallArg]
     labels: List[Label]
     register_types: List[RegisterType]
+    constant_data: List[int]
+    memory_size: int
 
     def as_dict(self):
         """
@@ -146,6 +148,8 @@ class AdaptiveProgram:
             "call_args": self.call_args,
             "labels": self.labels,
             "register_types": self.register_types,
+            "constant_data": self.constant_data,
+            "memory_size": self.memory_size,
         }
 
 
@@ -326,6 +330,12 @@ class AdaptiveProfilePass:
         self._current_func_is_entry: bool = True
         self._noise_intrinsics: Optional[Dict[str, int]] = None
 
+        # Memory / array tracking.
+        self.constant_data: List[int] = []
+        self._memory_size: int = 0
+        self._global_to_address: Dict[str, int] = {}
+        self._alloca_ptr: int = 0
+
     def run(
         self,
         mod: pyqir.Module,
@@ -342,9 +352,6 @@ class AdaptiveProfilePass:
         :return: The processed adaptive program.
         :rtype: AdaptiveProgram
         """
-        if mod.get_flag("arrays"):
-            raise ValueError("QIR arrays are not currently supported.")
-
         if noise_intrinsics is not None:
             self._noise_intrinsics = noise_intrinsics
         elif noise is not None:
@@ -359,6 +366,9 @@ class AdaptiveProfilePass:
         errors = mod.verify()
         if errors is not None:
             raise ValueError(f"Module verification failed: {errors}")
+
+        # Pre-pass: Scan global constant arrays
+        self._scan_globals(mod)
 
         # Pass 1: Assign block IDs and function IDs for all defined functions
         for func in mod.functions:
@@ -390,6 +400,8 @@ class AdaptiveProfilePass:
             call_args=self.call_args,
             labels=self.labels,
             register_types=self.register_types,
+            constant_data=self.constant_data,
+            memory_size=self._memory_size,
         )
 
     # ------------------------------------------------------------------
@@ -431,7 +443,7 @@ class AdaptiveProfilePass:
         imm_flags = prepare_immediate_flags(
             dst=dst, src0=src0, src1=src1, aux0=aux0, aux1=aux1, aux2=aux2, aux3=aux3
         )
-        (dst, src0, src1, aux0, aux1, aux2, aux3) = unwrap_operands(
+        dst, src0, src1, aux0, aux1, aux2, aux3 = unwrap_operands(
             dst, src0, src1, aux0, aux1, aux2, aux3
         )
         ins = Instruction(opcode | imm_flags, dst, src0, src1, aux0, aux1, aux2, aux3)
@@ -473,6 +485,11 @@ class AdaptiveProfilePass:
             val = value.value
             return FloatOperand(val, self._bytecode_kind)
 
+        # Global variable reference (e.g., @array0)
+        if hasattr(value, "name") and value.name in self._global_to_address:
+            addr = self._global_to_address[value.name]
+            return IntOperand(addr, self._int_bits)
+
         # Forward reference (e.g. phi incoming from a later block).
         # Pre-allocate a register; the defining instruction will reuse it
         # via _alloc_reg's dedup check.
@@ -481,6 +498,10 @@ class AdaptiveProfilePass:
 
         # Constant expressions (e.g. inttoptr (i64 N to ptr)).
         if isinstance(value, pyqir.Constant):
+            # Named global constants (e.g. @array0) that were not found in
+            # _global_to_address — skip ptr_id which crashes on these.
+            if hasattr(value, "name") and value.name:
+                raise ValueError(f"Unresolved global reference: @{value.name}")
             # Try extracting as a qubit/result pointer constant.
             pid = pyqir.ptr_id(value)
             if pid is not None:
@@ -546,6 +567,100 @@ class AdaptiveProfilePass:
         for block in func.basic_blocks:
             self._block_to_id[block] = self._next_block
             self._next_block += 1
+
+    # ------------------------------------------------------------------
+    # Global variable scanning (pre-pass)
+    # ------------------------------------------------------------------
+
+    def _scan_globals(self, mod: pyqir.Module) -> None:
+        """Scan module for global constant arrays and populate constant_data.
+
+        Uses ``Module.global_variables`` to iterate globals, reads each
+        initializer via ``GlobalVariable.initializer`` (returns an
+        ``ArrayConstant``), and encodes element values into
+        ``constant_data``.
+
+        Supported element types:
+
+        * ``IntConstant`` — stored as masked integer values.
+        * ``FloatConstant`` — stored as IEEE-754 bit patterns.
+        * ``Constant`` with ``PointerType`` — pointer expressions such as
+          ``inttoptr (i64 N to ptr)`` are resolved via ``pyqir.ptr_id``.
+        * ``GlobalVariable`` — references to other globals (e.g. pointer
+          arrays ``[N x ptr] [ptr @row0, ptr @row1]``) are resolved to the
+          address previously assigned to the referenced global.
+
+        Byte-string globals (e.g. ``[4 x i8] c"0_a\\00"``) used as output
+        labels are skipped; they are handled by ``_extract_label`` at the
+        point of use.
+        """
+        mask = (1 << self._int_bits) - 1
+
+        for gv in mod.global_variables:
+            init = gv.initializer
+            if init is None:
+                continue
+            if not isinstance(init, pyqir.ArrayConstant):
+                continue
+
+            # Skip byte-string globals (e.g. [N x i8] labels).
+            arr_ty = init.type
+            if (
+                isinstance(arr_ty, pyqir.ArrayType)
+                and isinstance(arr_ty.element, pyqir.IntType)
+                and arr_ty.element.width == 8
+            ):
+                continue
+
+            base_addr = len(self.constant_data)
+            self._global_to_address[gv.name] = base_addr
+            self._encode_array_elements(init, gv.name, mask)
+
+        self._alloca_ptr = len(self.constant_data)
+        self._memory_size = self._alloca_ptr
+
+    def _encode_array_elements(
+        self, arr: pyqir.ArrayConstant, gv_name: str, mask: int
+    ) -> None:
+        """Recursively encode ArrayConstant elements into constant_data.
+
+        Nested ``ArrayConstant`` elements (e.g. ``[2 x [2 x i32]]``) are
+        flattened in row-major order.
+        """
+        for elem in arr.elements:
+            if isinstance(elem, pyqir.IntConstant):
+                self.constant_data.append(elem.value & mask)
+            elif isinstance(elem, pyqir.FloatConstant):
+                self.constant_data.append(
+                    encode_float_as_bits(elem.value, self._bytecode_kind)
+                )
+            elif isinstance(elem, pyqir.ArrayConstant):
+                # Nested array — flatten recursively.
+                self._encode_array_elements(elem, gv_name, mask)
+            elif isinstance(elem, pyqir.GlobalVariable):
+                # Pointer to another global (e.g. @row0 in [N x ptr]).
+                if elem.name in self._global_to_address:
+                    self.constant_data.append(self._global_to_address[elem.name] & mask)
+                else:
+                    raise ValueError(
+                        f"Global @{gv_name} references @{elem.name} "
+                        f"which has not been scanned yet"
+                    )
+            elif isinstance(elem, pyqir.Constant):
+                # Constant expression (e.g. inttoptr (i64 N to ptr)).
+                pid = pyqir.ptr_id(elem)
+                if pid is not None:
+                    self.constant_data.append(pid & mask)
+                else:
+                    raise ValueError(
+                        f"Cannot resolve element in global @{gv_name}: "
+                        f"{type(elem).__name__}"
+                    )
+            else:
+                raise ValueError(
+                    f"Unsupported element type in global @{gv_name}: "
+                    f"{type(elem).__name__}"
+                )
 
     # ------------------------------------------------------------------
     # Function walking (Pass 2)
@@ -652,6 +767,14 @@ class AdaptiveProfilePass:
                 self._emit_unary(OP_SITOFP | FLAG_FLOAT, instr)
             case pyqir.Opcode.INT_TO_PTR:
                 self._emit_inttoptr(instr)
+            case pyqir.Opcode.ALLOCA:
+                self._emit_alloca(instr)
+            case pyqir.Opcode.LOAD:
+                self._emit_load(instr)
+            case pyqir.Opcode.STORE:
+                self._emit_store(instr)
+            case pyqir.Opcode.GET_ELEMENT_PTR:
+                self._emit_gep(instr)
             case _:
                 raise ValueError(f"Unsupported instruction: {instr.opcode}")
 
@@ -1005,6 +1128,138 @@ class AdaptiveProfilePass:
         # Register the inttoptr result as pointing to the same register
         dst = self._alloc_reg(instr, REG_TYPE_PTR)
         self._emit(OP_MOV, dst=dst, src0=src_reg)
+
+    # ------------------------------------------------------------------
+    # Memory operation emitters
+    # ------------------------------------------------------------------
+
+    def _emit_alloca(self, instr: pyqir.Instruction) -> None:
+        """Emit OP_ALLOCA — stack memory allocation."""
+        dst = self._alloc_reg(instr, REG_TYPE_PTR)
+        alloc_type = instr.type
+
+        # Determine the number of words to allocate
+        if isinstance(alloc_type, pyqir.PointerType):
+            pointee = alloc_type.pointee
+            if isinstance(pointee, pyqir.ArrayType):
+                num_words = pointee.count
+            else:
+                num_words = 1
+        else:
+            num_words = 1
+
+        addr = self._alloca_ptr
+        self._alloca_ptr += num_words
+        self._memory_size = max(self._memory_size, self._alloca_ptr)
+
+        self._emit(
+            OP_ALLOCA,
+            dst=dst,
+            src0=IntOperand(num_words, self._int_bits),
+            src1=IntOperand(addr, self._int_bits),
+        )
+
+    def _emit_load(self, instr: pyqir.Instruction) -> None:
+        """Emit OP_LOAD — load value from memory address."""
+        loaded_type = instr.type
+        type_tag = self._type_tag(loaded_type)
+
+        is_float = type_tag in (REG_TYPE_F32, REG_TYPE_F64)
+
+        dst = self._alloc_reg(instr, type_tag)
+        ptr = self._resolve_operand(instr.operands[0])
+
+        opcode = OP_LOAD
+        if is_float:
+            opcode |= FLAG_FLOAT
+
+        self._emit(opcode, dst=dst, src0=ptr)
+
+    def _emit_store(self, instr: pyqir.Instruction) -> None:
+        """Emit OP_STORE — store value to memory address."""
+        value = self._resolve_operand(instr.operands[0])
+        ptr = self._resolve_operand(instr.operands[1])
+        self._emit(OP_STORE, src0=value, src1=ptr)
+
+    def _emit_gep(self, instr: pyqir.Instruction) -> None:
+        """Emit OP_GEP — compute element address.
+
+        Handles GEPs with an arbitrary number of index operands by chaining
+        OP_GEP instructions.  Each index level computes a stride from the
+        corresponding type dimension (``ArrayType.count``), walking from
+        the outermost to the innermost index.
+        """
+        dst = self._alloc_reg(instr, REG_TYPE_PTR)
+        base = self._resolve_operand(instr.operands[0])
+
+        indices = instr.operands[1:]
+        if len(indices) == 1:
+            index = self._resolve_operand(indices[0])
+            self._emit(
+                OP_GEP,
+                dst=dst,
+                src0=base,
+                src1=index,
+                aux0=IntOperand(1, self._int_bits),
+            )
+            return
+
+        # Multi-index GEP: compute strides from the source type.
+        # For a type like [2 x [3 x i64]], the strides are [3, 1] for
+        # indices [row, col].  A leading zero index (struct/array base)
+        # is folded away.
+        source_type = instr.operands[0].type
+        # Peel through PointerType to get the aggregate type.
+        if isinstance(source_type, pyqir.PointerType):
+            current_type = source_type.pointee
+        else:
+            current_type = source_type
+
+        cur = base
+        for i, idx_val in enumerate(indices):
+            idx = self._resolve_operand(idx_val)
+            is_last = i == len(indices) - 1
+
+            # Compute stride: product of all remaining inner dimensions.
+            stride = 1
+            inner = current_type
+            if isinstance(inner, pyqir.ArrayType):
+                # Walk remaining dimensions to compute flat stride.
+                remaining = inner
+                for _ in range(len(indices) - 1 - i):
+                    if isinstance(remaining, pyqir.ArrayType):
+                        remaining = remaining.element
+                # remaining is the element type at the target level
+                # stride = product of counts of ArrayType layers below current
+                stride = 1
+                walk = inner
+                # Skip current level, multiply counts of inner levels
+                if isinstance(walk, pyqir.ArrayType) and not is_last:
+                    walk = walk.element
+                    while isinstance(walk, pyqir.ArrayType):
+                        stride *= walk.count
+                        walk = walk.element
+
+            # Skip zero-index no-ops at the outermost level.
+            if isinstance(idx, IntOperand) and idx.val == 0 and not is_last:
+                # Advance type but don't emit an instruction.
+                if isinstance(current_type, pyqir.ArrayType):
+                    current_type = current_type.element
+                continue
+
+            out = dst if is_last else self._alloc_reg(None, REG_TYPE_PTR)
+            self._emit(
+                OP_GEP,
+                dst=out,
+                src0=cur,
+                src1=idx,
+                aux0=IntOperand(stride, self._int_bits),
+            )
+            cur = out
+
+            # Advance type for the next index level.
+            if isinstance(current_type, pyqir.ArrayType):
+                current_type = current_type.element
 
     # ------------------------------------------------------------------
     # IR-defined function call/return
