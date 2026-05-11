@@ -1144,6 +1144,22 @@ class AdaptiveProfilePass:
             if isinstance(pointee, pyqir.ArrayType):
                 num_words = pointee.count
             else:
+                # Under LLVM opaque pointers (LLVM 15+), `pointee` is the
+                # generic `Type` rather than the original `ArrayType`, so
+                # `pyqir` cannot recover the allocated element count from
+                # the result pointer type alone. Fall back to inspecting
+                # the printed instruction to detect aggregate allocations
+                # (e.g. ``alloca [N x i64]`` or ``alloca {{...}}``) that
+                # would otherwise be silently undersized to a single word.
+                text = str(instr).lstrip()
+                _, _, after_alloca = text.partition("alloca ")
+                if after_alloca.startswith("[") or after_alloca.startswith("{"):
+                    raise NotImplementedError(
+                        "Aggregate stack allocations (alloca of an array "
+                        "or struct type) are not supported by the adaptive "
+                        "GPU bytecode pass under LLVM opaque pointers; "
+                        f"got: {text!r}"
+                    )
                 num_words = 1
         else:
             num_words = 1

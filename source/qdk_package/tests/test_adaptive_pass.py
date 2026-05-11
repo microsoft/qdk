@@ -1116,6 +1116,46 @@ def test_gep_instruction_emitted():
 
 
 # ---------------------------------------------------------------------------
+# Test: Aggregate alloca rejected
+# ---------------------------------------------------------------------------
+
+ARRAY_ALLOCA_QIR = """\
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %big = alloca [300 x i64]
+  ret void
+}
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+
+!llvm.module.flags = !{!0}
+!0 = !{i32 1, !"arrays", i1 true}
+"""
+
+STRUCT_ALLOCA_QIR = """\
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %s = alloca { i64, i64 }
+  ret void
+}
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_array_alloca_rejected():
+    """Alloca of an array type is rejected to prevent silent undersizing."""
+    with pytest.raises(NotImplementedError, match="Aggregate stack allocations"):
+        _run_pass(ARRAY_ALLOCA_QIR)
+
+
+def test_struct_alloca_rejected():
+    """Alloca of a struct type is rejected to prevent silent undersizing."""
+    with pytest.raises(NotImplementedError, match="Aggregate stack allocations"):
+        _run_pass(STRUCT_ALLOCA_QIR)
+
+
+# ---------------------------------------------------------------------------
 # Test: Multiple constant arrays (offset correctness)
 # ---------------------------------------------------------------------------
 

@@ -2131,29 +2131,42 @@ def test_call_stack_overflow_guard():
 # Alloca out-of-bounds guard
 # =========================================================================
 
-# Allocate a [300 x i64] array, which exceeds MAX_ALLOCA_SIZE (256).
-# The GPU shader must detect that addr + num_words > MAX_MEMORY and
-# report ERR_ALLOCA_OUT_OF_BOUNDS (error code 6).
-ALLOCA_OOB_QIR = """
-entry:
-  %big = alloca [300 x i64]
-  %ptr = getelementptr [300 x i64], [300 x i64]* %big, i64 0, i64 0
-  store i64 1, i64* %ptr
-  %val = load i64, i64* %ptr
-  %flag = icmp eq i64 %val, 1
-  br i1 %flag, label %then, label %end
-then:
-  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  br label %end
-end:
-  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-"""
+# MAX_ALLOCA_SIZE on the GPU is 256 words. The Rust FFI layer also adds a
+# dummy element to constant_data when it is empty, so the effective
+# MAX_MEMORY = 1 + 256 = 257. Allocating 258 scalar i64 values pushes
+# the last alloca address past MAX_MEMORY, causing the shader to report
+# ERR_ALLOCA_OUT_OF_BOUNDS (error code 6).
+
+
+def _build_alloca_oob_qir():
+    """Build QIR with 258 scalar allocas to exceed MAX_MEMORY on the GPU."""
+    alloca_count = 258
+    lines = ["entry:"]
+    for i in range(alloca_count):
+        lines.append(f"  %p{i} = alloca i64")
+    # Store/load through the last alloca to prevent dead-code elimination
+    lines.append(f"  store i64 1, i64* %p{alloca_count - 1}")
+    lines.append(f"  %val = load i64, i64* %p{alloca_count - 1}")
+    lines.append("  %flag = icmp eq i64 %val, 1")
+    lines.append("  br i1 %flag, label %then, label %end")
+    lines.append("then:")
+    lines.append(
+        "  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))"
+    )
+    lines.append("  br label %end")
+    lines.append("end:")
+    lines.append(
+        "  call void @__quantum__qis__mresetz__body("
+        "%Qubit* inttoptr (i64 0 to %Qubit*), "
+        "%Result* inttoptr (i64 0 to %Result*))"
+    )
+    return "\n".join(lines)
 
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_alloca_out_of_bounds_guard():
     """Verify GPU interpreter handles alloca out-of-bounds gracefully."""
-    qir = format_qir_arrays(ALLOCA_OOB_QIR)
+    qir = format_qir_arrays(_build_alloca_oob_qir())
     codes = _run(qir, shots=10)["shot_result_codes"]
     # Every shot should return error code 6 (ERR_ALLOCA_OUT_OF_BOUNDS)
     assert all(
