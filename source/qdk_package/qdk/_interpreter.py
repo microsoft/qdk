@@ -126,7 +126,7 @@ def init(
 
     :keyword trace_circuit: Enables tracing of circuit during execution.
         Passing `True` is required for the `dump_circuit` function to return a circuit.
-        The `circuit` function is *NOT* affected by this parameter and will always 
+        The `circuit` function is *NOT* affected by this parameter and will always
         generate a circuit.
     :return: The Q# interpreter configuration.
     :rtype: Config

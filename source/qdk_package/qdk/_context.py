@@ -172,7 +172,7 @@ class Context:
             interpreter to generate programs that are compatible
             with a specific target. See :class:`TargetProfile`.
 
-        :keyword target_name: An optional name of the target machine to use for 
+        :keyword target_name: An optional name of the target machine to use for
             inferring the compatible target_profile setting.
 
         :keyword project_root: An optional path to a root directory with a Q# project to
@@ -912,6 +912,3 @@ class Context:
         telemetry_events.on_import_qasm_end(durationMs)
 
         return res
-
-
-__all__ = ["Context", "ipython_helper"]
