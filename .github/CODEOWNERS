@@ -19,7 +19,8 @@
 /library @swernli @orpuente-MS
 /source/npm @billti @minestarks @ScottCarda-MS
 /source/pip @billti @idavis @minestarks
-/source/pip/qsharp/qre @msoeken @brad-lackey @jwhogabo
+/source/qdk_package @billti @idavis @minestarks
+/source/qdk_package/qdk/qre @msoeken @brad-lackey @jwhogabo
 /source/playground @billti @minestarks
 /source/qre @msoeken @brad-lackey @jwhogabo
 /source/resource_estimator @billti @swernli

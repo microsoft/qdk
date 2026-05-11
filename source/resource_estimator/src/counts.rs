@@ -156,7 +156,8 @@ impl LogicalCounter {
 
     fn level_at(&mut self, q: usize) -> usize {
         while self.max_layer.len() <= q {
-            self.qubit_allocate();
+            self.qubit_allocate()
+                .expect("qubit allocation should succeed");
         }
 
         self.max_layer[q]
@@ -375,7 +376,10 @@ impl LogicalCounter {
 
         // Allocate helper qubits
         let helper_qubits = (0..aux_qubit_count)
-            .map(|_| self.qubit_allocate())
+            .map(|_| {
+                self.qubit_allocate()
+                    .expect("qubit allocation should succeed")
+            })
             .collect::<Vec<_>>();
 
         // Set barrier among all qubits
@@ -441,7 +445,8 @@ impl LogicalCounter {
 
         // Release helper qubits
         for qubit in helper_qubits {
-            self.qubit_release(qubit);
+            self.qubit_release(qubit)
+                .expect("qubit release should succeed");
         }
 
         Ok(())
@@ -480,144 +485,164 @@ impl LogicalCounter {
 }
 
 impl Backend for LogicalCounter {
-    fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) {
+    fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) -> Result<(), String> {
         self.assert_compute_qubits([ctl0, ctl1, q]);
 
         self.ccz_count += 1;
         self.schedule_ccz(ctl0, ctl1, q);
+        Ok(())
     }
 
-    fn cx(&mut self, ctl: usize, q: usize) {
+    fn cx(&mut self, ctl: usize, q: usize) -> Result<(), String> {
         self.assert_compute_qubits([ctl, q]);
 
         self.schedule_two_qubit_clifford(ctl, q);
+        Ok(())
     }
 
-    fn cy(&mut self, ctl: usize, q: usize) {
+    fn cy(&mut self, ctl: usize, q: usize) -> Result<(), String> {
         self.assert_compute_qubits([ctl, q]);
 
         self.schedule_two_qubit_clifford(ctl, q);
+        Ok(())
     }
 
-    fn cz(&mut self, ctl: usize, q: usize) {
+    fn cz(&mut self, ctl: usize, q: usize) -> Result<(), String> {
         self.assert_compute_qubits([ctl, q]);
 
         self.schedule_two_qubit_clifford(ctl, q);
+        Ok(())
     }
 
-    fn h(&mut self, q: usize) {
+    fn h(&mut self, q: usize) -> Result<(), String> {
         self.assert_compute_qubits([q]);
+        Ok(())
     }
 
-    fn m(&mut self, q: usize) -> BackendResult {
+    fn m(&mut self, q: usize) -> Result<BackendResult, String> {
         self.assert_compute_qubits([q]);
 
         self.m_count += 1;
 
         if let Some(val) = self.post_select_measurements.remove(&q) {
-            val.into()
+            Ok(val.into())
         } else {
-            self.rnd.borrow_mut().gen_bool(0.5).into()
+            Ok(self.rnd.borrow_mut().gen_bool(0.5).into())
         }
     }
 
-    fn mresetz(&mut self, q: usize) -> BackendResult {
+    fn mresetz(&mut self, q: usize) -> Result<BackendResult, String> {
         self.m(q)
     }
 
-    fn reset(&mut self, _q: usize) {}
-
-    fn rx(&mut self, theta: f64, q: usize) {
-        self.rz(theta, q);
+    fn reset(&mut self, _q: usize) -> Result<(), String> {
+        Ok(())
     }
 
-    fn rxx(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.rzz(theta, q0, q1);
+    fn rx(&mut self, theta: f64, q: usize) -> Result<(), String> {
+        self.rz(theta, q)
     }
 
-    fn ry(&mut self, theta: f64, q: usize) {
-        self.rz(theta, q);
+    fn rxx(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
+        self.rzz(theta, q0, q1)
     }
 
-    fn ryy(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.rzz(theta, q0, q1);
+    fn ry(&mut self, theta: f64, q: usize) -> Result<(), String> {
+        self.rz(theta, q)
     }
 
-    fn rz(&mut self, theta: f64, q: usize) {
+    fn ryy(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
+        self.rzz(theta, q0, q1)
+    }
+
+    fn rz(&mut self, theta: f64, q: usize) -> Result<(), String> {
         self.assert_compute_qubits([q]);
 
         let multiple = (theta / (PI / 4.0)).round();
         if ((multiple * (PI / 4.0)) - theta).abs() <= f64::EPSILON {
             let multiple = (multiple as i64).rem_euclid(8) as u64;
             if multiple & 1 == 1 {
-                self.t(q);
+                self.t(q)?;
             }
         } else {
             self.r_count += 1;
             self.schedule_r(q);
         }
+        Ok(())
     }
 
-    fn rzz(&mut self, theta: f64, q0: usize, q1: usize) {
-        self.cx(q1, q0);
-        self.rz(theta, q0);
-        self.cx(q1, q0);
+    fn rzz(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
+        self.cx(q1, q0)?;
+        self.rz(theta, q0)?;
+        self.cx(q1, q0)
     }
 
-    fn sadj(&mut self, q: usize) {
+    fn sadj(&mut self, q: usize) -> Result<(), String> {
         self.assert_compute_qubits([q]);
+        Ok(())
     }
 
-    fn s(&mut self, q: usize) {
+    fn s(&mut self, q: usize) -> Result<(), String> {
         self.assert_compute_qubits([q]);
+        Ok(())
     }
 
-    fn sx(&mut self, q: usize) {
+    fn sx(&mut self, q: usize) -> Result<(), String> {
         self.assert_compute_qubits([q]);
+        Ok(())
     }
 
-    fn swap(&mut self, q0: usize, q1: usize) {
+    fn swap(&mut self, q0: usize, q1: usize) -> Result<(), String> {
         self.assert_compute_qubits([q0, q1]);
         self.schedule_two_qubit_clifford(q0, q1);
+        Ok(())
     }
 
-    fn tadj(&mut self, q: usize) {
+    fn tadj(&mut self, q: usize) -> Result<(), String> {
         self.assert_compute_qubits([q]);
 
         self.t_count += 1;
         self.schedule_t(q);
+        Ok(())
     }
 
-    fn t(&mut self, q: usize) {
+    fn t(&mut self, q: usize) -> Result<(), String> {
         self.assert_compute_qubits([q]);
 
         self.t_count += 1;
         self.schedule_t(q);
+        Ok(())
     }
 
-    fn x(&mut self, _q: usize) {}
+    fn x(&mut self, _q: usize) -> Result<(), String> {
+        Ok(())
+    }
 
-    fn y(&mut self, _q: usize) {}
+    fn y(&mut self, _q: usize) -> Result<(), String> {
+        Ok(())
+    }
 
-    fn z(&mut self, _q: usize) {}
+    fn z(&mut self, _q: usize) -> Result<(), String> {
+        Ok(())
+    }
 
-    fn qubit_allocate(&mut self) -> usize {
+    fn qubit_allocate(&mut self) -> Result<usize, String> {
         if let Some(index) = self.free_list.pop() {
-            index
+            Ok(index)
         } else {
             let index = self.next_free;
             self.next_free += 1;
             self.max_layer.push(self.allocation_barrier);
-            index
+            Ok(index)
         }
     }
 
-    fn qubit_release(&mut self, q: usize) -> bool {
+    fn qubit_release(&mut self, q: usize) -> Result<bool, String> {
         self.free_list.push(q);
-        true
+        Ok(true)
     }
 
-    fn qubit_swap_id(&mut self, q0: usize, q1: usize) {
+    fn qubit_swap_id(&mut self, q0: usize, q1: usize) -> Result<(), String> {
         // First swap the layer map for the qubits.
         self.max_layer.swap(q0, q1);
 
@@ -630,14 +655,15 @@ impl Backend for LogicalCounter {
         if let Some(val) = q1_post_select {
             self.post_select_measurements.insert(q0, val);
         }
+        Ok(())
     }
 
-    fn capture_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
-        (Vec::new(), 0)
+    fn capture_quantum_state(&mut self) -> Result<(Vec<(BigUint, Complex<f64>)>, usize), String> {
+        Ok((Vec::new(), 0))
     }
 
-    fn qubit_is_zero(&mut self, _q: usize) -> bool {
-        true
+    fn qubit_is_zero(&mut self, _q: usize) -> Result<bool, String> {
+        Ok(true)
     }
 
     fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {

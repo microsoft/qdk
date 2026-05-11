@@ -5,7 +5,7 @@ use super::{test_expression, test_expression_with_lib};
 use indoc::indoc;
 use qsc::interpret::Value;
 
-// Tests for Microsoft.Quantum.Canon namespace
+// Tests for Std.Canon namespace
 
 #[test]
 fn check_apply_to_each() {
@@ -13,7 +13,7 @@ fn check_apply_to_each() {
         indoc! {r#"{
             use register = Qubit[3];
             ApplyToEach(X, register);
-            let results = Microsoft.Quantum.Measurement.MeasureEachZ(register);
+            let results = Std.Measurement.MeasureEachZ(register);
             ResetAll(register);
             results
         }"#},
@@ -27,8 +27,8 @@ fn check_apply_to_each_a() {
         indoc! {r#"{
             use register = Qubit[3];
             ApplyToEach(X, register);
-            Adjoint Microsoft.Quantum.Canon.ApplyToEachA(X, register);
-            let results = Microsoft.Quantum.Measurement.MResetEachZ(register);
+            Adjoint Std.Canon.ApplyToEachA(X, register);
+            let results = Std.Measurement.MResetEachZ(register);
             results
         }"#},
         &Value::Array(vec![Value::RESULT_ZERO, Value::RESULT_ZERO, Value::RESULT_ZERO].into()),
@@ -41,8 +41,8 @@ fn check_apply_to_each_c_applied() {
         indoc! {r#"{
             use control = Qubit();
             use register = Qubit[3];
-            Controlled Microsoft.Quantum.Canon.ApplyToEachC([control], (X, register));
-            let results = Microsoft.Quantum.Measurement.MResetEachZ(register);
+            Controlled Std.Canon.ApplyToEachC([control], (X, register));
+            let results = Std.Measurement.MResetEachZ(register);
             Reset(control);
             results
         }"#},
@@ -57,8 +57,8 @@ fn check_apply_to_each_c_not_applied() {
             use control = Qubit();
             use register = Qubit[3];
             X(control);
-            Controlled Microsoft.Quantum.Canon.ApplyToEachC([control], (X, register));
-            let results = Microsoft.Quantum.Measurement.MResetEachZ(register);
+            Controlled Std.Canon.ApplyToEachC([control], (X, register));
+            let results = Std.Measurement.MResetEachZ(register);
             Reset(control);
             results
         }"#},
@@ -72,9 +72,9 @@ fn check_apply_to_each_ca_applied() {
         indoc! {r#"{
             use control = Qubit();
             use register = Qubit[3];
-            Microsoft.Quantum.Canon.ApplyToEach(X, register);
-            Controlled Adjoint Microsoft.Quantum.Canon.ApplyToEachCA([control], (X, register));
-            let results = Microsoft.Quantum.Measurement.MResetEachZ(register);
+            Std.Canon.ApplyToEach(X, register);
+            Controlled Adjoint Std.Canon.ApplyToEachCA([control], (X, register));
+            let results = Std.Measurement.MResetEachZ(register);
             Reset(control);
             results
         }"#},
@@ -89,9 +89,9 @@ fn check_apply_to_each_ca_not_applied() {
             use control = Qubit();
             use register = Qubit[3];
             X(control);
-            Microsoft.Quantum.Canon.ApplyToEach(X, register);
-            Controlled Adjoint Microsoft.Quantum.Canon.ApplyToEachCA([control], (X, register));
-            let results = Microsoft.Quantum.Measurement.MResetEachZ(register);
+            Std.Canon.ApplyToEach(X, register);
+            Controlled Adjoint Std.Canon.ApplyToEachCA([control], (X, register));
+            let results = Std.Measurement.MResetEachZ(register);
             Reset(control);
             results
         }"#},

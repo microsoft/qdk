@@ -50,7 +50,7 @@ pub mod line_column {
 }
 
 pub use qsc_eval::{
-    backend::{Backend, SparseSim},
+    backend::{Backend, CliffordSim, SparseSim},
     noise::PauliNoise,
     state::{
         fmt_basis_state_label, fmt_complex, format_state_id, get_matrix_latex, get_phase,
