@@ -1,32 +1,65 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
-    "version": "0.2.0",
-    "configurations": [
-        {
-            "name": "Run VS Code extension",
-            "type": "extensionHost",
-            "debugWebWorkerHost": true,
-            "request": "launch",
-            "runtimeExecutable": "${execPath}",
-            "args": [
-                "--profile=dev",
-                "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
-                "${workspaceFolder}/samples/"
-            ]
-        },
-        {
-            // https://code.visualstudio.com/api/extension-guides/web-extensions#test-your-web-extension-in-vs-code-running-on-desktop
-            "name": "Run VS Code Web Extension",
-            "type": "pwa-extensionHost",
-            "debugWebWorkerHost": true,
-            "request": "launch",
-            "args": [
-                "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
-                "--extensionDevelopmentKind=web",
-                "${workspaceFolder}/samples/"
-            ]
-        }
-    ]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // DEFAULT - Launches a new VS Code window with the QDK extension.
+      "name": "VS Code Extension Debug",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--profile=dev",
+        "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
+        "${workspaceFolder}/samples/"
+      ]
+    },
+    {
+      // Launches the extension in "web extension" mode (like vscode.dev).
+      // Use this to test the browser-based version of the extension.
+      "name": "(web) VS Code Extension Debug",
+      "type": "extensionHost",
+      "debugWebWorkerHost": true,
+      "request": "launch",
+      "args": [
+        "--profile=dev",
+        "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
+        "--extensionDevelopmentKind=web",
+        "${workspaceFolder}/samples/"
+      ]
+    },
+    {
+      // Use when developing in WSL.
+      //
+      // Requires the WSL extension (ms-vscode-remote.remote-wsl)
+      // to be installed in the dev profile.
+      // Launch once, install the WSL Extension, and then launch again.
+      "name": "(wsl) VS Code Extension Debug",
+      "type": "extensionHost",
+      "debugWebWorkerHost": true,
+      "request": "launch",
+      "args": [
+        "--profile=dev",
+        "--remote=wsl+${env:WSL_DISTRO_NAME}",
+        "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
+        "${workspaceFolder}/samples/"
+      ]
+    },
+    {
+      // Use when developing in Codespaces.
+      //
+      // Requires the Codespaces extension (github.codespaces)
+      // to be installed in the dev profile.
+      // Launch once, install the Codespaces Extension, and then launch again.
+      "name": "(codespaces) VS Code Extension Debug",
+      "type": "extensionHost",
+      "debugWebWorkerHost": true,
+      "request": "launch",
+      "args": [
+        "--profile=dev",
+        "--remote=codespaces+${env:CODESPACE_NAME}",
+        "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
+        "${workspaceFolder}/samples/"
+      ]
+    }
+  ]
 }
