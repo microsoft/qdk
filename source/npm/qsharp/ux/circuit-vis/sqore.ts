@@ -24,7 +24,7 @@ import {
 } from "./renderer/constants.js";
 import { createDropzones } from "./editor/draggable.js";
 import { enableEvents } from "./editor/events.js";
-import { createPanel, enableRunButton } from "./renderer/panel.js";
+import { createPanel, enableRunButton } from "./editor/panel.js";
 import { getMinMaxRegIdx } from "./utils.js";
 import type { StateColumn } from "./state-viz/stateViz.js";
 import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";

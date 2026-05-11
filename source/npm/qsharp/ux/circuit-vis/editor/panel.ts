@@ -16,9 +16,9 @@ import {
   horizontalGap,
   minGateWidth,
   verticalGap,
-} from "./constants.js";
-import { formatGate } from "./formatters/gateFormatter.js";
-import { GateType, GateRenderData } from "./gateRenderData.js";
+} from "../renderer/constants.js";
+import { formatGate } from "../renderer/formatters/gateFormatter.js";
+import { GateType, GateRenderData } from "../renderer/gateRenderData.js";
 import { getMinGateWidth } from "../utils.js";
 
 const getOrCreateCircuitWrapper = (container: HTMLElement) => {
