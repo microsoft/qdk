@@ -1,14 +1,9 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from time import monotonic
 from typing import Any
 
-from ._ipython import display_or_print
-from .._fs import read_file, list_directory, resolve
-from .._http import fetch_github
-from .._interpreter import _get_default_session
-from .. import telemetry_events
+from .._interpreter import _get_default_context
 
 
 def import_openqasm(
@@ -41,4 +36,4 @@ def import_openqasm(
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
     :raises QSharpError: If there is an error compiling the program.
     """
-    return _get_default_session().import_openqasm(source, **kwargs)
+    return _get_default_context().import_openqasm(source, **kwargs)

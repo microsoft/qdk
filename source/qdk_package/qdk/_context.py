@@ -2,10 +2,10 @@
 # Licensed under the MIT License.
 
 """
-Q# Session Management
+Q# Context Management
 
-This module provides the Session class for managing Q# interpreter contexts.
-Each Session instance has its own interpreter and code namespace, allowing multiple
+This module provides the Context class for managing Q# interpreter contexts.
+Each Context instance has its own interpreter and code namespace, allowing multiple
 independent Q# environments to coexist.
 """
 
@@ -126,26 +126,26 @@ def make_class_rec(qsharp_type: TypeIR) -> type:
     )
 
 
-class Session:
+class Context:
     """
     An isolated Q# interpreter environment.
 
-    A Session provides a self-contained Q# execution environment where code is
-    evaluated, compiled, and executed in isolation from other Session instances.
-    Each Session maintains its own code namespace.
+    A Context provides a self-contained Q# execution environment where code is
+    evaluated, compiled, and executed in isolation from other Context instances.
+    Each Context maintains its own code namespace.
 
-    A session has a `code` attribute which is a Python module containing all Q#
-    operations and types defined in this session. This allows you to call Q# operations
+    A context has a `code` attribute which is a Python module containing all Q#
+    operations and types defined in this context. This allows you to call Q# operations
     from Python.
 
     Example:
 
     .. code-block:: python
 
-        s = qdk.Session()
-        s.eval("operation Main() : Result { use q = Qubit(); X(q); MResetZ(q) }")
-        assert s.run("Main()", 2) == [qdk.Result.One, qdk.Result.One]
-        assert s.code.Main() == qdk.Result.One
+        ctx = qdk.Context()
+        ctx.eval("operation Main() : Result { use q = Qubit(); X(q); MResetZ(q) }")
+        assert ctx.run("Main()", 2) == [qdk.Result.One, qdk.Result.One]
+        assert ctx.code.Main() == qdk.Result.One
     """
 
     _interpreter: Interpreter
@@ -166,7 +166,7 @@ class Session:
         _code_prefix: Optional[str] = None,
     ):
         """
-        Initializes a new isolated Q# session.
+        Initializes a new isolated Q# context.
 
         :keyword target_profile: Setting the target profile allows the Q#
             interpreter to generate programs that are compatible
@@ -193,7 +193,7 @@ class Session:
             self.code = _code_module
             self._code_prefix = _code_prefix or "qsharp.code"
         else:
-            self._code_prefix = f"qsharp._session_{id(self)}"
+            self._code_prefix = f"qsharp._context_{id(self)}"
             self.code = types.ModuleType(self._code_prefix)
 
         from ._fs import exists, join, list_directory, read_file, resolve
@@ -306,14 +306,14 @@ class Session:
 
             # Base case: Callable or Closure
             if hasattr(obj, "__global_callable"):
-                self._check_same_session_callable(obj)
+                self._check_same_context_callable(obj)
                 return obj.__getattribute__("__global_callable")
             if isinstance(obj, (GlobalCallable, Closure)):
                 return obj
 
             # Recursive case: Class with slots
             if hasattr(obj, "__slots__"):
-                self._check_same_session_struct(obj)
+                self._check_same_context_struct(obj)
                 fields = {}
                 for name in getattr(obj, "__slots__"):
                     if name == "__dict__":
@@ -326,7 +326,7 @@ class Session:
 
             # Recursive case: Class
             if hasattr(obj, "__dict__"):
-                self._check_same_session_struct(obj)
+                self._check_same_context_struct(obj)
                 fields = {
                     name: self._lower_python_obj(val, visited)
                     for name, val in obj.__dict__.items()
@@ -366,7 +366,7 @@ class Session:
     def _make_callable(
         self, callable: GlobalCallable, namespace: List[str], callable_name: str
     ):
-        """Registers a Q# callable in this session's code module."""
+        """Registers a Q# callable in this context's code module."""
         module = self.code
         accumulated_namespace = self._code_prefix + "."
         for name in namespace:
@@ -385,8 +385,8 @@ class Session:
         def _callable_fn(*args):
             if self._disposed:
                 raise QSharpError(
-                    "This callable belongs to a disposed Q# session. "
-                    "Re-evaluate the callable in a current session."
+                    "This callable belongs to a disposed Q# context. "
+                    "Re-evaluate the callable in a current context."
                 )
             ipython_helper()
 
@@ -394,7 +394,7 @@ class Session:
             output = self._interpreter.invoke(callable, args, self._display)
             return self._qsharp_value_to_python_value(output)
 
-        setattr(_callable_fn, "_qdk_session", self)
+        setattr(_callable_fn, "_qdk_context", self)
         setattr(_callable_fn, "__global_callable", callable)
 
         if module.__dict__.get(callable_name) is None:
@@ -406,7 +406,7 @@ class Session:
             module.__setattr__(callable_name, _callable_fn)
 
     def _make_class(self, qsharp_type: TypeIR, namespace: List[str], class_name: str):
-        """Registers a Q# type as a Python dataclass in this session's code module."""
+        """Registers a Q# type as a Python dataclass in this context's code module."""
         module = self.code
         accumulated_namespace = self._code_prefix + "."
         for name in namespace:
@@ -422,27 +422,27 @@ class Session:
 
         QSharpClass = make_class_rec(qsharp_type)
         QSharpClass.__qsharp_class = True
-        setattr(QSharpClass, "_qdk_session", self)
+        setattr(QSharpClass, "_qdk_context", self)
         module.__setattr__(class_name, QSharpClass)
 
-    def _check_same_session_callable(self, callable_fn: Any) -> None:
-        """Raise if a callable belongs to a different session."""
-        # Callable must originate from Q#, so it always has a session.
-        assert hasattr(callable_fn, "_qdk_session")
-        callable_session = getattr(callable_fn, "_qdk_session")
-        if callable_session is not self:
-            raise QSharpError("This callable belongs to a different Session. ")
+    def _check_same_context_callable(self, callable_fn: Any) -> None:
+        """Raise if a callable belongs to a different context."""
+        # Callable must originate from Q#, so it always has a context.
+        assert hasattr(callable_fn, "_qdk_context")
+        callable_context = getattr(callable_fn, "_qdk_context")
+        if callable_context is not self:
+            raise QSharpError("This callable belongs to a different Context. ")
 
-    def _check_same_session_struct(self, struct: Any) -> None:
-        """Raise if a struct belongs to a different session."""
-        # Struct values originating from Q# are not themselves tagged with _qdk_session,
+    def _check_same_context_struct(self, struct: Any) -> None:
+        """Raise if a struct belongs to a different context."""
+        # Struct values originating from Q# are not themselves tagged with _qdk_context,
         # but their classes are (in _make_class).
         struct_type = type(struct)
-        if not hasattr(struct_type, "_qdk_session"):
+        if not hasattr(struct_type, "_qdk_context"):
             # Ignore objects not originating from Q#.
             return
-        if getattr(struct_type, "_qdk_session") is not self:
-            raise QSharpError("This struct belongs to a different Session. ")
+        if getattr(struct_type, "_qdk_context") is not self:
+            raise QSharpError("This struct belongs to a different Context. ")
 
     def eval(
         self,
@@ -584,7 +584,7 @@ class Session:
         if isinstance(entry_expr, Callable) and hasattr(
             entry_expr, "__global_callable"
         ):
-            self._check_same_session_callable(entry_expr)
+            self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
             callable = getattr(entry_expr, "__global_callable")
         elif isinstance(entry_expr, (GlobalCallable, Closure)):
@@ -663,7 +663,7 @@ class Session:
         Example:
 
         .. code-block:: python
-            s = qdk.Session()
+            s = qdk.Context()
             program = s.compile("...")
             with open('myfile.ll', 'w') as file:
                 file.write(str(program))
@@ -675,7 +675,7 @@ class Session:
         if isinstance(entry_expr, Callable) and hasattr(
             entry_expr, "__global_callable"
         ):
-            self._check_same_session_callable(entry_expr)
+            self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
             ll_str = self._interpreter.qir(
                 callable=getattr(entry_expr, "__global_callable"), args=args
@@ -761,7 +761,7 @@ class Session:
         if isinstance(entry_expr, Callable) and hasattr(
             entry_expr, "__global_callable"
         ):
-            self._check_same_session_callable(entry_expr)
+            self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
             res = self._interpreter.circuit(
                 config=config,
@@ -802,7 +802,7 @@ class Session:
         if isinstance(entry_expr, Callable) and hasattr(
             entry_expr, "__global_callable"
         ):
-            self._check_same_session_callable(entry_expr)
+            self._check_same_context_callable(entry_expr)
             args = self._python_args_to_interpreter_args(args)
             res_dict = self._interpreter.logical_counts(
                 callable=getattr(entry_expr, "__global_callable"), args=args
@@ -818,7 +818,7 @@ class Session:
     def set_quantum_seed(self, seed: Optional[int]) -> None:
         """
         Sets the seed for the random number generator used for quantum measurements.
-        This applies to all Q# code executed, compiled, or estimated in this Session.
+        This applies to all Q# code executed, compiled, or estimated in this Context.
 
         :param seed: The seed to use for the quantum random number generator.
             If None, the seed will be generated from entropy.
@@ -829,7 +829,7 @@ class Session:
         """
         Sets the seed for the random number generator used for standard
         library classical random number operations.
-        This applies to all Q# code executed, compiled, or estimated in this Session.
+        This applies to all Q# code executed, compiled, or estimated in this Context.
 
         :param seed: The seed to use for the classical random number generator.
             If None, the seed will be generated from entropy.
@@ -852,7 +852,7 @@ class Session:
         **kwargs: Any,
     ) -> Any:
         """
-        Imports OpenQASM source code into this session's interpreter.
+        Imports OpenQASM source code into this context's interpreter.
 
         :param source: An OpenQASM program or fragment.
         :type source: str
@@ -914,4 +914,4 @@ class Session:
         return res
 
 
-__all__ = ["Session", "ipython_helper"]
+__all__ = ["Context", "ipython_helper"]

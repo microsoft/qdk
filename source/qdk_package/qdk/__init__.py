@@ -21,22 +21,22 @@ on_qdk_import()
 
 # Some common utilities are lifted to the qdk root.
 from . import code
-from ._native import Result, TargetProfile
-from ._types import (
-    StateDump,
-    ShotResult,
-    PauliNoise,
-    DepolarizingNoise,
-    BitFlipNoise,
-    PhaseFlipNoise,
-)
+from ._context import Context
 from ._interpreter import (
-    set_quantum_seed,
-    set_classical_seed,
     dump_machine,
     init,
+    set_classical_seed,
+    set_quantum_seed,
 )
-from ._session import Session
+from ._native import Result, TargetProfile
+from ._types import (
+    BitFlipNoise,
+    DepolarizingNoise,
+    PauliNoise,
+    PhaseFlipNoise,
+    ShotResult,
+    StateDump,
+)
 
 # Register the %%qsharp cell magic when running inside IPython/Jupyter.
 try:
@@ -62,5 +62,5 @@ __all__ = [
     "DepolarizingNoise",
     "BitFlipNoise",
     "PhaseFlipNoise",
-    "Session",
+    "Context",
 ]

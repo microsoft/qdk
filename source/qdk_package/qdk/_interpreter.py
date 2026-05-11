@@ -49,7 +49,7 @@ from .estimator._estimator import (
     EstimatorParams,
     LogicalCounts,
 )
-from ._session import Session, ipython_helper
+from ._context import Context, ipython_helper
 from ._types import (
     PauliNoise,
     DepolarizingNoise,
@@ -66,8 +66,8 @@ import types
 from time import monotonic
 
 
-# Global default session instance used by methods in this module.
-_default_session: Optional[Session] = None
+# Global default context instance used by methods in this module.
+_default_context: Optional[Context] = None
 
 
 def _clear_code_module(code_module: types.ModuleType, module_prefix: str):
@@ -131,17 +131,17 @@ def init(
     :return: The Q# interpreter configuration.
     :rtype: Config
     """
-    global _default_session
+    global _default_context
 
-    # Dispose the old session so its callables fail gracefully.
-    if _default_session is not None:
-        _default_session._disposed = True
+    # Dispose the old context so its callables fail gracefully.
+    if _default_context is not None:
+        _default_context._disposed = True
 
-    # Clean up the global code namespace before creating a new session.
+    # Clean up the global code namespace before creating a new context.
     code_prefix = "qdk.code"
     _clear_code_module(code, code_prefix)
 
-    _default_session = Session(
+    _default_context = Context(
         target_profile=target_profile,
         target_name=target_name,
         project_root=project_root,
@@ -150,33 +150,33 @@ def init(
         _code_module=code,
         _code_prefix=code_prefix,
     )
-    return _default_session._config
+    return _default_context._config
 
 
-def _get_default_session() -> Session:
-    """Returns the default session, lazily initializing if needed."""
-    global _default_session
-    if _default_session is None:
+def _get_default_context() -> Context:
+    """Returns the default context, lazily initializing if needed."""
+    global _default_context
+    if _default_context is None:
         init()
-        assert _default_session is not None, "Failed to initialize the Q# interpreter."
-    return _default_session
+        assert _default_context is not None, "Failed to initialize the Q# interpreter."
+    return _default_context
 
 
 # ---------------------------------------------------------------------------
-# Functions accessing global session, for compatibility.
+# Functions accessing global context, for compatibility.
 # ---------------------------------------------------------------------------
 
 
 def get_interpreter() -> Interpreter:
-    return _get_default_session()._interpreter
+    return _get_default_context()._interpreter
 
 
 def python_args_to_interpreter_args(args):
-    return _get_default_session()._python_args_to_interpreter_args(args)
+    return _get_default_context()._python_args_to_interpreter_args(args)
 
 
 def qsharp_value_to_python_value(obj):
-    return _get_default_session()._qsharp_value_to_python_value(obj)
+    return _get_default_context()._qsharp_value_to_python_value(obj)
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +200,7 @@ def eval(
     :rtype: Any
     :raises QSharpError: If there is an error evaluating the source code.
     """
-    return _get_default_session().eval(source, save_events=save_events)
+    return _get_default_context().eval(source, save_events=save_events)
 
 
 def run(
@@ -246,7 +246,7 @@ def run(
     :raises QSharpError: If there is an error interpreting the input.
     :raises ValueError: If the number of shots is less than 1.
     """
-    return _get_default_session().run(
+    return _get_default_context().run(
         entry_expr,
         shots,
         *args,
@@ -282,7 +282,7 @@ def compile(
         with open('myfile.ll', 'w') as file:
             file.write(str(program))
     """
-    return _get_default_session().compile(entry_expr, *args)
+    return _get_default_context().compile(entry_expr, *args)
 
 
 def circuit(
@@ -338,7 +338,7 @@ def circuit(
     :rtype: :class:`~qsharp._native.Circuit`
     :raises QSharpError: If there is an error synthesizing the circuit.
     """
-    return _get_default_session().circuit(
+    return _get_default_context().circuit(
         entry_expr,
         *args,
         operation=operation,
@@ -396,20 +396,20 @@ def estimate(
     param_str = json.dumps(params)
     telemetry_events.on_estimate()
     start = monotonic()
-    session = _get_default_session()
+    context = _get_default_context()
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
-        args = session._python_args_to_interpreter_args(args)
-        res_str = session._interpreter.estimate(
+        args = context._python_args_to_interpreter_args(args)
+        res_str = context._interpreter.estimate(
             param_str, callable=entry_expr.__global_callable, args=args
         )
     elif isinstance(entry_expr, (GlobalCallable, Closure)):
-        args = session._python_args_to_interpreter_args(args)
-        res_str = session._interpreter.estimate(
+        args = context._python_args_to_interpreter_args(args)
+        res_str = context._interpreter.estimate(
             param_str, callable=entry_expr, args=args
         )
     else:
         assert isinstance(entry_expr, str)
-        res_str = session._interpreter.estimate(param_str, entry_expr=entry_expr)
+        res_str = context._interpreter.estimate(param_str, entry_expr=entry_expr)
     res = json.loads(res_str)
 
     try:
@@ -436,7 +436,7 @@ def logical_counts(
     :return: Program resources in terms of logical gate counts.
     :rtype: LogicalCounts
     """
-    return _get_default_session().logical_counts(entry_expr, *args)
+    return _get_default_context().logical_counts(entry_expr, *args)
 
 
 def set_quantum_seed(seed: Optional[int]) -> None:
@@ -447,7 +447,7 @@ def set_quantum_seed(seed: Optional[int]) -> None:
     :param seed: The seed to use for the quantum random number generator.
         If None, the seed will be generated from entropy.
     """
-    _get_default_session().set_quantum_seed(seed)
+    _get_default_context().set_quantum_seed(seed)
 
 
 def set_classical_seed(seed: Optional[int]) -> None:
@@ -459,7 +459,7 @@ def set_classical_seed(seed: Optional[int]) -> None:
     :param seed: The seed to use for the classical random number generator.
         If None, the seed will be generated from entropy.
     """
-    _get_default_session().set_classical_seed(seed)
+    _get_default_context().set_classical_seed(seed)
 
 
 def dump_machine() -> StateDump:
@@ -469,7 +469,7 @@ def dump_machine() -> StateDump:
     :return: The state of the simulator.
     :rtype: StateDump
     """
-    return _get_default_session().dump_machine()
+    return _get_default_context().dump_machine()
 
 
 def dump_circuit() -> Circuit:
@@ -486,7 +486,7 @@ def dump_circuit() -> Circuit:
     :raises QSharpError: If the interpreter was not initialized with ``trace_circuit=True``.
     """
     ipython_helper()
-    return _get_default_session()._interpreter.dump_circuit()
+    return _get_default_context()._interpreter.dump_circuit()
 
 
 def dump_operation(operation: str, num_qubits: int) -> List[List[complex]]:
@@ -570,7 +570,7 @@ __all__ = [
     "dump_machine",
     "dump_circuit",
     "dump_operation",
-    # Helpers to initialize/access the global Session object.
+    # Helpers to initialize/access the global Context object.
     "init",
     "get_interpreter",
     "python_args_to_interpreter_args",
