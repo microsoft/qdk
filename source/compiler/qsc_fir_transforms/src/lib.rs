@@ -62,6 +62,7 @@ pub mod arg_promote;
 pub mod defunctionalize;
 pub mod exec_graph_rebuild;
 pub mod gc_unreachable;
+pub mod intrinsic_precheck;
 pub mod item_dce;
 pub mod monomorphize;
 pub mod return_unify;
@@ -133,6 +134,11 @@ pub enum PipelineError {
     #[error(transparent)]
     #[diagnostic(transparent)]
     Defunctionalize(#[from] defunctionalize::Error),
+
+    /// An intrinsic callable has an unsupported parameter or return type.
+    #[error(transparent)]
+    #[diagnostic(transparent)]
+    IntrinsicPrecheck(#[from] intrinsic_precheck::Error),
 
     /// A pinned item requested by a caller was not present in the FIR store.
     #[error("pinned item {0} does not exist")]
@@ -232,7 +238,13 @@ fn run_pipeline_to_impl(
         "FIR transform pipeline requires a package with an entry expression; \
          library packages should not be passed to the transform pipeline"
     );
+
+    if let Some(result) = perform_intrinsic_type_validation(store, package_id) {
+        return result;
+    }
+
     let mut result = PipelineResult::default();
+
     let mut assigner = Assigner::from_package(store.get(package_id));
 
     monomorphize::monomorphize(store, package_id, &mut assigner);
@@ -341,6 +353,25 @@ fn run_pipeline_to_impl(
     // for fir_to_qir_from_callable) retain pre-transform types and are not checked.
     invariants::check(store, package_id, invariants::InvariantLevel::PostAll);
     result
+}
+
+/// Pre-pass: reject intrinsic callables with tuple or UDT parameter/return types.
+fn perform_intrinsic_type_validation(
+    store: &mut PackageStore,
+    package_id: PackageId,
+) -> Option<PipelineResult> {
+    let precheck_errors = intrinsic_precheck::validate_intrinsic_types(store, package_id);
+
+    if !precheck_errors.is_empty() {
+        return Some(PipelineResult {
+            errors: precheck_errors
+                .into_iter()
+                .map(PipelineError::from)
+                .collect(),
+            ..Default::default()
+        });
+    }
+    None
 }
 
 /// Validates all explicit pinned items before seeded reachability consumes them.

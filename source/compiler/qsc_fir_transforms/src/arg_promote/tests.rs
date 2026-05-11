@@ -3,8 +3,8 @@
 
 use super::*;
 use crate::test_utils::{
-    PipelineStage, compile_and_run_pipeline_to, compile_to_fir, find_callable, format_pat,
-    local_names,
+    PipelineStage, compile_and_run_pipeline_to, compile_and_run_pipeline_to_with_errors,
+    compile_to_fir, find_callable, format_pat, local_names,
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
@@ -985,17 +985,13 @@ fn simulatable_intrinsic_tuple_parameter_is_promoted() {
             MeasurePair(pair)
         }";
 
-    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ArgPromote);
-
-    expect![[r#"
-        Callable Main: input=Tuple()
-          local: Bind(pair: (Int, Int))
-        Callable MeasurePair: input=Tuple(Bind(p_0: Int), Bind(p_1: Int))"#]]
-    .assert_eq(&extract_result(&store, pkg_id));
-
-    expect![[r#"
-        MeasurePair((pair.0, pair.1))"#]]
-    .assert_eq(&extract_call_shapes(&store, pkg_id, "Main"));
+    // The intrinsic precheck now rejects SimulatableIntrinsic callables with
+    // UDT parameters before arg_promote is reached.
+    let (_, _, result) = compile_and_run_pipeline_to_with_errors(source, PipelineStage::ArgPromote);
+    assert!(
+        !result.is_success(),
+        "expected precheck errors for SimulatableIntrinsic with UDT parameter"
+    );
 }
 
 #[test]
