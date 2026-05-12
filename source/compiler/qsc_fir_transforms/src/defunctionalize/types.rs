@@ -324,6 +324,12 @@ pub struct AnalysisResult {
 }
 
 /// Errors that can occur during defunctionalization.
+///
+/// # Severity
+///
+/// All variants are fatal to the FIR transform pipeline except
+/// [`Error::ExcessiveSpecializations`], which is emitted as a warning. Use
+/// [`Error::is_warning`] to partition diagnostics by severity.
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     /// Emitted when a callable argument cannot be statically resolved to a
@@ -335,18 +341,21 @@ pub enum Error {
     #[diagnostic(help("ensure all callable arguments are known at compile time"))]
     DynamicCallable(#[label] Span),
 
-    /// Reserved; currently unused. Mutable callable parameters are handled
-    /// via branch-splitting (resolving to `Multi` in the `CalleeLattice`)
-    /// rather than producing this error. Retained for future use when
-    /// rejection of mutable callables becomes appropriate.
-    #[error("callable parameter is mutably assigned")]
-    #[diagnostic(code("Qsc.Defunctionalize.MutableCallable"))]
-    MutableCallable(#[label] Span),
-
+    /// Emitted when specializing a HOF would re-enter the same
+    /// `(HOF, concrete-argument)` combination during a single pass — for
+    /// example, a HOF that calls itself with the same callable argument it
+    /// received. The recursion guard in `specialize` rejects the duplicate
+    /// entry rather than looping indefinitely.
     #[error("specialization leads to infinite recursion")]
     #[diagnostic(code("Qsc.Defunctionalize.RecursiveSpecialization"))]
     RecursiveSpecialization(#[label] Span),
 
+    /// Emitted when the analysis → specialize → rewrite fixpoint loop exits
+    /// without eliminating every reachable closure or arrow-typed parameter.
+    /// The first field is the iteration count actually reached and the
+    /// second is the number of remaining callable values. Suppressed when
+    /// any other diagnostic has already fired this pass so the root cause is
+    /// surfaced instead of a generic non-convergence report.
     #[error(
         "defunctionalization did not converge within {0} iterations; {1} callable values remain"
     )]
@@ -354,6 +363,10 @@ pub enum Error {
     #[diagnostic(help("consider reducing the nesting depth of higher-order function chains"))]
     FixpointNotReached(usize, usize, #[label("remaining callable value")] Span),
 
+    /// Warning emitted when a single HOF generates more than the warning
+    /// threshold of distinct specializations during a pass. The string is
+    /// the HOF name and the second field is the specialization count. This
+    /// is the only warning-severity variant; see [`Error::is_warning`].
     #[error(
         "higher-order function `{0}` generated {1} specializations, exceeding the warning threshold"
     )]

@@ -41,6 +41,30 @@
 //!   and rebuilds correct exec graphs for the entire package, including
 //!   the synthesized `AndL`/`OrL` nodes **and** any synthesized
 //!   `Field(..)` accesses produced by `extract_or_field`.
+//! - Empty tuples (`Ty::Tuple([])`, i.e. Unit) are intentionally excluded
+//!   from this rewrite. With no elements there is no element-wise
+//!   comparison to fold and no neutral identity to seed the join, so
+//!   `lower_single_cmp` returns early when the operand element list is
+//!   empty. Whole-Unit equality is left for downstream passes to handle
+//!   directly.
+//!
+//! ## Cross-pass contract with SROA
+//!
+//! When the LHS or RHS of a tuple comparison is itself a tuple literal
+//! (`ExprKind::Tuple(es)`), `extract_or_field` returns the element
+//! `ExprId`s **directly from `es`** rather than synthesizing fresh
+//! `Field(..)` expressions. The same element `ExprId` can therefore appear
+//! in both the LHS and RHS comparison subtrees produced by this pass, and
+//! a single element `ExprId` can be referenced more than once across the
+//! lowered comparison.
+//!
+//! [`crate::sroa`] runs immediately after this pass, and its
+//! `replace_expr_references` walks every reachable expression edge in the
+//! owning callable and rewrites matching `ExprId` edges. That walk must
+//! tolerate the aliased `ExprId`s this pass leaves behind: rewriting one
+//! occurrence must not break the others, and the original aggregate node
+//! is allowed to become dead once all of its parent edges have been
+//! redirected. See the mirror note in [`crate::sroa`].
 
 #[cfg(test)]
 mod tests;

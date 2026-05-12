@@ -29,6 +29,17 @@
 //! also mutating the output buffer. The emitter resolves this by *cloning*
 //! the FIR node kind at every traversal boundary (the nodes are cheap
 //! struct/enum types) before calling back into `&mut self` helpers.
+//!
+//! # Public API
+//!
+//! The `write_*_qsharp` helpers ([`write_package_qsharp`],
+//! [`write_callable_qsharp`], [`write_block_qsharp`], [`write_expr_qsharp`],
+//! [`write_stmt_qsharp`]) are exposed as `pub` for use by FIR transform
+//! snapshot tests inside this crate and by downstream test crates that share
+//! the same expectation harness. They are not intended as a general-purpose
+//! Q# emitter — see the caveats above for the constructs that render as
+//! comments or synthetic surface syntax — and the rendered output is
+//! formatted for human review, not for re-compilation.
 
 #[cfg(test)]
 mod tests;
@@ -52,6 +63,10 @@ enum RenderMode {
 }
 
 /// Renders the full FIR package as Q# source.
+///
+/// Test-oriented helper: see the ["Public API"](self#public-api) section of
+/// the module doc for the snapshot-test contract and the constructs that
+/// render as comments or synthetic surface syntax.
 #[must_use]
 pub fn write_package_qsharp(store: &PackageStore, package_id: PackageId) -> String {
     let mut emitter = FirQSharpGen::new(store, package_id);
@@ -71,6 +86,8 @@ pub(crate) fn write_package_qsharp_parseable(
 }
 
 /// Renders a single callable item as Q# source.
+///
+/// Test-oriented helper: see [`write_package_qsharp`] and the module doc.
 #[must_use]
 pub fn write_callable_qsharp(
     store: &PackageStore,
@@ -89,6 +106,8 @@ pub fn write_callable_qsharp(
 }
 
 /// Renders a single block as Q# source.
+///
+/// Test-oriented helper: see [`write_package_qsharp`] and the module doc.
 #[must_use]
 pub fn write_block_qsharp(store: &PackageStore, package_id: PackageId, block: BlockId) -> String {
     let mut emitter = FirQSharpGen::new(store, package_id);
@@ -97,6 +116,8 @@ pub fn write_block_qsharp(store: &PackageStore, package_id: PackageId, block: Bl
 }
 
 /// Renders a single expression as Q# source.
+///
+/// Test-oriented helper: see [`write_package_qsharp`] and the module doc.
 #[must_use]
 pub fn write_expr_qsharp(store: &PackageStore, package_id: PackageId, expr: ExprId) -> String {
     let mut emitter = FirQSharpGen::new(store, package_id);
@@ -105,6 +126,8 @@ pub fn write_expr_qsharp(store: &PackageStore, package_id: PackageId, expr: Expr
 }
 
 /// Renders a single statement as Q# source.
+///
+/// Test-oriented helper: see [`write_package_qsharp`] and the module doc.
 #[must_use]
 pub fn write_stmt_qsharp(store: &PackageStore, package_id: PackageId, stmt: StmtId) -> String {
     let mut emitter = FirQSharpGen::new(store, package_id);

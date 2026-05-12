@@ -13,6 +13,21 @@
 //! This module provides composable helpers that encapsulate this pattern,
 //! reducing boilerplate across passes and centralizing the
 //! `EMPTY_EXEC_RANGE` convention.
+//!
+//! # Why use this builder
+//!
+//! - **Crate-private surface.** Every helper is `pub(crate)`. The builder
+//!   is intentionally kept off the crate's public API so the
+//!   `EMPTY_EXEC_RANGE` contract stays a transform-pass internal detail.
+//! - **Sentinel contract is implicit.** Synthesizing an `Expr` or `Stmt`
+//!   outside these helpers will silently miss the
+//!   [`EMPTY_EXEC_RANGE`](crate::EMPTY_EXEC_RANGE) sentinel. The
+//!   [`exec_graph_rebuild`](crate::exec_graph_rebuild) pass keys off that
+//!   sentinel to know which nodes need a fresh execution-graph range, so a
+//!   hand-rolled allocator that supplies any other range produces a stale
+//!   execution graph with no compile-time error. The pipeline-wide contract
+//!   is documented in [`crate`]; new passes should route every `Expr`/`Stmt`
+//!   allocation through the helpers below.
 
 use crate::EMPTY_EXEC_RANGE;
 use qsc_data_structures::span::Span;

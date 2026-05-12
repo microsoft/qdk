@@ -98,26 +98,57 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// in the store.
 type UdtCache = FxHashMap<(PackageId, LocalItemId), Ty>;
 
-/// Erases all `Ty::Udt` types and `ExprKind::Struct` expressions in the
-/// target package's reachable package closure, while resolving UDT
-/// definitions from the whole store.
+/// Erases UDT types and UDT-shaped expressions in the target package's
+/// reachable package closure, while resolving UDT definitions from the
+/// whole store. Specifically, rewrites:
 ///
-/// Returns the reachable callable specs whose expression structure changed.
+/// - Every `Ty::Udt` to its pure tuple or scalar type (via `get_pure_ty()`)
+///   on expressions, patterns, blocks, and callable signatures.
+/// - `ExprKind::Struct` construction (with or without a copy-update source)
+///   into tuple or scalar expressions.
+/// - UDT constructor calls (`ExprKind::Call` whose callee is an
+///   `ItemKind::Ty` item) into the underlying tuple or scalar value.
+/// - `ExprKind::UpdateField` and `ExprKind::AssignField` with `Field::Path`
+///   into explicit tuple constructions with field extractions.
+/// - `ExprKind::Field` read access on scalar-erased single-field newtypes
+///   into the underlying scalar expression.
+///
+/// See the module-level documentation for the full list of input patterns
+/// and their rewrites, including the single-field newtype case below:
+///
+/// ```text
+/// // Before — newtype Wrapped = Int; let v = w::Inner;
+/// Field(w, Path([0]))
+///
+/// // After
+/// w
+/// ```
+///
+/// # Requires
+/// - Package with `package_id` has an entry expression
 ///
 /// # Panics
 ///
-/// Panics if the package has no entry expression.
+/// Panics if the package has no entry expression. The reachability scans
+/// in this pass go through [`collect_reachable_from_entry`], which asserts
+/// `package.entry.is_some()`.
+///
+/// # Returns
+/// `Vec<CallableSpecId>` — the `structurally_mutated_specs`: the set of
+/// reachable callable specs whose expression structure changed during
+/// erasure (deduped across packages and filtered to entry-reachable
+/// callables). The pipeline driver
+/// ([`crate::run_pipeline_to_with_diagnostics`]) partitions this set by
+/// package and forwards the cross-package members (those whose
+/// `callable.package` is not the target `package_id`) to
+/// [`crate::exec_graph_rebuild::rebuild_exec_graphs_with_external_specs`]
+/// as its `external_specs` argument so that exec graphs in upstream
+/// packages are rebuilt against the freshly lowered FIR.
 pub fn erase_udts(
     store: &mut PackageStore,
     package_id: PackageId,
     assigner: &mut Assigner,
 ) -> Vec<CallableSpecId> {
-    let package = store.get(package_id);
-    assert!(
-        package.entry.is_some(),
-        "UDT erasure requires a package entry expression"
-    );
-
     // Build a resolution cache from all UDT items across all packages.
     let udt_cache = build_udt_cache(store);
     let reachable = collect_reachable_from_entry(store, package_id);

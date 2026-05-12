@@ -32,6 +32,17 @@
 //!
 //! **After:** Only nodes reachable from callable bodies and the entry
 //! expression survive. Orphaned entries are tombstoned in the `IndexMap`.
+//!
+//! # Signature
+//!
+//! [`gc_unreachable`] takes `&mut Package` directly rather than the
+//! `(store, package_id, &mut assigner)` tuple used by the synthesizing
+//! passes because it never allocates fresh IDs — it only tombstones
+//! existing arena entries — and therefore does not need access to the
+//! pipeline-global [`Assigner`](qsc_fir::assigner::Assigner). This matches
+//! the tail-pass exception called out in [`crate`]: passes that only
+//! delete, tombstone, or rebuild derived metadata do not receive the
+//! shared `Assigner`.
 
 #[cfg(test)]
 mod tests;

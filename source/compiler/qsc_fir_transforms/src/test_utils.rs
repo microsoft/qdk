@@ -6,8 +6,8 @@
 //! Provides compilation and snapshot utilities used across transform test
 //! modules. Gated behind `#[cfg(any(test, feature = "testutil"))]`.
 //!
-//! Items marked with `#[allow(dead_code)]` are intended for use in test modules and may be
-//! are used in multiple test modules, but are not used in the main crate code.
+//! Items marked with `#[allow(dead_code)]` are used by multiple test modules
+//! but are not exercised by the main crate code.
 
 use qsc_data_structures::{
     language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
@@ -46,6 +46,8 @@ pub(crate) fn assert_no_compile_errors(context: &str, errors: &[frontend_compile
     );
 }
 
+/// Asserts that the given pipeline errors slice is empty, panicking with a
+/// `context`-prefixed message that lists each error otherwise.
 pub fn assert_no_pipeline_errors(context: &str, errors: &[crate::PipelineError]) {
     let error_messages = format_errors(errors);
     assert!(
@@ -63,6 +65,8 @@ pub fn assert_no_pipeline_warnings(context: &str, warnings: &[crate::PipelineErr
     );
 }
 
+/// Formats a slice of pipeline errors as newline-separated text, returning
+/// `"(no error)"` when the slice is empty.
 #[must_use]
 pub fn format_pipeline_errors(errors: &[crate::PipelineError]) -> String {
     if errors.is_empty() {
@@ -82,6 +86,8 @@ pub struct TransformSnapshotCase {
     pub claim: &'static str,
 }
 
+/// Renders a transform snapshot by prepending the case, stage, view, and
+/// claim metadata from `case` to `actual_view`.
 #[must_use]
 pub fn format_transform_snapshot(
     case: &TransformSnapshotCase,
@@ -98,6 +104,8 @@ pub fn assert_pipeline_succeeded(context: &str, result: &crate::PipelineResult) 
     assert_no_pipeline_errors(context, &result.errors);
 }
 
+/// Runs the FIR pipeline up to `stage`, asserts that no pipeline errors were
+/// produced, and returns the resulting `PipelineResult`.
 pub fn assert_pipeline_stage_succeeds(
     context: &str,
     store: &mut fir::PackageStore,
@@ -109,6 +117,8 @@ pub fn assert_pipeline_stage_succeeds(
     result
 }
 
+/// Runs the full FIR pipeline, asserts that no pipeline errors were produced,
+/// and returns the resulting `PipelineResult`.
 pub fn assert_full_pipeline_succeeds(
     context: &str,
     store: &mut fir::PackageStore,
@@ -370,8 +380,9 @@ pub(crate) fn compile_and_run_pipeline_to_with_errors(
 }
 
 /// Compiles Q# source and runs the FIR optimization pipeline up to the given
-/// stage, asserting that defunctionalization diagnostics stay empty once the
-/// schedule reaches or passes that stage.
+/// stage, asserting via [`assert_no_pipeline_errors`] that any
+/// `PipelineError` variant is fatal once the schedule reaches or passes that
+/// stage.
 #[allow(dead_code)]
 pub(crate) fn compile_and_run_pipeline_to(
     source: &str,
@@ -760,6 +771,8 @@ fn callable_body_spec<'a>(decl: &'a CallableDecl, callable_name: &str) -> &'a Sp
     }
 }
 
+/// Returns a sorted, newline-joined summary of the callables reachable from
+/// the package's entry point, listing each callable's input and output types.
 #[must_use]
 pub fn format_reachable_callable_summary(
     store: &fir::PackageStore,
@@ -786,6 +799,8 @@ pub fn format_reachable_callable_summary(
     lines.join("\n")
 }
 
+/// Returns a per-statement summary of the named callable's body block,
+/// including the block type and a short rendering of each statement.
 #[must_use]
 pub fn format_callable_body_summary(
     store: &fir::PackageStore,

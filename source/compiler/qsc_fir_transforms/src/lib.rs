@@ -9,9 +9,10 @@
 //! performing various structural rewrites that simplify later stages.
 //! The transformations in this crate are not intended to be used as
 //! independent passes. Instead, they are ordered and orchestrated by the
-//! [`run_pipeline`] function, which applies the full sequence of
-//! transformations in one shot. This is because the passes are not designed
-//! to be individually sound or to preserve FIR invariants on their own.
+//! [`run_pipeline_with_diagnostics`] function, which applies the full
+//! sequence of transformations in one shot. This is because the passes are
+//! not designed to be individually sound or to preserve FIR invariants on
+//! their own.
 //! For example, defunctionalization produces FIR that violates invariants
 //! expected by later passes, but the subsequent UDT erasure and tuple
 //! comparison lowering restore those invariants before the next major
@@ -36,11 +37,15 @@
 //!
 //! - **Single [`Assigner`] continuity.** The pipeline constructs one
 //!   [`Assigner`] from the input package and threads it through every pass
-//!   (`monomorphize`, `return_unify`, `defunctionalize`, `udt_erase`,
-//!   `tuple_compare_lower`, `sroa`, `arg_promote`). Each pass allocates fresh
-//!   IDs against that shared counter so synthesized nodes from earlier stages
-//!   stay disjoint from IDs allocated later. Passes must not construct a
-//!   fresh [`Assigner`] mid-pipeline.
+//!   that synthesizes new FIR nodes (`monomorphize`, `return_unify`,
+//!   `defunctionalize`, `udt_erase`, `tuple_compare_lower`, `sroa`,
+//!   `arg_promote`). Each pass allocates fresh IDs against that shared
+//!   counter so synthesized nodes from earlier stages stay disjoint from
+//!   IDs allocated later. Passes must not construct a fresh [`Assigner`]
+//!   mid-pipeline. The trailing passes `gc_unreachable`, `item_dce`, and
+//!   `exec_graph_rebuild` do not receive the [`Assigner`] because they only
+//!   tombstone, delete, or rebuild derived metadata and never synthesize
+//!   new FIR nodes that need fresh IDs.
 //! - **`EMPTY_EXEC_RANGE` sentinel.** Passes that synthesize new
 //!   [`fir::Expr`](qsc_fir::fir::Expr) or [`fir::Stmt`](qsc_fir::fir::Stmt)
 //!   nodes attach `EMPTY_EXEC_RANGE` as their `exec_graph_range`. The final
@@ -122,7 +127,8 @@ pub(crate) const EMPTY_EXEC_RANGE: std::ops::Range<ExecGraphIdx> = std::ops::Ran
 /// Diagnostics produced by the FIR transform pipeline.
 ///
 /// Wraps pass-specific diagnostic types so callers handle a single diagnostic
-/// type from [`run_pipeline`], [`run_pipeline_to`], and warning-aware result APIs.
+/// type from [`run_pipeline_with_diagnostics`],
+/// [`run_pipeline_to_with_diagnostics`], and other warning-aware result APIs.
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum PipelineError {
     /// A return-unification error (e.g., unsupported return type inside a loop).
@@ -216,17 +222,24 @@ pub enum PipelineStage {
 /// observed by later stages. Between major stages the function invokes
 /// [`invariants::check`] with the corresponding [`invariants::InvariantLevel`].
 ///
-/// If [`return_unify::unify_returns`] or
-/// [`defunctionalize::defunctionalize`] reports fatal diagnostics the function
-/// returns them immediately, skipping subsequent passes and invariant checks.
-/// The intermediate FIR at that point intentionally violates downstream
-/// invariants, so running later passes would produce misleading failures.
-/// Non-fatal defunctionalization warnings are preserved and the schedule
-/// continues to the requested stage.
+/// The schedule has several fatal early exits, in order:
 ///
-/// `pinned_items` are validated before seeded item DCE and exec graph rebuild.
-/// Missing or non-callable pins are fatal diagnostics because pinned items are
-/// explicit preservation requests from callers.
+/// 1. `intrinsic_precheck` (via [`perform_intrinsic_type_validation`]) runs
+///    before any structural rewrites and short-circuits with
+///    [`PipelineError::IntrinsicPrecheck`] when an intrinsic callable has an
+///    unsupported parameter or return type.
+/// 2. [`return_unify::unify_returns`] reports fatal diagnostics that abort
+///    the schedule before defunctionalization runs.
+/// 3. [`defunctionalize::defunctionalize`] reports fatal diagnostics that
+///    abort the schedule before UDT erasure runs. Non-fatal defunctionalization
+///    warnings are preserved on [`PipelineResult::warnings`] and the schedule
+///    continues to the requested stage.
+/// 4. Pinned-item validation runs before seeded item DCE and exec graph
+///    rebuild. Missing or non-callable pins are fatal diagnostics because
+///    pinned items are explicit preservation requests from callers.
+///
+/// In every fatal case the intermediate FIR intentionally violates downstream
+/// invariants, so running later passes would produce misleading failures.
 fn run_pipeline_to_impl(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -423,7 +436,8 @@ fn run_item_dce_and_gc(
     }
 }
 
-/// Runs the authoritative FIR optimization schedule up to the requested stage.
+/// Runs the authoritative FIR optimization schedule up to the requested stage,
+/// returning fatal errors and non-fatal warnings separately.
 ///
 /// Production codegen uses this hidden API with [`PipelineStage::Full`] and
 /// non-empty `pinned_items` to retain callable IDs that may no longer be
@@ -432,8 +446,9 @@ fn run_item_dce_and_gc(
 /// it in helper code.
 ///
 /// `pinned_items` must identify existing callable items. Invalid pins are
-/// Runs the authoritative FIR optimization schedule up to the requested stage,
-/// returning fatal errors and non-fatal warnings separately.
+/// reported as fatal [`PipelineError::MissingPinnedItem`] or
+/// [`PipelineError::PinnedItemNotCallable`] diagnostics before seeded item
+/// DCE runs.
 ///
 /// Callers may consume the transformed FIR only when [`PipelineResult::errors`]
 /// is empty; warnings do not block successful output.

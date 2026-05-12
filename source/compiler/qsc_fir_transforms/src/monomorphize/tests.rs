@@ -946,7 +946,7 @@ fn cross_package_non_intrinsic_generic_specializes() {
 }
 
 #[test]
-#[should_panic(expected = "monomorphize requires a package entry expression")]
+#[should_panic(expected = "package must have an entry expression")]
 fn monomorphize_no_entry_panics() {
     // Compile as a library (no @EntryPoint) so package.entry is None.
     // monomorphize should panic because it requires an entry expression.

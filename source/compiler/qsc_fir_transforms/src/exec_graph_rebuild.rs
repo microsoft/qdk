@@ -16,6 +16,20 @@
 //! lowering, SROA, and argument promotion have removed expression forms that the
 //! exec graph builder treats as eliminated at this stage.
 //!
+//! ## External Specs
+//!
+//! The `external_specs` argument identifies callable specializations in
+//! packages other than the target package whose bodies were structurally
+//! mutated by earlier passes. The sole producer of these entries is
+//! [`crate::udt_erase::erase_udts`]: UDT erasure operates over the reachable
+//! package closure (not just the target package), so it can rewrite library
+//! callables when an entry-reachable code path crosses package boundaries.
+//! Every other pass operates on the entry-only target package, so no other
+//! pass needs to register cross-package spec mutations. After UDT erasure,
+//! `lib.rs` filters the returned `Vec<CallableSpecId>` to cross-package
+//! entries and forwards the result here so this pass can refresh exec graphs
+//! on the affected external specs.
+//!
 //! ## Transformation Shape
 //!
 //! **Before:** Callable specs and the entry expression carry stale
