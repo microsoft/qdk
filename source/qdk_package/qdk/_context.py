@@ -11,6 +11,7 @@ independent Q# environments to coexist.
 
 import sys
 import types
+import weakref
 from dataclasses import make_dataclass
 from time import monotonic
 from typing import (
@@ -26,7 +27,7 @@ from typing import (
     cast,
 )
 
-from . import telemetry_events
+from . import telemetry_events, code
 from ._native import (  # type: ignore
     Circuit,
     CircuitConfig,
@@ -150,9 +151,9 @@ class Context:
 
     _interpreter: Interpreter
     _config: Config
-    code: types.ModuleType
-    _code_prefix: str
+    code: Any
     _disposed: bool
+    _is_global_context: bool
 
     def __init__(
         self,
@@ -162,8 +163,7 @@ class Context:
         project_root: Optional[str] = None,
         language_features: Optional[List[str]] = None,
         _trace_circuit: Optional[bool] = None,
-        _code_module: Optional[types.ModuleType] = None,
-        _code_prefix: Optional[str] = None,
+        _is_global_context: bool = False,
     ):
         """
         Initializes a new isolated Q# context.
@@ -188,13 +188,12 @@ class Context:
             to use the ``set`` keyword for mutable variable assignments.
         """
         self._disposed = False
+        self._is_global_context = _is_global_context
 
-        if _code_module is not None:
-            self.code = _code_module
-            self._code_prefix = _code_prefix or "qsharp.code"
+        if _is_global_context:
+            self.code = code
         else:
-            self._code_prefix = f"qsharp._context_{id(self)}"
-            self.code = types.ModuleType(self._code_prefix)
+            self.code = types.SimpleNamespace()
 
         from ._fs import exists, join, list_directory, read_file, resolve
         from ._http import fetch_github
@@ -226,6 +225,26 @@ class Context:
                     f"Error reading {qsharp_json}. qsharp.json should exist at the project root and be a valid JSON file."
                 ) from e
 
+        # Use weakref to avoid circular reference (Context -> Interpreter -> callback ->
+        # Context) that prevents Context from being garbage collected.
+        self_ref = weakref.ref(self)
+
+        def make_callable_weak(
+            callable: GlobalCallable, namespace: List[str], callable_name: str
+        ) -> None:
+            ctx = self_ref()
+            if ctx is None or ctx._disposed:
+                return
+            ctx._make_callable(callable, namespace, callable_name)
+
+        def make_class_weak(
+            qsharp_type: TypeIR, namespace: List[str], class_name: str
+        ) -> None:
+            ctx = self_ref()
+            if ctx is None or ctx._disposed:
+                return
+            ctx._make_class(qsharp_type, namespace, class_name)
+
         self._interpreter = Interpreter(
             target_profile,
             language_features,
@@ -234,8 +253,8 @@ class Context:
             list_directory,
             resolve,
             fetch_github,
-            self._make_callable,
-            self._make_class,
+            make_callable_weak,
+            make_class_weak,
             _trace_circuit,
         )
 
@@ -363,24 +382,39 @@ class Context:
                 pass
         print(output, flush=True)
 
+    def _get_code_module(
+        self, namespace: List[str]
+    ) -> types.ModuleType | types.SimpleNamespace:
+        """Returns module for given path, creating it if it doesn't exist."""
+        module = self.code
+        if self._is_global_context:
+            accumulated_namespace = code.__name__
+            for name in namespace:
+                accumulated_namespace += "." + name
+                if hasattr(module, name):
+                    module = module.__getattribute__(name)
+                    if sys.modules.get(accumulated_namespace) is None:
+                        sys.modules[accumulated_namespace] = module
+                else:
+                    new_module = types.ModuleType(accumulated_namespace)
+                    module.__setattr__(name, new_module)
+                    sys.modules[accumulated_namespace] = new_module
+                    module = new_module
+        else:
+            for name in namespace:
+                if hasattr(module, name):
+                    module = module.__getattribute__(name)
+                else:
+                    new_module = types.SimpleNamespace()
+                    module.__setattr__(name, new_module)
+                    module = new_module
+        return module
+
     def _make_callable(
         self, callable: GlobalCallable, namespace: List[str], callable_name: str
     ):
         """Registers a Q# callable in this context's code module."""
-        module = self.code
-        accumulated_namespace = self._code_prefix + "."
-        for name in namespace:
-            accumulated_namespace += name
-            if hasattr(module, name):
-                module = module.__getattribute__(name)
-                if sys.modules.get(accumulated_namespace) is None:
-                    sys.modules[accumulated_namespace] = module
-            else:
-                new_module = types.ModuleType(accumulated_namespace)
-                module.__setattr__(name, new_module)
-                sys.modules[accumulated_namespace] = new_module
-                module = new_module
-            accumulated_namespace += "."
+        module = self._get_code_module(namespace)
 
         def _callable_fn(*args):
             if self._disposed:
@@ -407,19 +441,7 @@ class Context:
 
     def _make_class(self, qsharp_type: TypeIR, namespace: List[str], class_name: str):
         """Registers a Q# type as a Python dataclass in this context's code module."""
-        module = self.code
-        accumulated_namespace = self._code_prefix + "."
-        for name in namespace:
-            accumulated_namespace += name
-            if hasattr(module, name):
-                module = module.__getattribute__(name)
-            else:
-                new_module = types.ModuleType(accumulated_namespace)
-                module.__setattr__(name, new_module)
-                sys.modules[accumulated_namespace] = new_module
-                module = new_module
-            accumulated_namespace += "."
-
+        module = self._get_code_module(namespace)
         QSharpClass = make_class_rec(qsharp_type)
         QSharpClass.__qsharp_class = True
         setattr(QSharpClass, "_qdk_context", self)

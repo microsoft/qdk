@@ -65,18 +65,17 @@ import sys
 import types
 from time import monotonic
 
-
 # Global default context instance used by methods in this module.
 _default_context: Optional[Context] = None
 
 
-def _clear_code_module(code_module: types.ModuleType, module_prefix: str):
+def _clear_code_module():
     """
     Removes dynamically added Q# callables, structs, and namespace modules from
-    a code module and sys.modules.
+    qdk.code module and sys.modules.
     """
     keys_to_remove = []
-    for key, val in code_module.__dict__.items():
+    for key, val in code.__dict__.items():
         if (
             hasattr(val, "__global_callable")
             or hasattr(val, "__qsharp_class")
@@ -84,11 +83,12 @@ def _clear_code_module(code_module: types.ModuleType, module_prefix: str):
         ):
             keys_to_remove.append(key)
     for key in keys_to_remove:
-        code_module.__delattr__(key)
+        code.__delattr__(key)
 
     keys_to_remove = []
+    code_module_prefix = code.__name__ + "."
     for key in sys.modules:
-        if key.startswith(module_prefix + "."):
+        if key.startswith(code_module_prefix):
             keys_to_remove.append(key)
     for key in keys_to_remove:
         sys.modules.__delitem__(key)
@@ -138,8 +138,7 @@ def init(
         _default_context._disposed = True
 
     # Clean up the global code namespace before creating a new context.
-    code_prefix = "qdk.code"
-    _clear_code_module(code, code_prefix)
+    _clear_code_module()
 
     _default_context = Context(
         target_profile=target_profile,
@@ -147,8 +146,7 @@ def init(
         project_root=project_root,
         language_features=language_features,
         _trace_circuit=trace_circuit,
-        _code_module=code,
-        _code_prefix=code_prefix,
+        _is_global_context=True,
     )
     return _default_context._config
 
