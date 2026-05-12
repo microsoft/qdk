@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(feature = "slow-proptest-tests")]
 use indoc::formatdoc;
 use indoc::indoc;
+#[cfg(feature = "slow-proptest-tests")]
 use proptest::prelude::*;
 
 #[test]
@@ -80,6 +82,7 @@ fn pretty_print_after_udt_erase_is_non_empty() {
     );
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 fn udt_erasure_pattern() -> impl Strategy<Value = String> {
     (1..=4usize, prop::bool::ANY).prop_map(|(field_count, use_copy_update)| {
         let fields = (0..field_count)
@@ -131,6 +134,7 @@ fn udt_erasure_pattern() -> impl Strategy<Value = String> {
     })
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
 

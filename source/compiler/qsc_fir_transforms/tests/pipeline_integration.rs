@@ -7,15 +7,17 @@
 
 use qsc_eval::val::Value;
 use qsc_fir::{
-    fir::{CallableImpl, ExecGraphConfig, ExprKind, ItemKind, PackageLookup, StoreItemId},
+    fir::{ExecGraphConfig, ExprKind, ItemKind, PackageLookup, StoreItemId},
     validate::validate,
 };
 use qsc_fir_transforms::{
     PipelineError, PipelineStage, invariants, reachability, run_pipeline_to_with_diagnostics,
     run_pipeline_with_diagnostics,
     test_utils::{
-        assert_callable_body_terminal_expr_matches_block_type, assert_no_pipeline_errors,
-        compile_to_fir, compile_to_fir_with_entry, compile_to_fir_with_library, expr_kind_short,
+        assert_callable_body_terminal_expr_matches_block_type, assert_full_pipeline_succeeds,
+        assert_no_pipeline_errors, assert_pipeline_stage_succeeds, compile_to_fir,
+        compile_to_fir_with_entry, compile_to_fir_with_library, format_callable_body_summary,
+        format_pipeline_errors, format_reachable_callable_summary,
     },
 };
 
@@ -51,24 +53,11 @@ fn compile_and_lower(source: &str) -> LoweredOutput {
     (store, package_id, assigner)
 }
 
-fn format_pipeline_errors(errors: &[PipelineError]) -> String {
-    if errors.is_empty() {
-        "(no error)".to_string()
-    } else {
-        errors
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-}
-
 fn run_pipeline_successfully(
     store: &mut qsc_fir::fir::PackageStore,
     pkg_id: qsc_fir::fir::PackageId,
 ) {
-    let result = run_pipeline_with_diagnostics(store, pkg_id);
-    assert_no_pipeline_errors("run_pipeline", &result.errors);
+    assert_full_pipeline_succeeds("pipeline_integration::run_pipeline(Full)", store, pkg_id);
 }
 
 fn run_pipeline_to_successfully(
@@ -76,8 +65,8 @@ fn run_pipeline_to_successfully(
     pkg_id: qsc_fir::fir::PackageId,
     stage: PipelineStage,
 ) {
-    let result = run_pipeline_to_with_diagnostics(store, pkg_id, stage, &[]);
-    assert_no_pipeline_errors("run_pipeline_to", &result.errors);
+    let context = format!("pipeline_integration::run_pipeline_to({stage:?})");
+    assert_pipeline_stage_succeeds(&context, store, pkg_id, stage);
 }
 
 fn eval_entry_value(
@@ -106,17 +95,6 @@ fn eval_entry_value(
     .map_err(|(err, _frames)| format!("{err:?}"))
 }
 
-fn callable_body_spec<'a>(
-    decl: &'a qsc_fir::fir::CallableDecl,
-    callable_name: &str,
-) -> &'a qsc_fir::fir::SpecDecl {
-    match &decl.implementation {
-        CallableImpl::Spec(spec_impl) => &spec_impl.body,
-        CallableImpl::SimulatableIntrinsic(spec) => spec,
-        CallableImpl::Intrinsic => panic!("callable '{callable_name}' should have a body"),
-    }
-}
-
 fn reachable_callable_names(
     store: &qsc_fir::fir::PackageStore,
     pkg_id: qsc_fir::fir::PackageId,
@@ -136,92 +114,6 @@ fn reachable_callable_names(
     }
     names.sort();
     names
-}
-
-fn reachable_callable_summary(
-    store: &qsc_fir::fir::PackageStore,
-    pkg_id: qsc_fir::fir::PackageId,
-) -> String {
-    let package = store.get(pkg_id);
-    let reachable = reachability::collect_reachable_from_entry(store, pkg_id);
-
-    let mut lines = Vec::new();
-    for store_id in &reachable {
-        if store_id.package != pkg_id {
-            continue;
-        }
-        let item = package.get_item(store_id.item);
-        if let ItemKind::Callable(decl) = &item.kind {
-            let pat = package.get_pat(decl.input);
-            lines.push(format!(
-                "{}: input_ty={}, output_ty={}",
-                decl.name.name, pat.ty, decl.output
-            ));
-        }
-    }
-    lines.sort();
-    lines.join("\n")
-}
-
-fn callable_body_summary(
-    store: &qsc_fir::fir::PackageStore,
-    pkg_id: qsc_fir::fir::PackageId,
-    callable_name: &str,
-) -> String {
-    let package = store.get(pkg_id);
-    let item = package
-        .items
-        .values()
-        .find(|item| match &item.kind {
-            ItemKind::Callable(decl) => decl.name.name.as_ref() == callable_name,
-            _ => false,
-        })
-        .expect("callable should exist");
-
-    let ItemKind::Callable(decl) = &item.kind else {
-        panic!("item should be callable");
-    };
-    let spec = callable_body_spec(decl, callable_name);
-    let block = package.get_block(spec.block);
-
-    let mut lines = vec![format!("block_ty={}", block.ty)];
-    for (index, stmt_id) in block.stmts.iter().enumerate() {
-        let stmt = package.get_stmt(*stmt_id);
-        let line = match &stmt.kind {
-            qsc_fir::fir::StmtKind::Expr(expr_id) => {
-                let expr = package.get_expr(*expr_id);
-                format!(
-                    "[{index}] Expr ty={} {}",
-                    expr.ty,
-                    expr_kind_short(package, *expr_id)
-                )
-            }
-            qsc_fir::fir::StmtKind::Semi(expr_id) => {
-                let expr = package.get_expr(*expr_id);
-                format!(
-                    "[{index}] Semi ty={} {}",
-                    expr.ty,
-                    expr_kind_short(package, *expr_id)
-                )
-            }
-            qsc_fir::fir::StmtKind::Local(_, pat_id, expr_id) => {
-                let pat = package.get_pat(*pat_id);
-                let expr = package.get_expr(*expr_id);
-                format!(
-                    "[{index}] Local pat_ty={} init_ty={} {}",
-                    pat.ty,
-                    expr.ty,
-                    expr_kind_short(package, *expr_id)
-                )
-            }
-            qsc_fir::fir::StmtKind::Item(local_item_id) => {
-                format!("[{index}] Item {local_item_id}")
-            }
-        };
-        lines.push(line);
-    }
-
-    lines.join("\n")
 }
 
 fn package_has_callable_named(
@@ -338,8 +230,9 @@ fn post_arg_promote_cut_matches_full_pipeline_bodies() {
     validate(full_package, &full_store);
 
     assert_eq!(
-        reachable_callable_summary(&post_arg_store, post_arg_pkg_id),
-        reachable_callable_summary(&full_store, full_pkg_id)
+        format_reachable_callable_summary(&post_arg_store, post_arg_pkg_id),
+        format_reachable_callable_summary(&full_store, full_pkg_id),
+        "PostArgPromote reachable callable summary should match the full pipeline"
     );
 
     let post_arg_callables = reachable_callable_names(&post_arg_store, post_arg_pkg_id);
@@ -348,8 +241,8 @@ fn post_arg_promote_cut_matches_full_pipeline_bodies() {
 
     for callable_name in &full_callables {
         assert_eq!(
-            callable_body_summary(&post_arg_store, post_arg_pkg_id, callable_name),
-            callable_body_summary(&full_store, full_pkg_id, callable_name),
+            format_callable_body_summary(&post_arg_store, post_arg_pkg_id, callable_name),
+            format_callable_body_summary(&full_store, full_pkg_id, callable_name),
             "callable '{callable_name}' body drift between PostArgPromote and full pipeline"
         );
     }
@@ -375,7 +268,7 @@ fn terminal_result_block_shape_stays_valid_across_stage_boundaries() {
 
     let mut snapshots = vec![format!(
         "Lowered\n{}",
-        callable_body_summary(&store, pkg_id, "Main")
+        format_callable_body_summary(&store, pkg_id, "Main")
     )];
 
     run_pipeline_to_successfully(
@@ -385,7 +278,7 @@ fn terminal_result_block_shape_stays_valid_across_stage_boundaries() {
     );
     snapshots.push(format!(
         "PostReturnUnify\n{}",
-        callable_body_summary(&post_return_store, post_return_pkg_id, "Main")
+        format_callable_body_summary(&post_return_store, post_return_pkg_id, "Main")
     ));
     assert_callable_body_terminal_expr_matches_block_type(
         &post_return_store,
@@ -396,7 +289,7 @@ fn terminal_result_block_shape_stays_valid_across_stage_boundaries() {
     run_pipeline_to_successfully(&mut post_all_store, post_all_pkg_id, PipelineStage::Full);
     snapshots.push(format!(
         "PostAll\n{}",
-        callable_body_summary(&post_all_store, post_all_pkg_id, "Main")
+        format_callable_body_summary(&post_all_store, post_all_pkg_id, "Main")
     ));
     assert_callable_body_terminal_expr_matches_block_type(&post_all_store, post_all_pkg_id, "Main");
 
@@ -591,7 +484,10 @@ fn composite_while_return_survives_full_pipeline() {
     );
 
     let result = run_pipeline_with_diagnostics(&mut fir_store, fir_pkg_id);
-    assert_no_pipeline_errors("run_pipeline", &result.errors);
+    assert_no_pipeline_errors(
+        "pipeline_integration::composite_while_return_survives_full_pipeline::run_pipeline(Full)",
+        &result.errors,
+    );
 
     let package = fir_store.get(fir_pkg_id);
     validate(package, &fir_store);
@@ -746,6 +642,11 @@ fn run_pipeline_to_missing_pinned_item_reports_diagnostic_before_exec_rebuild() 
         &[pinned_store_id],
     );
 
+    assert!(
+        result.warnings.is_empty(),
+        "expected no warnings before exec graph rebuild, got:\n{}",
+        format_pipeline_errors(&result.warnings)
+    );
     assert!(
         matches!(
             result.errors.as_slice(),
@@ -1013,7 +914,7 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
         .unwrap_or_else(|| {
             panic!(
                 "MappedByIndex specialization should exist\n{}",
-                reachable_callable_summary(&fir_store, fir_pkg_id)
+                format_reachable_callable_summary(&fir_store, fir_pkg_id)
             )
         });
 
@@ -1041,7 +942,7 @@ fn closure_specialization_preserves_lambda_tuple_call_shape() {
         .unwrap_or_else(|| {
             panic!(
                 "specialized mapper body should call the lifted lambda directly\nmapper body:\n{}\nlambdas:\n{}",
-                callable_body_summary(
+                format_callable_body_summary(
                     &fir_store,
                     fir_pkg_id,
                     mapper.name.name.as_ref(),
@@ -1116,7 +1017,7 @@ fn direct_lambda_calls_preserve_nested_tuple_packaging() {
         .unwrap_or_else(|| {
             panic!(
                 "Main should call the lifted lambda directly\nMain body:\n{}\nlambdas:\n{}",
-                callable_body_summary(&fir_store, fir_pkg_id, "Main"),
+                format_callable_body_summary(&fir_store, fir_pkg_id, "Main"),
                 lambda_names.join("\n")
             )
         });
@@ -1396,6 +1297,7 @@ fn cross_package_multi_field_udt_with_callable_field() {
 ///
 /// Returns `(staged_store, staged_pkg, full_store, full_pkg)` for callers that
 /// need stage-specific assertions beyond the common checks.
+#[track_caller]
 fn assert_stage_parity(
     source: &str,
     stage: PipelineStage,
@@ -1408,6 +1310,7 @@ fn assert_stage_parity(
 ) {
     let (mut staged_store, staged_pkg_id, _) = compile_and_lower(source);
     let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
+    let parity_context = format!("stage={stage:?} invariant={invariant_level:?}");
 
     run_pipeline_to_successfully(&mut staged_store, staged_pkg_id, stage);
     run_pipeline_successfully(&mut full_store, full_pkg_id);
@@ -1422,14 +1325,14 @@ fn assert_stage_parity(
     let full_callables = reachable_callable_names(&full_store, full_pkg_id);
     assert_eq!(
         staged_callables, full_callables,
-        "stage {stage:?} callable set differs from Full"
+        "{parity_context} view=reachable_callable_names differs from Full"
     );
 
     // Type summary parity.
     assert_eq!(
-        reachable_callable_summary(&staged_store, staged_pkg_id),
-        reachable_callable_summary(&full_store, full_pkg_id),
-        "stage {stage:?} callable summaries differ from Full"
+        format_reachable_callable_summary(&staged_store, staged_pkg_id),
+        format_reachable_callable_summary(&full_store, full_pkg_id),
+        "{parity_context} view=reachable_callable_summary differs from Full"
     );
 
     (staged_store, staged_pkg_id, full_store, full_pkg_id)
@@ -1454,8 +1357,8 @@ fn stage_parity_mono_monomorphization_preserves_callable_types() {
     );
 
     assert_eq!(
-        callable_body_summary(&staged, staged_pkg, "Main"),
-        callable_body_summary(&full, full_pkg, "Main"),
+        format_callable_body_summary(&staged, staged_pkg, "Main"),
+        format_callable_body_summary(&full, full_pkg, "Main"),
         "Main body shape should already match full pipeline after Mono for pure generic calls"
     );
 }
@@ -1479,8 +1382,8 @@ fn stage_parity_defunc_defunctionalization_eliminates_callable_types() {
     );
 
     assert_eq!(
-        callable_body_summary(&staged, staged_pkg, "Main"),
-        callable_body_summary(&full, full_pkg, "Main"),
+        format_callable_body_summary(&staged, staged_pkg, "Main"),
+        format_callable_body_summary(&full, full_pkg, "Main"),
         "Main body shape should stay stable after defunctionalization for direct H calls"
     );
 }
@@ -1506,8 +1409,8 @@ fn stage_parity_udt_erase_eliminates_udt_types() {
     );
 
     assert_eq!(
-        callable_body_summary(&staged, staged_pkg, "Extract"),
-        callable_body_summary(&full, full_pkg, "Extract"),
+        format_callable_body_summary(&staged, staged_pkg, "Extract"),
+        format_callable_body_summary(&full, full_pkg, "Extract"),
         "single-field erased UDT accessor body should match the full pipeline"
     );
 }
@@ -1529,7 +1432,7 @@ fn stage_parity_tuple_comp_lower_lowers_tuple_equality() {
         invariants::InvariantLevel::PostTupleCompLower,
     );
 
-    let main_body = callable_body_summary(&staged, staged_pkg, "Main");
+    let main_body = format_callable_body_summary(&staged, staged_pkg, "Main");
     assert!(
         main_body.contains("BinOp(AndL)"),
         "tuple equality should lower to a conjunction in Main body:\n{main_body}"
@@ -1555,8 +1458,8 @@ fn stage_parity_sroa_body_shape_matches_full_pipeline() {
 
     for name in &reachable_callable_names(&full, full_pkg) {
         assert_eq!(
-            callable_body_summary(&staged, staged_pkg, name),
-            callable_body_summary(&full, full_pkg, name),
+            format_callable_body_summary(&staged, staged_pkg, name),
+            format_callable_body_summary(&full, full_pkg, name),
             "callable '{name}' body must match after SROA and full pipeline"
         );
     }
@@ -1578,8 +1481,8 @@ fn stage_parity_item_dce_reachable_surface_matches_full_pipeline() {
     );
 
     assert_eq!(
-        callable_body_summary(&staged, staged_pkg, "Main"),
-        callable_body_summary(&full, full_pkg, "Main"),
+        format_callable_body_summary(&staged, staged_pkg, "Main"),
+        format_callable_body_summary(&full, full_pkg, "Main"),
         "entry body should match full pipeline after ItemDce"
     );
 }
@@ -1606,8 +1509,8 @@ fn stage_parity_exec_graph_rebuild_reconstructs_execution_graph() {
 
     for name in &reachable_callable_names(&full, full_pkg) {
         assert_eq!(
-            callable_body_summary(&staged, staged_pkg, name),
-            callable_body_summary(&full, full_pkg, name),
+            format_callable_body_summary(&staged, staged_pkg, name),
+            format_callable_body_summary(&full, full_pkg, name),
             "callable '{name}' body must match after ExecGraphRebuild and full pipeline"
         );
     }

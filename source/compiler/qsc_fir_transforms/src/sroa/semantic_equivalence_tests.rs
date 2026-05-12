@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(feature = "slow-proptest-tests")]
 use indoc::formatdoc;
 use indoc::indoc;
+#[cfg(feature = "slow-proptest-tests")]
 use proptest::prelude::*;
 
 #[test]
@@ -50,6 +52,7 @@ fn mutable_tuple_update_split_preserves_semantics() {
     "#});
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 fn sroa_tuple_local_pattern() -> impl Strategy<Value = String> {
     (2..=5usize, 1..=3usize).prop_map(|(width, depth)| {
         let type_defs = sroa_struct_defs(width, depth);
@@ -71,6 +74,7 @@ fn sroa_tuple_local_pattern() -> impl Strategy<Value = String> {
     })
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 fn sroa_struct_defs(width: usize, depth: usize) -> String {
     (1..=depth)
         .map(|level| {
@@ -89,6 +93,7 @@ fn sroa_struct_defs(width: usize, depth: usize) -> String {
         .join("\n")
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 fn sroa_struct_value(width: usize, level: usize, offset: usize) -> String {
     let assignments = (0..width)
         .map(|field_index| {
@@ -109,6 +114,7 @@ fn sroa_struct_value(width: usize, level: usize, offset: usize) -> String {
     format!("new TupleLevel{level} {{ {assignments} }}")
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 fn sroa_field_path(field_index: usize, depth: usize) -> String {
     (0..depth)
         .map(|_| format!("F{field_index}"))
@@ -116,6 +122,7 @@ fn sroa_field_path(field_index: usize, depth: usize) -> String {
         .join(".")
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
 

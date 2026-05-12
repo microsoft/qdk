@@ -45,7 +45,7 @@
 #[cfg(test)]
 mod tests;
 
-#[cfg(all(test, feature = "slow-proptest-tests"))]
+#[cfg(test)]
 mod semantic_equivalence_tests;
 
 use crate::fir_builder::{alloc_bin_op_expr, alloc_field_expr, reachable_local_callables};
