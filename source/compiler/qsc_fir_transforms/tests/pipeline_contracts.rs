@@ -20,8 +20,8 @@
 //! reachability-based checks rather than returning early.
 
 use qsc_fir_transforms::{
-    invariants, run_pipeline_with_diagnostics,
-    test_utils::{assert_no_pipeline_errors, compile_to_fir},
+    invariants,
+    test_utils::{assert_full_pipeline_succeeds, compile_to_fir},
 };
 
 // ---------------------------------------------------------------------------
@@ -36,8 +36,7 @@ fn compile_and_run_full_pipeline(
     source: &str,
 ) -> (qsc_fir::fir::PackageStore, qsc_fir::fir::PackageId) {
     let (mut store, pkg_id) = compile_to_fir(source);
-    let result = run_pipeline_with_diagnostics(&mut store, pkg_id);
-    assert_no_pipeline_errors("run_pipeline", &result.errors);
+    assert_full_pipeline_succeeds("pipeline_contracts::run_pipeline(Full)", &mut store, pkg_id);
     (store, pkg_id)
 }
 

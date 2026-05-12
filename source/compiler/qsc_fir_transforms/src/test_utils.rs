@@ -20,8 +20,8 @@ use qsc_frontend::compile::{self as frontend_compile, PackageStore as HirPackage
 use qsc_hir::hir::PackageId;
 use qsc_passes::{PackageType, lower_hir_to_fir, run_core_passes, run_default_passes};
 use rustc_hash::FxHashMap;
+use std::cell::RefCell;
 
-#[cfg(test)]
 use qsc_lowerer::map_hir_package_to_fir;
 
 pub(crate) use crate::PipelineStage;
@@ -63,15 +63,75 @@ pub fn assert_no_pipeline_warnings(context: &str, warnings: &[crate::PipelineErr
     );
 }
 
+#[must_use]
+pub fn format_pipeline_errors(errors: &[crate::PipelineError]) -> String {
+    if errors.is_empty() {
+        "(no error)".to_string()
+    } else {
+        format_errors(errors)
+    }
+}
+
+/// Metadata prepended to transform snapshot views so failures carry their
+/// scenario, pipeline stage, rendered surface, and protected claim.
+#[derive(Clone, Copy, Debug)]
+pub struct TransformSnapshotCase {
+    pub case: &'static str,
+    pub stage: PipelineStage,
+    pub view: &'static str,
+    pub claim: &'static str,
+}
+
+#[must_use]
+pub fn format_transform_snapshot(
+    case: &TransformSnapshotCase,
+    actual_view: impl std::fmt::Display,
+) -> String {
+    format!(
+        "case={}\nstage={:?}\nview={}\nclaim={}\n\n{}",
+        case.case, case.stage, case.view, case.claim, actual_view
+    )
+}
+
 /// Asserts that a warning-aware pipeline result has no fatal errors.
 pub fn assert_pipeline_succeeded(context: &str, result: &crate::PipelineResult) {
     assert_no_pipeline_errors(context, &result.errors);
+}
+
+pub fn assert_pipeline_stage_succeeds(
+    context: &str,
+    store: &mut fir::PackageStore,
+    pkg_id: fir::PackageId,
+    stage: PipelineStage,
+) -> crate::PipelineResult {
+    let result = crate::run_pipeline_to_with_diagnostics(store, pkg_id, stage, &[]);
+    assert_no_pipeline_errors(context, &result.errors);
+    result
+}
+
+pub fn assert_full_pipeline_succeeds(
+    context: &str,
+    store: &mut fir::PackageStore,
+    pkg_id: fir::PackageId,
+) -> crate::PipelineResult {
+    let result = crate::run_pipeline_with_diagnostics(store, pkg_id);
+    assert_no_pipeline_errors(context, &result.errors);
+    result
+}
+
+thread_local! {
+    static STDLIB_PACKAGE_STORES: RefCell<FxHashMap<TargetCapabilityFlags, HirPackageStore>> =
+        RefCell::default();
 }
 
 /// Sets up an HIR package store containing core + std libraries with default
 /// passes applied, using the given target capabilities.
 #[must_use]
 pub fn package_store_with_stdlib(capabilities: TargetCapabilityFlags) -> HirPackageStore {
+    build_package_store_with_stdlib(capabilities)
+}
+
+fn build_package_store_with_stdlib(capabilities: TargetCapabilityFlags) -> HirPackageStore {
     let mut core_unit = frontend_compile::core();
     assert_no_compile_errors("core library", &core_unit.errors);
     let core_errors = run_core_passes(&mut core_unit);
@@ -88,6 +148,75 @@ pub fn package_store_with_stdlib(capabilities: TargetCapabilityFlags) -> HirPack
     store.insert(std_unit);
 
     store
+}
+
+fn with_cached_stdlib_store<T>(
+    capabilities: TargetCapabilityFlags,
+    f: impl FnOnce(&HirPackageStore, PackageId) -> T,
+) -> T {
+    STDLIB_PACKAGE_STORES.with(|stores| {
+        let missing = !stores.borrow().contains_key(&capabilities);
+        if missing {
+            let store = build_package_store_with_stdlib(capabilities);
+            stores.borrow_mut().insert(capabilities, store);
+        }
+
+        let stores = stores.borrow();
+        let store = stores
+            .get(&capabilities)
+            .expect("cached stdlib store should exist");
+        f(store, PackageId::CORE.successor())
+    })
+}
+
+fn lower_cached_stdlib_and_user_to_fir(
+    store: &HirPackageStore,
+    std_id: PackageId,
+    user_unit: &frontend_compile::CompileUnit,
+) -> (fir::PackageStore, fir::PackageId) {
+    let user_hir_id = user_unit.package_id();
+    let core_unit = store
+        .get(PackageId::CORE)
+        .expect("cached core package should exist");
+    let std_unit = store.get(std_id).expect("cached std package should exist");
+
+    let mut fir_store = fir::PackageStore::new();
+    for (hir_id, unit) in [(PackageId::CORE, core_unit), (std_id, std_unit)] {
+        let mut lowerer = qsc_lowerer::Lowerer::new();
+        let package = lowerer.lower_package(&unit.package, &fir_store);
+        fir_store.insert(map_hir_package_to_fir(hir_id), package);
+    }
+
+    let mut lowerer = qsc_lowerer::Lowerer::new();
+    let user_package = lowerer.lower_package(&user_unit.package, &fir_store);
+    let fir_pkg_id = map_hir_package_to_fir(user_hir_id);
+    fir_store.insert(fir_pkg_id, user_package);
+
+    (fir_store, fir_pkg_id)
+}
+
+fn compile_to_fir_with_cached_stdlib(
+    source: &str,
+    entry: Option<&str>,
+    capabilities: TargetCapabilityFlags,
+) -> (fir::PackageStore, fir::PackageId) {
+    with_cached_stdlib_store(capabilities, |store, std_id| {
+        let sources = SourceMap::new(
+            vec![("test.qs".into(), source.into())],
+            entry.map(Into::into),
+        );
+        let mut unit = frontend_compile::compile(
+            store,
+            &[(PackageId::CORE, None), (std_id, None)],
+            sources,
+            capabilities,
+            LanguageFeatures::default(),
+        );
+        assert_no_compile_errors("user code", &unit.errors);
+        let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Exe);
+        assert!(pass_errors.is_empty(), "user code has compilation errors");
+        lower_cached_stdlib_and_user_to_fir(store, std_id, &unit)
+    })
 }
 
 /// Convenience wrapper around [`package_store_with_stdlib`] that passes
@@ -115,22 +244,7 @@ pub fn compile_to_fir_with_capabilities(
     source: &str,
     capabilities: TargetCapabilityFlags,
 ) -> (fir::PackageStore, fir::PackageId) {
-    let mut store = package_store_with_stdlib(capabilities);
-    let std_id = PackageId::CORE.successor();
-    let sources = SourceMap::new(vec![("test.qs".into(), source.into())], None);
-    let mut unit = frontend_compile::compile(
-        &store,
-        &[(PackageId::CORE, None), (std_id, None)],
-        sources,
-        capabilities,
-        LanguageFeatures::default(),
-    );
-    assert_no_compile_errors("user code", &unit.errors);
-    let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Exe);
-    assert!(pass_errors.is_empty(), "user code has compilation errors");
-    let hir_package_id = store.insert(unit);
-    let (fir_store, fir_pkg_id, _) = lower_hir_to_fir(&store, hir_package_id);
-    (fir_store, fir_pkg_id)
+    compile_to_fir_with_cached_stdlib(source, None, capabilities)
 }
 
 /// Compiles a library Q# source and user Q# source through
@@ -235,22 +349,7 @@ pub fn compile_to_monomorphized_fir_with_capabilities(
 /// Returns a FIR store with no transforms applied.
 #[must_use]
 pub fn compile_to_fir_with_entry(source: &str, entry: &str) -> (fir::PackageStore, fir::PackageId) {
-    let mut store = package_store_with_stdlib(TargetCapabilityFlags::empty());
-    let std_id = PackageId::CORE.successor();
-    let sources = SourceMap::new(vec![("test.qs".into(), source.into())], Some(entry.into()));
-    let mut unit = frontend_compile::compile(
-        &store,
-        &[(PackageId::CORE, None), (std_id, None)],
-        sources,
-        TargetCapabilityFlags::empty(),
-        LanguageFeatures::default(),
-    );
-    assert_no_compile_errors("user code", &unit.errors);
-    let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Exe);
-    assert!(pass_errors.is_empty(), "user code has compilation errors");
-    let hir_package_id = store.insert(unit);
-    let (fir_store, fir_pkg_id, _) = lower_hir_to_fir(&store, hir_package_id);
-    (fir_store, fir_pkg_id)
+    compile_to_fir_with_cached_stdlib(source, Some(entry), TargetCapabilityFlags::empty())
 }
 
 /// Compiles Q# source and runs the FIR optimization pipeline up to the given
@@ -653,6 +752,89 @@ pub(crate) fn find_callable<'a>(package: &'a Package, callable_name: &str) -> &'
         .unwrap_or_else(|| panic!("callable '{callable_name}' not found"))
 }
 
+fn callable_body_spec<'a>(decl: &'a CallableDecl, callable_name: &str) -> &'a SpecDecl {
+    match &decl.implementation {
+        CallableImpl::Spec(spec_impl) => &spec_impl.body,
+        CallableImpl::SimulatableIntrinsic(spec) => spec,
+        CallableImpl::Intrinsic => panic!("callable '{callable_name}' should have a body"),
+    }
+}
+
+#[must_use]
+pub fn format_reachable_callable_summary(
+    store: &fir::PackageStore,
+    pkg_id: fir::PackageId,
+) -> String {
+    let package = store.get(pkg_id);
+    let reachable = crate::reachability::collect_reachable_from_entry(store, pkg_id);
+
+    let mut lines = Vec::new();
+    for store_id in &reachable {
+        if store_id.package != pkg_id {
+            continue;
+        }
+        let item = package.get_item(store_id.item);
+        if let ItemKind::Callable(decl) = &item.kind {
+            let pat = package.get_pat(decl.input);
+            lines.push(format!(
+                "{}: input_ty={}, output_ty={}",
+                decl.name.name, pat.ty, decl.output
+            ));
+        }
+    }
+    lines.sort();
+    lines.join("\n")
+}
+
+#[must_use]
+pub fn format_callable_body_summary(
+    store: &fir::PackageStore,
+    pkg_id: fir::PackageId,
+    callable_name: &str,
+) -> String {
+    let package = store.get(pkg_id);
+    let decl = find_callable(package, callable_name);
+    let spec = callable_body_spec(decl, callable_name);
+    let block = package.get_block(spec.block);
+
+    let mut lines = vec![format!("block_ty={}", block.ty)];
+    for (index, stmt_id) in block.stmts.iter().enumerate() {
+        let stmt = package.get_stmt(*stmt_id);
+        let line = match &stmt.kind {
+            StmtKind::Expr(expr_id) => {
+                let expr = package.get_expr(*expr_id);
+                format!(
+                    "[{index}] Expr ty={} {}",
+                    expr.ty,
+                    expr_kind_short(package, *expr_id)
+                )
+            }
+            StmtKind::Semi(expr_id) => {
+                let expr = package.get_expr(*expr_id);
+                format!(
+                    "[{index}] Semi ty={} {}",
+                    expr.ty,
+                    expr_kind_short(package, *expr_id)
+                )
+            }
+            StmtKind::Local(_, pat_id, expr_id) => {
+                let pat = package.get_pat(*pat_id);
+                let expr = package.get_expr(*expr_id);
+                format!(
+                    "[{index}] Local pat_ty={} init_ty={} {}",
+                    pat.ty,
+                    expr.ty,
+                    expr_kind_short(package, *expr_id)
+                )
+            }
+            StmtKind::Item(local_item_id) => format!("[{index}] Item {local_item_id}"),
+        };
+        lines.push(line);
+    }
+
+    lines.join("\n")
+}
+
 /// Compiles Q# source through the full FIR pipeline, then generates QIR via
 /// partial evaluation and codegen. Uses Adaptive + `IntegerComputations`
 /// capabilities so that Result-comparison programs can be lowered.
@@ -712,47 +894,17 @@ pub(crate) fn try_eval_fir_entry(
     .map_err(|(err, _frames)| format!("{err:?}"))
 }
 
-/// Compiles Q# source to FIR using a single lowerer (matching the
-/// `qsc_eval` test pattern), and evaluates the entry exec graph.
+/// Compiles Q# source to FIR with cached core/std HIR setup and evaluates the
+/// entry exec graph.
 ///
 /// The FIR has no transforms applied — this captures the original program
 /// semantics.
 #[cfg(test)]
 #[allow(dead_code)]
 pub(crate) fn eval_qsharp_original(source: &str) -> Result<qsc_eval::val::Value, String> {
-    let mut lowerer = qsc_lowerer::Lowerer::new();
-    let mut core = frontend_compile::core();
-    run_core_passes(&mut core);
-    let fir_store = fir::PackageStore::new();
-    let core_fir = lowerer.lower_package(&core.package, &fir_store);
-    let mut hir_store = HirPackageStore::new(core);
-
-    let mut std = frontend_compile::std(&hir_store, TargetCapabilityFlags::empty());
-    assert!(std.errors.is_empty());
-    assert!(run_default_passes(hir_store.core(), &mut std, PackageType::Lib).is_empty());
-    let std_fir = lowerer.lower_package(&std.package, &fir_store);
-    let std_id = hir_store.insert(std);
-
-    let sources = SourceMap::new(vec![("test.qs".into(), source.into())], None);
-    let mut unit = frontend_compile::compile(
-        &hir_store,
-        &[(PackageId::CORE, None), (std_id, None)],
-        sources,
-        TargetCapabilityFlags::empty(),
-        LanguageFeatures::default(),
-    );
-    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
-    let pass_errors = run_default_passes(hir_store.core(), &mut unit, PackageType::Exe);
-    assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = lowerer.lower_package(&unit.package, &fir_store);
-    let user_hir_id = hir_store.insert(unit);
-
-    let mut fir_store = fir::PackageStore::new();
-    fir_store.insert(map_hir_package_to_fir(PackageId::CORE), core_fir);
-    fir_store.insert(map_hir_package_to_fir(std_id), std_fir);
-    fir_store.insert(map_hir_package_to_fir(user_hir_id), unit_fir);
-
-    try_eval_fir_entry(&fir_store, map_hir_package_to_fir(user_hir_id))
+    let (fir_store, pkg_id) =
+        compile_to_fir_with_cached_stdlib(source, None, TargetCapabilityFlags::empty());
+    try_eval_fir_entry(&fir_store, pkg_id)
 }
 
 /// Compiles library + user Q# source to FIR using a single lowerer (no

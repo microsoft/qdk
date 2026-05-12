@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(feature = "slow-proptest-tests")]
 use indoc::formatdoc;
 use indoc::indoc;
+#[cfg(feature = "slow-proptest-tests")]
 use proptest::prelude::*;
 
 #[test]
@@ -56,6 +58,7 @@ fn mixed_scalar_and_tuple_params_preserves_semantics() {
     "#});
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 fn tuple_parameter_argument_pattern() -> impl Strategy<Value = String> {
     (2usize..=4, prop::collection::vec(-20i64..=20, 4)).prop_map(|(width, argument_values)| {
         let parameter_type = (0..width).map(|_| "Int").collect::<Vec<_>>().join(", ");
@@ -86,6 +89,7 @@ fn tuple_parameter_argument_pattern() -> impl Strategy<Value = String> {
     })
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
 
@@ -95,10 +99,12 @@ proptest! {
     }
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 fn qsharp_bool(value: bool) -> &'static str {
     if value { "true" } else { "false" }
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 fn nested_mixed_struct_callable_strategy() -> impl Strategy<Value = String> {
     (
         -20i64..=20,
@@ -139,6 +145,7 @@ fn nested_mixed_struct_callable_strategy() -> impl Strategy<Value = String> {
         })
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(32))]
 

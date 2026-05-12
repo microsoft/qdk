@@ -1,8 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(feature = "slow-proptest-tests")]
 use indoc::formatdoc;
 use indoc::indoc;
+#[cfg(feature = "slow-proptest-tests")]
 use proptest::prelude::*;
 
 #[test]
@@ -47,6 +49,7 @@ fn nested_tuple_eq_preserves_semantics() {
     "#});
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 fn flat_int_tuple_comparison_pattern() -> impl Strategy<Value = String> {
     (
         2usize..=4,
@@ -82,6 +85,7 @@ fn flat_int_tuple_comparison_pattern() -> impl Strategy<Value = String> {
         })
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(50))]
 
@@ -91,10 +95,12 @@ proptest! {
     }
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 fn qsharp_bool(value: bool) -> &'static str {
     if value { "true" } else { "false" }
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 fn nested_mixed_tuple_comparison_strategy() -> impl Strategy<Value = String> {
     (
         prop::bool::ANY,
@@ -143,6 +149,7 @@ fn nested_mixed_tuple_comparison_strategy() -> impl Strategy<Value = String> {
         )
 }
 
+#[cfg(feature = "slow-proptest-tests")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(32))]
 

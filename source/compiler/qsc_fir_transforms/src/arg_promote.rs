@@ -137,7 +137,7 @@
 #[cfg(test)]
 mod tests;
 
-#[cfg(all(test, feature = "slow-proptest-tests"))]
+#[cfg(test)]
 mod semantic_equivalence_tests;
 
 use crate::EMPTY_EXEC_RANGE;
