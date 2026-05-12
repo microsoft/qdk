@@ -65,7 +65,6 @@ import sys
 import types
 from time import monotonic
 
-
 # Global default context instance used by methods in this module.
 _default_context: Optional[Context] = None
 
@@ -135,9 +134,12 @@ def init(
 
     # Dispose the old context so its callables fail gracefully.
     if _default_context is not None:
-        _default_context._disposed = True
+        _default_context.dispose()
 
     # Clean up the global code namespace before creating a new context.
+    # `dispose()` above already cleared this for the previous default context;
+    # the explicit call is kept as a defensive no-op so the flow remains clear
+    # even on first init when there is no previous default to dispose.
     code_prefix = "qdk.code"
     _clear_code_module(code, code_prefix)
 

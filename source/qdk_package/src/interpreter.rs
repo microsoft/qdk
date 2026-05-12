@@ -38,7 +38,7 @@ use miette::{Diagnostic, Report};
 use num_bigint::BigUint;
 use num_complex::Complex64;
 use pyo3::{
-    IntoPyObjectExt, create_exception,
+    IntoPyObjectExt, PyTraverseError, PyVisit, create_exception,
     exceptions::{PyException, PyValueError},
     prelude::*,
     types::{PyDict, PyList, PyString, PyTuple, PyType},
@@ -403,6 +403,30 @@ thread_local! { static PACKAGE_CACHE: Rc<RefCell<PackageCache>> = Rc::default();
 #[pymethods]
 /// A Q# interpreter.
 impl Interpreter {
+    /// Visits the Python callback fields so Python's cyclic garbage
+    /// collector can detect reference cycles that pass through this
+    /// pyclass. Defining `__traverse__` (together with `__clear__`)
+    /// auto-enables PyO3's GC integration in PyO3 0.21+.
+    #[allow(clippy::needless_pass_by_value)]
+    fn __traverse__(&self, visit: PyVisit<'_>) -> std::result::Result<(), PyTraverseError> {
+        if let Some(cb) = &self.make_callable {
+            visit.call(cb)?;
+        }
+        if let Some(cb) = &self.make_class {
+            visit.call(cb)?;
+        }
+        Ok(())
+    }
+
+    /// Drops the Python callback references during cyclic GC clearing.
+    /// Existing call sites already handle the `None` case, so subsequent
+    /// invocations will surface a clear "callback missing" error path
+    /// rather than dereference a stale reference.
+    fn __clear__(&mut self) {
+        self.make_callable = None;
+        self.make_class = None;
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::needless_pass_by_value)]
     #[pyo3(signature = (target_profile, language_features=None, project_root=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, make_callable=None, make_class=None, trace_circuit=None))]

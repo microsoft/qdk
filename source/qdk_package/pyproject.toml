@@ -46,6 +46,10 @@ all = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-m 'not slow'"
+markers = [
+    "slow: marks tests as slow (deselected by default; run explicitly with `-m slow`)",
+]
 
 [tool.maturin]
 module-name = "qdk._native"

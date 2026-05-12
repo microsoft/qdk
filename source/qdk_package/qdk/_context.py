@@ -11,6 +11,7 @@ independent Q# environments to coexist.
 
 import sys
 import types
+import weakref
 from dataclasses import make_dataclass
 from time import monotonic
 from typing import (
@@ -81,6 +82,21 @@ def ipython_helper():
         pass
 
 
+def _safe_clear_code_module(code_module, prefix):
+    """Backstop cleanup invoked from a `weakref.finalize` callback.
+
+    Swallows all exceptions because Python may have already torn down
+    `sys.modules` or other interpreter state by the time finalizers run
+    at shutdown.
+    """
+    try:
+        from ._interpreter import _clear_code_module
+
+        _clear_code_module(code_module, prefix)
+    except Exception:
+        pass
+
+
 def make_class_rec(qsharp_type: TypeIR) -> type:
     class_name = qsharp_type.unwrap_udt().name
     fields = {}
@@ -146,6 +162,16 @@ class Context:
         ctx.eval("operation Main() : Result { use q = Qubit(); X(q); MResetZ(q) }")
         assert ctx.run("Main()", 2) == [qdk.Result.One, qdk.Result.One]
         assert ctx.code.Main() == qdk.Result.One
+
+    For deterministic cleanup of the context's dynamically registered code
+    namespace, use the context manager form, which calls :meth:`dispose` on
+    block exit:
+
+    .. code-block:: python
+
+        with qdk.Context() as ctx:
+            ctx.eval("function Foo() : Int { 42 }")
+            assert ctx.code.Foo() == 42
     """
 
     _interpreter: Interpreter
@@ -153,6 +179,8 @@ class Context:
     code: types.ModuleType
     _code_prefix: str
     _disposed: bool
+    _is_default_context: bool
+    _finalizer: weakref.finalize
 
     def __init__(
         self,
@@ -189,12 +217,27 @@ class Context:
         """
         self._disposed = False
 
+        # Only the default context (constructed by `qdk.init()` with the
+        # global `qdk.code` module) participates in the `from qsharp.code.<ns>
+        # import …` import-statement path. For non-default contexts the
+        # namespace is reachable via `ctx.code.<ns>.<Name>` attribute access
+        # without registering anything in `sys.modules`. Skipping the
+        # registration removes a leak vector entirely.
+        self._is_default_context = _code_module is not None
+
         if _code_module is not None:
             self.code = _code_module
             self._code_prefix = _code_prefix or "qsharp.code"
         else:
             self._code_prefix = f"qsharp._context_{id(self)}"
             self.code = types.ModuleType(self._code_prefix)
+
+        # Backstop cleanup: if this Context is garbage-collected without an
+        # explicit `dispose()` call, clear its sys.modules namespace entries
+        # to avoid leaking module state.
+        self._finalizer = weakref.finalize(
+            self, _safe_clear_code_module, self.code, self._code_prefix
+        )
 
         from ._fs import exists, join, list_directory, read_file, resolve
         from ._http import fetch_github
@@ -226,6 +269,23 @@ class Context:
                     f"Error reading {qsharp_json}. qsharp.json should exist at the project root and be a valid JSON file."
                 ) from e
 
+        # Use weakref-bound shims for the Interpreter callbacks so the native
+        # Interpreter does not hold strong references back to this Context,
+        # which would create an unbreakable Python <-> Rust reference cycle.
+        weak_self = weakref.ref(self)
+
+        def _make_callable_shim(callable, namespace, callable_name):
+            ctx = weak_self()
+            if ctx is None:
+                return
+            ctx._make_callable(callable, namespace, callable_name)
+
+        def _make_class_shim(qsharp_type, namespace, class_name):
+            ctx = weak_self()
+            if ctx is None:
+                return
+            ctx._make_class(qsharp_type, namespace, class_name)
+
         self._interpreter = Interpreter(
             target_profile,
             language_features,
@@ -234,8 +294,8 @@ class Context:
             list_directory,
             resolve,
             fetch_github,
-            self._make_callable,
-            self._make_class,
+            _make_callable_shim,
+            _make_class_shim,
             _trace_circuit,
         )
 
@@ -373,28 +433,37 @@ class Context:
             accumulated_namespace += name
             if hasattr(module, name):
                 module = module.__getattribute__(name)
-                if sys.modules.get(accumulated_namespace) is None:
+                if (
+                    self._is_default_context
+                    and sys.modules.get(accumulated_namespace) is None
+                ):
                     sys.modules[accumulated_namespace] = module
             else:
                 new_module = types.ModuleType(accumulated_namespace)
                 module.__setattr__(name, new_module)
-                sys.modules[accumulated_namespace] = new_module
+                if self._is_default_context:
+                    sys.modules[accumulated_namespace] = new_module
                 module = new_module
             accumulated_namespace += "."
 
+        # Capture only a weakref to self so the generated callable does not
+        # keep its owning Context (and the native Interpreter) alive.
+        weak_self = weakref.ref(self)
+
         def _callable_fn(*args):
-            if self._disposed:
+            ctx = weak_self()
+            if ctx is None or ctx._disposed:
                 raise QSharpError(
                     "This callable belongs to a disposed Q# context. "
                     "Re-evaluate the callable in a current context."
                 )
             ipython_helper()
 
-            args = self._python_args_to_interpreter_args(args)
-            output = self._interpreter.invoke(callable, args, self._display)
-            return self._qsharp_value_to_python_value(output)
+            args = ctx._python_args_to_interpreter_args(args)
+            output = ctx._interpreter.invoke(callable, args, ctx._display)
+            return ctx._qsharp_value_to_python_value(output)
 
-        setattr(_callable_fn, "_qdk_context", self)
+        setattr(_callable_fn, "_qdk_context", weak_self)
         setattr(_callable_fn, "__global_callable", callable)
 
         if module.__dict__.get(callable_name) is None:
@@ -416,20 +485,27 @@ class Context:
             else:
                 new_module = types.ModuleType(accumulated_namespace)
                 module.__setattr__(name, new_module)
-                sys.modules[accumulated_namespace] = new_module
+                if self._is_default_context:
+                    sys.modules[accumulated_namespace] = new_module
                 module = new_module
             accumulated_namespace += "."
 
         QSharpClass = make_class_rec(qsharp_type)
         QSharpClass.__qsharp_class = True
-        setattr(QSharpClass, "_qdk_context", self)
+        setattr(QSharpClass, "_qdk_context", weakref.ref(self))
         module.__setattr__(class_name, QSharpClass)
 
     def _check_same_context_callable(self, callable_fn: Any) -> None:
         """Raise if a callable belongs to a different context."""
         # Callable must originate from Q#, so it always has a context.
         assert hasattr(callable_fn, "_qdk_context")
-        callable_context = getattr(callable_fn, "_qdk_context")
+        # _qdk_context is a weakref to the owning Context; dereference it.
+        callable_context = getattr(callable_fn, "_qdk_context")()
+        if callable_context is None:
+            raise QSharpError(
+                "This callable belongs to a disposed Q# context. "
+                "Re-evaluate the callable in a current context."
+            )
         if callable_context is not self:
             raise QSharpError("This callable belongs to a different Context. ")
 
@@ -441,8 +517,44 @@ class Context:
         if not hasattr(struct_type, "_qdk_context"):
             # Ignore objects not originating from Q#.
             return
-        if getattr(struct_type, "_qdk_context") is not self:
+        # _qdk_context is a weakref to the owning Context; dereference it.
+        struct_context = getattr(struct_type, "_qdk_context")()
+        if struct_context is None:
+            raise QSharpError(
+                "This callable belongs to a disposed Q# context. "
+                "Re-evaluate the callable in a current context."
+            )
+        if struct_context is not self:
             raise QSharpError("This struct belongs to a different Context. ")
+
+    def dispose(self) -> None:
+        """Releases this context's dynamically registered code namespace.
+
+        Marks the context as disposed (so any callables previously created
+        via ``self.code.<Name>`` raise a clear error) and removes the
+        attributes and ``sys.modules`` entries that were added on its
+        behalf. Safe to call more than once; subsequent calls are no-ops.
+        """
+        if self._disposed:
+            return
+        self._disposed = True
+
+        # Lazy import to avoid a circular import at module load time.
+        from ._interpreter import _clear_code_module
+
+        _clear_code_module(self.code, self._code_prefix)
+
+        # The finalize-based backstop is no longer needed once explicit
+        # cleanup has run; detach it so it does not fire a second time.
+        self._finalizer.detach()
+
+    def __enter__(self) -> "Context":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> Optional[bool]:
+        self.dispose()
+        # Returning None (falsy) re-raises any in-flight exception.
+        return None
 
     def eval(
         self,
