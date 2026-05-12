@@ -11,6 +11,7 @@ independent Q# environments to coexist.
 
 import sys
 import types
+import weakref
 from dataclasses import make_dataclass
 from time import monotonic
 from typing import (
@@ -226,6 +227,26 @@ class Context:
                     f"Error reading {qsharp_json}. qsharp.json should exist at the project root and be a valid JSON file."
                 ) from e
 
+        # Use weakref to avoid circular reference (Context -> Interpreter -> callback ->
+        # Context) that prevents Context from being garbage collected.
+        self_ref = weakref.ref(self)
+
+        def make_callable_weak(
+            callable: GlobalCallable, namespace: List[str], callable_name: str
+        ) -> None:
+            ctx = self_ref()
+            if ctx is None or ctx._disposed:
+                return
+            Context._make_callable(ctx, callable, namespace, callable_name)
+
+        def make_class_weak(
+            qsharp_type: TypeIR, namespace: List[str], class_name: str
+        ) -> None:
+            ctx = self_ref()
+            if ctx is None or ctx._disposed:
+                return
+            Context._make_class(ctx, qsharp_type, namespace, class_name)
+
         self._interpreter = Interpreter(
             target_profile,
             language_features,
@@ -234,8 +255,8 @@ class Context:
             list_directory,
             resolve,
             fetch_github,
-            self._make_callable,
-            self._make_class,
+            make_callable_weak,
+            make_class_weak,
             _trace_circuit,
         )
 
