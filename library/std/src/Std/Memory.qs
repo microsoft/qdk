@@ -10,7 +10,7 @@ function MemoryQubitLoad(q : Qubit) : Unit {
     body intrinsic;
 }
 
-/// Stores a qubit from memory, turning it from "compute"/"hot" "memory"/"cold".
+/// Stores a qubit into memory, turning it from "compute"/"hot" to "memory"/"cold".
 /// Does nothing if qubit is already "memory".
 /// Currently only takes effect for resource estimation with memory-compute architecture
 /// enabled in Manual mode.

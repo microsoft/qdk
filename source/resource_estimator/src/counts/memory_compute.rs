@@ -388,7 +388,7 @@ impl ManualMemoryCompute {
     ) -> Result<(), String> {
         for qid in qubits {
             if self.memory_qubits.contains(&qid) {
-                return Result::Err("Tried to do computation on memory qubit".to_string());
+                return Result::Err("cannot perform computation on memory qubit".to_string());
             }
         }
         Result::Ok(())
@@ -405,6 +405,6 @@ pub enum MemoryCompute {
     /// Gates/measurements on memory qubit will be automatically prepended by load.
     Auto(MemoryComputeInfo),
     /// Qubits are loaded and stored by explicit Load/Store instructions.
-    /// Gates/measurements on memory qubit resul tin error.
+    /// Gates/measurements on memory qubit result in error.
     Manual(ManualMemoryCompute),
 }
