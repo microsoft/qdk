@@ -235,7 +235,7 @@ class Context:
             ctx = self_ref()
             if ctx is None or ctx._disposed:
                 return
-            Context._make_callable(ctx, callable, namespace, callable_name)
+            ctx._make_callable(callable, namespace, callable_name)
 
         def make_class_weak(
             qsharp_type: TypeIR, namespace: List[str], class_name: str
@@ -243,7 +243,7 @@ class Context:
             ctx = self_ref()
             if ctx is None or ctx._disposed:
                 return
-            Context._make_class(ctx, qsharp_type, namespace, class_name)
+            ctx._make_class(qsharp_type, namespace, class_name)
 
         self._interpreter = Interpreter(
             target_profile,
