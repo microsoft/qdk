@@ -3,9 +3,10 @@
 
 //! Return unification pass.
 //!
-//! Eliminates all `ExprKind::Return` nodes from callable bodies, ensuring
-//! every callable has exactly one exit point — the trailing expression of its
-//! top-level block.
+//! Eliminates all `ExprKind::Return` nodes in reachable callable bodies,
+//! ensuring every such callable has exactly one exit point — the trailing
+//! expression of its top-level block. Unreachable callables are left as-is;
+//! see the rationale block above [`unify_returns`] for why this is safe.
 //!
 //! Establishes [`crate::invariants::InvariantLevel::PostReturnUnify`]
 //! (additionally) on top of [`crate::invariants::InvariantLevel::PostMono`]:
@@ -43,12 +44,16 @@
 //!
 //! ## Strategies
 //!
-//! 1. **If-else lifting** (primary, [`transform_block_if_else`]):
+//! Two strategies are available, named to match the test files
+//! `return_unify/tests/structured_strategy.rs` and
+//! `return_unify/tests/flag_strategy.rs`:
+//!
+//! 1. **Structured strategy** (primary, [`transform_block_if_else`]):
 //!    Restructures blocks containing returns into nested if-else expressions.
 //!    Handles guard clauses and branching returns without introducing mutable
 //!    state. Selected for category-A shapes.
 //!
-//! 2. **Flag-based transform** (fallback, [`transform_block_with_flags`]):
+//! 2. **Flag strategy** (fallback, [`transform_block_with_flags`]):
 //!    Introduces `__has_returned` and `__ret_val` mutable locals to handle
 //!    returns inside while loops, leaky nested-if patterns, and block-init
 //!    returns. Selected for category-B, -C, and -D shapes.
@@ -87,8 +92,8 @@
 //! # Dispatch policy
 //!
 //! The function [`should_use_flag_strategy`] is the single dispatch point
-//! that decides, per callable block, whether to use the structured if-else
-//! lifting strategy or fall back to the flag-based transform.
+//! that decides, per callable block, whether to use the structured strategy
+//! or fall back to the flag strategy.
 //!
 //! Fallback detection is driven by [`contains_return_in_while`] and
 //! [`contains_leaky_early_return`], with nested statement/expression scans
@@ -102,24 +107,24 @@
 //!   hit the leaky nested-if shape; the structured strategy lifts them into
 //!   nested if-else expressions.
 //! * **Category B — returns inside while loops.** Any `Return` reachable in a
-//!   `while` body causes [`should_use_flag_strategy`] to select the flag-based
-//!   fallback.
+//!   `while` body causes [`should_use_flag_strategy`] to select the flag
+//!   strategy.
 //! * **Category C — leaky nested-if early returns.** A `Return` under an
 //!   if-without-else chain at depth >= 2 causes
-//!   [`should_use_flag_strategy`] to select the flag-based fallback.
+//!   [`should_use_flag_strategy`] to select the flag strategy.
 //! * **Category D — returns inside block-expression Local initializers.**
 //!   A `Return` inside a `Block` expression used as a `Local` initializer
-//!   causes [`should_use_flag_strategy`] to select the flag-based fallback
+//!   causes [`should_use_flag_strategy`] to select the flag strategy
 //!   (detected by [`contains_return_in_block_init`]).
 //!   Non-block `Local`-initializer `MayReturn` shapes stay on the structured
 //!   path and are rewritten by [`transform_local_init`] via
 //!   [`decompose_returning_init`].
 //!
-//! The flag-strategy fallback is modeled on the LLVM lowering pattern for
-//! early returns (cf. LLVM `UnifyFunctionExitNodes` / `mergereturn`): a
-//! synthesized `__has_returned` slot plus a merge block guard the remainder
-//! of the loop body, preserving the semantics of the original early exit
-//! when category-B, -C, or -D shape makes the structured lowering unsound.
+//! The flag strategy is modeled on the LLVM lowering pattern for early
+//! returns (cf. LLVM `UnifyFunctionExitNodes` / `mergereturn`): a synthesized
+//! `__has_returned` slot plus a merge block guard the remainder of the loop
+//! body, preserving the semantics of the original early exit when category-B,
+//! -C, or -D shape makes the structured lowering unsound.
 //!
 //! # Invariant contracts
 //!
@@ -149,20 +154,8 @@
 //!
 //! # Qubit release interaction
 //!
-//! This pass does not classify or hoist release calls. Release operations are
-//! treated as ordinary side effects, and correctness comes from preserving
-//! control-flow reachability while eliminating `Return` nodes:
-//!
-//! - In structured `if` rewrites, continuation statements (including releases)
-//!   are moved only to fallthrough paths.
-//! - For `if` where both branches always return, trailing continuation is dead
-//!   and removed.
-//! - For `Local` initializer `MayReturn` shapes, the pass decomposes the init
-//!   into an outer guard statement ([`decompose_returning_init`]) so the
-//!   continuation executes only on fallthrough.
-//!
-//! This avoids dedicated release-shape analysis while still preventing
-//! path-duplication bugs such as double release.
+//! Qubit-release handling is intrinsic to `return_unify`; the historical
+//! `release_hoist` pre-pass was folded in.
 //!
 //! Extension: to add a new category, widen [`should_use_flag_strategy`]
 //! and extend the test matrix under `return_unify/normalize/tests.rs`.
@@ -288,11 +281,25 @@ fn build_scoped_udt_pure_ty_cache(
 /// - Establishes [`crate::invariants::InvariantLevel::PostReturnUnify`] on
 ///   top of `PostMono`: no `ExprKind::Return` in reachable bodies.
 /// - Each rewritten body's trailing expression produces the callable's
-///   return value via if-else lifting or the flag-based transform.
+///   return value via the structured strategy or the flag strategy.
 ///
 /// # Mutations
 /// - Rewrites `CallableDecl` body blocks in `store[package_id]`.
 /// - Allocates new FIR nodes through `assigner`.
+///
+/// # Returns
+/// A `Vec<Error>` collecting per-callable diagnostics. An empty vector means
+/// every reachable callable in `package_id` was rewritten successfully.
+/// Errors are accumulated, not fatal: processing continues for remaining
+/// callables after each diagnostic is recorded.
+///
+/// # Errors
+/// The only user-reachable variant today is
+/// [`Error::UnsupportedLoopReturnType`], emitted when the flag strategy is
+/// selected (categories B, C, D) for a callable whose return type has no
+/// classical default — for example `Qubit` or any compound type containing
+/// `Qubit`. The check is performed up-front by `can_create_classical_default`
+/// before the transform runs, so the affected callable is left unchanged.
 //
 // Only entry-reachable callables are unified. Unreachable callables retain
 // their `Return` nodes, but this is safe because:

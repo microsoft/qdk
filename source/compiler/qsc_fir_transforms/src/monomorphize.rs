@@ -17,7 +17,9 @@
 //! the callable body, substitutes type parameters with concrete types, and
 //! scans the result for transitive generic references that are fed back into
 //! the worklist. Rewrite then redirects all call sites to the newly created
-//! specialized callables.
+//! specialized callables. As a sub-step of Rewrite, `collect_rewrite_scope`
+//! transitively walks closure items reachable from the new specializations so
+//! generic call sites in lifted lambdas are not missed.
 //!
 //! # Input patterns
 //!
@@ -91,14 +93,10 @@ struct Specialization {
 ///
 /// # Panics
 ///
-/// Panics if the package has no entry expression.
+/// Panics if the package has no entry expression. The reachability scans
+/// in this pass go through [`collect_reachable_from_entry`], which asserts
+/// `package.entry.is_some()`.
 pub fn monomorphize(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assigner) {
-    let package = store.get(package_id);
-    assert!(
-        package.entry.is_some(),
-        "monomorphize requires a package entry expression"
-    );
-
     let instantiations = discover_instantiations(store, package_id);
     if instantiations.is_empty() {
         return;

@@ -48,13 +48,30 @@ fn compile_and_run_full_pipeline(
 /// point satisfies the full `PostAll` invariant suite expected by downstream
 /// consumers (codegen, language service, RCA).
 ///
-/// Postconditions asserted by `InvariantLevel::PostAll`:
-/// - No `Ty::Param` in reachable code (monomorphization completed).
-/// - No `ExprKind::Return` in reachable code (return unification completed).
-/// - No `Ty::Arrow` params / `ExprKind::Closure` (defunctionalization completed).
-/// - No `Ty::Udt` / `ExprKind::Struct`; `Field::Path` only on tuple records
-///   (UDT erasure completed).
-/// - All exec-graph ranges populated (exec-graph rebuild completed).
+/// Postconditions asserted by `InvariantLevel::PostAll`
+/// (the full set actually exercised by the invariant runner, not just the
+/// per-pass type bans):
+/// - All ID references inside blocks/stmts/exprs/pats resolve to existing
+///   arena entries on the target package (and on every reachable external
+///   package, via the `PostUdtErase`+ package-closure walk).
+/// - Synthesized callable-input tuple patterns match their callable-input
+///   types (argument promotion shape contract).
+/// - Local-variable bindings are consistent: every `LocalVarId` use has a
+///   matching binding pattern of the same type in scope.
+/// - Per-spec `SpecDecl` input/output types match their parent
+///   `CallableDecl` signature.
+/// - Every `ExprKind::Call` argument and return type matches the resolved
+///   callee signature (with controlled-functor input wrappers applied),
+///   per the post-arg-promote call-shape contract.
+/// - `Package.entry_exec_graph` is structurally well-formed in both
+///   `ExecGraphConfig::NoDebug` and `ExecGraphConfig::Debug` configurations,
+///   and every reachable callable specialization's `exec_graph` is
+///   structurally well-formed in both configurations.
+/// - All earlier-stage type bans hold: no `Ty::Param`, no `ExprKind::Return`,
+///   no `Ty::Arrow` params / `ExprKind::Closure`, no `Ty::Udt` /
+///   `ExprKind::Struct`, no `Field::Path` in `UpdateField`/`AssignField`,
+///   no `BinOp(Eq/Neq)` on tuple operands, and no `Ty::Infer` / `Ty::Err`
+///   anywhere in checked types.
 ///
 /// This is the authoritative contract test for simple entry-point invariant
 /// verification; do not duplicate in other test files.

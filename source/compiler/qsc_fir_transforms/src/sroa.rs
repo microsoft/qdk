@@ -67,6 +67,30 @@
 //! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
 //!   [`crate::exec_graph_rebuild`] rebuilds correct exec graphs at the end
 //!   of the pipeline.
+//!
+//! ## Cross-pass contract with `tuple_compare_lower`
+//!
+//! [`crate::tuple_compare_lower`] runs immediately before this pass. When
+//! it lowers a tuple equality whose operand is a tuple literal, it reuses
+//! the literal's element `ExprId`s directly inside both the LHS and RHS
+//! comparison subtrees rather than allocating fresh `Field(..)` nodes.
+//! That leaves aliased `ExprId`s in the FIR: a single element `ExprId`
+//! may appear under multiple parent edges in the owning callable.
+//!
+//! The internal `replace_expr_references` helper used by
+//! [`rewrite_field_accesses`] redirects every parent edge that points at
+//! the old projection `ExprId` to its scalarized replacement by walking
+//! every reachable statement, block, and expression edge in the owning
+//! callable rather than mutating shared nodes in place.
+//! [`rewrite_assign_tuples`] likewise mutates the matched
+//! `Assign(Var, Tuple)` expression in place and appends fresh per-element
+//! `Assign` statements without touching the element subtrees themselves.
+//! Neither rewriter shared-mutates an element node, so aliased `ExprId`s
+//! produced by `tuple_compare_lower` remain consistent after rewriting:
+//! redirecting one parent edge does not corrupt other parent edges that
+//! share the same child `ExprId`, and the old aggregate node is allowed
+//! to become dead once all of its parents have been redirected. See the
+//! mirror note in [`crate::tuple_compare_lower`].
 
 #[cfg(test)]
 mod tests;
@@ -95,15 +119,41 @@ use crate::EMPTY_EXEC_RANGE;
 
 /// Runs the SROA pass on the entry-reachable portion of a package.
 ///
-/// For each local binding of tuple type where every use is a field access
-/// or field assignment, decomposes the binding into individual scalar
-/// variables and rewrites field accesses into direct variable references.
+/// For each local binding whose type resolves to a multi-field tuple or
+/// UDT, the pass decomposes the binding into one scalar local per
+/// element when **every** use of the binding falls into one of the
+/// shapes the in-pass classifier accepts (see
+/// [`crate::walk_utils::collect_uses_in_expr`]):
+///
+/// - `Field(Var(t), Path(..))` — a field projection out of the binding,
+///   rewritten by [`rewrite_field_accesses`] into a direct
+///   `Var(t_i)` reference (or `Field(Var(t_i), Path(..))` for nested
+///   paths).
+/// - `AssignField(Var(t), Path(non-empty), value)` — a field-targeted
+///   reassignment, rewritten by [`rewrite_field_accesses`] into either
+///   `Assign(Var(t_i), value)` (single-index path) or
+///   `AssignField(Var(t_i), Path(..), value)` (nested path).
+/// - `Assign(Var(t), Tuple([e0, e1, ...]))` — a whole-tuple
+///   reassignment whose RHS is a tuple literal, split by
+///   [`rewrite_assign_tuples`] into per-element `Assign(Var(t_i), ei)`
+///   statements.
+///
+/// Bindings with any other use shape — passing the binding as a whole
+/// argument, returning it, capturing it in a closure, assigning it from
+/// a non-literal RHS — are rejected by `all_uses_are_field_access` and
+/// left intact.
+///
+/// # Requires
+/// - Package with `package_id` has an entry expression.
+/// - [`crate::tuple_compare_lower`] has already run, so no `BinOp(Eq |
+///   Neq)` on tuple-typed operands remains in reachable code.
+///
+/// # Panics
+///
+/// Panics if the package has no entry expression. The reachability scans
+/// in this pass go through [`collect_reachable_from_entry`], which asserts
+/// `package.entry.is_some()`.
 pub fn sroa(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assigner) {
-    let package = store.get(package_id);
-    if package.entry.is_none() {
-        return;
-    }
-
     loop {
         let reachable = collect_reachable_from_entry(store, package_id);
         let package = store.get(package_id);

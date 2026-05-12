@@ -6,6 +6,28 @@
 //! Provides [`for_each_expr`], a closure-based pre-order walker that
 //! eliminates duplicated `ExprKind` matching across transform modules.
 //!
+//! # Helper surface
+//!
+//! The module exposes three families of helpers:
+//!
+//! - **Closure-based pre-order walkers.** [`for_each_expr`] visits a single
+//!   expression and its descendants; [`for_each_expr_in_block`] visits every
+//!   expression within a block; [`for_each_expr_in_callable_impl`] visits
+//!   every expression across all specializations of a [`CallableImpl`]. None
+//!   of these recurse into closure bodies — [`ExprKind::Closure`] is treated
+//!   as a leaf, so callables reached only through a closure capture are not
+//!   visited transitively.
+//! - **Local-variable use classification.** [`collect_uses_in_block`] and
+//!   [`collect_uses_in_expr`] record every occurrence of a [`LocalVarId`],
+//!   classifying each as either a *field-only* use or a *whole-value* use.
+//!   See [`# Use classification`](#use-classification) below for the rules.
+//! - **Reachable-`ExprId` collectors.** [`collect_expr_ids_in_entry`],
+//!   [`collect_expr_ids_in_local_callables`], and
+//!   [`collect_expr_ids_in_entry_and_local_callables`] return every
+//!   [`ExprId`] reachable from the given roots, deduplicated.
+//!   [`extend_expr_ids_in_local_callables`] is the in-place variant used to
+//!   accumulate IDs across roots while sharing a single dedup set.
+//!
 //! # Use classification
 //!
 //! The [`collect_uses_in_block`] and [`collect_uses_in_expr`] helpers

@@ -23,14 +23,14 @@ pub enum Error {
     #[error("intrinsic callable `{0}` has unsupported parameter type `{1}`")]
     #[diagnostic(code("Qsc.FirTransform.UnsupportedIntrinsicParamType"))]
     #[diagnostic(help(
-        "intrinsic callable parameters must be primitive types (Bool, Double, Int, Qubit, Result); tuples and user-defined types are not supported"
+        "intrinsic callable parameters cannot be non-empty tuples or user-defined types"
     ))]
     UnsupportedParamType(String, String, #[label("unsupported parameter type")] Span),
 
     #[error("intrinsic callable `{0}` has unsupported return type `{1}`")]
     #[diagnostic(code("Qsc.FirTransform.UnsupportedIntrinsicReturnType"))]
     #[diagnostic(help(
-        "intrinsic callable return types must be Unit or a primitive type (Bool, Double, Int, Qubit, Result); tuples and user-defined types are not supported"
+        "intrinsic callable return types cannot be non-empty tuples or user-defined types"
     ))]
     UnsupportedReturnType(String, String, #[label("unsupported return type")] Span),
 }

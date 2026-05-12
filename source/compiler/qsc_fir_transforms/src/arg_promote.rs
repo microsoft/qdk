@@ -13,8 +13,14 @@
 //!
 //! For each entry-reachable callable, the pass:
 //! - Identifies parameters bound via `PatKind::Bind(p)` with `Ty::Tuple(...)`
-//!   or `Ty::Udt(Res::Item(_))` where every use in every specialization body
-//!   is a field access.
+//!   where every use in every specialization body is a field access.
+//!
+//!   `Ty::Udt(Res::Item(_))` is also matched, but only as a defensive path
+//!   retained for resilience to upstream changes. In the production pipeline
+//!   [`crate::udt_erase`] runs before `arg_promote` and is expected to
+//!   eliminate every `Ty::Udt` parameter, so the UDT branch is exercised
+//!   only when the pipeline ordering changes or when `arg_promote` is run
+//!   in isolation (for example, in unit tests that bypass `udt_erase`).
 //! - Verifies the callable is not used as a first-class value, referenced
 //!   as a closure target, or otherwise left indirectly dispatched.
 //!   First-class detection and closure-target detection together cover
@@ -125,6 +131,13 @@
 //! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
 //!   [`crate::exec_graph_rebuild`] rebuilds correct exec graphs at the end
 //!   of the pipeline.
+//! - Functor-applied callees (`Adjoint`, `Controlled`) are handled directly:
+//!   [`resolve_direct_item_callee`] unwraps `UnOp(Functor::Adj)` and
+//!   `UnOp(Functor::Ctl)` wrappers (counting controlled depth) to find the
+//!   underlying item callee, and [`rewrite_controlled_call_site`] rewrites
+//!   the payload while preserving the surrounding control-tuple layers and
+//!   their evaluation order. The "defensive paths" framing above refers
+//!   specifically to the `Ty::Udt` parameter shape, not to functor wrappers.
 //!
 //! # References
 //!
@@ -178,6 +191,7 @@ use std::rc::Rc;
 /// # Requires
 /// - `package_id` exists in `store`.
 /// - `assigner` is the pipeline-global assigner (ID continuity across passes).
+/// - Package with `package_id` has an entry expression.
 ///
 /// # Ensures
 /// - Rewrites only entry-reachable callables.
@@ -189,12 +203,13 @@ use std::rc::Rc;
 /// - Rewrites callable input patterns and specialization bodies.
 /// - Rewrites direct call expressions targeting promoted callables.
 /// - Allocates fresh FIR nodes via `assigner` with `EMPTY_EXEC_RANGE`.
+///
+/// # Panics
+///
+/// Panics if the package has no entry expression. The reachability scans
+/// in this pass go through [`collect_reachable_from_entry`], which asserts
+/// `package.entry.is_some()`.
 pub fn arg_promote(store: &mut PackageStore, package_id: PackageId, assigner: &mut Assigner) {
-    let package = store.get(package_id);
-    if package.entry.is_none() {
-        return;
-    }
-
     promote_to_fixed_point(store, package_id, assigner);
     normalize_reachable_call_arg_types(store, package_id, assigner);
 }
@@ -346,7 +361,11 @@ fn check_candidates(
 }
 
 /// Recursively walks a callable's input pattern to find `PatKind::Bind` nodes
-/// with tuple or UDT types whose uses are all field accesses.
+/// with tuple types whose uses are all field accesses.
+///
+/// Also matches `Ty::Udt(Res::Item(_))` as a defensive path; see the module
+/// doc for the pipeline ordering with [`crate::udt_erase`] that normally
+/// eliminates UDT parameters before this pass runs.
 fn find_param_binds_in_pat(
     store: &PackageStore,
     package: &Package,

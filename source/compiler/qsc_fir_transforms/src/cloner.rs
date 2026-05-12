@@ -39,10 +39,6 @@ pub struct FirCloner {
     pat_map: FxHashMap<PatId, PatId>,
     stmt_map: FxHashMap<StmtId, StmtId>,
     local_map: FxHashMap<LocalVarId, LocalVarId>,
-    /// Reserved for future use. `NodeId` remapping is currently a no-op
-    /// delegated to [`Assigner::next_node`]; the field is retained so lookups
-    /// from `Old` → `New` can be added without changing the public surface.
-    node_map: FxHashMap<NodeId, NodeId>,
     /// Old → new remap for nested items (`StmtKind::Item` / `ExprKind::Closure`).
     item_map: FxHashMap<LocalItemId, LocalItemId>,
     /// Per-clone local variable counter.
@@ -66,7 +62,6 @@ impl FirCloner {
             pat_map: FxHashMap::default(),
             stmt_map: FxHashMap::default(),
             local_map: FxHashMap::default(),
-            node_map: FxHashMap::default(),
             item_map: FxHashMap::default(),
             next_local: 0,
             self_item_remap: None,
@@ -87,7 +82,6 @@ impl FirCloner {
             pat_map: FxHashMap::default(),
             stmt_map: FxHashMap::default(),
             local_map: FxHashMap::default(),
-            node_map: FxHashMap::default(),
             item_map: FxHashMap::default(),
             next_local: 0,
             self_item_remap: None,
@@ -109,7 +103,6 @@ impl FirCloner {
             pat_map: FxHashMap::default(),
             stmt_map: FxHashMap::default(),
             local_map: FxHashMap::default(),
-            node_map: FxHashMap::default(),
             item_map: FxHashMap::default(),
             next_local: local_offset.into(),
             self_item_remap: None,
@@ -133,7 +126,6 @@ impl FirCloner {
         self.pat_map.clear();
         self.stmt_map.clear();
         self.local_map.clear();
-        self.node_map.clear();
         self.item_map.clear();
         self.next_local = 0;
         self.self_item_remap = None;
@@ -193,7 +185,7 @@ impl FirCloner {
         spec: &SpecDecl,
         target: &mut Package,
     ) -> SpecDecl {
-        let new_node = self.alloc_node(spec.id);
+        let new_node = self.next_node();
         // Clone input BEFORE block so that `local_map` contains input
         // parameter mappings when body expressions are walked.
         let new_input = spec
@@ -323,7 +315,7 @@ impl FirCloner {
                 self.local_map = saved_local_map;
                 self.next_local = saved_next_local;
 
-                let new_node = self.alloc_node(decl.id);
+                let new_node = self.next_node();
                 ItemKind::Callable(Box::new(CallableDecl {
                     id: new_node,
                     span: decl.span,
@@ -446,6 +438,10 @@ impl FirCloner {
     /// - `Res::Item(id)` → remapped only when matching `self_item_remap`
     /// - `Res::Err` → unchanged
     ///
+    /// `Res::Item` references that point at cloned nested items are returned
+    /// unchanged by this helper; nested-item remapping happens on the
+    /// `clone_expr_kind` path described below, not here.
+    ///
     /// Item references inside [`ExprKind::Closure(_, id)`](ExprKind::Closure)
     /// are not routed through this helper. `clone_expr_kind` remaps them
     /// through a parallel path: first consulting `item_map`, then falling
@@ -537,13 +533,6 @@ impl FirCloner {
     #[must_use]
     pub fn into_assigner(self) -> Assigner {
         self.assigner
-    }
-
-    fn alloc_node(&mut self, _old: NodeId) -> NodeId {
-        // `_old` is reserved for future use. Today every cloned node receives
-        // a fresh id with no lookup against `node_map`; the parameter is kept
-        // so a remap table can be wired in without changing call sites.
-        self.assigner.next_node()
     }
 
     pub(crate) fn next_node(&mut self) -> NodeId {

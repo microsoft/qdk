@@ -18,7 +18,7 @@
 //! parameters remain in reachable declarations, and all indirect dispatch
 //! is rewritten to direct dispatch.
 //!
-//! Each iteration of the fixpoint loop consists of four phases:
+//! Each iteration of the fixpoint loop runs the following steps in order:
 //!
 //! - The pre-pass promotes single-use callable locals within their owner
 //!   scopes and replaces identity closures `(args) => f(args)` with direct
@@ -32,13 +32,21 @@
 //! - Rewrite redirects original call sites to invoke the specialized clones,
 //!   removes the callable argument from the argument tuple, and threads closure
 //!   captures as extra arguments.
+//! - Closure tracking records which closure targets were consumed by
+//!   specialization in this iteration so subsequent iterations recognize their
+//!   producer expressions as dead.
+//! - Closure cleanup is convergence-critical: it replaces consumed closure
+//!   expressions outside call-argument subtrees with `Tuple([])`, so the
+//!   remaining-callable-value tally no longer counts them as work and the
+//!   fixpoint can terminate.
 //!
-//! These phases iterate until no reachable closures or arrow-typed parameters
+//! These steps iterate until no reachable closures or arrow-typed parameters
 //! remain in the target package. The iteration limit is dynamically scaled on
-//! the first pass based on the number of discovered callable values
-//! (`remaining_count.clamp(5, 20)`), preventing unnecessary iterations for
-//! simple programs while allowing complex HOF nesting patterns to resolve. If
-//! convergence is not reached within the limit, an error is reported.
+//! the first pass; see the const doc on [`MAX_ITERATIONS`] for the exact
+//! recomputation. If convergence is not reached within the limit,
+//! [`Error::FixpointNotReached`] is appended — but only when no other
+//! diagnostics have already fired this pass, so a fatal earlier error is not
+//! buried under a generic non-convergence report.
 //!
 //! In the future, this pass could be extended to support tagged-union-style
 //! defunctionalization for cases where specialization does not converge,
@@ -124,19 +132,23 @@ const MAX_ITERATIONS: usize = 5;
 ///
 /// Returns diagnostics encountered during defunctionalization.
 ///
+/// # Requires
+/// - Package with `package_id` has an entry expression
+///
 /// [`Error::ExcessiveSpecializations`] is a non-fatal warning. Other
 /// diagnostics are fatal to the production pipeline because the intermediate
 /// FIR may not satisfy downstream invariants.
+///
+/// # Panics
+///
+/// Panics if the package has no entry expression. The reachability scans
+/// in this pass go through [`collect_reachable_from_entry`], which asserts
+/// `package.entry.is_some()`.
 pub fn defunctionalize(
     store: &mut PackageStore,
     package_id: PackageId,
     assigner: &mut Assigner,
 ) -> Vec<Error> {
-    let package = store.get(package_id);
-    if package.entry.is_none() {
-        return vec![];
-    }
-
     let mut errors: Vec<Error> = Vec::new();
     let mut warnings: Vec<Error> = Vec::new();
     let mut max_iterations = MAX_ITERATIONS;

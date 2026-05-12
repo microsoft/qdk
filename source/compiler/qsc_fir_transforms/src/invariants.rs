@@ -21,6 +21,20 @@
 //! | `PostGc` | Unreachable GC — no orphaned arena node references. |
 //! | `PostItemDce` | Item DCE — no orphaned live-tree references after item pruning. |
 //! | `PostAll` | All passes — full structural + type checks. |
+//!
+//! # Two entry points
+//!
+//! - [`check`] runs the staged invariant set on the target package's
+//!   entry-rooted reachability closure. At [`InvariantLevel::PostUdtErase`]
+//!   and later it additionally walks the reachable-package closure to apply
+//!   the package-wide UDT-erase invariants to every reachable external
+//!   package.
+//! - [`check_external_spec_exec_graphs`] (crate-private) is a narrower
+//!   companion entry point that validates only the exec-graph surface of
+//!   selected callable specs in *external* packages that an earlier pass
+//!   mutated. The pipeline calls it after `exec_graph_rebuild` to confirm
+//!   that rebuilt external exec graphs are structurally well-formed without
+//!   applying the full target-package invariant set to library packages.
 
 #[cfg(test)]
 mod tests;
@@ -72,7 +86,21 @@ pub enum InvariantLevel {
     /// `StmtKind::Item` definitions may still point at removed items, because
     /// they are declarations rather than executable tree edges.
     PostItemDce,
-    /// After all passes: all structural checks plus per-pass type constraints.
+    /// After all passes: every earlier-stage invariant (no `Ty::Param`, no
+    /// `ExprKind::Return`, no `Ty::Arrow` params / `ExprKind::Closure`, no
+    /// `Ty::Udt` / `ExprKind::Struct`, no `Field::Path` in
+    /// `UpdateField`/`AssignField`, no `BinOp(Eq/Neq)` on tuple operands,
+    /// matching tuple-decomposition pattern shapes, matching callable-input
+    /// pattern shapes, no orphaned arena node references, and valid live-tree
+    /// references after item pruning) plus the postconditions unique to this
+    /// stage:
+    ///
+    /// - `Package.entry_exec_graph` is structurally well-formed in both
+    ///   [`ExecGraphConfig::NoDebug`] and [`ExecGraphConfig::Debug`]
+    ///   configurations, and every reachable callable specialization's
+    ///   `exec_graph` is structurally well-formed in both configurations.
+    /// - No `Ty::Infer` or `Ty::Err` survives in any checked type — their
+    ///   presence at this stage indicates a pass bug.
     PostAll,
 }
 
@@ -180,6 +208,16 @@ impl InvariantLevel {
 /// `fir_to_qir_from_callable`) are excluded from this check — the production
 /// pipeline intentionally limits invariant enforcement to the entry-rooted
 /// reachability closure.
+///
+/// # Ordering
+///
+/// `check_id_references` must run on the target package *before*
+/// `collect_reachable_from_entry`. The reachability walker dereferences IDs
+/// through [`qsc_fir::fir::PackageLookup`], which panics with a generic
+/// `"Statement not found"` message on a malformed `block.stmts` list. Running
+/// the ID-reference check first surfaces the targeted invariant diagnostic
+/// (`Block {block_id} references nonexistent Stmt {stmt_id}`) instead of the
+/// opaque lookup panic.
 ///
 /// # Panics
 ///
