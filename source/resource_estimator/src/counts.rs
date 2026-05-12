@@ -744,7 +744,7 @@ impl Backend for LogicalCounter {
                 Some(Ok(Value::unit()))
             }
             "AccountForEstimatesInternal" => {
-                let values = arg.unwrap_tuple();
+                let values: std::rc::Rc<[Value]> = arg.unwrap_tuple();
                 let [estimates, layout, qubits] = array::from_fn(|i| values[i].clone());
                 let estimates = estimates
                     .unwrap_array()
@@ -776,16 +776,16 @@ impl Backend for LogicalCounter {
                 self.enable_memory_compute(compute_capacity, strategy);
                 Some(Ok(Value::unit()))
             }
-            "MemoryQubitLoad" => {
-                let qid = arg.unwrap_qubit().deref().0;
+            "Load" => {
                 if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+                    let qid = arg.unwrap_qubit().deref().0;
                     mc.move_to_compute(qid);
                 }
                 Some(Ok(Value::unit()))
             }
-            "MemoryQubitStore" => {
-                let qid = arg.unwrap_qubit().deref().0;
+            "Store" => {
                 if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+                    let qid = arg.unwrap_qubit().deref().0;
                     mc.move_to_memory(qid);
                 }
                 Some(Ok(Value::unit()))

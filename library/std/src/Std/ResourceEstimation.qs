@@ -200,7 +200,7 @@ operation RepeatEstimates(count : Int) : Unit is Adj {
 /// The strategy applied when evicting qubits from the compute qubits in case
 /// of maximum capacity: 0 = LRU (least recently used), 1 = LFU (least
 /// frequently used), 2 = Manual.
-function EnableMemoryComputeArchitecture(computeCapacity : Int, strategy : Int) : Unit {
+operation EnableMemoryComputeArchitecture(computeCapacity : Int, strategy : Int) : Unit {
     body intrinsic;
 }
 

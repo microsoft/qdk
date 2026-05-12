@@ -6,7 +6,7 @@
 /// Does nothing if qubit is already "compute".
 /// Currently only takes effect for resource estimation with memory-compute architecture
 /// enabled in Manual mode.
-function MemoryQubitLoad(q : Qubit) : Unit {
+operation Load(q : Qubit) : Unit {
     body intrinsic;
 }
 
@@ -14,8 +14,8 @@ function MemoryQubitLoad(q : Qubit) : Unit {
 /// Does nothing if qubit is already "memory".
 /// Currently only takes effect for resource estimation with memory-compute architecture
 /// enabled in Manual mode.
-function MemoryQubitStore(q : Qubit) : Unit {
+operation Store(q : Qubit) : Unit {
     body intrinsic;
 }
 
-export MemoryQubitLoad, MemoryQubitStore;
+export Load, Store;

@@ -450,8 +450,8 @@ fn manual_memory_load_store() {
             Std.ResourceEstimation.EnableMemoryComputeArchitecture(0, 2);
 
             use qs = Qubit[2];
-            Std.Memory.MemoryQubitStore(qs[0]);
-            Std.Memory.MemoryQubitLoad(qs[0]);
+            Std.Memory.Store(qs[0]);
+            Std.Memory.Load(qs[0]);
         }
     "});
     assert_eq!(counts.write_to_memory_count, Some(1));
@@ -469,20 +469,20 @@ fn manual_memory_complex_circuit_counts() {
             use qs = Qubit[4];
 
             // Move two qubits to memory.
-            Std.Memory.MemoryQubitStore(qs[2]);
-            Std.Memory.MemoryQubitStore(qs[3]);
+            Std.Memory.Store(qs[2]);
+            Std.Memory.Store(qs[3]);
 
             // Compute on hot qubits.
             H(qs[0]);
             CNOT(qs[0], qs[1]);
 
             // Bring one memory qubit back and use it in a 3-qubit gate.
-            Std.Memory.MemoryQubitLoad(qs[2]);
+            Std.Memory.Load(qs[2]);
             CCNOT(qs[0], qs[1], qs[2]);
 
             // Evict another qubit and load a different one.
-            Std.Memory.MemoryQubitStore(qs[1]);
-            Std.Memory.MemoryQubitLoad(qs[3]);
+            Std.Memory.Store(qs[1]);
+            Std.Memory.Load(qs[3]);
 
             // Two-qubit operation on currently loaded qubits.
             Controlled Z([qs[2]], qs[3]);
@@ -504,7 +504,7 @@ fn manual_memory_rejects_gate_application() {
                     Std.ResourceEstimation.EnableMemoryComputeArchitecture(0, 2);
 
                     use q = Qubit();
-                    Std.Memory.MemoryQubitStore(q);
+                    Std.Memory.Store(q);
                     X(q);
                 }
             "},
@@ -513,7 +513,7 @@ fn manual_memory_rejects_gate_application() {
 
     let err = result.expect_err("expected gate application on memory qubit to fail");
     assert!(
-        err.contains("Tried to do computation on memory qubit"),
+        err.contains("cannot perform computation on memory qubit"),
         "unexpected error: {err}"
     );
 }

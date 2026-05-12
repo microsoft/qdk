@@ -1417,8 +1417,8 @@ impl Backend for CliffordSim {
             | "BeginRepeatEstimatesInternal"
             | "EndRepeatEstimatesInternal"
             | "EnableMemoryComputeArchitecture"
-            | "MemoryQubitLoad"
-            | "MemoryQubitStore" => Some(Ok(Value::unit())),
+            | "Load"
+            | "Store" => Some(Ok(Value::unit())),
             "ConfigurePauliNoise" => Some(Err(
                 "dynamic noise configuration not supported in Clifford simulation".to_string(),
             )),
