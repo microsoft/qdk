@@ -1,6 +1,8 @@
-import qdk
-import pytest
+import gc
+import weakref
 
+import pytest
+import qdk
 from qdk import qsharp
 from qdk.qsharp import QSharpError
 
@@ -52,8 +54,8 @@ def test_seed() -> None:
 
     # Quantum seed.
     code = """{
-        use qs = Qubit[16]; 
-        for q in qs { H(q); }; 
+        use qs = Qubit[16];
+        for q in qs { H(q); };
         Microsoft.Quantum.Measurement.MResetEachZ(qs)
     }"""
     ctx1.set_quantum_seed(100)
@@ -191,3 +193,13 @@ def test_circular_reference_raises():
 
     with pytest.raises(QSharpError, match="Cannot send circular objects"):
         qdk.code.First(circular_list)
+
+
+def test_context_released_after_drop() -> None:
+    """Dropping the last strong reference to a Context releases it via gc."""
+    ctx = qdk.Context()
+    ctx.eval("function Add(a : Int, b : Int) : Int { a + b }")
+    ref = weakref.ref(ctx)
+    del ctx
+    gc.collect()
+    assert ref() is None
