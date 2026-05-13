@@ -17,6 +17,7 @@ import type {
   ActionGroup,
   OverallProgress,
   ActivityContent,
+  ActivityLocation,
   SolutionCheckResult,
   OutputEvent,
   LearningState,
@@ -121,7 +122,7 @@ function applyState(
 ): AppState {
   const p = prev.learning?.position;
   const n = learning.position;
-  if (p?.unitId !== n.unitId || p?.activityId !== n.activityId) {
+  if (!p || locationKey(p.location) !== locationKey(n.location)) {
     output = null;
   }
   return { learning, output, busy: false };
@@ -162,6 +163,10 @@ function messageToAction(msg: HostToWebviewMessage): AppAction {
     case "run":
       return { type: "runComplete", state: msg.state };
   }
+}
+
+function locationKey(loc: ActivityLocation): string {
+  return `${loc.courseId}__${loc.unitId}__${loc.activityId}`;
 }
 
 // ─── Components ───
@@ -224,9 +229,7 @@ function App() {
       <Header current={learning.position} />
       <ContentBody
         content={learning.position.content}
-        activityKey={
-          learning.position.unitId + ":" + learning.position.activityId
-        }
+        activityKey={locationKey(learning.position.location)}
       />
       {output ? <OutputPanel output={output} onDismiss={onDismiss} /> : null}
       <ActionBar groups={learning.actions} busy={busy} onAction={onAction} />
@@ -585,9 +588,7 @@ function ProgressBar({ progress }: { progress: OverallProgress }) {
       </span>
       {currentUnit ? (
         <>
-          <span class="pb-kata-label pb-active">
-            {currentPosition!.unitTitle || currentPosition!.unitId}
-          </span>
+          <span class="pb-kata-label pb-active">{currentUnit.title}</span>
           <span class="pb-segments">
             {currentUnit.activities.map((act) => {
               const isCurrent = act.id === currentPosition!.activityId;
@@ -599,9 +600,7 @@ function ProgressBar({ progress }: { progress: OverallProgress }) {
           </span>
         </>
       ) : currentPosition && currentPosition.unitId ? (
-        <span class="pb-kata-label pb-active">
-          {currentPosition.unitTitle || currentPosition.unitId}
-        </span>
+        <span class="pb-kata-label pb-active">{currentPosition.unitId}</span>
       ) : null}
     </footer>
   );

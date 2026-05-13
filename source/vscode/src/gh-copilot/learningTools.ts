@@ -216,7 +216,7 @@ export class LearningTools {
     activityId?: string;
   }): Promise<{ state: SerializedLearningState }> {
     await this.ensureInitialized();
-    this.service.goTo(input.unitId, input.activityId, "chat");
+    this.service.goTo(input, "chat");
     await this.showActivity();
     return { state: this.serializeState() };
   }
