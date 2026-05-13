@@ -14,6 +14,7 @@ mod lambdas;
 mod loops;
 mod measurements;
 mod overrides;
+mod parallel;
 mod qubits;
 mod strings;
 mod structs;
