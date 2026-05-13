@@ -101,7 +101,7 @@ export class CircuitModel {
    * Bump `qubitUseCounts[i]` for every qubit register `i` referenced
    * by `op` (skips classical-result registers). Bounds-checks to
    * tolerate ops that reference wires not yet in the model — those
-   * are silently ignored, matching the pre-R3 behaviour.
+   * are silently ignored.
    */
   incrementQubitUseCountForOp(op: Operation): void {
     for (const reg of getOperationRegisters(op)) {

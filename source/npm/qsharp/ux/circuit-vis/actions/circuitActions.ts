@@ -22,12 +22,11 @@ import {
  * first argument and mutates it in place. **No DOM. No interaction
  * state. No rendering.** Functions return either the new/affected
  * `Operation` (when the caller needs a handle to it) or a `boolean`
- * status flag — the choice matches each function's pre-R3 contract,
- * to minimize churn in the UI code that calls them.
+ * status flag, depending on what the calling UI code needs.
  *
- * Direct unit-testability of this module is the main R3 win — Actions
- * can be exercised against a freshly-constructed `CircuitModel` with
- * no JSDOM and no `CircuitEvents` stub.
+ * Because Actions are pure data mutations, they can be exercised
+ * directly against a freshly-constructed `CircuitModel` with no
+ * JSDOM and no `CircuitEvents` stub.
  */
 
 /**

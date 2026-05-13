@@ -258,8 +258,8 @@ function getMinMaxRegIdx(operation: Operation): [number, number] {
  * `reg.qubit` / `reg.result` in place to renumber wires.
  *
  * Mirrors the union that `getMinMaxRegIdx` walks; centralized here
- * so the action layer (R3) and the data layer (R3) don't each
- * re-spell the per-`kind` switch.
+ * so the action layer and the data layer don't each re-spell the
+ * per-`kind` switch.
  *
  * @param operation The operation to enumerate registers for.
  * @returns All registers (controls + targets/qubits/results) of `operation`.
@@ -301,9 +301,8 @@ const findGateElem = (hostElem: SVGElement): SVGElement | null => {
 /**
  * Find the parent operation of the operation specified by location.
  *
- * R4: navigates via [`Location`](data/location.ts) instead of the
- * legacy `locationStringToIndexes` helper, so the addressing format
- * is owned by exactly one module.
+ * Navigates via [`Location`](data/location.ts) so the addressing
+ * format is owned by exactly one module.
  *
  * @param componentGrid The grid of components to search through.
  * @param location The location string of the operation.
@@ -335,8 +334,8 @@ const findParentOperation = (
 /**
  * Find the parent component grid of an operation based on its location.
  *
- * R4: navigates via [`Location`](data/location.ts) instead of the
- * legacy `locationStringToIndexes` helper.
+ * Navigates via [`Location`](data/location.ts) so the addressing
+ * format is owned by exactly one module.
  *
  * @param componentGrid The grid of components to search through.
  * @param location The location string of the operation.
@@ -362,12 +361,12 @@ const findParentArray = (
 /**
  * Find an operation based on its location.
  *
- * R4: navigates via [`Location`](data/location.ts) instead of the
- * legacy `locationStringToIndexes` helper.
+ * Navigates via [`Location`](data/location.ts) so the addressing
+ * format is owned by exactly one module.
  *
  * @param componentGrid The grid of components to search through.
  * @param location The location string of the operation.
- * @returns The operation or null if not found.
+ * @returns The parent grid of components or null if not found.
  */
 const findOperation = (
   componentGrid: ComponentGrid,

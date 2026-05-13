@@ -40,7 +40,7 @@ interface Context {
 /**
  * Create dropzones elements for dragging on circuit.
  *
- * R6 wraps every editor-only DOM node inside a single
+ * Every editor-only DOM node lives inside a single
  * `<g class="editor-overlay">` group, attached as the last child of
  * `svg.qviz`. All editor-only content (dropzones, the ghost qubit
  * wire, plus any future selection rectangles / hover halos /
@@ -324,12 +324,12 @@ const _addStyles = (container: HTMLElement): void => {
  * Create the ghost-qubit layer — the trailing add-a-qubit row that
  * appears below the last real wire when a drag is in progress.
  *
- * Pure-create after R6: returns the layer ready to be attached by
- * the caller (`createDropzones` puts it inside the editor overlay).
- * The one true side effect kept here is extending the SVG's
- * `height` / `viewBox` to make room for the trailing ghost wire —
- * that's a renderer-side dimension change, not editor DOM, so it
- * lives at the SVG root.
+ * Returns the layer ready to be attached by the caller
+ * (`createDropzones` puts it inside the editor overlay). The one
+ * true side effect kept here is extending the SVG's `height` /
+ * `viewBox` to make room for the trailing ghost wire. That's a
+ * renderer-side dimension change, not editor DOM, so it lives at
+ * the SVG root.
  */
 const _ghostQubitLayer = (context: Context) => {
   const { container, svg } = context;

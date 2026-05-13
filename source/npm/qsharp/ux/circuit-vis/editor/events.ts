@@ -58,15 +58,13 @@ const enableEvents = (
 /**
  * `CircuitEvents` — thin coordinator for the editor's View layer.
  *
- * After R5 this class is **only** wiring: it builds the
- * `InteractionContext` (shared deps for every controller) and
- * instantiates a focused controller for each slice of pointer /
- * keyboard interaction. Controllers own their own listeners and
- * lifecycle; `dispose()` here just chains through to them.
+ * This class is **only** wiring: it builds the `InteractionContext`
+ * (shared deps for every controller) and instantiates a focused
+ * controller for each slice of pointer / keyboard interaction.
+ * Controllers own their own listeners and lifecycle; `dispose()`
+ * here just chains through to them.
  *
- * What used to be a ~700-line god class is now ~150 lines whose
- * job is "build the context, hand it to controllers." The actual
- * event logic lives in:
+ * The actual event logic lives in:
  *
  * - [keyboardController.ts](keyboardController.ts) — Ctrl-toggle
  *   between move and copy modes.
@@ -83,7 +81,7 @@ const enableEvents = (
  * - [scrollController.ts](scrollController.ts) — the auto-scroll
  *   function shared by gate-drag and qubit-drag.
  *
- * Backward-compat shims kept on this class:
+ * Compatibility shims kept on this class:
  *
  * - `componentGrid` / `qubits` / `qubitUseCounts` getters delegate
  *   to `model` so `getCurrentCircuitModel` and the
@@ -93,8 +91,6 @@ const enableEvents = (
  *   by name. These will go away once `addContextMenuToHostElem`
  *   itself is migrated to a controller-shaped API.
  *
- * See [CIRCUIT_EDITOR_TODO.md](CIRCUIT_EDITOR_TODO.md) (R5) for
- * the architecture this implements.
  */
 class CircuitEvents {
   /** The Data layer. See [circuitModel.ts](circuitModel.ts). */
@@ -135,10 +131,10 @@ class CircuitEvents {
     this.model.removeTrailingUnusedQubits();
 
     const circuitSvg = container.querySelector("svg.qviz") as SVGElement;
-    // R6: every editor-only DOM node lives inside this overlay
-    // group. createDropzones builds it, the dropzone + ghost-qubit
-    // sub-layers, and attaches it to circuitSvg before enableEvents
-    // runs — so it's always present here.
+    // Every editor-only DOM node lives inside this overlay group.
+    // createDropzones builds it, the dropzone + ghost-qubit sub-layers,
+    // and attaches it to circuitSvg before enableEvents runs — so it's
+    // always present here.
     const overlayLayer = container.querySelector(
       ".editor-overlay",
     ) as SVGGElement;

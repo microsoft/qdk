@@ -38,8 +38,8 @@ interface ComposedSqore {
   /** SVG elements the make up the visualization. */
   elements: SVGElement[];
   /**
-   * Geometry from the layout pass (R1). Captured here so the editor
-   * can position dropzones from the same numbers `processOperations`
+   * Geometry from the layout pass. Captured here so the editor can
+   * position dropzones from the same numbers `processOperations`
    * already computed, instead of reverse-engineering them from
    * rendered SVG attributes. See [`layoutMap.ts`](renderer/layoutMap.ts).
    */
@@ -441,9 +441,9 @@ export class Sqore {
    * its `i`th child in its `colIndex` column is recursively given
    * `location.child(colIndex, i)`.
    *
-   * R4: takes a [`Location`](data/location.ts) value rather than a
-   * raw string, so the addressing format is owned by exactly one
-   * module. The string form is still what gets stored in
+   * Takes a [`Location`](data/location.ts) value rather than a raw
+   * string, so the addressing format is owned by exactly one module.
+   * The string form is still what gets stored in
    * `dataAttributes["location"]` / used as `gateRegistry` keys, since
    * the rest of the codebase reads those as strings.
    *

@@ -5,8 +5,8 @@
  * Confirm-dialog primitive used by destructive editor flows
  * (currently only "remove a qubit line that has operations attached").
  *
- * Lifted from `events.ts` in R5 so the qubit controller can use it
- * without dragging in the entire `CircuitEvents` class.
+ * Standalone so individual controllers can use it without depending
+ * on the full `CircuitEvents` class.
  *
  * @param message - Text shown in the prompt body.
  * @param callback - Invoked with `true` on OK, `false` on Cancel.

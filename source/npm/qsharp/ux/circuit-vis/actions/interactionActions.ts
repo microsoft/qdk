@@ -32,7 +32,7 @@ import { InteractionState } from "./interactionState.js";
 /**
  * Clear all transient drag/gesture flags. **Does not** clear
  * `selectedOperation` — that survives across resets so the context
- * menu can use it. Mirrors the pre-R3.5 `_resetState` behavior.
+ * menu can use it.
  */
 export function resetTransient(state: InteractionState): void {
   state.selectedWire = null;

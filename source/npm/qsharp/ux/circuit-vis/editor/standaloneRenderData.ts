@@ -12,7 +12,7 @@ import { getMinGateWidth } from "../utils.js";
  *
  * The main render path (see [process.ts](../renderer/process.ts))
  * computes a gate's geometry from the surrounding circuit's
- * registers — qubit Y coords, classical wire splits, neighbouring
+ * registers — qubit Y coords, classical wire splits, neighboring
  * column widths. The editor needs to render gates *outside* that
  * context for two cases:
  *

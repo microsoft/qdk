@@ -8,9 +8,8 @@ import { InteractionState } from "../actions/interactionState.js";
  * scrolls the nearest scrollable ancestor of `circuitSvg` whenever
  * the cursor approaches an edge. Self-removes on the next `mouseup`.
  *
- * Lifted out of `CircuitEvents._enableAutoScroll` for R5. The
- * function is invoked at drag start by both the gate-drag flow and
- * the qubit-label drag flow, hence the standalone shape.
+ * Invoked at drag start by both the gate-drag flow and the
+ * qubit-label drag flow, hence the standalone shape.
  *
  * @param circuitSvg  The rendered `svg.qviz` root; used as the
  *                    starting point for the scrollable-ancestor

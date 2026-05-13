@@ -7,10 +7,9 @@ import { Operation } from "../data/circuit.js";
  * `InteractionState` — ephemeral session state for the circuit editor.
  *
  * This is the **Action layer's state container** in the three-layer
- * architecture (Data / Action / View — see
- * [CIRCUIT_EDITOR_TODO.md](CIRCUIT_EDITOR_TODO.md)). It collects the
- * loose mutable fields that previously lived directly on
- * `CircuitEvents` and were tweaked by every pointer/keyboard handler.
+ * architecture (Data / Action / View) It collects the
+ * loose mutable fields read and written by every pointer/keyboard
+ * handler in the editor.
  *
  * **Distinct from [`CircuitModel`](circuitModel.ts) on purpose** —
  * neither `selectedOperation` nor `dragging` belongs in saved circuit

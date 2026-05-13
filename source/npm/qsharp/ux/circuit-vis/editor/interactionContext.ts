@@ -6,7 +6,7 @@ import { InteractionState } from "../actions/interactionState.js";
 import { LayoutMap } from "../renderer/layoutMap.js";
 
 /**
- * `InteractionContext` — shared dependencies passed to every R5
+ * `InteractionContext` — shared dependencies passed to every editor
  * controller. The single object is built once in `CircuitEvents`'s
  * constructor and handed to each controller; controllers read/write
  * the same `model` / `interaction` and dispatch to the same
@@ -15,7 +15,7 @@ import { LayoutMap } from "../renderer/layoutMap.js";
  * Controllers are translation-only: pointer/keyboard event listeners
  * that turn raw DOM events into `*Actions.*` calls. They hold no
  * state of their own — everything mutable lives on `model` (Data
- * layer) or `interaction` (ephemeral session state, R3.5).
+ * layer) or `interaction` (ephemeral session state).
  *
  * Fields are mutable on purpose. `wireData` is grown/shrunk by
  * qubit-line edits; `circuitSvg` etc. are re-resolved on each
@@ -34,9 +34,9 @@ export interface InteractionContext {
   /** The rendered `svg.qviz` root. */
   readonly circuitSvg: SVGElement;
   /**
-   * The editor-only overlay group inside `svg.qviz`. R6's bucket
-   * for every editor-owned DOM node — dropzones, ghost qubit row,
-   * future selection rectangles / hover halos / Inspector anchors.
+   * The editor-only overlay group inside `svg.qviz`. Holds every
+   * editor-owned DOM node — dropzones, ghost qubit row, future
+   * selection rectangles / hover halos / Inspector anchors.
    * Controllers append wire dropzones (and any ad-hoc overlay
    * elements they need) to this group instead of to `circuitSvg`,
    * keeping the renderer-owned children of the SVG purely

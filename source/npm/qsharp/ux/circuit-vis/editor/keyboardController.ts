@@ -11,12 +11,10 @@ import { InteractionContext } from "./interactionContext.js";
  * the container while a gate is selected, so the cursor and ghost
  * preview reflect the current drop semantics.
  *
- * Carved out of `CircuitEvents` in R5. Owns its document
- * `keydown` / `keyup` listeners; `dispose()` removes them. No state
- * of its own — the only mutable signal it consults is whether
- * `interaction.selectedOperation` has a location string.
- *
- * @see [CIRCUIT_EDITOR_TODO.md](CIRCUIT_EDITOR_TODO.md) (R5)
+ * Owns its document `keydown` / `keyup` listeners; `dispose()`
+ * removes them. No state of its own — the only mutable signal it
+ * consults is whether `interaction.selectedOperation` has a
+ * location string.
  */
 export class KeyboardController {
   constructor(private readonly ctx: InteractionContext) {
@@ -32,8 +30,7 @@ export class KeyboardController {
   /**
    * Ctrl-down while a placed (non-toolbox) gate is selected switches
    * the cursor/ghost into "copy" mode. Picks up the location off the
-   * selected op rather than tracking selection separately, matching
-   * the pre-R5 behavior.
+   * selected op rather than tracking selection separately.
    */
   readonly onKeyDown = (ev: KeyboardEvent) => {
     if (!ev.ctrlKey) return;

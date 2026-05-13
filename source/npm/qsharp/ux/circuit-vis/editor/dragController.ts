@@ -37,12 +37,10 @@ import {
 } from "../utils.js";
 
 /**
- * `DragController` — owns the gate drag-and-drop surface. Carved
- * out of `CircuitEvents` in R5. By far the largest controller:
- * gate-drag, toolbox-drag, dropzone commit, document-level
- * cleanup/cancel, ghost element creation, and the wire-pick
- * dropzones used by the add-control / remove-control flow that
- * the context menu invokes.
+ * `DragController` — owns the gate drag-and-drop surface. Gate-drag,
+ * toolbox-drag, dropzone commit, document-level cleanup/cancel,
+ * ghost element creation, and the wire-pick dropzones used by the
+ * add-control / remove-control flow that the context menu invokes.
  *
  * Why one controller for so much. These flows all share the same
  * dropzone overlay, the same ghost element, the same
@@ -57,11 +55,7 @@ import {
  *
  * - Holds a `QubitController` reference for the one document-mouseup
  *   path that detects a qubit-label drag-off and calls
- *   `removeQubitLineWithConfirmation`. Avoids the alternative of
- *   either putting that logic on the qubit controller (which would
- *   need its own document-mouseup handler racing with this one) or
- *   on `CircuitEvents` (which would need a non-trivial method
- *   again, defeating the point of R5).
+ *   `removeQubitLineWithConfirmation`.
  */
 export class DragController {
   constructor(

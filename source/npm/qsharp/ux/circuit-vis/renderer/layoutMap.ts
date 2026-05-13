@@ -4,21 +4,16 @@
 /**
  * LayoutMap — exported geometry from the circuit-rendering pass.
  *
- * Background: historically the circuit editor recovered geometry by
- * reading `data-width` and `x` attributes off already-rendered SVG
- * host elements. That recovery was approximate and broke for nested
- * scopes — see the "Architecture refactor" section in
- * [CIRCUIT_EDITOR_TODO.md](CIRCUIT_EDITOR_TODO.md), root cause #1.
+ * [`processOperations`](process.ts) computes every coordinate exactly
+ * as part of laying out the circuit. Rather than discard those
+ * numbers into SVG attributes and reverse-engineer them later, the
+ * renderer captures them in a `LayoutMap` and passes it to the
+ * editor directly — same numbers, one source of truth, accurate for
+ * nested scopes.
  *
- * `LayoutMap` is the fix: [`processOperations`](process.ts) already
- * computes every coordinate exactly. Rather than discard those numbers
- * into SVG attributes and reverse-engineer them later, we capture them
- * in a `LayoutMap` and pass it to the editor directly. Same numbers,
- * one source of truth.
- *
- * The map is owned by the View layer (it's regenerated on every render)
- * and consumed by editor controllers (R5). Editor mutations go through
- * the Action layer (R3), which has no knowledge of `LayoutMap`.
+ * The map is owned by the View layer (it's regenerated on every
+ * render) and consumed by the editor controllers. Editor mutations
+ * go through the Action layer, which has no knowledge of `LayoutMap`.
  */
 
 /**

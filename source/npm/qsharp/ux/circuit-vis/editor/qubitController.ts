@@ -16,8 +16,7 @@ import { getOperationRegisters } from "../utils.js";
 import { getQubitLabelElems } from "../utils.js";
 
 /**
- * `QubitController` — owns qubit-line interactions. Carved out of
- * `CircuitEvents` in R5.
+ * `QubitController` — owns qubit-line interactions.
  *
  * Two surfaces:
  *

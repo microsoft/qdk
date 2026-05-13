@@ -5,21 +5,16 @@
  * `Location` — value type for hierarchical addresses inside a circuit's
  * `componentGrid`.
  *
- * Background. The editor identifies every operation by a hierarchical
- * "location" string of the form `"col,op"` (top level) or
- * `"col,op-col,op-..."` (nested inside expanded groups). Until R4
- * those strings were parsed in 4 files and composed in 3, each spelling
- * out the convention by hand (`location.split("-")`, template literals,
- * a `composeLocation(prefix, col, op)` helper). That worked but
- * scattered the format across the codebase; if we ever needed to
- * change the addressing scheme (stable IDs that survive insertions,
- * named children, etc.) we'd have to chase every spelling.
+ * The editor identifies every operation by a hierarchical "location"
+ * string of the form `"col,op"` (top level) or `"col,op-col,op-..."`
+ * (nested inside expanded groups). This module owns the parse and
+ * compose of that format, so the addressing convention lives in
+ * exactly one place.
  *
- * This module replaces all of that with a single immutable value type.
  * String form is preserved on the wire (SVG `data-location` /
  * `data-dropzone-location` attributes, `Operation.dataAttributes
- * .location`, and the `LayoutMap.scopes` keys) — `Location` just
- * centralizes the parse and compose.
+ * .location`, and the `LayoutMap.scopes` keys) — `Location` is the
+ * in-memory representation that callers operate on.
  *
  * **Immutable.** Every "mutation" returns a new `Location`; the
  * underlying `_segments` array is frozen. Mirrors the way `Date` and
@@ -29,9 +24,6 @@
  * top-level grid, and `Location.parse("")` returns it. Its string
  * form is `""`, which matches the existing `LayoutMap` convention
  * for the top-level scope key.
- *
- * See [CIRCUIT_EDITOR_TODO.md](CIRCUIT_EDITOR_TODO.md) for the
- * roadmap (R4) and what unblocks downstream.
  */
 export class Location {
   /**

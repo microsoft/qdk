@@ -26,23 +26,20 @@ import { mountEditorShell } from "./shell.js";
  * idempotent on re-call (e.g. [mountEditorShell](shell.ts) reuses
  * pre-existing DOM rather than recreating it).
  *
- * **Why this exists.** Before this entrypoint, [sqore.ts](../sqore.ts)
- * carried the full `if (isEditable)` orchestration: dropzones, then
- * panel, then run button, then events, then editCallback \u2014 five
- * imports and five lines of orchestration leaking the editor's
- * sub-architecture into the View entrypoint. With `installEditor`,
- * Sqore only needs to know "there's an editor to install"; the
- * editor's internal seams stay on the editor's side of the fence.
+ * Keeping the orchestration here means [sqore.ts](../sqore.ts) only
+ * needs to know "there's an editor to install" — the editor's
+ * internal sub-architecture (dropzones, shell, events, edit
+ * notification) doesn't leak into the View entrypoint.
  *
  * @param container HTML element holding the rendered circuit.
- * @param sqore     Sqore instance \u2014 needed by `enableEvents` and to
+ * @param sqore     Sqore instance — needed by `enableEvents` and to
  *                  emit minimized-circuit data via `editCallback`.
- * @param layoutMap Geometry from the layout pass \u2014 used by both the
+ * @param layoutMap Geometry from the layout pass — used by both the
  *                  dropzone layer and the editor's interaction
- *                  controllers.
+ *                  controllers. See [layoutMap.ts](../renderer/layoutMap.ts).
  * @param editor    Editor handlers from the host (edit/run/state-viz
  *                  callbacks).
- * @param refresh   Re-render closure \u2014 typically
+ * @param refresh   Re-render closure — typically
  *                  `() => sqore.renderCircuit(container)`. Passed
  *                  through to `enableEvents` so editor mutations
  *                  trigger a re-render without coupling the editor

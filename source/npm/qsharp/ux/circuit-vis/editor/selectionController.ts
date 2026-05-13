@@ -11,11 +11,10 @@ import { getHostElems } from "../utils.js";
  * inner clickable bits of a gate: control dots, target circles,
  * targets/measure crosses), and attaches the context menu.
  *
- * Carved out of `CircuitEvents` in R5. Intentionally small: it only
- * captures the wire under the cursor (so the drag controller knows
- * which qubit is being grabbed) and flags whether the grab was on a
- * control dot (so a drag can detach just that control instead of
- * the whole gate).
+ * Intentionally small: it only captures the wire under the cursor
+ * (so the drag controller knows which qubit is being grabbed) and
+ * flags whether the grab was on a control dot (so a drag can detach
+ * just that control instead of the whole gate).
  *
  * The actual gate-drag start lives in `DragController`, which
  * listens for mousedown on the outer `.gate` element. Both fire
@@ -23,9 +22,9 @@ import { getHostElems } from "../utils.js";
  * (deeper in the DOM) so `selectedWire` is set by the time the
  * drag controller's gate handler runs.
  *
- * The context menu still receives the full `CircuitEvents` for
- * backward compat with `addContextMenuToHostElem`. Slimming that
- * dependency is a follow-up.
+ * The context menu still receives the full `CircuitEvents` because
+ * `addContextMenuToHostElem` expects it. Slimming that dependency
+ * is a follow-up.
  *
  * No `dispose()` — host elements live inside the SVG, replaced
  * wholesale on each `enableEvents` re-run.
