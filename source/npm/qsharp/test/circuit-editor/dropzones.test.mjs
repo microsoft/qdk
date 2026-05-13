@@ -323,6 +323,132 @@ test("nested dropzones appear when expansion is render-time only (not pre-baked)
 });
 
 // ---------------------------------------------------------------------------
+// Persistent view state: a user-initiated expand (chevron click) must
+// survive subsequent re-renders, including those triggered by editor
+// mutations.
+//
+// Before the ViewState layer existed, chevron clicks mutated the
+// per-render deep copy `_circuit` directly. The next call to
+// `renderCircuit` (e.g. from an editor refresh) discarded that copy
+// and rebuilt from `this.circuit`, losing every user expand choice.
+// `ViewState` decouples view preferences from the saved circuit so
+// they survive the deep-copy.
+// ---------------------------------------------------------------------------
+
+test("user expand choice survives a re-render via ViewState", async () => {
+  // Construct Sqore directly so the test can call its private
+  // renderCircuit to simulate an editor-mutation refresh. (Tests
+  // can ignore the TypeScript `private` modifier at runtime.)
+  const { Sqore } = await import("../../dist/ux/circuit-vis/sqore.js");
+
+  // 2 columns prevents `expandIfSingleOperation` from auto-expanding
+  // — Foo will start collapsed.
+  const group = singleCircuit({
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 2 }],
+          },
+        ],
+      },
+    ],
+  });
+
+  const container = document.createElement("div");
+  container.className = "qs-circuit";
+  document.body.appendChild(container);
+
+  const sqore = new Sqore(group, {
+    editor: { editCallback: () => {} },
+  });
+  sqore.draw(container);
+
+  const collectNested = () =>
+    Array.from(
+      container.querySelectorAll(
+        "g.dropzone-layer rect.dropzone[data-dropzone-location]",
+      ),
+    )
+      .map((el) => el.getAttribute("data-dropzone-location") ?? "")
+      .filter((loc) => loc.startsWith("0,0-"));
+
+  // Sanity: Foo starts collapsed.
+  assert.equal(
+    collectNested().length,
+    0,
+    "Foo should start collapsed (no auto-expand applies to a multi-column grid)",
+  );
+
+  // Find the expand chevron and click it. The Sqore handler writes
+  // to viewState and triggers a re-render.
+  const fooGate = container.querySelector('[data-location="0,0"]');
+  assert.ok(fooGate, "expected to find Foo gate group");
+  const expandBtn = fooGate.querySelector(".gate-control.gate-expand");
+  assert.ok(expandBtn, "expected to find expand chevron on collapsed Foo");
+  // JSDOM's MouseEvent constructor lives on its window.
+  expandBtn.dispatchEvent(
+    new container.ownerDocument.defaultView.MouseEvent("click", {
+      bubbles: true,
+    }),
+  );
+
+  // After click: Foo is expanded; nested dropzones appear.
+  assert.ok(
+    collectNested().length > 0,
+    "Foo should be expanded after chevron click",
+  );
+
+  // Verify the user choice was recorded in viewState.
+  assert.equal(
+    sqore.viewState.expanded.get("0,0"),
+    true,
+    "viewState should record the user's expand choice",
+  );
+
+  // Simulate an editor-mutation refresh — the same path
+  // `() => sqore.renderCircuit(container)` that the editor
+  // controllers use after every Action.
+  sqore.renderCircuit(container);
+
+  // The bug was here: pre-ViewState, this re-render would deep-copy
+  // `this.circuit` (no expand flag), and Foo would collapse again.
+  // With ViewState, `applyTo` re-applies the user override.
+  assert.ok(
+    collectNested().length > 0,
+    "Foo's expand state must survive the editor-mutation re-render",
+  );
+  assert.equal(
+    sqore.viewState.expanded.get("0,0"),
+    true,
+    "viewState entry must remain after re-render",
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Pixel-coordinate tests. These tests assert that for every rendered
 // gate, the on-column dropzone with the matching
 // `data-dropzone-location` covers the gate's x range. If they pass,

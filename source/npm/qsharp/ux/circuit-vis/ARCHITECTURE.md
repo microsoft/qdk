@@ -77,7 +77,8 @@ ux/circuit-vis/
 │   ├── circuit.ts                  Circuit/ComponentGrid/Operation types
 │   ├── circuitModel.ts             CircuitModel: invariants + qubitUseCounts
 │   ├── location.ts                 Location: hierarchical address value type
-│   └── register.ts                 Register / qubit-id helpers
+│   ├── register.ts                 Register / qubit-id helpers
+│   └── viewState.ts                ViewState: per-session view prefs (e.g. expand/collapse)
 │
 ├── actions/                      ← Action layer (mutates data, no DOM)
 │   ├── circuitActions.ts           addOperation/moveOperation/etc against CircuitModel
@@ -141,6 +142,15 @@ by the action layer, **never** touches the DOM.
   in exactly one place. Immutable; `parent()`/`child()` return new
   instances. `Location.root()` is the empty-segments case.
 - **[`Register`](data/register.ts)** — qubit/result register IDs.
+- **[`ViewState`](data/viewState.ts)** — per-session view
+  preferences that survive `renderCircuit` but are intentionally
+  NOT serialized into the saved `.qsc` file. Today: per-group
+  expand/collapse overrides keyed by location string. Owned by
+  `Sqore`; read by `renderCircuit` after the default-expansion
+  passes; written by the chevron click handler. Sits in `data/`
+  because it's plain mutable state with no DOM/action coupling —
+  but it's a _third_ lifetime distinct from `CircuitModel`
+  (persisted) and `InteractionState` (single gesture).
 
 ### Action layer — `actions/`
 
@@ -194,7 +204,11 @@ resulting DOM to the action layer.
 2. `draw` calls the private `renderCircuit(container)`, which:
    - Deep-copies the circuit (so mutations don't leak back to the
      host), assigns `Location`-based IDs to every op, runs the
-     layout pass, and replaces the previous `svg.qviz` element.
+     default-expansion passes (`expandOperationsToDepth`,
+     `expandIfSingleOperation`), then applies
+     [`viewState`](data/viewState.ts) overrides on top so any
+     user-toggled expand/collapse choices win. Runs the layout
+     pass and replaces the previous `svg.qviz` element.
    - If `options.editor` is set (editing enabled), calls
      [`installEditor(container, this, layoutMap, editor, refresh)`](editor/installEditor.ts).
 3. `installEditor` does four things in order:

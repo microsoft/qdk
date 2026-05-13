@@ -728,7 +728,7 @@ added as needed without touching `CircuitEvents`.
   controllers each know which DOM nodes they own — lifting them
   into a dedicated `<g class="editor-overlay">` is a per-controller
   change rather than a god-class rewrite.
-- **#1 Gate Inspector**: a new `InspectorController` (selection
+- **#2 Gate Inspector**: a new `InspectorController` (selection
   events → `Inspector` panel state) drops in alongside the
   existing five.
 - **PointerEvents migration** (the original R5 design called for
@@ -792,7 +792,7 @@ the drag-end cleanup that hides the dropzone/ghost layers via
 
 **What this unblocks:**
 
-- **#1 Gate Inspector**: hover halos and selection rectangles
+- **#2 Gate Inspector**: hover halos and selection rectangles
   drop in as new sub-layers of the overlay; the Inspector panel's
   per-gate anchor lines can be drawn into the overlay too,
   avoiding any geometry duplication with the renderer.
@@ -807,10 +807,10 @@ the drag-end cleanup that hides the dropzone/ghost layers via
 | Planned item                         | Needs            |
 | ------------------------------------ | ---------------- |
 | Drag-and-drop Phase B (multi-target) | R1, R3, R3.5     |
-| #1 Gate Inspector                    | R3, R3.5, R5, R6 |
-| #2 Snapshot tool                     | R3, R5           |
-| #3 Custom-gate palette               | R3               |
-| #4 Structural-group authoring        | R1, R3, R5       |
+| #2 Gate Inspector                    | R3, R3.5, R5, R6 |
+| #3 Snapshot tool                     | R3, R5           |
+| #4 Custom-gate palette               | R3               |
+| #5 Structural-group authoring        | R1, R3, R5       |
 
 R1 + R3 are the prerequisites for almost everything else. R2 is
 the freebie that pays back the Phase A debt. R3.5 unblocks every
@@ -927,7 +927,7 @@ Two options; pick one when we get there.
 
 - **B1 (minimal, preferred):** Drop from toolbox always creates a
   1-target gate as today, but if the gate's `params` / arity say it
-  needs more, automatically open the Inspector (Planned item #1) so
+  needs more, automatically open the Inspector (Planned item #2) so
   the user can add the remaining targets via pick-mode. Composes
   with the Inspector roadmap rather than competing with it.
 - **B2 (drag-based alternative):** Shift+drag from toolbox enters a
@@ -935,7 +935,7 @@ Two options; pick one when we get there.
   wires add targets, Enter commits. Doesn't require the Inspector
   but has discoverability concerns.
 
-Recommendation: **B1**, taken after Planned item #1 (Gate Inspector)
+Recommendation: **B1**, taken after Planned item #2 (Gate Inspector)
 lands.
 
 ##### Phase C — State-machine cleanup + PointerEvents — **SUPERSEDED by R5 + R6**
@@ -971,7 +971,61 @@ every phase.
 
 ## Planned (in priority order)
 
-### 1. Gate Inspector panel — multi-target editing
+### 1. Persistent view state across re-renders — ✅ in-memory done; host persistence pending
+
+**Status: in-memory layer shipped.** A new
+[`ViewState`](data/viewState.ts) type sits as a third state layer
+alongside `CircuitModel` (Data) and `InteractionState` (Action).
+[sqore.ts](sqore.ts) holds `viewState: ViewState`, the chevron
+click handler writes to it, and `renderCircuit` applies it on top
+of the default-expansion passes. `expandOperation` /
+`collapseOperation` private methods are gone; the `circuit?`
+overload of `renderCircuit` is gone (it existed only to keep
+chevron mutations alive across one render — that workaround is
+now unnecessary). Locked down by 11 unit tests in
+[test/circuit-editor/viewState.test.mjs](../../test/circuit-editor/viewState.test.mjs)
+plus an integration test in
+[test/circuit-editor/dropzones.test.mjs](../../test/circuit-editor/dropzones.test.mjs)
+that fires a real chevron click and verifies the expand survives a
+subsequent editor-mutation re-render.
+
+**Known limitation:** entries are keyed by location string. When an
+edit shifts an op's position, its `ViewState` entry stays at the
+old key and silently goes stale. Stable IDs (R4's `Location` value
+type set up the centralization needed for this) are the long-term
+fix.
+
+**Other state types to migrate as they land** (no work needed
+until each feature):
+
+- Inspector panel: which gate is pinned, which tab is active (#2).
+- Multi-select set (#3).
+- Zoom level / scroll position (currently re-derived on resize).
+- Custom-gate palette: collapsed/expanded sections (#4).
+- Diff/snapshot view toggle, breakpoint markers (long-term).
+
+#### Pending: host persistence (VS Code)
+
+Today `ViewState` is in-memory only. A webview reload (e.g. from a
+panel tab switch or VS Code restart) discards it, so the user's
+expansion choices vanish across reloads. To fix:
+
+- Define a `SerializableViewState` shape (`{ expanded: Record<string, boolean> }`).
+- Add `EditorHandlers.persistViewState?: (state: SerializableViewState) => void`
+  fired from `Sqore` whenever `viewState` mutates.
+- Add a constructor option for initial `viewState`.
+- VS Code side: wire through `vscode.getState()` /
+  `vscode.setState()` in [vscode/src/circuit.ts](../../../../vscode/src/circuit.ts)
+  and the panel host. Web playground ignores the hook; editor
+  still works without it.
+
+**Surfaces touched:** [sqore.ts](sqore.ts) (constructor +
+`viewState` setter notifications),
+[editor/installEditor.ts](editor/installEditor.ts) (wire
+`persistViewState`), [vscode/src/circuit.ts](../../../../vscode/src/circuit.ts),
+plus an integration test under [vscode/test](../../../../vscode/test).
+
+### 2. Gate Inspector panel — multi-target editing
 
 **Goal:** Replace today's ad-hoc context menu + single-input prompt
 chain with a unified Inspector panel that can edit every property of
@@ -1007,7 +1061,7 @@ the trace's iteration markers as a first-class authoring concept. Treat
 that as its own structural-group authoring item below — the Inspector
 should not be blocked on it.
 
-### 2. Snapshot tool — extract selection into a custom gate
+### 3. Snapshot tool — extract selection into a custom gate
 
 **Goal:** User selects a region of the canvas, hits "Create custom
 gate from selection", and the selection collapses into a single
@@ -1040,16 +1094,16 @@ multi-target gate node whose body lives in `children`.
 re-inlining its `children` back where it stood must produce a
 structurally identical grid.
 
-### 3. Custom-gate palette in the toolbox
+### 4. Custom-gate palette in the toolbox
 
 **Goal:** A second toolbox section listing the document's custom
 gates (in-document defs + sibling `.qsc` files). Drag-from-palette
 creates a 1-target placeholder; user uses the Inspector to add the
 remaining targets to match the gate's arity.
 
-Depends on #2 producing well-formed defs.
+Depends on #3 producing well-formed defs.
 
-### 4. Structural-group authoring (`for` / `if`)
+### 5. Structural-group authoring (`for` / `if`)
 
 **Goal:** The editor learns to author `loop:` and `if:` groups
 natively, replacing the `// loop: …` and `// if: …` comment fallbacks
@@ -1066,7 +1120,7 @@ in the Q# preview with real `for` / `if` blocks. Also covers the
   real `if`/`else`. Existing divergence-banner machinery already flags
   shapes that can't round-trip cleanly.
 
-### 5. Controlled-Adjoint extracted-gate test coverage
+### 6. Controlled-Adjoint extracted-gate test coverage
 
 **Goal:** Add unit coverage for the
 `Controlled Adjoint Foo([c], [qs[0], qs[1]])` shape specifically.
@@ -1076,7 +1130,7 @@ not.
 **Surface:**
 [circuit_to_qsharp/tests.rs](../../../compiler/qsc_circuit/src/circuit_to_qsharp/tests.rs).
 
-### 6. VS Code integration tests for the preview pipeline
+### 7. VS Code integration tests for the preview pipeline
 
 **Goal:** Today's coverage is heavy on the Rust side and almost
 nothing on the VS Code side. Add tests under
@@ -1089,7 +1143,7 @@ nothing on the VS Code side. Add tests under
   `GroupSplittingTest.Main.qsc`, confirm the preview uses the
   sanitized identifier).
 
-### 7. Round-trip validation: `.qs` → `.qsc` → preview Q# matches `.qs`
+### 8. Round-trip validation: `.qs` → `.qsc` → preview Q# matches `.qs`
 
 **Goal:** Currently each direction is tested independently. Add a
 test (likely in the Rust crate, fed by snapshot data) that takes a
@@ -1097,7 +1151,7 @@ canonical `.qs`, traces it to a circuit, saves as `.qsc`, regenerates
 Q#, and confirms structural equivalence with the original. Catches
 emitter regressions that don't surface as compile errors.
 
-### 8. CHANGELOG / release notes
+### 9. CHANGELOG / release notes
 
 **Goal:** Surface the editor-parity work to users. Should mention
 custom-gate extraction, the live preview, the Save-as-Circuit bridge,
@@ -1114,5 +1168,5 @@ and the divergence banner.
   eagerly, or lazily on toolbox-open? Workspace scan adds latency to
   editor startup; lazy adds latency to first toolbox use.
 - Multi-document custom-gate references — when a `.qsc` is saved as a
-  separate file (#2 option B), where does the parent record the
+  separate file (#3 option B), where does the parent record the
   reference? Filename only, or content hash too?

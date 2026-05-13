@@ -16,6 +16,7 @@ import {
 import { GateRenderData } from "./renderer/gateRenderData.js";
 import { LayoutMap, emptyLayoutMap } from "./renderer/layoutMap.js";
 import { Location } from "./data/location.js";
+import { ViewState } from "./data/viewState.js";
 import {
   gateHeight,
   minGateWidth,
@@ -91,6 +92,13 @@ export class Sqore {
   container: HTMLElement | null = null;
   zoomOnResize: boolean = true;
   zoomLevel: number = 100;
+  /**
+   * Per-session view preferences (e.g. user-toggled expand/collapse
+   * state). Survives every `renderCircuit` call but is intentionally
+   * NOT serialized into the saved circuit. See
+   * [`viewState.ts`](data/viewState.ts).
+   */
+  readonly viewState: ViewState = new ViewState();
   /**
    * Initializes Sqore object.
    *
@@ -205,13 +213,18 @@ export class Sqore {
   /**
    * Render circuit into `container`.
    *
+   * Always deep-copies `this.circuit` so the rendered grid can be
+   * mutated freely (location stamps, default-expand flags, ViewState
+   * overrides) without touching the saved circuit. The previous
+   * "reuse the deep copy" overload existed only to keep chevron-click
+   * mutations alive across one render; that bookkeeping now lives in
+   * `this.viewState` and the workaround is gone.
+   *
    * @param container HTML element for rendering visualization into.
-   * @param circuit Circuit object to be rendered.
    */
-  private renderCircuit(container: HTMLElement, circuit?: Circuit): void {
+  private renderCircuit(container: HTMLElement): void {
     // Create copy of circuit to prevent mutation
-    const _circuit: Circuit =
-      circuit ?? JSON.parse(JSON.stringify(this.circuit));
+    const _circuit: Circuit = JSON.parse(JSON.stringify(this.circuit));
 
     // Assign unique locations to each operation
     _circuit.componentGrid.forEach((col, colIndex) =>
@@ -220,11 +233,14 @@ export class Sqore {
       ),
     );
 
-    // Expand operations to the specified render depth
+    // Apply default-expansion passes first — these match the original
+    // behavior for any op without an explicit user choice.
     this.expandOperationsToDepth(_circuit.componentGrid, this.renderDepth);
-
-    // Auto-expand any groups with single children
     this.expandIfSingleOperation(_circuit.componentGrid);
+
+    // Apply user view-state overrides on top. Anything the user has
+    // explicitly expanded or collapsed wins over the defaults.
+    this.viewState.applyTo(_circuit.componentGrid);
 
     // Create visualization components
     const composedSqore: ComposedSqore = this.compose(_circuit);
@@ -244,7 +260,7 @@ export class Sqore {
         container.replaceChild(svg, previousSvg);
       }
     }
-    this.addGateClickHandlers(container, _circuit);
+    this.addGateClickHandlers(container);
 
     const editor = this.options.editor;
     const isEditable = editor != null;
@@ -284,10 +300,12 @@ export class Sqore {
           onlyComponent.dataAttributes,
           "location",
         ) &&
-        onlyComponent.dataAttributes["expanded"] !== "false"
+        onlyComponent.dataAttributes["expanded"] !== "false" &&
+        onlyComponent.children != null
       ) {
-        const location: string = onlyComponent.dataAttributes["location"];
-        this.expandOperation(grid, location);
+        // We already have the only-component in hand, so set the
+        // attr directly rather than walking the grid for it.
+        onlyComponent.dataAttributes["expanded"] = "true";
       }
     }
     // Recursively expand if the only child is also a single operation
@@ -473,20 +491,23 @@ export class Sqore {
    * Add interactive click handlers to circuit HTML elements.
    *
    * @param container HTML element containing visualized circuit.
-   * @param circuit Circuit to be visualized.
    *
    */
-  private addGateClickHandlers(container: HTMLElement, circuit: Circuit): void {
-    this.addZoomHandlers(container, circuit);
+  private addGateClickHandlers(container: HTMLElement): void {
+    this.addZoomHandlers(container);
   }
 
   /**
    * Add interactive click handlers for expand/collapse functionality.
    *
+   * Each chevron click writes the user's choice into `this.viewState`
+   * and then re-renders. ViewState survives the deep-copy that happens
+   * inside `renderCircuit`, so the choice persists across editor
+   * mutations rather than being lost on the next refresh.
+   *
    * @param container HTML element containing visualized circuit.
-   * @param circuit Circuit to be visualized.
    */
-  private addZoomHandlers(container: HTMLElement, circuit: Circuit): void {
+  private addZoomHandlers(container: HTMLElement): void {
     container.querySelectorAll(".gate .gate-control").forEach((ctrl) => {
       // Zoom in on clicked gate
       ctrl.addEventListener("click", (ev: Event) => {
@@ -494,68 +515,17 @@ export class Sqore {
           ctrl.parentElement?.getAttribute("data-location");
         if (typeof gateId == "string") {
           if (ctrl.classList.contains("gate-collapse")) {
-            this.collapseOperation(circuit.componentGrid, gateId);
+            this.viewState.setExpanded(gateId, false);
           } else if (ctrl.classList.contains("gate-expand")) {
-            this.expandOperation(circuit.componentGrid, gateId);
+            this.viewState.setExpanded(gateId, true);
           }
           this.zoomOnResize = false;
-          this.renderCircuit(container, circuit);
+          this.renderCircuit(container);
 
           ev.stopPropagation();
         }
       });
     });
-  }
-
-  /**
-   * Expand selected composite operation.
-   *
-   * @param componentGrid Grid of circuit components.
-   * @param location Location of operation to expand.
-   */
-  private expandOperation(
-    componentGrid: ComponentGrid,
-    location: string,
-  ): void {
-    componentGrid.forEach((col) =>
-      col.components.forEach((op) => {
-        if (op.children != null) this.expandOperation(op.children, location);
-        if (op.dataAttributes == null) return op;
-        const opId: string = op.dataAttributes["location"];
-        if (opId === location && op.children != null) {
-          op.dataAttributes["expanded"] = "true";
-        }
-      }),
-    );
-  }
-
-  /**
-   * Collapse selected composite operation.
-   *
-   * @param componentGrid Grid of circuit components.
-   * @param parentLoc Location of operation to collapse.
-   */
-  private collapseOperation(
-    componentGrid: ComponentGrid,
-    parentLoc: string,
-  ): void {
-    componentGrid.forEach((col) =>
-      col.components.forEach((op) => {
-        if (op.children != null) this.collapseOperation(op.children, parentLoc);
-        if (op.dataAttributes == null) return op;
-        const opId: string = op.dataAttributes["location"];
-        if (opId === parentLoc) {
-          // Explicitly collapse the targeted parent operation.
-          op.dataAttributes["expanded"] = "false";
-        } else if (opId.startsWith(parentLoc)) {
-          // For descendants, remove the explicit expanded attribute rather than
-          // forcing it to "false". This allows default expansion rules (e.g.
-          // classically controlled groups default to expanded) to re-apply
-          // correctly when the parent is later re-expanded.
-          delete op.dataAttributes["expanded"];
-        }
-      }),
-    );
   }
 
   // Minimize the circuits in a circuit group to remove dataAttributes
