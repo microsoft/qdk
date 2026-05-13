@@ -169,6 +169,10 @@ def get_interpreter() -> Interpreter:
     return _get_default_context()._interpreter
 
 
+def get_config() -> Config:
+    return _get_default_context()._config
+
+
 def python_args_to_interpreter_args(args):
     return _get_default_context()._python_args_to_interpreter_args(args)
 
@@ -571,6 +575,7 @@ __all__ = [
     # Helpers to initialize/access the global Context object.
     "init",
     "get_interpreter",
+    "get_config",
     "python_args_to_interpreter_args",
     "qsharp_value_to_python_value",
 ]
