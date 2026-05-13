@@ -8,7 +8,7 @@ import { Circuit, ComponentGrid, Operation, Qubit } from "./circuit.js";
  * `CircuitModel` — the persistent circuit definition.
  *
  * This is the **Data layer** in the circuit editor's three-layer
- * architecture (Data / Action / View — see [CIRCUIT_EDITOR_TODO.md](CIRCUIT_EDITOR_TODO.md)).
+ * architecture (Data / Action / View).
  * Owns three pieces of state:
  *
  *   - `componentGrid` — the grid of operations the user sees and edits.

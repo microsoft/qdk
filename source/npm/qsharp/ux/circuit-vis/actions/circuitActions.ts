@@ -15,8 +15,7 @@ import {
 
 /*
  * `circuitActions.ts` — the **Action layer** in the circuit editor's
- * three-layer architecture (Data / Action / View — see
- * [CIRCUIT_EDITOR_TODO.md](CIRCUIT_EDITOR_TODO.md)).
+ * three-layer architecture (Data / Action / View).
  *
  * Each exported function takes a `CircuitModel` (Data layer) as its
  * first argument and mutates it in place. **No DOM. No interaction

@@ -3,17 +3,16 @@
 
 // KeyboardController tests — exercises the smallest controller in
 // isolation against a stub `InteractionContext`. Demonstrates the
-// R5 testability win: a controller can be instantiated against a
-// hand-rolled context and asserted directly, without spinning up
-// the full editor (no Sqore, no LayoutMap, no actual circuit).
+// controller-layer testability: a controller can be instantiated
+// against a hand-rolled context and asserted directly, without
+// spinning up the full editor (no Sqore, no LayoutMap, no actual
+// circuit).
 //
 // JSDOM is required because the controller installs document-level
 // keydown/keyup listeners. Other dependencies (`model`, `layoutMap`,
 // `circuitSvg`, etc.) are unused by this controller and stubbed
 // minimally.
 //
-// See [CIRCUIT_EDITOR_TODO.md](../ux/circuit-vis/CIRCUIT_EDITOR_TODO.md)
-// (R5) for the architecture this validates.
 
 // @ts-check
 

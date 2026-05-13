@@ -1,11 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Dropzone-layer tests: locks down the location strings emitted by the
-// circuit editor's drop-target generator. These are the first checked-in
-// tests for the drag/drop surface — see
-// `ux/circuit-vis/CIRCUIT_EDITOR_TODO.md` ("Drag-and-drop overhaul")
-// for the rationale.
+// Dropzone-layer tests: locks down the location strings emitted by
+// the circuit editor's drop-target generator. Covers the drag/drop
+// surface so positioning regressions don't sneak through.
 //
 // Tests render a small circuit through `draw()` with editor enabled,
 // then inspect the resulting `g.dropzone-layer` for the set of
@@ -262,14 +260,11 @@ test("nested dropzones are clipped to the group's wire extent", () => {
 });
 
 // ---------------------------------------------------------------------------
-// R1 — pixel-coordinate tests. The Phase A bug shipped because the
-// existing tests only asserted *structure* (dropzone locations exist),
-// not *geometry* (dropzones are positioned where users can hit them).
-// These tests assert that for every rendered gate, the on-column
-// dropzone with the matching `data-dropzone-location` covers the
-// gate's x range. If they pass, dropping a gate on top of an existing
-// gate will land on a real dropzone — which is the thing the user
-// actually relies on.
+// Pixel-coordinate tests. These tests assert that for every rendered
+// gate, the on-column dropzone with the matching
+// `data-dropzone-location` covers the gate's x range. If they pass,
+// dropping a gate on top of an existing gate will land on a real
+// dropzone — which is the thing the user actually relies on.
 // ---------------------------------------------------------------------------
 
 /**
@@ -467,8 +462,8 @@ test("expanded group: nested gates are covered by their on-column dropzones", ()
 });
 
 // ---------------------------------------------------------------------------
-// R6 — editor overlay structure. All editor-only DOM (dropzones,
-// ghost qubit row, future overlays) must live inside a single
+// Editor overlay structure. All editor-only DOM (dropzones, ghost
+// qubit row, future overlays) must live inside a single
 // `g.editor-overlay` group attached to `svg.qviz`. The renderer
 // (formatGates / formatRegisters / formatInputs) never touches that
 // group; the editor never appends outside it. Asserting the

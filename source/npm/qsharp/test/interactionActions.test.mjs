@@ -4,13 +4,11 @@
 // interactionActions tests — exercises the Action layer for the
 // editor's ephemeral session state (`InteractionState`) directly,
 // with **no JSDOM** for the pure-data helpers and a tiny stub
-// `parentNode` for the one DOM-touching helper. That direct
-// testability is the R3.5 win; together with R3 it means the only
-// editor logic that still needs JSDOM is the actual event-listener
-// wiring in `CircuitEvents`.
+// `parentNode` for the one DOM-touching helper. Together with the
+// `circuitActions` tests, this means the only editor logic that
+// still needs JSDOM is the actual event-listener wiring in
+// `CircuitEvents`.
 //
-// See [CIRCUIT_EDITOR_TODO.md](../ux/circuit-vis/CIRCUIT_EDITOR_TODO.md)
-// for the architecture this validates.
 
 // @ts-check
 
@@ -71,8 +69,8 @@ test("resetTransient clears every transient flag but preserves selectedOperation
 
   resetTransient(s);
 
-  // Persistent selection survives — that's the contract `_resetState`
-  // had pre-R3.5 (kept so the context menu can still find its target).
+  // Persistent selection survives — that's the contract callers rely
+  // on so the context menu can still find its target after a reset.
   assert.equal(s.selectedOperation, op);
   // Everything else cleared.
   assert.equal(s.selectedWire, null);

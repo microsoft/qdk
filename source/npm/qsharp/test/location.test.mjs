@@ -2,11 +2,8 @@
 // Licensed under the MIT license.
 
 // Location value-type tests — exercises the immutable `Location`
-// value type that R4 carved out as the single source of truth for
-// hierarchical-address parse/compose. Pure-data, no JSDOM.
-//
-// See [CIRCUIT_EDITOR_TODO.md](../ux/circuit-vis/CIRCUIT_EDITOR_TODO.md)
-// for the architecture this validates.
+// value type that owns hierarchical-address parse/compose for the
+// circuit editor. Pure-data, no JSDOM.
 
 // @ts-check
 

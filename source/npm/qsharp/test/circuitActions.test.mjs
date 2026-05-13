@@ -4,9 +4,7 @@
 // circuitActions tests: exercises the Action-layer of the circuit
 // editor (`ux/circuit-vis/circuitActions.ts`) directly against a
 // `CircuitModel` (Data layer), with **no JSDOM and no `CircuitEvents`
-// stub**. That direct testability is the main point of the
-// Data/Action/View split landed in R3 — see
-// `ux/circuit-vis/CIRCUIT_EDITOR_TODO.md`.
+// stub**.
 //
 // Tests cover the small mutation contracts each action promises:
 // componentGrid layout, qubitUseCounts bookkeeping, and the trailing-
