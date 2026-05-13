@@ -14,7 +14,7 @@ import { formatGate } from "../renderer/formatters/gateFormatter.js";
 import { qubitInput } from "../renderer/formatters/inputFormatter.js";
 import { LayoutMap, LayoutScope } from "../renderer/layoutMap.js";
 import { Location } from "../data/location.js";
-import { toRenderData } from "./panel.js";
+import { toRenderData } from "./standaloneRenderData.js";
 import { isExpandedGroup, Sqore } from "../sqore.js";
 import {
   getHostElems,

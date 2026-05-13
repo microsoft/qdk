@@ -25,7 +25,7 @@ import { Location } from "../data/location.js";
 import { promptForArguments } from "./contextMenu.js";
 import { QubitController } from "./qubitController.js";
 import { enableAutoScroll } from "./scrollController.js";
-import { toolboxGateDictionary } from "./panel.js";
+import { toolboxGateDictionary } from "./toolboxGates.js";
 import {
   deepEqual,
   findOperation,
