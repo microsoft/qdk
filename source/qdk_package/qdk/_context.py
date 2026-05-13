@@ -189,6 +189,7 @@ class Context:
         """
         self._disposed = False
         self._is_global_context = _is_global_context
+        self._target_profile = target_profile
 
         if _is_global_context:
             self.code = code
@@ -934,3 +935,7 @@ class Context:
         telemetry_events.on_import_qasm_end(durationMs)
 
         return res
+
+    def get_target_profile(self) -> TargetProfile:
+        """Returns target profile for this Context."""
+        return self._target_profile

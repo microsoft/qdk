@@ -117,6 +117,7 @@ def test_config_property() -> None:
     """Context exposes a .config property with the target profile."""
     ctx = qdk.Context(target_profile=qdk.TargetProfile.Base)
     assert ctx._config.get_target_profile() == "base"
+    assert ctx.get_target_profile() == qdk.TargetProfile.Base
 
 
 def test_context_isolation() -> None:
