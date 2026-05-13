@@ -3,7 +3,7 @@
 
 // State visualizer snapshot tests.
 //
-// Snapshots are stored as .html files in `test/state-viz-cases/`.
+// Snapshots are stored as .html files in `test/state-viz/cases/`.
 // To (re)generate snapshots:
 //   node --test --test-update-snapshots test/stateViz.js
 
@@ -18,8 +18,8 @@ import prettier from "prettier";
 import {
   createStatePanel,
   updateStatePanelFromColumns,
-} from "../dist/ux/circuit-vis/state-viz/stateViz.js";
-import { prepareStateVizColumnsFromAmpMap } from "../dist/ux/circuit-vis/state-viz/worker/stateVizPrep.js";
+} from "../../dist/ux/circuit-vis/state-viz/stateViz.js";
+import { prepareStateVizColumnsFromAmpMap } from "../../dist/ux/circuit-vis/state-viz/worker/stateVizPrep.js";
 
 const documentTemplate = `<!doctype html><html>
   <head>
@@ -60,10 +60,7 @@ afterEach(() => {
 });
 
 function getCasesDirectory() {
-  return path.join(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "state-viz-cases",
-  );
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), "cases");
 }
 
 /**
