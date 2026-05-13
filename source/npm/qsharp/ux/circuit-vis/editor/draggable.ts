@@ -15,7 +15,7 @@ import { qubitInput } from "../renderer/formatters/inputFormatter.js";
 import { LayoutMap, LayoutScope } from "../renderer/layoutMap.js";
 import { Location } from "../data/location.js";
 import { toRenderData } from "./standaloneRenderData.js";
-import { isExpandedGroup, Sqore } from "../sqore.js";
+import { Sqore } from "../sqore.js";
 import {
   getHostElems,
   getMinMaxRegIdx,
@@ -539,16 +539,27 @@ const _populateDropzonesForGrid = (
         wireIndex++;
       }
 
-      // If this op is itself an expanded group, recurse so its
-      // interior also gets dropzones. The recursion's wire extent
-      // matches the group's own [minTarget, maxTarget] (inclusive),
-      // ensuring nested dropzones can never escape the parent group.
-      if (isExpandedGroup(op) && op.children != null) {
+      // If this op was rendered as an expanded group, recurse so its
+      // interior also gets dropzones. Drive the decision off the
+      // LayoutMap: any group the layout pass actually laid out has a
+      // scope keyed by its location string. We can't use
+      // `isExpandedGroup(op)` here because `op` belongs to
+      // `sqore.circuit.componentGrid` (the original), while expand
+      // flags from `expandOperationsToDepth`,
+      // `expandIfSingleOperation`, and the user's expand-chevron
+      // clicks are applied to the per-render deep copy only — never
+      // to the original. The LayoutMap, built from that deep copy,
+      // is the authoritative record of which groups were rendered
+      // expanded. The recursion's wire extent matches the group's
+      // own [minTarget, maxTarget] (inclusive), ensuring nested
+      // dropzones can never escape the parent group.
+      const childKey = composeLocation(pathPrefix, colIndex, opIndex);
+      if (op.children != null && layoutMap.scopes.has(childKey)) {
         _populateDropzonesForGrid(
           dropzoneLayer,
           layoutMap,
           op.children,
-          composeLocation(pathPrefix, colIndex, opIndex),
+          childKey,
           wireData,
           minTarget,
           maxTarget + 1,

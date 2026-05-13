@@ -260,6 +260,69 @@ test("nested dropzones are clipped to the group's wire extent", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Regression: nested dropzones must appear inside groups that are
+// *rendered* expanded, even when the source op has no pre-baked
+// `dataAttributes.expanded` flag.
+//
+// This is the real-editor scenario. `Sqore.renderCircuit` deep-copies
+// the circuit and then runs `expandOperationsToDepth` /
+// `expandIfSingleOperation` on the COPY — never on `this.circuit`.
+// User clicks on the expand chevron also mutate the copy only.
+//
+// The dropzone recursion iterates `sqore.circuit.componentGrid` (the
+// original), so any check based on `op.dataAttributes.expanded` reads
+// stale data and never recurses into render-time-expanded groups. The
+// LayoutMap, built from the copy, is the source of truth for what was
+// actually laid out — recursion should be driven by that, not by the
+// source op's flag.
+// ---------------------------------------------------------------------------
+
+test("nested dropzones appear when expansion is render-time only (not pre-baked)", () => {
+  // Foo has children but NO `dataAttributes.expanded` pre-set. The
+  // editor will see this op (in the original grid) without any expand
+  // flag. Render-time expansion comes from `renderDepth: 5`, which
+  // `Sqore.renderCircuit` applies to the deep copy only.
+  const group = singleCircuit({
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            // Note: NO dataAttributes here. This is what the editor
+            // actually sees in `sqore.circuit.componentGrid` for any
+            // group the user expands via the chevron.
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+
+  const dropzones = renderAndCollectDropzones(group);
+
+  const nested = dropzones.filter((d) => d.location.startsWith("0,0-"));
+  assert.ok(
+    nested.length > 0,
+    `expected nested dropzones inside render-time-expanded Foo group, got locations: ${JSON.stringify(
+      dropzones.map((d) => d.location),
+    )}`,
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Pixel-coordinate tests. These tests assert that for every rendered
 // gate, the on-column dropzone with the matching
 // `data-dropzone-location` covers the gate's x range. If they pass,
