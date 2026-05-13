@@ -189,7 +189,7 @@ class Context:
         """
         self._disposed = False
         self._is_global_context = _is_global_context
-        self.target_profile = target_profile
+        self._target_profile = target_profile
 
         if _is_global_context:
             self.code = code
@@ -938,4 +938,4 @@ class Context:
 
     def get_target_profile(self) -> TargetProfile:
         """Returns target profile for this Context."""
-        return self.target_profile
+        return self._target_profile
