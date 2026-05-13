@@ -5,7 +5,7 @@ import { log, QdkDiagnostics, TargetProfile } from "qsharp-lang";
 import * as vscode from "vscode";
 import { getCircuitOrErrorWithTimeout, getConfig } from "../circuit";
 import { qsharpExtensionId } from "../common";
-import { getUploadSupplementalData } from "../config";
+import { getTargetJobParams, getUploadSupplementalData } from "../config";
 import { FullProgramConfig, getActiveProgram } from "../programConfig";
 import { getQirForProgram, QirGenerationError } from "../qirGeneration";
 import {
@@ -664,6 +664,8 @@ export async function compileAndSubmit(
     parameters = { jobName: result.jobName, shots: result.numberOfShots };
   }
 
+  const additionalJobParams = getTargetJobParams(target.id);
+
   const { jobId, storageUris, quantumUris, token } = await submitJob(
     workspace,
     associationId,
@@ -672,6 +674,7 @@ export async function compileAndSubmit(
     target.id,
     parameters.jobName,
     parameters.shots,
+    additionalJobParams,
   );
 
   sendTelemetryEvent(

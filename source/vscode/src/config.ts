@@ -50,3 +50,12 @@ export function getUploadSupplementalData(): boolean {
     .getConfiguration("Q#")
     .get<boolean>("azure.uploadSupplementalData", true);
 }
+
+export function getTargetJobParams(
+  targetId: string,
+): Record<string, unknown> {
+  const allTargetParams = vscode.workspace
+    .getConfiguration("Q#")
+    .get<Record<string, Record<string, unknown>>>("azure.targetJobParams", {});
+  return allTargetParams[targetId] ?? {};
+}
