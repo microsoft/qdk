@@ -448,16 +448,83 @@ function EventList({ events }: { events: OutputEvent[] }) {
   return (
     <>
       {events.map((event, i) => {
-        if (event.type === "message") {
-          return (
-            <div key={i} class="message">
-              {event.message}
-            </div>
-          );
+        switch (event.type) {
+          case "message":
+            return (
+              <div key={i} class="message">
+                {event.message}
+              </div>
+            );
+          case "dump":
+            return <StateTable key={i} state={event.dump.state} />;
+          case "matrix":
+            return <MatrixTable key={i} matrix={event.matrix.matrix} />;
+          default:
+            return null;
         }
-        return null;
       })}
     </>
+  );
+}
+
+function formatComplex(real: number, imag: number): string {
+  const r = `${real <= -0.00005 ? "\u2212" : ""}${Math.abs(real).toFixed(4)}`;
+  const i = `${imag <= -0.00005 ? "\u2212" : "+"}${Math.abs(imag).toFixed(4)}\u{1D456}`;
+  return `${r}${i}`;
+}
+
+function StateTable({ state }: { state: Record<string, [number, number]> }) {
+  const entries = Object.entries(state);
+  if (entries.length === 0) {
+    return <div class="message">No qubits allocated</div>;
+  }
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Basis State</th>
+          <th>Amplitude</th>
+          <th>Measurement Probability</th>
+          <th colSpan={2}>Phase</th>
+        </tr>
+      </thead>
+      <tbody>
+        {entries.map(([basis, [real, imag]]) => {
+          const prob = (real * real + imag * imag) * 100;
+          const phase = Math.atan2(imag, real);
+          return (
+            <tr key={basis}>
+              <td style="text-align: center">{basis}</td>
+              <td style="text-align: right">{formatComplex(real, imag)}</td>
+              <td style="display: flex; justify-content: space-between; padding: 2px 8px;">
+                <progress style="width: 40%" max="100" value={prob} />
+                <span>{prob.toFixed(4)}%</span>
+              </td>
+              <td style={`transform: rotate(${phase.toFixed(4)}rad)`}>↑</td>
+              <td style="text-align: right">{phase.toFixed(4)}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function MatrixTable({ matrix }: { matrix: number[][][] }) {
+  return (
+    <table>
+      <tbody>
+        {matrix.map((row, r) => (
+          <tr key={r}>
+            {row.map(([real, imag], c) => (
+              <td key={c} style="text-align: right">
+                {formatComplex(real, imag)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
