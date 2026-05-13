@@ -299,6 +299,34 @@ const findGateElem = (hostElem: SVGElement): SVGElement | null => {
 };
 
 /**
+ * Walk a path of `[colIdx, opIdx]` segments from a root grid down through
+ * nested operation children, returning the grid reached at the end.
+ *
+ * Returns `null` if any segment is out of bounds — for example because the
+ * model has changed since the location was captured (a stale `data-location`
+ * attribute on a DOM node, or a hand-constructed location that addresses an
+ * op that no longer exists).
+ *
+ * Note: matches the long-standing semantic that an interior op missing a
+ * `children` array does *not* fail the walk; the walk stays on the same
+ * grid for that step. Out-of-bounds is the only thing that produces `null`.
+ */
+const _walkToGrid = (
+  componentGrid: ComponentGrid,
+  segments: ReadonlyArray<readonly [number, number]>,
+): ComponentGrid | null => {
+  let grid = componentGrid;
+  for (const [colIdx, opIdx] of segments) {
+    const col = grid[colIdx];
+    if (col == null) return null;
+    const op = col.components[opIdx];
+    if (op == null) return null;
+    grid = op.children ?? grid;
+  }
+  return grid;
+};
+
+/**
  * Find the parent operation of the operation specified by location.
  *
  * Navigates via [`Location`](data/location.ts) so the addressing
@@ -306,7 +334,8 @@ const findGateElem = (hostElem: SVGElement): SVGElement | null => {
  *
  * @param componentGrid The grid of components to search through.
  * @param location The location string of the operation.
- * @returns The parent operation or null if not found.
+ * @returns The parent operation, or `null` if the location is empty,
+ *   shallower than two segments, or addresses an op that does not exist.
  */
 const findParentOperation = (
   componentGrid: ComponentGrid,
@@ -322,13 +351,11 @@ const findParentOperation = (
   const parentOpSegment = parentOpLocation.last();
   if (parentOpSegment == null) return null;
 
-  // Walk down to the grid that contains the parent op.
-  let grid = componentGrid;
-  for (const [colIdx, opIdx] of parentOpLocation.parent().segments) {
-    grid = grid[colIdx].components[opIdx].children || grid;
-  }
+  const grid = _walkToGrid(componentGrid, parentOpLocation.parent().segments);
+  if (grid == null) return null;
+
   const [parentCol, parentOp] = parentOpSegment;
-  return grid[parentCol].components[parentOp];
+  return grid[parentCol]?.components[parentOp] ?? null;
 };
 
 /**
@@ -339,23 +366,17 @@ const findParentOperation = (
  *
  * @param componentGrid The grid of components to search through.
  * @param location The location string of the operation.
- * @returns The parent grid of components or null if not found.
+ * @returns The parent grid of components, or `null` if the location is
+ *   empty or addresses an op nested below a missing ancestor.
  */
 const findParentArray = (
   componentGrid: ComponentGrid,
   location: string | null,
 ): ComponentGrid | null => {
   if (!location) return null;
-
   // Drop the last segment — it addresses the op itself; we want the grid that
   // contains it, which is keyed by its parent's segments.
-  const parentScope = Location.parse(location).parent();
-
-  let grid = componentGrid;
-  for (const [colIdx, opIdx] of parentScope.segments) {
-    grid = grid[colIdx].components[opIdx].children || grid;
-  }
-  return grid;
+  return _walkToGrid(componentGrid, Location.parse(location).parent().segments);
 };
 
 /**
@@ -366,7 +387,8 @@ const findParentArray = (
  *
  * @param componentGrid The grid of components to search through.
  * @param location The location string of the operation.
- * @returns The parent grid of components or null if not found.
+ * @returns The operation at the given location, or `null` if the location
+ *   is empty or addresses an op that does not exist.
  */
 const findOperation = (
   componentGrid: ComponentGrid,
@@ -375,12 +397,13 @@ const findOperation = (
   if (!location) return null;
 
   const last = Location.parse(location).last();
-  const operationParent = findParentArray(componentGrid, location);
+  if (last == null) return null;
 
-  if (operationParent == null || last == null) return null;
+  const operationParent = findParentArray(componentGrid, location);
+  if (operationParent == null) return null;
 
   const [col, op] = last;
-  return operationParent[col].components[op];
+  return operationParent[col]?.components[op] ?? null;
 };
 
 /**********************
