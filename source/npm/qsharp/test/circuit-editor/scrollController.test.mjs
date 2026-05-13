@@ -13,8 +13,8 @@
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { InteractionState } from "../dist/ux/circuit-vis/actions/interactionState.js";
-import { enableAutoScroll } from "../dist/ux/circuit-vis/editor/scrollController.js";
+import { InteractionState } from "../../dist/ux/circuit-vis/actions/interactionState.js";
+import { enableAutoScroll } from "../../dist/ux/circuit-vis/editor/scrollController.js";
 
 /** @type {JSDOM | null} */
 let jsdom = null;

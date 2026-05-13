@@ -24,7 +24,7 @@ import {
   findOperation,
   findParentArray,
   findParentOperation,
-} from "../dist/ux/circuit-vis/utils.js";
+} from "../../dist/ux/circuit-vis/utils.js";
 
 /** Build a 1-column grid with a single H@0. */
 function flatGrid() {

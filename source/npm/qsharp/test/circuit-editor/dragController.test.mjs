@@ -23,10 +23,10 @@
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { CircuitModel } from "../dist/ux/circuit-vis/data/circuitModel.js";
-import { InteractionState } from "../dist/ux/circuit-vis/actions/interactionState.js";
-import { DragController } from "../dist/ux/circuit-vis/editor/dragController.js";
-import { QubitController } from "../dist/ux/circuit-vis/editor/qubitController.js";
+import { CircuitModel } from "../../dist/ux/circuit-vis/data/circuitModel.js";
+import { InteractionState } from "../../dist/ux/circuit-vis/actions/interactionState.js";
+import { DragController } from "../../dist/ux/circuit-vis/editor/dragController.js";
+import { QubitController } from "../../dist/ux/circuit-vis/editor/qubitController.js";
 
 /** @type {JSDOM | null} */
 let jsdom = null;

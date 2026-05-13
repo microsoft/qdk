@@ -9,7 +9,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { Location } from "../dist/ux/circuit-vis/data/location.js";
+import { Location } from "../../dist/ux/circuit-vis/data/location.js";
 
 test("Location.root() returns the cached singleton", () => {
   assert.equal(Location.root(), Location.root());

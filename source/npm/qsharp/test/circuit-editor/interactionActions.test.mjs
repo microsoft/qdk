@@ -14,7 +14,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { InteractionState } from "../dist/ux/circuit-vis/actions/interactionState.js";
+import { InteractionState } from "../../dist/ux/circuit-vis/actions/interactionState.js";
 import {
   beginToolboxDrag,
   clearSelection,
@@ -25,7 +25,7 @@ import {
   markSelected,
   resetTransient,
   trackTemporaryDropzone,
-} from "../dist/ux/circuit-vis/actions/interactionActions.js";
+} from "../../dist/ux/circuit-vis/actions/interactionActions.js";
 
 /** Minimal stub matching the shape `clearTemporaryDropzones` looks at. */
 function fakeDropzone() {

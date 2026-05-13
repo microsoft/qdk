@@ -14,7 +14,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CircuitModel } from "../dist/ux/circuit-vis/data/circuitModel.js";
+import { CircuitModel } from "../../dist/ux/circuit-vis/data/circuitModel.js";
 import {
   addControl,
   addOperation,
@@ -23,12 +23,12 @@ import {
   removeControl,
   removeOperation,
   removeQubit,
-} from "../dist/ux/circuit-vis/actions/circuitActions.js";
+} from "../../dist/ux/circuit-vis/actions/circuitActions.js";
 
 /**
  * Build a fresh empty Circuit with `n` qubits and no operations.
  * @param {number} n
- * @returns {import("../dist/ux/circuit-vis/index.js").Circuit}
+ * @returns {import("../../dist/ux/circuit-vis/index.js").Circuit}
  */
 function emptyCircuit(n) {
   return {

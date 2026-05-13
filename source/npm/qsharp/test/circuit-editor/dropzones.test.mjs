@@ -16,7 +16,7 @@
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { draw } from "../dist/ux/circuit-vis/index.js";
+import { draw } from "../../dist/ux/circuit-vis/index.js";
 
 const documentTemplate = `<!doctype html><html>
   <head></head>
@@ -46,7 +46,7 @@ afterEach(() => {
  * Render a CircuitGroup with the editor enabled (so `createDropzones`
  * runs) and return the dropzone descriptors found in the resulting SVG.
  *
- * @param {import("../dist/ux/circuit-vis/index.js").CircuitGroup} group
+ * @param {import("../../dist/ux/circuit-vis/index.js").CircuitGroup} group
  * @returns {{ location: string; wire: number; interColumn: boolean }[]}
  */
 function renderAndCollectDropzones(group) {
@@ -79,9 +79,9 @@ function renderAndCollectDropzones(group) {
  * Build a minimal CircuitGroup wrapping a single Circuit. Keeps the
  * test fixtures readable by hiding the boilerplate.
  *
- * @param {{ qubits: import("../dist/ux/circuit-vis/index.js").Qubit[];
- *           componentGrid: import("../dist/ux/circuit-vis/index.js").ComponentGrid; }} circuit
- * @returns {import("../dist/ux/circuit-vis/index.js").CircuitGroup}
+ * @param {{ qubits: import("../../dist/ux/circuit-vis/index.js").Qubit[];
+ *           componentGrid: import("../../dist/ux/circuit-vis/index.js").ComponentGrid; }} circuit
+ * @returns {import("../../dist/ux/circuit-vis/index.js").CircuitGroup}
  */
 function singleCircuit(circuit) {
   return {
@@ -272,7 +272,7 @@ test("nested dropzones are clipped to the group's wire extent", () => {
  * rendered host elements (the gate boxes) and the produced dropzones,
  * each annotated with bounding-box coordinates pulled from SVG attrs.
  *
- * @param {import("../dist/ux/circuit-vis/index.js").CircuitGroup} group
+ * @param {import("../../dist/ux/circuit-vis/index.js").CircuitGroup} group
  */
 function renderAndCollectGeometry(group) {
   const container = document.createElement("div");

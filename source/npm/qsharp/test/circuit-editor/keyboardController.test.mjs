@@ -19,8 +19,8 @@
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { InteractionState } from "../dist/ux/circuit-vis/actions/interactionState.js";
-import { KeyboardController } from "../dist/ux/circuit-vis/editor/keyboardController.js";
+import { InteractionState } from "../../dist/ux/circuit-vis/actions/interactionState.js";
+import { KeyboardController } from "../../dist/ux/circuit-vis/editor/keyboardController.js";
 
 /** @type {JSDOM | null} */
 let jsdom = null;
