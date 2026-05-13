@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { InteractionState } from "../actions/interactionState.js";
+import { InteractionState } from "../../actions/interactionState.js";
 
 /**
  * `enableAutoScroll` — install document-level mousemove listener that

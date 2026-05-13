@@ -37,7 +37,7 @@ test harnesses.
 flowchart TB
     sqore["sqore.ts<br/>(entrypoint)"]
     subgraph View["View layer (DOM)"]
-        editor["editor/<br/>controllers · shell · dropzones"]
+        editor["editor/<br/>shell · dropzones · controllers/"]
         renderer["renderer/<br/>layout · SVG"]
     end
     subgraph Action["Action layer (pure)"]
@@ -86,22 +86,23 @@ ux/circuit-vis/
 │
 ├── editor/                       ← View layer (DOM glue, controllers)
 │   ├── installEditor.ts            Editor-mode bootstrap (one call from sqore.ts)
+│   ├── events.ts                   CircuitEvents: builds InteractionContext, owns controllers
 │   ├── shell.ts                    DOM shell: wrapper, toolbox panel, empty-msg, classes
 │   ├── toolbox.ts                  createToolboxElement (+ optional Run button)
 │   ├── toolboxGates.ts             toolboxGateDictionary (gate templates)
 │   ├── standaloneRenderData.ts     toRenderData for ghosts / toolbox icons
-│   │
-│   ├── events.ts                   CircuitEvents: builds InteractionContext, owns controllers
-│   ├── interactionContext.ts       InteractionContext: shared deps for controllers
-│   ├── dragController.ts           gate-drag, toolbox-drag, dropzone commit, doc-mouseup, add/remove control
-│   ├── qubitController.ts          qubit-label drag + remove-qubit-with-confirm
-│   ├── selectionController.ts      host-element mousedown + context-menu attach
-│   ├── keyboardController.ts       Ctrl-toggle move/copy mode
-│   ├── scrollController.ts         enableAutoScroll() shared by gate + qubit drags
-│   │
 │   ├── draggable.ts                createDropzones, ghost helpers, wire-dropzone factory
 │   ├── contextMenu.ts              right-click menu (uses CircuitEvents shim)
-│   └── prompts.ts                  _createConfirmPrompt / _createInputPrompt
+│   ├── prompts.ts                  _createConfirmPrompt / _createInputPrompt
+│   │
+│   └── controllers/                Pointer/keyboard event translation
+│       ├── interactionContext.ts     InteractionContext: shared deps for controllers
+│       ├── dragController.ts         gate-drag, toolbox-drag, dropzone commit, doc-mouseup, add/remove control
+│       ├── qubitController.ts        qubit-label drag + remove-qubit-with-confirm
+│       ├── selectionController.ts    host-element mousedown + context-menu attach
+│       ├── keyboardController.ts     Ctrl-toggle move/copy mode
+│       └── scrollController.ts       enableAutoScroll() shared by gate + qubit drags
+│
 │
 ├── renderer/                     ← View layer (layout + SVG generation)
 │   ├── process.ts                  layout pass: positions every gate, builds LayoutMap
@@ -248,7 +249,7 @@ action end-to-end.
 
 ### Example: "user drags an H gate from the toolbox onto wire 0"
 
-1. **Toolbox mousedown** ([dragController.ts](editor/dragController.ts) —
+1. **Toolbox mousedown** ([dragController.ts](editor/controllers/dragController.ts) —
    `installToolboxListeners`). Reads the toolbox-item type, calls
    `beginToolboxDrag(interaction, templateOp)` which sets
    `selectedOperation = templateOp` and
@@ -257,9 +258,9 @@ action end-to-end.
    ([draggable.ts](editor/draggable.ts)). Registers a temporary
    dropzone overlay with `trackTemporaryDropzone`.
 2. **Mousemove** is handled by `enableAutoScroll`
-   ([scrollController.ts](editor/scrollController.ts)) — installed at
+   ([scrollController.ts](editor/controllers/scrollController.ts)) — installed at
    drag start, removes itself on the next mouseup.
-3. **Dropzone mouseup** ([dragController.ts](editor/dragController.ts) —
+3. **Dropzone mouseup** ([dragController.ts](editor/controllers/dragController.ts) —
    `installDropzoneListeners`). Reads
    `data-dropzone-location`/`data-wire` off the dropzone element,
    marks `mouseUpOnCircuit = true`, and dispatches one of:
@@ -276,7 +277,7 @@ action end-to-end.
    the layout pass, replaces `svg.qviz`, and `installEditor` runs
    again. The previous `CircuitEvents` is disposed; a new one is
    built. The model is fresh from `new CircuitModel(sqore.circuit)`.
-6. **Document mouseup** ([dragController.ts](editor/dragController.ts) —
+6. **Document mouseup** ([dragController.ts](editor/controllers/dragController.ts) —
    `installDocumentListeners`). Cleans up the ghost, calls
    `resetTransient(interaction)` to clear all transient flags and
    tear down the temporary dropzones, removes the auto-scroll
@@ -284,7 +285,7 @@ action end-to-end.
 
 Every controller is read-only with respect to the others — they
 all read/write the same `model` and `interaction` via the shared
-[`InteractionContext`](editor/interactionContext.ts), and they all
+[`InteractionContext`](editor/controllers/interactionContext.ts), and they all
 re-render via the same `renderFn`.
 
 ```mermaid
@@ -342,13 +343,13 @@ hand-built context and exercise it directly.
 
 ## Controller responsibilities
 
-| Controller                                                             | Surface                                                                                        | Notes                                                                                                                                                                                       |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [DragController](editor/dragController.ts)                             | gate-drag, toolbox-drag, dropzone commit, document-level mouseup, add/remove-control wire-pick | Largest controller — these flows share dropzones/ghost/`interaction` flags so splitting wouldn't separate concerns. Holds a `QubitController` ref for the qubit-label drag-out-delete path. |
-| [QubitController](editor/qubitController.ts)                           | qubit-label drag (swap + insert-between dropzones), `removeQubitLineWithConfirmation`          | Public method called from two callers: context menu (via `CircuitEvents` shim) and `DragController`'s document-mouseup handler.                                                             |
-| [SelectionController](editor/selectionController.ts)                   | host-element mousedown (sets `selectedWire`/`movingControl`), context-menu attach              | Smallest controller; runs deeper in the DOM than `DragController`'s gate handler so its state mutation is visible by the time the drag handler runs.                                        |
-| [KeyboardController](editor/keyboardController.ts)                     | document `keydown`/`keyup` for Ctrl-toggle move/copy                                           | Stateless; only consults whether `selectedOperation` has a location.                                                                                                                        |
-| `enableAutoScroll` ([scrollController.ts](editor/scrollController.ts)) | document `mousemove` near container edges                                                      | Function not class — no shared state, called fresh by both gate-drag and qubit-drag. Self-removes on next mouseup.                                                                          |
+| Controller                                                                         | Surface                                                                                        | Notes                                                                                                                                                                                       |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [DragController](editor/controllers/dragController.ts)                             | gate-drag, toolbox-drag, dropzone commit, document-level mouseup, add/remove-control wire-pick | Largest controller — these flows share dropzones/ghost/`interaction` flags so splitting wouldn't separate concerns. Holds a `QubitController` ref for the qubit-label drag-out-delete path. |
+| [QubitController](editor/controllers/qubitController.ts)                           | qubit-label drag (swap + insert-between dropzones), `removeQubitLineWithConfirmation`          | Public method called from two callers: context menu (via `CircuitEvents` shim) and `DragController`'s document-mouseup handler.                                                             |
+| [SelectionController](editor/controllers/selectionController.ts)                   | host-element mousedown (sets `selectedWire`/`movingControl`), context-menu attach              | Smallest controller; runs deeper in the DOM than `DragController`'s gate handler so its state mutation is visible by the time the drag handler runs.                                        |
+| [KeyboardController](editor/controllers/keyboardController.ts)                     | document `keydown`/`keyup` for Ctrl-toggle move/copy                                           | Stateless; only consults whether `selectedOperation` has a location.                                                                                                                        |
+| `enableAutoScroll` ([scrollController.ts](editor/controllers/scrollController.ts)) | document `mousemove` near container edges                                                      | Function not class — no shared state, called fresh by both gate-drag and qubit-drag. Self-removes on next mouseup.                                                                          |
 
 `CircuitEvents` itself ([events.ts](editor/events.ts)) is just
 wiring: build the context, instantiate each controller, expose

@@ -5,15 +5,15 @@ import {
   findAndRemoveOperations,
   moveQubit,
   removeQubit,
-} from "../actions/circuitActions.js";
-import { Operation } from "../data/circuit.js";
-import { createQubitLabelGhost, createWireDropzone } from "./draggable.js";
+} from "../../actions/circuitActions.js";
+import { Operation } from "../../data/circuit.js";
+import { createQubitLabelGhost, createWireDropzone } from "../draggable.js";
 import { InteractionContext } from "./interactionContext.js";
-import { trackTemporaryDropzone } from "../actions/interactionActions.js";
-import { _createConfirmPrompt } from "./prompts.js";
+import { trackTemporaryDropzone } from "../../actions/interactionActions.js";
+import { _createConfirmPrompt } from "../prompts.js";
 import { enableAutoScroll } from "./scrollController.js";
-import { getOperationRegisters } from "../utils.js";
-import { getQubitLabelElems } from "../utils.js";
+import { getOperationRegisters } from "../../utils.js";
+import { getQubitLabelElems } from "../../utils.js";
 
 /**
  * `QubitController` — owns qubit-line interactions.

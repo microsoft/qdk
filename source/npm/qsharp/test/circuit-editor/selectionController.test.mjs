@@ -18,7 +18,7 @@ import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { InteractionState } from "../../dist/ux/circuit-vis/actions/interactionState.js";
-import { SelectionController } from "../../dist/ux/circuit-vis/editor/selectionController.js";
+import { SelectionController } from "../../dist/ux/circuit-vis/editor/controllers/selectionController.js";
 
 /** @type {JSDOM | null} */
 let jsdom = null;

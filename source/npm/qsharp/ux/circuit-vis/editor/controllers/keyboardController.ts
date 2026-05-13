@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { getGateLocationString } from "../utils.js";
+import { getGateLocationString } from "../../utils.js";
 import { InteractionContext } from "./interactionContext.js";
 
 /**

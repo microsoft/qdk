@@ -1,9 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { CircuitModel } from "../data/circuitModel.js";
-import { InteractionState } from "../actions/interactionState.js";
-import { LayoutMap } from "../renderer/layoutMap.js";
+import { CircuitModel } from "../../data/circuitModel.js";
+import { InteractionState } from "../../actions/interactionState.js";
+import { LayoutMap } from "../../renderer/layoutMap.js";
 
 /**
  * `InteractionContext` — shared dependencies passed to every editor

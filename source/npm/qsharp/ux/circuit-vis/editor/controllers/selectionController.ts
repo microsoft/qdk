@@ -1,10 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { CircuitEvents } from "./events.js";
-import { addContextMenuToHostElem } from "./contextMenu.js";
+import { CircuitEvents } from "../events.js";
+import { addContextMenuToHostElem } from "../contextMenu.js";
 import { InteractionContext } from "./interactionContext.js";
-import { getHostElems } from "../utils.js";
+import { getHostElems } from "../../utils.js";
 
 /**
  * `SelectionController` — owns mousedown on **host elements** (the

@@ -1,31 +1,31 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { ComponentGrid, Unitary } from "../data/circuit.js";
+import { ComponentGrid, Unitary } from "../../data/circuit.js";
 import {
   addControl,
   addOperation,
   moveOperation,
   removeControl,
   removeOperation,
-} from "../actions/circuitActions.js";
+} from "../../actions/circuitActions.js";
 import {
   createGateGhost,
   createWireDropzone,
   makeDropzoneBox,
   removeAllWireDropzones,
-} from "./draggable.js";
+} from "../draggable.js";
 import {
   beginToolboxDrag,
   resetTransient,
   trackTemporaryDropzone,
-} from "../actions/interactionActions.js";
+} from "../../actions/interactionActions.js";
 import { InteractionContext } from "./interactionContext.js";
-import { Location } from "../data/location.js";
-import { promptForArguments } from "./contextMenu.js";
+import { Location } from "../../data/location.js";
+import { promptForArguments } from "../contextMenu.js";
 import { QubitController } from "./qubitController.js";
 import { enableAutoScroll } from "./scrollController.js";
-import { toolboxGateDictionary } from "./toolboxGates.js";
+import { toolboxGateDictionary } from "../toolboxGates.js";
 import {
   deepEqual,
   findOperation,
@@ -34,7 +34,7 @@ import {
   getGateLocationString,
   getMinMaxRegIdx,
   getToolboxElems,
-} from "../utils.js";
+} from "../../utils.js";
 
 /**
  * `DragController` — owns the gate drag-and-drop surface. Gate-drag,

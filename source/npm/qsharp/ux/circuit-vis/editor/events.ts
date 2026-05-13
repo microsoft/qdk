@@ -3,13 +3,13 @@
 
 import { Circuit, ComponentGrid, Qubit, Unitary } from "../data/circuit.js";
 import { CircuitModel } from "../data/circuitModel.js";
-import { DragController } from "./dragController.js";
-import { InteractionContext } from "./interactionContext.js";
+import { DragController } from "./controllers/dragController.js";
+import { InteractionContext } from "./controllers/interactionContext.js";
 import { InteractionState } from "../actions/interactionState.js";
-import { KeyboardController } from "./keyboardController.js";
+import { KeyboardController } from "./controllers/keyboardController.js";
 import { LayoutMap } from "../renderer/layoutMap.js";
-import { QubitController } from "./qubitController.js";
-import { SelectionController } from "./selectionController.js";
+import { QubitController } from "./controllers/qubitController.js";
+import { SelectionController } from "./controllers/selectionController.js";
 import { Sqore } from "../sqore.js";
 import { getWireData } from "../utils.js";
 
