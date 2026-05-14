@@ -5,7 +5,7 @@
 
 The ``qdk`` package is the unified Python entry point for the Microsoft Quantum
 Development Kit. It bundles the Q# interpreter, OpenQASM tooling, simulators,
-the Resource Estimator, and interoperability layers under a single import
+the Resource Estimator, and interoperability utilities under a single import
 root.
 
 Core submodules (always available):
