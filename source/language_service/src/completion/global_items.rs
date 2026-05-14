@@ -374,7 +374,7 @@ impl<'a> Globals<'a> {
         mut items: Vec<ItemInfo<'_>>,
         edit_range: Option<&TextEditRange>,
     ) -> Vec<Vec<Completion>> {
-        items.sort_by(|a, b| a.item_id.package.cmp(&b.item_id.package));
+        items.sort_by_key(|a| a.item_id.package);
         items.reverse();
 
         let mut groups = Vec::new();

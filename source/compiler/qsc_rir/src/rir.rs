@@ -24,7 +24,7 @@ pub struct Program {
 impl Display for Program {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "Program:",)?;
+        write!(indent, "Program:")?;
         indent = set_indentation(indent, 1);
         write!(indent, "\nentry: {}", self.entry.0)?;
         write!(indent, "\ncallables:")?;
@@ -126,7 +126,7 @@ pub struct Config {
 impl Display for Config {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "Config:",)?;
+        write!(indent, "Config:")?;
         indent = set_indentation(indent, 1);
         if self.capabilities.is_empty() {
             write!(indent, "\ncapabilities: Base")?;
@@ -163,7 +163,7 @@ impl From<usize> for BlockId {
 impl Display for Block {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "Block:",)?;
+        write!(indent, "Block:")?;
         if self.0.is_empty() {
             write!(indent, " <EMPTY>")?;
         } else {
@@ -229,7 +229,7 @@ pub struct Callable {
 impl Display for Callable {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "Callable:",)?;
+        write!(indent, "Callable:")?;
         indent = set_indentation(indent, 1);
         write!(indent, "\nname: {}", self.name)?;
         write!(indent, "\ncall_type: {}", self.call_type)?;

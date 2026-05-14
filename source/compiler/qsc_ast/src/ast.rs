@@ -208,7 +208,7 @@ impl Display for Namespace {
             write!(indent, "{}", buf[0])?;
         }
 
-        write!(indent, "):",)?;
+        write!(indent, "):")?;
         indent = set_indentation(indent, 1);
 
         if !self.doc.is_empty() {
@@ -1490,7 +1490,7 @@ impl Display for PathKind {
                     write!(indent, "\n{part}")?;
                 }
             }
-            PathKind::Err(None) => write!(f, "Err",)?,
+            PathKind::Err(None) => write!(f, "Err")?,
         }
         Ok(())
     }
@@ -2148,7 +2148,7 @@ impl std::fmt::Display for ClassConstraints {
             "{}",
             self.0
                 .iter()
-                .map(|x| format!("{}", x.name.name,))
+                .map(|x| format!("{}", x.name.name))
                 .collect::<Vec<_>>()
                 .join(" + "),
         )

@@ -57,7 +57,7 @@ pub fn check_unreachable_blocks(program: &Program) {
     let mut live_blocks = FxHashSet::default();
     for block in start_blocks {
         live_blocks.insert(block);
-        live_blocks.extend(utils::get_all_block_successors(block, program).into_iter());
+        live_blocks.extend(utils::get_all_block_successors(block, program));
     }
     let mut dead_blocks = Vec::new();
     for (block_id, _) in program.blocks.iter() {

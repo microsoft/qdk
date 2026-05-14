@@ -284,18 +284,10 @@ impl Formatter<'_> {
             (_, Comment | Syntax(DocComment)) if matches!(left_delim_state, Delimiter::Open) => {
                 effect_correct_indentation(left, whitespace, right, &mut edits, self.indent_level);
             }
-            (_, Comment | Syntax(DocComment)) => {
-                if are_newlines_in_spaces {
-                    effect_correct_indentation(
-                        left,
-                        whitespace,
-                        right,
-                        &mut edits,
-                        self.indent_level,
-                    );
-                }
-                // else do nothing, preserving the user's spaces before the comment
+            (_, Comment | Syntax(DocComment)) if are_newlines_in_spaces => {
+                effect_correct_indentation(left, whitespace, right, &mut edits, self.indent_level);
             }
+            // else do nothing, preserving the user's spaces before the comment
             (Syntax(cooked_left), Syntax(cooked_right)) => match (cooked_left, cooked_right) {
                 (ClosedBinOp(ClosedBinOp::Minus), _) | (_, ClosedBinOp(ClosedBinOp::Minus)) => {
                     // This case is used to ignore the spacing around a `-`.

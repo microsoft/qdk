@@ -94,7 +94,7 @@ impl Display for PathKind {
                 write!(f, "Err IncompletePath {}:", incomplete_path.span)?;
                 write_list_field(f, "segments", &incomplete_path.segments)
             }
-            PathKind::Err(None) => write!(f, "Err",),
+            PathKind::Err(None) => write!(f, "Err"),
         }
     }
 }

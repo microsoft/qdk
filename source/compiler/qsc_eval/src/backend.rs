@@ -1150,7 +1150,7 @@ impl Backend for SparseSim {
                 let [result, qubit] = unwrap_tuple(arg);
                 let id = qubit.unwrap_qubit().deref().0;
                 let Value::Result(val::Result::Val(val)) = result else {
-                    panic!("first argument to PostSelectZ should be a measurement result",);
+                    panic!("first argument to PostSelectZ should be a measurement result");
                 };
                 let prob = self.sim.force_collapse(val, id);
                 if prob.is_zero() {

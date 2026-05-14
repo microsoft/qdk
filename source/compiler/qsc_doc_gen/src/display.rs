@@ -118,7 +118,7 @@ struct IdentTy<'a> {
 
 impl Display for IdentTy<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
-        write!(f, "{} : {}", self.ident.name, AstTy { ty: self.ty },)
+        write!(f, "{} : {}", self.ident.name, AstTy { ty: self.ty })
     }
 }
 

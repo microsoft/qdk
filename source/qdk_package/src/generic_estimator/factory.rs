@@ -237,7 +237,7 @@ impl<'py> PythonFactoryBuilder<'py> {
         let units: Vec<_> = return_value
             .try_iter()
             .map_err(|e| {
-                format!("{e} (check the return value of the 'distillation_units' method)",)
+                format!("{e} (check the return value of the 'distillation_units' method)")
             })?
             .map(|bound| PythonDistillationUnit::new(bound?.cast_into::<PyDict>()?))
             .collect::<Result<_, _>>()

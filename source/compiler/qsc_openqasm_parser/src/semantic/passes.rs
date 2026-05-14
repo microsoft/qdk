@@ -191,10 +191,8 @@ impl Visitor for ReferenceFinder<'_> {
         // we process here rather than visit_symbol_id
         // since we need to push the expr's span.
         match expr.kind.as_ref() {
-            ExprKind::CapturedIdent(id) | ExprKind::Ident(id) => {
-                if self.id == *id {
-                    self.references.push(expr.span);
-                }
+            ExprKind::CapturedIdent(id) | ExprKind::Ident(id) if self.id == *id => {
+                self.references.push(expr.span);
             }
             _ => {}
         }
@@ -364,11 +362,9 @@ impl Visitor for SymbolFinder<'_> {
 
     fn visit_expr(&mut self, expr: &Expr) {
         match expr.kind.as_ref() {
-            ExprKind::CapturedIdent(id) | ExprKind::Ident(id) => {
-                if expr.span.touches(self.offset) {
-                    self.symbol_id = Some(*id);
-                    return;
-                }
+            ExprKind::CapturedIdent(id) | ExprKind::Ident(id) if expr.span.touches(self.offset) => {
+                self.symbol_id = Some(*id);
+                return;
             }
             _ => {}
         }
