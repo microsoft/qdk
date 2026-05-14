@@ -2137,7 +2137,7 @@ def test_call_stack_overflow_guard():
 
 
 def _build_alloca_oob_qir():
-    """Build QIR with 258 scalar allocas to exceed MAX_MEMORY on the GPU."""
+    """Build QIR with 1026 scalar allocas to exceed MAX_MEMORY on the GPU."""
     alloca_count = 1026
     lines = ["entry:"]
     for i in range(alloca_count):
