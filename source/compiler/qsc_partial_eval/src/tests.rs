@@ -14,6 +14,7 @@ mod loops;
 mod misc;
 mod operators;
 mod output_recording;
+mod parallel;
 mod qubits;
 mod results;
 mod returns;
