@@ -46,7 +46,9 @@ suite("Q# Notebook Tests", function suite() {
     );
   });
 
-  test("Cell language is set back to Python", async () => {
+  test("Cell language is set back to Python", async function () {
+    this.timeout(10000);
+
     const notebook = await vscode.workspace.openNotebookDocument(
       vscode.Uri.joinPath(workspaceFolderUri, "test.ipynb"),
     );

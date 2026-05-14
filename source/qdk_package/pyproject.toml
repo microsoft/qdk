@@ -8,7 +8,6 @@ version = "0.0.0"
 description = "Quantum Development Kit Python Package"
 readme = "README.md"
 authors = [ { name = "Microsoft" } ]
-license = { file = "LICENSE.txt" }
 requires-python = ">=3.10"
 dependencies = ["pyqir>=0.12.5,<0.13", "qsharp==0.0.0"]
 classifiers = [

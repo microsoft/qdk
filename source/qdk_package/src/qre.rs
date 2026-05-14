@@ -1165,6 +1165,11 @@ impl Trace {
         self.0.depth()
     }
 
+    pub fn runtime(&self, isa: &ISA) -> Option<u64> {
+        let locked = isa.0.lock();
+        self.0.runtime(&locked).ok()
+    }
+
     #[getter]
     pub fn num_gates(&self) -> u64 {
         self.0.num_gates()
@@ -1618,6 +1623,8 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         SURFACE_CODE_ONE_QUBIT_TIME_FACTOR,
         SURFACE_CODE_TWO_QUBIT_TIME_FACTOR,
         ACCELERATION,
+        ATOM_SPACING,
+        VELOCITY,
         NUM_TS_PER_ROTATION,
         EXPECTED_SHOTS,
         RUNTIME_SINGLE_SHOT,
