@@ -971,7 +971,7 @@ every phase.
 
 ## Planned (in priority order)
 
-### 1. Persistent view state across re-renders — ✅ in-memory done; host persistence pending
+### 1. Persistent view state across re-renders — ✅ in-memory done; host persistence deferred
 
 **Status: in-memory layer shipped.** A new
 [`ViewState`](data/viewState.ts) type sits as a third state layer
@@ -989,6 +989,20 @@ plus an integration test in
 that fires a real chevron click and verifies the expand survives a
 subsequent editor-mutation re-render.
 
+**Status: external circuit updates handled.** The original
+in-memory layer fell over for VS Code undo/redo: the React wrapper
+in [circuit.tsx](../circuit.tsx) was tearing down the SVG and
+constructing a fresh `Sqore` for every external `circuitGroup`
+change, which destroyed `viewState` and caused a "Rendering..."
+flicker. Fix: a new `Sqore.updateCircuit(group)` swaps the
+underlying circuit and re-renders in place, preserving
+`viewState`. `ZoomableCircuit` now calls `updateCircuit` on
+subsequent prop changes instead of wiping `innerHTML`. Locked
+down by an integration test in
+[test/circuit-editor/dropzones.test.mjs](../../test/circuit-editor/dropzones.test.mjs)
+that fires a chevron click, simulates a host-pushed circuit
+update, and verifies the expand survives.
+
 **Known limitation:** entries are keyed by location string. When an
 edit shifts an op's position, its `ViewState` entry stays at the
 old key and silently goes stale. Stable IDs (R4's `Location` value
@@ -1004,26 +1018,40 @@ until each feature):
 - Custom-gate palette: collapsed/expanded sections (#4).
 - Diff/snapshot view toggle, breakpoint markers (long-term).
 
-#### Pending: host persistence (VS Code)
+#### Deferred: host persistence (webview reload / VS Code restart)
 
-Today `ViewState` is in-memory only. A webview reload (e.g. from a
-panel tab switch or VS Code restart) discards it, so the user's
-expansion choices vanish across reloads. To fix:
+`ViewState` lives on the long-running `Sqore` instance, which
+itself survives every external circuit update via `updateCircuit`.
+What it does **not** survive is a webview reload — closing the
+circuit tab and reopening it, reloading the VS Code window, or
+restarting VS Code all reset the state to defaults.
 
-- Define a `SerializableViewState` shape (`{ expanded: Record<string, boolean> }`).
-- Add `EditorHandlers.persistViewState?: (state: SerializableViewState) => void`
-  fired from `Sqore` whenever `viewState` mutates.
-- Add a constructor option for initial `viewState`.
-- VS Code side: wire through `vscode.getState()` /
-  `vscode.setState()` in [vscode/src/circuit.ts](../../../../vscode/src/circuit.ts)
-  and the panel host. Web playground ignores the hook; editor
-  still works without it.
+Deferred for now. Two reasons:
 
-**Surfaces touched:** [sqore.ts](sqore.ts) (constructor +
-`viewState` setter notifications),
-[editor/installEditor.ts](editor/installEditor.ts) (wire
-`persistViewState`), [vscode/src/circuit.ts](../../../../vscode/src/circuit.ts),
-plus an integration test under [vscode/test](../../../../vscode/test).
+1. **The visible pain points are gone.** The original undo/redo
+   regression is fixed; close-and-reopen is occasional rather than
+   constant.
+2. **Multi-host considerations.** This circuit editor will soon
+   need to be hosted outside VS Code as well, and keeping the
+   npm-package surface area small matters. Lifting ownership of
+   `ViewState` out of `Sqore` would tax every host with a
+   ref-management problem most don't care about.
+
+**If we ever want it**, the right shape is an opt-in callback on
+`DrawOptions`, not lifting ownership:
+
+```ts
+// DrawOptions
+viewState?: {
+  initial?: ViewStateSnapshot;                  // restore on mount
+  onChange?: (snap: ViewStateSnapshot) => void; // notify host on change
+};
+```
+
+The host opts in, persists how it wants (`vscode.getState()` /
+`setState()`, `localStorage`, nothing). `Sqore` still owns the
+live `ViewState`. Hosts that don't care pass nothing and get
+today's behavior.
 
 ### 2. Gate Inspector panel — multi-target editing
 

@@ -449,6 +449,125 @@ test("user expand choice survives a re-render via ViewState", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// External circuit update via `Sqore.updateCircuit`: models the VS
+// Code undo/redo path. The host parses a new `CircuitGroup` from the
+// reverted text and pushes it down. Pre-`updateCircuit`, the React
+// wrapper would tear down the SVG and construct a fresh `Sqore` for
+// every such update, which destroyed `viewState` and caused a
+// "Rendering..." flicker. With `updateCircuit`, the same `Sqore`
+// (and therefore the same `viewState`) survives.
+// ---------------------------------------------------------------------------
+
+test("user expand choice survives an external circuit update via updateCircuit", async () => {
+  const { Sqore } = await import("../../dist/ux/circuit-vis/sqore.js");
+
+  const buildGroup = () =>
+    singleCircuit({
+      qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+      componentGrid: [
+        {
+          components: [
+            {
+              kind: "unitary",
+              gate: "Foo",
+              targets: [{ qubit: 0 }, { qubit: 1 }],
+              children: [
+                {
+                  components: [
+                    {
+                      kind: "unitary",
+                      gate: "H",
+                      targets: [{ qubit: 0 }],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        {
+          components: [
+            {
+              kind: "unitary",
+              gate: "X",
+              targets: [{ qubit: 2 }],
+            },
+          ],
+        },
+      ],
+    });
+
+  const container = document.createElement("div");
+  container.className = "qs-circuit";
+  document.body.appendChild(container);
+
+  const sqore = new Sqore(buildGroup(), {
+    editor: { editCallback: () => {} },
+  });
+  sqore.draw(container);
+
+  const collectNested = () =>
+    Array.from(
+      container.querySelectorAll(
+        "g.dropzone-layer rect.dropzone[data-dropzone-location]",
+      ),
+    )
+      .map((el) => el.getAttribute("data-dropzone-location") ?? "")
+      .filter((loc) => loc.startsWith("0,0-"));
+
+  // Sanity: Foo starts collapsed.
+  assert.equal(
+    collectNested().length,
+    0,
+    "Foo should start collapsed (no auto-expand applies to a multi-column grid)",
+  );
+
+  // User expands Foo via the chevron.
+  const fooGate = container.querySelector('[data-location="0,0"]');
+  assert.ok(fooGate, "expected to find Foo gate group");
+  const expandBtn = fooGate.querySelector(".gate-control.gate-expand");
+  assert.ok(expandBtn, "expected to find expand chevron on collapsed Foo");
+  expandBtn.dispatchEvent(
+    new container.ownerDocument.defaultView.MouseEvent("click", {
+      bubbles: true,
+    }),
+  );
+  assert.ok(
+    collectNested().length > 0,
+    "Foo should be expanded after chevron click",
+  );
+
+  // Capture the SVG element identity to verify `updateCircuit` does
+  // an in-place swap (`replaceChild`) rather than wiping the
+  // container — the latter is what caused the original flicker.
+  const svgBefore = container.querySelector("svg.qviz");
+  assert.ok(svgBefore, "expected an svg.qviz element to be rendered");
+
+  // Simulate the host pushing a new (logically equivalent) circuit
+  // down — the same shape the VS Code editor would build after an
+  // undo/redo or external file edit.
+  sqore.updateCircuit(buildGroup());
+
+  // Foo's user expand choice must still apply to the new circuit.
+  assert.ok(
+    collectNested().length > 0,
+    "Foo must remain expanded after updateCircuit",
+  );
+  assert.equal(
+    sqore.viewState.expanded.get("0,0"),
+    true,
+    "viewState entry must survive updateCircuit",
+  );
+
+  // The container itself is the same DOM node (no innerHTML wipe);
+  // the SVG was swapped in via replaceChild.
+  assert.ok(
+    container.querySelector("svg.qviz"),
+    "container must still contain an svg.qviz after updateCircuit",
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Pixel-coordinate tests. These tests assert that for every rendered
 // gate, the on-column dropzone with the matching
 // `data-dropzone-location` covers the gate's x range. If they pass,

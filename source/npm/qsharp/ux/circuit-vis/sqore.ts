@@ -143,6 +143,47 @@ export class Sqore {
   }
 
   /**
+   * Replace the underlying circuit and re-render in place, preserving
+   * everything that lives on `this` (most importantly `viewState`,
+   * but also the cached container, zoom level, and the editor's
+   * disposable event registrations — `installEditor` already disposes
+   * the prior `CircuitEvents` on every render).
+   *
+   * Intended for hosts that receive **external** circuit updates —
+   * e.g. the VS Code circuit editor's text-document backing fires an
+   * `onDidChangeTextDocument` for undo/redo and external file edits,
+   * and the webview parses the new text into a fresh `CircuitGroup`.
+   * Without this method the React wrapper was tearing down the SVG
+   * and constructing a new `Sqore` for every such update, which
+   * destroyed `viewState` (collapsing every user-expanded group) and
+   * caused a visible "Rendering..." flicker.
+   *
+   * Hosts that want a fully clean instance (e.g. opening a different
+   * circuit in the same panel) should keep using `qviz.draw(...)`
+   * for a fresh `Sqore`.
+   *
+   * @param circuitGroup The new circuit group to render.
+   */
+  updateCircuit(circuitGroup: CircuitGroup): void {
+    if (
+      circuitGroup == null ||
+      circuitGroup.circuits == null ||
+      circuitGroup.circuits.length === 0
+    ) {
+      throw new Error(
+        `No circuit found. Please provide a valid circuit.`,
+      );
+    }
+    this.circuitGroup = circuitGroup;
+    // We only render the first circuit in the group today; matches
+    // the constructor's behavior.
+    this.circuit = circuitGroup.circuits[0];
+    if (this.container != null) {
+      this.renderCircuit(this.container);
+    }
+  }
+
+  /**
    * Window resize handler to recalculate and set the zoom level
    * based on the new window width.
    */

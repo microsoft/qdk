@@ -26,6 +26,12 @@ export const draw = (
   options: DrawOptions = {},
 ): {
   userSetZoomLevel: (zoomLevel: number) => void;
+  /**
+   * Replace the rendered circuit in place, preserving per-session
+   * view state (e.g. user expand/collapse choices). See
+   * [`Sqore.updateCircuit`](circuit-vis/sqore.ts) for full notes.
+   */
+  updateCircuit: (circuitGroup: CircuitGroup) => void;
 } => {
   const sqore = new Sqore(circuitGroup, options);
   sqore.draw(container);
@@ -34,6 +40,7 @@ export const draw = (
       sqore.zoomOnResize = false;
       sqore.updateZoomLevel(zoomLevel);
     },
+    updateCircuit: (group: CircuitGroup) => sqore.updateCircuit(group),
   };
 };
 
