@@ -104,15 +104,7 @@ pub mod qir {
 
                 let mut lowerer = qsc_lowerer::Lowerer::new();
                 let fir_package = if id == package_id {
-                    let mut fir_package = Package {
-                        items: Default::default(),
-                        entry: None,
-                        entry_exec_graph: Default::default(),
-                        blocks: Default::default(),
-                        exprs: Default::default(),
-                        pats: Default::default(),
-                        stmts: Default::default(),
-                    };
+                    let mut fir_package = Package::default();
                     lowerer.lower_and_update_package(&mut fir_package, hir_package);
                     fir_package.entry_exec_graph = lowerer.take_exec_graph();
                     fir_package

@@ -421,15 +421,6 @@ fn run_fir_passes(
     // The transforms require an entry expression (defunctionalize uses reachability from entry),
     // so only run when the package has one.
     if fir_store.get(fir_package_id).entry.is_some() {
-        // CONTRACT: On success, `run_pipeline` produces FIR satisfying `InvariantLevel::PostAll`:
-        //   - No `Ty::Param` in reachable code (monomorphization completed).
-        //   - No `ExprKind::Return` in reachable code (return unification completed).
-        //   - No `Ty::Arrow` params / `ExprKind::Closure` (defunctionalization completed).
-        //   - No `Ty::Udt` / `ExprKind::Struct`; `Field::Path` only on tuple records
-        //     (UDT erasure completed).
-        //   - All exec-graph ranges populated (exec-graph rebuild completed).
-        // RCA (capability checking) assumes these invariants hold. See
-        // `qsc_fir_transforms::invariants::check` for the authoritative checker.
         let transform_result =
             qsc::fir_transforms::run_pipeline_with_diagnostics(&mut fir_store, fir_package_id);
         if !transform_result.errors.is_empty() {

@@ -57,8 +57,10 @@ impl<'a> Analyzer<'a> {
         let core_analyzer =
             core::Analyzer::new(self.package_store, scaffolding, self.target_capabilities);
         let result: PackageStoreComputeProperties = core_analyzer.analyze_all().into();
+
         #[cfg(debug_assertions)]
         crate::invariants::assert_arity_consistency(self.package_store, &result);
+
         result
     }
 
@@ -73,12 +75,13 @@ impl<'a> Analyzer<'a> {
             core::Analyzer::new(self.package_store, scaffolding, self.target_capabilities);
         let result: PackageStoreComputeProperties =
             core_analyzer.analyze_package(package_id).into();
-        // Note: `analyze_package` is the incremental compiler path (language
-        // service); the full-store invariant is still valuable for catching
-        // regressions introduced by incremental updates, so run it here in
-        // debug builds as well.
+
+        // Note: `analyze_package` is the incremental compiler path. The full-store invariant
+        // is still valuable for catching regressions introduced by incremental updates, so
+        // run it here in debug builds as well.
         #[cfg(debug_assertions)]
         crate::invariants::assert_arity_consistency(self.package_store, &result);
+
         result
     }
 }
