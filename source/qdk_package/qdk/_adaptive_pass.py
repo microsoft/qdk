@@ -368,7 +368,7 @@ class AdaptiveProfilePass:
             raise ValueError(f"Module verification failed: {errors}")
 
         # Pre-pass: Scan global constant arrays
-        self._scan_globals(mod)
+        self._scan_global_arrays(mod)
 
         # Pass 1: Assign block IDs and function IDs for all defined functions
         for func in mod.functions:
@@ -499,8 +499,16 @@ class AdaptiveProfilePass:
         # Constant expressions (e.g. inttoptr (i64 N to ptr)).
         if isinstance(value, pyqir.Constant):
             # Named global constants (e.g. @array0) that were not found in
-            # _global_to_address — skip ptr_id which crashes on these.
+            # _global_to_address.
             if hasattr(value, "name") and value.name:
+                init = getattr(value, "initializer", None)
+                if init and self._is_output_recording_label(init):
+                    # Trying to index into a output recording label.
+                    raise ValueError(
+                        f"Byte-string global @{value.name} is not indexable: "
+                        f"[N x i8] globals are reserved for output labels "
+                        f"consumed by __quantum__rt__*_record_output calls."
+                    )
                 raise ValueError(f"Unresolved global reference: @{value.name}")
             # Try extracting as a qubit/result pointer constant.
             pid = pyqir.ptr_id(value)
@@ -572,46 +580,74 @@ class AdaptiveProfilePass:
     # Global variable scanning (pre-pass)
     # ------------------------------------------------------------------
 
-    def _scan_globals(self, mod: pyqir.Module) -> None:
+    @staticmethod
+    def _is_output_recording_label(value: pyqir.Constant):
+        ty = value.type
+        return (
+            isinstance(ty, pyqir.ArrayType)
+            and isinstance(ty.element, pyqir.IntType)
+            and ty.element.width == 8
+        )
+
+    @staticmethod
+    def _is_global_array(global_variable: pyqir.GlobalVariable):
+        init = global_variable.initializer
+        if init is None:
+            return False
+        # If the global variable has an initializer, but the initializer value
+        # is not an array, return False. E.g.: This can happens when initializing
+        # a global integer constant.
+        if not isinstance(init, pyqir.ArrayConstant):
+            return False
+
+        # ``[N x i8]`` globals are excluded on purpose: in Adaptive Profile QIR
+        # produced by the QDK frontends they exist solely as null-terminated
+        # output labels passed to ``__quantum__rt__*_record_output`` runtime
+        # calls. Those labels are read directly from the GEP constexpr argument
+        # via ``pyqir.extract_byte_string`` in ``_extract_label`` and never need
+        # an address in ``_global_to_address``. Encoding them into
+        # ``constant_data`` would shift the addresses of every subsequent
+        # global without any consumer benefiting from the bytes being
+        # indexable. If a future frontend ever emits indexable byte arrays,
+        # this predicate (and the matching diagnostic in ``_resolve_operand``)
+        # is the place to lift the restriction.
+        if AdaptiveProfilePass._is_output_recording_label(init):
+            return False
+
+        return True
+
+    def _scan_global_arrays(self, mod: pyqir.Module) -> None:
         """Scan module for global constant arrays and populate constant_data.
 
         Uses ``Module.global_variables`` to iterate globals, reads each
         initializer via ``GlobalVariable.initializer``, and encodes element
         values into ``constant_data``.
+
+        ``[N x i8]`` byte-string globals are skipped here. See
+        ``_is_global_array`` for the rationale. They are consumed by
+        ``_extract_label`` directly from the call site.
         """
-        mask = (1 << self._int_bits) - 1
-
         for gv in mod.global_variables:
-            init = gv.initializer
-            if init is None:
+            if not self._is_global_array(gv):
                 continue
-            if not isinstance(init, pyqir.ArrayConstant):
-                continue
+            init = cast(pyqir.ArrayConstant, gv.initializer)
 
-            # Skip byte-string globals (e.g. [N x i8] labels).
-            arr_ty = init.type
-            if (
-                isinstance(arr_ty, pyqir.ArrayType)
-                and isinstance(arr_ty.element, pyqir.IntType)
-                and arr_ty.element.width == 8
-            ):
-                continue
-
-            base_addr = len(self.constant_data)
-            self._global_to_address[gv.name] = base_addr
-            self._encode_array_elements(init, gv.name, mask)
+            # We append the array data to `self.constant_data`.
+            # So, the address of this array will be `len(self.constant_data)`.
+            array_addr = len(self.constant_data)
+            self._global_to_address[gv.name] = array_addr
+            self._encode_array_elements(init, gv.name)
 
         self._alloca_ptr = len(self.constant_data)
         self._memory_size = self._alloca_ptr
 
-    def _encode_array_elements(
-        self, arr: pyqir.ArrayConstant, gv_name: str, mask: int
-    ) -> None:
+    def _encode_array_elements(self, arr: pyqir.ArrayConstant, gv_name: str) -> None:
         """Recursively encode ArrayConstant elements into constant_data.
 
         Nested ``ArrayConstant`` elements (e.g. ``[2 x [2 x i32]]``) are
         flattened in row-major order.
         """
+        mask = (1 << self._int_bits) - 1
         for elem in arr.elements:
             if isinstance(elem, pyqir.IntConstant):
                 self.constant_data.append(elem.value & mask)

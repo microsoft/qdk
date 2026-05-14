@@ -1430,6 +1430,47 @@ def test_byte_string_globals_skipped():
 
 
 # ---------------------------------------------------------------------------
+# Test: indexing into a byte-string global is rejected with a clear diagnostic
+# ---------------------------------------------------------------------------
+
+BYTE_STRING_INDEX_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@bytes = internal constant [4 x i8] c"abcd"
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr = getelementptr inbounds [4 x i8], [4 x i8]* @bytes, i64 0, i64 0
+  %val = load i8, i8* %ptr, align 1
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_byte_string_global_used_as_data_raises():
+    """Using a [N x i8] global as indexable data fails with a targeted error.
+
+    Byte-string globals are reserved for output labels (handled by
+    ``_extract_label``); they are not encoded into ``constant_data`` and
+    therefore have no address. If a frontend ever emits a GEP/load against
+    one, the pass should fail with a message that names the constraint so
+    the limitation is discoverable.
+    """
+    with pytest.raises(ValueError) as excinfo:
+        _run_pass(BYTE_STRING_INDEX_QIR)
+    msg = str(excinfo.value)
+    assert "@bytes" in msg
+    assert "byte-string" in msg.lower()
+    assert "record_output" in msg
+
+
+# ---------------------------------------------------------------------------
 # Test: mutable global array still works
 # ---------------------------------------------------------------------------
 
