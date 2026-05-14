@@ -186,11 +186,12 @@ operation RepeatEstimates(count : Int) : Unit is Adj {
 /// more than `computeCapacity` qubits are used to compute at any time.
 ///
 /// When using "Manual" strategy:
-///   * Qubits must be moved between memory and compute by explicit instructions
-///       Std.Memory.MemoryQubitLoad and Std.Memory.MemoryQubitStore.
-///   * All qubits are initially allocated as Compute qubits.
-///   * Capacity is ignored.
-///   * Calling gate or measurement on memory qubit will result in a runtime error.
+/// - Qubits must be moved between memory and compute using
+///   [Std.Memory.Load](xref:Qdk.Std.Memory.Load) and 
+///   [Std.Memory.Save](xref:Qdk.Std.Memory.Save).
+/// - All qubits are initially allocated as Compute qubits.
+/// - Capacity is ignored.
+/// - Applying a gate to or measuring a memory qubit will result in a runtime error.
 ///
 /// # Input
 /// ## computeCapacity
