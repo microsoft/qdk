@@ -22,15 +22,6 @@ import qdk
 import qdk.openqasm
 from typing import Literal
 
-_HAS_GLOBAL_VARIABLES = hasattr(
-    pyqir.Module(pyqir.Context(), "probe"), "global_variables"
-)
-_skip_no_globals = pytest.mark.skipif(
-    not _HAS_GLOBAL_VARIABLES,
-    reason="pyqir Module lacks global_variables support",
-)
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

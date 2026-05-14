@@ -1778,16 +1778,14 @@ def test_multiple_arrays():
 
 
 # =========================================================================
-# Array-driven rotation — load a double value from an array
+# Array-globals — load a value from an array
 # =========================================================================
 
-ARRAY_ROTATION_GLOBALS = (
-    "@angles = internal constant [2 x double] [double 0.0, double 1.0]"
-)
+ARRAY_GLOBALS = "@arr = internal constant [2 x double] [double 0.0, double 1.0]"
 
-ARRAY_ROTATION_QIR = """
+ARRAY_QIR = """
 entry:
-  %ptr = getelementptr [2 x double], [2 x double]* @angles, i64 0, i64 1
+  %ptr = getelementptr [2 x double], [2 x double]* @arr, i64 0, i64 1
   %fval = load double, double* %ptr
   %ival = fptosi double %fval to i64
   %flag = icmp eq i64 %ival, 1
@@ -1803,7 +1801,7 @@ end:
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_array_driven_rotation():
     """Load double 1.0 from array, fptosi → 1, conditionally X → 1."""
-    check_array_result(ARRAY_ROTATION_QIR, "1", globals_str=ARRAY_ROTATION_GLOBALS)
+    check_array_result(ARRAY_QIR, "1", globals_str=ARRAY_GLOBALS)
 
 
 # =========================================================================
