@@ -187,7 +187,7 @@ operation RepeatEstimates(count : Int) : Unit is Adj {
 ///
 /// When using "Manual" strategy:
 /// - Qubits must be moved between memory and compute using
-///   [Std.Memory.Load](xref:Qdk.Std.Memory.Load) and 
+///   [Std.Memory.Load](xref:Qdk.Std.Memory.Load) and
 ///   [Std.Memory.Save](xref:Qdk.Std.Memory.Save).
 /// - All qubits are initially allocated as Compute qubits.
 /// - Capacity is ignored.
