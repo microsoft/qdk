@@ -129,7 +129,7 @@ class PauliString:
     Construction options:
 
     - pass a sequence of :class:`Pauli` objects to ``PauliString(...)``
-    - use :meth:`from_qubits` to pair qubit indices with Pauli labels/codes
+    - use ``from_qubits()`` to pair qubit indices with Pauli labels/codes
 
     Example:
 

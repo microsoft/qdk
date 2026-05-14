@@ -64,7 +64,7 @@ class Hypergraph:
 
     Note:
         Edge colors are managed separately by :class:`HypergraphEdgeColoring`.
-        Use :meth:`edge_coloring` to generate a coloring for this hypergraph.
+        Use ``edge_coloring()`` to generate a coloring for this hypergraph.
 
     Example:
 
@@ -201,13 +201,12 @@ class HypergraphEdgeColoring:
 
     - Colors for nontrivial edges must be nonnegative integers.
     - Single-vertex edges may use a special color (for example ``-1``).
-    - Only nonnegative colors contribute to :attr:`ncolors`.
-
+    - Only nonnegative colors contribute to ``ncolors``.
     Note:
         Colors are keyed by edge vertex tuples (``edge.vertices``), not by
-        ``Hyperedge`` object identity. As a result, :meth:`color` accepts edge
-        vertex tuples directly, while :meth:`add_edge` still requires an edge
-        instance that belongs to :attr:`hypergraph`.
+        ``Hyperedge`` object identity. As a result, ``color()`` accepts edge
+        vertex tuples directly, while ``add_edge()`` still requires an edge
+        instance that belongs to ``hypergraph``.
 
     Attributes:
         hypergraph: The supporting :class:`Hypergraph` whose edges can be
@@ -259,13 +258,13 @@ class HypergraphEdgeColoring:
 
         Args:
             edge: The Hyperedge instance to add. This must be an edge present
-                in :attr:`hypergraph` (typically one returned by
+                in ``hypergraph`` (typically one returned by
                 ``hypergraph.edges()``).
             color: Color index for the edge.
 
         Raises:
             TypeError: If ``edge`` is not a :class:`Hyperedge`.
-            ValueError: If ``edge`` is not part of :attr:`hypergraph`.
+            ValueError: If ``edge`` is not part of ``hypergraph``.
             ValueError: If ``color`` is negative for a nontrivial edge.
             RuntimeError: If adding ``edge`` would create a same-color vertex
                 conflict.

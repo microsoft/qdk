@@ -4,15 +4,15 @@
 """Q# interpreter lifecycle and core operations.
 
 This module manages the singleton Q# interpreter instance and exposes the
-public functions that drive it: :func:`init`, :func:`eval`, :func:`run`,
-:func:`compile`, :func:`circuit`, :func:`estimate`, :func:`logical_counts`,
-:func:`set_quantum_seed`, :func:`set_classical_seed`, :func:`dump_machine`,
-and :func:`dump_circuit`.
+public functions that drive it: :func:`~qdk.qsharp.init`, :func:`~qdk.qsharp.eval`,
+:func:`~qdk.qsharp.run`, :func:`~qdk.qsharp.compile`, :func:`~qdk.qsharp.circuit`,
+:func:`~qdk.qsharp.estimate`, :func:`~qdk.qsharp.logical_counts`,
+:func:`~qdk.qsharp.set_quantum_seed`, :func:`~qdk.qsharp.set_classical_seed`,
+:func:`~qdk.qsharp.dump_machine`, and :func:`~qdk.qsharp.dump_circuit`.
 
-Internal helpers such as :func:`get_interpreter`, :func:`ipython_helper`,
-:func:`python_args_to_interpreter_args`, and
-:func:`qsharp_value_to_python_value` are also defined here for use by other
-submodules.
+Internal helpers such as ``get_interpreter``, ``ipython_helper``,
+``python_args_to_interpreter_args``, and ``qsharp_value_to_python_value`` are
+also defined here for use by other submodules.
 """
 
 import warnings
@@ -107,8 +107,7 @@ def init(
 
     :keyword target_profile: Setting the target profile allows the Q#
         interpreter to generate programs that are compatible
-        with a specific target. See :class:`TargetProfile`.
-
+        with a specific target. See :class:`~qdk.qsharp.TargetProfile`.
     :keyword target_name: An optional name of the target machine to use for inferring the compatible
         target_profile setting.
 
@@ -364,9 +363,14 @@ def estimate(
     :param entry_expr: The entry expression. Alternatively, a callable can be provided,
         which must be a Q# callable.
     :param params: The parameters to configure physical estimation.
+    :param *args: The arguments to pass to the callable, if one is provided.
 
     :return: The estimated resources.
     :rtype: EstimatorResult
+
+    .. deprecated::
+        This function uses the legacy Resource Estimator API. Use
+        :mod:`qdk.qre` instead.
     """
 
     ipython_helper()

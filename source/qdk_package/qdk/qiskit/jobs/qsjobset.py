@@ -29,7 +29,7 @@ class QsJobSet(Job):
 
     Each circuit in ``run_input`` is submitted as an individual
     :class:`~qdk.qiskit.jobs.QsSimJob` and executed in a thread pool.
-    :meth:`result` blocks until all constituent
+    ``result()`` blocks until all constituent
     jobs are complete and aggregates their ``qiskit.result.Result`` objects into a single
     combined result.
     """

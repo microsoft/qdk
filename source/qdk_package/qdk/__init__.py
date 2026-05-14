@@ -21,11 +21,13 @@ Core submodules (always available):
 - :mod:`qdk.code` — namespace populated with user-defined Q# callables.
 
 Frequently used utilities are also re-exported at the package root for
-convenience: :func:`init`, :func:`dump_machine`, :func:`set_quantum_seed`,
-:func:`set_classical_seed`, :class:`Result`, :class:`TargetProfile`,
-:class:`StateDump`, :class:`ShotResult`, :class:`PauliNoise`,
-:class:`DepolarizingNoise`, :class:`BitFlipNoise`, :class:`PhaseFlipNoise`,
-and :class:`Context`.
+convenience: :func:`~qdk.qsharp.init`, :func:`~qdk.qsharp.dump_machine`,
+:func:`~qdk.qsharp.set_quantum_seed`, :func:`~qdk.qsharp.set_classical_seed`,
+:class:`~qdk.qsharp.Result`, :class:`~qdk.qsharp.TargetProfile`,
+:class:`~qdk.qsharp.StateDump`, :class:`~qdk.qsharp.ShotResult`,
+:class:`~qdk.qsharp.PauliNoise`, :class:`~qdk.qsharp.DepolarizingNoise`,
+:class:`~qdk.qsharp.BitFlipNoise`, :class:`~qdk.qsharp.PhaseFlipNoise`,
+and :class:`~qdk.Context`.
 
 Optional extras install additional dependencies and enable extra submodules:
 

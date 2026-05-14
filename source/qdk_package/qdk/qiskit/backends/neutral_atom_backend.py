@@ -99,7 +99,7 @@ class NeutralAtomBackend(BackendBase):
             already expressed in terms of the target gate set.
         :type skip_transpilation: bool
         :param **options: Default option overrides. These can also be overridden per-call via
-            :meth:`run`. Common options:
+            ``run()``. Common options:
 
             - ``name`` (str): Backend name for job metadata. Defaults to the circuit name.
             - ``shots`` (int): Number of shots. Defaults to ``1024``.

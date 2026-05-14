@@ -27,3 +27,4 @@ __pycache__/
 samples/scratch/
 *.pyd
 /python_doc/
+/logs/

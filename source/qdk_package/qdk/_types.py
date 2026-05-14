@@ -9,12 +9,13 @@ imported freely by any submodule.
 
 Types defined here:
 
-- :class:`PauliNoise`, :class:`DepolarizingNoise`, :class:`BitFlipNoise`,
-  :class:`PhaseFlipNoise` — noise models for simulation.
-- :class:`StateDump` — sparse state-vector snapshot.
-- :class:`ShotResult` — per-shot output container.
-- :class:`Config` — interpreter configuration / language-service hint.
-- :class:`QirInputData` — compiled QIR wrapper for azure-quantum submission.
+- :class:`~qdk.qsharp.PauliNoise`, :class:`~qdk.qsharp.DepolarizingNoise`,
+  :class:`~qdk.qsharp.BitFlipNoise`, :class:`~qdk.qsharp.PhaseFlipNoise` —
+  noise models for simulation.
+- :class:`~qdk.qsharp.StateDump` — sparse state-vector snapshot.
+- :class:`~qdk.qsharp.ShotResult` — per-shot output container.
+- ``Config`` — interpreter configuration / language-service hint.
+- ``QirInputData`` — compiled QIR wrapper for azure-quantum submission.
 """
 
 import os
@@ -137,9 +138,6 @@ class StateDump:
     A state dump returned from the Q# interpreter.
     """
 
-    """
-    The number of allocated qubits at the time of the dump.
-    """
     qubit_count: int
 
     __inner: dict
@@ -297,13 +295,22 @@ class Config:
 # ---------------------------------------------------------------------------
 
 
-# Class that wraps generated QIR, which can be used by
-# azure-quantum as input data.
-#
-# This class must implement the QirRepresentable protocol
-# that is defined by the azure-quantum package.
-# See: https://github.com/microsoft/qdk-python/blob/fcd63c04aa871e49206703bbaa792329ffed13c4/azure-quantum/azure/quantum/target/target.py#L21
+# For the QirRepresentable protocol definition, see: https://github.com/microsoft/qdk-python/blob/fcd63c04aa871e49206703bbaa792329ffed13c4/azure-quantum/azure/quantum/target/target.py#L21
 class QirInputData:
+    """Wraps a compiled QIR program for submission to a quantum target.
+
+    This class implements the ``QirRepresentable`` protocol expected by the
+    ``azure-quantum`` package, allowing the compiled output to be passed
+    directly to an Azure Quantum job submission.
+
+    Use ``str()`` to retrieve the QIR LLVM-IR string.
+
+    .. note::
+        The ``_name`` and ``_repr_qir_`` members follow the naming convention
+        required by the ``azure-quantum`` ``QirRepresentable`` protocol and
+        must not be renamed.
+    """
+
     # The name of this variable is defined
     # by the protocol and must remain unchanged.
     _name: str

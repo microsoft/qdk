@@ -170,8 +170,7 @@ class Context:
 
         :keyword target_profile: Setting the target profile allows the Q#
             interpreter to generate programs that are compatible
-            with a specific target. See :class:`TargetProfile`.
-
+            with a specific target. See :class:`~qdk.qsharp.TargetProfile`.
         :keyword target_name: An optional name of the target machine to use for
             inferring the compatible target_profile setting.
 
