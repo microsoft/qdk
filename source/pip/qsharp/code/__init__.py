@@ -1,10 +1,12 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-# Deprecated: use qdk.code instead.
-#
-# This module replaces itself in sys.modules with the real qdk.code module
-# so that dynamically generated Q# callables stay in sync.
+"""Deprecated. Use :mod:`qdk.code` instead.
+
+This module replaces itself in :mod:`sys.modules` with the real :mod:`qdk.code`
+module so that dynamically generated Q# callables stay in sync between the two
+import paths.
+"""
 
 import sys
 import qdk.code as _real_code
