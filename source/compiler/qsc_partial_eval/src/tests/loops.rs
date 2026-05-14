@@ -1818,9 +1818,9 @@ fn classical_while_inside_dynamic_while_folds_mutable_variable() {
                 while MResetZ(q) == One {
                     mutable i = 0;
                     while i < 3 {
-                        set i += 1;
+                        i += 1;
                     }
-                    set total += i;
+                    total += i;
                 }
                 total
             }

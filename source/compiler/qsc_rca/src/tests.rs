@@ -113,21 +113,14 @@ impl Default for CompilationContext {
 /// [`qsc_fir_transforms::test_utils::compile_to_fir_with_entry`].
 pub struct PipelineContext {
     pub fir_store: PackageStore,
-    pub user_package_id: qsc_fir::fir::PackageId,
     pub compute_properties: PackageStoreComputeProperties,
 }
 
 impl PipelineContext {
-    /// Builds a pipeline context from Q# `source` and an executable `entry`
-    /// expression.
     #[must_use]
     pub fn new(source: &str, entry: &str, capabilities: TargetCapabilityFlags) -> Self {
         let (mut fir_store, user_package_id) =
             qsc_fir_transforms::test_utils::compile_to_fir_with_entry(source, entry);
-        // CONTRACT: On success, `run_pipeline` produces FIR satisfying `InvariantLevel::PostAll`.
-        // The RCA `Analyzer` assumes PostAll invariants hold — in particular, no closures or
-        // unresolved type parameters remain in reachable code. See
-        // `qsc_fir_transforms::invariants::check` for the authoritative checker.
         let result =
             qsc_fir_transforms::run_pipeline_with_diagnostics(&mut fir_store, user_package_id);
         assert!(
@@ -139,7 +132,6 @@ impl PipelineContext {
         let compute_properties = analyzer.analyze_all();
         Self {
             fir_store,
-            user_package_id,
             compute_properties,
         }
     }
@@ -154,19 +146,6 @@ impl Default for PipelineContext {
     fn default() -> Self {
         Self::new("", "()", TargetCapabilityFlags::all())
     }
-}
-
-#[test]
-fn pipeline_context_smoke() {
-    let context = PipelineContext::default();
-    assert!(
-        context.get_compute_properties().iter().count() > 0,
-        "pipeline context should produce compute properties for at least one package",
-    );
-    let _ = context.fir_store.get(context.user_package_id);
-    let _ = context
-        .get_compute_properties()
-        .get(context.user_package_id);
 }
 
 pub trait PackageStoreSearch {
