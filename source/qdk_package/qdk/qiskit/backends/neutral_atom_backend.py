@@ -49,7 +49,7 @@ class NeutralAtomBackend(BackendBase):
     Example::
 
         from qiskit import QuantumCircuit
-        from qsharp.interop.qiskit import NeutralAtomBackend
+        from qdk.qiskit import NeutralAtomBackend
         from qdk.simulation import NoiseConfig
 
         qc = QuantumCircuit(2)

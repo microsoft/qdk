@@ -741,14 +741,14 @@ class Context:
         :kwtype operation: str
 
         :keyword generation_method: The method to use for circuit generation.
-            :attr:`~qsharp.CircuitGenerationMethod.ClassicalEval` evaluates classical
+            :attr:`~qdk.qsharp.CircuitGenerationMethod.ClassicalEval` evaluates classical
             control flow at circuit generation time.
-            :attr:`~qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
+            :attr:`~qdk.qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
             trace the circuit.
-            :attr:`~qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
+            :attr:`~qdk.qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
             requires a non-``Unrestricted`` target profile. Defaults to ``None`` which
             auto-selects the generation method.
-        :kwtype generation_method: :class:`~qsharp.CircuitGenerationMethod`
+        :kwtype generation_method: :class:`~qdk.qsharp.CircuitGenerationMethod`
 
         :keyword max_operations: The maximum number of operations to include in the
             circuit. Defaults to ``None`` which means no limit.
@@ -767,7 +767,7 @@ class Context:
         :kwtype prune_classical_qubits: bool
 
         :return: The synthesized circuit.
-        :rtype: :class:`~qsharp._native.Circuit`
+        :rtype: :class:`~qdk._native.Circuit`
         :raises QSharpError: If there is an error synthesizing the circuit.
         """
         ipython_helper()

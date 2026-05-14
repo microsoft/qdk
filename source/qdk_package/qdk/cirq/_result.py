@@ -147,13 +147,13 @@ def _qir_display_to_bitstring(obj: Any) -> str:
     """Convert a raw QIR simulation result value to a flat bitstring.
 
     Handles the various formats the NeutralAtomDevice simulator may emit:
-    - ``qsharp.Result`` enum values (``Result.One`` -> ``"1"``, ``Result.Zero`` -> ``"0"``)
+    - ``qdk.Result`` enum values (``Result.One`` -> ``"1"``, ``Result.Zero`` -> ``"0"``)
     - ``tuple`` - multiple classical registers, joined with spaces
     - ``list``  - single register bits, each element processed recursively
     - ``str``   - already a representation, parsed with ``ast.literal_eval`` if needed
     - other     - converted to string with ``str()``
     """
-    # Handle qsharp.Result enum values produced by the local simulator.
+    # Handle qdk.Result enum values produced by the local simulator.
     try:
         from qdk._native import Result as _Result
 
