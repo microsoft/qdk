@@ -28,6 +28,9 @@ Key exports:
 - :class:`~qdk.qsharp.TargetProfile` — compilation target profile enum.
 - :class:`~qdk.qsharp.Result`, :class:`~qdk.qsharp.Pauli` — Q# primitive types.
 - :class:`~qdk.qsharp.CircuitGenerationMethod` — controls how circuits are synthesized.
+- :class:`~qdk.qsharp.Circuit` — synthesized circuit representation.
+- :class:`~qdk.qsharp.QirInputData` — compiled QIR wrapper for hardware submission.
+- :class:`~qdk.qsharp.Config` — interpreter configuration returned by :func:`~qdk.qsharp.init`.
 - :class:`~qdk.qsharp.StateDump`, :class:`~qdk.qsharp.ShotResult` — interpreter output types.
 - :class:`~qdk.qsharp.PauliNoise`, :class:`~qdk.qsharp.DepolarizingNoise`, :class:`~qdk.qsharp.BitFlipNoise`,
   :class:`~qdk.qsharp.PhaseFlipNoise` — noise models for simulation.
@@ -40,6 +43,8 @@ from ._types import (
     DepolarizingNoise,
     BitFlipNoise,
     PhaseFlipNoise,
+    QirInputData,
+    Config,
 )
 from ._interpreter import (
     init,
@@ -56,6 +61,7 @@ from ._interpreter import (
     dump_operation,
 )
 from ._native import (  # type: ignore
+    Circuit,
     Result,
     Pauli,
     QSharpError,
@@ -80,6 +86,7 @@ __all__ = [
     "dump_circuit",
     "dump_operation",
     # Native types
+    "Circuit",
     "Result",
     "Pauli",
     "QSharpError",
@@ -93,4 +100,6 @@ __all__ = [
     "DepolarizingNoise",
     "BitFlipNoise",
     "PhaseFlipNoise",
+    "QirInputData",
+    "Config",
 ]

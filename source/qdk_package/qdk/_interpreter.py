@@ -128,7 +128,7 @@ def init(
         The `circuit` function is *NOT* affected by this parameter and will always
         generate a circuit.
     :return: The Q# interpreter configuration.
-    :rtype: Config
+    :rtype: :class:`~qdk.qsharp.Config`
     """
     global _default_context
 
@@ -274,7 +274,7 @@ def compile(
     :param *args: The arguments to pass to the callable, if one is provided.
 
     :return: The compiled program. Use ``str()`` to get the QIR string.
-    :rtype: QirInputData
+    :rtype: :class:`~qdk.qsharp.QirInputData`
 
     Example:
 
@@ -336,7 +336,7 @@ def circuit(
     :kwtype prune_classical_qubits: bool
 
     :return: The synthesized circuit.
-    :rtype: :class:`~qdk._native.Circuit`
+    :rtype: :class:`~qdk.qsharp.Circuit`
     :raises QSharpError: If there is an error synthesizing the circuit.
     """
     return _get_default_context().circuit(
@@ -370,7 +370,7 @@ def estimate(
 
     .. deprecated::
         This function uses the legacy Resource Estimator API. Use
-        :mod:`qdk.qre` instead.
+        ``qdk.qre`` instead.
     """
 
     ipython_helper()

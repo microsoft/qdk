@@ -37,7 +37,7 @@ Optional extras install additional dependencies and enable extra submodules:
 - ``qdk[cirq]`` — installs ``cirq-core`` and ``cirq-ionq`` and exposes Cirq
   interop as :mod:`qdk.cirq`.
 - ``qdk[jupyter]`` — installs ``qsharp-widgets`` and ``qsharp-jupyterlab`` and
-  exposes :mod:`qdk.widgets`.
+  exposes ``qdk.widgets``.
 """
 
 from .telemetry_events import on_qdk_import

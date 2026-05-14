@@ -40,7 +40,7 @@ def compile(
         - ``search_path`` (str): The optional search path for resolving file references.
         - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
     :return: The compiled program. Use ``str()`` to get the QIR string.
-    :rtype: QirInputData
+    :rtype: :class:`~qdk.qsharp.QirInputData`
     :raises ValueError: If ``source`` is neither a string nor a callable with a
         ``__global_callable`` attribute.
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
