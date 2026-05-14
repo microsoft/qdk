@@ -30,7 +30,7 @@ pub const SIZEOF_SHOTDATA: usize = std::mem::size_of::<ShotData>(); // Size of S
 pub const MIN_REGISTERS: usize = 128;
 
 // Memory reserved for alloca'd memory.
-pub const MAX_ALLOCA_SIZE: usize = 256;
+pub const MAX_ALLOCA_SIZE: usize = 1024;
 
 #[allow(clippy::cast_possible_truncation)]
 #[allow(clippy::cast_possible_wrap)]
