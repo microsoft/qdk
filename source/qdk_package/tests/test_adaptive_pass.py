@@ -1498,3 +1498,44 @@ def test_mutable_global_array():
     """Mutable (non-constant) global arrays are still encoded in constant_data."""
     r = _run_pass(MUTABLE_GLOBAL_QIR)
     assert r.constant_data == [100, 200, 300]
+
+
+# ---------------------------------------------------------------------------
+# Test: forward global references (declaration order independence)
+# ---------------------------------------------------------------------------
+
+FORWARD_GLOBAL_REF_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@matrix = internal constant [2 x ptr] [ptr @row0, ptr @row1]
+@row0 = internal constant [3 x i64] [i64 10, i64 20, i64 30]
+@row1 = internal constant [3 x i64] [i64 40, i64 50, i64 60]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %row_ptr = getelementptr inbounds [2 x ptr], ptr @matrix, i64 0, i64 0
+  %row = load ptr, ptr %row_ptr, align 8
+  %elem_ptr = getelementptr inbounds [3 x i64], ptr %row, i64 0, i64 1
+  %val = load i64, ptr %elem_ptr, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_forward_global_ref_constant_data():
+    """Global arrays referencing globals declared later are resolved correctly.
+
+    @matrix is declared before @row0/@row1. The two-pass scan assigns
+    addresses to all globals first, so forward references resolve.
+    """
+    r = _run_pass(FORWARD_GLOBAL_REF_QIR)
+    # @matrix at offset 0: [2, 5] (addresses of @row0 and @row1)
+    # @row0 at offset 2: [10, 20, 30]
+    # @row1 at offset 5: [40, 50, 60]
+    assert r.constant_data == [2, 5, 10, 20, 30, 40, 50, 60]

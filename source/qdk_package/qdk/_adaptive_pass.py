@@ -626,16 +626,27 @@ class AdaptiveProfilePass:
         ``[N x i8]`` byte-string globals are skipped here. See
         ``_is_global_array`` for the rationale. They are consumed by
         ``_extract_label`` directly from the call site.
+
+        This is done in two passes so that pointer-valued arrays (e.g.
+        ``[N x ptr]`` where elements reference other globals) work
+        regardless of the declaration order of the globals in the module.
         """
+        # Pass 1: assign addresses to every supported global array without
+        # encoding elements.  This ensures that forward references between
+        # globals (e.g. @matrix declared before @row0/@row1) are resolved
+        # correctly in Pass 2.
+        supported_globals: list[tuple[pyqir.GlobalVariable, pyqir.ArrayConstant]] = []
+        base = len(self.constant_data)
         for gv in mod.global_variables:
             if not self._is_global_array(gv):
                 continue
             init = cast(pyqir.ArrayConstant, gv.initializer)
+            self._global_to_address[gv.name] = base
+            base += self._size_in_words(init.type)
+            supported_globals.append((gv, init))
 
-            # We append the array data to `self.constant_data`.
-            # So, the address of this array will be `len(self.constant_data)`.
-            array_addr = len(self.constant_data)
-            self._global_to_address[gv.name] = array_addr
+        # Pass 2: encode elements now that all addresses are known.
+        for gv, init in supported_globals:
             self._encode_array_elements(init, gv.name)
 
         self._alloca_ptr = len(self.constant_data)

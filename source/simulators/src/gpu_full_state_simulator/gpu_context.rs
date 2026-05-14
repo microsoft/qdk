@@ -13,9 +13,8 @@ use crate::noise_config::NoiseConfig;
 use crate::noise_mapping::get_noise_ops;
 use crate::shader_types::{
     self, DiagnosticsData, InterpreterState, MAX_ALLOCA_SIZE, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT,
-    MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOT_ENTRIES, MAX_SHOTS_PER_BATCH,
-    MIN_QUBIT_COUNT, MIN_REGISTERS, Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms,
-    WorkgroupCollationBuffer, ops,
+    MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT, MIN_REGISTERS,
+    Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms, WorkgroupCollationBuffer, ops,
 };
 
 // On Windows, running larger circuits/shots can hit TDR issues if too many ops are dispatched in one go.
@@ -456,11 +455,27 @@ impl GpuContext {
         let entries_per_shot = 1 << params.qubit_count; // 2^n state vector entries per shot for n qubits
         let state_vector_size_per_shot = entries_per_shot * 8; // Each entry is a complex containing 2 * f32
 
+        // Figure out the per-shot GPU struct size first, since it's needed for batching limits.
+        // In adaptive mode, each shot's GPU struct includes the interpreter state + registers + memory.
+        // WGSL requires struct size to be a multiple of the struct's alignment (8 bytes due to vec2f).
+        let gpu_shot_size = if self.is_adaptive {
+            let raw = SIZEOF_SHOTDATA
+                + size_of::<InterpreterState>()
+                + params.num_registers * 4
+                + params.max_memory * 4;
+            (raw + 7) & !7 // round up to 8-byte alignment
+        } else {
+            SIZEOF_SHOTDATA
+        };
+
         // Figure out some limits based on buffer size limits, structure sizes, and number of qubits
         let max_shot_state_vectors =
             usize_to_i32(MAX_BUFFER_SIZE / i32_to_usize(state_vector_size_per_shot));
-        // How many of the structures would fit
-        let max_shots_in_buffer = min(MAX_SHOT_ENTRIES, max_shot_state_vectors);
+        // How many shots fit in the shots buffer using the actual per-shot size
+        let max_shots_in_buffer = min(
+            usize_to_i32(MAX_BUFFER_SIZE / gpu_shot_size),
+            max_shot_state_vectors,
+        );
         // How many would we allow based on the max shots per batch
         let max_shots_per_batch = min(max_shots_in_buffer, MAX_SHOTS_PER_BATCH);
 
@@ -476,19 +491,6 @@ impl GpuContext {
         };
         params.entries_per_thread =
             entries_per_shot / params.workgroups_per_shot / THREADS_PER_WORKGROUP;
-
-        // Figure out the buffer sizes we need for all the above
-        // In adaptive mode, each shot's GPU struct includes the interpreter state + registers.
-        // WGSL requires struct size to be a multiple of the struct's alignment (8 bytes due to vec2f).
-        let gpu_shot_size = if self.is_adaptive {
-            let raw = SIZEOF_SHOTDATA
-                + size_of::<InterpreterState>()
-                + params.num_registers * 4
-                + params.max_memory * 4;
-            (raw + 7) & !7 // round up to 8-byte alignment
-        } else {
-            SIZEOF_SHOTDATA
-        };
         params.shots_buffer_size = i32_to_usize(params.shots_per_batch) * gpu_shot_size;
         params.state_vector_buffer_size =
             i32_to_usize(params.shots_per_batch * state_vector_size_per_shot);

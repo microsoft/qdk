@@ -7,6 +7,7 @@ const ERR_CALL_STACK_OVERFLOW = 3u;
 const ERR_CALL_STACK_UNDERFLOW = 4u;
 const ERR_INVALID_INSTRUCTION = 5u;
 const ERR_ALLOCA_OUT_OF_BOUNDS = 6u;
+const ERR_MEMORY_OUT_OF_BOUNDS = 7u;
 
 @group(0) @binding(0)
 var<storage, read_write> workgroup_collation: WorkgroupCollationBuffer;
@@ -1361,6 +1362,15 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // Encoding: src0 = memory address, dst = destination register.
             case OP_LOAD {
                 let addr = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                if addr >= MAX_MEMORY {
+                    shots[shot_idx].interp.exit_code = ERR_MEMORY_OUT_OF_BOUNDS;
+                    let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
+                    atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_MEMORY_OUT_OF_BOUNDS);
+                    shots[shot_idx].interp.status = STATUS_ERROR;
+                    atomicAdd(&diagnostics.termination_count, 1u);
+                    should_break = true;
+                    break;
+                }
                 let val = shots[shot_idx].interp.memory[addr];
                 write_reg(shot_idx, instr.dst, val);
                 pc++;
@@ -1371,6 +1381,15 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             case OP_STORE {
                 let val = resolve_u32(shot_idx, instr.src0, flags, 0u);
                 let addr = resolve_u32(shot_idx, instr.src1, flags, 1u);
+                if addr >= MAX_MEMORY {
+                    shots[shot_idx].interp.exit_code = ERR_MEMORY_OUT_OF_BOUNDS;
+                    let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
+                    atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_MEMORY_OUT_OF_BOUNDS);
+                    shots[shot_idx].interp.status = STATUS_ERROR;
+                    atomicAdd(&diagnostics.termination_count, 1u);
+                    should_break = true;
+                    break;
+                }
                 shots[shot_idx].interp.memory[addr] = val;
                 pc++;
             }
