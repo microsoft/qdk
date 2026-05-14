@@ -1053,6 +1053,72 @@ The host opts in, persists how it wants (`vscode.getState()` /
 live `ViewState`. Hosts that don't care pass nothing and get
 today's behavior.
 
+#### Deferred: auto-expand on external circuit change (undo/redo)
+
+When a host pushes a `CircuitGroup` whose change is inside a
+collapsed group, the View layer should auto-expand the changed
+op's ancestors so the change is immediately visible — otherwise a
+user who collapses a group and then hits Ctrl+Z on something
+inside it has to go hunting for the difference.
+
+**Status: spec'd, partially implemented, not yet working
+end-to-end in VS Code.** A first attempt has been stashed for
+future work.
+
+**What was built (and works at the npm-package level):**
+
+- A pure helper `diffChangedScopes(oldGrid, newGrid)` in a new
+  `data/circuitDiff.ts` that returns the set of _scope locations_
+  containing changes. Per-op shallow JSON compare; recurses into
+  matching children; structural mismatches (column or per-column
+  component count) report the current scope and stop descending.
+- `ViewState.expandToReveal(location)` walks a location string
+  and marks every ancestor (and the location itself) as
+  expanded, overriding any prior user collapse on the path.
+- `Sqore.updateCircuit` calls
+  `diffChangedScopes(oldGrid, newGrid)` and routes each scope
+  through `viewState.expandToReveal` before swapping.
+- 22 new tests covering all of the above (14 in
+  `circuitDiff.test.mjs`, 5 in `viewState.test.mjs`, 3 in
+  `dropzones.test.mjs` including the "override prior user
+  collapse" case and the "logically-equal push doesn't
+  auto-expand" guard). All pass.
+
+**Where it breaks:** when the user moves an op inside a
+collapsed group in VS Code and hits Ctrl+Z, the auto-expand
+doesn't fire. Adds/removes sometimes do, sometimes don't. The
+fix-attempt to mirror `state.props.circuit` on edit (so the
+webview's dedup compares against what's actually displayed)
+didn't fully resolve it. Suspect one of:
+
+1. **Webview dedup over- or under-firing** because of property
+   ordering / number normalization differences between
+   in-memory objects and `JSON.parse` round-trips. Worth logging
+   `state.props.circuit` and `message.props.circuit` at the
+   dedup point in
+   [vscode/src/webview/editor.tsx](../../../../vscode/src/webview/editor.tsx)
+   to see what they actually look like on undo.
+2. **Preact remount of `ZoomableCircuit`** dropping
+   `qvizObj.current`, sending the path through the initial-mount
+   branch (which constructs a new Sqore and discards
+   `viewState`). The `editor` object is rebuilt inside `App` on
+   every render in
+   [vscode/src/webview/editor.tsx](../../../../vscode/src/webview/editor.tsx),
+   which can change identity even when its contents don't.
+3. **Text-doc echo loop** in
+   [vscode/src/circuitEditor.ts](../../../../vscode/src/circuitEditor.ts)
+   doing something subtler than the `updatingDocument` guard
+   suggests — e.g. firing `onDidChangeTextDocument` after the
+   guard has already cleared.
+
+**Resume plan:** add `console.log` lines at three points (dedup
+result in `editor.tsx`, `changedScopes` in `sqore.ts`
+`updateCircuit`, branch taken in `circuit.tsx`'s
+`useEffect([props.circuitGroup])`), reproduce in VS Code, and
+follow whichever logs show the unexpected behavior. The
+npm-package code is correct and unit-tested; the bug is in the
+VS Code integration glue.
+
 ### 2. Gate Inspector panel — multi-target editing
 
 **Goal:** Replace today's ad-hoc context menu + single-input prompt
