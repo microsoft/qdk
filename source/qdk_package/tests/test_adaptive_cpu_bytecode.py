@@ -1777,13 +1777,13 @@ declare void @__quantum__rt__initialize(ptr)
 
 STATIC_ARRAY_CONST_INDEX_QIR = (
     """\
-@angles = internal constant [3 x i64] [i64 0, i64 1, i64 0]
+@arr = internal constant [3 x i64] [i64 0, i64 5, i64 0]
 
 define i64 @ENTRYPOINT__main() #0 {
 entry:
-  %ptr = getelementptr [3 x i64], ptr @angles, i64 0, i64 1
+  %ptr = getelementptr [3 x i64], ptr @arr, i64 0, i64 1
   %val = load i64, ptr %ptr
-  %flag = icmp eq i64 %val, 1
+  %flag = icmp eq i64 %val, 5
   br i1 %flag, label %then, label %end
 then:
   call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))

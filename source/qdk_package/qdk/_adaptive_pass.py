@@ -657,7 +657,7 @@ class AdaptiveProfilePass:
                 )
             elif isinstance(elem, pyqir.ArrayConstant):
                 # Nested array — flatten recursively.
-                self._encode_array_elements(elem, gv_name, mask)
+                self._encode_array_elements(elem, gv_name)
             elif isinstance(elem, pyqir.GlobalVariable):
                 # Pointer to another global (e.g. @row0 in [N x ptr]).
                 if elem.name in self._global_to_address:
@@ -1212,85 +1212,135 @@ class AdaptiveProfilePass:
         ptr = self._resolve_operand(instr.operands[1])
         self._emit(OP_STORE, src0=value, src1=ptr)
 
-    def _emit_gep(self, instr: pyqir.Instruction) -> None:
-        """Emit OP_GEP — compute element address.
+    def _size_in_words(self, ty: pyqir.Type) -> int:
+        """Number of storage words occupied by `ty`.
 
-        Handles GEPs with an arbitrary number of index operands by chaining
-        OP_GEP instructions.  Each index level computes a stride from the
-        corresponding type dimension (``ArrayType.count``), walking from
-        the outermost to the innermost index.
+        Scalars (int, float) and pointers occupy one word. Arrays flatten
+        row-major to ``count * size(element)``. Structs and function
+        types are not produced by the QDK frontends.
         """
-        dst = self._alloc_reg(instr, REG_TYPE_PTR)
-        base = self._resolve_operand(instr.operands[0])
+        # Base case
+        # Pyqir doesn't have a FloatType, so, we instead check that the type
+        # is not an array, struct, or function.
+        if not isinstance(ty, (pyqir.ArrayType, pyqir.StructType, pyqir.Function)):
+            # Return 1 if the type is an int, float, or pointer
+            return 1
 
+        # Recursive case
+        if isinstance(ty, pyqir.ArrayType):
+            return ty.count * self._size_in_words(ty.element)
+
+        raise TypeError(f"Expected a scalar or pointer type, found {ty}")
+
+    def _gep_source_type(self, ptr: pyqir.Value) -> pyqir.Type:
+        """Recover the source-element-type `T` of a *multi-index* GEP.
+
+        For a GEP `getelementptr T, ptr %p, i_0, i_1, ..., i_n` with
+        `n >= 1`, LLVM defines the address as
+
+            %p + i_0 * sizeof(T) + i_1 * sizeof(T_1) + ...
+
+        where `T_k` is the type reached after the first `k` indices. To
+        emit the right strides we need `T`. The single-index case is
+        *not* handled here — see `_emit_gep` for why.
+
+        pyqir limitations worked around in this method:
+
+        * `pyqir.Instruction` does not expose a GEP's source-element-type
+          (the leading type token in `getelementptr T, ptr %p, ...`). The
+          only instruction attributes available are `opcode`, `operands`,
+          `type`, `name`. There is no way to read `T` directly.
+        * Under LLVM 15+ opaque pointers, `PointerType.pointee` returns
+          an opaque `Type`, so `T` cannot be recovered from the pointer
+          operand's declared type either.
+        """
+        if isinstance(ptr, pyqir.GlobalVariable) and ptr.initializer is not None:
+            return ptr.initializer.type
+        # SSA pointer base — safe only under the QDK convention that the
+        # outermost index is the constant `0`. See docstring.
+        return ptr.type
+
+    def _emit_gep(self, instr: pyqir.Instruction) -> None:
+        """Lower `getelementptr` to a chain of OP_GEPs.
+
+        LLVM GEP address formula for `getelementptr T, ptr %p, i_0, ..., i_n`:
+
+            addr = %p + sum_k(i_k * sizeof(T_k))
+
+        where `T_0 = T` and `T_{k+1} = T_k.element` when `T_k` is an
+        array type. Each iteration of the loop below emits one OP_GEP
+        with the stride for that level.
+
+        Single-index vs. multi-index handling
+        -------------------------------------
+
+        Because pyqir does not expose the source-element-type
+        `T` of a GEP (see `_gep_source_type`), the two forms are
+        handled differently:
+
+        * **Single-index** `getelementptr T, ptr %p, i_0`: the type
+          `T` may be unrelated to anything we can observe on `%p`. For
+          example, `getelementptr ptr, ptr @array_of_ptrs, i64 j`
+          declares `T = ptr` even though `@array_of_ptrs.initializer`
+          has type `[N x ptr]`. Under the QDK codegen convention,
+          single-index GEPs always step over scalar/pointer-sized
+          slots, so we hardcode stride = 1. *This is a QDK convention,
+          not LLVM-general semantics.*
+
+        * **Multi-index** `getelementptr T, ptr %p, i_0, ..., i_n`
+          (n >= 1): the QDK codegen convention is that `T` matches
+          the pointer base's aggregate (see `_gep_source_type`), so
+          we can compute every stride from the recovered `T`.
+        """
+        ptr = instr.operands[0]
         indices = instr.operands[1:]
+        base_addr = self._resolve_operand(ptr)
+        end_dst = self._alloc_reg(instr, REG_TYPE_PTR)
+
+        if not indices:
+            # `getelementptr T, ptr %p` with no indices is just %p; emit
+            # a MOV so `end_dst` is still defined for downstream uses.
+            self._emit(OP_MOV, dst=end_dst, src0=base_addr)
+            return
+
         if len(indices) == 1:
-            index = self._resolve_operand(indices[0])
+            # Single-index GEP. The textual stride sizeof(T) is hidden
+            # by pyqir. Under the QDK convention, single-index GEPs
+            # step over scalar/pointer-sized slots, so stride = 1.
             self._emit(
                 OP_GEP,
-                dst=dst,
-                src0=base,
-                src1=index,
+                dst=end_dst,
+                src0=base_addr,
+                src1=self._resolve_operand(indices[0]),
                 aux0=IntOperand(1, self._int_bits),
             )
             return
 
-        # Multi-index GEP: compute strides from the source type.
-        # For a type like [2 x [3 x i64]], the strides are [3, 1] for
-        # indices [row, col].  A leading zero index (struct/array base)
-        # is folded away.
-        source_type = instr.operands[0].type
-        # Peel through PointerType to get the aggregate type.
-        if isinstance(source_type, pyqir.PointerType):
-            current_type = source_type.pointee
-        else:
-            current_type = source_type
-
-        cur = base
-        for i, idx_val in enumerate(indices):
-            idx = self._resolve_operand(idx_val)
-            is_last = i == len(indices) - 1
-
-            # Compute stride: product of all remaining inner dimensions.
-            stride = 1
-            inner = current_type
-            if isinstance(inner, pyqir.ArrayType):
-                # Walk remaining dimensions to compute flat stride.
-                remaining = inner
-                for _ in range(len(indices) - 1 - i):
-                    if isinstance(remaining, pyqir.ArrayType):
-                        remaining = remaining.element
-                # remaining is the element type at the target level
-                # stride = product of counts of ArrayType layers below current
-                stride = 1
-                walk = inner
-                # Skip current level, multiply counts of inner levels
-                if isinstance(walk, pyqir.ArrayType) and not is_last:
-                    walk = walk.element
-                    while isinstance(walk, pyqir.ArrayType):
-                        stride *= walk.count
-                        walk = walk.element
-
-            # Skip zero-index no-ops at the outermost level.
-            if isinstance(idx, IntOperand) and idx.val == 0 and not is_last:
-                # Advance type but don't emit an instruction.
-                if isinstance(current_type, pyqir.ArrayType):
-                    current_type = current_type.element
-                continue
-
-            out = dst if is_last else self._alloc_reg(None, REG_TYPE_PTR)
+        # Multi-index GEP. Recover T (LLVM-correct under the QDK
+        # codegen conventions documented in `_gep_source_type`) and
+        # walk it level by level.
+        ty = self._gep_source_type(ptr)
+        cur_addr = base_addr
+        last = len(indices) - 1
+        for k, idx_val in enumerate(indices):
+            stride = IntOperand(self._size_in_words(ty), self._int_bits)
+            out = end_dst if k == last else self._alloc_reg(None, REG_TYPE_PTR)
             self._emit(
                 OP_GEP,
                 dst=out,
-                src0=cur,
-                src1=idx,
-                aux0=IntOperand(stride, self._int_bits),
+                src0=cur_addr,
+                src1=self._resolve_operand(idx_val),
+                aux0=stride,
             )
-            cur = out
-
-            # Advance type for the next index level.
-            if isinstance(current_type, pyqir.ArrayType):
-                current_type = current_type.element
+            cur_addr = out
+            # Descend into the aggregate for the next index level. If
+            # `ty` is not an array (the SSA-base opaque fallback
+            # documented in `_gep_source_type`), leave it alone: the
+            # subsequent strides stay at 1, which is correct under the
+            # QDK convention that the outermost index is `0` and the
+            # innermost levels reach scalar leaves.
+            if isinstance(ty, pyqir.ArrayType):
+                ty = ty.element
 
     # ------------------------------------------------------------------
     # IR-defined function call/return
