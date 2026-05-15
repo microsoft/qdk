@@ -53,11 +53,7 @@ type EstimatesState = {
 type CircuitState = {
   viewType: "circuit";
   panelId: string;
-  // Stored shape carries the host's flag rather than a callback so that
-  // `vscodeApi.setState(state)` (structured-cloned) doesn't choke on a
-  // non-serializable function. The real `onSaveAsCircuit` callback is
-  // attached freshly at render time.
-  props: CircuitProps & { canSaveAsCircuit?: boolean };
+  props: CircuitProps;
 };
 
 type DocumentationState = {
@@ -143,18 +139,10 @@ function onMessage(event: any) {
       state = helpState;
       break;
     case "circuit":
-      // Stash the host's payload verbatim, including the boolean save
-      // capability flag. The actual `onSaveAsCircuit` callback is wired
-      // up at render time so we never persist a function into the state
-      // object that gets structured-cloned by `vscodeApi.setState`.
       {
-        const incomingProps = (message.props ?? {}) as CircuitProps & {
-          canSaveAsCircuit?: boolean;
-        };
         state = {
           viewType: "circuit",
-          panelId: message.panelId,
-          props: incomingProps,
+          ...message,
         };
       }
       break;
@@ -235,24 +223,8 @@ function App({ state }: { state: State }) {
           runNames={[]}
         />
       );
-    case "circuit": // postMessage callback. Done at render time (not in state) so we // Hydrate the boolean `canSaveAsCircuit` capability flag into a real
-    // never persist a function via `vscodeApi.setState`.
-    {
-      const { canSaveAsCircuit, ...rest } = state.props;
-      const onSaveAsCircuit = canSaveAsCircuit
-        ? () =>
-            vscodeApi.postMessage({
-              command: "saveGeneratedCircuit",
-              panelId: state.panelId,
-            })
-        : undefined;
-      return (
-        <CircuitPanel
-          {...rest}
-          onSaveAsCircuit={onSaveAsCircuit}
-        ></CircuitPanel>
-      );
-    }
+    case "circuit":
+      return <CircuitPanel {...state.props}></CircuitPanel>;
     case "help":
       return <HelpPage />;
     case "documentation":

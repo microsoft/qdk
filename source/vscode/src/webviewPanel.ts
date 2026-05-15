@@ -13,7 +13,7 @@ import {
   commands,
   window,
 } from "vscode";
-import { showCircuitCommand, handleSaveGeneratedCircuit } from "./circuit";
+import { showCircuitCommand } from "./circuit";
 import { clearCommandDiagnostics } from "./diagnostics";
 import { showDocumentationCommand } from "./documentation";
 import { getActiveProgram } from "./programConfig";
@@ -379,19 +379,9 @@ export class QSharpWebViewPanel {
           this.panel.webview.postMessage(message),
         );
         this._queuedMessages = [];
-        return;
       }
 
-      if (message.command === "saveGeneratedCircuit") {
-        // Posted by the "Save as Circuit (.qsc)…" button on a circuit
-        // panel. The webview only echoes the panel id; the host already
-        // has the circuit cached so we don't need to ferry it back.
-        const id =
-          typeof message.panelId === "string" ? message.panelId : this.id;
-        void handleSaveGeneratedCircuit(id);
-        return;
-      }
-
+      // No messages are currently sent from the webview
       console.log("Message for webview received", message);
     });
   }

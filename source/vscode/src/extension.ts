@@ -10,11 +10,7 @@ import {
 } from "qsharp-lang";
 import * as vscode from "vscode";
 import { initAzureWorkspaces } from "./azure/commands.js";
-import {
-  CircuitEditorProvider,
-  getCircuitPreviewController,
-} from "./circuitEditor.js";
-import { registerCircuitPreviewProvider } from "./circuitPreview.js";
+import { CircuitEditorProvider } from "./circuitEditor.js";
 import { initProjectCreator } from "./createProject.js";
 import { activateDebugger } from "./debugger/activate.js";
 import { startOtherQSharpDiagnostics } from "./diagnostics.js";
@@ -87,39 +83,7 @@ export async function activate(
   context.subscriptions.push(...(await activateLanguageService(context)));
   context.subscriptions.push(...startOtherQSharpDiagnostics());
   context.subscriptions.push(...registerQSharpNotebookHandlers());
-  context.subscriptions.push(
-    registerCircuitPreviewProvider(context.extensionUri),
-  );
   context.subscriptions.push(CircuitEditorProvider.register(context));
-
-  // Note: previews restored from a previous session are repopulated
-  // lazily by `CircuitPreviewProvider.regenerateFromSource`, which
-  // reads the source `.qsc` file and regenerates Q# without depending
-  // on the custom editor having activated. See `circuitPreview.ts`.
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "qsharp-vscode.showCircuitCodePreview",
-      async (resource?: vscode.Uri) => {
-        const target = resource ?? activeCircuitDocumentUri();
-        if (!target) {
-          void vscode.window.showInformationMessage(
-            "Open a circuit (.qsc) file to use the Q# preview.",
-          );
-          return;
-        }
-        const controller = getCircuitPreviewController(target);
-        if (!controller) {
-          // Custom editor for this URI isn't currently resolved (e.g. the
-          // user invoked the command from the explorer for a circuit that
-          // isn't open). Open it first; the editor will register itself and
-          // auto-open the preview if the setting allows it.
-          await vscode.commands.executeCommand("vscode.open", target);
-          return;
-        }
-        await controller.show();
-      },
-    ),
-  );
   context.subscriptions.push(...registerChangelogCommand(context));
 
   /// Handle incoming workspace connection URIs. The URI will be in the format:
@@ -223,21 +187,6 @@ function getViewColumnForLocations(
         }
       }
     }
-  }
-  return undefined;
-}
-
-/**
- * Find the URI of the circuit document backing the currently-active custom
- * editor tab, if any. Returns undefined when the active tab isn't a circuit.
- */
-function activeCircuitDocumentUri(): vscode.Uri | undefined {
-  const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
-  if (
-    tab?.input instanceof vscode.TabInputCustom &&
-    tab.input.viewType === "qsharp-webview.circuit"
-  ) {
-    return tab.input.uri;
   }
   return undefined;
 }

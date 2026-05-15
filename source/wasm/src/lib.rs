@@ -240,19 +240,6 @@ fn compile_errors_into_qsharp_errors_json(errs: Vec<qsc::compile::Error>) -> Str
     interpret_errors_into_qsharp_errors_json(errs.into_iter().map(Into::into).collect())
 }
 
-/// Generates a Q# operation that implements the given circuit.
-///
-/// `circuits_json` is a JSON-serialized `CircuitGroup` (see the TypeScript
-/// `CircuitGroup` type). `file_name` is used to derive the operation name(s)
-/// in the generated Q# code.
-///
-/// Returns the generated Q# source on success, or an error message on failure
-/// (e.g. when the JSON cannot be parsed as a `CircuitGroup`).
-#[wasm_bindgen]
-pub fn circuits_to_qsharp(file_name: &str, circuits_json: &str) -> Result<String, String> {
-    qsc::circuit::circuits_to_qsharp(file_name, circuits_json)
-}
-
 #[wasm_bindgen]
 #[must_use]
 pub fn get_library_source_content(name: &str) -> Option<String> {

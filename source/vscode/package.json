@@ -141,11 +141,6 @@
             }
           }
         },
-        "Q#.circuits.showCodePreview": {
-          "type": "boolean",
-          "default": true,
-          "markdownDescription": "Automatically open a live, read-only Q# preview alongside circuit (`.qsc`) files. The preview updates as the circuit is edited."
-        },
         "Q#.simulation.pauliNoise": {
           "markdownDescription": "The Pauli noise to apply when running multiple shots via the Histogram command. This is applied for every gate or measurement on all qubits referenced.\n\nProbability values are in the range [0, 1].",
           "type": "object",
@@ -226,13 +221,6 @@
           "group": "navigation@2"
         }
       ],
-      "editor/title": [
-        {
-          "command": "qsharp-vscode.showCircuitCodePreview",
-          "when": "activeCustomEditorId == qsharp-webview.circuit",
-          "group": "navigation@1"
-        }
-      ],
       "commandPalette": [
         {
           "command": "qsharp-vscode.runProgram",
@@ -297,10 +285,6 @@
         {
           "command": "qsharp-vscode.showCircuit",
           "when": "resourceLangId == qsharp || resourceLangId == openqasm"
-        },
-        {
-          "command": "qsharp-vscode.showCircuitCodePreview",
-          "when": "activeCustomEditorId == qsharp-webview.circuit"
         },
         {
           "command": "qsharp-vscode.showDocumentation",
@@ -472,12 +456,6 @@
         "command": "qsharp-vscode.showCircuit",
         "title": "Show circuit",
         "category": "QDK"
-      },
-      {
-        "command": "qsharp-vscode.showCircuitCodePreview",
-        "title": "Show Q# preview for circuit",
-        "category": "QDK",
-        "icon": "$(open-preview)"
       },
       {
         "command": "qsharp-vscode.showDocumentation",

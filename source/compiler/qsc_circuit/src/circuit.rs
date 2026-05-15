@@ -355,7 +355,6 @@ pub struct Metadata {
     /// Only populated if this operation represents a scope group.
     pub scope_location: Option<SourceLocation>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    #[serde(default)]
     /// Map from Register to "result ID" which will be used to display labels in UI
     pub control_result_ids: Vec<(Register, usize)>,
 }
