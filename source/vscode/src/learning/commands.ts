@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
-import { KatasPanelManager } from "./panel.js";
+import { LessonPanelManager } from "./panel.js";
 import type { LearningService } from "./service.js";
 import type { ActivityLocation } from "./types.js";
 import type { LearningProgressNode } from "./progressTreeView.js";
@@ -14,17 +14,11 @@ import type { LearningProgressNode } from "./progressTreeView.js";
 export function registerLearningCommands(
   context: vscode.ExtensionContext,
   service: LearningService,
+  panelManager: LessonPanelManager,
 ): void {
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "qsharp-vscode.learningShowActivity",
-      () => {
-        const manager = KatasPanelManager.getInstance(
-          context.extensionUri,
-          service,
-        );
-        return manager.show();
-      },
+    vscode.commands.registerCommand("qsharp-vscode.learningShowActivity", () =>
+      panelManager.show(),
     ),
 
     // Code lens commands
@@ -32,11 +26,7 @@ export function registerLearningCommands(
     vscode.commands.registerCommand(
       "qsharp-vscode.learningCheckSolution",
       async () => {
-        const manager = KatasPanelManager.getInstance(
-          context.extensionUri,
-          service,
-        );
-        await manager.checkAndShowResult();
+        await panelManager.checkAndShowResult();
       },
     ),
 
@@ -86,11 +76,7 @@ export function registerLearningCommands(
         }
 
         service.goTo(location, "tree");
-        const manager = KatasPanelManager.getInstance(
-          context.extensionUri,
-          service,
-        );
-        await manager.show();
+        await panelManager.show();
       },
     ),
 
