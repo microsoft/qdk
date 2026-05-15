@@ -32,6 +32,7 @@ try:
 except OSError as e:
     GPU_AVAILABLE = False
     SKIP_REASON = str(e)
+    pytest.fail(f"QDK_GPU_TESTS is set but no GPU adapter could be created: {e}")
 
 
 from qdk import qsharp

@@ -35,6 +35,7 @@ try:
     GPU_AVAILABLE = True
 except OSError as e:
     SKIP_REASON = str(e)
+    pytest.fail(f"QDK_GPU_TESTS is set but no GPU adapter could be created: {e}")
 
 from qdk.simulation import run_qir, NoiseConfig
 from qdk.simulation._simulation import GpuSimulator, Result

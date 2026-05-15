@@ -38,7 +38,11 @@ def gpu_param():
         try_create_gpu_adapter()
         if not os.environ.get("QDK_GPU_TESTS"):
             skip_reason = "Env variable QDK_GPU_TESTS is not set"
-    except Exception:
+    except Exception as e:
+        if os.environ.get("QDK_GPU_TESTS"):
+            pytest.fail(
+                f"QDK_GPU_TESTS is set but no GPU adapter could be created: {e}"
+            )
         skip_reason = "No GPU available"
 
     return pytest.param(
