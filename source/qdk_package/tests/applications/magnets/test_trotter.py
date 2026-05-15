@@ -266,6 +266,63 @@ def test_suzuki_recursion_time_weights_sum():
     assert abs(total_time - base_total) < 1e-10
 
 
+def test_suzuki_recursion_coefficients_first_order():
+    """Test exact Suzuki coefficients applied to a first-order step (k=1).
+
+    For k=1: p = 1 / (4 - 4^{1/2}) = 1 / 2, so 1 - 4p = -1.
+    Five copies of [(1, 0), (1, 1)] scaled by (p, p, 1-4p, p, p) and reduced.
+    """
+    base = TrotterStep(terms=[0, 1], time_step=1.0)
+    suzuki = suzuki_recursion(base)
+    expected = [
+        (0.5, 0),
+        (0.5, 1),
+        (0.5, 0),
+        (0.5, 1),
+        (-1.0, 0),
+        (-1.0, 1),
+        (0.5, 0),
+        (0.5, 1),
+        (0.5, 0),
+        (0.5, 1),
+    ]
+    result = list(suzuki.step())
+    assert len(result) == len(expected)
+    for (t, i), (et, ei) in zip(result, expected):
+        assert i == ei
+        assert t == pytest.approx(et)
+
+
+def test_suzuki_recursion_coefficients_from_strang():
+    """Test exact Suzuki coefficients applied to second-order Strang (k=2).
+
+    For k=2: p = 1 / (4 - 4^{1/3}) ≈ 0.4144907717943757,
+    1 - 4p ≈ -0.6579630871775028.
+    Strang of [0, 1] with t=1 is [(0.5, 0), (1.0, 1), (0.5, 0)].
+    """
+    base = strang_splitting(terms=[0, 1], time=1.0)
+    suzuki = suzuki_recursion(base)
+    p = 1 / (4 - 4 ** (1 / 3))
+    expected = [
+        (0.5 * p, 0),
+        (1.0 * p, 1),
+        (1.0 * p, 0),  # 0.5p (end of copy 1) + 0.5p (start of copy 2)
+        (1.0 * p, 1),
+        (0.5 * p + 0.5 * (1 - 4 * p), 0),  # end of copy 2 + start of copy 3
+        (1.0 * (1 - 4 * p), 1),
+        (0.5 * (1 - 4 * p) + 0.5 * p, 0),  # end of copy 3 + start of copy 4
+        (1.0 * p, 1),
+        (1.0 * p, 0),  # end of copy 4 + start of copy 5
+        (1.0 * p, 1),
+        (0.5 * p, 0),
+    ]
+    result = list(suzuki.step())
+    assert len(result) == len(expected)
+    for (t, i), (et, ei) in zip(result, expected):
+        assert i == ei
+        assert t == pytest.approx(et)
+
+
 # yoshida_recursion tests
 
 
@@ -319,6 +376,58 @@ def test_yoshida_recursion_time_weights_sum():
     assert abs(total_time - base_total) < 1e-10
 
 
+def test_yoshida_recursion_coefficients_first_order():
+    """Test exact Yoshida coefficients applied to a first-order step (k=1).
+
+    For k=1: w_1 = 1 / (2 - 2^{1/2}) = 1 + 1/sqrt(2),
+    w_0 = 1 - 2 w_1 = -sqrt(2).
+    """
+    base = TrotterStep(terms=[0, 1], time_step=1.0)
+    yoshida = yoshida_recursion(base)
+    w1 = 1 / (2 - 2 ** (1 / 2))
+    w0 = 1 - 2 * w1
+    expected = [
+        (w1, 0),
+        (w1, 1),
+        (w0, 0),
+        (w0, 1),
+        (w1, 0),
+        (w1, 1),
+    ]
+    result = list(yoshida.step())
+    assert len(result) == len(expected)
+    for (t, i), (et, ei) in zip(result, expected):
+        assert i == ei
+        assert t == pytest.approx(et)
+
+
+def test_yoshida_recursion_coefficients_from_strang():
+    """Test exact Yoshida coefficients applied to second-order Strang (k=2).
+
+    For k=2: w_1 = 1 / (2 - 2^{1/3}), w_0 = 1 - 2 w_1.
+    Strang of [0, 1] with t=1 is [(0.5, 0), (1.0, 1), (0.5, 0)].
+    Three copies of Strang scaled by (w_1, w_0, w_1) and reduced.
+    """
+    base = strang_splitting(terms=[0, 1], time=1.0)
+    yoshida = yoshida_recursion(base)
+    w1 = 1 / (2 - 2 ** (1 / 3))
+    w0 = 1 - 2 * w1
+    expected = [
+        (0.5 * w1, 0),
+        (1.0 * w1, 1),
+        (0.5 * w1 + 0.5 * w0, 0),  # end of copy 1 + start of copy 2
+        (1.0 * w0, 1),
+        (0.5 * w0 + 0.5 * w1, 0),  # end of copy 2 + start of copy 3
+        (1.0 * w1, 1),
+        (0.5 * w1, 0),
+    ]
+    result = list(yoshida.step())
+    assert len(result) == len(expected)
+    for (t, i), (et, ei) in zip(result, expected):
+        assert i == ei
+        assert t == pytest.approx(et)
+
+
 def test_yoshida_fewer_terms_than_suzuki():
     """Test that Yoshida produces fewer terms than Suzuki (3x vs 5x)."""
     base = strang_splitting(terms=[0, 1, 2], time=1.0)
@@ -346,6 +455,39 @@ def test_fourth_order_trotter_suzuki_equals_suzuki_of_strang():
     manual = suzuki_recursion(strang_splitting(terms=[0, 1, 2], time=0.5))
     assert list(fourth.step()) == list(manual.step())
     assert fourth.order == manual.order
+
+
+def test_fourth_order_trotter_suzuki_docstring_example():
+    """Test the exact coefficients from the fourth_order_trotter_suzuki docstring."""
+    fourth = fourth_order_trotter_suzuki(terms=[0, 1, 2], time=0.5)
+    expected = [
+        (0.10362269294859393, 0),
+        (0.10362269294859393, 1),
+        (0.20724538589718786, 2),
+        (0.10362269294859393, 1),
+        (0.20724538589718786, 0),
+        (0.10362269294859393, 1),
+        (0.20724538589718786, 2),
+        (0.10362269294859393, 1),
+        (-0.060868078845781784, 0),
+        (-0.1644907717943757, 1),
+        (-0.3289815435887514, 2),
+        (-0.1644907717943757, 1),
+        (-0.060868078845781784, 0),
+        (0.10362269294859393, 1),
+        (0.20724538589718786, 2),
+        (0.10362269294859393, 1),
+        (0.20724538589718786, 0),
+        (0.10362269294859393, 1),
+        (0.20724538589718786, 2),
+        (0.10362269294859393, 1),
+        (0.10362269294859393, 0),
+    ]
+    result = list(fourth.step())
+    assert len(result) == len(expected)
+    for (t, i), (et, ei) in zip(result, expected):
+        assert i == ei
+        assert t == pytest.approx(et)
 
 
 # TrotterExpansion tests
