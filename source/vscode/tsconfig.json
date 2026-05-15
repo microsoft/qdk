@@ -13,5 +13,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "exclude": ["test", "src/webview", "src/copilot/webview"]
+  "exclude": ["test", "src/webview", "src/learning/webview"]
 }
