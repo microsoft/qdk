@@ -819,6 +819,8 @@ where
 
     let mut call_args = extract_key::<Vec<Word>>(dict, "call_args")?;
 
+    let mut constant_data = extract_key::<Vec<Word>>(dict, "constant_data")?;
+
     // WebGPU requires that arrays have at least one element,
     // so, we push a dummy element on each of these arrays if they are empty.
     push_default_if_empty(&mut block_table);
@@ -826,6 +828,7 @@ where
     push_default_if_empty(&mut phi_entries);
     push_default_if_empty(&mut switch_cases);
     push_default_if_empty(&mut call_args);
+    push_default_if_empty(&mut constant_data);
 
     Ok(AdaptiveProgram {
         instructions,
@@ -835,6 +838,7 @@ where
         phi_entries,
         switch_cases,
         call_args,
+        constant_data,
         num_qubits,
         num_results,
         num_registers,

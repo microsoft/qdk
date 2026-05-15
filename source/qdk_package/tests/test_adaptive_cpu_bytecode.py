@@ -14,6 +14,7 @@ This is a CPU counterpart to ``test_adaptive_gpu_bytecode.py``.
 """
 
 from collections import Counter
+import pyqir
 import pytest
 from qdk.simulation import run_qir, NoiseConfig
 from qdk.simulation._simulation import Result
@@ -1691,6 +1692,212 @@ SITOFP_NEG_QIR = """
 def test_sitofp_negative(sim_type):
     """sitofp must correctly convert a negative integer."""
     check_arith_result(SITOFP_NEG_QIR, "1", sim_type=sim_type)
+
+
+# #########################################################################
+#  Memory Operations (OP_ALLOCA, OP_LOAD, OP_STORE, OP_GEP)
+# #########################################################################
+
+
+# =========================================================================
+# OP_ALLOCA + OP_STORE + OP_LOAD — scalar alloca/store/load
+# =========================================================================
+
+ALLOCA_STORE_LOAD_SCALAR_QIR = """
+entry:
+  %ptr = alloca i64
+  store i64 1, i64* %ptr
+  %val = load i64, i64* %ptr
+  %flag = icmp eq i64 %val, 1
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_alloca_store_load_scalar(sim_type):
+    """Alloca an i64, store 1, load it back → value is 1 → X applied → measure 1."""
+    check_result(ALLOCA_STORE_LOAD_SCALAR_QIR, "1", sim_type=sim_type)
+
+
+# =========================================================================
+# OP_STORE — overwrite previous value
+# =========================================================================
+
+STORE_OVERWRITE_QIR = """
+entry:
+  %ptr = alloca i64
+  store i64 0, i64* %ptr
+  store i64 1, i64* %ptr
+  %val = load i64, i64* %ptr
+  %flag = icmp eq i64 %val, 1
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_store_overwrite(sim_type):
+    """Store 0 then 1 to same address → load should get 1 → X → measure 1."""
+    check_result(STORE_OVERWRITE_QIR, "1", sim_type=sim_type)
+
+
+# =========================================================================
+# OP_GEP + OP_LOAD — static array with constant index
+# =========================================================================
+
+_OPAQUE_DECLS = """\
+declare void @__quantum__qis__x__body(ptr)
+declare void @__quantum__qis__h__body(ptr)
+declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+declare void @__quantum__qis__mz__body(ptr, ptr) #1
+declare void @__quantum__qis__reset__body(ptr)
+declare i1 @__quantum__qis__read_result__body(ptr)
+declare void @__quantum__rt__tuple_record_output(i64, ptr)
+declare void @__quantum__rt__result_record_output(ptr, ptr)
+declare void @__quantum__rt__initialize(ptr)
+"""
+
+STATIC_ARRAY_CONST_INDEX_QIR = (
+    """\
+@arr = internal constant [3 x i64] [i64 0, i64 5, i64 0]
+
+define i64 @ENTRYPOINT__main() #0 {
+entry:
+  %ptr = getelementptr [3 x i64], ptr @arr, i64 0, i64 1
+  %val = load i64, ptr %ptr
+  %flag = icmp eq i64 %val, 5
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+  call void @__quantum__rt__tuple_record_output(i64 1, ptr null)
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
+  ret i64 0
+}
+
+"""
+    + _OPAQUE_DECLS
+    + """
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #1 = { "irreversible" }
+"""
+)
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_static_array_lookup_const_index(sim_type):
+    """Global array [0, 1, 0], GEP index 1 → load 1 → X → measure 1."""
+    results = _run(STATIC_ARRAY_CONST_INDEX_QIR, sim_type=sim_type)
+    counts = Counter(results)
+    assert counts == {"1": SHOTS}
+
+
+# =========================================================================
+# OP_GEP — dynamic (register-based) index into static array
+# =========================================================================
+
+GEP_DYNAMIC_INDEX_QIR = (
+    """\
+@data = internal constant [2 x i64] [i64 0, i64 1]
+
+define i64 @ENTRYPOINT__main() #0 {
+entry:
+  %idx = add i64 0, 1
+  %ptr = getelementptr [2 x i64], ptr @data, i64 0, i64 %idx
+  %val = load i64, ptr %ptr
+  %flag = icmp eq i64 %val, 1
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+  call void @__quantum__rt__tuple_record_output(i64 1, ptr null)
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
+  ret i64 0
+}
+
+"""
+    + _OPAQUE_DECLS
+    + """
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #1 = { "irreversible" }
+"""
+)
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_gep_with_dynamic_index(sim_type):
+    """GEP with a runtime-computed index into [0, 1] → load element 1 → X → measure 1."""
+    results = _run(GEP_DYNAMIC_INDEX_QIR, sim_type=sim_type)
+    counts = Counter(results)
+    assert counts == {"1": SHOTS}
+
+
+# =========================================================================
+# Multiple global arrays — access elements from distinct arrays
+# =========================================================================
+
+MULTIPLE_ARRAYS_QIR = (
+    """\
+@arr_a = internal constant [2 x i64] [i64 1, i64 0]
+@arr_b = internal constant [2 x i64] [i64 0, i64 1]
+
+define i64 @ENTRYPOINT__main() #0 {
+entry:
+  ; Load arr_a[0] → should be 1
+  %ptr_a = getelementptr [2 x i64], ptr @arr_a, i64 0, i64 0
+  %val_a = load i64, ptr %ptr_a
+  ; Load arr_b[1] → should be 1
+  %ptr_b = getelementptr [2 x i64], ptr @arr_b, i64 0, i64 1
+  %val_b = load i64, ptr %ptr_b
+  ; Both should be 1: apply X to q0 from arr_a, X to q1 from arr_b
+  %flag_a = icmp eq i64 %val_a, 1
+  br i1 %flag_a, label %apply_a, label %check_b
+apply_a:
+  call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
+  br label %check_b
+check_b:
+  %flag_b = icmp eq i64 %val_b, 1
+  br i1 %flag_b, label %apply_b, label %measure
+apply_b:
+  call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
+  br label %measure
+measure:
+  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+  call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__rt__tuple_record_output(i64 2, ptr null)
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr null)
+  ret i64 0
+}
+
+"""
+    + _OPAQUE_DECLS
+    + """
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+attributes #1 = { "irreversible" }
+"""
+)
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_multiple_arrays(sim_type):
+    """Two global arrays: arr_a[0]=1 flips q0, arr_b[1]=1 flips q1 → measure '11'."""
+    results = _run(MULTIPLE_ARRAYS_QIR, sim_type=sim_type)
+    counts = Counter(results)
+    assert counts == {"11": SHOTS}
 
 
 # #########################################################################

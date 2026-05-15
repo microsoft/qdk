@@ -125,6 +125,8 @@ class AdaptiveProgram:
     call_args: List[CallArg]
     labels: List[Label]
     register_types: List[RegisterType]
+    constant_data: List[int]
+    memory_size: int
 
     def as_dict(self):
         """
@@ -146,6 +148,8 @@ class AdaptiveProgram:
             "call_args": self.call_args,
             "labels": self.labels,
             "register_types": self.register_types,
+            "constant_data": self.constant_data,
+            "memory_size": self.memory_size,
         }
 
 
@@ -326,6 +330,12 @@ class AdaptiveProfilePass:
         self._current_func_is_entry: bool = True
         self._noise_intrinsics: Optional[Dict[str, int]] = None
 
+        # Memory / array tracking.
+        self.constant_data: List[int] = []
+        self._memory_size: int = 0
+        self._global_to_address: Dict[str, int] = {}
+        self._alloca_ptr: int = 0
+
     def run(
         self,
         mod: pyqir.Module,
@@ -342,9 +352,6 @@ class AdaptiveProfilePass:
         :return: The processed adaptive program.
         :rtype: AdaptiveProgram
         """
-        if mod.get_flag("arrays"):
-            raise ValueError("QIR arrays are not currently supported.")
-
         if noise_intrinsics is not None:
             self._noise_intrinsics = noise_intrinsics
         elif noise is not None:
@@ -359,6 +366,9 @@ class AdaptiveProfilePass:
         errors = mod.verify()
         if errors is not None:
             raise ValueError(f"Module verification failed: {errors}")
+
+        # Pre-pass: Scan global constant arrays
+        self._scan_global_arrays(mod)
 
         # Pass 1: Assign block IDs and function IDs for all defined functions
         for func in mod.functions:
@@ -390,6 +400,8 @@ class AdaptiveProfilePass:
             call_args=self.call_args,
             labels=self.labels,
             register_types=self.register_types,
+            constant_data=self.constant_data,
+            memory_size=self._memory_size,
         )
 
     # ------------------------------------------------------------------
@@ -431,7 +443,7 @@ class AdaptiveProfilePass:
         imm_flags = prepare_immediate_flags(
             dst=dst, src0=src0, src1=src1, aux0=aux0, aux1=aux1, aux2=aux2, aux3=aux3
         )
-        (dst, src0, src1, aux0, aux1, aux2, aux3) = unwrap_operands(
+        dst, src0, src1, aux0, aux1, aux2, aux3 = unwrap_operands(
             dst, src0, src1, aux0, aux1, aux2, aux3
         )
         ins = Instruction(opcode | imm_flags, dst, src0, src1, aux0, aux1, aux2, aux3)
@@ -473,6 +485,11 @@ class AdaptiveProfilePass:
             val = value.value
             return FloatOperand(val, self._bytecode_kind)
 
+        # Global variable reference (e.g., @array0)
+        if hasattr(value, "name") and value.name in self._global_to_address:
+            addr = self._global_to_address[value.name]
+            return IntOperand(addr, self._int_bits)
+
         # Forward reference (e.g. phi incoming from a later block).
         # Pre-allocate a register; the defining instruction will reuse it
         # via _alloc_reg's dedup check.
@@ -481,6 +498,18 @@ class AdaptiveProfilePass:
 
         # Constant expressions (e.g. inttoptr (i64 N to ptr)).
         if isinstance(value, pyqir.Constant):
+            # Named global constants (e.g. @array0) that were not found in
+            # _global_to_address.
+            if hasattr(value, "name") and value.name:
+                init = getattr(value, "initializer", None)
+                if init and self._is_output_recording_label(init):
+                    # Trying to index into a output recording label.
+                    raise ValueError(
+                        f"Byte-string global @{value.name} is not indexable: "
+                        f"[N x i8] globals are reserved for output labels "
+                        f"consumed by __quantum__rt__*_record_output calls."
+                    )
+                raise ValueError(f"Unresolved global reference: @{value.name}")
             # Try extracting as a qubit/result pointer constant.
             pid = pyqir.ptr_id(value)
             if pid is not None:
@@ -546,6 +575,124 @@ class AdaptiveProfilePass:
         for block in func.basic_blocks:
             self._block_to_id[block] = self._next_block
             self._next_block += 1
+
+    # ------------------------------------------------------------------
+    # Global variable scanning (pre-pass)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_output_recording_label(value: pyqir.Constant):
+        ty = value.type
+        return (
+            isinstance(ty, pyqir.ArrayType)
+            and isinstance(ty.element, pyqir.IntType)
+            and ty.element.width == 8
+        )
+
+    @staticmethod
+    def _is_global_array(global_variable: pyqir.GlobalVariable):
+        init = global_variable.initializer
+        if init is None:
+            return False
+        # If the global variable has an initializer, but the initializer value
+        # is not an array, return False. E.g.: This can happens when initializing
+        # a global integer constant.
+        if not isinstance(init, pyqir.ArrayConstant):
+            return False
+
+        # ``[N x i8]`` globals are excluded on purpose: in Adaptive Profile QIR
+        # produced by the QDK frontends they exist solely as null-terminated
+        # output labels passed to ``__quantum__rt__*_record_output`` runtime
+        # calls. Those labels are read directly from the GEP constexpr argument
+        # via ``pyqir.extract_byte_string`` in ``_extract_label`` and never need
+        # an address in ``_global_to_address``. Encoding them into
+        # ``constant_data`` would shift the addresses of every subsequent
+        # global without any consumer benefiting from the bytes being
+        # indexable. If a future frontend ever emits indexable byte arrays,
+        # this predicate (and the matching diagnostic in ``_resolve_operand``)
+        # is the place to lift the restriction.
+        if AdaptiveProfilePass._is_output_recording_label(init):
+            return False
+
+        return True
+
+    def _scan_global_arrays(self, mod: pyqir.Module) -> None:
+        """Scan module for global constant arrays and populate constant_data.
+
+        Uses ``Module.global_variables`` to iterate globals, reads each
+        initializer via ``GlobalVariable.initializer``, and encodes element
+        values into ``constant_data``.
+
+        ``[N x i8]`` byte-string globals are skipped here. See
+        ``_is_global_array`` for the rationale. They are consumed by
+        ``_extract_label`` directly from the call site.
+
+        This is done in two passes so that pointer-valued arrays (e.g.
+        ``[N x ptr]`` where elements reference other globals) work
+        regardless of the declaration order of the globals in the module.
+        """
+        # Pass 1: assign addresses to every supported global array without
+        # encoding elements.  This ensures that forward references between
+        # globals (e.g. @matrix declared before @row0/@row1) are resolved
+        # correctly in Pass 2.
+        supported_globals: list[tuple[pyqir.GlobalVariable, pyqir.ArrayConstant]] = []
+        base = len(self.constant_data)
+        for gv in mod.global_variables:
+            if not self._is_global_array(gv):
+                continue
+            init = cast(pyqir.ArrayConstant, gv.initializer)
+            self._global_to_address[gv.name] = base
+            base += self._size_in_words(init.type)
+            supported_globals.append((gv, init))
+
+        # Pass 2: encode elements now that all addresses are known.
+        for gv, init in supported_globals:
+            self._encode_array_elements(init, gv.name)
+
+        self._alloca_ptr = len(self.constant_data)
+        self._memory_size = self._alloca_ptr
+
+    def _encode_array_elements(self, arr: pyqir.ArrayConstant, gv_name: str) -> None:
+        """Recursively encode ArrayConstant elements into constant_data.
+
+        Nested ``ArrayConstant`` elements (e.g. ``[2 x [2 x i32]]``) are
+        flattened in row-major order.
+        """
+        mask = (1 << self._int_bits) - 1
+        for elem in arr.elements:
+            if isinstance(elem, pyqir.IntConstant):
+                self.constant_data.append(elem.value & mask)
+            elif isinstance(elem, pyqir.FloatConstant):
+                self.constant_data.append(
+                    encode_float_as_bits(elem.value, self._bytecode_kind)
+                )
+            elif isinstance(elem, pyqir.ArrayConstant):
+                # Nested array — flatten recursively.
+                self._encode_array_elements(elem, gv_name)
+            elif isinstance(elem, pyqir.GlobalVariable):
+                # Pointer to another global (e.g. @row0 in [N x ptr]).
+                if elem.name in self._global_to_address:
+                    self.constant_data.append(self._global_to_address[elem.name] & mask)
+                else:
+                    raise ValueError(
+                        f"Global @{gv_name} references @{elem.name} "
+                        f"which has not been scanned yet"
+                    )
+            elif isinstance(elem, pyqir.Constant):
+                # Constant expression (e.g. inttoptr (i64 N to ptr)).
+                pid = pyqir.ptr_id(elem)
+                if pid is not None:
+                    self.constant_data.append(pid & mask)
+                else:
+                    raise ValueError(
+                        f"Cannot resolve element in global @{gv_name}: "
+                        f"{type(elem).__name__}"
+                    )
+            else:
+                raise ValueError(
+                    f"Unsupported element type in global @{gv_name}: "
+                    f"{type(elem).__name__}"
+                )
 
     # ------------------------------------------------------------------
     # Function walking (Pass 2)
@@ -652,6 +799,14 @@ class AdaptiveProfilePass:
                 self._emit_unary(OP_SITOFP | FLAG_FLOAT, instr)
             case pyqir.Opcode.INT_TO_PTR:
                 self._emit_inttoptr(instr)
+            case pyqir.Opcode.ALLOCA:
+                self._emit_alloca(instr)
+            case pyqir.Opcode.LOAD:
+                self._emit_load(instr)
+            case pyqir.Opcode.STORE:
+                self._emit_store(instr)
+            case pyqir.Opcode.GET_ELEMENT_PTR:
+                self._emit_gep(instr)
             case _:
                 raise ValueError(f"Unsupported instruction: {instr.opcode}")
 
@@ -1005,6 +1160,198 @@ class AdaptiveProfilePass:
         # Register the inttoptr result as pointing to the same register
         dst = self._alloc_reg(instr, REG_TYPE_PTR)
         self._emit(OP_MOV, dst=dst, src0=src_reg)
+
+    # ------------------------------------------------------------------
+    # Memory operation emitters
+    # ------------------------------------------------------------------
+
+    def _emit_alloca(self, instr: pyqir.Instruction) -> None:
+        """Emit OP_ALLOCA — stack memory allocation."""
+        dst = self._alloc_reg(instr, REG_TYPE_PTR)
+        alloc_type = instr.type
+
+        # Determine the number of words to allocate
+        if isinstance(alloc_type, pyqir.PointerType):
+            pointee = alloc_type.pointee
+            if isinstance(pointee, pyqir.ArrayType):
+                num_words = pointee.count
+            else:
+                # Reject alloca of aggregate data (arrays and structs).
+                text = str(instr).lstrip()
+                _, _, after_alloca = text.partition("alloca ")
+                if after_alloca.startswith("[") or after_alloca.startswith("{"):
+                    raise NotImplementedError(
+                        "Aggregate stack allocations (alloca of an array "
+                        "or struct type) are not supported by the adaptive "
+                        "GPU bytecode pass under LLVM opaque pointers; "
+                        f"got: {text!r}"
+                    )
+                num_words = 1
+        else:
+            num_words = 1
+
+        addr = self._alloca_ptr
+        self._alloca_ptr += num_words
+        self._memory_size = max(self._memory_size, self._alloca_ptr)
+
+        self._emit(
+            OP_ALLOCA,
+            dst=dst,
+            src0=IntOperand(num_words, self._int_bits),
+            src1=IntOperand(addr, self._int_bits),
+        )
+
+    def _emit_load(self, instr: pyqir.Instruction) -> None:
+        """Emit OP_LOAD — load value from memory address."""
+        loaded_type = instr.type
+        type_tag = self._type_tag(loaded_type)
+
+        is_float = type_tag in (REG_TYPE_F32, REG_TYPE_F64)
+
+        dst = self._alloc_reg(instr, type_tag)
+        ptr = self._resolve_operand(instr.operands[0])
+
+        opcode = OP_LOAD
+        if is_float:
+            opcode |= FLAG_FLOAT
+
+        self._emit(opcode, dst=dst, src0=ptr)
+
+    def _emit_store(self, instr: pyqir.Instruction) -> None:
+        """Emit OP_STORE — store value to memory address."""
+        value = self._resolve_operand(instr.operands[0])
+        ptr = self._resolve_operand(instr.operands[1])
+        self._emit(OP_STORE, src0=value, src1=ptr)
+
+    def _size_in_words(self, ty: pyqir.Type) -> int:
+        """Number of storage words occupied by `ty`.
+
+        Scalars (int, float) and pointers occupy one word. Arrays flatten
+        row-major to ``count * size(element)``. Structs and function
+        types are not produced by the QDK frontends.
+        """
+        # Base case
+        # Pyqir doesn't have a FloatType, so, we instead check that the type
+        # is not an array, struct, or function.
+        if not isinstance(ty, (pyqir.ArrayType, pyqir.StructType, pyqir.Function)):
+            # Return 1 if the type is an int, float, or pointer
+            return 1
+
+        # Recursive case
+        if isinstance(ty, pyqir.ArrayType):
+            return ty.count * self._size_in_words(ty.element)
+
+        raise TypeError(f"Expected a scalar or pointer type, found {ty}")
+
+    def _gep_source_type(self, ptr: pyqir.Value) -> pyqir.Type:
+        """Recover the source-element-type `T` of a *multi-index* GEP.
+
+        For a GEP `getelementptr T, ptr %p, i_0, i_1, ..., i_n` with
+        `n >= 1`, LLVM defines the address as
+
+            %p + i_0 * sizeof(T) + i_1 * sizeof(T_1) + ...
+
+        where `T_k` is the type reached after the first `k` indices. To
+        emit the right strides we need `T`. The single-index case is
+        *not* handled here — see `_emit_gep` for why.
+
+        pyqir limitations worked around in this method:
+
+        * `pyqir.Instruction` does not expose a GEP's source-element-type
+          (the leading type token in `getelementptr T, ptr %p, ...`). The
+          only instruction attributes available are `opcode`, `operands`,
+          `type`, `name`. There is no way to read `T` directly.
+        * Under LLVM 15+ opaque pointers, `PointerType.pointee` returns
+          an opaque `Type`, so `T` cannot be recovered from the pointer
+          operand's declared type either.
+        """
+        if isinstance(ptr, pyqir.GlobalVariable) and ptr.initializer is not None:
+            return ptr.initializer.type
+        # SSA pointer base — safe only under the QDK convention that the
+        # outermost index is the constant `0`. See docstring.
+        return ptr.type
+
+    def _emit_gep(self, instr: pyqir.Instruction) -> None:
+        """Lower `getelementptr` to a chain of OP_GEPs.
+
+        LLVM GEP address formula for `getelementptr T, ptr %p, i_0, ..., i_n`:
+
+            addr = %p + sum_k(i_k * sizeof(T_k))
+
+        where `T_0 = T` and `T_{k+1} = T_k.element` when `T_k` is an
+        array type. Each iteration of the loop below emits one OP_GEP
+        with the stride for that level.
+
+        Single-index vs. multi-index handling
+        -------------------------------------
+
+        Because pyqir does not expose the source-element-type
+        `T` of a GEP (see `_gep_source_type`), the two forms are
+        handled differently:
+
+        * **Single-index** `getelementptr T, ptr %p, i_0`: the type
+          `T` may be unrelated to anything we can observe on `%p`. For
+          example, `getelementptr ptr, ptr @array_of_ptrs, i64 j`
+          declares `T = ptr` even though `@array_of_ptrs.initializer`
+          has type `[N x ptr]`. Under the QDK codegen convention,
+          single-index GEPs always step over scalar/pointer-sized
+          slots, so we hardcode stride = 1. *This is a QDK convention,
+          not LLVM-general semantics.*
+
+        * **Multi-index** `getelementptr T, ptr %p, i_0, ..., i_n`
+          (n >= 1): the QDK codegen convention is that `T` matches
+          the pointer base's aggregate (see `_gep_source_type`), so
+          we can compute every stride from the recovered `T`.
+        """
+        ptr = instr.operands[0]
+        indices = instr.operands[1:]
+        base_addr = self._resolve_operand(ptr)
+        end_dst = self._alloc_reg(instr, REG_TYPE_PTR)
+
+        if not indices:
+            # `getelementptr T, ptr %p` with no indices is just %p; emit
+            # a MOV so `end_dst` is still defined for downstream uses.
+            self._emit(OP_MOV, dst=end_dst, src0=base_addr)
+            return
+
+        if len(indices) == 1:
+            # Single-index GEP. The textual stride sizeof(T) is hidden
+            # by pyqir. Under the QDK convention, single-index GEPs
+            # step over scalar/pointer-sized slots, so stride = 1.
+            self._emit(
+                OP_GEP,
+                dst=end_dst,
+                src0=base_addr,
+                src1=self._resolve_operand(indices[0]),
+                aux0=IntOperand(1, self._int_bits),
+            )
+            return
+
+        # Multi-index GEP. Recover T (LLVM-correct under the QDK
+        # codegen conventions documented in `_gep_source_type`) and
+        # walk it level by level.
+        ty = self._gep_source_type(ptr)
+        cur_addr = base_addr
+        last = len(indices) - 1
+        for k, idx_val in enumerate(indices):
+            stride = IntOperand(self._size_in_words(ty), self._int_bits)
+            out = end_dst if k == last else self._alloc_reg(None, REG_TYPE_PTR)
+            self._emit(
+                OP_GEP,
+                dst=out,
+                src0=cur_addr,
+                src1=self._resolve_operand(idx_val),
+                aux0=stride,
+            )
+            cur_addr = out
+            # Descend into the aggregate for the next index level. If
+            # `ty` is not an array (the SSA-base opaque fallback
+            # documented in `_gep_source_type`), leave it alone: the
+            # subsequent strides stay at 1, which is correct under the
+            # QDK convention that the outermost index is `0` and the
+            # innermost levels reach scalar leaves.
+            if isinstance(ty, pyqir.ArrayType):
+                ty = ty.element
 
     # ------------------------------------------------------------------
     # IR-defined function call/return

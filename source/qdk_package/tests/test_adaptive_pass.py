@@ -15,6 +15,15 @@ import pytest
 from qdk._adaptive_pass import AdaptiveProfilePass, AdaptiveProgram, Bytecode
 from qdk._adaptive_bytecode import *
 
+_HAS_GLOBAL_VARIABLES = hasattr(
+    pyqir.Module(pyqir.Context(), "probe"), "global_variables"
+)
+_skip_no_globals = pytest.mark.skipif(
+    not _HAS_GLOBAL_VARIABLES,
+    reason="pyqir Module lacks global_variables support",
+)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -909,6 +918,8 @@ def test_output_schema_keys():
         "call_args",
         "labels",
         "register_types",
+        "constant_data",
+        "memory_size",
     }
     assert set(r.as_dict().keys()) == expected_keys
 
@@ -931,44 +942,9 @@ def test_quantum_op_tuple_length():
         ), f"Quantum op {i} has {len(astuple(qop))} fields, expected 5"
 
 
-ADAPTIVE_RIFLA_QIR = r"""
-%Result = type opaque
-%Qubit = type opaque
-
-@0 = internal constant [4 x i8] c"0_t\00"
-
-define i64 @ENTRYPOINT__main() #0 {
-block_0:
-  call void @__quantum__rt__initialize(i8* null)
-  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
-  ret i64 0
-}
-
-declare void @__quantum__rt__initialize(i8*)
-declare void @__quantum__rt__tuple_record_output(i64, i8*)
-
-attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
-attributes #1 = { "irreversible" }
-
-; module flags
-
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
-
-!0 = !{i32 1, !"qir_major_version", i32 1}
-!1 = !{i32 7, !"qir_minor_version", i32 0}
-!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-!3 = !{i32 1, !"dynamic_result_management", i1 false}
-!4 = !{i32 5, !"int_computations", !{!"i64"}}
-!5 = !{i32 5, !"float_computations", !{!"double"}}
-!6 = !{i32 7, !"backwards_branching", i2 3}
-!7 = !{i32 1, !"arrays", i1 true}
-"""
-
-
-def test_arrays_capability_is_rejected():
-    """Only Adaptive_RIFL is supported at the moment, no arrays."""
-    with pytest.raises(ValueError, match="QIR arrays are not currently supported"):
-        _run_pass(ADAPTIVE_RIFLA_QIR)
+# ---------------------------------------------------------------------------
+# Test: Barrier instruction
+# ---------------------------------------------------------------------------
 
 
 BARRIER_QIR = r"""
@@ -1006,3 +982,560 @@ attributes #1 = { "irreversible" }
 
 def test_pass_on_qir_with_barrier_instruction_succeeds():
     _run_pass(BARRIER_QIR)
+
+
+# ---------------------------------------------------------------------------
+# Test: Arrays
+# ---------------------------------------------------------------------------
+
+
+ADAPTIVE_RIFLA_QIR = r"""
+%Result = type opaque
+%Qubit = type opaque
+
+@0 = internal constant [4 x i8] c"0_t\00"
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(i8* null)
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+attributes #1 = { "irreversible" }
+
+; module flags
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !{!"i64"}}
+!5 = !{i32 5, !"float_computations", !{!"double"}}
+!6 = !{i32 7, !"backwards_branching", i2 3}
+!7 = !{i32 1, !"arrays", i1 true}
+"""
+
+
+def test_arrays_flag_accepted():
+    """Modules with 'arrays' flag are accepted (no longer raise ValueError)."""
+    r = _run_pass(ADAPTIVE_RIFLA_QIR)
+    assert r.num_qubits == 0
+    assert r.num_results == 0
+
+
+# ---------------------------------------------------------------------------
+# Test: Memory operations (alloca, load, store, GEP)
+# ---------------------------------------------------------------------------
+
+ALLOCA_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr = alloca i64, align 8
+  store i64 42, i64* %ptr, align 8
+  %val = load i64, i64* %ptr, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_alloca_instruction_emitted():
+    """ALLOCA instruction emits OP_ALLOCA in the instruction stream."""
+    r = _run_pass(ALLOCA_QIR)
+    primaries = [_primary(inst.opcode) for inst in r.instructions]
+    assert OP_ALLOCA in primaries, "Missing OP_ALLOCA"
+
+
+def test_load_instruction_emitted():
+    """LOAD instruction emits OP_LOAD in the instruction stream."""
+    r = _run_pass(ALLOCA_QIR)
+    primaries = [_primary(inst.opcode) for inst in r.instructions]
+    assert OP_LOAD in primaries, "Missing OP_LOAD"
+
+
+def test_store_instruction_emitted():
+    """STORE instruction emits OP_STORE in the instruction stream."""
+    r = _run_pass(ALLOCA_QIR)
+    primaries = [_primary(inst.opcode) for inst in r.instructions]
+    assert OP_STORE in primaries, "Missing OP_STORE"
+
+
+# ---------------------------------------------------------------------------
+# Test: Static constant arrays (constant_data population)
+# ---------------------------------------------------------------------------
+
+STATIC_ARRAY_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@array0 = internal constant [3 x i64] [i64 10, i64 20, i64 30]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr = getelementptr inbounds [3 x i64], [3 x i64]* @array0, i64 0, i64 1
+  %val = load i64, i64* %ptr, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+
+!llvm.module.flags = !{!0}
+!0 = !{i32 1, !"arrays", i1 true}
+"""
+
+
+def test_static_array_constant_data():
+    """Global constant array populates constant_data with correct values."""
+    r = _run_pass(STATIC_ARRAY_QIR)
+    assert len(r.constant_data) == 3
+    assert r.constant_data == [10, 20, 30]
+
+
+def test_gep_instruction_emitted():
+    """GEP instruction emits OP_GEP in the instruction stream."""
+    r = _run_pass(STATIC_ARRAY_QIR)
+    primaries = [_primary(inst.opcode) for inst in r.instructions]
+    assert OP_GEP in primaries, "Missing OP_GEP"
+
+
+# ---------------------------------------------------------------------------
+# Test: Aggregate alloca rejected
+# ---------------------------------------------------------------------------
+
+ARRAY_ALLOCA_QIR = """\
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %big = alloca [300 x i64]
+  ret void
+}
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+
+!llvm.module.flags = !{!0}
+!0 = !{i32 1, !"arrays", i1 true}
+"""
+
+STRUCT_ALLOCA_QIR = """\
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %s = alloca { i64, i64 }
+  ret void
+}
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_array_alloca_rejected():
+    """Alloca of an array type is rejected to prevent silent undersizing."""
+    with pytest.raises(NotImplementedError, match="Aggregate stack allocations"):
+        _run_pass(ARRAY_ALLOCA_QIR)
+
+
+def test_struct_alloca_rejected():
+    """Alloca of a struct type is rejected to prevent silent undersizing."""
+    with pytest.raises(NotImplementedError, match="Aggregate stack allocations"):
+        _run_pass(STRUCT_ALLOCA_QIR)
+
+
+# ---------------------------------------------------------------------------
+# Test: Multiple constant arrays (offset correctness)
+# ---------------------------------------------------------------------------
+
+MULTI_ARRAY_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@a = internal constant [2 x i64] [i64 1, i64 2]
+@b = internal constant [3 x i64] [i64 3, i64 4, i64 5]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr_a = getelementptr inbounds [2 x i64], [2 x i64]* @a, i64 0, i64 0
+  %ptr_b = getelementptr inbounds [3 x i64], [3 x i64]* @b, i64 0, i64 0
+  %va = load i64, i64* %ptr_a, align 8
+  %vb = load i64, i64* %ptr_b, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+
+!llvm.module.flags = !{!0}
+!0 = !{i32 1, !"arrays", i1 true}
+"""
+
+
+def test_multiple_constant_arrays():
+    """Multiple global arrays produce concatenated constant_data with correct offsets."""
+    r = _run_pass(MULTI_ARRAY_QIR)
+    assert len(r.constant_data) == 5
+    assert r.constant_data == [1, 2, 3, 4, 5]
+
+
+ARRAY_OF_POINTERS_QIR = r"""
+@0 = internal constant [4 x i8] c"0_a\00"
+@1 = internal constant [6 x i8] c"1_a0r\00"
+@2 = internal constant [6 x i8] c"2_a1r\00"
+@array0 = internal constant [2 x ptr] [ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr)]
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  %var_1 = alloca i64
+  call void @__quantum__rt__initialize(ptr null)
+  store i64 0, ptr %var_1
+  br label %block_1
+block_1:
+  %var_7 = load i64, ptr %var_1
+  %var_2 = icmp slt i64 %var_7, 2
+  br i1 %var_2, label %block_2, label %block_3
+block_2:
+  %var_8 = load i64, ptr %var_1
+  %var_3 = getelementptr ptr, ptr @array0, i64 %var_8
+  %var_9 = load ptr, ptr %var_3
+  call void @__quantum__qis__reset__body(ptr %var_9)
+  %var_5 = add i64 %var_8, 1
+  store i64 %var_5, ptr %var_1
+  br label %block_1
+block_3:
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
+  call void @__quantum__qis__h__body(ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+  call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+  call void @__quantum__rt__array_record_output(i64 2, ptr @0)
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @1)
+  call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @2)
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(ptr)
+declare void @__quantum__qis__reset__body(ptr) #1
+declare void @__quantum__qis__h__body(ptr)
+declare void @__quantum__qis__m__body(ptr, ptr) #1
+declare void @__quantum__rt__array_record_output(i64, ptr)
+declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+attributes #1 = { "irreversible" }
+
+; module flags
+
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+!0 = !{i32 1, !"qir_major_version", i32 2}
+!1 = !{i32 7, !"qir_minor_version", i32 1}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+!4 = !{i32 5, !"int_computations", !{!"i64"}}
+!5 = !{i32 5, !"float_computations", !{!"double"}}
+!6 = !{i32 7, !"backwards_branching", i2 3}
+!7 = !{i32 1, !"arrays", i1 true}
+"""
+
+
+def test_array_of_pointers():
+    """Pointer array ([N x ptr]) elements are resolved to constant_data."""
+    r = _run_pass(ARRAY_OF_POINTERS_QIR)
+    # @array0 = [2 x ptr] [ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr)]
+    assert r.constant_data == [0, 1]
+
+
+# ---------------------------------------------------------------------------
+# Test: i32 constant array
+# ---------------------------------------------------------------------------
+
+I32_ARRAY_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@ints = internal constant [3 x i32] [i32 10, i32 20, i32 30]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr = getelementptr inbounds [3 x i32], [3 x i32]* @ints, i64 0, i64 0
+  %val = load i32, i32* %ptr, align 4
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_i32_array_constant_data():
+    """i32 constant array populates constant_data with correct values."""
+    r = _run_pass(I32_ARRAY_QIR)
+    assert r.constant_data == [10, 20, 30]
+
+
+# ---------------------------------------------------------------------------
+# Test: double (f64) constant array
+# ---------------------------------------------------------------------------
+
+DOUBLE_ARRAY_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@angles = internal constant [2 x double] [double 1.5, double 2.75]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr = getelementptr inbounds [2 x double], [2 x double]* @angles, i64 0, i64 0
+  %val = load double, double* %ptr, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_double_array_constant_data():
+    """double constant array stores IEEE-754 f32 bit patterns in 32-bit mode."""
+    r = _run_pass(DOUBLE_ARRAY_QIR)
+    assert len(r.constant_data) == 2
+    # 1.5 as f32 bits = 0x3fc00000 = 1069547520
+    # 2.75 as f32 bits = 0x40300000 = 1076887552
+    assert r.constant_data == [1069547520, 1076887552]
+
+
+# ---------------------------------------------------------------------------
+# Test: nested array (2D matrix) [2 x [3 x i64]]
+# ---------------------------------------------------------------------------
+
+NESTED_ARRAY_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@matrix = internal constant [2 x [3 x i64]] [
+  [3 x i64] [i64 1, i64 2, i64 3],
+  [3 x i64] [i64 4, i64 5, i64 6]
+]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr = getelementptr inbounds [2 x [3 x i64]], [2 x [3 x i64]]* @matrix, i64 0, i64 0, i64 0
+  %val = load i64, i64* %ptr, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_nested_array_constant_data():
+    """Nested array [2 x [3 x i64]] flattens to row-major constant_data."""
+    r = _run_pass(NESTED_ARRAY_QIR)
+    assert r.constant_data == [1, 2, 3, 4, 5, 6]
+
+
+# ---------------------------------------------------------------------------
+# Test: array of pointers to row arrays (GlobalVariable references)
+# ---------------------------------------------------------------------------
+
+PTR_TO_ROWS_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@row0 = internal constant [3 x i64] [i64 10, i64 20, i64 30]
+@row1 = internal constant [3 x i64] [i64 40, i64 50, i64 60]
+@matrix = internal constant [2 x ptr] [ptr @row0, ptr @row1]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %row_ptr = getelementptr inbounds [2 x ptr], ptr @matrix, i64 0, i64 0
+  %row = load ptr, ptr %row_ptr, align 8
+  %elem_ptr = getelementptr inbounds [3 x i64], ptr %row, i64 0, i64 1
+  %val = load i64, ptr %elem_ptr, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_ptr_to_rows_constant_data():
+    """Array of pointers to row arrays encodes rows then pointer table."""
+    r = _run_pass(PTR_TO_ROWS_QIR)
+    # @row0 at offset 0: [10, 20, 30]
+    # @row1 at offset 3: [40, 50, 60]
+    # @matrix at offset 6: [0, 3] (addresses of @row0 and @row1)
+    assert r.constant_data == [10, 20, 30, 40, 50, 60, 0, 3]
+
+
+def test_ptr_to_rows_memory_size():
+    """Memory size accounts for all constant data from pointer-to-row arrays."""
+    r = _run_pass(PTR_TO_ROWS_QIR)
+    assert r.memory_size == 8  # 3 + 3 + 2
+
+
+# ---------------------------------------------------------------------------
+# Test: byte-string globals are skipped (used as output labels)
+# ---------------------------------------------------------------------------
+
+BYTE_STRING_GLOBALS_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@label = internal constant [4 x i8] c"0_r\\00"
+@data = internal constant [2 x i64] [i64 42, i64 99]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr = getelementptr inbounds [2 x i64], [2 x i64]* @data, i64 0, i64 0
+  %val = load i64, i64* %ptr, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_byte_string_globals_skipped():
+    """[N x i8] byte-string globals are skipped; only data arrays contribute."""
+    r = _run_pass(BYTE_STRING_GLOBALS_QIR)
+    assert r.constant_data == [42, 99]
+
+
+# ---------------------------------------------------------------------------
+# Test: indexing into a byte-string global is rejected with a clear diagnostic
+# ---------------------------------------------------------------------------
+
+BYTE_STRING_INDEX_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@bytes = internal constant [4 x i8] c"abcd"
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr = getelementptr inbounds [4 x i8], [4 x i8]* @bytes, i64 0, i64 0
+  %val = load i8, i8* %ptr, align 1
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_byte_string_global_used_as_data_raises():
+    """Using a [N x i8] global as indexable data fails with a targeted error.
+
+    Byte-string globals are reserved for output labels (handled by
+    ``_extract_label``); they are not encoded into ``constant_data`` and
+    therefore have no address. If a frontend ever emits a GEP/load against
+    one, the pass should fail with a message that names the constraint so
+    the limitation is discoverable.
+    """
+    with pytest.raises(ValueError) as excinfo:
+        _run_pass(BYTE_STRING_INDEX_QIR)
+    msg = str(excinfo.value)
+    assert "@bytes" in msg
+    assert "byte-string" in msg.lower()
+    assert "record_output" in msg
+
+
+# ---------------------------------------------------------------------------
+# Test: mutable global array still works
+# ---------------------------------------------------------------------------
+
+MUTABLE_GLOBAL_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@buf = global [3 x i64] [i64 100, i64 200, i64 300]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %ptr = getelementptr inbounds [3 x i64], [3 x i64]* @buf, i64 0, i64 0
+  %val = load i64, i64* %ptr, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_mutable_global_array():
+    """Mutable (non-constant) global arrays are still encoded in constant_data."""
+    r = _run_pass(MUTABLE_GLOBAL_QIR)
+    assert r.constant_data == [100, 200, 300]
+
+
+# ---------------------------------------------------------------------------
+# Test: forward global references (declaration order independence)
+# ---------------------------------------------------------------------------
+
+FORWARD_GLOBAL_REF_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+@matrix = internal constant [2 x ptr] [ptr @row0, ptr @row1]
+@row0 = internal constant [3 x i64] [i64 10, i64 20, i64 30]
+@row1 = internal constant [3 x i64] [i64 40, i64 50, i64 60]
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+  %row_ptr = getelementptr inbounds [2 x ptr], ptr @matrix, i64 0, i64 0
+  %row = load ptr, ptr %row_ptr, align 8
+  %elem_ptr = getelementptr inbounds [3 x i64], ptr %row, i64 0, i64 1
+  %val = load i64, ptr %elem_ptr, align 8
+  call void @__quantum__rt__tuple_record_output(i64 0, i8* null)
+  ret void
+}
+
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+
+def test_forward_global_ref_constant_data():
+    """Global arrays referencing globals declared later are resolved correctly.
+
+    @matrix is declared before @row0/@row1. The two-pass scan assigns
+    addresses to all globals first, so forward references resolve.
+    """
+    r = _run_pass(FORWARD_GLOBAL_REF_QIR)
+    # @matrix at offset 0: [2, 5] (addresses of @row0 and @row1)
+    # @row0 at offset 2: [10, 20, 30]
+    # @row1 at offset 5: [40, 50, 60]
+    assert r.constant_data == [2, 5, 10, 20, 30, 40, 50, 60]

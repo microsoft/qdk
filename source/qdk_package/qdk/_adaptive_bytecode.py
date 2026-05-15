@@ -89,6 +89,12 @@ OP_SELECT = 0x51
 OP_MOV = 0x52
 OP_CONST = 0x53
 
+# ── Memory Operations ────────────────────────────────────────────────────────
+OP_ALLOCA = 0x60
+OP_LOAD = 0x61
+OP_STORE = 0x62
+OP_GEP = 0x63  # https://llvm.org/docs/LangRef.html#getelementptr-instruction
+
 # ── ICmp condition codes (sub-opcode, placed in bits[15:8] via << 8) ─────────
 # Reference: https://llvm.org/docs/LangRef.html#icmp-instruction
 ICMP_EQ = 0
