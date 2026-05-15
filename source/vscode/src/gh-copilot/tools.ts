@@ -250,7 +250,8 @@ async function invokeTool<T>(
       //
       // If you need to include the error details for a specific error, catch
       // it and rethrow it as a CopilotToolError the relevant context.
-      resultText = "An error occurred.";
+      log.error(`Tool ${toolName} failed:`, e);
+      resultText = "An unexpected error occurred.";
     }
   }
 

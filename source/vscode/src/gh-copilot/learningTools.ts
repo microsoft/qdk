@@ -84,7 +84,7 @@ export class LearningTools {
    * (after the user has already approved via {@link confirmInit}).
    */
   private async ensureInitialized(): Promise<void> {
-    const ok = await this.service.ensureInitialized({ createIfMissing: true });
+    const ok = await this.service.tryInitialize({ createIfMissing: true });
     if (!ok) {
       throw new CopilotToolError(
         "No workspace folder is open. Open a folder first, then try again.",
@@ -169,8 +169,10 @@ export class LearningTools {
     state: SerializedLearningState;
   }> {
     await this.ensureInitialized();
-    const r = this.service.getHintContext("chat");
-    return { result: r.result, state: this.serializeState() };
+    return this.invoke(() => {
+      const r = this.service.getHintContext("chat");
+      return { result: r.result, state: this.serializeState() };
+    });
   }
 
   // ─── Navigation & actions (open the panel) ───
@@ -216,9 +218,11 @@ export class LearningTools {
     activityId?: string;
   }): Promise<{ state: SerializedLearningState }> {
     await this.ensureInitialized();
-    this.service.goTo(input, "chat");
-    await this.showActivity();
-    return { state: this.serializeState() };
+    return this.invoke(async () => {
+      this.service.goTo(input, "chat");
+      await this.showActivity();
+      return { state: this.serializeState() };
+    });
   }
 
   /**
@@ -228,9 +232,11 @@ export class LearningTools {
     shots?: number;
   }): Promise<{ result: RunResult; state: SerializedLearningState }> {
     await this.ensureInitialized();
-    const r = await this.service.run(input.shots ?? 1, "chat");
-    await this.showActivity();
-    return { result: r.result, state: this.serializeState() };
+    return this.invoke(async () => {
+      const r = await this.service.run(input.shots ?? 1, "chat");
+      await this.showActivity();
+      return { result: r.result, state: this.serializeState() };
+    });
   }
 
   /**
@@ -241,9 +247,11 @@ export class LearningTools {
     state: SerializedLearningState;
   }> {
     await this.ensureInitialized();
-    const r = await this.service.checkSolution("chat");
-    await this.showActivity();
-    return { result: r.result, state: this.serializeState() };
+    return this.invoke(async () => {
+      const r = await this.service.checkSolution("chat");
+      await this.showActivity();
+      return { result: r.result, state: this.serializeState() };
+    });
   }
 
   /**
@@ -252,9 +260,11 @@ export class LearningTools {
    */
   async resetExercise(): Promise<{ state: SerializedLearningState }> {
     await this.ensureInitialized();
-    await this.service.resetExercise("chat");
-    await this.showActivity();
-    return { state: this.serializeState() };
+    return this.invoke(async () => {
+      await this.service.resetExercise("chat");
+      await this.showActivity();
+      return { state: this.serializeState() };
+    });
   }
 
   /**
@@ -265,12 +275,33 @@ export class LearningTools {
     state: SerializedLearningState;
   }> {
     await this.ensureInitialized();
-    const result = this.service.getFullSolution("chat");
-    await this.showActivity();
-    return { result, state: this.serializeState() };
+    return this.invoke(async () => {
+      const result = this.service.getFullSolution("chat");
+      await this.showActivity();
+      return { result, state: this.serializeState() };
+    });
   }
 
   // ─── Helpers ───
+
+  /**
+   * Wrap a service call so that plain `Error`s thrown for expected
+   * conditions (wrong activity type, unknown unit ID, etc.) are
+   * surfaced to the model as {@link CopilotToolError}.
+   */
+  private async invoke<T>(fn: () => T | Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof CopilotToolError) {
+        throw e;
+      }
+      if (e instanceof Error) {
+        throw new CopilotToolError(e.message);
+      }
+      throw e;
+    }
+  }
 
   private async showActivity(): Promise<void> {
     await vscode.commands.executeCommand("qsharp-vscode.learningShowActivity");
