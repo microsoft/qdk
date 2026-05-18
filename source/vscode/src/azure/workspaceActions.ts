@@ -645,6 +645,7 @@ export async function submitJob(
   target: string,
   jobName: string,
   numberOfShots: number,
+  additionalJobParams?: Record<string, unknown>,
 ): Promise<JobContext> {
   const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
   const token = await getTokenForWorkspace(workspace);
@@ -677,6 +678,7 @@ export async function submitJob(
     providerId,
     target,
     numberOfShots,
+    additionalJobParams,
   );
 
   vscode.window.showInformationMessage(`Job ${jobName} submitted`);
@@ -725,6 +727,7 @@ async function putJobData(
   providerId: string,
   target: string,
   numberOfShots: number,
+  additionalJobParams?: Record<string, unknown>,
 ) {
   const putJobUri = quantumUris.jobs(jobId);
 
@@ -739,6 +742,7 @@ async function putJobData(
     inputDataFormat: "qir.v1",
     outputDataFormat: "microsoft.quantum-results.v2",
     inputParams: {
+      ...additionalJobParams,
       entryPoint: "ENTRYPOINT__main",
       arguments: [],
       shots: numberOfShots,

@@ -205,6 +205,18 @@
             "hidden"
           ],
           "description": "The root URL of the Quantum OS web portal, used when generating deep links to V2 workspaces and jobs."
+        },
+        "Q#.azure.targetJobParams": {
+          "type": "object",
+          "default": {},
+          "tags": [
+            "hidden"
+          ],
+          "markdownDescription": "Additional job parameters to include in `inputParams` when submitting to a specific target. Keys are target IDs (e.g. `ionq.simulator`), values are objects merged into the job's `inputParams`.",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true
+          }
         }
       }
     },

@@ -28,10 +28,6 @@ from ._native import (  # type: ignore
     Closure,
     Pauli,
     Result,
-    UdtValue,
-    TypeIR,
-    TypeKind,
-    PrimitiveKind,
     CircuitConfig,
     CircuitGenerationMethod,
     NoiseConfig,
@@ -43,10 +39,8 @@ from typing import (
     Dict,
     List,
     Optional,
-    Set,
     Tuple,
     Union,
-    Iterable,
     Literal,
     cast,
 )
@@ -55,6 +49,7 @@ from .estimator._estimator import (
     EstimatorParams,
     LogicalCounts,
 )
+from ._context import Context, ipython_helper
 from ._types import (
     PauliNoise,
     DepolarizingNoise,
@@ -69,188 +64,34 @@ import json
 import sys
 import types
 from time import monotonic
-from dataclasses import make_dataclass
 
-# ---------------------------------------------------------------------------
-# Value conversion helpers
-# ---------------------------------------------------------------------------
+# Global default context instance used by methods in this module.
+_default_context: Optional[Context] = None
 
 
-def lower_python_obj(obj: object, visited: Optional[Set[object]] = None) -> Any:
-    if visited is None:
-        visited = set()
-
-    if id(obj) in visited:
-        raise QSharpError("Cannot send circular objects from Python to Q#.")
-
-    visited = visited.copy().add(id(obj))
-
-    # Base case: Primitive types
-    if isinstance(obj, (bool, int, float, complex, str, Pauli, Result)):
-        return obj
-
-    # Recursive case: Tuple
-    if isinstance(obj, tuple):
-        return tuple(lower_python_obj(elt, visited) for elt in obj)
-
-    # Recursive case: Dict
-    if isinstance(obj, dict):
-        return {name: lower_python_obj(val, visited) for name, val in obj.items()}
-
-    # Base case: Callable or Closure
-    if hasattr(obj, "__global_callable"):
-        return obj.__getattribute__("__global_callable")
-    if isinstance(obj, (GlobalCallable, Closure)):
-        return obj
-
-    # Recursive case: Class with slots
-    if hasattr(obj, "__slots__"):
-        fields = {}
-        for name in getattr(obj, "__slots__"):
-            if name == "__dict__":
-                for name, val in obj.__dict__.items():
-                    fields[name] = lower_python_obj(val, visited)
-            else:
-                val = getattr(obj, name)
-                fields[name] = lower_python_obj(val, visited)
-        return fields
-
-    # Recursive case: Class
-    if hasattr(obj, "__dict__"):
-        fields = {
-            name: lower_python_obj(val, visited) for name, val in obj.__dict__.items()
-        }
-        return fields
-
-    # Recursive case: Array
-    # By using `Iterable` instead of `list`, we can handle other kind of iterables
-    # like numpy arrays and generators.
-    if isinstance(obj, Iterable):
-        return [lower_python_obj(elt, visited) for elt in obj]
-
-    raise TypeError(f"unsupported type: {type(obj)}")
-
-
-def python_args_to_interpreter_args(args):
+def _clear_code_module():
     """
-    Helper function to turn the `*args` argument of this module
-    to the format expected by the Q# interpreter.
+    Removes dynamically added Q# callables, structs, and namespace modules from
+    qdk.code module and sys.modules.
     """
-    if len(args) == 0:
-        return None
-    elif len(args) == 1:
-        return lower_python_obj(args[0])
-    else:
-        return lower_python_obj(args)
+    keys_to_remove = []
+    for key, val in code.__dict__.items():
+        if (
+            hasattr(val, "__global_callable")
+            or hasattr(val, "__qsharp_class")
+            or isinstance(val, types.ModuleType)
+        ):
+            keys_to_remove.append(key)
+    for key in keys_to_remove:
+        code.__delattr__(key)
 
-
-def qsharp_value_to_python_value(obj):
-    # Base case: Primitive types
-    if isinstance(obj, (bool, int, float, complex, str, Pauli, Result)):
-        return obj
-
-    # Recursive case: Tuple
-    if isinstance(obj, tuple):
-        # Special case Value::UNIT maps to None.
-        if not obj:
-            return None
-        return tuple(qsharp_value_to_python_value(elt) for elt in obj)
-
-    # Recursive case: Array
-    if isinstance(obj, list):
-        return [qsharp_value_to_python_value(elt) for elt in obj]
-
-    # Recursive case: Callable or Closure
-    if isinstance(obj, (GlobalCallable, Closure)):
-        return obj
-
-    # Recursive case: Udt
-    if isinstance(obj, UdtValue):
-        class_name = obj.name
-        fields = []
-        args = []
-        for name, value_ir in obj.fields:
-            val = qsharp_value_to_python_value(value_ir)
-            ty = type(val)
-            args.append(val)
-            fields.append((name, ty))
-        return make_dataclass(class_name, fields)(*args)
-
-
-def make_class_rec(qsharp_type: TypeIR) -> type:
-    class_name = qsharp_type.unwrap_udt().name
-    fields = {}
-    for field in qsharp_type.unwrap_udt().fields:
-        ty = None
-        kind = field[1].kind()
-
-        if kind == TypeKind.Primitive:
-            prim_kind = field[1].unwrap_primitive()
-            if prim_kind == PrimitiveKind.Bool:
-                ty = bool
-            elif prim_kind == PrimitiveKind.Int:
-                ty = int
-            elif prim_kind == PrimitiveKind.Double:
-                ty = float
-            elif prim_kind == PrimitiveKind.Complex:
-                ty = complex
-            elif prim_kind == PrimitiveKind.String:
-                ty = str
-            elif prim_kind == PrimitiveKind.Pauli:
-                ty = Pauli
-            elif prim_kind == PrimitiveKind.Result:
-                ty = Result
-            else:
-                raise QSharpError(f"unknown primitive {prim_kind}")
-        elif kind == TypeKind.Tuple:
-            # Special case Value::UNIT maps to None.
-            if not field[1].unwrap_tuple():
-                ty = type(None)
-            else:
-                ty = tuple
-        elif kind == TypeKind.Array:
-            ty = list
-        elif kind == TypeKind.Udt:
-            ty = make_class_rec(field[1])
-        else:
-            raise QSharpError(f"unknown type {kind}")
-        fields[field[0]] = ty
-
-    return make_dataclass(
-        class_name,
-        fields,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Interpreter singleton
-# ---------------------------------------------------------------------------
-
-
-_interpreter: Union["Interpreter", None] = None
-_config: Union["Config", None] = None
-
-# Check if we are running in a Jupyter notebook to use the IPython display function
-_in_jupyter = False
-try:
-    from IPython.display import display
-
-    if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # type: ignore
-        _in_jupyter = True  # Jupyter notebook or qtconsole
-except:
-    pass
-
-
-# Reporting execution time during IPython cells requires that IPython
-# gets pinged to ensure it understands the cell is active. This is done by
-# simply importing the display function, which it turns out is enough to begin timing
-# while avoiding any UI changes that would be visible to the user.
-def ipython_helper():
-    try:
-        if __IPYTHON__:  # type: ignore
-            from IPython.display import display
-    except NameError:
-        pass
+    keys_to_remove = []
+    code_module_prefix = code.__name__ + "."
+    for key in sys.modules:
+        if key.startswith(code_module_prefix):
+            keys_to_remove.append(key)
+    for key in keys_to_remove:
+        sys.modules.__delitem__(key)
 
 
 def init(
@@ -285,211 +126,59 @@ def init(
 
     :keyword trace_circuit: Enables tracing of circuit during execution.
         Passing `True` is required for the `dump_circuit` function to return a circuit.
-        The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
+        The `circuit` function is *NOT* affected by this parameter and will always
+        generate a circuit.
     :return: The Q# interpreter configuration.
     :rtype: Config
     """
-    from ._fs import read_file, list_directory, exists, join, resolve
-    from ._http import fetch_github
+    global _default_context
 
-    global _interpreter
-    global _config
+    # Dispose the old context so its callables fail gracefully.
+    if _default_context is not None:
+        _default_context._disposed = True
 
-    if isinstance(target_name, str):
-        target = target_name.split(".")[0].lower()
-        if target == "ionq" or target == "rigetti":
-            target_profile = TargetProfile.Base
-        elif target == "quantinuum":
-            target_profile = TargetProfile.Adaptive_RI
-        else:
-            raise QSharpError(
-                f'target_name "{target_name}" not recognized. Please set target_profile directly.'
-            )
+    # Clean up the global code namespace before creating a new context.
+    _clear_code_module()
 
-    manifest_contents = None
-    if project_root is not None:
-        # Normalize the project path (i.e. fix file separators and remove unnecessary '.' and '..')
-        project_root = resolve(".", project_root)
-        qsharp_json = join(project_root, "qsharp.json")
-        if not exists(qsharp_json):
-            raise QSharpError(
-                f"{qsharp_json} not found. qsharp.json should exist at the project root and be a valid JSON file."
-            )
-
-        try:
-            _, manifest_contents = read_file(qsharp_json)
-        except Exception as e:
-            raise QSharpError(
-                f"Error reading {qsharp_json}. qsharp.json should exist at the project root and be a valid JSON file."
-            ) from e
-
-    # Loop through the environment module and remove any dynamically added attributes that represent
-    # Q# callables or structs. This is necessary to avoid conflicts with the new interpreter instance.
-    keys_to_remove = []
-    for key, val in code.__dict__.items():
-        if (
-            hasattr(val, "__global_callable")
-            or hasattr(val, "__qsharp_class")
-            or isinstance(val, types.ModuleType)
-        ):
-            keys_to_remove.append(key)
-    for key in keys_to_remove:
-        code.__delattr__(key)
-
-    # Also remove any namespace modules dynamically added to the system.
-    keys_to_remove = []
-    for key in sys.modules:
-        if key.startswith("qdk.code."):
-            keys_to_remove.append(key)
-    for key in keys_to_remove:
-        sys.modules.__delitem__(key)
-
-    _interpreter = Interpreter(
-        target_profile,
-        language_features,
-        project_root,
-        read_file,
-        list_directory,
-        resolve,
-        fetch_github,
-        _make_callable,
-        _make_class,
-        trace_circuit,
+    _default_context = Context(
+        target_profile=target_profile,
+        target_name=target_name,
+        project_root=project_root,
+        language_features=language_features,
+        _trace_circuit=trace_circuit,
+        _is_global_context=True,
     )
+    return _default_context._config
 
-    _config = Config(target_profile, language_features, manifest_contents, project_root)
-    # Return the configuration information to provide a hint to the
-    # language service through the cell output.
-    return _config
+
+def _get_default_context() -> Context:
+    """Returns the default context, lazily initializing if needed."""
+    global _default_context
+    if _default_context is None:
+        init()
+        assert _default_context is not None, "Failed to initialize the Q# interpreter."
+    return _default_context
+
+
+# ---------------------------------------------------------------------------
+# Functions accessing global context, for compatibility.
+# ---------------------------------------------------------------------------
 
 
 def get_interpreter() -> Interpreter:
-    """
-    Returns the Q# interpreter.
-
-    :return: The Q# interpreter.
-    :rtype: Interpreter
-    """
-    global _interpreter
-    if _interpreter is None:
-        init()
-        assert _interpreter is not None, "Failed to initialize the Q# interpreter."
-    return _interpreter
+    return _get_default_context()._interpreter
 
 
 def get_config() -> Config:
-    """
-    Returns the Q# interpreter configuration.
-
-    :return: The Q# interpreter configuration.
-    :rtype: Config
-    """
-    global _config
-    if _config is None:
-        init()
-        assert _config is not None, "Failed to initialize the Q# interpreter."
-    return _config
+    return _get_default_context()._config
 
 
-# ---------------------------------------------------------------------------
-# Callable / class factory helpers (used by native code)
-# ---------------------------------------------------------------------------
+def python_args_to_interpreter_args(args):
+    return _get_default_context()._python_args_to_interpreter_args(args)
 
 
-# Helper function that knows how to create a function that invokes a callable. This will be
-# used by the underlying native code to create functions for callables on the fly that know
-# how to get the currently initialized global interpreter instance.
-def _make_callable(callable: GlobalCallable, namespace: List[str], callable_name: str):
-    module = code
-    # Create a name that will be used to collect the hierarchy of namespace identifiers if they exist and use that
-    # to register created modules with the system.
-    accumulated_namespace = "qdk.code"
-    accumulated_namespace += "."
-    for name in namespace:
-        accumulated_namespace += name
-        # Use the existing entry, which should already be a module.
-        if hasattr(module, name):
-            module = module.__getattribute__(name)
-            if sys.modules.get(accumulated_namespace) is None:
-                # This is an existing entry that is not yet registered in sys.modules, so add it.
-                # This can happen if a callable with the same name as this namespace is already
-                # defined.
-                sys.modules[accumulated_namespace] = module
-        else:
-            # This namespace entry doesn't exist as a module yet, so create it, add it to the environment, and
-            # add it to sys.modules so it supports import properly.
-            new_module = types.ModuleType(accumulated_namespace)
-            module.__setattr__(name, new_module)
-            sys.modules[accumulated_namespace] = new_module
-            module = new_module
-        accumulated_namespace += "."
-
-    def _callable(*args):
-        ipython_helper()
-
-        def callback(output: Output) -> None:
-            if _in_jupyter:
-                try:
-                    display(output)
-                    return
-                except:
-                    # If IPython is not available, fall back to printing the output
-                    pass
-            print(output, flush=True)
-
-        args = python_args_to_interpreter_args(args)
-
-        output = get_interpreter().invoke(callable, args, callback)
-        return qsharp_value_to_python_value(output)
-
-    # Each callable is annotated so that we know it is auto-generated and can be removed on a re-init of the interpreter.
-    _callable.__global_callable = callable
-
-    # Add the callable to the module.
-    if module.__dict__.get(callable_name) is None:
-        module.__setattr__(callable_name, _callable)
-    else:
-        # Preserve any existing attributes on the attribute with the matching name,
-        # since this could be a collision with an existing namespace/module.
-        for key, val in module.__dict__.get(callable_name).__dict__.items():
-            if key != "__global_callable":
-                _callable.__dict__[key] = val
-        module.__setattr__(callable_name, _callable)
-
-
-def _make_class(qsharp_type: TypeIR, namespace: List[str], class_name: str):
-    """
-    Helper function to create a python class given a description of it. This will be
-    used by the underlying native code to create classes on the fly corresponding to
-    the currently initialized interpreter instance.
-    """
-
-    module = code
-    # Create a name that will be used to collect the hierarchy of namespace identifiers if they exist and use that
-    # to register created modules with the system.
-    accumulated_namespace = "qdk.code"
-    accumulated_namespace += "."
-    for name in namespace:
-        accumulated_namespace += name
-        # Use the existing entry, which should already be a module.
-        if hasattr(module, name):
-            module = module.__getattribute__(name)
-        else:
-            # This namespace entry doesn't exist as a module yet, so create it, add it to the environment, and
-            # add it to sys.modules so it supports import properly.
-            new_module = types.ModuleType(accumulated_namespace)
-            module.__setattr__(name, new_module)
-            sys.modules[accumulated_namespace] = new_module
-            module = new_module
-        accumulated_namespace += "."
-
-    QSharpClass = make_class_rec(qsharp_type)
-
-    # Each class is annotated so that we know it is auto-generated and can be removed on a re-init of the interpreter.
-    QSharpClass.__qsharp_class = True
-
-    # Add the class to the module.
-    module.__setattr__(class_name, QSharpClass)
+def qsharp_value_to_python_value(obj):
+    return _get_default_context()._qsharp_value_to_python_value(obj)
 
 
 # ---------------------------------------------------------------------------
@@ -513,56 +202,7 @@ def eval(
     :rtype: Any
     :raises QSharpError: If there is an error evaluating the source code.
     """
-    ipython_helper()
-
-    results: ShotResult = {
-        "events": [],
-        "result": None,
-        "messages": [],
-        "matrices": [],
-        "dumps": [],
-    }
-
-    def on_save_events(output: Output) -> None:
-        # Append the output to the last shot's output list
-        if output.is_matrix():
-            results["events"].append(output)
-            results["matrices"].append(output)
-        elif output.is_state_dump():
-            dump_data = cast(StateDumpData, output.state_dump())
-            state_dump = StateDump(dump_data)
-            results["events"].append(state_dump)
-            results["dumps"].append(state_dump)
-        elif output.is_message():
-            stringified = str(output)
-            results["events"].append(stringified)
-            results["messages"].append(stringified)
-
-    def callback(output: Output) -> None:
-        if _in_jupyter:
-            try:
-                display(output)
-                return
-            except:
-                # If IPython is not available, fall back to printing the output
-                pass
-        print(output, flush=True)
-
-    telemetry_events.on_eval()
-    start_time = monotonic()
-
-    output = get_interpreter().interpret(
-        source, on_save_events if save_events else callback
-    )
-    results["result"] = qsharp_value_to_python_value(output)
-
-    durationMs = (monotonic() - start_time) * 1000
-    telemetry_events.on_eval_end(durationMs)
-
-    if save_events:
-        return results
-    else:
-        return results["result"]
+    return _get_default_context().eval(source, save_events=save_events)
 
 
 def run(
@@ -608,103 +248,18 @@ def run(
     :raises QSharpError: If there is an error interpreting the input.
     :raises ValueError: If the number of shots is less than 1.
     """
-    ipython_helper()
-
-    if shots < 1:
-        raise ValueError("The number of shots must be greater than 0.")
-
-    telemetry_events.on_run(
+    return _get_default_context().run(
+        entry_expr,
         shots,
-        noise=(noise is not None and noise != (0.0, 0.0, 0.0)),
-        qubit_loss=(qubit_loss is not None and qubit_loss > 0.0),
+        *args,
+        on_result=on_result,
+        save_events=save_events,
+        noise=noise,
+        qubit_loss=qubit_loss,
+        seed=seed,
+        type=type,
+        num_qubits=num_qubits,
     )
-    start_time = monotonic()
-
-    results: List[ShotResult] = []
-
-    def print_output(output: Output) -> None:
-        if _in_jupyter:
-            try:
-                display(output)
-                return
-            except:
-                # If IPython is not available, fall back to printing the output
-                pass
-        print(output, flush=True)
-
-    def on_save_events(output: Output) -> None:
-        # Append the output to the last shot's output list
-        results[-1]["events"].append(output)
-        if output.is_matrix():
-            results[-1]["matrices"].append(output)
-        elif output.is_state_dump():
-            dump_data = cast(StateDumpData, output.state_dump())
-            results[-1]["dumps"].append(StateDump(dump_data))
-        elif output.is_message():
-            results[-1]["messages"].append(str(output))
-
-    if type == "clifford":
-        if noise is not None and not isinstance(noise, NoiseConfig):
-            raise ValueError(
-                "only `NoiseConfig` is supported when using noise with the clifford simulator."
-            )
-
-    callable = None
-    run_entry_expr = None
-    if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
-        callable = entry_expr.__global_callable
-    elif isinstance(entry_expr, (GlobalCallable, Closure)):
-        args = python_args_to_interpreter_args(args)
-        callable = entry_expr
-    else:
-        assert isinstance(entry_expr, str)
-        run_entry_expr = entry_expr
-
-    noise_config = None
-    if isinstance(noise, NoiseConfig):
-        noise_config = noise
-        noise = None
-
-    shot_seed = seed
-    for shot in range(shots):
-        # We also don't want every shot to return the same results, so we update the seed for
-        # the next shot with the shot number. This keeps the behavior deterministic if a seed
-        # was provided.
-        if seed is not None:
-            shot_seed = shot + seed
-
-        results.append(
-            {"result": None, "events": [], "messages": [], "matrices": [], "dumps": []}
-        )
-        run_results = get_interpreter().run(
-            run_entry_expr,
-            on_save_events if save_events else print_output,
-            noise_config,
-            noise,
-            qubit_loss,
-            callable,
-            args,
-            shot_seed,
-            type,
-            num_qubits,
-        )
-        run_results = qsharp_value_to_python_value(run_results)
-        results[-1]["result"] = run_results
-        if on_result:
-            on_result(results[-1])
-        # For every shot after the first, treat the entry expression as None to trigger
-        # a rerun of the last executed expression without paying the cost for any additional
-        # compilation.
-        run_entry_expr = None
-
-    durationMs = (monotonic() - start_time) * 1000
-    telemetry_events.on_run_end(durationMs, shots)
-
-    if save_events:
-        return results
-    else:
-        return [shot["result"] for shot in results]
 
 
 def compile(
@@ -729,24 +284,7 @@ def compile(
         with open('myfile.ll', 'w') as file:
             file.write(str(program))
     """
-    ipython_helper()
-    start = monotonic()
-    interpreter = get_interpreter()
-    target_profile = get_config().get_target_profile()
-    telemetry_events.on_compile(target_profile)
-    if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
-        ll_str = interpreter.qir(callable=entry_expr.__global_callable, args=args)
-    elif isinstance(entry_expr, (GlobalCallable, Closure)):
-        args = python_args_to_interpreter_args(args)
-        ll_str = interpreter.qir(callable=entry_expr, args=args)
-    else:
-        assert isinstance(entry_expr, str)
-        ll_str = interpreter.qir(entry_expr=entry_expr)
-    res = QirInputData("main", ll_str)
-    durationMs = (monotonic() - start) * 1000
-    telemetry_events.on_compile_end(durationMs, target_profile)
-    return res
+    return _get_default_context().compile(entry_expr, *args)
 
 
 def circuit(
@@ -802,33 +340,16 @@ def circuit(
     :rtype: :class:`~qsharp._native.Circuit`
     :raises QSharpError: If there is an error synthesizing the circuit.
     """
-    ipython_helper()
-    start = monotonic()
-    telemetry_events.on_circuit()
-    config = CircuitConfig(
-        max_operations=max_operations,
+    return _get_default_context().circuit(
+        entry_expr,
+        *args,
+        operation=operation,
         generation_method=generation_method,
+        max_operations=max_operations,
         source_locations=source_locations,
         group_by_scope=group_by_scope,
         prune_classical_qubits=prune_classical_qubits,
     )
-
-    if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
-        res = get_interpreter().circuit(
-            config=config, callable=entry_expr.__global_callable, args=args
-        )
-    elif isinstance(entry_expr, (GlobalCallable, Closure)):
-        args = python_args_to_interpreter_args(args)
-        res = get_interpreter().circuit(config=config, callable=entry_expr, args=args)
-    else:
-        assert entry_expr is None or isinstance(entry_expr, str)
-        res = get_interpreter().circuit(config, entry_expr, operation=operation)
-
-    durationMs = (monotonic() - start) * 1000
-    telemetry_events.on_circuit_end(durationMs)
-
-    return res
 
 
 def estimate(
@@ -877,17 +398,20 @@ def estimate(
     param_str = json.dumps(params)
     telemetry_events.on_estimate()
     start = monotonic()
+    context = _get_default_context()
     if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
-        res_str = get_interpreter().estimate(
+        args = context._python_args_to_interpreter_args(args)
+        res_str = context._interpreter.estimate(
             param_str, callable=entry_expr.__global_callable, args=args
         )
     elif isinstance(entry_expr, (GlobalCallable, Closure)):
-        args = python_args_to_interpreter_args(args)
-        res_str = get_interpreter().estimate(param_str, callable=entry_expr, args=args)
+        args = context._python_args_to_interpreter_args(args)
+        res_str = context._interpreter.estimate(
+            param_str, callable=entry_expr, args=args
+        )
     else:
         assert isinstance(entry_expr, str)
-        res_str = get_interpreter().estimate(param_str, entry_expr=entry_expr)
+        res_str = context._interpreter.estimate(param_str, entry_expr=entry_expr)
     res = json.loads(res_str)
 
     try:
@@ -914,21 +438,7 @@ def logical_counts(
     :return: Program resources in terms of logical gate counts.
     :rtype: LogicalCounts
     """
-
-    ipython_helper()
-
-    if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
-        args = python_args_to_interpreter_args(args)
-        res_dict = get_interpreter().logical_counts(
-            callable=entry_expr.__global_callable, args=args
-        )
-    elif isinstance(entry_expr, (GlobalCallable, Closure)):
-        args = python_args_to_interpreter_args(args)
-        res_dict = get_interpreter().logical_counts(callable=entry_expr, args=args)
-    else:
-        assert isinstance(entry_expr, str)
-        res_dict = get_interpreter().logical_counts(entry_expr=entry_expr)
-    return LogicalCounts(res_dict)
+    return _get_default_context().logical_counts(entry_expr, *args)
 
 
 def set_quantum_seed(seed: Optional[int]) -> None:
@@ -939,7 +449,7 @@ def set_quantum_seed(seed: Optional[int]) -> None:
     :param seed: The seed to use for the quantum random number generator.
         If None, the seed will be generated from entropy.
     """
-    get_interpreter().set_quantum_seed(seed)
+    _get_default_context().set_quantum_seed(seed)
 
 
 def set_classical_seed(seed: Optional[int]) -> None:
@@ -951,7 +461,7 @@ def set_classical_seed(seed: Optional[int]) -> None:
     :param seed: The seed to use for the classical random number generator.
         If None, the seed will be generated from entropy.
     """
-    get_interpreter().set_classical_seed(seed)
+    _get_default_context().set_classical_seed(seed)
 
 
 def dump_machine() -> StateDump:
@@ -961,8 +471,7 @@ def dump_machine() -> StateDump:
     :return: The state of the simulator.
     :rtype: StateDump
     """
-    ipython_helper()
-    return StateDump(get_interpreter().dump_machine())
+    return _get_default_context().dump_machine()
 
 
 def dump_circuit() -> Circuit:
@@ -979,7 +488,7 @@ def dump_circuit() -> Circuit:
     :raises QSharpError: If the interpreter was not initialized with ``trace_circuit=True``.
     """
     ipython_helper()
-    return get_interpreter().dump_circuit()
+    return _get_default_context()._interpreter.dump_circuit()
 
 
 def dump_operation(operation: str, num_qubits: int) -> List[List[complex]]:
@@ -1050,10 +559,6 @@ __all__ = [
     "EstimatorParams",
     "LogicalCounts",
     "estimate_custom",
-    # Interpreter lifecycle
-    "init",
-    "get_interpreter",
-    "get_config",
     # Core operations
     "eval",
     "run",
@@ -1067,10 +572,10 @@ __all__ = [
     "dump_machine",
     "dump_circuit",
     "dump_operation",
-    # Helpers (used by other submodules)
-    "ipython_helper",
+    # Helpers to initialize/access the global Context object.
+    "init",
+    "get_interpreter",
+    "get_config",
     "python_args_to_interpreter_args",
     "qsharp_value_to_python_value",
-    "lower_python_obj",
-    "make_class_rec",
 ]

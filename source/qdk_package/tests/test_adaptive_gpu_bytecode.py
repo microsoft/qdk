@@ -1472,6 +1472,377 @@ def test_float_roundtrip():
     check_arith_result(FLOAT_ROUNDTRIP_QIR, "1")
 
 
+# #########################################################################
+#  Memory / Array operations (alloca, load, store, GEP)
+# #########################################################################
+
+
+def format_qir_arrays(
+    body: str,
+    *,
+    globals_str: str = "",
+    extra_decls: str = "",
+    num_qubits: int = 1,
+    num_results: int = 1,
+    record=None,
+):
+    """Like format_qir but includes the arrays module flag and global constants."""
+    if record is None:
+        record = range(num_results)
+    output_recording = (
+        f"  call void @__quantum__rt__tuple_record_output(i64 {len(record)}, i8* null)"
+    )
+    for result_id in record:
+        output_recording += f"\n  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 {result_id} to %Result*), i8* null)"
+
+    return f"""\
+%Result = type opaque
+%Qubit = type opaque
+
+{globals_str}
+
+define i64 @ENTRYPOINT__main() #0 {{
+{body}
+{output_recording}
+  ret i64 0
+}}
+
+{_DECLS}
+{extra_decls}
+attributes #0 = {{ "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="{num_qubits}" "required_num_results"="{num_results}" }}
+attributes #1 = {{ "irreversible" }}
+!llvm.module.flags = !{{!0}}
+!0 = !{{i32 1, !"arrays", i1 true}}
+"""
+
+
+def check_array_result(
+    qir_fragment: str,
+    expected: str,
+    *,
+    globals_str: str = "",
+    extra_decls: str = "",
+    num_qubits: int = 1,
+    num_results: int = 1,
+    record=None,
+):
+    """Assert every shot produces *expected* using array-enabled QIR."""
+    qir = format_qir_arrays(
+        qir_fragment,
+        globals_str=globals_str,
+        extra_decls=extra_decls,
+        num_qubits=num_qubits,
+        num_results=num_results,
+        record=record,
+    )
+    results = _run(qir, SHOTS)["shot_results"]
+    counts = Counter(map_result_list_to_str(r) for r in results)
+    assert counts == {
+        expected: SHOTS
+    }, f"Expected all {SHOTS} shots to be '{expected}', got {counts}"
+
+
+# =========================================================================
+# OP_ALLOCA / OP_STORE / OP_LOAD — scalar alloca, store, load
+# =========================================================================
+
+ALLOCA_STORE_LOAD_SCALAR_QIR = """
+entry:
+  %ptr = alloca i64
+  store i64 1, i64* %ptr
+  %val = load i64, i64* %ptr
+  %flag = icmp eq i64 %val, 1
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_alloca_store_load_scalar():
+    """Alloca i64, store 1, load → 1, conditionally X → measure 1."""
+    check_array_result(ALLOCA_STORE_LOAD_SCALAR_QIR, "1")
+
+
+# =========================================================================
+# OP_STORE overwrite — second store overwrites the first
+# =========================================================================
+
+STORE_OVERWRITE_QIR = """
+entry:
+  %ptr = alloca i64
+  store i64 0, i64* %ptr
+  store i64 1, i64* %ptr
+  %val = load i64, i64* %ptr
+  %flag = icmp eq i64 %val, 1
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_store_overwrite():
+    """Store 0, then store 1 at the same address → load yields 1."""
+    check_array_result(STORE_OVERWRITE_QIR, "1")
+
+
+# =========================================================================
+# OP_ALLOCA / OP_STORE / OP_LOAD in a loop — counter via memory
+# =========================================================================
+
+ALLOCA_LOOP_QIR = """
+entry:
+  %ptr = alloca i64
+  store i64 0, i64* %ptr
+  br label %loop
+loop:
+  %count = load i64, i64* %ptr
+  %next = add i64 %count, 1
+  store i64 %next, i64* %ptr
+  %done = icmp eq i64 %next, 5
+  br i1 %done, label %exit, label %loop
+exit:
+  %final = load i64, i64* %ptr
+  %flag = icmp eq i64 %final, 5
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_alloca_store_load_in_loop():
+    """Loop counter via alloca/store/load: 5 iterations → load 5 → X → 1."""
+    check_array_result(ALLOCA_LOOP_QIR, "1")
+
+
+# =========================================================================
+# OP_GEP — static array lookup with constant index
+# =========================================================================
+
+STATIC_ARRAY_CONST_IDX_GLOBALS = (
+    "@array0 = internal constant [3 x i64] [i64 10, i64 20, i64 30]"
+)
+
+STATIC_ARRAY_CONST_IDX_QIR = """
+entry:
+  %ptr = getelementptr [3 x i64], [3 x i64]* @array0, i64 0, i64 1
+  %val = load i64, i64* %ptr
+  %flag = icmp eq i64 %val, 20
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_static_array_lookup_const_index():
+    """GEP with constant index 1 into [10,20,30] → load 20 → X → 1."""
+    check_array_result(
+        STATIC_ARRAY_CONST_IDX_QIR,
+        "1",
+        globals_str=STATIC_ARRAY_CONST_IDX_GLOBALS,
+    )
+
+
+# =========================================================================
+# OP_GEP — static array lookup with dynamic (runtime) index
+# =========================================================================
+
+STATIC_ARRAY_DYN_IDX_GLOBALS = (
+    "@array0 = internal constant [3 x i64] [i64 100, i64 200, i64 300]"
+)
+
+STATIC_ARRAY_DYN_IDX_QIR = """
+entry:
+  %idx = add i64 1, 1
+  %ptr = getelementptr [3 x i64], [3 x i64]* @array0, i64 0, i64 %idx
+  %val = load i64, i64* %ptr
+  %flag = icmp eq i64 %val, 300
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_static_array_lookup_dynamic_index():
+    """GEP with computed index (1+1=2) into [100,200,300] → load 300 → X → 1."""
+    check_array_result(
+        STATIC_ARRAY_DYN_IDX_QIR,
+        "1",
+        globals_str=STATIC_ARRAY_DYN_IDX_GLOBALS,
+    )
+
+
+# =========================================================================
+# OP_GEP — dynamic index via register
+# =========================================================================
+
+GEP_DYN_GLOBALS = (
+    "@array0 = internal constant [4 x i64] [i64 10, i64 20, i64 30, i64 40]"
+)
+
+GEP_DYN_QIR = """
+entry:
+  %idx = add i64 2, 1
+  %ptr = getelementptr [4 x i64], [4 x i64]* @array0, i64 0, i64 %idx
+  %val = load i64, i64* %ptr
+  %flag = icmp eq i64 %val, 40
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_gep_with_dynamic_index():
+    """GEP with computed index (2+1=3) into [10,20,30,40] → load 40 → X → 1."""
+    check_array_result(GEP_DYN_QIR, "1", globals_str=GEP_DYN_GLOBALS)
+
+
+# =========================================================================
+# OP_GEP inbounds — same as GEP but with inbounds keyword
+# =========================================================================
+
+GEP_INBOUNDS_GLOBALS = "@array0 = internal constant [3 x i64] [i64 10, i64 20, i64 30]"
+
+GEP_INBOUNDS_QIR = """
+entry:
+  %ptr = getelementptr inbounds [3 x i64], [3 x i64]* @array0, i64 0, i64 1
+  %val = load i64, i64* %ptr
+  %flag = icmp eq i64 %val, 20
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_gep_inbounds_execution():
+    """getelementptr inbounds behaves identically to regular GEP."""
+    check_array_result(GEP_INBOUNDS_QIR, "1", globals_str=GEP_INBOUNDS_GLOBALS)
+
+
+# =========================================================================
+# Multiple global arrays — access elements from two arrays
+# =========================================================================
+
+MULTI_ARRAY_GLOBALS = """\
+@arr_a = internal constant [2 x i64] [i64 11, i64 22]
+@arr_b = internal constant [3 x i64] [i64 33, i64 44, i64 55]"""
+
+MULTI_ARRAY_QIR = """
+entry:
+  %ptr_a = getelementptr [2 x i64], [2 x i64]* @arr_a, i64 0, i64 1
+  %val_a = load i64, i64* %ptr_a
+  %ptr_b = getelementptr [3 x i64], [3 x i64]* @arr_b, i64 0, i64 2
+  %val_b = load i64, i64* %ptr_b
+  %sum = add i64 %val_a, %val_b
+  %flag = icmp eq i64 %sum, 77
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_multiple_arrays():
+    """Two global arrays: arr_a[1]=22, arr_b[2]=55, 22+55=77 → X → 1."""
+    check_array_result(MULTI_ARRAY_QIR, "1", globals_str=MULTI_ARRAY_GLOBALS)
+
+
+# =========================================================================
+# Array-globals — load a value from an array
+# =========================================================================
+
+ARRAY_GLOBALS = "@arr = internal constant [2 x double] [double 0.0, double 1.0]"
+
+ARRAY_QIR = """
+entry:
+  %ptr = getelementptr [2 x double], [2 x double]* @arr, i64 0, i64 1
+  %fval = load double, double* %ptr
+  %ival = fptosi double %fval to i64
+  %flag = icmp eq i64 %ival, 1
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_array_driven_rotation():
+    """Load double 1.0 from array, fptosi → 1, conditionally X → 1."""
+    check_array_result(ARRAY_QIR, "1", globals_str=ARRAY_GLOBALS)
+
+
+# =========================================================================
+# Loop with array accumulation — sum elements from global array
+# =========================================================================
+
+ARRAY_ACCUM_GLOBALS = "@values = internal constant [3 x i64] [i64 1, i64 2, i64 3]"
+
+ARRAY_ACCUM_QIR = """
+entry:
+  %sum_ptr = alloca i64
+  store i64 0, i64* %sum_ptr
+  br label %loop
+loop:
+  %i = phi i64 [0, %entry], [%i_next, %loop]
+  %ptr = getelementptr [3 x i64], [3 x i64]* @values, i64 0, i64 %i
+  %val = load i64, i64* %ptr
+  %old_sum = load i64, i64* %sum_ptr
+  %new_sum = add i64 %old_sum, %val
+  store i64 %new_sum, i64* %sum_ptr
+  %i_next = add i64 %i, 1
+  %done = icmp eq i64 %i_next, 3
+  br i1 %done, label %exit, label %loop
+exit:
+  %final_sum = load i64, i64* %sum_ptr
+  %flag = icmp eq i64 %final_sum, 6
+  br i1 %flag, label %then, label %end
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_loop_with_array_accumulation():
+    """Sum array [1,2,3] in a loop using alloca → total 6 → X → 1."""
+    check_array_result(ARRAY_ACCUM_QIR, "1", globals_str=ARRAY_ACCUM_GLOBALS)
+
+
 # =========================================================================
 # OP_CALL with return value
 # =========================================================================
@@ -1752,6 +2123,53 @@ def test_call_stack_overflow_guard():
     assert all(
         c == 3 for c in codes
     ), f"Expected all error codes to be 3 (stack overflow), got {codes}"
+
+
+# =========================================================================
+# Alloca out-of-bounds guard
+# =========================================================================
+
+# MAX_ALLOCA_SIZE on the GPU is 256 words. The Rust FFI layer also adds a
+# dummy element to constant_data when it is empty, so the effective
+# MAX_MEMORY = 1 + 256 = 257. Allocating 258 scalar i64 values pushes
+# the last alloca address past MAX_MEMORY, causing the shader to report
+# ERR_ALLOCA_OUT_OF_BOUNDS (error code 6).
+
+
+def _build_alloca_oob_qir():
+    """Build QIR with 1026 scalar allocas to exceed MAX_MEMORY on the GPU."""
+    alloca_count = 1026
+    lines = ["entry:"]
+    for i in range(alloca_count):
+        lines.append(f"  %p{i} = alloca i64")
+    # Store/load through the last alloca to prevent dead-code elimination
+    lines.append(f"  store i64 1, i64* %p{alloca_count - 1}")
+    lines.append(f"  %val = load i64, i64* %p{alloca_count - 1}")
+    lines.append("  %flag = icmp eq i64 %val, 1")
+    lines.append("  br i1 %flag, label %then, label %end")
+    lines.append("then:")
+    lines.append(
+        "  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))"
+    )
+    lines.append("  br label %end")
+    lines.append("end:")
+    lines.append(
+        "  call void @__quantum__qis__mresetz__body("
+        "%Qubit* inttoptr (i64 0 to %Qubit*), "
+        "%Result* inttoptr (i64 0 to %Result*))"
+    )
+    return "\n".join(lines)
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_alloca_out_of_bounds_guard():
+    """Verify GPU interpreter handles alloca out-of-bounds gracefully."""
+    qir = format_qir_arrays(_build_alloca_oob_qir())
+    codes = _run(qir, shots=10)["shot_result_codes"]
+    # Every shot should return error code 6 (ERR_ALLOCA_OUT_OF_BOUNDS)
+    assert all(
+        c == 6 for c in codes
+    ), f"Expected all error codes to be 6 (alloca out of bounds), got {codes}"
 
 
 # #########################################################################

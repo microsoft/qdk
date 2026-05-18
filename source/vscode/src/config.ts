@@ -50,3 +50,16 @@ export function getUploadSupplementalData(): boolean {
     .getConfiguration("Q#")
     .get<boolean>("azure.uploadSupplementalData", true);
 }
+
+export function getTargetJobParams(targetId: string): Record<string, unknown> {
+  const raw = vscode.workspace
+    .getConfiguration("Q#")
+    .get<Record<string, Record<string, unknown>>>("azure.targetJobParams", {});
+  // Deep clone the entire setting to materialize VS Code's configuration proxy
+  // into a plain object. Without this, nested values may not survive object
+  // spread operations.
+  const allTargetParams: Record<string, Record<string, unknown>> = JSON.parse(
+    JSON.stringify(raw),
+  );
+  return allTargetParams[targetId] ?? {};
+}

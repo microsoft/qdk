@@ -29,6 +29,9 @@ pub const SIZEOF_SHOTDATA: usize = std::mem::size_of::<ShotData>(); // Size of S
 // Minimum register file size; actual size is max(program.num_registers, MIN_REGISTERS)
 pub const MIN_REGISTERS: usize = 128;
 
+// Memory reserved for alloca'd memory.
+pub const MAX_ALLOCA_SIZE: usize = 1024;
+
 #[allow(clippy::cast_possible_truncation)]
 #[allow(clippy::cast_possible_wrap)]
 pub const MAX_CIRCUIT_OPS: i32 = (MAX_BUFFER_SIZE / std::mem::size_of::<Op>()) as i32;

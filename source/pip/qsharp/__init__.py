@@ -21,16 +21,14 @@ _warnings.warn(
     stacklevel=2,
 )
 
-# Re-export the full public API from qdk so that existing code keeps working.
-from qdk._types import (
+# Re-export the public API from qdk.qsharp so that existing code keeps working.
+from qdk.qsharp import (  # noqa: F401
     StateDump,
     ShotResult,
     PauliNoise,
     DepolarizingNoise,
     BitFlipNoise,
     PhaseFlipNoise,
-)
-from qdk._interpreter import (
     init,
     eval,
     run,
@@ -42,9 +40,6 @@ from qdk._interpreter import (
     set_classical_seed,
     dump_machine,
     dump_circuit,
-)
-
-from qdk._native import (
     Result,
     Pauli,
     QSharpError,
