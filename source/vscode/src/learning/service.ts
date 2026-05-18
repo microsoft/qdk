@@ -987,7 +987,16 @@ export class LearningService {
     } catch {
       // expected when file is missing or corrupt
     }
-    ws.progressData = this.freshProgressData();
+    ws.progressData = {
+      version: 1,
+      position: {
+        courseId: ws.catalog.id,
+        unitId: ws.catalog.units[0]?.id ?? "",
+        activityId: ws.catalog.units[0]?.activities[0]?.id ?? "",
+      },
+      completions: {},
+      startedAt: new Date().toISOString(),
+    };
   }
 
   private async saveProgress(): Promise<void> {
@@ -1005,19 +1014,7 @@ export class LearningService {
     this.emitProgress();
   }
 
-  private freshProgressData(): ProgressFileData {
-    const ws = this.requireWorkspace();
-    return {
-      version: 1,
-      position: {
-        courseId: ws.catalog.id,
-        unitId: ws.catalog.units[0]?.id ?? "",
-        activityId: ws.catalog.units[0]?.activities[0]?.id ?? "",
-      },
-      completions: {},
-      startedAt: new Date().toISOString(),
-    };
-  }
+
 
   async reloadProgress(): Promise<void> {
     const ws = this.requireWorkspace();
