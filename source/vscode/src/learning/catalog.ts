@@ -6,7 +6,7 @@ import { KATAS_COURSE_ID } from "./constants.js";
 import type {
   CatalogUnit,
   CatalogCourse,
-  CatalogSection,
+  CatalogActivity,
   CatalogExercise,
 } from "./types.js";
 
@@ -18,7 +18,7 @@ export async function loadKatasCourse(): Promise<CatalogCourse> {
   const units: CatalogUnit[] = raw.map((kata) => ({
     id: kata.id,
     title: kata.title,
-    sections: kata.sections.map<CatalogSection>((s) => {
+    activities: kata.sections.map<CatalogActivity>((s) => {
       if (s.type === "exercise") {
         const solutionItem = s.explainedSolution.items.find(
           (i) => i.type === "solution",
