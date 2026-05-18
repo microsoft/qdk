@@ -10,7 +10,8 @@
 import * as vscode from "vscode";
 import { qsharpExtensionId } from "../common.js";
 import { LEARNING_FILE } from "./constants.js";
-import type { LearningService, TelemetrySource } from "./service.js";
+import type { LearningService } from "./service.js";
+import type { TelemetrySource } from "./types.js";
 import type {
   HostToWebviewMessage,
   ResultAction,
@@ -74,7 +75,7 @@ export class LessonPanelManager {
         localResourceRoots: [
           vscode.Uri.joinPath(this.extensionUri, "out"),
           vscode.Uri.joinPath(this.extensionUri, "resources"),
-          this.service.getKatasRoot(),
+          this.service.learningContentRoot,
         ],
       },
     );
@@ -224,7 +225,7 @@ export class LessonPanelManager {
   private async closeStaleEditorTabs(
     keepUri: vscode.Uri | undefined,
   ): Promise<void> {
-    const learningRoot = this.service.getKatasRoot().toString();
+    const learningRoot = this.service.learningContentRoot.toString();
     const keepStr = keepUri?.toString();
 
     const staleTabs: vscode.Tab[] = [];
@@ -341,13 +342,13 @@ export class LessonPanelManager {
       return;
     }
 
-    const pos = this.service.getPosition();
+    const pos = this.service.getCurrentActivity();
     if (pos.content.type !== "lesson-example") {
       throw new Error("Current item cannot be run.");
     }
 
     const fileUri = this.service.getExampleFileUri();
-    this.service.markExampleRun(pos.content.id);
+    await this.service.markExampleRun();
 
     await this.openCurrentCodeEditor();
     await vscode.commands.executeCommand(
@@ -369,7 +370,7 @@ export class LessonPanelManager {
       "webview",
       "webview-client.js",
     );
-    const cssUri = getUri("out", "learning", "webview", "webview.css");
+    const cssUri = getUri("out", "learning", "webview", "webview-client.css");
     const katexCssUri = getUri("out", "katex", "katex.min.css");
     const codiconCssUri = getUri("out", "katex", "codicon.css");
     const mobiusUri = getUri("resources", "mobius.svg");

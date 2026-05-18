@@ -8,6 +8,7 @@ const vscodeApi: WebviewApi<LearningState> = acquireVsCodeApi();
 import { render } from "preact";
 import { useEffect, useReducer, useRef } from "preact/hooks";
 import { Markdown, setRenderer } from "qsharp-lang/ux";
+import "./webview.css";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - there are no types for this
 import mk from "@vscode/markdown-it-katex";

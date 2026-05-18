@@ -153,11 +153,11 @@ export class LearningTools {
   }> {
     await this.ensureInitialized();
     const uri = this.getCurrentFileUri();
-    const pos = this.service.getPosition();
-    const code =
-      pos.content.type === "exercise"
-        ? await this.service.readUserCode()
-        : new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
+    const isExercise =
+      this.service.getCurrentActivity().content.type === "exercise";
+    const code = isExercise
+      ? await this.service.readUserCode()
+      : new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
     return { code, filePath: uri.fsPath, state: this.serializeState() };
   }
 
@@ -308,15 +308,13 @@ export class LearningTools {
   }
 
   private getCurrentFileUri(): vscode.Uri {
-    const pos = this.service.getPosition();
-    if (pos.content.type === "exercise") {
-      return this.service.getExerciseFileUri();
-    } else if (pos.content.type === "lesson-example") {
-      return this.service.getExampleFileUri();
+    const uri = this.service.getCurrentCodeFileUri();
+    if (!uri) {
+      throw new CopilotToolError(
+        "Current activity is not an exercise or example — there is no code to read.",
+      );
     }
-    throw new CopilotToolError(
-      "Current activity is not an exercise or example — there is no code to read.",
-    );
+    return uri;
   }
 
   /**

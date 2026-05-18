@@ -25,5 +25,7 @@ __pycache__/
 .idea/
 *.so
 samples/scratch/
+samples/qdk-learning-ws/
+samples/qdk-learning.json
 *.pyd
 /python_doc/
