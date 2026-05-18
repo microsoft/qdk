@@ -77,15 +77,61 @@ const moveOperation = (
     sourceLocation,
   );
 
+  // Capture the full ancestor chain BEFORE any mutation so the
+  // empty-group cleanup at the tail of this function still has
+  // valid references even after `_moveX` splices columns around.
+  // (See `_collectAncestorChain` for why this has to be pre-move.)
+  const ancestorChain = _collectAncestorChain(model, sourceLocation);
+
   // Create a deep copy of the source operation
   const newSourceOperation: Operation = JSON.parse(
     JSON.stringify(originalOperation),
   );
 
-  model.ensureQubitCount(targetWire);
+  // Capture pre-move measurement wires from the live source. Used
+  // after the move to refresh per-wire `numResults` counters for
+  // any wire whose measurement set may have changed (see the
+  // `_updateMeasurementLines` sweep at the tail of this function).
+  const affectedMeasurementWires = new Set<number>();
+  _collectMeasurementWires(originalOperation, affectedMeasurementWires);
+
+  // Grow the model to accommodate the highest wire the post-move
+  // op will land on. For a single-leg move this is `targetWire`.
+  // For a group / multi-target move (the unit-shift path inside
+  // `_moveY`) every register shifts by `targetWire - sourceWire`,
+  // so the high wire moves to `maxOrigWire + delta` — which can
+  // be well above `targetWire` and must exist before `_moveX`
+  // tries to file the op into the grid.
+  //
+  // We also refuse the move outright if the unit-shift would push
+  // any wire below 0. The model has no concept of "negative wires"
+  // and no machinery to insert wires above wire 0; silently letting
+  // it happen leaves the subtree with `qubit: -N` register refs and
+  // the next render throws (or, after `removeTrailingUnusedQubits`
+  // trims the model, throws with a misleading "Classical register
+  // ID X invalid for qubit ID Y with 0 classical register(s)" when
+  // the trim cuts the wire a classical register lived on). The
+  // user-visible effect is the drop silently no-ops; the dragController
+  // sees a `null` return and skips the re-render.
+  if (_moveAsUnit(newSourceOperation, movingControl)) {
+    const delta = targetWire - sourceWire;
+    const [minOrigWire, maxOrigWire] =
+      _getSubtreeMinMaxWire(newSourceOperation);
+    if (minOrigWire >= 0 && minOrigWire + delta < 0) {
+      return null;
+    }
+    model.ensureQubitCount(Math.max(targetWire, maxOrigWire + delta));
+  } else {
+    model.ensureQubitCount(targetWire);
+  }
 
   // Update operation's targets and controls
   _moveY(newSourceOperation, sourceWire, targetWire, movingControl);
+
+  // Capture POST-shift measurement wires too, so the refresh sweep
+  // covers both the wires the measurements just left AND the wires
+  // they just landed on.
+  _collectMeasurementWires(newSourceOperation, affectedMeasurementWires);
 
   // Move horizontally
   _moveX(
@@ -120,6 +166,33 @@ const moveOperation = (
       sourceParentOperation.kind === "ket"
     ) {
       sourceParentOperation.targets = getChildTargets(sourceParentOperation);
+    }
+  }
+
+  // Prune any ancestor groups whose children just became empty.
+  // Cascades upward — removing one empty ancestor may empty its
+  // grandparent. See `_pruneEmptyAncestors` for the full rationale;
+  // briefly: empty groups have no semantic meaning, render
+  // incorrectly (zero-wire), and trip downstream sweeps if left
+  // in place.
+  //
+  // Runs BEFORE the measurement-line sweep and
+  // `removeTrailingUnusedQubits` so those passes see the already-
+  // cleaned tree.
+  _pruneEmptyAncestors(ancestorChain);
+
+  // Refresh per-wire `numResults` counters for every wire that
+  // may have gained or lost a measurement. `_addOp` / `_removeOp`
+  // only fire this for TOP-LEVEL measurements; when a measurement
+  // crosses wires inside a moved group, this sweep is the only
+  // thing that keeps `qubits[wire].numResults` in step with the
+  // measurements actually present on that wire. Stale numResults
+  // is exactly what causes the renderer to throw
+  // "Classical register ID N invalid for qubit ID M with 0
+  // classical register(s)" the next paint.
+  for (const wire of affectedMeasurementWires) {
+    if (wire >= 0 && wire < model.qubits.length) {
+      _updateMeasurementLines(model, wire);
     }
   }
 
@@ -159,6 +232,322 @@ const _moveX = (
 };
 
 /**
+ * Should we move `op` as a single rigid unit (shift every register
+ * by the same delta), or as a single leg (rewire just the one
+ * register the user grabbed)?
+ *
+ * "As a unit" applies when:
+ *   - `op` is a group (has `children`). The user grabbed the box
+ *     and expects the contained children to come along; rewriting
+ *     the group's `.targets` to a single wire would just relocate
+ *     the box and leave the children on their original wires.
+ *   - `op` has more than one target/qubit in the relevant axis
+ *     (e.g. SWAP, multi-qubit measurement). Single-leg behavior
+ *     would collapse `targets`/`qubits` down to one wire and
+ *     destroy the gate.
+ *
+ * Single-leg behavior is preserved for the ordinary controlled-gate
+ * cases (one target + N controls) so the user can drag the target
+ * or any one control independently — that's the established
+ * "rewire one leg of a CNOT" interaction.
+ */
+const _moveAsUnit = (op: Operation, movingControl: boolean): boolean => {
+  if (op.children != null) return true;
+  if (movingControl) return false;
+  switch (op.kind) {
+    case "unitary":
+    case "ket":
+      return op.targets.length > 1;
+    case "measurement":
+      return op.qubits.length > 1;
+  }
+};
+
+/**
+ * Shift every wire-axis register of `op` — and, recursively, every
+ * wire-axis register of every child op — by `delta`. Used when
+ * moving a multi-wire op (group or multi-target/multi-qubit gate)
+ * as a rigid unit, so the whole gate keeps its shape on the new
+ * wires.
+ *
+ * Classical controls (registers whose `result` field is set; they
+ * point at an external classical register identified by the
+ * `(qubit, result)` tuple of the wire that owns it) need careful
+ * handling. The right question is **not** "is this register
+ * classical?" but **"is the thing it references also moving?"**:
+ *
+ *   - If the producing measurement lives **inside** the moved
+ *     subtree, the producer is shifting by the same `delta`, so
+ *     the consumer must shift too to stay aligned with it.
+ *   - If the producing measurement lives **outside** the moved
+ *     subtree, the classical register it produced stays put, so
+ *     the consumer must stay anchored to its current wire.
+ *
+ * To distinguish, we first walk the subtree and collect the set
+ * of `(qubit, result)` tuples that measurements **inside** it
+ * produce. Then for each classical control we encounter while
+ * shifting, we look it up in that set: present → shift, absent
+ * → anchor.
+ */
+const _shiftAllRegisters = (op: Operation, delta: number): void => {
+  if (delta === 0) return;
+  const internalProducers = new Set<string>();
+  _collectInternalClassicalRegs(op, internalProducers);
+  _doShift(op, delta, internalProducers);
+};
+
+/**
+ * Collect the set of classical-register IDs produced by any
+ * measurement inside `op`'s subtree (including `op` itself). The
+ * key is `"<qubit>:<result>"` because the consumer-side classical
+ * control's `(qubit, result)` pair uniquely identifies the
+ * classical register it reads.
+ */
+const _collectInternalClassicalRegs = (
+  op: Operation,
+  set: Set<string>,
+): void => {
+  if (op.kind === "measurement") {
+    for (const r of op.results) {
+      if (r.result !== undefined) {
+        set.add(`${r.qubit}:${r.result}`);
+      }
+    }
+  }
+  if (op.children) {
+    for (const col of op.children) {
+      for (const child of col.components) {
+        _collectInternalClassicalRegs(child, set);
+      }
+    }
+  }
+};
+
+/**
+ * The actual recursive shift. See `_shiftAllRegisters` for the
+ * classical-control rationale.
+ *
+ * The rule is uniform across every register on every op:
+ *   - Quantum register (`result === undefined`) → always shift.
+ *     It identifies a wire the op acts on, and that wire is
+ *     moving with us.
+ *   - Classical-register reference (`result !== undefined`) →
+ *     shift iff the producing measurement lives inside the moved
+ *     subtree (i.e. its `(qubit, result)` tuple is in
+ *     `internalProducers`); anchor otherwise.
+ *
+ * This applies to **all** register-bearing fields, not just
+ * `controls`. Notably, classically-conditional unitaries record
+ * their classical-register dependencies in BOTH `controls` AND
+ * `targets` (the `targets` entries are visual extent claims that
+ * draw the line from the gate down to the classical register
+ * box). A producer-external classical entry in `targets` that we
+ * naively shifted would re-point the visual extent at a wire with
+ * no classical registers — and the renderer throws
+ * "Classical register ID X invalid for qubit ID Y with 0 classical
+ * register(s)" trying to address it.
+ */
+const _doShift = (
+  op: Operation,
+  delta: number,
+  internalProducers: Set<string>,
+): void => {
+  for (const reg of getOperationRegisters(op)) {
+    if (reg.result === undefined) {
+      reg.qubit += delta;
+    } else if (internalProducers.has(`${reg.qubit}:${reg.result}`)) {
+      reg.qubit += delta;
+    }
+    // else: external classical-register reference → anchor in place.
+  }
+  if (op.children) {
+    for (const col of op.children) {
+      for (const child of col.components) {
+        _doShift(child, delta, internalProducers);
+      }
+    }
+  }
+};
+
+/**
+ * Collect the set of wires that have at least one measurement
+ * anywhere in `op`'s subtree. Used to know which wires' per-wire
+ * `numResults` counters need to be refreshed after a move.
+ */
+const _collectMeasurementWires = (op: Operation, set: Set<number>): void => {
+  if (op.kind === "measurement") {
+    for (const q of op.qubits) set.add(q.qubit);
+  }
+  if (op.children) {
+    for (const col of op.children) {
+      for (const child of col.components) {
+        _collectMeasurementWires(child, set);
+      }
+    }
+  }
+};
+
+/**
+ * Walk `op` and every descendant to find the lowest and highest
+ * **quantum** wire (i.e. registers whose `result` field is
+ * undefined; classical-register entries are skipped because they
+ * reference a producer's wire, not a wire `op` acts on).
+ *
+ * Used by `moveOperation` to refuse a unit-shift that would push
+ * any wire below 0, and to know how far to grow the model on the
+ * high side. Walking the subtree (not just the top-level op) is
+ * essential for groups whose root `.targets` is just a derived
+ * extent claim and may miss wires that only appear in deeply
+ * nested children.
+ *
+ * Returns `[-1, -1]` if the subtree references no quantum wires.
+ */
+const _getSubtreeMinMaxWire = (op: Operation): [number, number] => {
+  let min = Number.POSITIVE_INFINITY;
+  let max = -1;
+  const walk = (o: Operation): void => {
+    for (const r of getOperationRegisters(o)) {
+      if (r.result === undefined) {
+        if (r.qubit < min) min = r.qubit;
+        if (r.qubit > max) max = r.qubit;
+      }
+    }
+    if (o.children) {
+      for (const col of o.children) {
+        for (const c of col.components) walk(c);
+      }
+    }
+  };
+  walk(op);
+  return [Number.isFinite(min) ? min : -1, max];
+};
+
+/**
+ * Type alias for one rung of the source op's ancestor chain
+ * captured for the empty-group cleanup pass. Each entry pairs an
+ * ancestor operation with the array reference that contains it,
+ * captured BEFORE the move mutates anything. Both references stay
+ * valid through `_moveX` / `_removeOp` because we hold the array
+ * itself, not a location string into it.
+ */
+type AncestorRung = { op: Operation; containingArray: ComponentGrid };
+
+/**
+ * Collect the source op's ancestor chain, innermost-first, up to
+ * (but not including) the root grid. Used by the empty-group
+ * cleanup pass in `moveOperation`.
+ *
+ * Walks location strings during capture (before any mutation), but
+ * the captured references are object references — they remain
+ * valid even if `_moveX` later invalidates location strings by
+ * splicing columns elsewhere in the tree.
+ */
+const _collectAncestorChain = (
+  model: CircuitModel,
+  sourceLocation: string,
+): AncestorRung[] => {
+  const chain: AncestorRung[] = [];
+  // Source's PARENT is the innermost ancestor. We never include the
+  // source op itself; that's already removed by `_removeOp`.
+  let loc = Location.parse(sourceLocation).parent();
+  while (!loc.isRoot) {
+    const locStr = loc.toString();
+    const op = findOperation(model.componentGrid, locStr);
+    const containingArray = findParentArray(model.componentGrid, locStr);
+    if (op == null || containingArray == null) break;
+    chain.push({ op, containingArray });
+    loc = loc.parent();
+  }
+  return chain;
+};
+
+/**
+ * `true` if `op` has no rendered content underneath it — either no
+ * `children` at all, or `children` that are all empty columns. An
+ * empty group has no semantic meaning (nothing to execute) and no
+ * sensible render (zero width, zero height); the cleanup pass in
+ * `moveOperation` deletes such groups rather than leaving them as
+ * landmines for the renderer.
+ */
+const _isOperationEmpty = (op: Operation): boolean => {
+  if (op.children == null || op.children.length === 0) return true;
+  return op.children.every((col) => col.components.length === 0);
+};
+
+/**
+ * Refresh the derived `targets`/`results` of `op` from its current
+ * children. Mirrors the inline switch in `moveOperation`'s
+ * source-parent refresh.
+ */
+const _refreshDerivedTargets = (op: Operation): void => {
+  if (op.kind === "measurement") {
+    op.results = getChildTargets(op);
+  } else if (op.kind === "unitary" || op.kind === "ket") {
+    op.targets = getChildTargets(op);
+  }
+};
+
+/**
+ * Walk the ancestor chain innermost-out and delete any ancestor
+ * whose children just collapsed to empty. Deletion is cascading:
+ * if removing an ancestor empties its grandparent (because that
+ * grandparent only contained this one ancestor), the grandparent
+ * gets deleted next.
+ *
+ * Why this is necessary. `moveOperation` removes the source op
+ * from its parent's grid, but the parent group itself is left in
+ * place even if it now has no children. The renderer trips on
+ * empty groups (zero-wire layout, undefined targets), and even if
+ * it didn't, an empty group has no semantic meaning — there's
+ * nothing to execute, no Q# to emit. Quietly deleting it matches
+ * what users intuitively expect when they "move the last thing
+ * out of" a group.
+ *
+ * The walk respects an existing-refresh signal: the innermost
+ * ancestor's targets are already refreshed by the call site
+ * (because it's the source op's direct parent), so we skip
+ * refreshing it. Any ancestor we delete demands that the NEXT
+ * ancestor's targets be re-derived because it just lost a child.
+ *
+ * Note on `qubitUseCounts` drift. We don't adjust use-counts when
+ * deleting an empty group because the group itself contributed no
+ * use-count entries (the count is per leaf-op, and the empty group
+ * has no leaves). `removeTrailingUnusedQubits` is the safety net.
+ */
+const _pruneEmptyAncestors = (chain: AncestorRung[]): void => {
+  // Innermost ancestor's targets are already refreshed by the
+  // caller; only ancestors we modify here need a re-derivation.
+  let needsRefresh = false;
+  for (const { op, containingArray } of chain) {
+    if (needsRefresh) {
+      _refreshDerivedTargets(op);
+      needsRefresh = false;
+    }
+    if (!_isOperationEmpty(op)) {
+      // First non-empty ancestor terminates the walk: anything
+      // above this is fully populated and can't have been emptied
+      // by our move.
+      break;
+    }
+    // Splice `op` out of its containing array. Mirror the column-
+    // cleanup convention from `_removeOp`: if the column that held
+    // `op` is now empty, drop the column too.
+    for (let colIdx = 0; colIdx < containingArray.length; colIdx++) {
+      const col = containingArray[colIdx];
+      const opIdx = col.components.indexOf(op);
+      if (opIdx >= 0) {
+        col.components.splice(opIdx, 1);
+        if (col.components.length === 0) {
+          containingArray.splice(colIdx, 1);
+        }
+        break;
+      }
+    }
+    needsRefresh = true;
+  }
+};
+
+/**
  * Move an operation vertically by changing its controls and targets.
  *
  * Pure mutator on `sourceOperation` — no grid walks, no model
@@ -174,6 +563,19 @@ const _moveY = (
   targetWire: number,
   movingControl: boolean,
 ): void => {
+  // Group / multi-target / multi-qubit ops: move the whole gate as
+  // a unit (shift every register by the same delta). See
+  // `_moveAsUnit` for the criteria and rationale.
+  if (_moveAsUnit(sourceOperation, movingControl)) {
+    const delta = targetWire - sourceWire;
+    if (delta !== 0) _shiftAllRegisters(sourceOperation, delta);
+    return;
+  }
+
+  // Single-leg path (CNOT-style: rewire just one target or one
+  // control leg). Everything below this point is the original
+  // single-target movement logic.
+
   // Check if the source operation already has a target or control on the target wire
   let targets: Register[];
   switch (sourceOperation.kind) {
@@ -693,22 +1095,39 @@ const _removeOp = (
   }
 };
 
-/** Update measurement-result indices for a specific wire. */
+/**
+ * Update measurement-result indices for a specific wire.
+ *
+ * Walks the **entire** grid tree (including nested children of
+ * group ops) and renumbers every measurement on `wireIndex` in
+ * document order. `model.qubits[wireIndex].numResults` is then
+ * set to the total count.
+ *
+ * Recursing into children is essential because the renderer's
+ * per-wire classical-register count comes from this counter and
+ * the renderer reads ANY measurement's results — including ones
+ * inside expanded groups. If a nested measurement's wire isn't
+ * counted here, the renderer throws "Classical register ID N
+ * invalid for qubit ID M with 0 classical register(s)" the next
+ * time it tries to address the missing register.
+ */
 const _updateMeasurementLines = (model: CircuitModel, wireIndex: number) => {
   model.ensureQubitCount(wireIndex);
   let resultIndex = 0;
-  for (const col of model.componentGrid) {
-    for (const comp of col.components) {
-      if (comp.kind === "measurement") {
-        // Find measurements on the correct wire based on their qubit.
-        const qubit = comp.qubits.find((qubit) => qubit.qubit === wireIndex);
-        if (qubit) {
-          // Remove any existing results and add a new one with the updated index.
-          comp.results = [{ qubit: qubit.qubit, result: resultIndex++ }];
+  const walk = (grid: ComponentGrid): void => {
+    for (const col of grid) {
+      for (const comp of col.components) {
+        if (comp.kind === "measurement") {
+          const qubit = comp.qubits.find((q) => q.qubit === wireIndex);
+          if (qubit) {
+            comp.results = [{ qubit: qubit.qubit, result: resultIndex++ }];
+          }
         }
+        if (comp.children) walk(comp.children);
       }
     }
-  }
+  };
+  walk(model.componentGrid);
   model.qubits[wireIndex].numResults =
     resultIndex > 0 ? resultIndex : undefined;
 };

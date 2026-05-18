@@ -967,6 +967,138 @@ every phase.
   cleanup is Phase C and _only_ Phase C. It's tempting to clean up
   while passing through; resist.
 
+#### Known issues — groups & multi-target gates
+
+Discovered during the post-architecture-refactor bug bash on
+[GroupSplittingTest.Main.qsc](file:///c%3A/Repos/CustomQsharpFiles/GroupSplittingTest.Main.qsc).
+The headline crashes (auto-collapse on move, phantom duplicate,
+rapid-drag bad state, group-contents-stuck, classical-ref-in-
+targets re-pointing, negative-wire drag) are resolved. The
+remaining items are a mix of clear bugs and design questions
+that need a UX decision before implementation.
+
+Listed in the order we plan to attack them. Each item has an
+"open question" line where the answer isn't obvious; settle the
+question before writing code.
+
+##### D1. Crash when a group is emptied by a move-out
+
+**Symptom.** Drag the last remaining child out of a group; the
+group becomes empty and the next render throws.
+
+**Likely cause.** After
+[`moveOperation`](actions/circuitActions.ts) removes the original
+child, the parent group is left with `children: [{ components: [] }]`
+(or an entirely empty `children` array). The renderer or one of
+the post-move sweeps (`getChildTargets`, the parent-targets
+refresh, the measurement-line sweep, `removeTrailingUnusedQubits`)
+trips on the empty-children invariant.
+
+**Fix direction.** After the move-out settles, walk up the parent
+chain from the source location and delete any ancestor whose
+`children` collapsed to empty / all-empty columns. Deletion must
+itself cascade — removing one ancestor may empty its parent.
+
+**Open question.** None — empty groups have no rendering and no
+semantic meaning; deletion is correct. Confirm with the user
+that they're OK with the group quietly disappearing once empty
+(alternative: leave a placeholder, which is uglier).
+
+##### D2. Move group containing a classical condition above its producer
+
+**Symptom.** Drag a group containing `if (c_0)` to a column before
+the `M` that produces `c_0`. The conditional now references a
+measurement that hasn't happened yet (the classical register
+doesn't exist at that column).
+
+**Preferred fix.** Don't even surface dropzones at columns where
+the resulting state would be invalid. The dropzone-generation
+pass already knows the location it's offering; for each candidate
+column, walk the moved subtree's external classical-register
+references and check that every producer measurement is
+still at-or-before the new column. Hide the dropzone if any
+producer would land at-or-after the moved subtree.
+
+**Fallback (if the dropzone-filtering pass is too invasive).**
+Refuse the move at `moveOperation` time (return null,
+no-op) — same pattern as the negative-wire refusal already in
+place. Worse UX (drop just silently does nothing) but a much
+narrower diff.
+
+**Open question.** Confirm preferred-vs-fallback after a
+read-through of the dropzone-generation pass — the answer
+depends on how cleanly the per-column validity check fits the
+existing pipeline.
+
+##### D3. Multi-target gate / group movement semantics
+
+**Status today.** The unit-shift path inside
+[`_moveY`](actions/circuitActions.ts) shifts every register by
+`targetWire - sourceWire`. Grabbing wire 2 of a group and
+dropping on wire 4 shifts the whole group by +2. This was the
+fix for the "group contents stuck" bug.
+
+**Open question.** Is unit-shift the right semantics for ALL
+multi-target ops, or do some want different behavior? Candidate
+alternatives:
+
+- **Unit-shift by grabbed wire (current).** Grabbed wire acts as
+  a handle.
+- **Pin lowest wire to drop wire.** "Drop wire = top of group."
+  Predictable for the "I want this group at wires 2..5" mental
+  model.
+- **Resize (one leg moves, others stay).** Only meaningful for
+  multi-target gates with a clear "main" wire (e.g. CNOT target /
+  controls). Probably not for groups.
+
+**Recommendation.** Keep unit-shift as the default (the recent
+fix makes it work correctly). Revisit only if a concrete case
+comes in where it feels wrong. Multi-target authoring beyond
+shifting (resize, add/remove leg) belongs in the Inspector
+(Planned item #2), not the drag-and-drop surface.
+
+##### D4. Move-inside-group vs. promote-out-of-group disambiguation
+
+**Symptom.** Drag a gate that lives inside `Group { wires 1..3 }`
+to wire 0. Did the user mean:
+
+- (a) "Promote this gate out of the group to the top level on
+  wire 0", or
+- (b) "Extend the group to cover wire 0 too, with the gate still
+  inside"?
+
+Today there's no UI distinction between the two intents.
+
+**Design options.**
+
+- **(a) Modifier key.** Plain drag = expand/move-within;
+  Shift/Alt drag = promote out. Least surprising once learned;
+  needs discoverability work (cursor hint, tooltip).
+- **(b) Drop-zone affordance.** Show distinct "promote" and
+  "expand" zones during the drag. More discoverable; more layout
+  work in [`_dropzoneLayer`](editor/draggable.ts).
+- **(c) Geometry-based.** Drag inside the group's column extent
+  = expand-within; drag outside that extent = promote-out. Fits
+  the existing
+  [`containingGroup`](utils.ts) machinery but couples editor
+  behavior to layout in a way that's hard to explain to users.
+- **(d) Pick a default; promote-out is a separate action.**
+  Drag always expands/moves-within; promote-out happens via a
+  right-click menu or a dedicated "ungroup" toolbar item.
+  Simplest implementation; least flexible.
+
+**Status.** Deferred. Has the largest blast radius of the four
+and is worth its own design session.
+
+##### Roadmap & status
+
+| Item                                    | Severity               | Status                      |
+| --------------------------------------- | ---------------------- | --------------------------- |
+| D1: empty-group crash                   | Crash                  | Up next                     |
+| D2: classical condition before producer | Logic error            | Queued after D1             |
+| D3: multi-target semantics              | Design / documentation | Keep current, document      |
+| D4: move-out vs. expand-group           | Design                 | Deferred — separate session |
+
 ---
 
 ## Planned (in priority order)

@@ -460,6 +460,11 @@ test("moveOperation: moving a child out of a group to a new column ahead of the 
   // The bug: moving the inner H from inside the group to a fresh
   // top-level column at index 0 used to leave the original H still
   // inside the group's children (a duplicate).
+  //
+  // Post-D1 (empty-group cleanup) the group itself disappears
+  // because moving out its only child empties it. The "no
+  // duplicate" guarantee is strengthened: there's neither a
+  // duplicate H nor an empty Group shell.
   /** @type {any} */
   const circuit = {
     qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
@@ -503,8 +508,13 @@ test("moveOperation: moving a child out of a group to a new column ahead of the 
 
   assert.ok(moved, "move should return the new operation");
 
-  // Top-level grid: [new H@0], [X@2], [Group on 0+1]
-  assert.equal(model.componentGrid.length, 3);
+  // Top-level grid: [new H@0], [X@2]. The Group is gone (D1
+  // cleanup pruned it because its last child departed).
+  assert.equal(
+    model.componentGrid.length,
+    2,
+    "two top-level columns: the relocated H and the X (Group is gone)",
+  );
   assert.equal(
     /** @type {any} */ (model.componentGrid[0].components[0]).gate,
     "H",
@@ -513,18 +523,20 @@ test("moveOperation: moving a child out of a group to a new column ahead of the 
     /** @type {any} */ (model.componentGrid[1].components[0]).gate,
     "X",
   );
-  const groupOp = /** @type {any} */ (model.componentGrid[2].components[0]);
-  assert.equal(groupOp.gate, "Group");
 
-  // The crux: the group's children grid must NOT still contain an H.
-  // Pre-fix this was a 1-element grid with a stale H copy.
-  const remainingChildren = groupOp.children.flatMap(
-    (/** @type {any} */ col) => col.components,
-  );
-  assert.equal(
-    remainingChildren.length,
-    0,
-    "original H must be gone from the group's children — no duplicate left behind",
+  // No Group anywhere in the grid (and no second H — the original
+  // duplicate-bug guarantee).
+  /** @type {string[]} */
+  const allGates = [];
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      allGates.push(/** @type {any} */ (op).gate);
+    }
+  }
+  assert.deepEqual(
+    allGates.sort(),
+    ["H", "X"],
+    "no duplicate H and no stale Group shell",
   );
 });
 
@@ -601,4 +613,767 @@ test("moveOperation: returns null when sourceLocation does not resolve", () => {
     /** @type {any} */ (model.componentGrid[0].components[0]).gate,
     "H",
   );
+});
+
+// ---------------------------------------------------------------------------
+// moveOperation: multi-wire ops (groups, SWAP-like multi-target gates)
+// move as a rigid unit
+// ---------------------------------------------------------------------------
+
+test("moveOperation: dragging a multi-target gate (SWAP) shifts all targets by the delta", () => {
+  // Regression: pre-fix, `_moveY` did `targets = [{ qubit: targetWire }]`
+  // unconditionally, which collapsed a SWAP at wires [0, 2] down to a
+  // single-target gate on the drop wire — destroying half the gate.
+  // The fix detects multi-target ops and shifts every register by
+  // `targetWire - sourceWire` so the whole gate moves as a unit.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "SWAP",
+            targets: [{ qubit: 0 }, { qubit: 2 }],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // User grabbed wire 0 of the SWAP and dropped on wire 1 → delta = +1.
+  // Pre-fix: targets = [{ qubit: 1 }] (single-target, gate destroyed).
+  // Post-fix: targets = [{ qubit: 1 }, { qubit: 3 }] (SWAP intact, shifted).
+  const moved = moveOperation(
+    model,
+    "0,0",
+    "0,0",
+    /* sourceWire */ 0,
+    /* targetWire */ 1,
+    /* movingControl */ false,
+    /* insertNewColumn */ false,
+  );
+
+  assert.ok(moved);
+  const wires = /** @type {any} */ (moved).targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.deepEqual(
+    wires,
+    [1, 3],
+    "both SWAP targets must shift by the delta; gate keeps its 2-wire shape",
+  );
+  // The shift introduces wire 3 — model must have grown to accommodate it.
+  assert.equal(model.qubits.length, 4, "wire 3 must exist after the shift");
+});
+
+test("moveOperation: dragging a group shifts the box AND all child register refs", () => {
+  // Regression: pre-fix, moving a group rewrote the group's
+  // `.targets` to a single wire and left every child op pointing
+  // at the original wires. The visible symptom was "the group box
+  // moves but the contents stay put". The fix shifts every
+  // register on the group AND recursively every register in the
+  // group's children grid by the same delta.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Group",
+            // Group spans wires 0..1 via its children.
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                  {
+                    kind: "unitary",
+                    gate: "CNOT",
+                    targets: [{ qubit: 1 }],
+                    controls: [{ qubit: 0 }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // User grabbed wire 0 of the group and dropped on wire 2 → delta = +2.
+  // Expected: group.targets shifts to [2, 3], H child shifts to wire 2,
+  // CNOT child shifts to target=3 control=2.
+  const moved = moveOperation(
+    model,
+    "0,0",
+    "0,0",
+    /* sourceWire */ 0,
+    /* targetWire */ 2,
+    /* movingControl */ false,
+    /* insertNewColumn */ false,
+  );
+
+  assert.ok(moved);
+  const movedAny = /** @type {any} */ (moved);
+  const groupWires = movedAny.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.deepEqual(
+    groupWires,
+    [2, 3],
+    "group's derived targets must shift by the delta",
+  );
+
+  // Children must have followed the box.
+  const h = movedAny.children[0].components[0];
+  const cnot = movedAny.children[0].components[1];
+  assert.equal(h.gate, "H");
+  assert.equal(h.targets[0].qubit, 2, "H child must shift from wire 0 → 2");
+  assert.equal(cnot.gate, "CNOT");
+  assert.equal(
+    cnot.targets[0].qubit,
+    3,
+    "CNOT target must shift from wire 1 → 3",
+  );
+  assert.equal(
+    cnot.controls[0].qubit,
+    2,
+    "CNOT control must shift from wire 0 → 2",
+  );
+});
+
+test("moveOperation: moving a SWAP down by one creates the new bottom wire", () => {
+  // Anchoring sanity check: shifting bumps the model's wire count
+  // to accommodate the new high wire (here wire 3, which didn't
+  // exist pre-move). Without the ensureQubitCount fix in
+  // moveOperation, _moveX would file the op into the grid before
+  // the model knew wire 3 existed, leaving qubitUseCounts out of
+  // step with the actual register set.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "SWAP",
+            targets: [{ qubit: 0 }, { qubit: 2 }],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  assert.equal(model.qubits.length, 3, "precondition: 3 wires");
+
+  moveOperation(model, "0,0", "0,0", 0, 1, false, false);
+
+  assert.equal(
+    model.qubits.length,
+    4,
+    "model must have grown to make room for the shifted high wire",
+  );
+});
+
+test("moveOperation: single-target controlled-gate move still rewires just one leg (no regression)", () => {
+  // Defensive: the unit-shift path must NOT engage for ordinary
+  // CNOT-style gates (1 target + N controls). Dragging the target
+  // of a CNOT to a new wire should leave the control alone — the
+  // long-established "rewire one leg" interaction.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 1 }],
+            controls: [{ qubit: 0 }],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Drag the target from wire 1 to wire 2. The control on wire 0
+  // must stay put (single-leg path).
+  const moved = moveOperation(model, "0,0", "0,0", 1, 2, false, false);
+
+  assert.ok(moved);
+  const movedAny = /** @type {any} */ (moved);
+  assert.equal(movedAny.targets.length, 1);
+  assert.equal(movedAny.targets[0].qubit, 2, "target follows the drag");
+  assert.equal(movedAny.controls.length, 1);
+  assert.equal(
+    movedAny.controls[0].qubit,
+    0,
+    "control must NOT have moved (single-leg behavior preserved)",
+  );
+});
+
+test("moveOperation: moving a group with a classically-controlled child anchors the classical control", () => {
+  // Regression for the render crash:
+  //   "Classical register ID 0 invalid for qubit ID N with 0 classical register(s)"
+  //
+  // A classical control register has the shape `{qubit, result}` —
+  // the `qubit` field points to the WIRE that owns the classical
+  // register (i.e. where the producing measurement lives),
+  // **not** to a wire the gate acts on. When a group with a
+  // classically-controlled child moves but the producing
+  // measurement is EXTERNAL to the group, the classical control
+  // must stay anchored to its current wire — otherwise it gets
+  // re-pointed at a wire with no classical registers and the
+  // renderer throws on the next paint.
+  /** @type {any} */
+  const circuit = {
+    qubits: [
+      { id: 0, numResults: 1 }, // wire 0 owns one classical register (the M's result)
+      { id: 1 },
+      { id: 2 },
+      { id: 3 },
+    ],
+    componentGrid: [
+      {
+        // Top-level (EXTERNAL to the group) measurement on wire 0 —
+        // the producer of the classical register the group's X is
+        // conditioned on.
+        components: [
+          {
+            kind: "measurement",
+            gate: "Measure",
+            qubits: [{ qubit: 0 }],
+            results: [{ qubit: 0, result: 0 }],
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Group",
+            targets: [{ qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "X",
+                    targets: [{ qubit: 1 }],
+                    // Classical control: conditioned on the
+                    // result of the EXTERNAL M (on wire 0).
+                    controls: [{ qubit: 0, result: 0 }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Drag the group from wire 1 to wire 2 → delta = +1.
+  moveOperation(model, "1,0", "1,0", 1, 2, false, false);
+
+  // The group's child X must have its TARGET shifted to wire 2,
+  // but its CLASSICAL CONTROL must STILL point at wire 0 (the
+  // measurement didn't move).
+  const groupOp = /** @type {any} */ (model.componentGrid[1].components[0]);
+  const x = groupOp.children[0].components[0];
+  assert.equal(x.gate, "X");
+  assert.equal(x.targets[0].qubit, 2, "X target must shift with the group");
+  assert.equal(
+    x.controls[0].qubit,
+    0,
+    "classical control must STAY anchored to wire 0 — its classical register did not move",
+  );
+  assert.equal(
+    x.controls[0].result,
+    0,
+    "classical control's result index is unchanged",
+  );
+});
+
+test("moveOperation: moving a group whose internal measurement produces the classical reg shifts the consumer", () => {
+  // The mirror case: the producing measurement is INSIDE the moved
+  // subtree, so the classical register it produces moves with it.
+  // The consumer's classical control must shift by the same delta
+  // to stay aligned with its producer; if we anchored it here
+  // we'd leave a dangling reference to a wire that no longer has
+  // any classical register at all.
+  /** @type {any} */
+  const circuit = {
+    qubits: [
+      { id: 0 },
+      { id: 1, numResults: 1 }, // wire 1 owns the M's classical register
+      { id: 2 },
+      { id: 3 },
+    ],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Group",
+            targets: [{ qubit: 1 }],
+            children: [
+              {
+                // Internal measurement on wire 1.
+                components: [
+                  {
+                    kind: "measurement",
+                    gate: "M",
+                    qubits: [{ qubit: 1 }],
+                    results: [{ qubit: 1, result: 0 }],
+                  },
+                ],
+              },
+              {
+                // Internal X classically-controlled on the
+                // INTERNAL M (matching (qubit, result) tuple).
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "X",
+                    targets: [{ qubit: 1 }],
+                    controls: [{ qubit: 1, result: 0 }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Drag the group from wire 1 to wire 2 → delta = +1.
+  moveOperation(model, "0,0", "0,0", 1, 2, false, false);
+
+  const groupOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const m = groupOp.children[0].components[0];
+  const x = groupOp.children[1].components[0];
+
+  // M and its result moved to wire 2.
+  assert.equal(m.qubits[0].qubit, 2, "internal M's qubit must shift");
+  assert.equal(m.results[0].qubit, 2, "internal M's result must shift");
+
+  // X target shifts AND the classical control follows because
+  // its producer (the internal M) is also inside the moved
+  // subtree.
+  assert.equal(x.targets[0].qubit, 2, "X target must shift");
+  assert.equal(
+    x.controls[0].qubit,
+    2,
+    "classical control must FOLLOW its internal producer to wire 2",
+  );
+  assert.equal(x.controls[0].result, 0, "result index unchanged");
+
+  // numResults bookkeeping must follow the measurement: wire 1
+  // is no longer a producer, wire 2 is.
+  assert.equal(
+    model.qubits[1].numResults,
+    undefined,
+    "wire 1 must no longer claim a classical register (M moved away)",
+  );
+  assert.equal(
+    model.qubits[2].numResults,
+    1,
+    "wire 2 must now claim the classical register (M lives here now)",
+  );
+});
+
+test("moveOperation: refuses a unit-shift that would push wires below 0", () => {
+  // Regression: a unit-shift with negative delta whose minimum
+  // wire would land below 0 was previously executed anyway,
+  // leaving the subtree with `qubit: -N` register refs. The next
+  // render then either threw "Qubit register with ID -N not found"
+  // OR, more often, threw the misleading
+  // "Classical register ID X invalid for qubit ID Y with 0
+  // classical register(s)" after `removeTrailingUnusedQubits`
+  // trimmed the model in response to the corruption.
+  //
+  // The fix: refuse the move (return null, leave the model
+  // untouched) when the unit-shift's lowest wire would land
+  // below 0. The dragController treats a `null` return as a
+  // no-op and skips the re-render.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Group",
+            // Multi-target gate; touches wires 0..3. Lowest wire is 0,
+            // so ANY negative delta would push below 0.
+            targets: [{ qubit: 0 }, { qubit: 1 }, { qubit: 2 }, { qubit: 3 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const before = JSON.stringify(circuit);
+  const model = new CircuitModel(circuit);
+
+  // User grabs wire 2 and drops on wire 0 → delta = -2, which
+  // would push the Group's lowest wire (0) to -2.
+  const result = moveOperation(model, "0,0", "0,0", 2, 0, false, false);
+
+  assert.equal(result, null, "move must be refused");
+  // Model must be untouched.
+  assert.equal(
+    JSON.stringify({
+      qubits: model.qubits,
+      componentGrid: model.componentGrid,
+    }),
+    before,
+    "refusal must not mutate the model",
+  );
+});
+
+test("moveOperation: a unit-shift whose lowest wire lands exactly on 0 is allowed", () => {
+  // Boundary case: delta = -1 with min wire 1 → lowest post-shift
+  // wire is 0. That's still in-range; the move must succeed.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Group",
+            // Lowest wire is 1; delta = -1 lands it at 0.
+            targets: [{ qubit: 1 }, { qubit: 2 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  const result = moveOperation(model, "0,0", "0,0", 1, 0, false, false);
+
+  assert.ok(result, "move must succeed when min post-shift wire is exactly 0");
+  const group = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const wires = group.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.deepEqual(wires, [0, 1], "group's targets must shift to [0, 1]");
+});
+
+test("moveOperation: classical-ref in targets of a conditional anchors when producer is external", () => {
+  // Regression: a classically-conditional unitary (e.g. `if: ...`)
+  // records its classical-register dependency in BOTH its
+  // `controls` array AND its `targets` array (the targets entry
+  // is a visual extent claim that draws the line down to the
+  // classical register box). The producer-internal-vs-external
+  // rule applies to ALL such classical-ref entries, not just
+  // controls.
+  //
+  // Bug: `_doShift` previously shifted `targets` unconditionally,
+  // so a unit-shift of a conditional whose producer M was a
+  // SIBLING (outside the moved subtree) re-pointed the targets
+  // classical-ref at a wire that has no classical registers.
+  // The renderer then threw:
+  //   "Classical register ID 0 invalid for qubit ID 1 with 0
+  //   classical register(s)"
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          // Producer M lives at the OUTER level on wire 0.
+          {
+            kind: "measurement",
+            gate: "M",
+            qubits: [{ qubit: 0 }],
+            results: [{ qubit: 0, result: 0 }],
+          },
+          // Conditional unitary: targets include both a quantum
+          // ref AND a classical-ref pointing back at the M above.
+          {
+            kind: "unitary",
+            gate: "if",
+            isConditional: true,
+            targets: [{ qubit: 0 }, { qubit: 0, result: 0 }],
+            controls: [{ qubit: 0, result: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Move just the conditional from wire 0 to wire 1.
+  // (Path 0,1 = the second op in the top-level column.)
+  moveOperation(model, "0,1", "0,1", 0, 1, false, false);
+
+  // After the move the columns may have reshuffled (a fresh
+  // column can be inserted to hold the moved op or the M). Find
+  // the conditional wherever it landed.
+  /** @type {any} */
+  let cond;
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (op.gate === "if") {
+        cond = op;
+        break;
+      }
+    }
+    if (cond) break;
+  }
+  assert.ok(cond, "conditional must still be present in the grid");
+  // The quantum target follows the move.
+  assert.equal(cond.targets[0].qubit, 1, "quantum target must shift to wire 1");
+  // The classical-ref target STAYS at wire 0 (where the producer M lives).
+  assert.equal(
+    cond.targets[1].qubit,
+    0,
+    "classical-ref in targets must anchor at producer wire 0",
+  );
+  assert.equal(cond.targets[1].result, 0, "result index unchanged");
+  // Same rule for controls.
+  assert.equal(
+    cond.controls[0].qubit,
+    0,
+    "classical control must anchor at producer wire 0",
+  );
+  // The H inside the children shifts (its target is quantum).
+  const h = cond.children[0].components[0];
+  assert.equal(h.targets[0].qubit, 1, "child H's quantum target must shift");
+});
+
+test("moveOperation: moving the last child out deletes the empty group", () => {
+  // Regression (D1): before this fix, dragging the last remaining
+  // child out of a group left the group as
+  //   { gate: "Group", targets: [], children: [{components:[]}] }
+  // The next render either threw on the empty `targets` or
+  // produced a zero-wire phantom that the user couldn't reach to
+  // delete.
+  //
+  // Expected: the group quietly disappears once empty. The grid
+  // contains only the relocated child.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Group",
+            targets: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Move the only child (H at 0,0-0,0) out to a new top-level
+  // column on wire 1.
+  moveOperation(model, "0,0-0,0", "0,1", 0, 1, false, true);
+
+  // No `Group` should remain anywhere in the top-level grid.
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      assert.notEqual(
+        /** @type {any} */ (op).gate,
+        "Group",
+        "empty group must be deleted, not left as a zero-content shell",
+      );
+    }
+  }
+  // The H must be present at wire 1.
+  /** @type {any} */
+  let h;
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (/** @type {any} */ (op).gate === "H") {
+        h = op;
+        break;
+      }
+    }
+    if (h) break;
+  }
+  assert.ok(h, "H must still be present at top level");
+  assert.equal(h.targets[0].qubit, 1, "H must have landed on wire 1");
+});
+
+test("moveOperation: empty-group cleanup cascades through nested groups", () => {
+  // Regression (D1): when the move-out empties an inner group
+  // AND the inner group was the only child of an outer group,
+  // BOTH groups must disappear. The cleanup walks the ancestor
+  // chain innermost-out, stopping at the first ancestor that
+  // still has content.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Outer",
+            targets: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "Inner",
+                    targets: [{ qubit: 0 }],
+                    children: [
+                      {
+                        components: [
+                          {
+                            kind: "unitary",
+                            gate: "H",
+                            targets: [{ qubit: 0 }],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Move the deepest leaf (H at 0,0-0,0-0,0) out to a new
+  // top-level column on wire 1.
+  moveOperation(model, "0,0-0,0-0,0", "0,1", 0, 1, false, true);
+
+  // Both Outer and Inner must be gone.
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      const gate = /** @type {any} */ (op).gate;
+      assert.ok(
+        gate !== "Outer" && gate !== "Inner",
+        `${gate} group must be deleted (cascading cleanup)`,
+      );
+    }
+  }
+});
+
+test("moveOperation: cleanup STOPS at the first non-empty ancestor", () => {
+  // Regression (D1): the cleanup must not over-delete. When the
+  // innermost ancestor empties but its grandparent still has
+  // other content, only the innermost ancestor disappears; the
+  // grandparent stays put with its remaining content.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Outer",
+            targets: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "Inner",
+                    targets: [{ qubit: 0 }],
+                    children: [
+                      {
+                        components: [
+                          {
+                            kind: "unitary",
+                            gate: "H",
+                            targets: [{ qubit: 0 }],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                  // Sibling of Inner: keeps Outer alive after
+                  // Inner is pruned.
+                  { kind: "unitary", gate: "Y", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  moveOperation(model, "0,0-0,0-0,0", "0,1", 0, 1, false, true);
+
+  // Inner must be gone.
+  /** @type {any} */
+  let outer;
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (/** @type {any} */ (op).gate === "Outer") {
+        outer = op;
+      }
+      assert.notEqual(
+        /** @type {any} */ (op).gate,
+        "Inner",
+        "Inner must be deleted (it's now empty)",
+      );
+    }
+  }
+  // Outer must still be present, now containing just Y.
+  assert.ok(outer, "Outer must survive (it still contains Y)");
+  const survivors = outer.children[0].components.map(
+    (/** @type {any} */ c) => c.gate,
+  );
+  assert.deepEqual(survivors, ["Y"], "Outer's only remaining child is Y");
 });
