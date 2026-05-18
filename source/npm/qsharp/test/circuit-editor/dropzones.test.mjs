@@ -449,6 +449,125 @@ test("user expand choice survives a re-render via ViewState", async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Drag-causes-shift integration test. Reproduces the user-visible bug
+// where dragging a gate around — or any edit that splices a new column
+// into the top-level grid — would silently collapse an expanded group
+// because the group's location string changed (`"1,0"` → `"2,0"`)
+// while its viewState entry stayed at the old key. `Sqore` now
+// rebases viewState keys by object identity at the start of every
+// render, so user expand/collapse choices follow their op across
+// position shifts.
+// ---------------------------------------------------------------------------
+
+test("user expand choice survives an upstream column-shift mutation", async () => {
+  const { Sqore } = await import("../../dist/ux/circuit-vis/sqore.js");
+
+  // Top-level grid: [col 0: X on q2] [col 1: Foo group with H inside].
+  // Foo lives at "1,0". The test will splice a new column at index 0,
+  // shifting Foo to "2,0".
+  const group = singleCircuit({
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 2 }],
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+
+  const container = document.createElement("div");
+  container.className = "qs-circuit";
+  document.body.appendChild(container);
+
+  const sqore = new Sqore(group, {
+    editor: { editCallback: () => {} },
+  });
+  sqore.draw(container);
+
+  // User expands Foo (at "1,0") via the chevron.
+  const fooGate = container.querySelector('[data-location="1,0"]');
+  assert.ok(fooGate, "expected Foo gate at location 1,0");
+  const expandBtn = fooGate.querySelector(".gate-control.gate-expand");
+  assert.ok(expandBtn, "expected expand chevron on collapsed Foo");
+  expandBtn.dispatchEvent(
+    new container.ownerDocument.defaultView.MouseEvent("click", {
+      bubbles: true,
+    }),
+  );
+  assert.equal(
+    sqore.viewState.expanded.get("1,0"),
+    true,
+    "viewState should record the user's expand choice at 1,0",
+  );
+
+  // Simulate an editor mutation that inserts a new column at index 0
+  // of the top-level grid. This is the canonical drag-out-of-group
+  // shape: a gate dropped into a fresh column ahead of the group
+  // pushes the group's column index from 1 to 2.
+  sqore.circuit.componentGrid.splice(0, 0, {
+    components: [
+      {
+        kind: "unitary",
+        gate: "Y",
+        targets: [{ qubit: 0 }],
+      },
+    ],
+  });
+
+  // Re-render via the same path the editor controllers use after
+  // every Action.
+  sqore.renderCircuit(container);
+
+  // Pre-rebase: viewState["1,0"] stayed put, but Foo is now at "2,0",
+  // so the default-collapse won and Foo silently collapsed. With the
+  // identity-based rebase, the viewState entry follows Foo to "2,0".
+  assert.equal(
+    sqore.viewState.expanded.has("1,0"),
+    false,
+    "stale viewState key at old location must be cleared",
+  );
+  assert.equal(
+    sqore.viewState.expanded.get("2,0"),
+    true,
+    "viewState entry must follow the op to its new location",
+  );
+
+  // And the visible side of the contract: Foo is still drawn expanded.
+  const fooGateAfter = container.querySelector('[data-location="2,0"]');
+  assert.ok(fooGateAfter, "expected Foo gate at new location 2,0");
+  assert.equal(
+    fooGateAfter.getAttribute("data-expanded"),
+    "true",
+    "Foo must still render as expanded after the column shift",
+  );
+});
+
+// ---------------------------------------------------------------------------
 // External circuit update via `Sqore.updateCircuit`: models the VS
 // Code undo/redo path. The host parses a new `CircuitGroup` from the
 // reverted text and pushes it down. Pre-`updateCircuit`, the React

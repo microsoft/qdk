@@ -53,6 +53,30 @@ const moveOperation = (
 
   if (originalOperation == null) return null;
 
+  // Resolve source-side parent references BEFORE any mutation.
+  //
+  // `_moveX` below may splice a fresh column into a grid that lies
+  // on the source's path — e.g. moving a child out of a group to a
+  // new top-level column at index 0 shifts the group's top-level
+  // column index from N to N+1, which in turn invalidates the
+  // source's hierarchical location string ("N,0-..." no longer
+  // names the same op). A location-string lookup after the mutation
+  // would walk the wrong path and either return null (leaving the
+  // original op in place as a phantom duplicate) or return some
+  // unrelated grid (corrupting the removal).
+  //
+  // Capturing the array reference itself sidesteps the issue: the
+  // reference stays valid as its contents shift around it.
+  const sourceOperationParent = findParentArray(
+    model.componentGrid,
+    sourceLocation,
+  );
+  if (sourceOperationParent == null) return null;
+  const sourceParentOperation = findParentOperation(
+    model.componentGrid,
+    sourceLocation,
+  );
+
   // Create a deep copy of the source operation
   const newSourceOperation: Operation = JSON.parse(
     JSON.stringify(originalOperation),
@@ -61,14 +85,7 @@ const moveOperation = (
   model.ensureQubitCount(targetWire);
 
   // Update operation's targets and controls
-  _moveY(
-    model,
-    newSourceOperation,
-    sourceLocation,
-    sourceWire,
-    targetWire,
-    movingControl,
-  );
+  _moveY(newSourceOperation, sourceWire, targetWire, movingControl);
 
   // Move horizontally
   _moveX(
@@ -79,12 +96,33 @@ const moveOperation = (
     insertNewColumn,
   );
 
-  const sourceOperationParent = findParentArray(
-    model.componentGrid,
-    sourceLocation,
-  );
-  if (sourceOperationParent == null) return null;
   _removeOp(model, originalOperation, sourceOperationParent);
+
+  // Refresh the source's old parent's derived `targets`/`results`
+  // AFTER the removal has settled the children grid. Doing this
+  // earlier (the previous behavior, inside `_moveY`) would read the
+  // children grid while it still contained the original op, so the
+  // parent would keep claiming the departed child's wires — visible
+  // to the user as a group whose render extent stretched to wires
+  // it no longer had content on.
+  //
+  // Note: rewriting the parent's `.targets`/`.results` here does NOT
+  // adjust `qubitUseCounts`. The drift is tolerable because
+  // `removeTrailingUnusedQubits` (called below) walks the tree to
+  // decide what to drop — it does not consult `qubitUseCounts`.
+  if (sourceParentOperation != null) {
+    if (sourceParentOperation.kind === "measurement") {
+      // Note: this is very confusing with measurements. Maybe the right thing to do
+      // will become more apparent if we implement expandable measurements.
+      sourceParentOperation.results = getChildTargets(sourceParentOperation);
+    } else if (
+      sourceParentOperation.kind === "unitary" ||
+      sourceParentOperation.kind === "ket"
+    ) {
+      sourceParentOperation.targets = getChildTargets(sourceParentOperation);
+    }
+  }
+
   model.removeTrailingUnusedQubits();
 
   return newSourceOperation;
@@ -122,11 +160,16 @@ const _moveX = (
 
 /**
  * Move an operation vertically by changing its controls and targets.
+ *
+ * Pure mutator on `sourceOperation` — no grid walks, no model
+ * touches. The parent-operation `targets`/`results` refresh that
+ * used to live at the tail of this function is now done at the end
+ * of `moveOperation` instead, so it runs against the post-removal
+ * children grid (otherwise the parent would keep claiming the
+ * departed child's wires).
  */
 const _moveY = (
-  model: CircuitModel,
   sourceOperation: Operation,
-  sourceLocation: string,
   sourceWire: number,
   targetWire: number,
   movingControl: boolean,
@@ -197,24 +240,6 @@ const _moveY = (
     case "ket":
       sourceOperation.targets = [{ qubit: targetWire }];
       break;
-  }
-
-  // Update parent operation targets
-  const parentOperation = findParentOperation(
-    model.componentGrid,
-    sourceLocation,
-  );
-  if (parentOperation) {
-    if (parentOperation.kind === "measurement") {
-      // Note: this is very confusing with measurements. Maybe the right thing to do
-      // will become more apparent if we implement expandable measurements.
-      parentOperation.results = getChildTargets(parentOperation);
-    } else if (
-      parentOperation.kind === "unitary" ||
-      parentOperation.kind === "ket"
-    ) {
-      parentOperation.targets = getChildTargets(parentOperation);
-    }
   }
 };
 

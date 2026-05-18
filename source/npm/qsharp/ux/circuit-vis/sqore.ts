@@ -100,6 +100,18 @@ export class Sqore {
    */
   readonly viewState: ViewState = new ViewState();
   /**
+   * Snapshot of `op object → location string` captured at the end
+   * of the most recent render, used to migrate `viewState` keys
+   * forward when ops shift position. See
+   * [`rebaseViewState`](#method-rebaseViewState).
+   *
+   * `null` means "no prior render yet" (first draw) or "the prior
+   * snapshot is no longer valid" (after `updateCircuit` replaces
+   * the underlying tree). In both cases the next render skips the
+   * rebase and just refreshes the snapshot.
+   */
+  private lastLocationMap: Map<Operation, string> | null = null;
+  /**
    * Initializes Sqore object.
    *
    * @param circuitGroup Group of circuits to be visualized.
@@ -170,14 +182,17 @@ export class Sqore {
       circuitGroup.circuits == null ||
       circuitGroup.circuits.length === 0
     ) {
-      throw new Error(
-        `No circuit found. Please provide a valid circuit.`,
-      );
+      throw new Error(`No circuit found. Please provide a valid circuit.`);
     }
     this.circuitGroup = circuitGroup;
     // We only render the first circuit in the group today; matches
     // the constructor's behavior.
     this.circuit = circuitGroup.circuits[0];
+    // External replacement: the new circuit's op object identities
+    // have no relation to the prior tree. Drop the rebase snapshot
+    // so the next render doesn't try to migrate viewState against
+    // stale identities (which would silently drop every entry).
+    this.lastLocationMap = null;
     if (this.container != null) {
       this.renderCircuit(this.container);
     }
@@ -264,6 +279,14 @@ export class Sqore {
    * @param container HTML element for rendering visualization into.
    */
   private renderCircuit(container: HTMLElement): void {
+    // Migrate viewState keys to track ops whose locations shifted
+    // due to mutations between renders (drag-and-drop, gate insert,
+    // qubit-line edits, etc.). MUST run BEFORE the deep copy below,
+    // because the rebase compares op object identities against the
+    // live `this.circuit.componentGrid` — the JSON copy would break
+    // that identity link.
+    this.rebaseViewState();
+
     // Create copy of circuit to prevent mutation
     const _circuit: Circuit = JSON.parse(JSON.stringify(this.circuit));
 
@@ -310,6 +333,71 @@ export class Sqore {
         this.renderCircuit(container),
       );
     }
+
+    // Snapshot the live op → location map for the next render's
+    // rebase. Built from `this.circuit` (the live model), NOT the
+    // deep copy, so the op object identities here match the ones
+    // the editor's mutations will operate on between now and the
+    // next render.
+    this.lastLocationMap = this.buildLiveLocationMap(
+      this.circuit.componentGrid,
+    );
+  }
+
+  /**
+   * Walk `grid` in render order (the same `Location.root().child(...)`
+   * scheme `fillGateRegistry` uses) and build a map from each op
+   * object reference to its current location string.
+   *
+   * Walks the live model — callers must NOT pass a deep copy, since
+   * identity-based lookups are the point.
+   */
+  private buildLiveLocationMap(grid: ComponentGrid): Map<Operation, string> {
+    const map = new Map<Operation, string>();
+    const walk = (g: ComponentGrid, parent: Location): void => {
+      g.forEach((col, colIndex) =>
+        col.components.forEach((op, opIndex) => {
+          const loc = parent.child(colIndex, opIndex);
+          map.set(op, loc.toString());
+          if (op.children != null) {
+            walk(op.children, loc);
+          }
+        }),
+      );
+    };
+    walk(grid, Location.root());
+    return map;
+  }
+
+  /**
+   * Migrate `viewState` keys forward across mutations that may have
+   * shifted ops to new locations.
+   *
+   * Uses object identity against `this.lastLocationMap` (captured
+   * at the end of the previous render) so that user expand/collapse
+   * choices "follow" their op when the op's string location number
+   * changes — e.g. dragging a gate into column 0 shifts every other
+   * op's column index by 1, and any user-expanded group needs its
+   * viewState entry rekeyed from `"<oldCol>,<op>"` to
+   * `"<oldCol+1>,<op>"` so it stays expanded.
+   *
+   * No-op on the first render (no prior snapshot) and after
+   * `updateCircuit` invalidates the snapshot. The rebase logic
+   * itself lives in [`ViewState.rebase`](data/viewState.ts).
+   */
+  private rebaseViewState(): void {
+    const prev = this.lastLocationMap;
+    if (prev == null) return;
+    const next = this.buildLiveLocationMap(this.circuit.componentGrid);
+    // For every op we tracked at the last render, compute its old
+    // and new location. Build the (oldLoc → newLoc | null) remap
+    // that `ViewState.rebase` consumes.
+    const remap = new Map<string, string | null>();
+    for (const [op, oldLoc] of prev) {
+      const newLoc = next.get(op);
+      remap.set(oldLoc, newLoc ?? null);
+    }
+    this.viewState.rebase(remap);
   }
 
   private expandOperationsToDepth(

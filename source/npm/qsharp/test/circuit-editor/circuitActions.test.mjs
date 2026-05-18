@@ -19,6 +19,7 @@ import {
   addControl,
   addOperation,
   findAndRemoveOperations,
+  moveOperation,
   moveQubit,
   removeControl,
   removeOperation,
@@ -434,4 +435,170 @@ test("removeQubit decrements use counts for ops that targeted the removed wire",
   assert.equal(/** @type {any} */ (ops[0]).targets[0].qubit, 0);
   assert.equal(/** @type {any} */ (ops[1]).gate, "Z");
   assert.equal(/** @type {any} */ (ops[1]).targets[0].qubit, 1);
+});
+
+// ---------------------------------------------------------------------------
+// `moveOperation` cross-scope correctness.
+//
+// The earlier implementation looked up the source op's parent grid
+// AFTER `_moveX` had already mutated the model. When `_moveX` spliced
+// a new column ahead of the source's path (e.g. moving a child out of
+// a group to a fresh top-level column at index 0), the source's
+// location string went stale and `findParentArray` either returned
+// the wrong grid or null — leaving a duplicate of the source op in
+// the original group.
+//
+// These tests pin down the cross-scope contract: after a successful
+// move, the original location's grid no longer contains the op, and
+// the target grid contains exactly one copy.
+// ---------------------------------------------------------------------------
+
+test("moveOperation: moving a child out of a group to a new column ahead of the group does NOT leave a duplicate behind", () => {
+  // Top-level grid layout:
+  //   col 0: X on wire 2
+  //   col 1: Group on wires 0+1, with one child H on wire 0.
+  // The bug: moving the inner H from inside the group to a fresh
+  // top-level column at index 0 used to leave the original H still
+  // inside the group's children (a duplicate).
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [{ kind: "unitary", gate: "X", targets: [{ qubit: 2 }] }],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Group",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Move H from "1,0-0,0" (inside group) to top-level "0,0".
+  // insertNewColumn=true mirrors what the drag controller does for
+  // an inter-column dropzone — it forces a fresh column ahead of
+  // the existing col 0, shifting every existing top-level index by 1.
+  const moved = moveOperation(
+    model,
+    "1,0-0,0",
+    "0,0",
+    /* sourceWire */ 0,
+    /* targetWire */ 0,
+    /* movingControl */ false,
+    /* insertNewColumn */ true,
+  );
+
+  assert.ok(moved, "move should return the new operation");
+
+  // Top-level grid: [new H@0], [X@2], [Group on 0+1]
+  assert.equal(model.componentGrid.length, 3);
+  assert.equal(
+    /** @type {any} */ (model.componentGrid[0].components[0]).gate,
+    "H",
+  );
+  assert.equal(
+    /** @type {any} */ (model.componentGrid[1].components[0]).gate,
+    "X",
+  );
+  const groupOp = /** @type {any} */ (model.componentGrid[2].components[0]);
+  assert.equal(groupOp.gate, "Group");
+
+  // The crux: the group's children grid must NOT still contain an H.
+  // Pre-fix this was a 1-element grid with a stale H copy.
+  const remainingChildren = groupOp.children.flatMap(
+    (/** @type {any} */ col) => col.components,
+  );
+  assert.equal(
+    remainingChildren.length,
+    0,
+    "original H must be gone from the group's children — no duplicate left behind",
+  );
+});
+
+test("moveOperation: moving a child out of a group updates the group's targets to drop the departed wire", () => {
+  // The parent group's `targets` array is a derived render-extent
+  // claim: it must reflect the union of its remaining children's
+  // wires. Pre-fix, the parent's `targets` was recomputed BEFORE the
+  // child was removed, so it still included the departed child's
+  // wire — leaving the group claiming a wire it no longer contains.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Group",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                  { kind: "unitary", gate: "Z", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Move the H (wire 0 inside the group) out to top-level on wire 2.
+  moveOperation(
+    model,
+    "0,0-0,0",
+    "1,0",
+    /* sourceWire */ 0,
+    /* targetWire */ 2,
+    /* movingControl */ false,
+    /* insertNewColumn */ true,
+  );
+
+  // Group should now only contain Z on wire 1.
+  const groupOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const wires = groupOp.targets.map((/** @type {any} */ t) => t.qubit).sort();
+  assert.deepEqual(
+    wires,
+    [1],
+    "group's targets must reflect only its remaining children's wires",
+  );
+});
+
+test("moveOperation: returns null when sourceLocation does not resolve", () => {
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }],
+    componentGrid: [
+      {
+        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  const result = moveOperation(model, "5,5-9,9", "0,0", 0, 0, false, false);
+
+  assert.equal(result, null);
+  // Model untouched.
+  assert.equal(model.componentGrid.length, 1);
+  assert.equal(
+    /** @type {any} */ (model.componentGrid[0].components[0]).gate,
+    "H",
+  );
 });

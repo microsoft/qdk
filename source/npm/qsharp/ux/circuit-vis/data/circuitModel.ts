@@ -84,14 +84,36 @@ export class CircuitModel {
   }
 
   /**
-   * Drop trailing wires that no operation references. Stops at the
-   * first wire with a non-zero use count from the right.
+   * Drop trailing wires that no operation references anywhere in
+   * the tree (including the derived `.targets` / `.results` field
+   * on group ops, which the renderer consumes directly).
+   *
+   * Walks the actual grid rather than consulting `qubitUseCounts`
+   * because that counter is maintained incrementally by `_addOp` /
+   * `_removeOp` / `addControl` / `removeControl`, while a group
+   * op's derived `.targets` field is rewritten by `getChildTargets`
+   * after a move WITHOUT a corresponding count adjustment. Trusting
+   * the counter then lets us drop a wire that the group still
+   * names in its derived targets, and the next render crashes when
+   * it tries to address that wire via `rowHeights[<dropped wire>]`.
    */
   removeTrailingUnusedQubits(): void {
-    while (
-      this.qubitUseCounts.length > 0 &&
-      this.qubitUseCounts[this.qubitUseCounts.length - 1] === 0
-    ) {
+    let maxUsed = -1;
+    const walk = (grid: ComponentGrid): void => {
+      for (const col of grid) {
+        for (const op of col.components) {
+          for (const reg of getOperationRegisters(op)) {
+            if (reg.result === undefined && reg.qubit > maxUsed) {
+              maxUsed = reg.qubit;
+            }
+          }
+          if (op.children) walk(op.children);
+        }
+      }
+    };
+    walk(this.componentGrid);
+
+    while (this.qubits.length > maxUsed + 1) {
       this.qubits.pop();
       this.qubitUseCounts.pop();
     }

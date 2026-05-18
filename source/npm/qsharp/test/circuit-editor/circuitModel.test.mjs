@@ -228,6 +228,124 @@ test("removeTrailingUnusedQubits empties the model when no wires are used", () =
   assert.deepEqual(model.qubitUseCounts, []);
 });
 
+test("removeTrailingUnusedQubits walks nested children, not just qubitUseCounts", () => {
+  // Regression for the "drag into group → render crash" bug:
+  //   * The renderer reads every op's `.targets` / `.controls`
+  //     directly, INCLUDING the derived `.targets` field on group
+  //     ops that `getChildTargets` rewrites after a move.
+  //   * `qubitUseCounts` is maintained incrementally by `_addOp` /
+  //     `_removeOp` and is NOT updated when `getChildTargets`
+  //     rewrites a group's targets.
+  //   * If we trust `qubitUseCounts` to decide which trailing wires
+  //     to drop, we can drop a wire that a group op still names in
+  //     its derived `.targets` — and the next render throws
+  //     "Cannot read properties of undefined (reading
+  //     'currentGroupBordersBelowWire')" because `rowHeights[wire]`
+  //     is missing.
+  //
+  // Walking the actual tree (this test) avoids that whole class
+  // of drift.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Group",
+            // Group's own derived targets claim wire 3, even though
+            // the only nested child is on wire 0.
+            targets: [{ qubit: 0 }, { qubit: 3 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  // The constructor only walks top-level ops, so it counts the
+  // Group op's targets [0, 3] → useCounts = [1, 0, 0, 1].
+  // Now hand-corrupt qubitUseCounts to model the post-getChildTargets
+  // state: imagine a move that rewrote Group.targets and an
+  // intervening `_removeOp` zeroed out wire 3's counter even though
+  // Group still claims it.
+  model.qubitUseCounts = [1, 0, 0, 0];
+
+  model.removeTrailingUnusedQubits();
+
+  // Wire 3 must NOT have been dropped, because Group's `.targets`
+  // still names it. (The renderer will read those targets and
+  // crash if wire 3 is gone.)
+  assert.equal(
+    model.qubits.length,
+    4,
+    "wire 3 must stay alive because Group still references it",
+  );
+});
+
+test("removeTrailingUnusedQubits is recursive into expanded-group children", () => {
+  // Even when the parent's derived `.targets` happens to be in
+  // sync, a wire used only deep inside a group's children must
+  // still keep the wire alive.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Group",
+            targets: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "Inner",
+                    targets: [{ qubit: 0 }],
+                    children: [
+                      {
+                        components: [
+                          {
+                            kind: "unitary",
+                            gate: "Y",
+                            targets: [{ qubit: 2 }],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  // Top-level constructor only sees Group's targets [0] → useCounts
+  // = [1, 0, 0]. Wire 2 is used only deep inside, so the counter
+  // is zero. The grid walk must keep wire 2.
+  assert.deepEqual(model.qubitUseCounts, [1, 0, 0]);
+
+  model.removeTrailingUnusedQubits();
+
+  assert.equal(
+    model.qubits.length,
+    3,
+    "wire 2 must stay because a nested child references it",
+  );
+});
+
 // ---------------------------------------------------------------------------
 // increment / decrement
 // ---------------------------------------------------------------------------

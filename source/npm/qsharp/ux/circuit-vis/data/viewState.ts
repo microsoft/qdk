@@ -37,17 +37,20 @@ import { ComponentGrid } from "./circuit.js";
  *   - `true` entry → expanded, even if the default would collapse.
  *   - `false` entry → collapsed, even if the default would expand.
  *
- * # Position stability (known limitation)
+ * # Position stability
  *
  * Entries are keyed by the op's hierarchical location string
- * (e.g. `"0,0-1,2"`). When an edit shifts an op's position, its
- * `ViewState` entry stays at the old key and silently goes stale.
- * In practice this means: collapsing a group, then inserting a
- * sibling above it, loses the collapse. The right long-term fix is
- * stable IDs (R4's `Location` value type set up the centralization
- * needed for this); for now the simpler keying is good enough and
- * fixes the high-impact bug (every editor mutation losing every
- * expand state).
+ * (e.g. `"0,0-1,2"`), but locations are not stable under edits
+ * that splice columns or grids. To keep user overrides attached
+ * to the right op as the user drags gates around, the View layer
+ * (`Sqore`) snapshots an `op → location` map after every render
+ * and calls [`rebase`](#method-rebase) at the start of the next
+ * render to migrate keys forward via object identity. See
+ * [sqore.ts](../sqore.ts).
+ *
+ * External tree replacement (`Sqore.updateCircuit`) destroys the
+ * identity link between old and new ops; the snapshot is dropped
+ * there and the next render starts fresh.
  */
 export class ViewState {
   /**
@@ -82,6 +85,52 @@ export class ViewState {
    */
   clearExpanded(location: string): void {
     this.expanded.delete(location);
+  }
+
+  /**
+   * Rewrite expansion keys via an old → new location mapping.
+   *
+   * For each existing entry at `oldKey`:
+   *   - `remap.get(oldKey) === <string>` → rekey to that string
+   *     (drop `oldKey`, set the new key to the same value).
+   *   - `remap.get(oldKey) === null` → drop the entry (op is no
+   *     longer present in the grid).
+   *   - `remap.has(oldKey) === false` → leave unchanged (the caller
+   *     had no information about this op; safest is to keep the
+   *     entry rather than guess).
+   *
+   * The View layer ([sqore.ts](../sqore.ts)) calls this on every
+   * render to track ops whose locations shifted due to upstream
+   * edits (drag-and-drop, gate insertion, qubit-line edits, etc.).
+   * The remap is computed by object identity against a snapshot
+   * taken at the previous render, so unmoved ops keep their key
+   * even when their string location number would otherwise drift.
+   *
+   * Idempotent against a fixed-point remap (a remap whose new keys
+   * map to themselves on the next call). Collisions (two old keys
+   * mapping to the same new key) are not expected from Sqore's
+   * caller; if they happen, later writes overwrite earlier ones.
+   */
+  rebase(remap: ReadonlyMap<string, string | null>): void {
+    // Build the rebased map in a fresh container, then swap it in.
+    // Doing it in two passes (read-only iteration over the current
+    // entries, then atomic replacement) is what makes key chains
+    // (`a → b`, `b → c`) and key swaps (`a → b`, `b → a`) behave
+    // correctly — an in-place rekey would clobber an entry mid-walk
+    // before its own rename had a chance to run.
+    const next = new Map<string, boolean>();
+    for (const [oldKey, value] of this.expanded) {
+      if (!remap.has(oldKey)) {
+        // Untracked: keep at the same key.
+        next.set(oldKey, value);
+        continue;
+      }
+      const newKey = remap.get(oldKey);
+      if (newKey == null) continue; // op is gone; drop the entry
+      next.set(newKey, value);
+    }
+    this.expanded.clear();
+    for (const [k, v] of next) this.expanded.set(k, v);
   }
 
   /**
