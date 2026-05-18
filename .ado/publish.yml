@@ -92,7 +92,7 @@ extends:
           - job: "Node"
             pool:
               name: "Azure-Pipelines-DevTools-EO"
-              image: "ubuntu-latest"
+              image: "updated-ubuntu-latest"
               os: linux
             timeoutInMinutes: 90
             templateContext:
@@ -140,7 +140,7 @@ extends:
           - job: "VSCode"
             pool:
               name: "Azure-Pipelines-DevTools-EO"
-              image: "ubuntu-latest"
+              image: "updated-ubuntu-latest"
               os: linux
             timeoutInMinutes: 90
             templateContext:
@@ -257,7 +257,7 @@ extends:
           - job: "Platform_Agnostic_Python"
             pool:
               name: "Azure-Pipelines-DevTools-EO"
-              image: "ubuntu-latest"
+              image: "updated-ubuntu-latest"
               os: linux
             timeoutInMinutes: 90
             templateContext:
@@ -441,7 +441,7 @@ extends:
           - job: "Publish_VSIX_Package"
             pool:
               name: "Azure-Pipelines-DevTools-EO"
-              image: "ubuntu-latest"
+              image: "updated-ubuntu-latest"
               os: linux
             templateContext:
               type: releaseJob
@@ -500,7 +500,7 @@ extends:
           - job: "Publish_Python_Packages"
             pool:
               name: "Azure-Pipelines-DevTools-EO"
-              image: "ubuntu-latest"
+              image: "updated-ubuntu-latest"
               os: linux
             templateContext:
               type: releaseJob
@@ -554,7 +554,7 @@ extends:
           - job: "Publish_NPM_Package"
             pool:
               name: "Azure-Pipelines-DevTools-EO"
-              image: "ubuntu-latest"
+              image: "updated-ubuntu-latest"
               os: linux
             templateContext:
               type: releaseJob
