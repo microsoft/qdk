@@ -1014,8 +1014,6 @@ export class LearningService {
     this.emitProgress();
   }
 
-
-
   async reloadProgress(): Promise<void> {
     const ws = this.requireWorkspace();
     await this.loadProgress(ws);
