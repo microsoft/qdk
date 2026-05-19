@@ -83,6 +83,39 @@ const moveOperation = (
   // (See `_collectAncestorChain` for why this has to be pre-move.)
   const ancestorChain = _collectAncestorChain(model, sourceLocation);
 
+  // Safety net: refuse the move if it would place the source
+  // before one of its external classical-register producers in
+  // document order. The dropzone-filter pass in
+  // [`DragController`](../editor/controllers/dragController.ts)
+  // hides invalid dropzones at drag-start so the user can't even
+  // initiate such a drop; this guard catches any path that bypasses
+  // that filter (programmatic moves, future code paths, race
+  // conditions). Same `return null` no-op contract as the
+  // negative-wire refusal below — `dragController` treats null as
+  // "drop rejected, no re-render".
+  //
+  // Comparison is on PRE-mutation locations: if a producer's
+  // current column is not strictly earlier than the candidate
+  // `targetLocation`'s column (with ancestor groups projecting
+  // their column onto everything they contain), the move would
+  // place the consumer at-or-before the producer's time-step.
+  // See [`Location.inEarlierColumnThan`](../data/location.ts) for
+  // the comparison rules — note that two ops in the same column
+  // are simultaneous, not predecessor/successor, so a consumer
+  // "promoted" to a sibling op-position of the producer's outer
+  // group is still in the producer's column and gets refused.
+  const externalProducerLocs = collectExternalProducerLocations(
+    model.componentGrid,
+    sourceLocation,
+  );
+  if (externalProducerLocs.length > 0) {
+    const targetLoc = Location.parse(targetLocation);
+    for (const pLocStr of externalProducerLocs) {
+      const pLoc = Location.parse(pLocStr);
+      if (!pLoc.inEarlierColumnThan(targetLoc)) return null;
+    }
+  }
+
   // Create a deep copy of the source operation
   const newSourceOperation: Operation = JSON.parse(
     JSON.stringify(originalOperation),
@@ -423,6 +456,117 @@ const _getSubtreeMinMaxWire = (op: Operation): [number, number] => {
 };
 
 /**
+ * Walk the entire grid (recursing into nested children) and build
+ * a map from `"<qubit>:<result>"` to the **location string** of
+ * the measurement operation that produces that classical
+ * register. Locations use the same hierarchical format as the
+ * rest of the editor (`"0,1"` for top level, `"0,1-2,3"` for
+ * nested), which is exactly what
+ * [`Location.inEarlierColumnThan`](../data/location.ts) compares.
+ *
+ * Used by `collectExternalProducerLocations` (and indirectly by
+ * the dropzone-filter pass and the `moveOperation` safety net)
+ * to decide whether a candidate drop target preserves the
+ * "producer column strictly earlier than consumer column"
+ * invariant for every classical register a moved subtree
+ * consumes.
+ *
+ * Multiple producers for the same key shouldn't happen in a
+ * well-formed circuit, but if they do the **last** one wins —
+ * that's the one document-order traversal would visit most
+ * recently before any consumer.
+ */
+const _indexProducers = (grid: ComponentGrid): Map<string, string> => {
+  const map = new Map<string, string>();
+  const walk = (g: ComponentGrid, prefix: string): void => {
+    g.forEach((col, ci) => {
+      col.components.forEach((op, oi) => {
+        const loc = prefix === "" ? `${ci},${oi}` : `${prefix}-${ci},${oi}`;
+        if (op.kind === "measurement") {
+          for (const r of op.results) {
+            if (r.result !== undefined) {
+              map.set(`${r.qubit}:${r.result}`, loc);
+            }
+          }
+        }
+        if (op.children) walk(op.children, loc);
+      });
+    });
+  };
+  walk(grid, "");
+  return map;
+};
+
+/**
+ * For the operation at `subtreeLocation`, return the locations of
+ * every measurement that produces a classical register the
+ * subtree consumes — but only when that producer lives **outside**
+ * the subtree.
+ *
+ * Why "external only". Internal producers (M lives inside the
+ * moved subtree) travel with the consumer when the subtree is
+ * moved as a unit, so they impose no constraint on the drop
+ * target. External producers stay put, so the consumer's new
+ * position must still come after each of them in document order.
+ *
+ * Used by:
+ *   - The dropzone-filter pass in
+ *     [`DragController.onGateMouseDown`](../editor/controllers/dragController.ts)
+ *     to hide drop targets that would invert the
+ *     producer-before-consumer ordering. (User-facing: invalid
+ *     dropzones simply don't appear during the drag.)
+ *   - The `moveOperation` safety net (refuses the move with
+ *     `return null` if a producer ends up after the consumer)
+ *     as a defense in depth in case a dropzone slips through.
+ *
+ * Returns an empty array if the op has no classical consumers,
+ * if every consumer's producer is internal, or if the subtree
+ * doesn't exist. Producers whose location can't be resolved are
+ * silently skipped — we can't refuse moves we can't reason about.
+ */
+const collectExternalProducerLocations = (
+  rootGrid: ComponentGrid,
+  subtreeLocation: string,
+): string[] => {
+  const subtree = findOperation(rootGrid, subtreeLocation);
+  if (subtree == null) return [];
+
+  // Collect internal producers (their `"qubit:result"` keys) so
+  // we can exclude them from the constraint check.
+  const internalProducers = new Set<string>();
+  _collectInternalClassicalRegs(subtree, internalProducers);
+
+  // Walk the subtree and collect every classical-ref's key
+  // that is NOT in the internal set.
+  const externalKeys = new Set<string>();
+  const collectRefs = (op: Operation): void => {
+    for (const r of getOperationRegisters(op)) {
+      if (r.result !== undefined) {
+        const key = `${r.qubit}:${r.result}`;
+        if (!internalProducers.has(key)) externalKeys.add(key);
+      }
+    }
+    if (op.children) {
+      for (const col of op.children) {
+        for (const c of col.components) collectRefs(c);
+      }
+    }
+  };
+  collectRefs(subtree);
+  if (externalKeys.size === 0) return [];
+
+  // Map every measurement in the grid to its location, then look
+  // up each external key.
+  const producers = _indexProducers(rootGrid);
+  const locations: string[] = [];
+  for (const key of externalKeys) {
+    const loc = producers.get(key);
+    if (loc != null) locations.push(loc);
+  }
+  return locations;
+};
+
+/**
  * Type alias for one rung of the source op's ancestor chain
  * captured for the empty-group cleanup pass. Each entry pairs an
  * ancestor operation with the array reference that contains it,
@@ -516,12 +660,12 @@ const _refreshDerivedTargets = (op: Operation): void => {
  */
 const _pruneEmptyAncestors = (chain: AncestorRung[]): void => {
   // Innermost ancestor's targets are already refreshed by the
-  // caller; only ancestors we modify here need a re-derivation.
+  // caller; only ancestors we modify here need a re-derivation
+  // when the *next* iteration runs.
   let needsRefresh = false;
   for (const { op, containingArray } of chain) {
     if (needsRefresh) {
       _refreshDerivedTargets(op);
-      needsRefresh = false;
     }
     if (!_isOperationEmpty(op)) {
       // First non-empty ancestor terminates the walk: anything
@@ -543,6 +687,8 @@ const _pruneEmptyAncestors = (chain: AncestorRung[]): void => {
         break;
       }
     }
+    // We just removed a child from the NEXT ancestor in the chain;
+    // it needs to re-derive its targets on the next iteration.
     needsRefresh = true;
   }
 };
@@ -1135,6 +1281,7 @@ const _updateMeasurementLines = (model: CircuitModel, wireIndex: number) => {
 export {
   addControl,
   addOperation,
+  collectExternalProducerLocations,
   findAndRemoveOperations,
   moveOperation,
   moveQubit,

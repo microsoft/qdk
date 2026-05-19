@@ -5,6 +5,7 @@ import { ComponentGrid, Unitary } from "../../data/circuit.js";
 import {
   addControl,
   addOperation,
+  collectExternalProducerLocations,
   moveOperation,
   removeControl,
   removeOperation,
@@ -156,6 +157,14 @@ export class DragController {
         this.ctx.ghostQubitLayer.style.display = "none";
       }
       this.ctx.dropzoneLayer.style.display = "none";
+      // Reset any per-dropzone visibility marks left behind by
+      // `hideInvalidDropzones`. Without this, a drag that doesn't
+      // trigger a re-render (canceled drag, or a drop where
+      // `deepEqual` short-circuits `renderFn`) leaves invalid-for-
+      // last-drag dropzones still marked `display: none`, and the
+      // next drag — including a toolbox drag, which never runs the
+      // filter — inherits those stale marks.
+      this.showAllDropzones();
     });
 
     // Track whether the most recent mouseup landed on the circuit
@@ -303,6 +312,15 @@ export class DragController {
       this.ctx.interaction.selectedOperation.dataAttributes["location"] =
         selectedLocation;
     }
+
+    // Hide dropzones whose drop would invert producer-before-consumer
+    // ordering for any classical register the selected op consumes
+    // from outside its own subtree. See `hideInvalidDropzones` for
+    // the full rationale; the gist is that without this filter, a
+    // user can drag a classically-conditional group to a column
+    // before its producing measurement, producing a circuit that's
+    // either semantically invalid or outright crashes the renderer.
+    this.hideInvalidDropzones(selectedLocation);
 
     this.ctx.container.classList.add("moving");
     this.ctx.ghostQubitLayer.style.display = "block";
@@ -502,6 +520,92 @@ export class DragController {
       this.ctx.interaction.selectedOperation,
       this.ctx.interaction.movingControl,
     );
+  }
+
+  /**
+   * Hide every dropzone in the layer that would, if used as the
+   * drop target for the currently-dragged op at `selectedLocation`,
+   * invert the "producer measurement comes before its classical
+   * consumer" ordering. Invalid dropzones get
+   * `style.display = "none"` so they neither paint nor catch
+   * mouseup events.
+   *
+   * Why this is necessary. A classically-conditional unitary
+   * carries `(qubit, result)` references to a producing
+   * measurement. If the user drops it into a column before that
+   * measurement, the references point at a classical register
+   * that doesn't exist yet at the consumer's render position.
+   * The renderer either crashes outright
+   * ("Classical register ID N invalid for qubit ID M with 0
+   * classical register(s)") or produces a semantically broken
+   * circuit.
+   *
+   * Why a fresh visibility pass on every drag. The drop-zone DOM
+   * is regenerated on every render; its inline `display` styles
+   * are inherited from the layer's own `display: none` toggle.
+   * Resetting every dropzone to `display: ""` first means we
+   * never accumulate stale "invalid" marks from a previous
+   * drag's selected op.
+   *
+   * Producers internal to the dragged subtree don't constrain the
+   * drop: they travel with the consumer when the subtree is
+   * moved as a unit. See
+   * [`collectExternalProducerLocations`](../../actions/circuitActions.ts)
+   * for the producer-collection rules.
+   *
+   * Pairs with the `moveOperation` safety-net refusal. The
+   * controller filter is the user-facing surface; the action-layer
+   * refusal catches any drop that slips through (e.g. via the
+   * temporary per-op dropzones the multi-target drag spawns).
+   */
+  private hideInvalidDropzones(selectedLocation: string): void {
+    // Reset every dropzone to visible first so stale marks from a
+    // previous drag don't bleed into this one. (Belt-and-suspenders
+    // with the layer-mouseup reset in `installLayerListeners`.)
+    this.showAllDropzones();
+
+    const externalProducerLocs = collectExternalProducerLocations(
+      this.ctx.model.componentGrid,
+      selectedLocation,
+    );
+    if (externalProducerLocs.length === 0) return;
+
+    const producerLocs = externalProducerLocs.map((s) => Location.parse(s));
+
+    const dropzones =
+      this.ctx.dropzoneLayer.querySelectorAll<SVGElement>(".dropzone");
+    dropzones.forEach((dz) => {
+      const targetLocStr = dz.getAttribute("data-dropzone-location");
+      if (targetLocStr == null) return;
+      const targetLoc = Location.parse(targetLocStr);
+      // Hide if any external producer is NOT in a strictly earlier
+      // column than this drop target. The column-strict comparator
+      // (rather than plain document order) catches the case where
+      // a consumer gets "promoted" to a higher level but lands in
+      // the same outer column as its producer — same time-step,
+      // just on a sibling subtree, still invalid.
+      for (const pLoc of producerLocs) {
+        if (!pLoc.inEarlierColumnThan(targetLoc)) {
+          dz.style.display = "none";
+          return;
+        }
+      }
+    });
+  }
+
+  /**
+   * Clear every per-dropzone `display` mark, restoring CSS-default
+   * visibility. Shared by `hideInvalidDropzones` (so each gate-drag
+   * starts from a clean slate) and the layer-mouseup teardown (so
+   * a toolbox drag or future gate drag doesn't inherit stale marks
+   * from the previous drag's filter).
+   */
+  private showAllDropzones(): void {
+    const dropzones =
+      this.ctx.dropzoneLayer.querySelectorAll<SVGElement>(".dropzone");
+    dropzones.forEach((dz) => {
+      dz.style.display = "";
+    });
   }
 
   /**

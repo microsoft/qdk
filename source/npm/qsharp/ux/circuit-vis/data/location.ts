@@ -164,4 +164,101 @@ export class Location {
     }
     return true;
   }
+
+  /**
+   * `true` if this location comes strictly *before* `other` in
+   * document order — i.e. the renderer would visit this op before
+   * `other` during a depth-first walk of the component grid.
+   *
+   * Document-order comparison rules, applied segment-by-segment:
+   *
+   *   1. Compare `(col, op)` lexicographically (column first, then
+   *      opIndex within the column). The smaller pair comes first.
+   *   2. If every segment compared so far is equal and one location
+   *      ran out of segments, the **shorter** location comes first
+   *      — an ancestor renders before its descendants. (E.g. the
+   *      group at `"0,0"` renders before its child at `"0,0-0,1"`.)
+   *
+   * Equal locations return `false` (strict before).
+   *
+   * Not what you want for "producer must precede consumer" —
+   * different ops in the same column are simultaneous, not
+   * "before" each other. Use [`inEarlierColumnThan`](#) for that.
+   */
+  before(other: Location): boolean {
+    const n = Math.min(this.segments.length, other.segments.length);
+    for (let i = 0; i < n; i++) {
+      const [ac, ao] = this.segments[i];
+      const [bc, bo] = other.segments[i];
+      if (ac !== bc) return ac < bc;
+      if (ao !== bo) return ao < bo;
+    }
+    return this.segments.length < other.segments.length;
+  }
+
+  /**
+   * `true` if this location is in a strictly **earlier column**
+   * than `other` — i.e. the renderer guarantees an op at this
+   * location finishes before an op at `other` *starts*, in real
+   * time-step order, with ancestor groups projecting their column
+   * down onto everything they contain.
+   *
+   * Used to enforce "producer measurement must finish before its
+   * classical consumer starts" for the dropzone filter and the
+   * `moveOperation` safety net. The renderer-document-order
+   * comparator [`before`](#) is the wrong thing for this: two ops
+   * in the same column are simultaneous, not before/after each
+   * other, and a consumer "promoted" to the producer's outer
+   * column is still in that column even if it's a sibling op.
+   *
+   * Algorithm, applied segment-by-segment from the root down:
+   *
+   *   1. At each shared segment index `i`, look at the **column**
+   *      indices `(this.col[i], other.col[i])`:
+   *      - this.col < other.col → strictly earlier column. Done.
+   *      - this.col > other.col → strictly later column. Not earlier.
+   *      - equal columns → same time-step at this nesting level;
+   *        keep checking deeper.
+   *   2. When columns are equal at level `i` but the **op-index**
+   *      differs, the two locations are in different ops within
+   *      the same column — i.e. siblings at the same time-step,
+   *      not predecessor/successor. Not earlier.
+   *   3. If every shared segment is fully equal and one location
+   *      ran out of segments first, one is an ancestor of the
+   *      other (or they're identical). The ancestor "occupies"
+   *      the same column as its descendants at every shared
+   *      level — not strictly earlier. Not earlier.
+   *
+   * Worked example. Producer measurement at
+   * `"0,0-1,0-0,0-1,0"` (deeply nested inside a `for` at
+   * top-level col 0):
+   *
+   *   - vs. consumer at `"5,X"` (any X) → producer.col[0]=0 < 5 → ✓ earlier.
+   *   - vs. consumer at `"0,1"` (top-level col 0, sibling op) →
+   *     producer.col[0]=0 == 0, op-indices differ → ✗ same col.
+   *   - vs. consumer at `"0,0-2,0"` (same outer group, later
+   *     inner col) → equal at i=0, producer.col[1]=1 < 2 → ✓ earlier.
+   *   - vs. consumer at `"0,0-1,1"` (same outer + inner col,
+   *     different op) → equal at i=0, equal cols at i=1, op-indices
+   *     differ → ✗ same col within group.
+   */
+  inEarlierColumnThan(other: Location): boolean {
+    const n = Math.min(this.segments.length, other.segments.length);
+    for (let i = 0; i < n; i++) {
+      const [ac, ao] = this.segments[i];
+      const [bc, bo] = other.segments[i];
+      if (ac < bc) return true;
+      if (ac > bc) return false;
+      // Same column at this level. If the op-indices differ, the
+      // two locations branch into different ops here — they're at
+      // the same time-step, just on different sibling subtrees.
+      if (ao !== bo) return false;
+      // Same (col, op) — keep walking; the locations share this
+      // segment of the path.
+    }
+    // Every shared segment was identical and one (or both)
+    // location(s) ran out. Ancestor-vs-descendant or equal — both
+    // mean "same column at every shared level".
+    return false;
+  }
 }

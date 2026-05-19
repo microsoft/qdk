@@ -507,54 +507,107 @@ const _populateDropzonesForGrid = (
     const columnOps = grid[colIndex];
     if (columnOps == null) continue;
 
-    // Track the next wire we still need to cover in *this scope*.
-    // Starts at the scope's top wire so we don't accidentally emit
-    // dropzones above an expanded group's interior.
-    let wireIndex = minWire;
+    // Precompute which wires this column's ops actually occupy.
+    // A central dropzone at an occupied wire would visually sit on
+    // top of a gate (or its connecting lines), even if the gate
+    // belongs to a different op than the one being iterated — so
+    // the "is this wire safe for a central drop?" question can't
+    // be answered from a single op in isolation.
+    //
+    // We also need a per-wire `opIndex` for the dropzone's location
+    // string. The action layer treats `opIndex` as the array
+    // position to insert at (`Array.splice(opIndex, 0, op)`); the
+    // renderer doesn't depend on array order for layout. So:
+    //
+    //   - Owned wire → use the owning op's opIndex. Drops "onto"
+    //     the gate insert at the gate's array position.
+    //   - Unowned wire → use `components.length`. Drops in a gap
+    //     append to the column's array.
+    //
+    // Walk ops in declared order; first claimant of a wire wins
+    // (overlapping ops in one column shouldn't occur — the action
+    // layer's `_addOp` splits them into separate columns — but
+    // defensive anyway).
+    const occupiedWires = new Set<number>();
+    const wireOwnerOpIndex = new Map<number, number>();
+    columnOps.components.forEach((op, opIndex) => {
+      const [minT, maxT] = getMinMaxRegIdx(op);
+      for (let w = minT; w <= maxT; w++) {
+        occupiedWires.add(w);
+        if (!wireOwnerOpIndex.has(w)) {
+          wireOwnerOpIndex.set(w, opIndex);
+        }
+      }
+    });
 
-    const makeBox = (opIndex: number, interColumn: boolean) =>
-      makeDropzoneBox(
-        colIndex,
-        opIndex,
-        scope,
-        wireData,
-        wireIndex,
-        interColumn,
-        pathPrefix,
+    // Wire-by-wire pass. The previous algorithm accumulated a
+    // monotonically-increasing `wireIndex` across ops; that
+    // assumed ops were sorted by `minTarget`, which the compiler
+    // often violates (it tends to emit ops in execution order
+    // rather than wire order). Iterating wires directly removes
+    // that assumption and emits the same boxes for the
+    // sorted-by-wire common case.
+    for (let wireIndex = minWire; wireIndex < maxWire; wireIndex++) {
+      const opIndex =
+        wireOwnerOpIndex.get(wireIndex) ?? columnOps.components.length;
+
+      // Inter-column band: always emit. It's a narrow vertical
+      // strip on the left edge of the column ("insert a new column
+      // before this one"); even when it slightly overlaps a gate's
+      // body it doesn't visually conflict with the gate icon.
+      dropzoneLayer.appendChild(
+        makeDropzoneBox(
+          colIndex,
+          opIndex,
+          scope,
+          wireData,
+          wireIndex,
+          true,
+          pathPrefix,
+        ),
       );
 
-    columnOps.components.forEach((op, opIndex) => {
-      const [minTarget, maxTarget] = getMinMaxRegIdx(op);
-      // Defensive clip: an op inside a group should never reference a
-      // wire outside the group's extent, but if the data ever drifts
-      // we'd rather skip than crash or emit junk dropzones.
-      const opMaxTarget = Math.min(maxTarget, maxWire - 1);
-      while (wireIndex <= opMaxTarget) {
-        dropzoneLayer.appendChild(makeBox(opIndex, true));
-        // Don't make a central zone if the spot is occupied by a gate
-        // or its connecting lines — only above the op's first target.
-        if (wireIndex < minTarget) {
-          dropzoneLayer.appendChild(makeBox(opIndex, false));
-        }
-        wireIndex++;
+      // Central full-width box: emit only at wires NOT occupied
+      // by any op in this column. This is the fix for the phantom
+      // dropzone bug — without the column-wide occupancy check, an
+      // op's own "above-me" wires (`wireIndex < minTarget`) could
+      // be occupied by a different op later in the column, and
+      // the central box would sit on top of that op's gate.
+      if (!occupiedWires.has(wireIndex)) {
+        dropzoneLayer.appendChild(
+          makeDropzoneBox(
+            colIndex,
+            opIndex,
+            scope,
+            wireData,
+            wireIndex,
+            false,
+            pathPrefix,
+          ),
+        );
       }
+    }
 
-      // If this op was rendered as an expanded group, recurse so its
-      // interior also gets dropzones. Drive the decision off the
-      // LayoutMap: any group the layout pass actually laid out has a
-      // scope keyed by its location string. We can't use
-      // `isExpandedGroup(op)` here because `op` belongs to
-      // `sqore.circuit.componentGrid` (the original), while expand
-      // flags from `expandOperationsToDepth`,
-      // `expandIfSingleOperation`, and the user's expand-chevron
-      // clicks are applied to the per-render deep copy only — never
-      // to the original. The LayoutMap, built from that deep copy,
-      // is the authoritative record of which groups were rendered
-      // expanded. The recursion's wire extent matches the group's
-      // own [minTarget, maxTarget] (inclusive), ensuring nested
-      // dropzones can never escape the parent group.
+    // Recurse into expanded children. Decoupled from the wire loop
+    // above because recursion depends only on the op's identity
+    // and wire extent, not on `wireIndex`.
+    //
+    // The recursion's wire extent matches the group's own
+    // [minTarget, maxTarget] (inclusive), ensuring nested dropzones
+    // can never escape the parent group. Drive the
+    // is-this-expanded decision off the LayoutMap rather than
+    // `isExpandedGroup(op)`: `op` here belongs to
+    // `sqore.circuit.componentGrid` (the original), while expand
+    // flags from `expandOperationsToDepth`,
+    // `expandIfSingleOperation`, and the user's expand-chevron
+    // clicks are applied to the per-render deep copy only — never
+    // to the original. The LayoutMap, built from that deep copy,
+    // is the authoritative record of which groups were rendered
+    // expanded.
+    columnOps.components.forEach((op, opIndex) => {
       const childKey = composeLocation(pathPrefix, colIndex, opIndex);
       if (op.children != null && layoutMap.scopes.has(childKey)) {
+        const [minTarget, maxTarget] = getMinMaxRegIdx(op);
         _populateDropzonesForGrid(
           dropzoneLayer,
           layoutMap,
@@ -566,13 +619,6 @@ const _populateDropzonesForGrid = (
         );
       }
     });
-
-    // Cover wires below the last op in this column, still within scope.
-    while (wireIndex < maxWire) {
-      dropzoneLayer.appendChild(makeBox(columnOps.components.length, true));
-      dropzoneLayer.appendChild(makeBox(columnOps.components.length, false));
-      wireIndex++;
-    }
   }
 };
 

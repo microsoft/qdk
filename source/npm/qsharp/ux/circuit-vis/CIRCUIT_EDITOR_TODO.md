@@ -1004,31 +1004,133 @@ semantic meaning; deletion is correct. Confirm with the user
 that they're OK with the group quietly disappearing once empty
 (alternative: leave a placeholder, which is uglier).
 
-##### D2. Move group containing a classical condition above its producer
+##### D2. Move group containing a classical condition above its producer ✅ SHIPPED
 
-**Symptom.** Drag a group containing `if (c_0)` to a column before
-the `M` that produces `c_0`. The conditional now references a
-measurement that hasn't happened yet (the classical register
-doesn't exist at that column).
+**Symptom.** Drag a group containing `if (c_0)` to a column at or
+before the `M` that produces `c_0`. The conditional now
+references a classical register that doesn't exist yet at the
+consumer's column — the renderer either crashes
+("Classical register ID N invalid for qubit ID M with 0
+classical register(s)") or produces a semantically broken
+circuit.
 
-**Preferred fix.** Don't even surface dropzones at columns where
-the resulting state would be invalid. The dropzone-generation
-pass already knows the location it's offering; for each candidate
-column, walk the moved subtree's external classical-register
-references and check that every producer measurement is
-still at-or-before the new column. Hide the dropzone if any
-producer would land at-or-after the moved subtree.
+**Fix.** Two layers, both enforcing the same rule:
 
-**Fallback (if the dropzone-filtering pass is too invasive).**
-Refuse the move at `moveOperation` time (return null,
-no-op) — same pattern as the negative-wire refusal already in
-place. Worse UX (drop just silently does nothing) but a much
-narrower diff.
+> Every external classical-register producer of the moved subtree
+> must live in a column strictly earlier than the candidate drop
+> target — at every shared level of nesting.
 
-**Open question.** Confirm preferred-vs-fallback after a
-read-through of the dropzone-generation pass — the answer
-depends on how cleanly the per-column validity check fits the
-existing pipeline.
+1. **Dropzone-filter (UX).**
+   [`DragController.hideInvalidDropzones`](editor/controllers/dragController.ts)
+   runs at the end of `onGateMouseDown`. It collects external
+   producer locations of the selected subtree via
+   [`collectExternalProducerLocations`](actions/circuitActions.ts)
+   and sets `display: none` on every `.dropzone` whose
+   `data-dropzone-location` would violate the rule. Invalid
+   drop targets don't paint and don't catch mouseup, so the user
+   never gets a chance to commit an invalid move.
+
+2. **`moveOperation` refusal (safety net).** Same check, applied
+   on the action layer. Returns `null` (no-op) if any external
+   producer fails the comparison. Catches anything that bypasses
+   the UI filter (programmatic moves, future call sites, the
+   per-op temporary dropzones the multi-target drag spawns).
+
+**Comparison primitive: column-strict, ancestor-aware.**
+[`Location.inEarlierColumnThan`](data/location.ts) walks segments
+from the root. The first pair of differing column indices
+decides: producer's column < target's column → allowed; equal or
+greater → refused. Critically:
+
+- Different ops in the **same** column are simultaneous, not
+  predecessor/successor. The user cannot "promote" a consumer up
+  to a sibling op-position of the producer's outer group at the
+  same top-level column.
+- Ancestor groups project their column down onto everything they
+  contain. A producer at `"0,0-1,0-0,0-1,0"` (deep inside a
+  `for` at top-level col 0) still has top-level col 0 as its
+  effective column.
+
+The generic doc-order comparator
+[`Location.before`](data/location.ts) was deliberately _not_
+reused for this purpose; it would allow same-column siblings and
+promote-around-the-rule attacks. Doc-comment on `.before`
+explicitly points readers at `inEarlierColumnThan` for this
+use case.
+
+**Producer collection.**
+[`collectExternalProducerLocations`](actions/circuitActions.ts)
+combines two helpers:
+
+- `_collectInternalClassicalRegs` walks the subtree to find
+  every `(qubit, result)` reference it consumes.
+- `_indexProducers` walks the full grid to build a
+  `Map<"qubit:result", locationString>` of where each register
+  is produced.
+
+Set-subtracting internal producers from the consumed set leaves
+only the external ones — the ones that impose a drop-target
+constraint. Internal producers travel with the subtree when it
+moves, so they don't constrain anything.
+
+**Visibility-reset hygiene.** The dropzone-filter pass sets
+inline `display: none` on individual dropzones. Without a reset,
+a drag that doesn't trigger a re-render — canceled drag, or a
+drop where `deepEqual` short-circuits `renderFn` — would leave
+those marks behind, and the next drag (especially a _toolbox_
+drag, which doesn't run the filter) would inherit them and
+mysteriously refuse valid drops. Reset happens in
+[`installLayerListeners`](editor/controllers/dragController.ts)'s
+container-mouseup teardown, alongside the layer-display reset.
+
+**Tests.** Nine regression tests in
+[circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+cover: `Location.before` (kept for the generic comparator),
+`Location.inEarlierColumnThan` (column-strict, ancestor-aware),
+external producer collection (with internal exclusion), refusal,
+allow-after, allow-internal, and the promote-around-the-rule
+boundary.
+
+##### D5. Dropzone overlapping rendered gate ✅ SHIPPED
+
+Surfaced during D2 testing, but a distinct dropzone-generation
+bug independent of D2's classical-ordering rule.
+
+**Symptom.** A full-width central dropzone box renders directly
+on top of the first gate of a `for`-iteration's expanded group
+(and any other column whose ops aren't sorted top-to-bottom by
+wire). Affects the visual and the hit-test — clicking the gate
+goes to the dropzone instead.
+
+**Root cause.** The previous
+[`_populateDropzonesForGrid`](editor/draggable.ts) algorithm
+walked ops in declared order and accumulated a single
+monotonically-increasing `wireIndex` across them. The "above me"
+suppression (`if (wireIndex < op.minTarget)`) only checked the
+_current_ op — it didn't know about other ops in the same
+column. When the compiler emits a column like
+`[X@wire2, H@wire0]` (execution order, not wire order),
+processing `X` (minTarget=2) emits central dropzones at wires 0
+and 1, and one of those wires is occupied by the `H` later in
+the same array. The dropzone visually lands on the H.
+
+**Fix.** Replace the op-by-op accumulator with a wire-by-wire
+pass that uses a precomputed per-column occupancy set:
+
+1. Walk the column's ops once to build
+   `occupiedWires: Set<number>` and
+   `wireOwnerOpIndex: Map<number, opIndex>`.
+2. Iterate wires `[minWire, maxWire)` directly. Always emit the
+   inter-column band (it's a narrow strip, overlap is intentional);
+   emit the central full-width box only at wires not in
+   `occupiedWires`.
+3. Recursion into expanded children moved into a separate
+   forEach — recursion depends only on op identity and wire
+   extent, not on `wireIndex`.
+
+Side benefit: ops in unsorted columns now get dropzones at all
+their wires (previously some were silently missed because the
+shared `wireIndex` had advanced past them).
 
 ##### D3. Multi-target gate / group movement semantics
 
@@ -1094,10 +1196,11 @@ and is worth its own design session.
 
 | Item                                    | Severity               | Status                      |
 | --------------------------------------- | ---------------------- | --------------------------- |
-| D1: empty-group crash                   | Crash                  | Up next                     |
-| D2: classical condition before producer | Logic error            | Queued after D1             |
+| D1: empty-group crash                   | Crash                  | ✅ Shipped (user-confirmed) |
+| D2: classical condition before producer | Logic error            | ✅ Shipped (user-confirmed) |
 | D3: multi-target semantics              | Design / documentation | Keep current, document      |
 | D4: move-out vs. expand-group           | Design                 | Deferred — separate session |
+| D5: dropzone overlapping rendered gate  | Bug                    | ✅ Shipped (user-confirmed) |
 
 ---
 
