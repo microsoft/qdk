@@ -335,7 +335,7 @@ type EventTypes = {
   };
   [EventType.LearningSessionStarted]: {
     properties: {
-      isFirstTime: string;
+      isFirstTime: "true" | "false";
     };
     measurements: Empty;
   };
