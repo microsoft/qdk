@@ -317,16 +317,17 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
     _output_str = ""
     _closers = []
     _counters = []
+    _process_fn = None
 
     def process_output(self, bitstring: str):
-        return eval(
-            self._output_str,
-            {
-                "o": [
-                    Result.Zero if x == "0" else Result.One if x == "1" else Result.Loss
-                    for x in bitstring
-                ]
-            },
+        assert (
+            self._process_fn is not None
+        ), "OutputRecordingPass has not been run on a module yet"
+        return self._process_fn(
+            [
+                Result.Zero if x == "0" else Result.One if x == "1" else Result.Loss
+                for x in bitstring
+            ]
         )
 
     def _on_function(self, function):
@@ -335,6 +336,7 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
             while len(self._closers) > 0:
                 self._output_str += self._closers.pop()
                 self._counters.pop()
+            self._process_fn = eval(f"lambda o: {self._output_str}")
 
     def _on_rt_result_record_output(self, call, result, target):
         self._output_str += f"o[{pyqir.ptr_id(result)}]"
