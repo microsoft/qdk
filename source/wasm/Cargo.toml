@@ -37,10 +37,8 @@ serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 async-trait = { workspace = true }
 
-# This is a transitive dependency of qir-stdlib which fails to build for wasm if 'js' feature isn't enabled.
-getrandom = { workspace = true, features = ["js"] }
 # Transitive dependency via rand 0.10; wasm builds require the "wasm_js" feature for getrandom 0.3+.
-getrandom_v04 = { package = "getrandom", version = "0.4", features = ["wasm_js"] }
+getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
 expect-test = { workspace = true }
