@@ -4,7 +4,7 @@
 use super::test_expression;
 use qsc::interpret::{Value, ValueRange};
 
-// Tests for Microsoft.Quantum.Core namespace
+// Tests for the core namespace
 
 #[test]
 fn check_range_1_5() {

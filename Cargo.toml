@@ -27,7 +27,7 @@ members = [
     "source/index_map",
     "source/language_service",
     "source/simulators",
-    "source/pip",
+    "source/qdk_package",
     "source/qre",
     "source/resource_estimator",
     "source/samples_test",

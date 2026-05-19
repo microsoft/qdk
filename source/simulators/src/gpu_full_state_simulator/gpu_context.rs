@@ -12,10 +12,9 @@ use crate::gpu_resources::GpuResources;
 use crate::noise_config::NoiseConfig;
 use crate::noise_mapping::get_noise_ops;
 use crate::shader_types::{
-    self, DiagnosticsData, InterpreterState, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT,
-    MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOT_ENTRIES, MAX_SHOTS_PER_BATCH,
-    MIN_QUBIT_COUNT, MIN_REGISTERS, Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms,
-    WorkgroupCollationBuffer, ops,
+    self, DiagnosticsData, InterpreterState, MAX_ALLOCA_SIZE, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT,
+    MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT, MIN_REGISTERS,
+    Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms, WorkgroupCollationBuffer, ops,
 };
 
 // On Windows, running larger circuits/shots can hit TDR issues if too many ops are dispatched in one go.
@@ -71,6 +70,8 @@ pub(crate) struct RunParams {
     pub num_phi_entries: usize,
     pub num_switch_cases: usize,
     pub num_call_args: usize,
+    pub num_constant_data: usize,
+    pub max_memory: usize,
     // Noise table sizes for BatchData (minimum 1, since WGSL arrays must have length ≥ 1).
     pub noise_table_count: usize,
     pub noise_entry_count: usize,
@@ -454,11 +455,27 @@ impl GpuContext {
         let entries_per_shot = 1 << params.qubit_count; // 2^n state vector entries per shot for n qubits
         let state_vector_size_per_shot = entries_per_shot * 8; // Each entry is a complex containing 2 * f32
 
+        // Figure out the per-shot GPU struct size first, since it's needed for batching limits.
+        // In adaptive mode, each shot's GPU struct includes the interpreter state + registers + memory.
+        // WGSL requires struct size to be a multiple of the struct's alignment (8 bytes due to vec2f).
+        let gpu_shot_size = if self.is_adaptive {
+            let raw = SIZEOF_SHOTDATA
+                + size_of::<InterpreterState>()
+                + params.num_registers * 4
+                + params.max_memory * 4;
+            (raw + 7) & !7 // round up to 8-byte alignment
+        } else {
+            SIZEOF_SHOTDATA
+        };
+
         // Figure out some limits based on buffer size limits, structure sizes, and number of qubits
         let max_shot_state_vectors =
             usize_to_i32(MAX_BUFFER_SIZE / i32_to_usize(state_vector_size_per_shot));
-        // How many of the structures would fit
-        let max_shots_in_buffer = min(MAX_SHOT_ENTRIES, max_shot_state_vectors);
+        // How many shots fit in the shots buffer using the actual per-shot size
+        let max_shots_in_buffer = min(
+            usize_to_i32(MAX_BUFFER_SIZE / gpu_shot_size),
+            max_shot_state_vectors,
+        );
         // How many would we allow based on the max shots per batch
         let max_shots_per_batch = min(max_shots_in_buffer, MAX_SHOTS_PER_BATCH);
 
@@ -474,16 +491,6 @@ impl GpuContext {
         };
         params.entries_per_thread =
             entries_per_shot / params.workgroups_per_shot / THREADS_PER_WORKGROUP;
-
-        // Figure out the buffer sizes we need for all the above
-        // In adaptive mode, each shot's GPU struct includes the interpreter state + registers.
-        // WGSL requires struct size to be a multiple of the struct's alignment (8 bytes due to vec2f).
-        let gpu_shot_size = if self.is_adaptive {
-            let raw = SIZEOF_SHOTDATA + size_of::<InterpreterState>() + params.num_registers * 4;
-            (raw + 7) & !7 // round up to 8-byte alignment
-        } else {
-            SIZEOF_SHOTDATA
-        };
         params.shots_buffer_size = i32_to_usize(params.shots_per_batch) * gpu_shot_size;
         params.state_vector_buffer_size =
             i32_to_usize(params.shots_per_batch * state_vector_size_per_shot);
@@ -557,6 +564,10 @@ impl GpuContext {
         // tiny buffers, but grow to match the program's actual requirement.
         let num_registers = (program.num_registers as usize).max(MIN_REGISTERS);
 
+        // Memory sizing: constant_data + headroom for alloca'd variables.
+        let max_memory = program.constant_data.len() + MAX_ALLOCA_SIZE;
+        assert!(max_memory >= 1, "WGSL arrays must have length >= 1");
+
         if num_registers > MAX_REGISTERS {
             return Err(format!(
                 "MAX_REGISTERS for adaptive program exceeded: {num_registers} > {MAX_REGISTERS}"
@@ -573,6 +584,8 @@ impl GpuContext {
             || self.run_params.num_phi_entries != program.phi_entries.len()
             || self.run_params.num_switch_cases != program.switch_cases.len()
             || self.run_params.num_call_args != program.call_args.len()
+            || self.run_params.num_constant_data != program.constant_data.len()
+            || self.run_params.max_memory != max_memory
         {
             self.pipeline_is_dirty = true;
         }
@@ -586,6 +599,8 @@ impl GpuContext {
         self.run_params.num_phi_entries = program.phi_entries.len();
         self.run_params.num_switch_cases = program.switch_cases.len();
         self.run_params.num_call_args = program.call_args.len();
+        self.run_params.num_constant_data = program.constant_data.len();
+        self.run_params.max_memory = max_memory;
 
         self.adaptive_program = Some(program);
         self.program_is_dirty = true;
@@ -615,6 +630,7 @@ impl GpuContext {
             cast_slice(&program.phi_entries),
             cast_slice(&program.switch_cases),
             cast_slice(&program.call_args),
+            cast_slice(&program.constant_data),
         ]
         .concat();
 
@@ -788,12 +804,16 @@ impl GpuContext {
 
             // Upload interpreter state + registers into the shots buffer.
             // Each shot's interp data starts at SIZEOF_SHOTDATA offset within the shot region.
-            // The init kernel already initialized the base ShotData fields, so we only
-            // write the interp portion per shot to avoid overwriting them.
+            // The init kernel already initialized the base ShotData fields and the
+            // per-shot memory (from constant_data), so we only write the interp
+            // header + registers per shot to avoid overwriting them.
             {
                 let num_registers = self.run_params.num_registers;
+                let max_memory = self.run_params.max_memory;
                 let interp_bytes_per_shot = size_of::<InterpreterState>() + num_registers * 4;
-                let gpu_shot_size = (SIZEOF_SHOTDATA + interp_bytes_per_shot + 7) & !7;
+                // The `(... + 7) & !7` is a bit-hack to round-up the number to 8 bits (1 byte).
+                let gpu_shot_size =
+                    (SIZEOF_SHOTDATA + interp_bytes_per_shot + max_memory * 4 + 7) & !7;
 
                 let mut interp = InterpreterState::zeroed();
                 interp.pc = entry_pc;

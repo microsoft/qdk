@@ -40,6 +40,8 @@ pub struct AdaptiveProgram<Word: Unsigned> {
     pub switch_cases: Vec<SwitchCase<Word>>,
     /// Call argument register indices.
     pub call_args: Vec<Word>,
+    /// Constant data pool (flattened array constant values).
+    pub constant_data: Vec<Word>,
     /// Quantum op pool (full `Op` structs with expanded unitaries).
     pub quantum_ops: Vec<Op<Word>>,
 }
