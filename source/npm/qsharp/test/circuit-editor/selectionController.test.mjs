@@ -31,6 +31,28 @@ beforeEach(() => {
   globalThis.HTMLElement = jsdom.window.HTMLElement;
   globalThis.SVGElement = jsdom.window.SVGElement;
   globalThis.MouseEvent = jsdom.window.MouseEvent;
+  // JSDOM doesn't implement DOMPoint or DOMMatrix at all. The
+  // `pickSelectedWire` closest-wire path uses both:
+  //   new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse())
+  // We stub a minimal *identity* DOMPoint so clientY flows through
+  // to SVG-space Y unchanged — the CTM stub in `buildMultiWireFixture`
+  // is wired to match (it returns an identity matrix whose
+  // `.inverse()` is also identity, and `matrixTransform` on our
+  // stub just returns the point itself). This is enough surface
+  // area to exercise the controller's coord-projection wiring
+  // without dragging an SVG-layout shim into the test deps.
+  globalThis.DOMPoint = class {
+    constructor(x = 0, y = 0) {
+      this.x = x;
+      this.y = y;
+    }
+    // Identity transform: the fixture's CTM stub is also identity,
+    // so this is correct for all our tests. A real layout-aware
+    // run would apply the matrix; we don't need that fidelity.
+    matrixTransform() {
+      return { x: this.x, y: this.y };
+    }
+  };
 });
 
 afterEach(() => {
@@ -163,4 +185,191 @@ test("mousedown on a non-control gate does not set movingControl", () => {
   // Wire updated, but movingControl is left alone (still true).
   assert.equal(interaction.selectedWire, 0);
   assert.equal(interaction.movingControl, true);
+});
+
+// ============================================================
+// D3: closest-wire-to-click for multi-wire host elems
+// ============================================================
+
+/**
+ * Build a multi-wire fixture: a group body that spans wires 0..2,
+ * with `data-wire-ys = [40, 100, 160]` and a (stale) static
+ * `data-wire = 0`. The closest-wire path should override the
+ * static attribute and pick the wire closest to the click's
+ * SVG-space Y.
+ *
+ * Stubs `circuitSvg.getScreenCTM()` to the identity transform so
+ * `clientY` flows through to SVG-space Y unchanged. JSDOM doesn't
+ * implement layout, so a real CTM call would return null and the
+ * controller would fall back to the static `data-wire` — masking
+ * the closest-wire behavior we're trying to test.
+ */
+function buildMultiWireFixture(wireYs = [40, 100, 160]) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "qviz");
+  container.appendChild(svg);
+
+  // Identity CTM hand-stub. JSDOM doesn't ship a DOMMatrix at
+  // all, and our DOMPoint stub's `matrixTransform()` already
+  // returns the point unchanged — so all this needs is something
+  // non-null with an `.inverse()` method the controller can call
+  // before passing it to `matrixTransform`. The returned value
+  // never has to be a real matrix.
+  const identityCtm = { inverse: () => identityCtm };
+  svg.getScreenCTM = () => identityCtm;
+
+  const groupBody = document.createElementNS(SVG_NS, "rect");
+  groupBody.setAttribute("class", "gate-group");
+  groupBody.setAttribute("data-wire-ys", JSON.stringify(wireYs));
+  // Static attr is the historical "first match" (topmost wire),
+  // which is exactly what the closest-wire path must override.
+  groupBody.setAttribute("data-wire", "0");
+  svg.appendChild(groupBody);
+
+  return { container, svg, groupBody, wireYs };
+}
+
+/**
+ * Make a controller with `wireData` matching the fixture so
+ * `pickClosestWireIndex` can resolve the closest Y to an index.
+ */
+function makeControllerWithWireData(container, wireData) {
+  const interaction = new InteractionState();
+  const ctx = {
+    model: /** @type {any} */ ({}),
+    interaction,
+    layoutMap: /** @type {any} */ ({}),
+    container,
+    circuitSvg: container.querySelector("svg.qviz"),
+    overlayLayer: /** @type {any} */ ({}),
+    dropzoneLayer: /** @type {any} */ ({}),
+    ghostQubitLayer: /** @type {any} */ ({}),
+    wireData,
+    renderFn: () => {},
+  };
+  const stubEvents = /** @type {any} */ ({
+    componentGrid: [],
+    model: ctx.model,
+    renderFn: ctx.renderFn,
+  });
+  // eslint-disable-next-line no-new
+  new SelectionController(/** @type {any} */ (ctx), stubEvents);
+  return { ctx, interaction };
+}
+
+const dispatchMouseDownAt = (target, clientY, button = 0) =>
+  target.dispatchEvent(
+    new MouseEvent("mousedown", {
+      button,
+      clientX: 0,
+      clientY,
+      bubbles: true,
+    }),
+  );
+
+test("multi-wire host: click near top wire picks top wire (overrides data-wire shortcut)", () => {
+  const { container, groupBody } = buildMultiWireFixture();
+  const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
+
+  dispatchMouseDownAt(groupBody, 42); // closest to 40
+
+  assert.equal(interaction.selectedWire, 0);
+});
+
+test("multi-wire host: click near middle wire picks middle wire", () => {
+  const { container, groupBody } = buildMultiWireFixture();
+  const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
+
+  dispatchMouseDownAt(groupBody, 95);
+
+  assert.equal(
+    interaction.selectedWire,
+    1,
+    "static data-wire was 0 (topmost) — closest-wire path must override",
+  );
+});
+
+test("multi-wire host: click near bottom wire picks bottom wire", () => {
+  const { container, groupBody } = buildMultiWireFixture();
+  const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
+
+  dispatchMouseDownAt(groupBody, 158);
+
+  assert.equal(interaction.selectedWire, 2);
+});
+
+test("multi-wire host: click far above the span clamps to topmost wire", () => {
+  const { container, groupBody } = buildMultiWireFixture();
+  const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
+
+  dispatchMouseDownAt(groupBody, -200);
+
+  assert.equal(interaction.selectedWire, 0);
+});
+
+test("multi-wire host: click far below the span clamps to bottommost wire", () => {
+  const { container, groupBody } = buildMultiWireFixture();
+  const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
+
+  dispatchMouseDownAt(groupBody, 1000);
+
+  assert.equal(interaction.selectedWire, 2);
+});
+
+test("multi-wire host: falls back to data-wire when getScreenCTM returns null", () => {
+  // Detached SVG / pre-mount edge case. The controller must not
+  // throw; it should fall back to the static `data-wire` attribute
+  // so the click still resolves *some* wire.
+  const { container, groupBody } = buildMultiWireFixture();
+  const svg = container.querySelector("svg.qviz");
+  svg.getScreenCTM = () => null;
+  const { interaction } = makeControllerWithWireData(container, [40, 100, 160]);
+
+  dispatchMouseDownAt(groupBody, 95);
+
+  assert.equal(
+    interaction.selectedWire,
+    0,
+    "fallback path returns the static data-wire value (0)",
+  );
+});
+
+test("multi-wire host: falls back to data-wire if closest wireY is not in wireData", () => {
+  // wireYs claims [40, 100, 160] but the editor's wireData is
+  // [200, 300] — table mismatch. pickClosestWireIndex returns -1,
+  // the controller falls back to the static data-wire.
+  const { container, groupBody } = buildMultiWireFixture();
+  const { interaction } = makeControllerWithWireData(container, [200, 300]);
+
+  dispatchMouseDownAt(groupBody, 95);
+
+  assert.equal(interaction.selectedWire, 0, "fallback to static data-wire");
+});
+
+test("single-wire host: closest-wire path is skipped, data-wire still wins", () => {
+  // Smoke-check: the multi-wire branch must not engage for
+  // single-wire spans (control dots, target circles, etc.). Use
+  // a host with data-wire-ys=[100] and data-wire=1 — controller
+  // must resolve to wire 1 regardless of clickY.
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "qviz");
+  container.appendChild(svg);
+  // No CTM stub — single-wire path doesn't call getScreenCTM.
+
+  const dot = document.createElementNS(SVG_NS, "circle");
+  dot.setAttribute("class", "control-dot");
+  dot.setAttribute("data-wire-ys", "[100]");
+  dot.setAttribute("data-wire", "1");
+  svg.appendChild(dot);
+
+  const { interaction } = makeControllerWithWireData(container, [40, 100]);
+
+  dispatchMouseDownAt(dot, -999);
+
+  assert.equal(interaction.selectedWire, 1);
 });

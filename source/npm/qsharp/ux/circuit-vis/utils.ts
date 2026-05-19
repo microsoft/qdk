@@ -493,6 +493,90 @@ const mathChars = {
   rangle: "⟩", // \u{27e9}
 };
 
+/**
+ * Parse a host element's `data-wire-ys` attribute into a number
+ * array. The renderer writes the wire-Y coordinates the element
+ * visually spans onto this attribute as a JSON array of numbers
+ * (see [`gateFormatter.ts`](renderer/formatters/gateFormatter.ts)).
+ *
+ * Returns `[]` when the attribute is missing or malformed — same
+ * convention `_wireYs` in [`draggable.ts`](editor/draggable.ts)
+ * follows. Lives in utils so the selection / drag controllers can
+ * read host-element wire spans without duplicating the parse.
+ */
+const parseWireYs = (elem: Element): number[] => {
+  const wireYsAttr = elem.getAttribute("data-wire-ys");
+  if (!wireYsAttr) return [];
+  try {
+    const parsed = JSON.parse(wireYsAttr);
+    if (Array.isArray(parsed) && parsed.every((y) => typeof y === "number")) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to empty array — caller decides how to handle.
+  }
+  return [];
+};
+
+/**
+ * Given a click's SVG-space Y coordinate, the list of wire-Ys the
+ * clicked host element spans, and the circuit's full wire-Y array,
+ * return the index (into `wireData`) of the wire whose Y is
+ * **closest to the click**.
+ *
+ * Used by the selection controller to pick a per-click handle for
+ * multi-wire host elements (the body of a group, SWAP, multi-qubit
+ * measurement, etc.). Without this, the historical
+ * [`_addDataWires`](editor/draggable.ts) shortcut sets
+ * `data-wire` to whichever wire-Y happens to appear first in
+ * `wireData`, which is always the topmost wire of the gate's
+ * span. That collapses the D3 unit-shift semantics
+ * ("grabbed wire is the handle") into "pin top wire to drop wire"
+ * — one of the alternatives we explicitly rejected.
+ *
+ * Behavior:
+ *
+ *   - `wireYs` is empty → return `-1` (no candidate). Caller
+ *     should fall back to the static `data-wire` attribute.
+ *   - `wireYs` has a single Y → return its `wireData` index
+ *     directly. The click-Y is irrelevant for single-wire host
+ *     elements (control dots, target circles, measurement
+ *     crosses, ket boxes), and skipping the search avoids a
+ *     pointless `getScreenCTM` call by the caller.
+ *   - Multi-wire span → tie-break by smallest `|wireY - clickY|`,
+ *     then by smaller `wireY` (deterministic on a tie). The
+ *     winning wire-Y is looked up in `wireData` via
+ *     `findIndex` (`indexOf` is fine here — they're equal numbers
+ *     by construction). Returns `-1` if the winning Y isn't in
+ *     `wireData` at all, which would indicate a renderer /
+ *     editor wire-table mismatch.
+ *
+ * Clicks above the topmost wire or below the bottommost clamp to
+ * that endpoint, which is the natural "closest" behavior — no
+ * special-case code needed.
+ */
+const pickClosestWireIndex = (
+  clickSvgY: number,
+  wireYs: ReadonlyArray<number>,
+  wireData: ReadonlyArray<number>,
+): number => {
+  if (wireYs.length === 0) return -1;
+  if (wireYs.length === 1) {
+    return wireData.indexOf(wireYs[0]);
+  }
+  let bestY = wireYs[0];
+  let bestDist = Math.abs(bestY - clickSvgY);
+  for (let i = 1; i < wireYs.length; i++) {
+    const y = wireYs[i];
+    const dist = Math.abs(y - clickSvgY);
+    if (dist < bestDist || (dist === bestDist && y < bestY)) {
+      bestDist = dist;
+      bestY = y;
+    }
+  }
+  return wireData.indexOf(bestY);
+};
+
 export {
   deepEqual,
   getMinGateWidth,
@@ -510,4 +594,6 @@ export {
   getGateElems,
   getQubitLabelElems,
   mathChars,
+  parseWireYs,
+  pickClosestWireIndex,
 };

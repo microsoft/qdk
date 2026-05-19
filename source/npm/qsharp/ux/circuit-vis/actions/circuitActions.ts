@@ -702,6 +702,41 @@ const _pruneEmptyAncestors = (chain: AncestorRung[]): void => {
  * of `moveOperation` instead, so it runs against the post-removal
  * children grid (otherwise the parent would keep claiming the
  * departed child's wires).
+ *
+ * Two semantics, picked per-op by [`_moveAsUnit`](#):
+ *
+ * 1. **Unit-shift** for multi-wire ops (groups, SWAP, multi-qubit
+ *    measurement). The grabbed wire acts as a handle: every
+ *    register on the op (and recursively every register inside
+ *    `children`, with external classical refs anchored — see
+ *    [`_shiftAllRegisters`](#)) shifts by `targetWire - sourceWire`.
+ *    The whole op slides as a rigid unit, preserving the relative
+ *    arrangement of its wires.
+ *
+ * 2. **Single-leg rewire** for ordinary controlled-gate cases (one
+ *    target + N controls). Only the grabbed register is rewritten;
+ *    the other legs stay put. This is the established "rewire one
+ *    leg of a CNOT" interaction.
+ *
+ * **Design decision (D3 in [CIRCUIT_EDITOR_TODO.md](../CIRCUIT_EDITOR_TODO.md)).**
+ * The "grabbed wire is the handle" model was picked over two
+ * alternatives we considered:
+ *
+ *   - **Pin lowest wire to drop wire** ("drop wire = top of
+ *     group"). Predictable for the "I want this group at wires
+ *     2..5" mental model, but discards the user's choice of which
+ *     wire to grab. Bad match for the
+ *     direct-manipulation feel — clicking on wire 4 of a group and
+ *     dragging it to wire 6 should pin wire 4 to wire 6, not pin
+ *     the topmost wire.
+ *   - **Resize** (one leg moves, others stay). Only meaningful for
+ *     ops with a clear "main" wire (CNOT target/controls); not
+ *     applicable to groups. Conflicts with single-leg rewire when
+ *     there's only one target. Better expressed via an explicit
+ *     Inspector / right-click action than as a drag gesture.
+ *
+ * Richer multi-target authoring (resize, add/remove leg) belongs
+ * in the Inspector, not the drag-and-drop surface.
  */
 const _moveY = (
   sourceOperation: Operation,

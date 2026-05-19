@@ -1134,30 +1134,80 @@ shared `wireIndex` had advanced past them).
 
 ##### D3. Multi-target gate / group movement semantics
 
-**Status today.** The unit-shift path inside
-[`_moveY`](actions/circuitActions.ts) shifts every register by
-`targetWire - sourceWire`. Grabbing wire 2 of a group and
-dropping on wire 4 shifts the whole group by +2. This was the
-fix for the "group contents stuck" bug.
+**Status: ✅ Shipped (pending user-confirmation).**
 
-**Open question.** Is unit-shift the right semantics for ALL
-multi-target ops, or do some want different behavior? Candidate
-alternatives:
+**Shipped solution.** Kept unit-shift as the design contract and
+locked it in with documentation + a bug fix that had been silently
+degrading it into the rejected "pin top wire" alternative.
 
-- **Unit-shift by grabbed wire (current).** Grabbed wire acts as
-  a handle.
-- **Pin lowest wire to drop wire.** "Drop wire = top of group."
-  Predictable for the "I want this group at wires 2..5" mental
-  model.
-- **Resize (one leg moves, others stay).** Only meaningful for
-  multi-target gates with a clear "main" wire (e.g. CNOT target /
-  controls). Probably not for groups.
+1. **Doc-update on [`_moveY`](actions/circuitActions.ts).** Added
+   a `///`-level docblock spelling out:
+   - The grabbed wire is the **handle**; the whole op slides by
+     `targetWire - sourceWire`.
+   - Single-leg movement (the `movingControl` branch) is the
+     escape hatch for detaching one register without dragging the
+     whole gate.
+   - The alternatives we explicitly rejected
+     (_pin lowest wire to drop wire_, _resize one leg_) and why.
+2. **Closest-wire-to-click in
+   [`SelectionController.pickSelectedWire`](editor/controllers/selectionController.ts).**
+   The static `data-wire` attribute set by
+   [`_addDataWires`](editor/draggable.ts) is the **topmost** wire
+   of any multi-wire span — an artifact of its
+   `findIndex`-on-`includes` shortcut. Reading it directly on
+   group / SWAP / multi-qubit-measurement bodies silently turned
+   D3's unit-shift ("grabbed wire is the handle") into
+   "pin top wire to drop wire" — the alternative the doc-update
+   above had just rejected.
+   - Fixed by projecting the click's `(clientX, clientY)` into
+     SVG coords via `getScreenCTM().inverse()` +
+     `DOMPoint.matrixTransform`, then picking the wire whose Y is
+     closest to the click via the new
+     [`pickClosestWireIndex`](utils.ts) helper.
+   - Single-wire host elems (control dots, target circles, ket
+     boxes) skip the projection and read `data-wire` directly —
+     no behavior change for them.
+   - Falls back to the static `data-wire` if `getScreenCTM()`
+     returns `null` (detached SVG) or the closest-wire lookup
+     can't reconcile with `wireData` (table mismatch). The click
+     still resolves _some_ wire; it just won't be the closest one.
+3. **New helpers in [`utils.ts`](utils.ts).**
+   - `parseWireYs(elem)` — JSON-parses `data-wire-ys` with the
+     same "fail-soft to `[]`" contract `_wireYs` in
+     [`draggable.ts`](editor/draggable.ts) already uses, so the
+     controller doesn't duplicate the parse.
+   - `pickClosestWireIndex(clickSvgY, wireYs, wireData)` — pure
+     numerics. Tie-breaks equidistant clicks by smaller `wireY`
+     (deterministic) and clamps clicks outside the span to the
+     nearest endpoint naturally (no special-case code).
+4. **Test coverage.** 20 new tests:
+   - 12 in [`utils.test.mjs`](../../test/circuit-editor/utils.test.mjs)
+     covering `pickClosestWireIndex` (empty / single / multi /
+     tie-break / clamping / ordering-invariance / wireData
+     mismatch / duplicate-Y) and `parseWireYs` (missing attr /
+     valid / malformed JSON / non-number entries / non-array).
+   - 8 in
+     [`selectionController.test.mjs`](../../test/circuit-editor/selectionController.test.mjs)
+     covering the multi-wire path: top / middle / bottom picks,
+     above / below clamping, CTM-null fallback, wireData mismatch
+     fallback, single-wire skip. Tests stub `DOMPoint` + the CTM
+     by hand since JSDOM ships neither.
 
-**Recommendation.** Keep unit-shift as the default (the recent
-fix makes it work correctly). Revisit only if a concrete case
-comes in where it feels wrong. Multi-target authoring beyond
-shifting (resize, add/remove leg) belongs in the Inspector
-(Planned item #2), not the drag-and-drop surface.
+**Why not the alternatives.** Recorded here so the next reader
+doesn't waste a cycle re-deriving them:
+
+- _Pin lowest wire to drop wire._ Predictable for "I want this
+  group at wires 2..5" mental model, but it's exactly what the
+  `data-wire`-topmost shortcut was accidentally giving us — and
+  it felt wrong in practice. Removed by D3 step 2 above.
+- _Resize (one leg moves, others stay)._ Only meaningful for
+  multi-target gates with a clear "main" wire. Probably belongs
+  in the Inspector (Planned item #2), not the drag-and-drop
+  surface.
+
+**Out of scope.** Multi-target authoring beyond shifting
+(resize, add/remove leg) still belongs in the Inspector. D3
+just makes the shift-semantics path match its design intent.
 
 ##### D4. Move-inside-group vs. promote-out-of-group disambiguation
 
@@ -1198,7 +1248,7 @@ and is worth its own design session.
 | --------------------------------------- | ---------------------- | --------------------------- |
 | D1: empty-group crash                   | Crash                  | ✅ Shipped (user-confirmed) |
 | D2: classical condition before producer | Logic error            | ✅ Shipped (user-confirmed) |
-| D3: multi-target semantics              | Design / documentation | Keep current, document      |
+| D3: multi-target semantics              | Design / documentation | ✅ Shipped (pending user)   |
 | D4: move-out vs. expand-group           | Design                 | Deferred — separate session |
 | D5: dropzone overlapping rendered gate  | Bug                    | ✅ Shipped (user-confirmed) |
 
