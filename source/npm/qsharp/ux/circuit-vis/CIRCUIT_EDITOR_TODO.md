@@ -1211,36 +1211,172 @@ just makes the shift-semantics path match its design intent.
 
 ##### D4. Move-inside-group vs. promote-out-of-group disambiguation
 
-**Symptom.** Drag a gate that lives inside `Group { wires 1..3 }`
-to wire 0. Did the user mean:
+**Status: planned — Stage A ready to implement.**
 
-- (a) "Promote this gate out of the group to the top level on
-  wire 0", or
-- (b) "Extend the group to cover wire 0 too, with the gate still
-  inside"?
+A design pass reframed this. The original framing
+("which of options a–d?") was too narrow; the actual gap is
+that **there's no clean drag gesture for "extend the group to
+cover a new wire / column."** Every other group-related drag
+gesture has a coherent default — but "extend" sits on top of
+two other drag intents ("promote out" and "just place near the
+group") and has nothing to distinguish itself.
 
-Today there's no UI distinction between the two intents.
+###### User-intent matrix
 
-**Design options.**
+Strip out implementation details and what's reachable today, and
+list only what users might **want** to do. Restricted to a single
+group with no nesting (nested groups inherit the same rules one
+scope at a time).
 
-- **(a) Modifier key.** Plain drag = expand/move-within;
-  Shift/Alt drag = promote out. Least surprising once learned;
-  needs discoverability work (cursor hint, tooltip).
-- **(b) Drop-zone affordance.** Show distinct "promote" and
-  "expand" zones during the drag. More discoverable; more layout
-  work in [`_dropzoneLayer`](editor/draggable.ts).
-- **(c) Geometry-based.** Drag inside the group's column extent
-  = expand-within; drag outside that extent = promote-out. Fits
-  the existing
-  [`containingGroup`](utils.ts) machinery but couples editor
-  behavior to layout in a way that's hard to explain to users.
-- **(d) Pick a default; promote-out is a separate action.**
-  Drag always expands/moves-within; promote-out happens via a
-  right-click menu or a dedicated "ungroup" toolbar item.
-  Simplest implementation; least flexible.
+**A. Source gate is outside the group.**
 
-**Status.** Deferred. Has the largest blast radius of the four
-and is worth its own design session.
+| #   | Drop location relative to the group              | Intent                                                                                           |
+| --- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| A1  | Another external position                        | Plain move. Group not involved.                                                                  |
+| A2  | On a wire AND column the group already spans     | "Add this gate to the group."                                                                    |
+| A3  | On a wire the group spans, column adjacent       | "Add this gate to the group, extending it sideways to swallow the new column."                   |
+| A4  | On a wire the group does NOT span, column inside | "Extend the group vertically and absorb me" — _or_ — "keep me outside, I'm just placing nearby." |
+| A5  | Corner-adjacent (off-wire AND off-column)        | Almost always "keep outside, near the group."                                                    |
+
+**B. Source gate is inside the group.**
+
+| #   | Drop location relative to the group                | Intent                                                                             |
+| --- | -------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| B1  | Elsewhere inside the group's rectangle             | Rearrange within group. Group may shrink if the move freed up a wire/column.       |
+| B2  | On a covered wire, column outside the group        | "Promote out" — _or_ — "extend group sideways, keep me inside."                    |
+| B3  | On a wire NOT covered, column inside the group     | "Promote out, side-step group" — _or_ — "extend group vertically, keep me inside." |
+| B4  | Far away (different wire AND different column)     | Almost always "promote out entirely."                                              |
+| B5  | A move that would leave the group with no children | "I'm done with this group — let it dissolve." (D1 cleanup handles the prune.)      |
+
+**C. Source is the group itself.** Whole-group drag (D3 unit-shift).
+Not in D4's scope.
+
+**D. Membership change without moving any gate.** Belongs in the
+gate-edit panel (Planned item #2) or selection-based "wrap in
+group" tooling, not D4. Specifically out of scope here:
+
+| #   | Operation                              | Owned by                       |
+| --- | -------------------------------------- | ------------------------------ |
+| D1  | "Add this external gate to the group"  | Gate-edit panel                |
+| D2  | "Remove this internal gate from group" | Gate-edit panel                |
+| D3  | "Dissolve the group, keep contents"    | Gate-edit panel / context menu |
+| D4  | "Wrap selected gates in a new group"   | Snapshot / selection tooling   |
+
+**E. Resize the group's box directly.** Top/bottom/left/right
+edge drag handles. Different gesture entirely from D4 (no gate
+is being moved). Possible follow-up; not in scope here.
+
+###### The ambiguous gestures
+
+Three rows from the matrix above have two equally-plausible
+intents from one gesture: **A4**, **B2**, **B3**. Of these, B2
+collapses out once we add a leading/trailing inner-column
+dropzone band (see Stage A below) — drop in the band = inside,
+drop further out = outside. That leaves **A4** and **B3** as
+the genuinely ambiguous "extend group vertically" cases, which
+need a modifier (see Stage B). A4 is sufficiently rare and the
+intent sufficiently weak that we'll **not** support it in this
+pass; vertical extend is internal-source only.
+
+###### Design decisions
+
+- **Default rule stays geometry-based.** Inner-scope dropzones
+  inside the group's rendered rectangle ⇒ stay in the group;
+  outer-scope dropzones outside it ⇒ promote out. This is the
+  rule already in place via `_dropzoneLayer`'s scope-clamping;
+  D4 just rounds out the gaps in it.
+- **Inner-column dropzones on BOTH sides of every expanded group.**
+  Today the left-side leading-column band already works (it's
+  the natural left edge of the group's first column). The
+  right-side trailing band is the missing mirror. Reach: one
+  column past either edge, unconditional (no shift needed),
+  visually undifferentiated from other inner-scope dropzones.
+  Covers A3 and B2-as-extend with no modifier.
+- **Shift modifier = "extend the group vertically to cover the
+  drop wire."** Internal-source only (B3-as-extend). Read at
+  mouseup via `ev.shiftKey`, but tracked live during drag via
+  keydown/keyup for the visual feedback (see below). No reach
+  cap on the drop wire: shift-dragging to a wire several rows
+  outside the group's current span legitimately extends the
+  group to cover all the intervening wires. Any gate already
+  occupying one of those wires that "shouldn't" be in the group
+  gets bumped — same way control-line crossings already shift
+  unrelated gates today.
+- **Multi-wire sources are not a special case.** A two-target
+  op (CNOT, multi-qubit measurement, sub-group) shift-dragged
+  by one of its legs lands all its legs at the post-D3-unit-shift
+  positions, and the group extends to cover the **full** new
+  wire span of the dragged op, not just the grabbed leg. Same
+  code path as single-wire sources.
+- **Ghost-border visual feedback for shift.** While shift is
+  held mid-drag and the cursor is over an inner-scope dropzone,
+  draw a translucent extension of the group's border out to the
+  hovered wire — the user sees exactly which wires would be
+  swallowed if they released now. Released without shift, the
+  ghost vanishes and the regular promote-out path fires.
+  Releasing on a dropzone the shift-extend rule doesn't cover
+  (corner-adjacent, far away, etc.) also falls through to
+  regular logic — shift is silently ignored, no error state.
+- **D4-D items (membership change without moving) explicitly
+  deferred.** No D4 work attempts a non-drag affordance.
+
+###### Phased implementation
+
+Two PRs, sequenced.
+
+- **Stage A: right-side trailing inner-column for groups.**
+  Self-contained. Mirror `_appendTrailingColumn`'s mechanics
+  into the per-group scope recursion in
+  [`_populateDropzonesForGrid`](editor/draggable.ts). One column
+  of reach past the group's rightmost column, on every wire the
+  group spans. Unconditional (no shift). Same styling as
+  existing inner-scope dropzones — geometry already reads
+  ("snug against the right edge of the group's box"). No
+  action-layer changes; existing `addOperation` /
+  `moveOperation` already do the right thing when handed an
+  inner-scope `data-dropzone-location`. Tests: dropzone
+  emission (one new test in
+  [test/circuit-editor/dropzones.test.mjs](../../test/circuit-editor/dropzones.test.mjs)),
+  drop behavior (external gate → group's new trailing column ⇒
+  added to group; internal gate → trailing column ⇒ stays in
+  group; round-trip in
+  [test/circuit-editor/circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)).
+  Ships and is verifiable on its own.
+- **Stage B: shift-to-extend-vertically for internal sources.**
+  Depends on Stage A's dropzone scaffolding.
+  - Live shift tracking in
+    [`DragController`](editor/controllers/dragController.ts):
+    keydown/keyup listeners while a drag is active, plus
+    `shiftKey` polled at mouseup for the action decision.
+  - Ghost-border overlay drawn into the overlay layer when
+    shift is held + hovered dropzone is inner-scope of an
+    expanded group whose wire span doesn't include the drop
+    wire. Removed on shift release, on hover-off, on mouseup.
+  - New flag on `moveOperation` (e.g. `extendGroupVertically`)
+    that, after the move settles, extends the destination
+    group's `.targets` to cover the moved op's full new wire
+    span. Group ancestor walks already exist for the
+    empty-prune path; the extend path is the same walk in the
+    other direction.
+  - Tests for: shift + B3 single-wire drop extends correctly;
+    shift + multi-wire-source extends to full span; shift +
+    drop several wires away extends across the gap; shift +
+    B5 (last child) — group empties and is pruned, shift
+    becomes moot, source lands at top level on its new wire;
+    shift + drop on a non-inner dropzone (A4 or corner-
+    adjacent) — shift ignored, plain promote-out behavior;
+    shift released mid-drag — ghost vanishes, mouseup behaves
+    as plain drop.
+
+**Out of scope for this pass.**
+
+- A4 (external gate + shift = extend vertically + absorb). Rare,
+  weak intent, easy to fake via two steps. Revisit if asked.
+- E (resize the group's box directly via edge handles). Different
+  gesture, no gate being moved. Possible follow-up.
+- D-items (no-move membership change). Owned by the gate-edit
+  panel and selection-based snapshot tooling — separate roadmap
+  items.
 
 ##### Roadmap & status
 
@@ -1249,7 +1385,7 @@ and is worth its own design session.
 | D1: empty-group crash                   | Crash                  | ✅ Shipped (user-confirmed) |
 | D2: classical condition before producer | Logic error            | ✅ Shipped (user-confirmed) |
 | D3: multi-target semantics              | Design / documentation | ✅ Shipped (pending user)   |
-| D4: move-out vs. expand-group           | Design                 | Deferred — separate session |
+| D4: move-out vs. expand-group           | Design                 | Planned — Stage A ready     |
 | D5: dropzone overlapping rendered gate  | Bug                    | ✅ Shipped (user-confirmed) |
 
 ---
