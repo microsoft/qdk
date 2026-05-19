@@ -68,4 +68,7 @@ define_properties! {
     LOSS,
     LOGICAL_CYCLE_TIME,
     CODE_CYCLE_TIME,
+    ASSUMPTIONS,
+    FEASIBILITY,
+    TARGET_YEAR,
 }
