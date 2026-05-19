@@ -397,9 +397,7 @@ function OutputPanel({
         ×
       </button>
       <div class="out-label">{label}</div>
-      <div class="out-body">
-        <OutputBody output={out} />
-      </div>
+      <OutputBody output={out} />
     </div>
   );
 }
@@ -413,7 +411,7 @@ function OutputBody({ output: out }: { output: OutputState }) {
         out.variant === "pass"
           ? "success"
           : out.variant === "fail"
-            ? "fail"
+            ? "out-fail"
             : "message";
       return <div class={cls}>{out.text}</div>;
     }
@@ -428,10 +426,10 @@ function SolutionResult({ result }: { result: SolutionCheckResult }) {
       {result.passed ? (
         <div class="success">✔ All tests passed!</div>
       ) : (
-        <div class="fail">✘ Check failed</div>
+        <div class="out-fail">✘ Check failed</div>
       )}
       <EventList messages={result.messages} />
-      {result.error && <div class="fail">{result.error}</div>}
+      {result.error && <div class="out-fail">{result.error}</div>}
       {!result.passed && (
         <span
           class="chat-link"
@@ -578,12 +576,12 @@ function ProgressBar({ progress }: { progress: OverallProgress }) {
         }
       }}
     >
-      <span class="pb-overall">
+      <span>
         {stats.completedActivities}/{stats.totalActivities} ({pct}%)
       </span>
       {currentUnit ? (
         <>
-          <span class="pb-kata-label pb-active">{currentUnit.title}</span>
+          <span>{currentUnit.title}</span>
           <span class="pb-segments">
             {currentUnit.activities.map((act) => {
               const isCurrent = act.id === currentPosition!.activityId;
@@ -595,7 +593,7 @@ function ProgressBar({ progress }: { progress: OverallProgress }) {
           </span>
         </>
       ) : currentPosition && currentPosition.unitId ? (
-        <span class="pb-kata-label pb-active">{currentPosition.unitId}</span>
+        <span>{currentPosition.unitId}</span>
       ) : null}
     </footer>
   );
