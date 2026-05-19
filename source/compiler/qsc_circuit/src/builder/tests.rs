@@ -76,19 +76,6 @@ impl SourceLookup for FakeCompilation {
     fn is_synthesized_callable_scope(&self, _scope: &Scope) -> bool {
         false
     }
-
-    fn callable_scope_origin_package(&self, scope: &Scope) -> Option<PackageId> {
-        match scope {
-            Scope::Callable(CallableId::Id(store_item_id, _)) => Some(store_item_id.package),
-            Scope::Callable(CallableId::Source(package_offset, _)) => {
-                Some(package_offset.package_id)
-            }
-            Scope::Top
-            | Scope::Loop(..)
-            | Scope::LoopIteration(..)
-            | Scope::ClassicallyControlled { .. } => None,
-        }
-    }
 }
 
 impl FakeCompilation {
@@ -300,7 +287,7 @@ fn source_scope_for_callable(fir_store: &fir::PackageStore, callable_id: StoreIt
 }
 
 #[test]
-fn synthesized_callable_scope_collapse_uses_origin_package() {
+fn synthesized_callable_scope_detected_correctly() {
     let (store, mut fir_store, library_package_id, user_package_id) =
         compile_origin_lookup_stores();
 
@@ -322,57 +309,19 @@ fn synthesized_callable_scope_collapse_uses_origin_package() {
     );
 
     // Check both callable id scopes and source scopes because each path can be
-    // used when deciding whether a synthesized group should collapse.
+    // used when deciding whether a scope is synthesized.
     let library_id_scope = Scope::Callable(CallableId::Id(library_clone, FunctorApp::default()));
     let user_id_scope = Scope::Callable(CallableId::Id(user_clone, FunctorApp::default()));
     let library_source_scope = source_scope_for_callable(&fir_store, library_clone);
     let user_source_scope = source_scope_for_callable(&fir_store, user_clone);
     let lookup = (&store, &fir_store);
 
+    // Both clones are synthesized (no matching HIR item)
     assert!(lookup.is_synthesized_callable_scope(&library_id_scope));
     assert!(lookup.is_synthesized_callable_scope(&user_id_scope));
     assert!(lookup.is_synthesized_callable_scope(&library_source_scope));
+    // The user clone with matching source span is NOT synthesized
     assert!(!lookup.is_synthesized_callable_scope(&user_source_scope));
-
-    // Only synthesized callables whose origin package is outside the rendered
-    // user package set should collapse into their parent circuit group.
-    assert_eq!(
-        lookup.callable_scope_origin_package(&library_id_scope),
-        Some(library_package_id)
-    );
-    assert_eq!(
-        lookup.callable_scope_origin_package(&user_id_scope),
-        Some(user_package_id)
-    );
-    assert_eq!(
-        lookup.callable_scope_origin_package(&library_source_scope),
-        Some(library_package_id)
-    );
-    assert_eq!(
-        lookup.callable_scope_origin_package(&user_source_scope),
-        Some(user_package_id)
-    );
-
-    assert!(should_collapse_synthesized_callable_scope(
-        &lookup,
-        &library_id_scope,
-        &[user_package_id],
-    ));
-    assert!(!should_collapse_synthesized_callable_scope(
-        &lookup,
-        &user_id_scope,
-        &[user_package_id],
-    ));
-    assert!(should_collapse_synthesized_callable_scope(
-        &lookup,
-        &library_source_scope,
-        &[user_package_id],
-    ));
-    assert!(!should_collapse_synthesized_callable_scope(
-        &lookup,
-        &user_source_scope,
-        &[user_package_id],
-    ));
 }
 
 #[test]

@@ -26,7 +26,7 @@ use qsc_fir::fir::{
     self, ExprId, ExprKind, PackageId, PackageLookup, PackageStoreLookup, StoreItemId,
 };
 use qsc_frontend::compile::{self};
-use qsc_lowerer::{map_fir_package_to_hir, map_hir_package_to_fir};
+use qsc_lowerer::map_fir_package_to_hir;
 use rustc_hash::{FxHashMap, FxHashSet};
 #[cfg(test)]
 use std::fmt::Display;
@@ -265,7 +265,6 @@ impl CircuitTracer {
             operations,
             qubits,
             self.config.group_by_scope,
-            &self.user_package_ids,
         )
     }
 
@@ -510,10 +509,9 @@ pub(crate) fn finish_circuit(
     mut operations: Vec<OperationOrGroup>,
     qubits: Vec<Qubit>,
     collapse_trivial_groups: bool,
-    user_package_ids: &[PackageId],
 ) -> Circuit {
     if collapse_trivial_groups {
-        collapse_unnecessary_scopes(&mut operations, source_lookup, user_package_ids);
+        collapse_unnecessary_scopes(&mut operations, source_lookup);
     }
     let mut loop_id_cache = Default::default();
     let operations = operations
@@ -532,137 +530,33 @@ pub(crate) fn finish_circuit(
 /// An unnecessary loop scope is one that either has a single child iteration,
 /// or has multiple iterations that each operate on distinct sets of qubits (i.e. a "vertical" loop).
 /// An unnecessary lambda scope is one where the lambda has a single child operation.
-/// Recursively collapses unnecessary scope groups and merges equivalent adjacent groups.
-///
-/// An operation/group is considered unnecessary if:
-/// - It's a loop scope with a single child iteration
-/// - It's a loop scope where all iterations operate on disjoint qubit sets ("vertical" loop)
-/// - It's a lambda scope with a single child, and is not a partial lambda from `ApplyToEach`
-/// - It's a synthesized callable scope from a non-user package
-///
-/// After collapsing, adjacent groups with equivalent scopes tied to synthesized callable
-/// ancestry are merged to further reduce noise in the circuit display.
 fn collapse_unnecessary_scopes(
     operations: &mut Vec<OperationOrGroup>,
     source_lookup: &impl SourceLookup,
-    user_package_ids: &[PackageId],
 ) {
     let mut ops = vec![];
     for mut op in operations.drain(..) {
         match &mut op.kind {
             OperationOrGroupKind::Single => {}
             OperationOrGroupKind::Group { children, .. } => {
-                collapse_unnecessary_scopes(children, source_lookup, user_package_ids);
+                collapse_unnecessary_scopes(children, source_lookup);
             }
         }
 
-        if let Some(children) = collapse_if_unnecessary(&mut op, source_lookup, user_package_ids) {
+        if let Some(children) = collapse_if_unnecessary(&mut op, source_lookup) {
             ops.extend(children);
         } else {
             ops.push(op);
         }
     }
-    merge_adjacent_equivalent_groups(&mut ops, source_lookup);
     *operations = ops;
 }
 
-/// Merges adjacent operation groups that are equivalent and share synthesized callable ancestry.
-///
-/// Groups are merged when they:
-/// - Have the same current lexical scope
-/// - Share a synthesized callable ancestor in their scope stack (indicating they stem from
-///   synthetic transformations like specialization or closure wrapping)
-///
-/// This reduces visual clutter by consolidating synthetic groupings that represent
-/// the same logical scope applied to different iterations or cases.
-fn merge_adjacent_equivalent_groups(
-    operations: &mut Vec<OperationOrGroup>,
-    source_lookup: &impl SourceLookup,
-) {
-    let mut merged = Vec::with_capacity(operations.len());
-
-    for mut op in operations.drain(..) {
-        if let Some(last) = merged.last_mut()
-            && can_merge_equivalent_group(last, &op, source_lookup)
-        {
-            merge_equivalent_group(last, &mut op);
-            continue;
-        }
-
-        merged.push(op);
-    }
-
-    *operations = merged;
-}
-
-/// Determines whether two adjacent groups can be merged.
-///
-/// Groups can merge if they have the same lexical scope AND at least one has a
-/// synthesized callable ancestor, indicating they are synthetic variations of the same scope.
-fn can_merge_equivalent_group(
-    last: &OperationOrGroup,
-    next: &OperationOrGroup,
-    source_lookup: &impl SourceLookup,
-) -> bool {
-    matches!(
-        (last.scope_stack_if_group(), next.scope_stack_if_group()),
-        (Some(last_scope_stack), Some(next_scope_stack))
-            if last_scope_stack.current_lexical_scope() == next_scope_stack.current_lexical_scope()
-                && (has_synthesized_callable_ancestor(last_scope_stack, source_lookup)
-                    || has_synthesized_callable_ancestor(next_scope_stack, source_lookup))
-    )
-}
-
-/// Checks whether a scope stack has a synthesized callable ancestor.
-///
-/// Synthesized callables arise from compiler transformations like specialization, functor
-/// application, or closure wrapping. A scope has a synthesized ancestor if any callable
-/// in its caller chain is marked as synthesized.
-fn has_synthesized_callable_ancestor(
-    scope_stack: &ScopeStack,
-    source_lookup: &impl SourceLookup,
-) -> bool {
-    scope_stack.caller().0.iter().any(|entry| {
-        matches!(entry.lexical_scope(), Scope::Callable(..))
-            && source_lookup.is_synthesized_callable_scope(entry.lexical_scope())
-    })
-}
-
-/// Merges the next group into the last group by combining their child operations.
-///
-/// Propagates inputs from next into last, then appends all child operations from next
-/// to last's children, consolidating them into a single group.
-fn merge_equivalent_group(last: &mut OperationOrGroup, next: &mut OperationOrGroup) {
-    last.merge_inputs(next);
-
-    let next_children = match &mut next.kind {
-        OperationOrGroupKind::Group { children, .. } => take(children),
-        OperationOrGroupKind::Single => Vec::new(),
-    };
-
-    let last_children = match &mut last.kind {
-        OperationOrGroupKind::Group { children, .. } => children,
-        OperationOrGroupKind::Single => {
-            unreachable!("can_merge_equivalent_group only matches groups")
-        }
-    };
-
-    last_children.extend(next_children);
-}
-
-/// Determines whether a scope group should be collapsed and returns its flattened children.
-///
-/// Returns `Some(children)` if the group is unnecessary and can be safely removed;
-/// `None` if the group should be preserved.
-///
-/// Collapse rules:
-/// - **Loop scopes**: Collapse if from non-user package, has single child, or operates on disjoint qubits
-/// - **Lambda scopes**: Collapse if single child and not a partial lambda from `ApplyToEach`
-/// - **Synthesized callables**: Collapse based on origin package and synthetic status
+/// If the given operation or group is an outer scope that can be collapsed,
+/// returns its children operations or groups.
 fn collapse_if_unnecessary(
     op: &mut OperationOrGroup,
     source_lookup: &impl SourceLookup,
-    user_package_ids: &[PackageId],
 ) -> Option<Vec<OperationOrGroup>> {
     if let OperationOrGroupKind::Group {
         scope_stack,
@@ -670,12 +564,6 @@ fn collapse_if_unnecessary(
     } = &mut op.kind
     {
         if let Scope::Loop(..) = scope_stack.current_lexical_scope() {
-            let scope = source_lookup
-                .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default());
-            if should_collapse_non_user_loop_scope(&scope, user_package_ids) {
-                return Some(flatten_loop_iteration_children(children));
-            }
-
             if children.len() == 1 {
                 // remove the loop scope
                 let mut only_child = children.remove(0);
@@ -702,141 +590,19 @@ fn collapse_if_unnecessary(
                 all_children.extend(take(children));
             }
             return Some(all_children);
-        } else if let Scope::Callable(..) = scope_stack.current_lexical_scope() {
-            let scope = source_lookup
-                .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default());
-            if children.len() == 1
-                && scope.name.as_ref() == "<lambda>"
-                && !should_preserve_apply_to_each_partial_lambda(
-                    source_lookup,
-                    scope_stack,
-                    user_package_ids,
-                )
-            {
-                // remove the lambda scope
-                return Some(take(children));
-            }
-
-            if should_collapse_synthesized_callable_scope(
-                source_lookup,
-                scope_stack.current_lexical_scope(),
-                user_package_ids,
-            ) {
-                return Some(take(children));
-            }
+        } else if let Scope::Callable(..) = scope_stack.current_lexical_scope()
+            && children.len() == 1
+            && source_lookup
+                .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default())
+                .name
+                .as_ref()
+                == "<lambda>"
+        {
+            // remove the lambda scope
+            return Some(take(children));
         }
     }
     None
-}
-
-/// Determines whether a lambda scope should be preserved to maintain `ApplyToEach` structure.
-///
-/// Preserves lambda scopes that are:
-/// - Partial lambdas created within `ApplyToEach` closures
-/// - Called from user code (not synthesized)
-///
-/// This ensures that higher-order loop patterns like `ApplyToEach(op, qubits)` remain
-/// readable in circuit displays rather than being flattened away.
-fn should_preserve_apply_to_each_partial_lambda(
-    source_lookup: &impl SourceLookup,
-    scope_stack: &ScopeStack,
-    user_package_ids: &[PackageId],
-) -> bool {
-    let mut loop_id_cache = Default::default();
-    let mut saw_apply_to_each_closure = false;
-
-    for caller in scope_stack.caller().0.iter().rev() {
-        let scope = caller.lexical_scope();
-
-        if matches!(scope, Scope::Loop(..) | Scope::LoopIteration(..)) {
-            continue;
-        }
-
-        let Scope::Callable(..) = scope else {
-            return false;
-        };
-
-        let resolved_scope = source_lookup.resolve_scope(scope, &mut loop_id_cache);
-
-        if source_lookup.is_synthesized_callable_scope(scope)
-            && resolved_scope.name.as_ref().starts_with("ApplyToEach")
-        {
-            saw_apply_to_each_closure = true;
-            continue;
-        }
-
-        if saw_apply_to_each_closure {
-            return source_lookup
-                .callable_scope_origin_package(scope)
-                .is_some_and(|package_id| user_package_ids.contains(&package_id))
-                && !source_lookup.is_synthesized_callable_scope(scope);
-        }
-
-        return false;
-    }
-
-    false
-}
-
-/// Determines whether a loop scope originates from library code and should be collapsed.
-///
-/// Library loops (those from non-user packages or generic synthetic loop markers) are
-/// collapsed to reduce clutter. User-authored loops are preserved.
-fn should_collapse_non_user_loop_scope(
-    scope: &LexicalScope,
-    user_package_ids: &[PackageId],
-) -> bool {
-    scope.name.as_ref() == "loop: "
-        || scope
-            .location
-            .is_some_and(|location| !user_package_ids.contains(&location.package_id))
-}
-
-/// Flattens loop iteration groups, extracting their children.
-///
-/// When a loop scope is collapsed, its loop-iteration child groups are unwrapped,
-/// promoting their operations to the parent level for a cleaner circuit structure.
-fn flatten_loop_iteration_children(children: &mut Vec<OperationOrGroup>) -> Vec<OperationOrGroup> {
-    let mut flattened = Vec::new();
-
-    for mut child in children.drain(..) {
-        match &mut child.kind {
-            OperationOrGroupKind::Group {
-                scope_stack,
-                children,
-            } if matches!(
-                scope_stack.current_lexical_scope(),
-                Scope::LoopIteration(..)
-            ) =>
-            {
-                flattened.extend(take(children));
-            }
-            OperationOrGroupKind::Single | OperationOrGroupKind::Group { .. } => {
-                flattened.push(child);
-            }
-        }
-    }
-
-    flattened
-}
-
-/// Determines whether a synthesized callable scope should be collapsed.
-///
-/// Synthesized callables from library packages are collapsed to reduce visualization noise.
-/// Synthesized callables from user packages may be retained to preserve semantic intent.
-fn should_collapse_synthesized_callable_scope(
-    source_lookup: &impl SourceLookup,
-    scope: &Scope,
-    user_package_ids: &[PackageId],
-) -> bool {
-    if !source_lookup.is_synthesized_callable_scope(scope) {
-        return false;
-    }
-
-    match source_lookup.callable_scope_origin_package(scope) {
-        Some(package_id) => !user_package_ids.contains(&package_id),
-        None => true,
-    }
 }
 
 /// Cache for mapping loop source locations to their corresponding package and expression IDs.
@@ -860,9 +626,6 @@ pub trait SourceLookup {
     /// Circuit rendering uses this to collapse bookkeeping-only callable
     /// scopes so they do not appear as separate groups in the final diagram.
     fn is_synthesized_callable_scope(&self, scope: &Scope) -> bool;
-    /// Returns the package where the callable originally came from, when it
-    /// can be recovered from the callable scope's source metadata.
-    fn callable_scope_origin_package(&self, scope: &Scope) -> Option<PackageId>;
 }
 
 impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
@@ -1085,25 +848,6 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
         }
 
         !hir_package_contains_callable_origin(unit, offset, name.as_ref())
-    }
-
-    fn callable_scope_origin_package(&self, scope: &Scope) -> Option<PackageId> {
-        let (current_package, offset, name) = callable_scope_origin_key(self.1, scope)?;
-
-        let current_match = self
-            .0
-            .get(map_fir_package_to_hir(current_package))
-            .and_then(|unit| {
-                hir_package_contains_callable_origin(unit, offset, name.as_ref())
-                    .then_some(current_package)
-            });
-
-        current_match.or_else(|| {
-            self.0.iter().find_map(|(hir_package_id, unit)| {
-                hir_package_contains_callable_origin(unit, offset, name.as_ref())
-                    .then_some(map_hir_package_to_fir(hir_package_id))
-            })
-        })
     }
 }
 
