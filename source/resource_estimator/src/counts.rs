@@ -9,7 +9,7 @@ mod memory_compute;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc::{Backend, BackendResult, interpret::Value};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rustc_hash::FxHashMap;
 use std::{array, cell::RefCell, f64::consts::PI, fmt::Debug, iter::Sum};
 
@@ -527,7 +527,7 @@ impl Backend for LogicalCounter {
         if let Some(val) = self.post_select_measurements.remove(&q) {
             Ok(val.into())
         } else {
-            Ok(self.rnd.borrow_mut().gen_bool(0.5).into())
+            Ok(self.rnd.borrow_mut().random_bool(0.5).into())
         }
     }
 

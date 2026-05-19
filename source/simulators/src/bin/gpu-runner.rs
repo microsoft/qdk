@@ -226,15 +226,15 @@ fn scale_teleport() {
     Controlled Z([msg], bob);
          */
 
-    use rand::Rng;
+    use rand::RngExt;
 
     let msg_qubit = 0;
     let alice_qubit = 1;
     let bob_qubit = 2;
 
     // Generate random angle between 0 and 2π
-    let mut rng = rand::thread_rng();
-    let angle: f32 = rng.gen_range(0.0..(2.0 * PI));
+    let mut rng = rand::rng();
+    let angle: f32 = rng.random_range(0.0..(2.0 * PI));
 
     let ops: Vec<Op> = vec![
         // Prepare message qubit with rotation

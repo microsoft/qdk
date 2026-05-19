@@ -14,7 +14,7 @@ use qdk_simulators::{
     noise_config::{self, CumulativeNoiseConfig},
     stabilizer_simulator::StabilizerSimulator,
 };
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use std::{fmt::Write, sync::Arc};
 
@@ -168,12 +168,12 @@ where
     let mut rng = if let Some(seed) = seed {
         StdRng::seed_from_u64(seed.into())
     } else {
-        StdRng::from_entropy()
+        StdRng::from_rng(&mut rand::rng())
     };
 
     // run the shots
     let output = (0..shots)
-        .map(|_| rng.r#gen())
+        .map(|_| rng.random())
         .collect::<Vec<u32>>()
         .par_iter()
         .map(|shot_seed| {
@@ -368,11 +368,11 @@ where
     let mut rng = if let Some(seed) = seed {
         StdRng::seed_from_u64(seed.into())
     } else {
-        StdRng::from_entropy()
+        StdRng::from_rng(&mut rand::rng())
     };
 
     let output = (0..shots)
-        .map(|_| rng.r#gen())
+        .map(|_| rng.random())
         .collect::<Vec<u32>>()
         .par_iter()
         .map(|shot_seed| {
