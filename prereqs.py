@@ -119,7 +119,9 @@ def check_prereqs(install=False, skip_wasm=False):
         rust_version = subprocess.check_output(["rustc", "--version"])
         print(f"Detected Rust version: {rust_version.decode()}")
     except FileNotFoundError:
-        print("Rust compiler not found. Install from https://rustup.rs/")
+        print(
+            f'Rust compiler not found. Install from https://rustup.rs/ and then run "rustup default {rust_ver[0]}.{rust_ver[1]}"'
+        )
         exit(1)
 
     ver_match = re.search(r"rustc (\d+)\.(\d+)\.(\d+)", rust_version.decode())
@@ -130,6 +132,10 @@ def check_prereqs(install=False, skip_wasm=False):
                 f'Rust v{rust_ver[0]}.{rust_ver[1]} is required. Please update with "rustup default {rust_ver[0]}.{rust_ver[1]}"'
             )
             exit(1)
+        elif found_ver > rust_ver:
+            print(
+                f'WARNING: Rust version {found_ver[0]}.{found_ver[1]}.{found_ver[2]} is newer than expected {rust_ver[0]}.{rust_ver[1]}.{rust_ver[2]}. There may be new linter warnings. To switch, run "rustup default {rust_ver[0]}.{rust_ver[1]}"'
+            )
     else:
         raise Exception("Unable to determine the Rust compiler version.")
 
