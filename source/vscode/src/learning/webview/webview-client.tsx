@@ -585,7 +585,7 @@ function ProgressBar({ progress }: { progress: OverallProgress }) {
               const cls =
                 "pb-seg" +
                 (act.isComplete ? " done" : isCurrent ? " current" : "");
-              return <span key={act.id} class={cls} title={act.title} />;
+              return <span key={act.id} class={cls} />;
             })}
           </span>
         </>
