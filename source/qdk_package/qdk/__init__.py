@@ -18,7 +18,7 @@ Core submodules (always available):
   ``NeutralAtomDevice``.
 - :mod:`qdk.estimator` — the legacy Microsoft Resource Estimator API.
 - :mod:`qdk.qre` — the next-generation Resource Estimator (QRE v3).
-- :mod:`qdk.code` — namespace populated with user-defined Q# callables.
+- :mod:`qdk.code` — namespace populated with user-defined Q# and OpenQASM callables.
 
 Frequently used utilities are also re-exported at the package root for
 convenience: :func:`~qdk.qsharp.init`, :func:`~qdk.qsharp.dump_machine`,
@@ -29,15 +29,14 @@ convenience: :func:`~qdk.qsharp.init`, :func:`~qdk.qsharp.dump_machine`,
 :class:`~qdk.qsharp.BitFlipNoise`, :class:`~qdk.qsharp.PhaseFlipNoise`,
 and :class:`~qdk.Context`.
 
-Optional extras install additional dependencies and enable extra submodules:
+Optional extras enable additional submodules:
 
-- ``qdk[azure]`` — installs ``azure-quantum``, available as :mod:`qdk.azure`.
-- ``qdk[qiskit]`` — installs ``qiskit`` and exposes Qiskit interop as
-  :mod:`qdk.qiskit`.
-- ``qdk[cirq]`` — installs ``cirq-core`` and ``cirq-ionq`` and exposes Cirq
-  interop as :mod:`qdk.cirq`.
-- ``qdk[jupyter]`` — installs ``qsharp-widgets`` and ``qsharp-jupyterlab`` and
-  exposes ``qdk.widgets``.
+- ``qdk[azure]`` — Azure Quantum job submission and management
+  (:mod:`qdk.azure`).
+- ``qdk[qiskit]`` — Qiskit interoperability (:mod:`qdk.qiskit`).
+- ``qdk[cirq]`` — Cirq interoperability (:mod:`qdk.cirq`).
+- ``qdk[jupyter]`` — interactive Jupyter widgets and JupyterLab integration
+  (:mod:`qdk.widgets`).
 """
 
 from .telemetry_events import on_qdk_import
