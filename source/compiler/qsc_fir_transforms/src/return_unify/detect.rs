@@ -1,114 +1,60 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Exhaustive `Return` detection for the return-unification pass.
+//! `Return` detection for the return-unification pass.
 //!
-//! Mirrors the exhaustive `ExprKind` walker in
-//! [`crate::walk_utils`]: every variant is matched explicitly, with no
-//! wildcard arm, so adding a new FIR `ExprKind` variant produces a compile
-//! error here rather than silently missing a detection site.
+//! Delegates to the shared pre-order walker in [`crate::walk_utils`] so
+//! that `ExprKind` variant coverage is maintained in a single location.
 //!
-//! `ExprKind::Closure` is treated as a leaf: closure captures are
-//! [`qsc_fir::fir::LocalVarId`]s rather than expressions, and the closure
-//! body lives in a separate callable that `return_unify` visits
-//! independently.
+//! `ExprKind::Closure` is treated as a leaf by [`crate::walk_utils::for_each_expr`]:
+//! closure captures are [`qsc_fir::fir::LocalVarId`]s rather than
+//! expressions, and the closure body lives in a separate callable that
+//! `return_unify` visits independently.
 
-use qsc_fir::fir::{BlockId, ExprId, ExprKind, PackageLookup, StmtId, StmtKind, StringComponent};
+use crate::walk_utils;
+use qsc_fir::fir::{BlockId, ExprId, ExprKind, Package, PackageLookup, StmtId, StmtKind};
 
 /// Returns `true` when `block_id` contains any `ExprKind::Return` at any depth.
-pub(super) fn contains_return_in_block(lookup: &impl PackageLookup, block_id: BlockId) -> bool {
-    let block = lookup.get_block(block_id);
-    block
-        .stmts
-        .iter()
-        .any(|&stmt_id| contains_return_in_stmt(lookup, stmt_id))
+pub(super) fn contains_return_in_block(package: &Package, block_id: BlockId) -> bool {
+    let mut found = false;
+    walk_utils::for_each_expr_in_block(package, block_id, &mut |_id, expr| {
+        if matches!(expr.kind, ExprKind::Return(_)) {
+            found = true;
+        }
+    });
+    found
 }
 
 /// Returns `true` when the statement's initializer/expression contains any
 /// `ExprKind::Return`.
-pub(super) fn contains_return_in_stmt(lookup: &impl PackageLookup, stmt_id: StmtId) -> bool {
-    let stmt = lookup.get_stmt(stmt_id);
+pub(super) fn contains_return_in_stmt(package: &Package, stmt_id: StmtId) -> bool {
+    let stmt = package.get_stmt(stmt_id);
     match &stmt.kind {
         StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) => {
-            contains_return_in_expr(lookup, *expr_id)
+            contains_return_in_expr(package, *expr_id)
         }
-        StmtKind::Local(_, _, expr_id) => contains_return_in_expr(lookup, *expr_id),
+        StmtKind::Local(_, _, expr_id) => contains_return_in_expr(package, *expr_id),
         StmtKind::Item(_) => false,
     }
 }
 
 /// Return `true` when any sub-expression of `expr_id` is an `ExprKind::Return`.
 ///
-/// # Before
-/// ```text
-/// expr tree rooted at expr_id
-/// ```
-/// # After
-/// ```text
-/// unchanged
-/// ```
-/// # Requires
-/// - `expr_id` is valid in `lookup`.
+/// Delegates to [`walk_utils::for_each_expr`], which walks every
+/// sub-expression in pre-order and treats [`ExprKind::Closure`] as a
+/// leaf (closure bodies live in separate callables).
 ///
-/// # Ensures
-/// - Returns `true` iff `ExprKind::Return(_)` appears at any depth outside
-///   closure boundaries.
-/// - Does not recurse into `ExprKind::Closure`: captures are
-///   [`qsc_fir::fir::LocalVarId`]s, not sub-expressions, and the closure
-///   body lives in a separate callable.
-///
-/// # Mutations
-/// - None (read-only).
-pub(super) fn contains_return_in_expr(lookup: &impl PackageLookup, expr_id: ExprId) -> bool {
-    let expr = lookup.get_expr(expr_id);
-    match &expr.kind {
-        ExprKind::Return(_) => true,
-        ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
-            exprs.iter().any(|&e| contains_return_in_expr(lookup, e))
+/// Does not short-circuit: the walker visits every reachable node even
+/// after a `Return` is found. This is less efficient than the manual
+/// recursive implementation but semantically equivalent.
+pub(super) fn contains_return_in_expr(package: &Package, expr_id: ExprId) -> bool {
+    let mut found = false;
+    walk_utils::for_each_expr(package, expr_id, &mut |_id, expr| {
+        if matches!(expr.kind, ExprKind::Return(_)) {
+            found = true;
         }
-        ExprKind::ArrayRepeat(a, b)
-        | ExprKind::Assign(a, b)
-        | ExprKind::AssignOp(_, a, b)
-        | ExprKind::BinOp(_, a, b)
-        | ExprKind::Call(a, b)
-        | ExprKind::Index(a, b)
-        | ExprKind::AssignField(a, _, b)
-        | ExprKind::UpdateField(a, _, b) => {
-            contains_return_in_expr(lookup, *a) || contains_return_in_expr(lookup, *b)
-        }
-        ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
-            contains_return_in_expr(lookup, *a)
-                || contains_return_in_expr(lookup, *b)
-                || contains_return_in_expr(lookup, *c)
-        }
-        ExprKind::Block(block_id) => contains_return_in_block(lookup, *block_id),
-        ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => false,
-        ExprKind::Fail(e) | ExprKind::Field(e, _) | ExprKind::UnOp(_, e) => {
-            contains_return_in_expr(lookup, *e)
-        }
-        ExprKind::If(cond, body, otherwise) => {
-            contains_return_in_expr(lookup, *cond)
-                || contains_return_in_expr(lookup, *body)
-                || otherwise.is_some_and(|e| contains_return_in_expr(lookup, e))
-        }
-        ExprKind::Range(start, step, end) => [start, step, end]
-            .into_iter()
-            .flatten()
-            .any(|&e| contains_return_in_expr(lookup, e)),
-        ExprKind::Struct(_, copy, fields) => {
-            copy.is_some_and(|c| contains_return_in_expr(lookup, c))
-                || fields
-                    .iter()
-                    .any(|fa| contains_return_in_expr(lookup, fa.value))
-        }
-        ExprKind::String(components) => components.iter().any(|c| match c {
-            StringComponent::Expr(e) => contains_return_in_expr(lookup, *e),
-            StringComponent::Lit(_) => false,
-        }),
-        ExprKind::While(cond, body) => {
-            contains_return_in_expr(lookup, *cond) || contains_return_in_block(lookup, *body)
-        }
-    }
+    });
+    found
 }
 
 #[cfg(test)]

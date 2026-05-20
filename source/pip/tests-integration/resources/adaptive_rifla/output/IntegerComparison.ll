@@ -5,50 +5,50 @@
 
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
-  %var_0 = alloca i64
   %var_1 = alloca i64
-  %var_3 = alloca i1
+  %var_2 = alloca i64
+  %var_4 = alloca i1
   call void @__quantum__rt__initialize(ptr null)
-  store i64 0, ptr %var_0
-  store i64 1, ptr %var_1
+  store i64 0, ptr %var_1
+  store i64 1, ptr %var_2
   br label %block_1
 block_1:
-  %var_13 = load i64, ptr %var_1
-  %var_2 = icmp sle i64 %var_13, 10
-  store i1 true, ptr %var_3
-  br i1 %var_2, label %block_2, label %block_3
+  %var_14 = load i64, ptr %var_2
+  %var_3 = icmp sle i64 %var_14, 10
+  store i1 true, ptr %var_4
+  br i1 %var_3, label %block_2, label %block_3
 block_2:
-  %var_16 = load i1, ptr %var_3
-  br i1 %var_16, label %block_4, label %block_5
+  %var_17 = load i1, ptr %var_4
+  br i1 %var_17, label %block_4, label %block_5
 block_3:
-  store i1 false, ptr %var_3
+  store i1 false, ptr %var_4
   br label %block_2
 block_4:
   call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
   call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-  %var_4 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-  br i1 %var_4, label %block_6, label %block_7
+  %var_5 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+  br i1 %var_5, label %block_6, label %block_7
 block_5:
   call void @__quantum__qis__reset__body(ptr inttoptr (i64 0 to ptr))
-  %var_17 = load i64, ptr %var_0
-  %var_8 = icmp sgt i64 %var_17, 5
-  %var_9 = icmp slt i64 %var_17, 5
-  %var_10 = icmp eq i64 %var_17, 10
+  %var_18 = load i64, ptr %var_1
+  %var_9 = icmp sgt i64 %var_18, 5
+  %var_10 = icmp slt i64 %var_18, 5
+  %var_11 = icmp eq i64 %var_18, 10
   call void @__quantum__rt__tuple_record_output(i64 3, ptr @0)
-  call void @__quantum__rt__bool_record_output(i1 %var_8, ptr @1)
-  call void @__quantum__rt__bool_record_output(i1 %var_9, ptr @2)
-  call void @__quantum__rt__bool_record_output(i1 %var_10, ptr @3)
+  call void @__quantum__rt__bool_record_output(i1 %var_9, ptr @1)
+  call void @__quantum__rt__bool_record_output(i1 %var_10, ptr @2)
+  call void @__quantum__rt__bool_record_output(i1 %var_11, ptr @3)
   ret i64 0
 block_6:
   call void @__quantum__qis__x__body(ptr inttoptr (i64 0 to ptr))
-  %var_20 = load i64, ptr %var_0
-  %var_6 = add i64 %var_20, 1
-  store i64 %var_6, ptr %var_0
+  %var_21 = load i64, ptr %var_1
+  %var_7 = add i64 %var_21, 1
+  store i64 %var_7, ptr %var_1
   br label %block_7
 block_7:
-  %var_18 = load i64, ptr %var_1
-  %var_7 = add i64 %var_18, 1
-  store i64 %var_7, ptr %var_1
+  %var_19 = load i64, ptr %var_2
+  %var_8 = add i64 %var_19, 1
+  store i64 %var_8, ptr %var_2
   br label %block_1
 }
 

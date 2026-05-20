@@ -21,7 +21,22 @@
 //!
 //! # Architecture
 //!
-//! The pass uses a four-phase pipeline per callable block:
+//! This pass implements the "flag strategy everywhere" design: every
+//! return-bearing block is lowered through a uniform mutable-flag
+//! scaffolding (`__has_returned : Bool`, `__ret_val : T`), then simplified
+//! by a named rewrite catalogue in [`simplify`].
+//!
+//! The formal basis is Böhm–Jacopini (1966) — every program with
+//! arbitrary control flow can be expressed as a structured program using
+//! bounded mutable state. Kozen–Tseng (2008) shows the auxiliary state
+//! is essential at the propositional level. The algorithmic ancestor is
+//! LLVM's `UnifyFunctionExitNodes` followed by `SimplifyCFG`: lower
+//! once into a single-exit form, then fold the canonical output shapes
+//! back into structured form with named, individually-tested rewrite
+//! rules. (FIR is tree-IR; LLVM's pass substitutes an auxiliary boolean +
+//! slot for PHI-based unification.)
+//!
+//! The pass uses a three-phase pipeline per callable block:
 //!
 //! 1. **Normalize** ([`normalize::hoist_returns_to_statement_boundary`]):
 //!    Hoist any `Return` in compound positions (e.g. inside a block-expression
@@ -29,34 +44,40 @@
 //!    this phase, every `Return` is either a bare `Semi(Return(_))` /
 //!    `Expr(Return(_))` or nested inside `If`, `While`, or `Block` statements.
 //!
-//! 2. **Dispatch** ([`should_use_flag_strategy`]):
-//!    Classify the block into one of the dispatch categories below and select
-//!    the appropriate transform strategy.
+//! 2. **Transform** ([`transform_block_with_flags`]):
+//!    Apply the flag strategy to eliminate all `Return` nodes by introducing
+//!    `__has_returned` and `__ret_val` mutable slots. This corresponds to
+//!    LLVM's `UnifyFunctionExitNodes` / `mergereturn` lowering for early
+//!    returns: every return path writes the slot and the flag, and a single
+//!    merge expression at the tail reads them.
 //!
-//! 3. **Transform** ([`transform_block_if_else`] or
-//!    [`transform_block_with_flags`]):
-//!    Apply the selected strategy to eliminate all `Return` nodes.
+//! 3. **Simplify** ([`simplify::run_to_fixpoint`]):
+//!    After the flag strategy, run a named rewrite catalogue
+//!    ([`simplify::guard_clause`], [`simplify::both_branches`],
+//!    [`simplify::bare_return`], [`simplify::let_folding`],
+//!    [`simplify::dead_flag`], [`simplify::dead_local`]) to fold the
+//!    canonical flag-output shapes back into structured form. This is the
+//!    structured-IR analog of LLVM's `SimplifyCFG` after `mergereturn`.
 //!
-//! 4. **Simplify** ([`simplify_flag_patterns`]):
-//!    After the flag strategy, fold trivial identity patterns such as
-//!    `if __has_returned { v } else { v }` → `v`. This is the structured-IR
-//!    analog of LLVM's `SimplifyCFG` after `mergereturn`.
+//! # Contract
 //!
-//! ## Strategies
+//! The pass runs post-monomorphization and pre-defunctionalization. Output
+//! guarantees enforced by [`crate::invariants::InvariantLevel::PostReturnUnify`]:
 //!
-//! Two strategies are available, named to match the test files
-//! `return_unify/tests/structured_strategy.rs` and
-//! `return_unify/tests/flag_strategy.rs`:
+//! * **No `Return` nodes** in reachable code — checked by
+//!   `crate::invariants::check_no_returns`.
+//! * **No non-Unit `Semi`-terminated block tails** — checked by
+//!   `crate::invariants::check_non_unit_block_tails`.
+//! * **`LocalVarId` consistency** — every `LocalVarId` referenced in a
+//!   callable body is bound in that body's scope.
 //!
-//! 1. **Structured strategy** (primary, [`transform_block_if_else`]):
-//!    Restructures blocks containing returns into nested if-else expressions.
-//!    Handles guard clauses and branching returns without introducing mutable
-//!    state. Selected for category-A shapes.
+//! # Callable-body arity contract
 //!
-//! 2. **Flag strategy** (fallback, [`transform_block_with_flags`]):
-//!    Introduces `__has_returned` and `__ret_val` mutable locals to handle
-//!    returns inside while loops, leaky nested-if patterns, and block-init
-//!    returns. Selected for category-B, -C, and -D shapes.
+//! RCA depends on the callable-body arity remaining stable across this
+//! pass. This pass never introduces or removes top-level callable
+//! parameters; it only rewrites block bodies. The flag/slot allocations
+//! become `Local` bindings inside the body's outermost block, not
+//! parameters of the enclosing callable.
 //!
 //! # Input patterns
 //!
@@ -89,79 +110,26 @@
 //! if __has_returned { __ret_val } else { () }
 //! ```
 //!
-//! # Dispatch policy
-//!
-//! The function [`should_use_flag_strategy`] is the single dispatch point
-//! that decides, per callable block, whether to use the structured strategy
-//! or fall back to the flag strategy.
-//!
-//! Fallback detection is driven by [`contains_return_in_while`] and
-//! [`contains_leaky_early_return`], with nested statement/expression scans
-//! delegated to [`crate::return_unify::detect::contains_return_in_expr`] and
-//! its block-level companion.
-//!
-//! The dispatch categories recognized today are:
-//!
-//! * **Category A — guard clauses and pure `if`/`else` nests.** Returns
-//!   appear only on conditional branches outside `while` bodies and do not
-//!   hit the leaky nested-if shape; the structured strategy lifts them into
-//!   nested if-else expressions.
-//! * **Category B — returns inside while loops.** Any `Return` reachable in a
-//!   `while` body causes [`should_use_flag_strategy`] to select the flag
-//!   strategy.
-//! * **Category C — leaky nested-if early returns.** A `Return` under an
-//!   if-without-else chain at depth >= 2 causes
-//!   [`should_use_flag_strategy`] to select the flag strategy.
-//! * **Category D — returns inside block-expression Local initializers.**
-//!   A `Return` inside a `Block` expression used as a `Local` initializer
-//!   causes [`should_use_flag_strategy`] to select the flag strategy
-//!   (detected by [`contains_return_in_block_init`]).
-//!   Non-block `Local`-initializer `MayReturn` shapes stay on the structured
-//!   path and are rewritten by [`transform_local_init`] via
-//!   [`decompose_returning_init`].
-//!
-//! The flag strategy is modeled on the LLVM lowering pattern for early
-//! returns (cf. LLVM `UnifyFunctionExitNodes` / `mergereturn`): a synthesized
-//! `__has_returned` slot plus a merge block guard the remainder of the loop
-//! body, preserving the semantics of the original early exit when category-B,
-//! -C, or -D shape makes the structured lowering unsound.
-//!
-//! # Invariant contracts
-//!
-//! After this pass completes, the following invariants hold:
-//!
-//! * **No `Return` nodes** — checked by
-//!   `crate::invariants::check_no_returns`. Every `ExprKind::Return` in
-//!   reachable code must be eliminated; any surviving `Return` triggers a
-//!   hard assertion failure.
-//! * **Non-Unit block tails** — checked by
-//!   `crate::invariants::check_non_unit_block_tails`. Every block whose
-//!   type is not `Unit` must end with a `StmtKind::Expr` (not `Semi`),
-//!   ensuring downstream code generation sees a value-producing tail.
-//!
-//! These invariants are verified at
-//! [`crate::invariants::InvariantLevel::PostReturnUnify`] by the pipeline
-//! runner after this pass returns.
-//!
 //! # Error reporting
 //!
 //! [`unify_returns`] returns `Vec<Error>` rather than panicking. The known
-//! user-reachable error is [`Error::UnsupportedLoopReturnType`]: the flag
-//! strategy requires a classical default for `__ret_val`, but types like
-//! `Qubit` have no classical default. This is caught by
-//! [`can_create_classical_default`] before entering the transform, producing
-//! a user-facing diagnostic. Processing continues for remaining callables.
+//! user-reachable errors are [`Error::UnsupportedEarlyReturnType`] and
+//! [`Error::UnsupportedMixedQubitArrowReturnType`]: the flag strategy cannot
+//! synthesize a return slot for unresolved or unsupported return types.
+//! Defaultable return types use a direct `__ret_val : T` slot;
+//! non-defaultable non-arrow data return types use an array-backed `T[]` slot.
+//! Unsupported shapes produce a user-facing diagnostic, and processing
+//! continues for remaining callables.
 //!
 //! # Qubit release interaction
 //!
 //! Qubit-release handling is intrinsic to `return_unify`; the historical
 //! `release_hoist` pre-pass was folded in.
-//!
-//! Extension: to add a new category, widen [`should_use_flag_strategy`]
-//! and extend the test matrix under `return_unify/normalize/tests.rs`.
 
 mod detect;
 mod normalize;
+mod simplify;
+mod symbols;
 
 #[cfg(test)]
 mod tests;
@@ -171,8 +139,8 @@ mod semantic_equivalence_tests;
 
 use crate::fir_builder::{
     alloc_assign_expr, alloc_bin_op_expr, alloc_block, alloc_block_expr, alloc_bool_lit,
-    alloc_expr_stmt, alloc_if_expr, alloc_local_var, alloc_local_var_expr, alloc_not_expr,
-    alloc_semi_stmt, alloc_unit_expr, functored_specs,
+    alloc_expr, alloc_expr_stmt, alloc_if_expr, alloc_local_var, alloc_local_var_expr,
+    alloc_not_expr, alloc_semi_stmt, alloc_unit_expr, functored_specs,
 };
 use miette::Diagnostic;
 use num_bigint::BigInt;
@@ -180,14 +148,15 @@ use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        BinOp, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Ident, ItemKind, Lit,
-        LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, PackageStore, Pat,
-        PatId, PatKind, Res, Result, StmtId, StmtKind, StoreItemId, UnOp,
+        BinOp, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Ident, ItemId,
+        ItemKind, Lit, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup,
+        PackageStore, Pat, PatKind, Res, Result, StmtId, StmtKind, StoreItemId, StringComponent,
+        UnOp,
     },
     ty::{Prim, Ty},
 };
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 use thiserror::Error;
 
 use crate::{EMPTY_EXEC_RANGE, reachability::collect_reachable_from_entry};
@@ -195,22 +164,169 @@ use crate::{EMPTY_EXEC_RANGE, reachability::collect_reachable_from_entry};
 /// Errors that can occur during return unification.
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
-    /// The flag-based return unification strategy requires a classical default
-    /// value for the return type to initialize `__ret_val`. Types such as
-    /// `Qubit` have no classical default and cannot be handled.
-    #[error("cannot unify returns of type `{0}` inside a loop")]
-    #[diagnostic(code("Qsc.ReturnUnify.UnsupportedLoopReturnType"))]
+    /// Catch-all for non-defaultable, arrow-free shapes that neither Direct
+    /// nor `ArrayBacked` can encode. Currently the safety-net path.
+    #[error("cannot unify early returns of type `{0}`")]
+    #[diagnostic(code("Qsc.ReturnUnify.UnsupportedEarlyReturnType"))]
     #[diagnostic(help(
-        "the return type has no classical default value; \
-         consider restructuring to avoid returning this type from inside a loop"
+        "the return type has no classical default and cannot be array-backed; \
+         consider restructuring to avoid early returns of this type"
     ))]
-    UnsupportedLoopReturnType(
+    UnsupportedEarlyReturnType(
         String,
-        #[label("callable with unsupported return pattern")] Span,
+        #[label("callable with unsupported return type")] Span,
     ),
+
+    /// Emitted when the simplifier or hoist fixpoint loop fails to reach a
+    /// fixpoint within the per-block measure bound. The IR remains semantically
+    /// valid, but the partial fold indicates a rule regression.
+    #[error("return-unification {phase} did not reach a fixpoint")]
+    #[diagnostic(code("Qsc.ReturnUnify.FixpointNotReached"))]
+    #[diagnostic(severity(Warning))]
+    #[diagnostic(help(
+        "this is an internal compiler diagnostic; please file an issue \
+         including the source program that triggered it"
+    ))]
+    FixpointNotReached { phase: &'static str, block: BlockId },
+
+    /// The return type contains both a non-defaultable type (e.g. Qubit)
+    /// and an arrow (callable) component. Direct requires a classical default
+    /// the type lacks, and `ArrayBacked` is gated against arrow content.
+    #[error("cannot unify early returns of type `{ty}`")]
+    #[diagnostic(code("Qsc.ReturnUnify.UnsupportedMixedQubitArrowReturnType"))]
+    #[diagnostic(help(
+        "the return type combines a non-defaultable type (such as Qubit) \
+         with a callable type; consider restructuring to return these \
+         separately, or refactor the early-return into a single tail \
+         expression"
+    ))]
+    UnsupportedMixedQubitArrowReturnType {
+        ty: String,
+        #[label("callable with unsupported return-slot shape")]
+        span: Span,
+    },
+
+    /// A return appears inside a compound expression whose enclosing
+    /// expression has a type with no classical default.
+    #[error("cannot hoist `return` from a compound position of type `{enclosing_ty}`")]
+    #[diagnostic(code("Qsc.ReturnUnify.UnsupportedHoistContext"))]
+    #[diagnostic(help(
+        "the surrounding expression has a non-defaultable type; \
+         move the `return` to a statement boundary, or restructure the \
+         expression so it does not contain a `return`"
+    ))]
+    UnsupportedHoistContext {
+        enclosing_ty: String,
+        #[label("compound expression with unsupported `return`")]
+        span: Span,
+    },
 }
 
-type UdtPureTyCache = FxHashMap<(PackageId, LocalItemId), Ty>;
+impl Error {
+    /// Returns true if this error is a non-fatal warning that should not
+    /// trigger pipeline abort.
+    #[must_use]
+    pub fn is_warning(&self) -> bool {
+        matches!(self, Self::FixpointNotReached { .. })
+    }
+}
+
+/// Cache of pure structural UDT types used by defaultability and continuation-safety checks.
+///
+/// The cache is seeded from reachable callable output types, then lazily extended when a
+/// continuation local references a UDT that does not appear in those outputs.
+#[derive(Default)]
+struct UdtPureTyCache {
+    pure_tys: RefCell<FxHashMap<(PackageId, LocalItemId), Ty>>,
+}
+
+impl UdtPureTyCache {
+    /// Creates a cache from precomputed UDT pure types.
+    fn new(pure_tys: FxHashMap<(PackageId, LocalItemId), Ty>) -> Self {
+        Self {
+            pure_tys: RefCell::new(pure_tys),
+        }
+    }
+
+    /// Gets a cached pure type for a UDT item, if it has already been resolved.
+    fn get(&self, item_id: ItemId) -> Option<Ty> {
+        self.pure_tys
+            .borrow()
+            .get(&(item_id.package, item_id.item))
+            .cloned()
+    }
+
+    /// Inserts a resolved pure type into the cache.
+    fn insert(&self, item_id: ItemId, pure_ty: Ty) {
+        self.pure_tys
+            .borrow_mut()
+            .insert((item_id.package, item_id.item), pure_ty);
+    }
+
+    /// Resolves a UDT pure type from the package store and caches the result.
+    fn resolve_from_store(&self, store: &PackageStore, item_id: ItemId) -> Option<Ty> {
+        if let Some(pure_ty) = self.get(item_id) {
+            return Some(pure_ty);
+        }
+
+        let pkg = store.get(item_id.package);
+        let item = pkg.items.get(item_id.item)?;
+        let ItemKind::Ty(_, udt) = &item.kind else {
+            return None;
+        };
+        let pure_ty = udt.get_pure_ty();
+        self.insert(item_id, pure_ty.clone());
+        Some(pure_ty)
+    }
+
+    /// Resolves a UDT pure type from the currently borrowed package and caches the result.
+    fn resolve_from_package(
+        &self,
+        package_id: PackageId,
+        package: &Package,
+        item_id: ItemId,
+    ) -> Option<Ty> {
+        if let Some(pure_ty) = self.get(item_id) {
+            return Some(pure_ty);
+        }
+
+        if item_id.package != package_id {
+            return None;
+        }
+
+        let item = package.items.get(item_id.item)?;
+        let ItemKind::Ty(_, udt) = &item.kind else {
+            return None;
+        };
+        let pure_ty = udt.get_pure_ty();
+        self.insert(item_id, pure_ty.clone());
+        Some(pure_ty)
+    }
+}
+
+/// Source available for lazy UDT pure-type resolution at a policy check site.
+enum UdtResolutionContext<'a> {
+    /// Resolve from the package store before the target package is mutably borrowed.
+    Store(&'a PackageStore),
+    /// Resolve from the package currently being rewritten.
+    Package {
+        package_id: PackageId,
+        package: &'a Package,
+    },
+}
+
+impl UdtResolutionContext<'_> {
+    /// Resolves a UDT pure type through the context's available package access.
+    fn resolve_udt_pure_ty(&self, udt_pure_tys: &UdtPureTyCache, item_id: ItemId) -> Option<Ty> {
+        match self {
+            Self::Store(store) => udt_pure_tys.resolve_from_store(store, item_id),
+            Self::Package {
+                package_id,
+                package,
+            } => udt_pure_tys.resolve_from_package(*package_id, package, item_id),
+        }
+    }
+}
 
 /// Recursively collects UDT item references from a type.
 ///
@@ -260,7 +376,7 @@ fn build_scoped_udt_pure_ty_cache(
             cache.insert((*pkg_id, *local_id), udt.get_pure_ty());
         }
     }
-    cache
+    UdtPureTyCache::new(cache)
 }
 
 /// Eliminate all `ExprKind::Return` nodes from reachable callable bodies.
@@ -281,7 +397,8 @@ fn build_scoped_udt_pure_ty_cache(
 /// - Establishes [`crate::invariants::InvariantLevel::PostReturnUnify`] on
 ///   top of `PostMono`: no `ExprKind::Return` in reachable bodies.
 /// - Each rewritten body's trailing expression produces the callable's
-///   return value via the structured strategy or the flag strategy.
+///   return value via the flag strategy followed by the [`simplify`]
+///   rewrite catalogue.
 ///
 /// # Mutations
 /// - Rewrites `CallableDecl` body blocks in `store[package_id]`.
@@ -294,12 +411,13 @@ fn build_scoped_udt_pure_ty_cache(
 /// callables after each diagnostic is recorded.
 ///
 /// # Errors
-/// The only user-reachable variant today is
-/// [`Error::UnsupportedLoopReturnType`], emitted when the flag strategy is
-/// selected (categories B, C, D) for a callable whose return type has no
-/// classical default — for example `Qubit` or any compound type containing
-/// `Qubit`. The check is performed up-front by `can_create_classical_default`
-/// before the transform runs, so the affected callable is left unchanged.
+/// The user-reachable variants are [`Error::UnsupportedEarlyReturnType`] and
+/// [`Error::UnsupportedMixedQubitArrowReturnType`], emitted when the flag
+/// strategy is selected (categories B, C, D) for a callable whose return
+/// type has no classical default — for example `Qubit` or any compound type
+/// containing `Qubit`. The check is performed up-front by
+/// `can_create_classical_default` before the transform runs, so the affected
+/// callable is left unchanged.
 //
 // Only entry-reachable callables are unified. Unreachable callables retain
 // their `Return` nodes, but this is safe because:
@@ -318,7 +436,7 @@ fn build_scoped_udt_pure_ty_cache(
 // Re-audit trigger: the defunc "tagged-union" future work noted at
 // source/compiler/qsc_fir_transforms/src/defunctionalize.rs:42-45 could
 // change the reachability story above; this rationale must be re-validated
-// if that design lands. Assessment (2026-04): tagged-union
+// if that design lands. tagged-union
 // defunctionalization would create *new* dispatch items (union type +
 // apply function) rather than widening reachability to existing dead
 // callables, so the invariant is expected to hold. Re-audit if the
@@ -328,20 +446,43 @@ pub fn unify_returns(
     package_id: PackageId,
     assigner: &mut Assigner,
 ) -> Vec<Error> {
+    unify_returns_impl(store, package_id, assigner, /* run_simplify */ true)
+}
+
+/// Test-only variant of [`unify_returns`] that stops after
+/// `transform_block_with_flags` and skips [`simplify::run_to_fixpoint`].
+///
+/// Per-rule simplify tests use this to capture the pre-simplify FIR
+/// shape so they can apply individual rules and snapshot the delta.
+#[cfg(test)]
+pub(crate) fn unify_returns_without_simplify(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigner: &mut Assigner,
+) -> Vec<Error> {
+    unify_returns_impl(store, package_id, assigner, /* run_simplify */ false)
+}
+
+fn unify_returns_impl(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigner: &mut Assigner,
+    run_simplify: bool,
+) -> Vec<Error> {
     let reachable = collect_reachable_from_entry(store, package_id);
     let udt_pure_tys = build_scoped_udt_pure_ty_cache(store, &reachable);
     let mut errors = Vec::new();
 
+    let mut arrow_default_cache = ArrowDefaultCache::default();
     let local_reachable: Vec<_> = reachable
         .iter()
         .filter(|id| id.package == package_id)
         .map(|id| id.item)
         .collect();
 
-    let package = store.get_mut(package_id);
-
     for item_id in local_reachable {
         let callable = {
+            let package = store.get(package_id);
             let item = package.get_item(item_id);
             match &item.kind {
                 ItemKind::Callable(callable) => callable.clone(),
@@ -349,38 +490,90 @@ pub fn unify_returns(
             }
         };
         let return_ty = callable.output.clone();
-        for block_id in get_callable_body_blocks(&callable) {
-            if contains_return_in_block(package, block_id) {
-                // Pre-pass: hoist any compound-position Return to its
-                // enclosing statement boundary so the strategy pass only sees
-                // bare returns or returns inside statement-carrying Block/If/While.
-                normalize::hoist_returns_to_statement_boundary(
-                    package, assigner, package_id, block_id,
-                );
-                if should_use_flag_strategy(package, block_id) {
-                    // The flag strategy requires a classical default for
-                    // `__ret_val`. Check before entering the transform so
-                    // unsupported types (e.g. Qubit) produce a user-facing
-                    // diagnostic instead of panicking.
-                    if !can_create_classical_default(&return_ty, &udt_pure_tys) {
-                        errors.push(Error::UnsupportedLoopReturnType(
-                            format!("{return_ty}"),
-                            callable.name.span,
-                        ));
-                        continue;
-                    }
-                    transform_block_with_flags(
-                        package,
-                        assigner,
-                        package_id,
-                        block_id,
-                        &return_ty,
-                        &udt_pure_tys,
-                    );
-                    simplify_flag_patterns(package, block_id);
+        let body_blocks = get_callable_body_blocks(&callable);
+
+        // Pre-check: verify the normalize phase can handle all compound-
+        // position Returns in this callable's body blocks. If any block
+        // contains a Return in a context that requires a non-defaultable
+        // type default, emit a diagnostic and skip the entire callable.
+        let pre_check_error_count = errors.len();
+        for &block_id in &body_blocks {
+            if !contains_return_in_block(store.get(package_id), block_id) {
+                continue;
+            }
+            check_normalize_supportable(store.get(package_id), package_id, block_id, &mut errors);
+        }
+        if errors[pre_check_error_count..]
+            .iter()
+            .any(|e| !e.is_warning())
+        {
+            continue;
+        }
+
+        for block_id in body_blocks {
+            if !contains_return_in_block(store.get(package_id), block_id) {
+                continue;
+            }
+
+            // Pre-pass: hoist any compound-position Return to its enclosing
+            // statement boundary so the strategy pass only sees bare returns
+            // or returns inside statement-carrying Block/If/While.
+            normalize::hoist_returns_to_statement_boundary(
+                store.get_mut(package_id),
+                assigner,
+                package_id,
+                block_id,
+                &mut errors,
+            );
+
+            // The flag strategy is the only return-unification strategy.
+            let return_slot_strategy = {
+                let context = UdtResolutionContext::Store(store);
+                select_return_slot_strategy(&return_ty, &udt_pure_tys, &context)
+            };
+
+            let Some(return_slot_strategy) = return_slot_strategy else {
+                // Distinguish: arrow-containing types get a specific
+                // diagnostic; pure non-defaultable types get the catch-all.
+                let has_arrow = {
+                    let context = UdtResolutionContext::Store(store);
+                    matches!(
+                        arrow_scan_for_ty(
+                            &return_ty,
+                            &udt_pure_tys,
+                            &context,
+                            &mut FxHashSet::default(),
+                        ),
+                        ArrowScan::ContainsArrow
+                    )
+                };
+                if has_arrow {
+                    errors.push(Error::UnsupportedMixedQubitArrowReturnType {
+                        ty: format!("{return_ty}"),
+                        span: callable.name.span,
+                    });
                 } else {
-                    transform_block_if_else(package, assigner, block_id, &return_ty);
+                    errors.push(Error::UnsupportedEarlyReturnType(
+                        format!("{return_ty}"),
+                        callable.name.span,
+                    ));
                 }
+                continue;
+            };
+
+            let package = store.get_mut(package_id);
+            transform_block_with_flags(
+                package,
+                assigner,
+                package_id,
+                block_id,
+                &return_ty,
+                &udt_pure_tys,
+                &mut arrow_default_cache,
+                return_slot_strategy,
+            );
+            if run_simplify {
+                simplify::run_to_fixpoint(package, assigner, block_id, &mut errors);
             }
         }
     }
@@ -425,23 +618,23 @@ fn get_callable_body_blocks(callable: &CallableDecl) -> Vec<BlockId> {
 
 use detect::{contains_return_in_block, contains_return_in_expr, contains_return_in_stmt};
 
-/// Returns true if any `Return` node is inside a while loop body.
-fn contains_return_in_while(package: &Package, block_id: BlockId) -> bool {
-    let block = package.get_block(block_id);
-    block
-        .stmts
-        .iter()
-        .any(|&stmt_id| contains_return_in_while_stmt(package, stmt_id))
-}
-
-/// Returns true if any `Return` node is reachable through a while-condition
-/// expression (at any nesting depth).
-fn contains_return_in_while_condition(package: &Package, block_id: BlockId) -> bool {
-    let block = package.get_block(block_id);
-    block
-        .stmts
-        .iter()
-        .any(|&stmt_id| contains_return_in_while_condition_stmt(package, stmt_id))
+fn contains_return_in_while_expr(package: &Package, expr_id: ExprId) -> bool {
+    let expr = package.get_expr(expr_id);
+    match &expr.kind {
+        ExprKind::While(_, body_id) => contains_return_in_block(package, *body_id),
+        ExprKind::Block(block_id) => {
+            let block = package.get_block(*block_id);
+            block
+                .stmts
+                .iter()
+                .any(|&stmt_id| contains_return_in_while_stmt(package, stmt_id))
+        }
+        ExprKind::If(_, then_id, else_opt) => {
+            contains_return_in_while_expr(package, *then_id)
+                || else_opt.is_some_and(|e| contains_return_in_while_expr(package, e))
+        }
+        _ => false,
+    }
 }
 
 fn contains_return_in_while_stmt(package: &Package, stmt_id: StmtId) -> bool {
@@ -452,995 +645,6 @@ fn contains_return_in_while_stmt(package: &Package, stmt_id: StmtId) -> bool {
         }
         _ => false,
     }
-}
-
-fn contains_return_in_while_condition_stmt(package: &Package, stmt_id: StmtId) -> bool {
-    let stmt = package.get_stmt(stmt_id);
-    match &stmt.kind {
-        StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
-            contains_return_in_while_condition_expr(package, *expr_id)
-        }
-        StmtKind::Item(_) => false,
-    }
-}
-
-fn contains_return_in_while_expr(package: &Package, expr_id: ExprId) -> bool {
-    let expr = package.get_expr(expr_id);
-    match &expr.kind {
-        ExprKind::While(_, body_id) => contains_return_in_block(package, *body_id),
-        ExprKind::Block(block_id) => contains_return_in_while(package, *block_id),
-        ExprKind::If(_, then_id, else_opt) => {
-            contains_return_in_while_expr(package, *then_id)
-                || else_opt.is_some_and(|e| contains_return_in_while_expr(package, e))
-        }
-        _ => false,
-    }
-}
-
-fn contains_return_in_while_condition_expr(package: &Package, expr_id: ExprId) -> bool {
-    let expr = package.get_expr(expr_id);
-    match &expr.kind {
-        ExprKind::While(cond_id, body_id) => {
-            contains_return_in_expr(package, *cond_id)
-                || contains_return_in_while_condition(package, *body_id)
-        }
-        ExprKind::Block(block_id) => contains_return_in_while_condition(package, *block_id),
-        ExprKind::If(cond_id, then_id, else_opt) => {
-            contains_return_in_while_condition_expr(package, *cond_id)
-                || contains_return_in_while_condition_expr(package, *then_id)
-                || else_opt.is_some_and(|e| contains_return_in_while_condition_expr(package, e))
-        }
-        _ => false,
-    }
-}
-
-/// Returns true when the flag-based strategy is required for `block_id`.
-///
-/// The if-else lifting strategy cannot correctly handle either:
-/// 1. Returns nested inside while loops (already detected by
-///    [`contains_return_in_while`]), or
-/// 2. Returns reachable through while-condition expressions (detected by
-///    [`contains_return_in_while_condition`]), or
-/// 3. "Leaky" early returns inside an if-without-else nested at depth >= 2,
-///    where lifting would synthesize an empty-else continuation whose type
-///    does not match the non-Unit return type (detected by
-///    [`contains_leaky_early_return`]).
-/// 4. Returns inside a `Block` expression used as a `Local` initializer,
-///    where the structured strategy's `strip_returns_from_block` would
-///    consume the return at the block level instead of propagating it to
-///    the enclosing callable (detected by
-///    [`contains_return_in_block_init`]).
-fn should_use_flag_strategy(package: &Package, block_id: BlockId) -> bool {
-    contains_return_in_while(package, block_id)
-        || contains_return_in_while_condition(package, block_id)
-        || contains_leaky_early_return(package, block_id)
-        || contains_return_in_block_init(package, block_id)
-}
-
-/// Returns true when any `Local` statement in the block has an initializer
-/// that is a `Block` expression containing a `Return` inside a nested
-/// control-flow construct (`If`, `While`, or inner `Block`), or an `If`
-/// expression containing a `Return` inside a `While` loop. Bare returns
-/// at the init block's direct statement level are handled correctly by the
-/// structured strategy's `transform_local_init` + `apply_bare_return`, so
-/// they are excluded. For `If`-expression initializers,
-/// `strip_returns_from_expr` handles returns directly in branches and
-/// nested if-else chains; only returns inside `While` loops within the
-/// branches require the flag strategy.
-fn contains_return_in_block_init(package: &Package, block_id: BlockId) -> bool {
-    let block = package.get_block(block_id);
-    block.stmts.iter().any(|&stmt_id| {
-        let stmt = package.get_stmt(stmt_id);
-        if let StmtKind::Local(_, _, init_id) = &stmt.kind {
-            let init_expr = package.get_expr(*init_id);
-            match &init_expr.kind {
-                ExprKind::Block(inner_block_id) => {
-                    return block_has_nested_return(package, *inner_block_id);
-                }
-                ExprKind::If(_, then_id, else_opt) => {
-                    return contains_return_in_while_expr(package, *then_id)
-                        || else_opt.is_some_and(|e| contains_return_in_while_expr(package, e));
-                }
-                _ => {}
-            }
-        }
-        false
-    })
-}
-
-/// Returns true when any statement in the block contains a `Return` inside
-/// a nested construct (`If`, `While`, inner `Block`) rather than as a bare
-/// `Semi(Return(_))` / `Expr(Return(_))`.
-fn block_has_nested_return(package: &Package, block_id: BlockId) -> bool {
-    let block = package.get_block(block_id);
-    block.stmts.iter().any(|&stmt_id| {
-        let stmt = package.get_stmt(stmt_id);
-        let expr_id = match &stmt.kind {
-            StmtKind::Expr(e) | StmtKind::Semi(e) | StmtKind::Local(_, _, e) => *e,
-            StmtKind::Item(_) => return false,
-        };
-        let expr = package.get_expr(expr_id);
-        match &expr.kind {
-            ExprKind::If(_, then_id, else_opt) => {
-                contains_return_in_expr(package, *then_id)
-                    || else_opt.is_some_and(|e| contains_return_in_expr(package, e))
-            }
-            ExprKind::While(cond, body) => {
-                contains_return_in_expr(package, *cond) || contains_return_in_block(package, *body)
-            }
-            ExprKind::Block(bid) => contains_return_in_block(package, *bid),
-            _ => false,
-        }
-    })
-}
-
-/// Returns true if a `Return` appears inside an if-without-else nested at
-/// depth >= 2 within the block. Such returns cannot be lifted via the
-/// if-else strategy because the synthesized empty-else continuation block
-/// would be typed `Unit`, conflicting with a non-Unit callable return type.
-fn contains_leaky_early_return(package: &Package, block_id: BlockId) -> bool {
-    let block = package.get_block(block_id);
-    block
-        .stmts
-        .iter()
-        .any(|&stmt_id| leaky_early_return_in_stmt(package, stmt_id, 0))
-}
-
-fn leaky_early_return_in_stmt(package: &Package, stmt_id: StmtId, if_no_else_depth: u32) -> bool {
-    let stmt = package.get_stmt(stmt_id);
-    match &stmt.kind {
-        StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
-            leaky_early_return_in_expr(package, *expr_id, if_no_else_depth)
-        }
-        StmtKind::Item(_) => false,
-    }
-}
-
-fn leaky_early_return_in_expr(package: &Package, expr_id: ExprId, if_no_else_depth: u32) -> bool {
-    let expr = package.get_expr(expr_id);
-    match &expr.kind {
-        ExprKind::Return(_) => if_no_else_depth >= 2,
-        ExprKind::If(_, then_id, None) => {
-            leaky_early_return_in_expr(package, *then_id, if_no_else_depth + 1)
-        }
-        ExprKind::If(_, then_id, Some(else_id)) => {
-            leaky_early_return_in_expr(package, *then_id, if_no_else_depth)
-                || leaky_early_return_in_expr(package, *else_id, if_no_else_depth)
-        }
-        ExprKind::Block(bid) => {
-            let inner = package.get_block(*bid);
-            inner
-                .stmts
-                .iter()
-                .any(|&s| leaky_early_return_in_stmt(package, s, if_no_else_depth))
-        }
-        // A while whose body transitively contains a return is already
-        // covered by `contains_return_in_while`; re-report here so any such
-        // shape triggers the flag strategy through this predicate too. A
-        // return-free while (e.g., residual structural while after hoist
-        // moves a return out of a Local initializer) must stay on the
-        // structured path, otherwise the flag strategy would preserve the
-        // now-dead while and its references to deleted bindings.
-        ExprKind::While(_, body) => contains_return_in_block(package, *body),
-        _ => false,
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ReturnFlow {
-    FallsThrough,
-    MayReturn,
-    AlwaysReturns,
-}
-
-impl ReturnFlow {
-    fn sequence_with(self, next: Self) -> Self {
-        match (self, next) {
-            (Self::FallsThrough, flow) => flow,
-            (Self::AlwaysReturns, _) | (Self::MayReturn, Self::AlwaysReturns) => {
-                Self::AlwaysReturns
-            }
-            (Self::MayReturn, _) => Self::MayReturn,
-        }
-    }
-
-    fn from_if_branches(then_flow: Self, else_flow: Option<Self>) -> Self {
-        match else_flow {
-            Some(else_flow) => match (then_flow, else_flow) {
-                (Self::AlwaysReturns, Self::AlwaysReturns) => Self::AlwaysReturns,
-                (Self::FallsThrough, Self::FallsThrough) => Self::FallsThrough,
-                _ => Self::MayReturn,
-            },
-            None if then_flow == Self::FallsThrough => Self::FallsThrough,
-            None => Self::MayReturn,
-        }
-    }
-}
-
-fn block_return_flow(package: &Package, block_id: BlockId) -> ReturnFlow {
-    let mut flow = ReturnFlow::FallsThrough;
-    for &stmt_id in &package.get_block(block_id).stmts {
-        flow = flow.sequence_with(stmt_return_flow(package, stmt_id));
-        if flow == ReturnFlow::AlwaysReturns {
-            return flow;
-        }
-    }
-    flow
-}
-
-fn stmt_return_flow(package: &Package, stmt_id: StmtId) -> ReturnFlow {
-    let stmt = package.get_stmt(stmt_id);
-    match &stmt.kind {
-        StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
-            expr_return_flow(package, *expr_id)
-        }
-        StmtKind::Item(_) => ReturnFlow::FallsThrough,
-    }
-}
-
-fn sequence_expr_flows(
-    package: &Package,
-    expr_ids: impl IntoIterator<Item = ExprId>,
-) -> ReturnFlow {
-    let mut flow = ReturnFlow::FallsThrough;
-    for expr_id in expr_ids {
-        flow = flow.sequence_with(expr_return_flow(package, expr_id));
-        if flow == ReturnFlow::AlwaysReturns {
-            return flow;
-        }
-    }
-    flow
-}
-
-fn expr_return_flow(package: &Package, expr_id: ExprId) -> ReturnFlow {
-    let expr = package.get_expr(expr_id);
-    match &expr.kind {
-        ExprKind::Return(_) => ReturnFlow::AlwaysReturns,
-        ExprKind::Block(block_id) => block_return_flow(package, *block_id),
-        ExprKind::If(cond_id, then_id, else_opt) => {
-            let cond_flow = expr_return_flow(package, *cond_id);
-            let branch_flow = ReturnFlow::from_if_branches(
-                expr_return_flow(package, *then_id),
-                else_opt.map(|else_id| expr_return_flow(package, else_id)),
-            );
-            cond_flow.sequence_with(branch_flow)
-        }
-        ExprKind::While(cond_id, body_id) => match expr_return_flow(package, *cond_id) {
-            ReturnFlow::AlwaysReturns => ReturnFlow::AlwaysReturns,
-            ReturnFlow::MayReturn => ReturnFlow::MayReturn,
-            ReturnFlow::FallsThrough => match block_return_flow(package, *body_id) {
-                ReturnFlow::FallsThrough => ReturnFlow::FallsThrough,
-                ReturnFlow::MayReturn | ReturnFlow::AlwaysReturns => ReturnFlow::MayReturn,
-            },
-        },
-        ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
-            sequence_expr_flows(package, exprs.iter().copied())
-        }
-        ExprKind::ArrayRepeat(a_id, b_id)
-        | ExprKind::Assign(a_id, b_id)
-        | ExprKind::AssignOp(_, a_id, b_id)
-        | ExprKind::BinOp(_, a_id, b_id)
-        | ExprKind::Call(a_id, b_id)
-        | ExprKind::Index(a_id, b_id)
-        | ExprKind::AssignField(a_id, _, b_id)
-        | ExprKind::UpdateField(a_id, _, b_id) => sequence_expr_flows(package, [*a_id, *b_id]),
-        ExprKind::AssignIndex(a_id, b_id, c_id) | ExprKind::UpdateIndex(a_id, b_id, c_id) => {
-            sequence_expr_flows(package, [*a_id, *b_id, *c_id])
-        }
-        ExprKind::Fail(inner_id) | ExprKind::Field(inner_id, _) | ExprKind::UnOp(_, inner_id) => {
-            expr_return_flow(package, *inner_id)
-        }
-        ExprKind::Range(start, step, end) => {
-            let expr_ids = [start, step, end].into_iter().flatten().copied();
-            sequence_expr_flows(package, expr_ids)
-        }
-        ExprKind::Struct(_, copy, fields) => {
-            let copy_flow = copy.map_or(ReturnFlow::FallsThrough, |copy_id| {
-                expr_return_flow(package, copy_id)
-            });
-            let field_flow = sequence_expr_flows(package, fields.iter().map(|field| field.value));
-            copy_flow.sequence_with(field_flow)
-        }
-        ExprKind::String(components) => {
-            let expr_ids = components.iter().filter_map(|component| match component {
-                qsc_fir::fir::StringComponent::Expr(expr_id) => Some(*expr_id),
-                qsc_fir::fir::StringComponent::Lit(_) => None,
-            });
-            sequence_expr_flows(package, expr_ids)
-        }
-        ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {
-            ReturnFlow::FallsThrough
-        }
-    }
-}
-
-/// Classification of a statement that contains a Return.
-enum ReturnClass {
-    /// The statement is `Expr(Return(inner))` or `Semi(Return(inner))`.
-    BareReturn(ExprId),
-    /// An if where only the then-branch contains a Return.
-    IfThenReturn {
-        cond: ExprId,
-        then_expr: ExprId,
-        else_opt: Option<ExprId>,
-    },
-    /// An if where both branches contain a Return.
-    IfBothReturn {
-        cond: ExprId,
-        then_expr: ExprId,
-        else_expr: ExprId,
-    },
-    /// An if where only the else-branch contains a Return. Normalized to
-    /// `IfThenReturn` with negated condition at dispatch so downstream
-    /// transform code only handles the then-return shape.
-    IfElseReturn {
-        cond: ExprId,
-        then_expr: ExprId,
-        else_expr: ExprId,
-    },
-    /// A nested block expression that needs recursive descent.
-    NestedBlock(BlockId),
-    /// A Local binding whose init expression contains Returns.
-    /// The returns must be stripped from the init and types updated.
-    LocalInit(PatId, ExprId),
-    /// No return found.
-    None,
-}
-
-/// Classify a statement's relationship to `ExprKind::Return`.
-///
-/// # Before
-/// ```text
-/// StmtKind::{Expr, Semi}(If/Block/Return/...) | StmtKind::Local(.., init)
-/// ```
-/// # After
-/// ```text
-/// ReturnClass::{BareReturn, IfThenReturn, IfBothReturn, IfElseReturn,
-///               NestedBlock, LocalInit, None}
-/// ```
-/// # Requires
-/// - `kind` is the kind of a statement whose expressions are valid in `package`.
-///
-/// # Ensures
-/// - Returns the most specific shape matching the statement's surface expression.
-/// - Returns `ReturnClass::None` for `StmtKind::Item` and return-free initializers.
-///
-/// # Mutations
-/// - None (read-only).
-///
-/// # Notes
-///
-/// `StmtKind::Semi(e)` and `StmtKind::Expr(e)` both collapse to
-/// `ReturnClass::BareReturn(*inner)` using the same `inner` expression. This
-/// mapping is lossy on purpose: [`apply_bare_return`] discards the source
-/// `StmtKind` and synthesizes a fresh `StmtKind::Expr(inner)` trailing
-/// statement, then overwrites `block.ty` with the inner expression's type.
-/// Downstream callers therefore must not depend on the original `Semi` vs
-/// `Expr` kind being preserved for a bare-return statement.
-fn classify_return_stmt(package: &Package, kind: &StmtKind) -> ReturnClass {
-    let expr_id = match kind {
-        StmtKind::Expr(id) | StmtKind::Semi(id) => *id,
-        StmtKind::Local(_, pat_id, init_id) => {
-            return if contains_return_in_expr(package, *init_id) {
-                ReturnClass::LocalInit(*pat_id, *init_id)
-            } else {
-                ReturnClass::None
-            };
-        }
-        StmtKind::Item(_) => return ReturnClass::None,
-    };
-
-    let expr = package.get_expr(expr_id);
-    match &expr.kind {
-        ExprKind::Return(inner) => ReturnClass::BareReturn(*inner),
-        ExprKind::If(cond, then_expr, else_opt) => {
-            let then_has = contains_return_in_expr(package, *then_expr);
-            let else_has = else_opt.is_some_and(|e| contains_return_in_expr(package, e));
-            match (then_has, else_has) {
-                (true, true) => ReturnClass::IfBothReturn {
-                    cond: *cond,
-                    then_expr: *then_expr,
-                    else_expr: else_opt.expect("else branch must exist when it contains a return"),
-                },
-                (true, false) => ReturnClass::IfThenReturn {
-                    cond: *cond,
-                    then_expr: *then_expr,
-                    else_opt: *else_opt,
-                },
-                (false, true) => ReturnClass::IfElseReturn {
-                    cond: *cond,
-                    then_expr: *then_expr,
-                    else_expr: else_opt.expect("else branch must exist when it contains a return"),
-                },
-                (false, false) => ReturnClass::None,
-            }
-        }
-        ExprKind::Block(block_id) => {
-            if contains_return_in_block(package, *block_id) {
-                ReturnClass::NestedBlock(*block_id)
-            } else {
-                ReturnClass::None
-            }
-        }
-        _ => ReturnClass::None,
-    }
-}
-
-/// Rewrite the first return-containing statement in `block_id` into return-free flow.
-///
-/// Finds the first statement that still contains an `ExprKind::Return`,
-/// classifies it via [`classify_return_stmt`], and dispatches to the
-/// matching per-shape rewriter:
-///
-/// | Classification      | Dispatched helper                                 |
-/// |---------------------|---------------------------------------------------|
-/// | `BareReturn`        | [`transform_bare_return`]                         |
-/// | `IfThenReturn`      | [`apply_if_then_return`]                          |
-/// | `IfBothReturn`      | [`apply_if_both_return`]                          |
-/// | `IfElseReturn`      | [`transform_if_else_return`] (normalizing rewrite)|
-/// | `NestedBlock`       | [`transform_nested_block`]                        |
-/// | `LocalInit`         | [`transform_local_init`]                          |
-/// | `None`              | no-op                                             |
-///
-/// # Before
-/// ```text
-/// { stmts_before; if cond { return v; } stmts_after }   // IfThenReturn shape
-/// ```
-/// # After
-/// ```text
-/// { stmts_before; if cond { v } else { stmts_after } }
-/// ```
-/// # Requires
-/// - `block_id` is valid in `package`.
-/// - The normalization pre-pass has run, so Returns only appear at statement
-///   boundaries or inside `Block`/`If`/`While` expressions.
-///
-/// # Ensures
-/// - Returns `true` iff the block was rewritten.
-/// - When `true`, the first return-containing statement has been replaced
-///   by return-free control flow; recursion may rewrite nested blocks.
-///
-/// # Mutations
-/// - Rewrites `Block.stmts` and `Block.ty` for `block_id` and reachable
-///   sub-blocks via the dispatched helper.
-/// - Allocates new FIR nodes through `assigner`.
-#[allow(clippy::too_many_lines)]
-fn transform_block_if_else(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    block_id: BlockId,
-    return_ty: &Ty,
-) -> bool {
-    let stmts = package.get_block(block_id).stmts.clone();
-    let first_return_idx = stmts
-        .iter()
-        .position(|&sid| contains_return_in_stmt(package, sid));
-    let Some(idx) = first_return_idx else {
-        return false;
-    };
-
-    let stmt_kind = package.get_stmt(stmts[idx]).kind.clone();
-    match classify_return_stmt(package, &stmt_kind) {
-        ReturnClass::BareReturn(inner_expr_id) => {
-            transform_bare_return(package, assigner, block_id, idx, inner_expr_id)
-        }
-        ReturnClass::IfThenReturn {
-            cond,
-            then_expr,
-            else_opt,
-        } => {
-            apply_if_then_return(
-                package, assigner, block_id, idx, cond, then_expr, else_opt, return_ty,
-            );
-            true
-        }
-        ReturnClass::IfBothReturn {
-            cond,
-            then_expr,
-            else_expr,
-        } => {
-            apply_if_both_return(
-                package, assigner, block_id, idx, cond, then_expr, else_expr, return_ty,
-            );
-            true
-        }
-        ReturnClass::IfElseReturn {
-            cond,
-            then_expr,
-            else_expr,
-        } => {
-            transform_if_else_return(
-                package, assigner, block_id, return_ty, idx, cond, then_expr, else_expr,
-            );
-            true
-        }
-        ReturnClass::NestedBlock(inner_block_id) => transform_nested_block(
-            package,
-            assigner,
-            block_id,
-            return_ty,
-            &stmts,
-            idx,
-            inner_block_id,
-        ),
-        ReturnClass::LocalInit(pat_id, init_expr_id) => transform_local_init(
-            package,
-            assigner,
-            block_id,
-            return_ty,
-            idx,
-            pat_id,
-            init_expr_id,
-        ),
-        ReturnClass::None => false,
-    }
-}
-
-/// Normalize an `IfElseReturn` (return only in the else branch) to the
-/// `IfThenReturn` shape by negating the condition and swapping branches,
-/// then delegate to [`apply_if_then_return`].
-///
-/// ```text
-/// // Before
-/// if cond { then_expr } else { return v; }
-/// stmts_after;
-///
-/// // After (equivalent to apply_if_then_return on the negated shape)
-/// if not cond { v } else { then_expr; stmts_after; }
-/// ```
-#[allow(clippy::too_many_arguments)]
-fn transform_if_else_return(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    block_id: BlockId,
-    return_ty: &Ty,
-    idx: usize,
-    cond: ExprId,
-    then_expr: ExprId,
-    else_expr: ExprId,
-) {
-    // Convert to IfThenReturn by negating the condition and swapping branches.
-    let neg_cond = alloc_not_expr(package, assigner, cond, Span::default());
-    apply_if_then_return(
-        package,
-        assigner,
-        block_id,
-        idx,
-        neg_cond,
-        else_expr,
-        Some(then_expr),
-        return_ty,
-    );
-}
-
-/// Rewrite a `let` binding whose initializer contains `Return` nodes.
-///
-/// When the init always returns, the let and all continuation are dead code —
-/// strip returns and replace the block with just the init expression.
-///
-/// When the init may return (some paths return, others produce values),
-/// decompose the init into a guard statement at the outer block level so the
-/// return is visible to `transform_block_if_else`. This avoids stripping
-/// returns in-place (which would leave side effects from the return path
-/// reachable on the fallthrough path).
-///
-/// ```text
-/// // Before
-/// {
-///     let x = if cond { return v; } else { u };
-///     continuation;
-/// }
-///
-/// // After decomposition (MayReturn case)
-/// {
-///     if cond { return v; }   // guard — return preserved
-///     let x = u;              // fallthrough value only
-///     continuation;
-/// }
-/// // Then transform_block_if_else handles the guard normally.
-/// ```
-fn transform_local_init(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    block_id: BlockId,
-    return_ty: &Ty,
-    idx: usize,
-    pat_id: PatId,
-    init_expr_id: ExprId,
-) -> bool {
-    let init_flow = expr_return_flow(package, init_expr_id);
-
-    if init_flow == ReturnFlow::AlwaysReturns {
-        // Everything after this let is dead code.
-        strip_returns_from_expr(package, assigner, init_expr_id, return_ty);
-        let new_init_ty = package.get_expr(init_expr_id).ty.clone();
-        let new_stmt_id = alloc_expr_stmt(package, assigner, init_expr_id, Span::default());
-        let block = package.blocks.get_mut(block_id).expect("block not found");
-        block.stmts.truncate(idx);
-        block.stmts.push(new_stmt_id);
-        block.ty = new_init_ty;
-        return true;
-    }
-
-    // MayReturn: try to decompose the returning init into a guard statement
-    // at the outer block level so the continuation only runs on fallthrough.
-    if init_flow == ReturnFlow::MayReturn
-        && decompose_returning_init(
-            package,
-            assigner,
-            block_id,
-            return_ty,
-            idx,
-            pat_id,
-            init_expr_id,
-        )
-    {
-        return true;
-    }
-
-    // FallsThrough or failed decomposition: strip returns and retype.
-    strip_returns_from_expr(package, assigner, init_expr_id, return_ty);
-    let new_init_ty = package.get_expr(init_expr_id).ty.clone();
-
-    // Update the pattern's type to match the stripped init.
-    let local_var_id = match &package.get_pat(pat_id).kind {
-        PatKind::Bind(ident) => Some(ident.id),
-        _ => None,
-    };
-    let pat = package.pats.get_mut(pat_id).expect("pat not found");
-    pat.ty = new_init_ty.clone();
-
-    // Update all Var references to this local in the block.
-    if let Some(var_id) = local_var_id {
-        let block_stmts = package.get_block(block_id).stmts.clone();
-        for &stmt_id in &block_stmts {
-            update_local_var_type(package, stmt_id, var_id, &new_init_ty);
-        }
-    }
-
-    // Re-analyze this block after stripping so any newly exposed
-    // returns or nested wrappers are normalized, then synchronize the
-    // block type with its new trailing expression.
-    let _ = transform_block_if_else(package, assigner, block_id, return_ty);
-    sync_block_type_to_trailing_expr(package, block_id);
-    true
-}
-
-/// Decompose a `MayReturn` init expression into a guard statement at the
-/// outer block level, preserving the return so `transform_block_if_else`
-/// can handle it with proper continuation threading.
-///
-/// Handles `if cond { RETURN_BRANCH } else { VALUE_BRANCH }` patterns
-/// (and the inverse) by extracting the return-bearing branch into a
-/// preceding guard statement and replacing the init with just the value.
-///
-/// Returns `true` if decomposition succeeded and the block was restructured.
-#[allow(clippy::too_many_arguments)]
-fn decompose_returning_init(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    block_id: BlockId,
-    return_ty: &Ty,
-    idx: usize,
-    pat_id: PatId,
-    init_expr_id: ExprId,
-) -> bool {
-    let init_kind = package.get_expr(init_expr_id).kind.clone();
-
-    match init_kind {
-        ExprKind::If(cond_id, then_id, Some(else_id)) => {
-            let then_flow = expr_return_flow(package, then_id);
-            let else_flow = expr_return_flow(package, else_id);
-
-            match (then_flow, else_flow) {
-                (ReturnFlow::AlwaysReturns | ReturnFlow::MayReturn, ReturnFlow::FallsThrough) => {
-                    // Then branch returns, else is the fallthrough value.
-                    // Insert: if cond { then_branch } as guard (return preserved!)
-                    // Replace init with: else value
-                    extract_guard_and_replace_init(
-                        package,
-                        assigner,
-                        block_id,
-                        return_ty,
-                        idx,
-                        pat_id,
-                        init_expr_id,
-                        cond_id,
-                        then_id,
-                        else_id,
-                    );
-                    true
-                }
-                (ReturnFlow::FallsThrough, ReturnFlow::AlwaysReturns | ReturnFlow::MayReturn) => {
-                    // Else branch returns, then is the fallthrough value.
-                    // Negate condition and swap.
-                    let neg_cond = alloc_not_expr(package, assigner, cond_id, Span::default());
-                    extract_guard_and_replace_init(
-                        package,
-                        assigner,
-                        block_id,
-                        return_ty,
-                        idx,
-                        pat_id,
-                        init_expr_id,
-                        neg_cond,
-                        else_id,
-                        then_id,
-                    );
-                    true
-                }
-                _ => false,
-            }
-        }
-        ExprKind::Block(inner_block_id) => {
-            // Unwrap block and try to decompose the trailing expression.
-            let inner_stmts = package.get_block(inner_block_id).stmts.clone();
-            let Some(&tail_stmt_id) = inner_stmts.last() else {
-                return false;
-            };
-            let tail_stmt = package.get_stmt(tail_stmt_id);
-            let tail_expr_id = match &tail_stmt.kind {
-                StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) => *expr_id,
-                _ => return false,
-            };
-            // If the block has prefix statements before the tail, we can't
-            // simply decompose — the prefix needs to stay in scope.
-            if inner_stmts.len() > 1 {
-                return false;
-            }
-            decompose_returning_init(
-                package,
-                assigner,
-                block_id,
-                return_ty,
-                idx,
-                pat_id,
-                tail_expr_id,
-            )
-        }
-        _ => false,
-    }
-}
-
-/// Extract a return-bearing branch from an if-expression init into a guard
-/// statement, replacing the init with the fallthrough value.
-///
-/// ```text
-/// // Before
-/// let x = if cond { return v; } else { u };
-/// continuation;
-///
-/// // After
-/// if cond { return v; }   // guard stmt inserted before the let
-/// let x = u;              // init replaced with fallthrough value
-/// continuation;
-/// ```
-#[allow(clippy::too_many_arguments)]
-fn extract_guard_and_replace_init(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    block_id: BlockId,
-    return_ty: &Ty,
-    idx: usize,
-    pat_id: PatId,
-    init_expr_id: ExprId,
-    cond_id: ExprId,
-    return_branch_id: ExprId,
-    value_branch_id: ExprId,
-) {
-    // Create the guard: if cond { return_branch } (no else — it's a guard)
-    let guard_if = {
-        let ty: &Ty = &Ty::UNIT;
-        alloc_if_expr(
-            package,
-            assigner,
-            cond_id,
-            return_branch_id,
-            None,
-            ty.clone(),
-            Span::default(),
-        )
-    };
-    let guard_stmt = alloc_semi_stmt(package, assigner, guard_if, Span::default());
-
-    // Replace the init expression with the fallthrough value.
-    let value_expr = package.get_expr(value_branch_id).clone();
-    let init = package
-        .exprs
-        .get_mut(init_expr_id)
-        .expect("init expr not found");
-    init.kind = value_expr.kind;
-    init.ty = value_expr.ty.clone();
-    init.exec_graph_range = EMPTY_EXEC_RANGE;
-
-    // Retype the pattern to match the new init type.
-    let value_ty = value_expr.ty;
-    let pat = package.pats.get_mut(pat_id).expect("pat not found");
-    pat.ty = value_ty.clone();
-
-    // Update all Var references to this local.
-    if let PatKind::Bind(ident) = &package.get_pat(pat_id).kind {
-        let var_id = ident.id;
-        let block_stmts = package.get_block(block_id).stmts.clone();
-        for &stmt_id in &block_stmts {
-            update_local_var_type(package, stmt_id, var_id, &value_ty);
-        }
-    }
-
-    // Insert the guard statement before the let binding.
-    let block = package.blocks.get_mut(block_id).expect("block not found");
-    block.stmts.insert(idx, guard_stmt);
-
-    // Re-analyze the block — transform_block_if_else will find the guard
-    // and move the continuation (including the let + subsequent stmts) into
-    // the else branch, which is the correct control flow.
-    let _ = transform_block_if_else(package, assigner, block_id, return_ty);
-    sync_block_type_to_trailing_expr(package, block_id);
-}
-
-/// Recursively rewrite an inner block wrapped in a statement-position `Block` expression.
-///
-/// After the inner block is rewritten, this helper:
-/// 1. Retypes the wrapper `Block` expression to match the inner block's new type.
-/// 2. Promotes a trailing `Semi` wrapper to `Expr` so the inner value flows
-///    out as the enclosing block's trailing expression.
-///
-/// # Before
-/// ```text
-/// { stmts_before; { stmts_inner; if cond { return v; } } }
-/// ```
-/// # After
-/// ```text
-/// {
-///     stmts_before;
-///     { stmts_inner; if cond { v } else { () } }
-/// }
-/// ```
-/// # Requires
-/// - `inner_block_id` is the body of the `Block` expression at `stmts[idx]`.
-/// - `stmts` is the current statement list of `block_id`.
-/// - The normalization pre-pass has run.
-///
-/// # Ensures
-/// - Returns `true` iff inner or outer rewriting made progress.
-/// - When the inner transform cannot proceed, returns `false` without
-///   recursing to avoid infinite recursion.
-/// - Block types remain consistent with their trailing expressions
-///   (via `sync_block_type_to_trailing_expr` when needed).
-///
-/// # Mutations
-/// - Rewrites the wrapper `Expr.ty` at `stmts[idx]`.
-/// - May rewrite `Block.stmts`, `Block.ty`, and statement kinds for both
-///   inner and outer blocks.
-/// - Allocates new FIR nodes through `assigner`.
-#[allow(clippy::too_many_arguments)]
-fn transform_nested_block(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    block_id: BlockId,
-    return_ty: &Ty,
-    stmts: &[StmtId],
-    idx: usize,
-    inner_block_id: BlockId,
-) -> bool {
-    // Before transforming the inner block, check whether its first
-    // return-containing statement is unconditional (BareReturn or
-    // IfBothReturn). When the return is unconditional, ALL code paths
-    // through the inner block end in a return, so statements after
-    // this nested-block wrapper in the outer block are dead code.
-    let is_unconditional_return =
-        block_return_flow(package, inner_block_id) == ReturnFlow::AlwaysReturns;
-
-    let inner_changed = transform_block_if_else(package, assigner, inner_block_id, return_ty);
-
-    // If the inner block couldn't be transformed (e.g. the return is
-    // inside a While that must be handled by the flag-based path),
-    // stop to avoid infinite recursion.
-    if !inner_changed {
-        return false;
-    }
-
-    // Update the Block expression's type to match the inner block's new type.
-    let new_inner_ty = package.get_block(inner_block_id).ty.clone();
-    let wrapper_expr_id = match &package.get_stmt(stmts[idx]).kind {
-        StmtKind::Expr(e) | StmtKind::Semi(e) => *e,
-        _ => unreachable!("NestedBlock must be Expr or Semi"),
-    };
-    let e = package
-        .exprs
-        .get_mut(wrapper_expr_id)
-        .expect("expr not found");
-    e.ty = new_inner_ty.clone();
-
-    // When the inner block's return was unconditional and there are
-    // statements after this one in the outer block, all subsequent
-    // statements are dead code. Truncate them and promote the block
-    // expression to the outer block's trailing expression.
-    if is_unconditional_return && idx < stmts.len() - 1 {
-        apply_bare_return(package, assigner, block_id, idx, wrapper_expr_id);
-        return true;
-    }
-
-    // If this is the last statement and is Semi, promote to Expr so the
-    // value flows through as the block's trailing expression.
-    if idx == stmts.len() - 1 {
-        let stmt = package.stmts.get_mut(stmts[idx]).expect("stmt not found");
-        if matches!(stmt.kind, StmtKind::Semi(_)) {
-            stmt.kind = StmtKind::Expr(wrapper_expr_id);
-        }
-        let block = package.blocks.get_mut(block_id).expect("block not found");
-        block.ty = new_inner_ty;
-    } else {
-        sync_block_type_to_trailing_expr(package, block_id);
-    }
-
-    // Re-analyze this block after inner transform.
-    let outer_changed = transform_block_if_else(package, assigner, block_id, return_ty);
-    inner_changed || outer_changed
-}
-
-/// Rewrite a bare-return statement into a trailing expression.
-///
-/// Runs [`apply_bare_return`] to drop post-return statements and install
-/// the return value as the block's trailing expression.
-///
-/// ```text
-/// // Before
-/// {
-///     stmts_before;
-///     return v;
-///     stmts_dead;
-/// }
-///
-/// // After
-/// {
-///     stmts_before;
-///     v
-/// }
-/// ```
-fn transform_bare_return(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    block_id: BlockId,
-    idx: usize,
-    inner_expr_id: ExprId,
-) -> bool {
-    apply_bare_return(package, assigner, block_id, idx, inner_expr_id);
-    true
-}
-
-/// Synchronize a block's type with the type of its trailing expression.
-///
-/// # Before
-/// ```text
-/// Block { stmts: [..., Expr(e: T)], ty: U }   // U may have drifted from T
-/// ```
-/// # After
-/// ```text
-/// Block { stmts: [..., Expr(e: T)], ty: T }
-/// ```
-/// # Requires
-/// - `block_id` is valid in `package`.
-///
-/// # Ensures
-/// - `Block.ty == trailing_expr.ty` after return if the block ends in a
-///   `StmtKind::Expr`.
-/// - No-op when the block is empty or ends in a non-expression statement.
-///
-/// # Mutations
-/// - Writes `Block.ty` for `block_id` in place.
-fn sync_block_type_to_trailing_expr(package: &mut Package, block_id: BlockId) {
-    let Some(&stmt_id) = package.get_block(block_id).stmts.last() else {
-        return;
-    };
-
-    let StmtKind::Expr(expr_id) = package.get_stmt(stmt_id).kind else {
-        return;
-    };
-
-    let trailing_ty = package.get_expr(expr_id).ty.clone();
-    let block = package.blocks.get_mut(block_id).expect("block not found");
-    block.ty = trailing_ty;
 }
 
 /// Strongly sync a block's type to its tail: the trailing `Expr`'s type
@@ -1460,570 +664,44 @@ fn sync_block_type_to_stmt_or_unit(package: &mut Package, block_id: BlockId) {
     block.ty = trailing_ty;
 }
 
-/// Replace a block's statements at and after `idx` with a single trailing
-/// expression carrying the returned value.
+/// Re-syncs an expression's `Ty` from its children after a return-
+/// replacement pass may have changed a child's type.
 ///
-/// ```text
-/// // Before (stmt at idx is Expr(Return(inner)) or Semi(Return(inner)))
-/// {
-///     stmts[..idx];
-///     return inner;
-///     stmts[idx+1..];
-/// }
+/// # If-expression policy
 ///
-/// // After
-/// {
-///     stmts[..idx];
-///     inner
-/// }
-/// ```
-///
-/// Also updates the block's type to the type of `inner`.
-fn apply_bare_return(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    block_id: BlockId,
-    idx: usize,
-    inner_expr_id: ExprId,
-) {
-    let inner_ty = package.get_expr(inner_expr_id).ty.clone();
-
-    // Create a new trailing-expression statement for the inner value.
-    let new_stmt_id = alloc_expr_stmt(package, assigner, inner_expr_id, Span::default());
-
-    let block = package.blocks.get_mut(block_id).expect("block not found");
-    block.stmts.truncate(idx);
-    block.stmts.push(new_stmt_id);
-    block.ty = inner_ty;
-}
-
-/// Rewrite an `if cond { return v; }` guard-clause into a return-free
-/// `if cond { v } else { /* continuation */ }` trailing expression.
-///
-/// Statements after the `if` become the new else branch (recursively
-/// rewritten via [`transform_block_if_else`]). When the original `if`
-/// already had an else, it is preserved as a leading `Semi` statement
-/// inside that new else block.
-///
-/// ```text
-/// // Before
-/// {
-///     stmts_before;
-///     if cond { return v; } else { side_effect; }
-///     rest;
-/// }
-///
-/// // After
-/// {
-///     stmts_before;
-///     if cond { v } else { side_effect; rest; }
-/// }
-/// ```
-#[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_lines)]
-fn apply_if_then_return(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    block_id: BlockId,
-    idx: usize,
-    cond: ExprId,
-    then_expr: ExprId,
-    else_opt: Option<ExprId>,
-    return_ty: &Ty,
-) {
-    // Strip returns from the then branch.
-    strip_returns_from_expr(package, assigner, then_expr, return_ty);
-
-    // Collect remaining statements after the if.
-    let remaining_stmts: Vec<StmtId> = package.get_block(block_id).stmts[idx + 1..].to_vec();
-
-    let then_flow = expr_return_flow(package, then_expr);
-
-    if then_flow == ReturnFlow::AlwaysReturns {
-        let new_else_expr_id = create_fallthrough_continuation_expr(
-            package,
-            assigner,
-            else_opt,
-            remaining_stmts,
-            return_ty,
-        );
-        let new_if_expr_id = {
-            let else_expr = Some(new_else_expr_id);
-            alloc_if_expr(
-                package,
-                assigner,
-                cond,
-                then_expr,
-                else_expr,
-                return_ty.clone(),
-                Span::default(),
-            )
-        };
-        let new_tail = alloc_expr_stmt(package, assigner, new_if_expr_id, Span::default());
-
-        let block = package.blocks.get_mut(block_id).expect("block not found");
-        block.stmts.truncate(idx);
-        block.stmts.push(new_tail);
-        block.ty = return_ty.clone();
-        return;
-    }
-
-    if let Some(else_expr_id) = else_opt.filter(|_| remaining_stmts.is_empty()) {
-        // No remaining statements; keep the existing else as-is but strip returns.
-        strip_returns_from_expr(package, assigner, else_expr_id, return_ty);
-
-        // Create the new if expression using the existing else.
-        let new_if_expr_id = {
-            let else_expr = Some(else_expr_id);
-            alloc_if_expr(
-                package,
-                assigner,
-                cond,
-                then_expr,
-                else_expr,
-                return_ty.clone(),
-                Span::default(),
-            )
-        };
-        let new_tail = alloc_expr_stmt(package, assigner, new_if_expr_id, Span::default());
-
-        let block = package.blocks.get_mut(block_id).expect("block not found");
-        block.stmts.truncate(idx);
-        block.stmts.push(new_tail);
-        block.ty = return_ty.clone();
-        return;
-    }
-
-    // Build a new block from the remaining statements (plus any existing else content).
-    let new_else_block_id = if let Some(else_expr_id) = else_opt {
-        // Prepend the existing else as a Semi statement in the new continuation block.
-        let else_semi = alloc_semi_stmt(package, assigner, else_expr_id, Span::default());
-        let mut new_stmts = vec![else_semi];
-        new_stmts.extend(remaining_stmts);
-        alloc_block(
-            package,
-            assigner,
-            new_stmts,
-            return_ty.clone(),
-            Span::default(),
-        )
-    } else {
-        if remaining_stmts.is_empty() {
-            // Invariant: `should_use_flag_strategy` routes non-Unit leaky
-            // early-return shapes to the flag strategy, so this empty-else
-            // synthesis is only reachable for Unit-typed returns.
-            assert!(
-                *return_ty == Ty::UNIT,
-                "apply_if_then_return reached empty-else for non-Unit return type — \
-                 should have been routed through transform_block_with_flags"
-            );
-        }
-        alloc_block(
-            package,
-            assigner,
-            remaining_stmts,
-            return_ty.clone(),
-            Span::default(),
-        )
-    };
-
-    // Recursively transform the new else block (it may contain more returns).
-    transform_block_if_else(package, assigner, new_else_block_id, return_ty);
-
-    // Create new else expression wrapping the block.
-    let new_else_expr_id = alloc_block_expr(
-        package,
-        assigner,
-        new_else_block_id,
-        return_ty.clone(),
-        Span::default(),
-    );
-
-    // Create the new if expression.
-    let new_if_expr_id = {
-        let else_expr = Some(new_else_expr_id);
-        alloc_if_expr(
-            package,
-            assigner,
-            cond,
-            then_expr,
-            else_expr,
-            return_ty.clone(),
-            Span::default(),
-        )
-    };
-    let new_tail = alloc_expr_stmt(package, assigner, new_if_expr_id, Span::default());
-
-    let block = package.blocks.get_mut(block_id).expect("block not found");
-    block.stmts.truncate(idx);
-    block.stmts.push(new_tail);
-    block.ty = return_ty.clone();
-}
-
-/// Rewrite an `if cond { return a; } else { return b; }` into a return-free
-/// value-producing tail. If release statements follow the if, capture the
-/// selected value before the releases and leave the captured value as the
-/// block's trailing expression.
-///
-/// ```text
-/// // Before
-/// {
-///     stmts_before;
-///     if cond { return a; } else { return b; }
-///     release_call();
-///     stmts_dead;
-/// }
-///
-/// // After
-/// {
-///     stmts_before;
-///     let __return_unify_result = if cond { a } else { b };
-///     release_call();
-///     __return_unify_result
-/// }
-/// ```
-#[allow(clippy::too_many_arguments)]
-fn apply_if_both_return(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    block_id: BlockId,
-    idx: usize,
-    cond: ExprId,
-    then_expr: ExprId,
-    else_expr: ExprId,
-    return_ty: &Ty,
-) {
-    strip_returns_from_expr(package, assigner, then_expr, return_ty);
-    strip_returns_from_expr(package, assigner, else_expr, return_ty);
-
-    let new_if_expr_id = {
-        let else_expr = Some(else_expr);
-        alloc_if_expr(
-            package,
-            assigner,
-            cond,
-            then_expr,
-            else_expr,
-            return_ty.clone(),
-            Span::default(),
-        )
-    };
-
-    // Both branches contain returns, so any statements after the if are dead.
-    let new_tail = alloc_expr_stmt(package, assigner, new_if_expr_id, Span::default());
-
-    let block = package.blocks.get_mut(block_id).expect("block not found");
-    block.stmts.truncate(idx);
-    block.stmts.push(new_tail);
-    block.ty = return_ty.clone();
-}
-
-/// Strip `ExprKind::Return` nodes from an expression tree in place.
-///
-/// Lifts returned values to take the place of the `Return` wrapper, and
-/// retypes enclosing `Block` and `If` expressions so the lifted value's
-/// type propagates outward (`()` → `return_ty`).
-///
-/// # Before
-/// ```text
-/// return v              // ExprKind::Return(v)  : ()
-/// { stmts; return v; }  // ExprKind::Block      : ()
-/// ```
-/// # After
-/// ```text
-/// v                     // v.kind               : T
-/// { stmts; v }          // ExprKind::Block      : T
-/// ```
-/// # Requires
-/// - `expr_id` is valid in `package`.
-/// - `return_ty` is the enclosing callable's return type.
-///
-/// # Ensures
-/// - Every `ExprKind::Return` reachable through `Block`/`If`/compound
-///   descent is replaced with the inner value.
-/// - `Block` and `If` expression types are refreshed to propagate the
-///   lifted value's type.
-///
-/// # Mutations
-/// - Rewrites `Expr` nodes in place via `package.exprs.get_mut`.
-/// - Rewrites nested `Block` contents via [`strip_returns_from_block`].
-/// - Allocates new FIR nodes through `assigner` where required.
-#[allow(clippy::too_many_lines)]
-fn strip_returns_from_expr(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    expr_id: ExprId,
-    return_ty: &Ty,
-) {
-    let expr = package.get_expr(expr_id).clone();
-    match &expr.kind {
-        ExprKind::Return(inner) => {
-            let inner_expr = package.get_expr(*inner).clone();
-            let e = package.exprs.get_mut(expr_id).expect("expr not found");
-            *e = Expr {
-                id: expr_id,
-                span: expr.span,
-                ty: inner_expr.ty.clone(),
-                kind: inner_expr.kind.clone(),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            };
-            // Recursively strip in case the inner also has returns.
-            strip_returns_from_expr(package, assigner, expr_id, return_ty);
-        }
-        ExprKind::Block(block_id) => {
-            let bid = *block_id;
-            strip_returns_from_block(package, assigner, bid, return_ty);
-            // Update the Block expression's type to match the block's new type.
-            let new_block_ty = package.get_block(bid).ty.clone();
-            let e = package.exprs.get_mut(expr_id).expect("expr not found");
-            e.ty = new_block_ty;
-        }
-        ExprKind::If(_, then_expr, else_opt) => {
-            let then_id = *then_expr;
-            let else_id = *else_opt;
-            strip_returns_from_expr(package, assigner, then_id, return_ty);
-            if let Some(e) = else_id {
-                strip_returns_from_expr(package, assigner, e, return_ty);
-            }
-            // Update the If expression's type to match the return type.
-            let e = package.exprs.get_mut(expr_id).expect("expr not found");
-            e.ty = return_ty.clone();
-        }
-        // Compound-expression descent. Sub-expressions are visited so any
-        // `Return` nested through these kinds after normalization is still
-        // stripped defensively. Types of these kinds are not refreshed because
-        // valid normalized FIR should not leave return-bearing values here.
-        ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
-            let ids: Vec<ExprId> = exprs.clone();
-            for e in ids {
-                strip_returns_from_expr(package, assigner, e, return_ty);
-            }
-        }
-        ExprKind::ArrayRepeat(a, b)
-        | ExprKind::Assign(a, b)
-        | ExprKind::AssignOp(_, a, b)
-        | ExprKind::BinOp(_, a, b)
-        | ExprKind::Call(a, b)
-        | ExprKind::Index(a, b)
-        | ExprKind::AssignField(a, _, b)
-        | ExprKind::UpdateField(a, _, b) => {
-            let (a_id, b_id) = (*a, *b);
-            strip_returns_from_expr(package, assigner, a_id, return_ty);
-            strip_returns_from_expr(package, assigner, b_id, return_ty);
-        }
-        ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
-            let (a_id, b_id, c_id) = (*a, *b, *c);
-            strip_returns_from_expr(package, assigner, a_id, return_ty);
-            strip_returns_from_expr(package, assigner, b_id, return_ty);
-            strip_returns_from_expr(package, assigner, c_id, return_ty);
-        }
-        ExprKind::Fail(e) | ExprKind::Field(e, _) | ExprKind::UnOp(_, e) => {
-            let sub = *e;
-            strip_returns_from_expr(package, assigner, sub, return_ty);
-        }
-        ExprKind::Range(start, step, end) => {
-            let ids: Vec<ExprId> = [start, step, end].into_iter().flatten().copied().collect();
-            for e in ids {
-                strip_returns_from_expr(package, assigner, e, return_ty);
-            }
-        }
-        ExprKind::Struct(_, copy, fields) => {
-            let copy_id = *copy;
-            let field_ids: Vec<ExprId> = fields.iter().map(|fa| fa.value).collect();
-            if let Some(c) = copy_id {
-                strip_returns_from_expr(package, assigner, c, return_ty);
-            }
-            for e in field_ids {
-                strip_returns_from_expr(package, assigner, e, return_ty);
-            }
-        }
-        ExprKind::String(components) => {
-            let ids: Vec<ExprId> = components
-                .iter()
-                .filter_map(|c| match c {
-                    qsc_fir::fir::StringComponent::Expr(e) => Some(*e),
-                    qsc_fir::fir::StringComponent::Lit(_) => None,
-                })
-                .collect();
-            for e in ids {
-                strip_returns_from_expr(package, assigner, e, return_ty);
-            }
-        }
-        ExprKind::While(cond, body) => {
-            let (cond_id, body_id) = (*cond, *body);
-            strip_returns_from_expr(package, assigner, cond_id, return_ty);
-            // Walk every statement-level expression inside the while body.
-            let stmts = package.get_block(body_id).stmts.clone();
-            for stmt_id in stmts {
-                let expr_ids: Vec<ExprId> = {
-                    let stmt = package.get_stmt(stmt_id);
-                    match &stmt.kind {
-                        StmtKind::Expr(e) | StmtKind::Semi(e) | StmtKind::Local(_, _, e) => {
-                            vec![*e]
-                        }
-                        StmtKind::Item(_) => vec![],
-                    }
-                };
-                for e in expr_ids {
-                    strip_returns_from_expr(package, assigner, e, return_ty);
-                }
-            }
-        }
-        ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
-    }
-}
-
-/// Strip returns from a block by transforming it with if-else lifting,
-/// using the function's return type rather than the block's own type.
-fn strip_returns_from_block(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    block_id: BlockId,
-    return_ty: &Ty,
-) {
-    transform_block_if_else(package, assigner, block_id, return_ty);
-}
-
-/// Retype every `Var(Local(var_id))` expression reachable from a statement
-/// to `new_ty`.
-///
-/// Used after [`transform_local_init`] strips returns from a `let`
-/// initializer, to keep reads of the bound local type-consistent with the
-/// newly-lifted init type.
-///
-/// ```text
-/// // Before (init type lifted from () to T after strip_returns_from_expr)
-/// let x : () = { ... };  // x reads typed ()
-///
-/// // After
-/// let x : T = { ... };   // every Var(x) retyped to T
-/// ```
-fn update_local_var_type(package: &mut Package, stmt_id: StmtId, var_id: LocalVarId, new_ty: &Ty) {
-    let expr_ids: Vec<ExprId> = {
-        let stmt = package.get_stmt(stmt_id);
-        match &stmt.kind {
-            StmtKind::Expr(e) | StmtKind::Semi(e) | StmtKind::Local(_, _, e) => vec![*e],
-            StmtKind::Item(_) => vec![],
-        }
-    };
-    for expr_id in expr_ids {
-        update_local_var_type_in_expr(package, expr_id, var_id, new_ty);
-    }
-}
-
-/// Recursively retype every `Var(Local(var_id))` read inside an expression tree.
-///
-/// # Before
-/// ```text
-/// Var(Local(var_id)) : OldTy   // anywhere in the subtree
-/// ```
-/// # After
-/// ```text
-/// Var(Local(var_id)) : NewTy
-/// ```
-/// # Requires
-/// - `expr_id` is valid in `package`.
-/// - `var_id` is the binding whose referencing `Var`s must be retyped.
-///
-/// # Ensures
-/// - Every `Var(Local(var_id))` reachable through `Block`/`If`/compound
-///   descent has its `Expr.ty` set to `new_ty`.
-/// - Does not touch `Var`s resolving to other locals or non-local `Res`.
-///
-/// # Mutations
-/// - Writes `Expr.ty` in place for each matching `Var` node.
-fn update_local_var_type_in_expr(
-    package: &mut Package,
-    expr_id: ExprId,
-    var_id: LocalVarId,
-    new_ty: &Ty,
-) {
+/// For `ExprKind::If(cond, then_expr, else_expr)`, the expression type
+/// is set to the non-Unit branch type when one branch was rewritten to
+/// Unit by return replacement. This preserves the original type for
+/// surrounding `Local` bindings. If both branches are non-Unit or both
+/// are Unit, the then-branch type wins.
+fn resync_expr_ty_from_children(package: &mut Package, expr_id: ExprId) {
     let kind = package.get_expr(expr_id).kind.clone();
     match &kind {
-        ExprKind::Var(Res::Local(id), _) if *id == var_id => {
-            let e = package.exprs.get_mut(expr_id).expect("expr not found");
-            e.ty = new_ty.clone();
-        }
         ExprKind::Block(block_id) => {
-            let stmts = package.get_block(*block_id).stmts.clone();
-            for stmt_id in stmts {
-                update_local_var_type(package, stmt_id, var_id, new_ty);
-            }
+            let bid = *block_id;
+            sync_block_type_to_stmt_or_unit(package, bid);
+            let block_ty = package.get_block(bid).ty.clone();
+            let e = package.exprs.get_mut(expr_id).expect("expr not found");
+            e.ty = block_ty;
         }
-        ExprKind::If(_, then_id, else_opt) => {
-            update_local_var_type_in_expr(package, *then_id, var_id, new_ty);
-            if let Some(e) = *else_opt {
-                update_local_var_type_in_expr(package, e, var_id, new_ty);
-            }
+        ExprKind::If(_, then_expr_id, else_expr_id) => {
+            let then_id = *then_expr_id;
+            let else_id = *else_expr_id;
+            let then_ty = package.get_expr(then_id).ty.clone();
+            let new_ty = if let Some(else_id) = else_id {
+                let else_ty = package.get_expr(else_id).ty.clone();
+                if then_ty == Ty::UNIT {
+                    else_ty
+                } else {
+                    then_ty
+                }
+            } else {
+                then_ty
+            };
+            let e = package.exprs.get_mut(expr_id).expect("expr not found");
+            e.ty = new_ty;
         }
-        // Exhaustive descent through every compound `ExprKind`. Closes G3:
-        // a retype request must reach every `Var(Local(var_id))` read no
-        // matter how deeply nested it is, not only those inside Block/If.
-        ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
-            let ids: Vec<ExprId> = exprs.clone();
-            for e in ids {
-                update_local_var_type_in_expr(package, e, var_id, new_ty);
-            }
-        }
-        ExprKind::ArrayRepeat(a, b)
-        | ExprKind::Assign(a, b)
-        | ExprKind::AssignOp(_, a, b)
-        | ExprKind::BinOp(_, a, b)
-        | ExprKind::Call(a, b)
-        | ExprKind::Index(a, b)
-        | ExprKind::AssignField(a, _, b)
-        | ExprKind::UpdateField(a, _, b) => {
-            let (a_id, b_id) = (*a, *b);
-            update_local_var_type_in_expr(package, a_id, var_id, new_ty);
-            update_local_var_type_in_expr(package, b_id, var_id, new_ty);
-        }
-        ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
-            let (a_id, b_id, c_id) = (*a, *b, *c);
-            update_local_var_type_in_expr(package, a_id, var_id, new_ty);
-            update_local_var_type_in_expr(package, b_id, var_id, new_ty);
-            update_local_var_type_in_expr(package, c_id, var_id, new_ty);
-        }
-        ExprKind::Fail(e) | ExprKind::Field(e, _) | ExprKind::Return(e) | ExprKind::UnOp(_, e) => {
-            let sub = *e;
-            update_local_var_type_in_expr(package, sub, var_id, new_ty);
-        }
-        ExprKind::Range(start, step, end) => {
-            let ids: Vec<ExprId> = [start, step, end].into_iter().flatten().copied().collect();
-            for e in ids {
-                update_local_var_type_in_expr(package, e, var_id, new_ty);
-            }
-        }
-        ExprKind::Struct(_, copy, fields) => {
-            let copy_id = *copy;
-            let field_ids: Vec<ExprId> = fields.iter().map(|fa| fa.value).collect();
-            if let Some(c) = copy_id {
-                update_local_var_type_in_expr(package, c, var_id, new_ty);
-            }
-            for e in field_ids {
-                update_local_var_type_in_expr(package, e, var_id, new_ty);
-            }
-        }
-        ExprKind::String(components) => {
-            let ids: Vec<ExprId> = components
-                .iter()
-                .filter_map(|c| match c {
-                    qsc_fir::fir::StringComponent::Expr(e) => Some(*e),
-                    qsc_fir::fir::StringComponent::Lit(_) => None,
-                })
-                .collect();
-            for e in ids {
-                update_local_var_type_in_expr(package, e, var_id, new_ty);
-            }
-        }
-        ExprKind::While(cond, body) => {
-            let (cond_id, body_id) = (*cond, *body);
-            update_local_var_type_in_expr(package, cond_id, var_id, new_ty);
-            let stmts = package.get_block(body_id).stmts.clone();
-            for stmt_id in stmts {
-                update_local_var_type(package, stmt_id, var_id, new_ty);
-            }
-        }
-        ExprKind::Var(_, _) | ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) => {}
+        _ => {}
     }
 }
 
@@ -2070,9 +748,8 @@ fn update_local_var_type_in_expr(
 /// ```
 /// # Requires
 /// - `block_id` is valid in `package`.
-/// - `return_ty` has a synthesizable classical default (see
-///   [`create_default_value_kind`]); otherwise this triggers the
-///   unsupported-default internal contract panic.
+/// - `return_slot_strategy` was selected for `return_ty` before the package
+///   was mutably borrowed.
 ///
 /// # Ensures
 /// - While loops exit promptly once `__has_returned` is set.
@@ -2084,6 +761,7 @@ fn update_local_var_type_in_expr(
 /// - Rewrites statements carrying returns (while loops, guarded reads, trailing expr).
 /// - Allocates new FIR nodes through `assigner`.
 #[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_arguments)]
 fn transform_block_with_flags(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -2091,38 +769,22 @@ fn transform_block_with_flags(
     block_id: BlockId,
     return_ty: &Ty,
     udt_pure_tys: &UdtPureTyCache,
+    arrow_default_cache: &mut ArrowDefaultCache,
+    return_slot_strategy: ReturnSlotStrategy,
 ) {
     // Create __has_returned: Bool = false
     let (has_returned_var_id, has_returned_decl_stmt) =
-        create_mutable_bool_var(package, assigner, "__has_returned", false);
+        create_mutable_bool_var(package, assigner, symbols::HAS_RETURNED, false);
 
-    // Create __ret_val: T = default(T).
-    //
-    // For callable-valued return types, `create_default_value` synthesizes
-    // a nop callable item of the matching signature and returns a
-    // `Var(Res::Item(..))` reference to it; any later `Call(Var(__ret_val), .)`
-    // then resolves to that nop (its body returns the output type's default).
-    // The nop is never actually invoked because `__has_returned` guards
-    // every read of `__ret_val`, but it keeps the flag-fallback well-typed.
-    let default_val = require_classical_default(
+    let (return_slot, ret_val_decl_stmt) = create_return_slot_decl(
         package,
         assigner,
         package_id,
         return_ty,
         udt_pure_tys,
-        UnsupportedDefaultSite::ReturnSlot,
+        arrow_default_cache,
+        return_slot_strategy,
     );
-    let (ret_val_var_id, ret_val_decl_stmt) = {
-        let mutability = Mutability::Mutable;
-        alloc_local_var(
-            package,
-            assigner,
-            "__ret_val",
-            return_ty,
-            default_val,
-            mutability,
-        )
-    };
 
     let original_stmts = package.get_block(block_id).stmts.clone();
     let mut new_stmts: Vec<StmtId> = Vec::new();
@@ -2130,104 +792,27 @@ fn transform_block_with_flags(
     // Insert flag declarations.
     new_stmts.push(has_returned_decl_stmt);
     new_stmts.push(ret_val_decl_stmt);
-
-    let mut seen_return_bearing_stmt = false;
-
-    for (index, &stmt_id) in original_stmts.iter().enumerate() {
-        let has_return_in_while = match &package.get_stmt(stmt_id).kind {
-            StmtKind::Expr(e) | StmtKind::Semi(e) => contains_return_in_while_expr(package, *e),
-            _ => false,
-        };
-        let has_return = contains_return_in_stmt(package, stmt_id);
-        let is_final_trailing_expr = index == original_stmts.len() - 1
-            && matches!(package.get_stmt(stmt_id).kind, StmtKind::Expr(_));
-
-        if has_return_in_while {
-            // Transform the while loop (conjoins `not __has_returned` onto
-            // the condition and rewrites Returns in its body via the flag
-            // slot).
-            transform_while_stmt(
-                package,
-                assigner,
-                package_id,
-                stmt_id,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
-            );
-            new_stmts.push(stmt_id);
-            seen_return_bearing_stmt = true;
-        } else if has_return && !seen_return_bearing_stmt {
-            // First return-bearing non-while statement. The flag is known
-            // to be `false` on entry so no guard is needed here; rewriting
-            // the returns in place to flag assignments is sufficient.
-            replace_returns_with_flags(
-                package,
-                assigner,
-                package_id,
-                stmt_id,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
-            );
-            new_stmts.push(stmt_id);
-            seen_return_bearing_stmt = true;
-        } else if has_return {
-            // Subsequent return-bearing statement after another
-            // return-bearing statement has already fired. Rewrite returns,
-            // then guard the whole statement so it is skipped when the
-            // earlier return already set `__has_returned`.
-            replace_returns_with_flags(
-                package,
-                assigner,
-                package_id,
-                stmt_id,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
-            );
-            let guarded = guard_stmt_with_flag(
-                package,
-                assigner,
-                package_id,
-                stmt_id,
-                has_returned_var_id,
-                udt_pure_tys,
-            );
-            new_stmts.push(guarded);
-        } else if seen_return_bearing_stmt && is_final_trailing_expr {
-            // Preserve the original trailing value so the final flag check
-            // can return it from the else branch instead of discarding it
-            // as a guarded semicolon statement.
-            new_stmts.push(stmt_id);
-        } else if seen_return_bearing_stmt {
-            // Guard continuation statements that follow a return-bearing
-            // statement so they are skipped once the flag is set. Release
-            // calls are ordinary side effects here; no-hoist raw wrappers
-            // keep path-local releases on the returning paths.
-            let guarded = guard_stmt_with_flag(
-                package,
-                assigner,
-                package_id,
-                stmt_id,
-                has_returned_var_id,
-                udt_pure_tys,
-            );
-            new_stmts.push(guarded);
-        } else {
-            new_stmts.push(stmt_id);
-        }
-    }
-
-    // Create trailing expression: if __has_returned { __ret_val } else { <original_trailing> }
-    let trailing = create_flag_trailing_expr(
+    let flag_context = FlagContext {
+        package_id,
+        has_returned_var_id,
+        return_slot,
+        return_ty,
+        udt_pure_tys,
+    };
+    new_stmts.extend(transform_block_stmts_with_flags(
         package,
         assigner,
-        &mut new_stmts,
-        has_returned_var_id,
-        ret_val_var_id,
-        return_ty,
-    );
+        &original_stmts,
+        &flag_context,
+        arrow_default_cache,
+        FlagBlockOutput::ReturnValue {
+            final_trailing_expr_strategy: FinalTrailingExprStrategy::Lazy,
+        },
+    ));
+
+    // Create trailing expression: if __has_returned { __ret_val } else { <original_trailing> }
+    let trailing =
+        create_flag_trailing_expr_for_slot(package, assigner, &mut new_stmts, &flag_context);
 
     if let Some(trailing_stmt) = trailing {
         new_stmts.push(trailing_stmt);
@@ -2236,157 +821,676 @@ fn transform_block_with_flags(
     let block = package.blocks.get_mut(block_id).expect("block not found");
     block.stmts = new_stmts;
     block.ty = return_ty.clone();
-
-    // Apply if-else lifting to handle any remaining non-while returns.
-    transform_block_if_else(package, assigner, block_id, return_ty);
 }
 
-/// Post-transform simplification pass that folds trivial flag patterns.
-///
-/// After the flag-based transform, the output can contain redundant
-/// if-expressions whose branches are structurally identical:
-///
-/// ```text
-/// if __has_returned { x } else { x }   →   x
-/// ```
-///
-/// This pass walks the block's statements and trailing expression, folding
-/// such identity patterns. Only clearly safe, semantics-preserving folds
-/// are applied. This is the structured-IR analog of LLVM's `SimplifyCFG`
-/// running after `mergereturn`.
-fn simplify_flag_patterns(package: &mut Package, block_id: BlockId) {
-    let stmts = package.get_block(block_id).stmts.clone();
-    for &stmt_id in &stmts {
-        simplify_flag_patterns_in_stmt(package, stmt_id);
+/// Policy for handling the final value-producing statement in a flag-rewritten block.
+#[derive(Clone, Copy)]
+enum FinalTrailingExprStrategy {
+    /// Keep the final trailing expression in place unless it contains rewritten returns.
+    Preserve,
+    /// Wrap the final trailing expression in a lazy continuation guarded by `__has_returned`.
+    Lazy,
+}
+
+/// Output contract for recursively rewriting a statement sequence with an existing flag pair.
+#[derive(Clone, Copy)]
+enum FlagBlockOutput {
+    /// The sequence must produce the callable return value.
+    ReturnValue {
+        final_trailing_expr_strategy: FinalTrailingExprStrategy,
+    },
+    /// The sequence is used only for side effects and has Unit type.
+    Unit,
+}
+
+impl FlagBlockOutput {
+    /// Returns the same output mode, forcing value-producing final tails to be lazy.
+    fn lazy(self) -> Self {
+        match self {
+            Self::ReturnValue { .. } => Self::ReturnValue {
+                final_trailing_expr_strategy: FinalTrailingExprStrategy::Lazy,
+            },
+            Self::Unit => Self::Unit,
+        }
+    }
+
+    /// Gets the final-tail strategy when the rewritten sequence is value-producing.
+    fn final_trailing_expr_strategy(self) -> Option<FinalTrailingExprStrategy> {
+        match self {
+            Self::ReturnValue {
+                final_trailing_expr_strategy,
+            } => Some(final_trailing_expr_strategy),
+            Self::Unit => None,
+        }
     }
 }
 
-/// Simplify flag patterns within a single statement.
-fn simplify_flag_patterns_in_stmt(package: &mut Package, stmt_id: StmtId) {
-    let expr_id = match &package.get_stmt(stmt_id).kind {
-        StmtKind::Expr(e) | StmtKind::Semi(e) | StmtKind::Local(_, _, e) => *e,
-        StmtKind::Item(_) => return,
+/// Strategy used for the synthesized return-value slot in flag-based rewrites.
+///
+/// Selected once per callable by [`select_return_slot_strategy`] before the
+/// package is mutably borrowed, and threaded through the rewrite via
+/// [`ReturnSlot`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReturnSlotStrategy {
+    /// Store the returned value directly in `__ret_val : T`.
+    ///
+    /// Used when `T` has a classical default. Reads of the slot need no
+    /// further wrapping: `__ret_val` already has the right type and the
+    /// initial value keeps unreachable false branches well-typed.
+    Direct,
+    /// Store the returned value as the single element of `__ret_val : T[]`.
+    ///
+    /// Used when `T` has no classical default but is arrow-free, so the
+    /// universal array default `[]` is well-typed. Reads index `[0]` and are
+    /// guarded by `__has_returned` (or by a typed [`ExprKind::Fail`] in
+    /// statically dead branches).
+    ArrayBacked,
+}
+
+/// Synthesized return-value slot shared by flag-strategy rewrites.
+///
+/// Carries both the slot's [`LocalVarId`] and the [`ReturnSlotStrategy`]
+/// chosen for it, so downstream helpers like [`create_return_slot_write_expr`]
+/// can emit the right shape (`__ret_val = v` vs `__ret_val = [v]`) without
+/// re-deriving the policy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ReturnSlot {
+    /// Local id for the synthesized `__ret_val` slot.
+    var_id: LocalVarId,
+    /// Representation strategy selected for the slot.
+    strategy: ReturnSlotStrategy,
+}
+
+/// Conservative scan result for arrow-containing return types.
+///
+/// Used by [`arrow_scan_for_ty`] to decide whether an array-backed return
+/// slot is safe. The lattice is [`ArrowScan::ContainsArrow`] >
+/// [`ArrowScan::Unknown`] > [`ArrowScan::NoArrow`]; only `NoArrow` enables
+/// array-backed mode, so any ambiguity falls back to rejecting the type and
+/// emitting an unsupported-return-type diagnostic.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ArrowScan {
+    /// The scanned type is definitely arrow-free.
+    NoArrow,
+    /// The scanned type contains at least one arrow.
+    ContainsArrow,
+    /// The scanned type could not be resolved precisely enough.
+    Unknown,
+}
+
+impl ArrowScan {
+    /// Combines two scan results, preserving the most conservative outcome.
+    ///
+    /// `ContainsArrow` dominates `Unknown`, which dominates `NoArrow`. The
+    /// operation is commutative and associative, so it is safe to fold over
+    /// children of tuples/arrays/UDTs in any order.
+    fn combine(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::ContainsArrow, _) | (_, Self::ContainsArrow) => Self::ContainsArrow,
+            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
+            (Self::NoArrow, Self::NoArrow) => Self::NoArrow,
+        }
+    }
+}
+
+/// Shared flag-strategy state threaded through top-level and recursive rewrites.
+struct FlagContext<'a> {
+    /// Package that owns synthesized defaults and lazy UDT lookups.
+    package_id: PackageId,
+    /// Local id for the synthesized `__has_returned` flag.
+    has_returned_var_id: LocalVarId,
+    /// Synthesized `__ret_val` return slot.
+    return_slot: ReturnSlot,
+    /// Callable return type captured by the flag strategy.
+    return_ty: &'a Ty,
+    /// Cache used for defaultability and continuation-safety policy checks.
+    udt_pure_tys: &'a UdtPureTyCache,
+}
+
+const ARRAY_RETURN_SLOT_UNWRITTEN_FAIL_MESSAGE: &str =
+    "return_unify array return slot was not written";
+
+/// Allocates the `mutable __ret_val` declaration for the flag strategy.
+///
+/// The declaration's shape is determined by `strategy`:
+///
+/// * [`ReturnSlotStrategy::Direct`] synthesizes `mutable __ret_val : T = default(T)`
+///   using [`require_classical_default`]. Callable-valued returns may insert
+///   a fail-bodied callable as the default; it is never actually invoked because
+///   reads of `__ret_val` are always guarded by `__has_returned`.
+/// * [`ReturnSlotStrategy::ArrayBacked`] synthesizes `mutable __ret_val : T[] = []`,
+///   which is the universal classical default for any array type and lets the
+///   strategy support non-defaultable `T` (e.g. `Qubit`, tuples containing
+///   `Qubit`, or arrow-free UDTs).
+///
+/// # Requires
+/// - `strategy` was previously selected by [`select_return_slot_strategy`] for
+///   `return_ty`. In particular, `Direct` requires `return_ty` to have a
+///   classical default.
+///
+/// # Ensures
+/// - Returns a [`ReturnSlot`] handle and the [`StmtId`] of the new `Local`
+///   declaration that the caller prepends to the rewritten block.
+///
+/// # Mutations
+/// - Allocates a new local var, init expression, and `Local` statement through
+///   `assigner`.
+fn create_return_slot_decl(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    package_id: PackageId,
+    return_ty: &Ty,
+    udt_pure_tys: &UdtPureTyCache,
+    arrow_default_cache: &mut ArrowDefaultCache,
+    strategy: ReturnSlotStrategy,
+) -> (ReturnSlot, StmtId) {
+    let (slot_ty, init_expr) = match strategy {
+        ReturnSlotStrategy::Direct => {
+            // For callable-valued direct slots, default synthesis may insert a fail-bodied callable.
+            let init_expr = require_classical_default(
+                package,
+                assigner,
+                package_id,
+                return_ty,
+                udt_pure_tys,
+                arrow_default_cache,
+                UnsupportedDefaultSite::ReturnSlot,
+            );
+            (return_ty.clone(), init_expr)
+        }
+        ReturnSlotStrategy::ArrayBacked => {
+            let slot_ty = Ty::Array(Box::new(return_ty.clone()));
+            let init_expr = alloc_expr(
+                package,
+                assigner,
+                slot_ty.clone(),
+                ExprKind::Array(Vec::new()),
+                Span::default(),
+            );
+            (slot_ty, init_expr)
+        }
     };
-    if let Some(replacement) = try_fold_identical_branches(package, expr_id) {
-        let stmt = package.stmts.get_mut(stmt_id).expect("stmt not found");
-        match &mut stmt.kind {
-            StmtKind::Expr(e) | StmtKind::Semi(e) | StmtKind::Local(_, _, e) => {
-                *e = replacement;
-            }
-            StmtKind::Item(_) => {}
+
+    let (var_id, stmt_id) = alloc_local_var(
+        package,
+        assigner,
+        symbols::RET_VAL,
+        &slot_ty,
+        init_expr,
+        Mutability::Mutable,
+    );
+    (ReturnSlot { var_id, strategy }, stmt_id)
+}
+
+/// Builds the write expression that stores a returned value into `slot`.
+///
+/// * [`ReturnSlotStrategy::Direct`] emits `set __ret_val = value`.
+/// * [`ReturnSlotStrategy::ArrayBacked`] emits `set __ret_val = [value]`,
+///   wrapping the value in a singleton array so the slot's array type is
+///   preserved.
+///
+/// # Mutations
+/// - Allocates new FIR nodes through `assigner` for the singleton array
+///   wrapper (array-backed mode) and the resulting assignment expression.
+fn create_return_slot_write_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    slot: ReturnSlot,
+    value_expr: ExprId,
+    value_ty: &Ty,
+) -> ExprId {
+    match slot.strategy {
+        ReturnSlotStrategy::Direct => {
+            create_assign_expr(package, assigner, slot.var_id, value_expr, value_ty)
+        }
+        ReturnSlotStrategy::ArrayBacked => {
+            let array_ty = Ty::Array(Box::new(value_ty.clone()));
+            let singleton = alloc_expr(
+                package,
+                assigner,
+                array_ty.clone(),
+                ExprKind::Array(vec![value_expr]),
+                Span::default(),
+            );
+            create_assign_expr(package, assigner, slot.var_id, singleton, &array_ty)
         }
     }
 }
 
-/// If `expr_id` is an `If(cond, then_expr, Some(else_expr))` where the
-/// then and else branches are structurally identical, return the branch
-/// expression id to replace the if with. Returns `None` otherwise.
-fn try_fold_identical_branches(package: &Package, expr_id: ExprId) -> Option<ExprId> {
-    let expr = package.get_expr(expr_id);
-    let ExprKind::If(_, then_id, Some(else_id)) = &expr.kind else {
-        return None;
-    };
-    if exprs_structurally_equal(package, *then_id, *else_id) {
-        Some(*then_id)
-    } else {
-        None
+/// Builds an expression that reads the returned value out of `slot`.
+///
+/// * [`ReturnSlotStrategy::Direct`] emits `__ret_val`.
+/// * [`ReturnSlotStrategy::ArrayBacked`] emits `__ret_val[0]`. Callers must
+///   guard such reads with `__has_returned` because reading index 0 of the
+///   empty initial array would fail at runtime. Use
+///   [`create_return_slot_read_or_fail_expr`] when the guard is not already
+///   in place.
+///
+/// # Mutations
+/// - Allocates new FIR nodes through `assigner` for the var read and (in
+///   array-backed mode) the index expression.
+fn create_return_slot_read_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    slot: ReturnSlot,
+    return_ty: &Ty,
+) -> ExprId {
+    match slot.strategy {
+        ReturnSlotStrategy::Direct => alloc_local_var_expr(
+            package,
+            assigner,
+            slot.var_id,
+            return_ty.clone(),
+            Span::default(),
+        ),
+        ReturnSlotStrategy::ArrayBacked => {
+            let array_ty = Ty::Array(Box::new(return_ty.clone()));
+            let array_expr =
+                alloc_local_var_expr(package, assigner, slot.var_id, array_ty, Span::default());
+            let zero = alloc_expr(
+                package,
+                assigner,
+                Ty::Prim(Prim::Int),
+                ExprKind::Lit(Lit::Int(0)),
+                Span::default(),
+            );
+            alloc_expr(
+                package,
+                assigner,
+                return_ty.clone(),
+                ExprKind::Index(array_expr, zero),
+                Span::default(),
+            )
+        }
     }
 }
 
-/// Recursively compare two expression trees for structural equality.
+/// Builds a slot read that is safe to use without an enclosing flag guard.
 ///
-/// Two expressions are structurally equal when their `ExprKind` variants
-/// match and all recursive children are structurally equal. Span and
-/// exec-graph metadata are ignored; only the semantic shape matters.
+/// * [`ReturnSlotStrategy::Direct`] returns the raw read; the initialized
+///   default value makes an unguarded read well-typed.
+/// * [`ReturnSlotStrategy::ArrayBacked`] returns
+///   `if __has_returned { __ret_val[0] } else { fail "..." }`. The empty
+///   initial array cannot be indexed, so the else branch fails with a typed
+///   `Fail` expression rather than performing an out-of-bounds read.
 ///
-/// This is intentionally conservative: any unknown or complex pattern
-/// returns `false` to avoid incorrect folding.
-fn exprs_structurally_equal(package: &Package, a: ExprId, b: ExprId) -> bool {
-    if a == b {
-        return true;
+/// Used by lazy continuation helpers that need a value-typed expression in
+/// post-return suffixes where the surrounding flag is not yet established.
+///
+/// # Mutations
+/// - Allocates new FIR nodes through `assigner` for the read, the optional
+///   typed fail, and the wrapping `if` expression.
+fn create_return_slot_read_or_fail_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    flag_context: &FlagContext<'_>,
+) -> ExprId {
+    match flag_context.return_slot.strategy {
+        ReturnSlotStrategy::Direct => create_return_slot_read_expr(
+            package,
+            assigner,
+            flag_context.return_slot,
+            flag_context.return_ty,
+        ),
+        ReturnSlotStrategy::ArrayBacked => {
+            let flag = alloc_local_var_expr(
+                package,
+                assigner,
+                flag_context.has_returned_var_id,
+                Ty::Prim(Prim::Bool),
+                Span::default(),
+            );
+            let read = create_return_slot_read_expr(
+                package,
+                assigner,
+                flag_context.return_slot,
+                flag_context.return_ty,
+            );
+            let fail = create_typed_fail_expr(
+                package,
+                assigner,
+                flag_context.return_ty,
+                ARRAY_RETURN_SLOT_UNWRITTEN_FAIL_MESSAGE,
+            );
+            alloc_if_expr(
+                package,
+                assigner,
+                flag,
+                read,
+                Some(fail),
+                flag_context.return_ty.clone(),
+                Span::default(),
+            )
+        }
     }
-    let ea = package.get_expr(a);
-    let eb = package.get_expr(b);
-    if ea.ty != eb.ty {
-        return false;
+}
+
+/// Builds the fallback expression used when the block has no fallthrough
+/// trailing value and no return is known to have fired.
+///
+/// Reached only from [`create_flag_trailing_expr_for_slot`] in non-Unit return
+/// types whose original body had no value-producing trailing expression. In
+/// that situation, every code path either returns through the slot or is
+/// unreachable, so the else branch of `if __has_returned { ... } else { ... }`
+/// is statically dead.
+///
+/// * [`ReturnSlotStrategy::Direct`] reuses the initialized default value so
+///   the dead branch stays well-typed without inserting a `Fail` node.
+/// * [`ReturnSlotStrategy::ArrayBacked`] emits a typed `fail "..."` because
+///   the slot's empty initial array cannot be indexed.
+///
+/// # Mutations
+/// - Allocates new FIR nodes through `assigner` for the read or typed fail
+///   expression.
+fn create_return_slot_unwritten_fallback_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    slot: ReturnSlot,
+    return_ty: &Ty,
+) -> ExprId {
+    match slot.strategy {
+        ReturnSlotStrategy::Direct => {
+            create_return_slot_read_expr(package, assigner, slot, return_ty)
+        }
+        ReturnSlotStrategy::ArrayBacked => create_typed_fail_expr(
+            package,
+            assigner,
+            return_ty,
+            ARRAY_RETURN_SLOT_UNWRITTEN_FAIL_MESSAGE,
+        ),
     }
-    match (&ea.kind, &eb.kind) {
-        (ExprKind::Var(res_a, args_a), ExprKind::Var(res_b, args_b)) => {
-            res_a == res_b && args_a == args_b
+}
+
+/// Builds a `fail "<message>"` expression typed as `ty`.
+///
+/// `Fail` is bottom-typed in Q# semantics, so it can take any expected type at
+/// its use site. This helper packages the string literal and `Fail` node and
+/// stamps the requested type onto the result. Used by array-backed return-slot
+/// fallbacks where statically dead reads must remain well-typed.
+///
+/// # Mutations
+/// - Allocates the string literal expression and the `Fail` expression
+///   through `assigner`.
+fn create_typed_fail_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    ty: &Ty,
+    message: &str,
+) -> ExprId {
+    let message_expr = alloc_expr(
+        package,
+        assigner,
+        Ty::Prim(Prim::String),
+        ExprKind::String(vec![StringComponent::Lit(Rc::from(message))]),
+        Span::default(),
+    );
+    alloc_expr(
+        package,
+        assigner,
+        ty.clone(),
+        ExprKind::Fail(message_expr),
+        Span::default(),
+    )
+}
+
+/// Rewrites a statement sequence using an existing flag pair.
+///
+/// The helper is shared by top-level flag rewriting, while bodies, nested block
+/// expressions, and lazy suffix continuations. It guards statements after the
+/// first return-bearing statement, and splits unsafe suffixes into a lazy
+/// `if not __has_returned { ... }` continuation.
+#[allow(clippy::too_many_lines)]
+fn transform_block_stmts_with_flags(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    original_stmts: &[StmtId],
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
+    output: FlagBlockOutput,
+) -> Vec<StmtId> {
+    let mut new_stmts: Vec<StmtId> = Vec::new();
+    let mut seen_return_bearing_stmt = false;
+
+    for (index, &stmt_id) in original_stmts.iter().enumerate() {
+        let has_return_in_while = match &package.get_stmt(stmt_id).kind {
+            StmtKind::Expr(e) | StmtKind::Semi(e) => contains_return_in_while_expr(package, *e),
+            _ => false,
+        };
+        let has_return = contains_return_in_stmt(package, stmt_id);
+        let is_final_trailing_expr = output.final_trailing_expr_strategy().is_some()
+            && index == original_stmts.len() - 1
+            && matches!(package.get_stmt(stmt_id).kind, StmtKind::Expr(_));
+
+        if seen_return_bearing_stmt
+            && continuation_suffix_requires_split(
+                package,
+                original_stmts,
+                index,
+                flag_context.package_id,
+                flag_context.udt_pure_tys,
+            )
+        {
+            let lazy_continuation = create_lazy_flag_continuation_stmt(
+                package,
+                assigner,
+                &original_stmts[index..],
+                flag_context,
+                arrow_default_cache,
+                output,
+            );
+            new_stmts.push(lazy_continuation);
+            break;
         }
-        (ExprKind::Lit(lit_a), ExprKind::Lit(lit_b)) => lit_a == lit_b,
-        (ExprKind::Tuple(elems_a), ExprKind::Tuple(elems_b)) => {
-            elems_a.len() == elems_b.len()
-                && elems_a
-                    .iter()
-                    .zip(elems_b.iter())
-                    .all(|(&a, &b)| exprs_structurally_equal(package, a, b))
-        }
-        (ExprKind::Block(bid_a), ExprKind::Block(bid_b)) => {
-            blocks_structurally_equal(package, *bid_a, *bid_b)
-        }
-        (ExprKind::UnOp(op_a, operand_a), ExprKind::UnOp(op_b, operand_b)) => {
-            op_a == op_b && exprs_structurally_equal(package, *operand_a, *operand_b)
-        }
-        (ExprKind::BinOp(op_a, l_a, r_a), ExprKind::BinOp(op_b, l_b, r_b)) => {
-            op_a == op_b
-                && exprs_structurally_equal(package, *l_a, *l_b)
-                && exprs_structurally_equal(package, *r_a, *r_b)
-        }
-        (ExprKind::If(c_a, t_a, e_a), ExprKind::If(c_b, t_b, e_b)) => {
-            exprs_structurally_equal(package, *c_a, *c_b)
-                && exprs_structurally_equal(package, *t_a, *t_b)
-                && match (e_a, e_b) {
-                    (Some(ea), Some(eb)) => exprs_structurally_equal(package, *ea, *eb),
-                    (None, None) => true,
-                    _ => false,
+
+        if seen_return_bearing_stmt && is_final_trailing_expr {
+            match output
+                .final_trailing_expr_strategy()
+                .expect("final trailing strategy should be set for value output")
+            {
+                FinalTrailingExprStrategy::Lazy => {
+                    let lazy_continuation = create_lazy_flag_continuation_stmt(
+                        package,
+                        assigner,
+                        &original_stmts[index..],
+                        flag_context,
+                        arrow_default_cache,
+                        output,
+                    );
+                    new_stmts.push(lazy_continuation);
+                    break;
                 }
+                FinalTrailingExprStrategy::Preserve if has_return => {
+                    let lazy_continuation = create_lazy_flag_continuation_stmt(
+                        package,
+                        assigner,
+                        &original_stmts[index..],
+                        flag_context,
+                        arrow_default_cache,
+                        output,
+                    );
+                    new_stmts.push(lazy_continuation);
+                    break;
+                }
+                FinalTrailingExprStrategy::Preserve => {
+                    new_stmts.push(stmt_id);
+                    continue;
+                }
+            }
         }
-        (ExprKind::Array(a_elems), ExprKind::Array(b_elems))
-        | (ExprKind::ArrayLit(a_elems), ExprKind::ArrayLit(b_elems)) => {
-            a_elems.len() == b_elems.len()
-                && a_elems
-                    .iter()
-                    .zip(b_elems.iter())
-                    .all(|(&a, &b)| exprs_structurally_equal(package, a, b))
+
+        if has_return_in_while {
+            transform_while_stmt(
+                package,
+                assigner,
+                stmt_id,
+                flag_context,
+                arrow_default_cache,
+            );
+            new_stmts.push(stmt_id);
+            seen_return_bearing_stmt = true;
+        } else if has_return && !seen_return_bearing_stmt {
+            replace_returns_with_flags(
+                package,
+                assigner,
+                stmt_id,
+                flag_context,
+                arrow_default_cache,
+            );
+            new_stmts.push(stmt_id);
+            seen_return_bearing_stmt = true;
+        } else if has_return {
+            replace_returns_with_flags(
+                package,
+                assigner,
+                stmt_id,
+                flag_context,
+                arrow_default_cache,
+            );
+            let guarded = guard_stmt_with_flag(
+                package,
+                assigner,
+                flag_context,
+                stmt_id,
+                arrow_default_cache,
+            );
+            new_stmts.push(guarded);
+        } else if seen_return_bearing_stmt {
+            let guarded = guard_stmt_with_flag(
+                package,
+                assigner,
+                flag_context,
+                stmt_id,
+                arrow_default_cache,
+            );
+            new_stmts.push(guarded);
+        } else {
+            new_stmts.push(stmt_id);
         }
-        // Conservative: anything else is considered non-equal.
-        _ => false,
+    }
+
+    new_stmts
+}
+
+/// Creates a lazy continuation statement with the shape required by `output`.
+fn create_lazy_flag_continuation_stmt(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    continuation_stmts: &[StmtId],
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
+    output: FlagBlockOutput,
+) -> StmtId {
+    let lazy_continuation = create_lazy_flag_continuation_expr(
+        package,
+        assigner,
+        continuation_stmts,
+        flag_context,
+        arrow_default_cache,
+        output,
+    );
+    match output {
+        FlagBlockOutput::ReturnValue { .. } => {
+            alloc_expr_stmt(package, assigner, lazy_continuation, Span::default())
+        }
+        FlagBlockOutput::Unit => {
+            alloc_semi_stmt(package, assigner, lazy_continuation, Span::default())
+        }
     }
 }
 
-/// Recursively compare two blocks for structural equality.
-fn blocks_structurally_equal(package: &Package, a: BlockId, b: BlockId) -> bool {
-    if a == b {
-        return true;
-    }
-    let ba = package.get_block(a);
-    let bb = package.get_block(b);
-    if ba.ty != bb.ty || ba.stmts.len() != bb.stmts.len() {
-        return false;
-    }
-    ba.stmts
-        .iter()
-        .zip(bb.stmts.iter())
-        .all(|(&sa, &sb)| stmts_structurally_equal(package, sa, sb))
+/// Builds a lazy continuation expression for a post-return suffix.
+///
+/// Value-producing continuations use `__ret_val` as their else branch, while
+/// Unit continuations omit the else branch. The suffix is recursively rewritten
+/// with lazy final-tail handling so nested returns still update the shared flag
+/// pair before control reaches the outer merge.
+fn create_lazy_flag_continuation_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    continuation_stmts: &[StmtId],
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
+    output: FlagBlockOutput,
+) -> ExprId {
+    let mut continuation_stmts = transform_block_stmts_with_flags(
+        package,
+        assigner,
+        continuation_stmts,
+        flag_context,
+        arrow_default_cache,
+        output.lazy(),
+    );
+    let (continuation_ty, else_expr) = match output {
+        FlagBlockOutput::ReturnValue { .. } => {
+            if !has_value_trailing_stmt(package, &continuation_stmts, flag_context.return_ty) {
+                // The trailing expression (if any) doesn't match the return
+                // type — typically a Unit-typed variable read left over from
+                // `replace_qubit_allocation`. Drop it when it's a pure, side-
+                // effect-free Expr so the fallback `__ret_val` read becomes
+                // the sole trailing value, enabling `identical_branches` to
+                // fold the degenerate merge afterward.
+                if let Some(&last_id) = continuation_stmts.last()
+                    && let StmtKind::Expr(e) = package.get_stmt(last_id).kind
+                    && package.get_expr(e).ty == Ty::UNIT
+                    && simplify::init_is_side_effect_free(package, e)
+                {
+                    continuation_stmts.pop();
+                }
+                let missing_value =
+                    create_return_slot_read_or_fail_expr(package, assigner, flag_context);
+                continuation_stmts.push(alloc_expr_stmt(
+                    package,
+                    assigner,
+                    missing_value,
+                    Span::default(),
+                ));
+            }
+
+            let ret_var = create_return_slot_read_expr(
+                package,
+                assigner,
+                flag_context.return_slot,
+                flag_context.return_ty,
+            );
+            (flag_context.return_ty.clone(), Some(ret_var))
+        }
+        FlagBlockOutput::Unit => (Ty::UNIT, None),
+    };
+    let continuation_block = alloc_block(
+        package,
+        assigner,
+        continuation_stmts,
+        continuation_ty.clone(),
+        Span::default(),
+    );
+    let continuation_expr = alloc_block_expr(
+        package,
+        assigner,
+        continuation_block,
+        continuation_ty.clone(),
+        Span::default(),
+    );
+    let not_flag = create_not_var_expr(package, assigner, flag_context.has_returned_var_id);
+
+    alloc_if_expr(
+        package,
+        assigner,
+        not_flag,
+        continuation_expr,
+        else_expr,
+        continuation_ty,
+        Span::default(),
+    )
 }
 
-/// Recursively compare two statements for structural equality.
-fn stmts_structurally_equal(package: &Package, a: StmtId, b: StmtId) -> bool {
-    if a == b {
-        return true;
-    }
-    let sa = package.get_stmt(a);
-    let sb = package.get_stmt(b);
-    match (&sa.kind, &sb.kind) {
-        (StmtKind::Expr(ea), StmtKind::Expr(eb)) | (StmtKind::Semi(ea), StmtKind::Semi(eb)) => {
-            exprs_structurally_equal(package, *ea, *eb)
-        }
-        (StmtKind::Local(m_a, p_a, e_a), StmtKind::Local(m_b, p_b, e_b)) => {
-            m_a == m_b && p_a == p_b && exprs_structurally_equal(package, *e_a, *e_b)
-        }
-        _ => false,
-    }
+/// Returns true when the statement sequence already ends with a value of `return_ty`.
+fn has_value_trailing_stmt(package: &Package, stmts: &[StmtId], return_ty: &Ty) -> bool {
+    stmts.last().is_some_and(|&stmt_id| {
+        matches!(
+            package.get_stmt(stmt_id).kind,
+            StmtKind::Expr(expr_id) if package.get_expr(expr_id).ty == *return_ty
+        )
+    })
 }
 
 /// Rewrite a while-loop statement under the flag-based transform.
@@ -2404,15 +1508,12 @@ fn stmts_structurally_equal(package: &Package, a: StmtId, b: StmtId) -> bool {
 /// // where body' has all `return v` replaced by
 /// //   { __ret_val = v; __has_returned = true; }
 /// ```
-#[allow(clippy::too_many_arguments)]
 fn transform_while_stmt(
     package: &mut Package,
     assigner: &mut Assigner,
-    package_id: PackageId,
     stmt_id: StmtId,
-    has_returned_var_id: LocalVarId,
-    ret_val_var_id: LocalVarId,
-    udt_pure_tys: &UdtPureTyCache,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
 ) {
     let expr_id = match &package.get_stmt(stmt_id).kind {
         StmtKind::Expr(e) | StmtKind::Semi(e) => *e,
@@ -2422,11 +1523,9 @@ fn transform_while_stmt(
     transform_while_in_expr(
         package,
         assigner,
-        package_id,
         expr_id,
-        has_returned_var_id,
-        ret_val_var_id,
-        udt_pure_tys,
+        flag_context,
+        arrow_default_cache,
     );
 }
 
@@ -2455,15 +1554,12 @@ fn transform_while_stmt(
 ///     ...
 /// }
 /// ```
-#[allow(clippy::too_many_arguments)]
 fn transform_while_in_expr(
     package: &mut Package,
     assigner: &mut Assigner,
-    package_id: PackageId,
     expr_id: ExprId,
-    has_returned_var_id: LocalVarId,
-    ret_val_var_id: LocalVarId,
-    udt_pure_tys: &UdtPureTyCache,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
 ) {
     let expr = package.get_expr(expr_id).clone();
     match &expr.kind {
@@ -2475,18 +1571,16 @@ fn transform_while_in_expr(
                 replace_returns_in_condition_expr(
                     package,
                     assigner,
-                    package_id,
                     cond_id,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
+                    flag_context,
+                    arrow_default_cache,
                 );
             }
 
             // Conjoin !__has_returned with the while condition.
             // LHS must be the flag guard so that AndL short-circuits and
             // skips the original condition once a return has fired.
-            let not_flag = create_not_var_expr(package, assigner, has_returned_var_id);
+            let not_flag = create_not_var_expr(package, assigner, flag_context.has_returned_var_id);
             let new_cond = {
                 let op = BinOp::AndL;
                 let ty: &Ty = &Ty::Prim(Prim::Bool);
@@ -2506,11 +1600,10 @@ fn transform_while_in_expr(
                 replace_returns_in_block(
                     package,
                     assigner,
-                    package_id,
                     body_block_id,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
+                    flag_context,
+                    arrow_default_cache,
+                    FlagBlockOutput::Unit,
                 );
             }
 
@@ -2535,11 +1628,9 @@ fn transform_while_in_expr(
                     transform_while_in_expr(
                         package,
                         assigner,
-                        package_id,
                         inner_expr_id,
-                        has_returned_var_id,
-                        ret_val_var_id,
-                        udt_pure_tys,
+                        flag_context,
+                        arrow_default_cache,
                     );
                 }
             }
@@ -2549,95 +1640,19 @@ fn transform_while_in_expr(
                 transform_while_in_expr(
                     package,
                     assigner,
-                    package_id,
                     *then_id,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
+                    flag_context,
+                    arrow_default_cache,
                 );
             }
             if let Some(e) = *else_opt
                 && contains_return_in_while_expr(package, e)
             {
-                transform_while_in_expr(
-                    package,
-                    assigner,
-                    package_id,
-                    e,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
-                );
+                transform_while_in_expr(package, assigner, e, flag_context, arrow_default_cache);
             }
         }
         _ => {}
     }
-}
-
-/// Builds the expression that should execute when an `if` condition falls
-/// through instead of returning.
-///
-/// Before, the original `else` arm and the statements that continue after the
-/// `if` live as separate IR fragments. After, they are combined into one
-/// expression or block whose internal `Return` nodes have already been lowered
-/// to flag writes, letting later normalization treat the entire fallthrough path
-/// as a single else branch.
-fn create_fallthrough_continuation_expr(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    else_opt: Option<ExprId>,
-    continuation_stmts: Vec<StmtId>,
-    return_ty: &Ty,
-) -> ExprId {
-    if let Some(else_expr_id) = else_opt {
-        strip_returns_from_expr(package, assigner, else_expr_id, return_ty);
-        if continuation_stmts.is_empty() {
-            return else_expr_id;
-        }
-
-        let else_semi = alloc_semi_stmt(package, assigner, else_expr_id, Span::default());
-        let mut new_stmts = Vec::with_capacity(continuation_stmts.len() + 1);
-        new_stmts.push(else_semi);
-        new_stmts.extend(continuation_stmts);
-        let block_id = alloc_block(
-            package,
-            assigner,
-            new_stmts,
-            return_ty.clone(),
-            Span::default(),
-        );
-        transform_block_if_else(package, assigner, block_id, return_ty);
-        return alloc_block_expr(
-            package,
-            assigner,
-            block_id,
-            return_ty.clone(),
-            Span::default(),
-        );
-    }
-
-    if continuation_stmts.is_empty() {
-        assert!(
-            *return_ty == Ty::UNIT,
-            "fallthrough continuation is empty for non-Unit return type"
-        );
-    }
-
-    let block_id = alloc_block(
-        package,
-        assigner,
-        continuation_stmts,
-        return_ty.clone(),
-        Span::default(),
-    );
-    transform_block_if_else(package, assigner, block_id, return_ty);
-    alloc_block_expr(
-        package,
-        assigner,
-        block_id,
-        return_ty.clone(),
-        Span::default(),
-    )
 }
 
 /// Walk every statement in a block and rewrite `Return(val)` subexpressions
@@ -2657,67 +1672,27 @@ fn create_fallthrough_continuation_expr(
 /// { if g { { __ret_val = v; __has_returned = true; } };
 ///   if not __has_returned { stmt2 }; }
 /// ```
-#[allow(clippy::too_many_arguments)]
 fn replace_returns_in_block(
     package: &mut Package,
     assigner: &mut Assigner,
-    package_id: PackageId,
     block_id: BlockId,
-    has_returned_var_id: LocalVarId,
-    ret_val_var_id: LocalVarId,
-    udt_pure_tys: &UdtPureTyCache,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
+    output: FlagBlockOutput,
 ) {
     let stmts = package.get_block(block_id).stmts.clone();
-
-    // Identify the first statement carrying a return *before* any
-    // replacement so the index is stable.
-    let first_return_idx = stmts
-        .iter()
-        .position(|&sid| contains_return_in_stmt(package, sid));
-
-    // Replace returns in every statement.
-    for &stmt_id in &stmts {
-        replace_returns_with_flags(
-            package,
-            assigner,
-            package_id,
-            stmt_id,
-            has_returned_var_id,
-            ret_val_var_id,
-            udt_pure_tys,
-        );
-    }
-
-    // Guard subsequent statements so they are skipped once the flag is set.
-    if let Some(first_idx) = first_return_idx
-        && first_idx + 1 < stmts.len()
-    {
-        let last_idx = stmts.len() - 1;
-        let is_last_trailing_expr =
-            matches!(package.get_stmt(stmts[last_idx]).kind, StmtKind::Expr(_));
-
-        let mut new_stmts: Vec<StmtId> = stmts[..=first_idx].to_vec();
-        for (i, &stmt_id) in stmts[first_idx + 1..].iter().enumerate() {
-            let actual_idx = first_idx + 1 + i;
-            // Preserve the trailing expression without guarding — its
-            // value is only consumed when `__has_returned` is false
-            // (the flag-trailing expression handles the true case).
-            if actual_idx == last_idx && is_last_trailing_expr {
-                new_stmts.push(stmt_id);
-            } else {
-                let guarded = guard_stmt_with_flag(
-                    package,
-                    assigner,
-                    package_id,
-                    stmt_id,
-                    has_returned_var_id,
-                    udt_pure_tys,
-                );
-                new_stmts.push(guarded);
-            }
-        }
-        let block = package.blocks.get_mut(block_id).expect("block not found");
-        block.stmts = new_stmts;
+    let new_stmts = transform_block_stmts_with_flags(
+        package,
+        assigner,
+        &stmts,
+        flag_context,
+        arrow_default_cache,
+        output,
+    );
+    let block = package.blocks.get_mut(block_id).expect("block not found");
+    block.stmts = new_stmts;
+    if matches!(output, FlagBlockOutput::Unit) {
+        block.ty = Ty::UNIT;
     }
 }
 
@@ -2731,15 +1706,12 @@ fn replace_returns_in_block(
 /// // After
 /// Expr(if cond { { __ret_val = v; __has_returned = true; } })
 /// ```
-#[allow(clippy::too_many_arguments)]
 fn replace_returns_with_flags(
     package: &mut Package,
     assigner: &mut Assigner,
-    package_id: PackageId,
     stmt_id: StmtId,
-    has_returned_var_id: LocalVarId,
-    ret_val_var_id: LocalVarId,
-    udt_pure_tys: &UdtPureTyCache,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
 ) {
     let expr_id = match &package.get_stmt(stmt_id).kind {
         StmtKind::Expr(e) | StmtKind::Semi(e) | StmtKind::Local(_, _, e) => *e,
@@ -2748,11 +1720,9 @@ fn replace_returns_with_flags(
     replace_returns_in_expr(
         package,
         assigner,
-        package_id,
         expr_id,
-        has_returned_var_id,
-        ret_val_var_id,
-        udt_pure_tys,
+        flag_context,
+        arrow_default_cache,
     );
 
     // Sync Pat type for Local bindings whose initializer type may have
@@ -2785,8 +1755,8 @@ fn replace_returns_with_flags(
 /// ```
 /// # Requires
 /// - `expr_id` is valid in `package`.
-/// - `has_returned_var_id` and `ret_val_var_id` reference the flag pair
-///   introduced by [`transform_block_with_flags`].
+/// - `flag_context` references the flag pair introduced by
+///   [`transform_block_with_flags`].
 ///
 /// # Ensures
 /// - Every `ExprKind::Return` reachable through `Block`/`If`/compound
@@ -2798,16 +1768,13 @@ fn replace_returns_with_flags(
 /// - Rewrites `Expr` nodes in place at each Return replacement site.
 /// - Recurses into nested blocks via [`replace_returns_in_block`].
 /// - Allocates new FIR nodes through `assigner`.
-#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_lines)]
 fn replace_returns_in_expr(
     package: &mut Package,
     assigner: &mut Assigner,
-    package_id: PackageId,
     expr_id: ExprId,
-    has_returned_var_id: LocalVarId,
-    ret_val_var_id: LocalVarId,
-    udt_pure_tys: &UdtPureTyCache,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
 ) {
     let expr = package.get_expr(expr_id).clone();
     match &expr.kind {
@@ -2815,15 +1782,20 @@ fn replace_returns_in_expr(
             let inner_id = *inner;
             let inner_ty = package.get_expr(inner_id).ty.clone();
             // Build: { __ret_val = val; __has_returned = true; }
-            let assign_val =
-                create_assign_expr(package, assigner, ret_val_var_id, inner_id, &inner_ty);
+            let assign_val = create_return_slot_write_expr(
+                package,
+                assigner,
+                flag_context.return_slot,
+                inner_id,
+                &inner_ty,
+            );
             let assign_val_semi = alloc_semi_stmt(package, assigner, assign_val, Span::default());
 
             let true_lit = alloc_bool_lit(package, assigner, true, Span::default());
             let assign_flag = create_assign_expr(
                 package,
                 assigner,
-                has_returned_var_id,
+                flag_context.has_returned_var_id,
                 true_lit,
                 &Ty::Prim(Prim::Bool),
             );
@@ -2852,26 +1824,22 @@ fn replace_returns_in_expr(
         }
         ExprKind::Block(block_id) => {
             let bid = *block_id;
+            let output = if expr.ty == Ty::UNIT {
+                FlagBlockOutput::Unit
+            } else {
+                FlagBlockOutput::ReturnValue {
+                    final_trailing_expr_strategy: FinalTrailingExprStrategy::Preserve,
+                }
+            };
             replace_returns_in_block(
                 package,
                 assigner,
-                package_id,
                 bid,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
+                flag_context,
+                arrow_default_cache,
+                output,
             );
-            // Nested blocks that previously contained a trailing `Return`
-            // expression may have been typed to the callable return type.
-            // After replacement the Return is a Unit block, so sync the
-            // block's type to its trailing expression (Unit when the block
-            // has no trailing Expr stmt). Also refresh the enclosing
-            // expression's type since `Block` expressions carry the
-            // block's type on the `Expr` node.
-            sync_block_type_to_stmt_or_unit(package, bid);
-            let new_block_ty = package.get_block(bid).ty.clone();
-            let e = package.exprs.get_mut(expr_id).expect("expr not found");
-            e.ty = new_block_ty;
+            resync_expr_ty_from_children(package, expr_id);
         }
         ExprKind::If(_, then_id, else_opt) => {
             let then_id = *then_id;
@@ -2879,41 +1847,14 @@ fn replace_returns_in_expr(
             replace_returns_in_expr(
                 package,
                 assigner,
-                package_id,
                 then_id,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
+                flag_context,
+                arrow_default_cache,
             );
             if let Some(e) = else_id {
-                replace_returns_in_expr(
-                    package,
-                    assigner,
-                    package_id,
-                    e,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
-                );
+                replace_returns_in_expr(package, assigner, e, flag_context, arrow_default_cache);
             }
-            // Update the If expression type to reflect branch type changes.
-            // After return replacement, a branch containing Return is
-            // replaced with a Unit-typed flag-assignment block. Derive the
-            // If type from branch types: prefer the non-Unit branch type so
-            // the surrounding Local binding keeps its original type.
-            let then_ty = package.get_expr(then_id).ty.clone();
-            let new_ty = if let Some(else_id) = else_id {
-                let else_ty = package.get_expr(else_id).ty.clone();
-                if then_ty == Ty::UNIT {
-                    else_ty
-                } else {
-                    then_ty
-                }
-            } else {
-                then_ty
-            };
-            let e = package.exprs.get_mut(expr_id).expect("expr not found");
-            e.ty = new_ty;
+            resync_expr_ty_from_children(package, expr_id);
         }
         // Audit: Only `Block` and `If` arms above require
         // post-recursion type synchronization (their enclosing `Expr`
@@ -2925,15 +1866,7 @@ fn replace_returns_in_expr(
         ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
             let ids: Vec<ExprId> = exprs.clone();
             for e in ids {
-                replace_returns_in_expr(
-                    package,
-                    assigner,
-                    package_id,
-                    e,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
-                );
+                replace_returns_in_expr(package, assigner, e, flag_context, arrow_default_cache);
             }
         }
         ExprKind::ArrayRepeat(a, b)
@@ -2945,105 +1878,33 @@ fn replace_returns_in_expr(
         | ExprKind::AssignField(a, _, b)
         | ExprKind::UpdateField(a, _, b) => {
             let (a_id, b_id) = (*a, *b);
-            replace_returns_in_expr(
-                package,
-                assigner,
-                package_id,
-                a_id,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
-            );
-            replace_returns_in_expr(
-                package,
-                assigner,
-                package_id,
-                b_id,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
-            );
+            replace_returns_in_expr(package, assigner, a_id, flag_context, arrow_default_cache);
+            replace_returns_in_expr(package, assigner, b_id, flag_context, arrow_default_cache);
         }
         ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
             let (a_id, b_id, c_id) = (*a, *b, *c);
-            replace_returns_in_expr(
-                package,
-                assigner,
-                package_id,
-                a_id,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
-            );
-            replace_returns_in_expr(
-                package,
-                assigner,
-                package_id,
-                b_id,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
-            );
-            replace_returns_in_expr(
-                package,
-                assigner,
-                package_id,
-                c_id,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
-            );
+            replace_returns_in_expr(package, assigner, a_id, flag_context, arrow_default_cache);
+            replace_returns_in_expr(package, assigner, b_id, flag_context, arrow_default_cache);
+            replace_returns_in_expr(package, assigner, c_id, flag_context, arrow_default_cache);
         }
         ExprKind::Fail(e) | ExprKind::Field(e, _) | ExprKind::UnOp(_, e) => {
             let sub = *e;
-            replace_returns_in_expr(
-                package,
-                assigner,
-                package_id,
-                sub,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
-            );
+            replace_returns_in_expr(package, assigner, sub, flag_context, arrow_default_cache);
         }
         ExprKind::Range(start, step, end) => {
             let ids: Vec<ExprId> = [start, step, end].into_iter().flatten().copied().collect();
             for e in ids {
-                replace_returns_in_expr(
-                    package,
-                    assigner,
-                    package_id,
-                    e,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
-                );
+                replace_returns_in_expr(package, assigner, e, flag_context, arrow_default_cache);
             }
         }
         ExprKind::Struct(_, copy, fields) => {
             let copy_id = *copy;
             let field_ids: Vec<ExprId> = fields.iter().map(|fa| fa.value).collect();
             if let Some(c) = copy_id {
-                replace_returns_in_expr(
-                    package,
-                    assigner,
-                    package_id,
-                    c,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
-                );
+                replace_returns_in_expr(package, assigner, c, flag_context, arrow_default_cache);
             }
             for e in field_ids {
-                replace_returns_in_expr(
-                    package,
-                    assigner,
-                    package_id,
-                    e,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
-                );
+                replace_returns_in_expr(package, assigner, e, flag_context, arrow_default_cache);
             }
         }
         ExprKind::String(components) => {
@@ -3055,15 +1916,7 @@ fn replace_returns_in_expr(
                 })
                 .collect();
             for e in ids {
-                replace_returns_in_expr(
-                    package,
-                    assigner,
-                    package_id,
-                    e,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
-                );
+                replace_returns_in_expr(package, assigner, e, flag_context, arrow_default_cache);
             }
         }
         ExprKind::While(cond, body) => {
@@ -3080,11 +1933,9 @@ fn replace_returns_in_expr(
                 transform_while_in_expr(
                     package,
                     assigner,
-                    package_id,
                     expr_id,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
+                    flag_context,
+                    arrow_default_cache,
                 );
             } else {
                 // No returns reachable through this while; structural
@@ -3093,11 +1944,9 @@ fn replace_returns_in_expr(
                 replace_returns_in_expr(
                     package,
                     assigner,
-                    package_id,
                     cond_id,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
+                    flag_context,
+                    arrow_default_cache,
                 );
             }
         }
@@ -3112,16 +1961,13 @@ fn replace_returns_in_expr(
 /// `{ __ret_val = v; __has_returned = true; false }`
 /// so the loop condition evaluates to false immediately after capturing
 /// the return value.
-#[allow(clippy::too_many_arguments)]
 #[allow(clippy::too_many_lines)]
 fn replace_returns_in_condition_expr(
     package: &mut Package,
     assigner: &mut Assigner,
-    package_id: PackageId,
     expr_id: ExprId,
-    has_returned_var_id: LocalVarId,
-    ret_val_var_id: LocalVarId,
-    udt_pure_tys: &UdtPureTyCache,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
 ) {
     let expr = package.get_expr(expr_id).clone();
     match &expr.kind {
@@ -3132,8 +1978,7 @@ fn replace_returns_in_condition_expr(
                 expr_id,
                 expr.span,
                 *inner_id,
-                has_returned_var_id,
-                ret_val_var_id,
+                flag_context,
             );
         }
         ExprKind::Block(block_id) => {
@@ -3159,59 +2004,46 @@ fn replace_returns_in_condition_expr(
                         replace_returns_in_condition_expr(
                             package,
                             assigner,
-                            package_id,
                             e,
-                            has_returned_var_id,
-                            ret_val_var_id,
-                            udt_pure_tys,
+                            flag_context,
+                            arrow_default_cache,
                         );
                     } else {
                         replace_returns_in_expr(
                             package,
                             assigner,
-                            package_id,
                             e,
-                            has_returned_var_id,
-                            ret_val_var_id,
-                            udt_pure_tys,
+                            flag_context,
+                            arrow_default_cache,
                         );
                     }
                 }
             }
 
-            sync_block_type_to_stmt_or_unit(package, bid);
-            let new_block_ty = package.get_block(bid).ty.clone();
-            let e = package.exprs.get_mut(expr_id).expect("expr not found");
-            e.ty = new_block_ty;
+            resync_expr_ty_from_children(package, expr_id);
         }
         ExprKind::If(cond_id, then_id, else_opt) => {
             replace_returns_in_condition_expr(
                 package,
                 assigner,
-                package_id,
                 *cond_id,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
+                flag_context,
+                arrow_default_cache,
             );
             replace_returns_in_condition_expr(
                 package,
                 assigner,
-                package_id,
                 *then_id,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
+                flag_context,
+                arrow_default_cache,
             );
             if let Some(e) = else_opt {
                 replace_returns_in_condition_expr(
                     package,
                     assigner,
-                    package_id,
                     *e,
-                    has_returned_var_id,
-                    ret_val_var_id,
-                    udt_pure_tys,
+                    flag_context,
+                    arrow_default_cache,
                 );
             }
         }
@@ -3219,31 +2051,25 @@ fn replace_returns_in_condition_expr(
             replace_returns_in_condition_expr(
                 package,
                 assigner,
-                package_id,
                 *lhs,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
+                flag_context,
+                arrow_default_cache,
             );
             replace_returns_in_condition_expr(
                 package,
                 assigner,
-                package_id,
                 *rhs,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
+                flag_context,
+                arrow_default_cache,
             );
         }
         ExprKind::UnOp(UnOp::NotL, inner_id) => {
             replace_returns_in_condition_expr(
                 package,
                 assigner,
-                package_id,
                 *inner_id,
-                has_returned_var_id,
-                ret_val_var_id,
-                udt_pure_tys,
+                flag_context,
+                arrow_default_cache,
             );
         }
         _ => {
@@ -3260,7 +2086,7 @@ fn replace_returns_in_condition_expr(
 ///
 /// Before, evaluating the condition exits the callable directly. After, the
 /// enclosing expression tree stays well-typed as `Bool`, but the block stores
-/// the return value in `ret_val_var_id`, sets `has_returned_var_id`, and leaves
+/// the return value in `flag_context.return_slot`, sets `__has_returned`, and leaves
 /// later guards to skip the rest of the computation.
 fn replace_condition_return_with_flags(
     package: &mut Package,
@@ -3268,18 +2094,23 @@ fn replace_condition_return_with_flags(
     return_expr_id: ExprId,
     span: Span,
     inner_id: ExprId,
-    has_returned_var_id: LocalVarId,
-    ret_val_var_id: LocalVarId,
+    flag_context: &FlagContext<'_>,
 ) {
     let inner_ty = package.get_expr(inner_id).ty.clone();
-    let assign_val = create_assign_expr(package, assigner, ret_val_var_id, inner_id, &inner_ty);
+    let assign_val = create_return_slot_write_expr(
+        package,
+        assigner,
+        flag_context.return_slot,
+        inner_id,
+        &inner_ty,
+    );
     let assign_val_semi = alloc_semi_stmt(package, assigner, assign_val, Span::default());
 
     let true_lit = alloc_bool_lit(package, assigner, true, Span::default());
     let assign_flag = create_assign_expr(
         package,
         assigner,
-        has_returned_var_id,
+        flag_context.has_returned_var_id,
         true_lit,
         &Ty::Prim(Prim::Bool),
     );
@@ -3361,10 +2192,9 @@ fn replace_condition_return_with_flags(
 fn guard_stmt_with_flag(
     package: &mut Package,
     assigner: &mut Assigner,
-    package_id: PackageId,
+    flag_context: &FlagContext<'_>,
     stmt_id: StmtId,
-    has_returned_var_id: LocalVarId,
-    udt_pure_tys: &UdtPureTyCache,
+    arrow_default_cache: &mut ArrowDefaultCache,
 ) -> StmtId {
     // `Local` statements require special handling: wrapping the whole
     // statement in `if not __has_returned { let x = init; }` would hide
@@ -3376,13 +2206,14 @@ fn guard_stmt_with_flag(
         let default_val = require_classical_default(
             package,
             assigner,
-            package_id,
+            flag_context.package_id,
             &init_ty,
-            udt_pure_tys,
+            flag_context.udt_pure_tys,
+            arrow_default_cache,
             UnsupportedDefaultSite::GuardedLocalInitializer,
         );
 
-        let not_flag = create_not_var_expr(package, assigner, has_returned_var_id);
+        let not_flag = create_not_var_expr(package, assigner, flag_context.has_returned_var_id);
 
         let then_trailing = alloc_expr_stmt(package, assigner, init_expr_id, Span::default());
         let then_block = {
@@ -3433,7 +2264,7 @@ fn guard_stmt_with_flag(
         },
         "guard_stmt_with_flag requires Unit-typed inner stmt"
     );
-    let not_flag = create_not_var_expr(package, assigner, has_returned_var_id);
+    let not_flag = create_not_var_expr(package, assigner, flag_context.has_returned_var_id);
     let guard_block = {
         let stmts = vec![stmt_id];
         let ty: &Ty = &Ty::UNIT;
@@ -3469,8 +2300,8 @@ fn guard_stmt_with_flag(
 /// The trailing expression is first bound to a local variable
 /// (`__trailing_result`) before the flag check, ensuring that any flag
 /// assignments inside the trailing expression evaluate before the
-/// `__has_returned` condition is tested. This prevents the temporal ordering
-/// temporal ordering violation.
+/// `__has_returned` condition is tested. This preserves the temporal ordering
+/// between trailing-expression flag writes and the final merge.
 ///
 /// ```text
 /// // stmts ends in: ...; original_trailing
@@ -3482,6 +2313,7 @@ fn guard_stmt_with_flag(
 /// // Result appended:
 /// if __has_returned { __ret_val } else { () }
 /// ```
+#[cfg(test)]
 fn create_flag_trailing_expr(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -3490,13 +2322,56 @@ fn create_flag_trailing_expr(
     ret_val_var_id: LocalVarId,
     return_ty: &Ty,
 ) -> Option<StmtId> {
+    let udt_pure_tys = UdtPureTyCache::default();
+    let flag_context = FlagContext {
+        package_id: PackageId::CORE,
+        has_returned_var_id,
+        return_slot: ReturnSlot {
+            var_id: ret_val_var_id,
+            strategy: ReturnSlotStrategy::Direct,
+        },
+        return_ty,
+        udt_pure_tys: &udt_pure_tys,
+    };
+    create_flag_trailing_expr_for_slot(package, assigner, stmts, &flag_context)
+}
+
+/// Slot-aware implementation of [`create_flag_trailing_expr`].
+///
+/// Performs the same trailing-expression rewrite, but reads `__ret_val`
+/// through the supplied [`ReturnSlot`] so both direct and array-backed slot
+/// representations are supported.
+///
+/// See [`create_flag_trailing_expr`] for the high-level before/after shape.
+/// The slot's strategy controls two construction details:
+///
+/// * The merge's `then` branch is read via [`create_return_slot_read_expr`],
+///   which emits `__ret_val` for direct slots and `__ret_val[0]` for
+///   array-backed slots (always reached under `__has_returned`, so the read
+///   is safe).
+/// * The non-Unit fallback when no trailing value survives is built by
+///   [`create_return_slot_unwritten_fallback_expr`], which reuses the
+///   direct slot's initialized default or emits a typed `fail` for
+///   array-backed slots.
+///
+/// # Mutations
+/// - Pops the original trailing expression statement off `stmts` when one is
+///   present, and pushes the `let __trailing_result = ...` binding.
+/// - Allocates new FIR nodes through `assigner` for the merge `if` and any
+///   supporting reads, defaults, or fail expressions.
+fn create_flag_trailing_expr_for_slot(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    stmts: &mut Vec<StmtId>,
+    flag_context: &FlagContext<'_>,
+) -> Option<StmtId> {
     // Check if the last statement is a value-producing trailing expression
     // for this callable, not just any expression statement. The flag rewrite
     // can turn all-returning non-Unit blocks into Unit expression statements;
     // those must not be rebound as `__trailing_result : T`.
     let trailing_expr = stmts.last().and_then(|&stmt_id| {
         if let StmtKind::Expr(expr_id) = package.get_stmt(stmt_id).kind
-            && package.get_expr(expr_id).ty == *return_ty
+            && package.get_expr(expr_id).ty == *flag_context.return_ty
         {
             Some(expr_id)
         } else {
@@ -3509,17 +2384,16 @@ fn create_flag_trailing_expr(
         alloc_local_var_expr(
             package,
             assigner,
-            has_returned_var_id,
+            flag_context.has_returned_var_id,
             ty.clone(),
             Span::default(),
         )
     };
-    let ret_var = alloc_local_var_expr(
+    let ret_var = create_return_slot_read_expr(
         package,
         assigner,
-        ret_val_var_id,
-        return_ty.clone(),
-        Span::default(),
+        flag_context.return_slot,
+        flag_context.return_ty,
     );
 
     if let Some(original_trailing) = trailing_expr {
@@ -3534,8 +2408,8 @@ fn create_flag_trailing_expr(
             alloc_local_var(
                 package,
                 assigner,
-                "__trailing_result",
-                return_ty,
+                symbols::TRAILING_RESULT,
+                flag_context.return_ty,
                 original_trailing,
                 mutability,
             )
@@ -3547,7 +2421,7 @@ fn create_flag_trailing_expr(
             package,
             assigner,
             trailing_var_id,
-            return_ty.clone(),
+            flag_context.return_ty.clone(),
             Span::default(),
         );
         let if_expr = {
@@ -3558,24 +2432,23 @@ fn create_flag_trailing_expr(
                 flag_var,
                 ret_var,
                 else_expr,
-                return_ty.clone(),
+                flag_context.return_ty.clone(),
                 Span::default(),
             )
         };
         Some(alloc_expr_stmt(package, assigner, if_expr, Span::default()))
     } else {
         // No fallthrough value survives. Unit returns can keep the previous
-        // explicit `()` fallback. For non-Unit returns, use the initialized
-        // return slot on the unreachable false branch to keep the FIR typed.
-        let fallback_expr = if return_ty == &Ty::UNIT {
+        // explicit `()` fallback. For non-Unit returns, direct mode keeps its
+        // initialized slot fallback and array-backed mode uses typed fail.
+        let fallback_expr = if flag_context.return_ty == &Ty::UNIT {
             alloc_unit_expr(package, assigner, Span::default())
         } else {
-            alloc_local_var_expr(
+            create_return_slot_unwritten_fallback_expr(
                 package,
                 assigner,
-                ret_val_var_id,
-                return_ty.clone(),
-                Span::default(),
+                flag_context.return_slot,
+                flag_context.return_ty,
             )
         };
         let if_expr = {
@@ -3586,7 +2459,7 @@ fn create_flag_trailing_expr(
                 flag_var,
                 ret_var,
                 else_expr,
-                return_ty.clone(),
+                flag_context.return_ty.clone(),
                 Span::default(),
             )
         };
@@ -3594,14 +2467,130 @@ fn create_flag_trailing_expr(
     }
 }
 
-/// Check whether a type has a synthesizable classical default value without
-/// allocating any FIR nodes.
+/// Selects the representation for the flag strategy's synthesized return slot.
 ///
-/// Returns `true` for types that [`create_default_value`] would succeed on,
-/// `false` for types (like `Qubit`) that have no classical default. Used by
-/// [`unify_returns`] to emit a user-facing error before entering the flag
-/// strategy, avoiding a panic in [`require_classical_default`].
-fn can_create_classical_default(ty: &Ty, udt_pure_tys: &UdtPureTyCache) -> bool {
+/// Choices in priority order:
+///
+/// | Condition                                              | Strategy                          |
+/// |--------------------------------------------------------|-----------------------------------|
+/// | `ty` has a classical default                           | [`ReturnSlotStrategy::Direct`]    |
+/// | `ty` lacks a classical default but is resolvable       | [`ReturnSlotStrategy::ArrayBacked`] |
+/// | `ty` has unresolved structure (`ArrowScan::Unknown`)   | `None`                            |
+///
+/// `None` signals to [`unify_returns`] that this callable cannot be rewritten
+/// by the flag strategy and the user must see an unsupported-return-type
+/// diagnostic.
+///
+/// Arrow-containing types are eligible for array-backed mode: the
+/// synthesized `fail`-bodied default callable provides a well-typed
+/// bottom value for the array read fallback, so arrays of callables
+/// are handled correctly.
+fn select_return_slot_strategy(
+    ty: &Ty,
+    udt_pure_tys: &UdtPureTyCache,
+    context: &UdtResolutionContext<'_>,
+) -> Option<ReturnSlotStrategy> {
+    if can_create_classical_default(ty, udt_pure_tys, context) {
+        Some(ReturnSlotStrategy::Direct)
+    } else if can_use_array_backed_return_slot(ty, udt_pure_tys, context) {
+        Some(ReturnSlotStrategy::ArrayBacked)
+    } else {
+        None
+    }
+}
+
+/// Returns true when a non-defaultable type can use an array-backed return slot.
+///
+/// The array-backed slot stores `T` values inside `T[]` whose default is `[]`,
+/// so any type that doesn't otherwise have a classical default still gets a
+/// well-typed initializer. Eligibility requires both:
+///
+/// 1. `ty` has no classical default (otherwise [`ReturnSlotStrategy::Direct`]
+///    is preferred and this helper returns `false` so callers don't redundantly
+///    select the array-backed shape).
+/// 2. `ty` is resolvable per [`arrow_scan_for_ty`] (not
+///    [`ArrowScan::Unknown`]). Arrow-containing types are accepted because
+///    the cached `fail`-bodied callable provides a well-typed bottom value
+///    for the array read fallback.
+fn can_use_array_backed_return_slot(
+    ty: &Ty,
+    udt_pure_tys: &UdtPureTyCache,
+    context: &UdtResolutionContext<'_>,
+) -> bool {
+    !can_create_classical_default(ty, udt_pure_tys, context)
+        && matches!(
+            arrow_scan_for_ty(ty, udt_pure_tys, context, &mut FxHashSet::default()),
+            ArrowScan::NoArrow | ArrowScan::ContainsArrow
+        )
+}
+
+/// Conservatively scans a type for nested arrows.
+///
+/// Walks tuples, arrays, and UDTs (via their pure types) looking for
+/// [`Ty::Arrow`] leaves. Results follow a three-way lattice ordered
+/// [`ArrowScan::ContainsArrow`] > [`ArrowScan::Unknown`] > [`ArrowScan::NoArrow`],
+/// combined by [`ArrowScan::combine`] so any unresolved or arrow-bearing
+/// sub-type forces the overall scan toward the more conservative result.
+///
+/// UDT recursion is broken using `visiting_udts`: a recursive cycle returns
+/// [`ArrowScan::Unknown`] rather than recursing indefinitely. Unresolved UDTs
+/// (missing pure types) also return [`ArrowScan::Unknown`], which causes
+/// [`can_use_array_backed_return_slot`] to reject the type so the flag
+/// strategy degrades gracefully into an unsupported-return-type diagnostic.
+fn arrow_scan_for_ty(
+    ty: &Ty,
+    udt_pure_tys: &UdtPureTyCache,
+    context: &UdtResolutionContext<'_>,
+    visiting_udts: &mut FxHashSet<(PackageId, LocalItemId)>,
+) -> ArrowScan {
+    match ty {
+        Ty::Arrow(_) => ArrowScan::ContainsArrow,
+        Ty::Array(elem_ty) => arrow_scan_for_ty(elem_ty, udt_pure_tys, context, visiting_udts),
+        Ty::Tuple(elems) => elems.iter().fold(ArrowScan::NoArrow, |scan, elem_ty| {
+            scan.combine(arrow_scan_for_ty(
+                elem_ty,
+                udt_pure_tys,
+                context,
+                visiting_udts,
+            ))
+        }),
+        Ty::Udt(Res::Item(item_id)) => {
+            let key = (item_id.package, item_id.item);
+            if !visiting_udts.insert(key) {
+                return ArrowScan::Unknown;
+            }
+
+            let scan = context
+                .resolve_udt_pure_ty(udt_pure_tys, *item_id)
+                .map_or(ArrowScan::Unknown, |pure_ty| {
+                    arrow_scan_for_ty(&pure_ty, udt_pure_tys, context, visiting_udts)
+                });
+            visiting_udts.remove(&key);
+            scan
+        }
+        Ty::Prim(_) => ArrowScan::NoArrow,
+        Ty::Infer(_) | Ty::Param(_) | Ty::Err | Ty::Udt(_) => ArrowScan::Unknown,
+    }
+}
+
+/// Checks whether a guarded local initializer can be synthesized eagerly.
+///
+/// This uses the policy context for the currently rewritten package so UDTs
+/// that appear only in continuation locals can still be resolved lazily.
+fn can_create_guarded_local_default(
+    ty: &Ty,
+    udt_pure_tys: &UdtPureTyCache,
+    context: &UdtResolutionContext<'_>,
+) -> bool {
+    can_create_classical_default(ty, udt_pure_tys, context)
+}
+
+/// Checks whether `ty` has a classical default in the given UDT resolution context.
+fn can_create_classical_default(
+    ty: &Ty,
+    udt_pure_tys: &UdtPureTyCache,
+    context: &UdtResolutionContext<'_>,
+) -> bool {
     match ty {
         Ty::Prim(
             Prim::Bool
@@ -3619,25 +2608,139 @@ fn can_create_classical_default(ty: &Ty, udt_pure_tys: &UdtPureTyCache) -> bool 
         | Ty::Array(_) => true,
         Ty::Tuple(elems) => elems
             .iter()
-            .all(|e| can_create_classical_default(e, udt_pure_tys)),
-        Ty::Udt(Res::Item(item_id)) => udt_pure_tys
-            .get(&(item_id.package, item_id.item))
-            .is_some_and(|pure_ty| can_create_classical_default(pure_ty, udt_pure_tys)),
-        Ty::Arrow(arrow) => {
-            can_create_classical_default(&arrow.output, udt_pure_tys)
-                && matches!(arrow.functors, qsc_fir::ty::FunctorSet::Value(_))
-        }
+            .all(|e| can_create_classical_default(e, udt_pure_tys, context)),
+        Ty::Udt(Res::Item(item_id)) => context
+            .resolve_udt_pure_ty(udt_pure_tys, *item_id)
+            .is_some_and(|pure_ty| can_create_classical_default(&pure_ty, udt_pure_tys, context)),
+        // Arrow types always have a classical default: the fail-bodied
+        // callable synthesized by `synthesize_fail_callable`. The body is
+        // `fail "callable init expr"`, so no recursive output-type default
+        // is needed. The only exclusion is non-Value functors, which should
+        // not appear post-monomorphization.
+        Ty::Arrow(arrow) => matches!(arrow.functors, qsc_fir::ty::FunctorSet::Value(_)),
         Ty::Infer(_) | Ty::Param(_) | Ty::Err | Ty::Prim(Prim::Qubit) | Ty::Udt(_) => false,
     }
 }
 
+/// Safety classification for keeping a continuation local behind an eager guard.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ContinuationSafety {
+    /// The type can be guarded in place without changing quantum lifetime behavior.
+    Safe,
+    /// The type contains quantum state and must be moved into a lazy continuation.
+    SplitRequired,
+    /// The type could not be resolved; split conservatively.
+    Unknown,
+}
+
+impl ContinuationSafety {
+    /// Combines two continuation-safety classifications for compound types.
+    fn combine(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::SplitRequired, _) | (_, Self::SplitRequired) => Self::SplitRequired,
+            (Self::Unknown, _) | (_, Self::Unknown) => Self::Unknown,
+            (Self::Safe, Self::Safe) => Self::Safe,
+        }
+    }
+
+    /// Returns true when the suffix must be moved into a lazy continuation.
+    fn requires_split(self) -> bool {
+        !matches!(self, Self::Safe)
+    }
+}
+
+/// Classify whether a continuation suffix type can be guarded in place.
+fn continuation_safety_for_ty(
+    ty: &Ty,
+    udt_pure_tys: &UdtPureTyCache,
+    context: &UdtResolutionContext<'_>,
+) -> ContinuationSafety {
+    match ty {
+        Ty::Prim(Prim::Qubit) => ContinuationSafety::SplitRequired,
+        Ty::Array(elem_ty) => continuation_safety_for_ty(elem_ty, udt_pure_tys, context),
+        Ty::Tuple(elems) => elems
+            .iter()
+            .fold(ContinuationSafety::Safe, |safety, elem_ty| {
+                safety.combine(continuation_safety_for_ty(elem_ty, udt_pure_tys, context))
+            }),
+        Ty::Udt(Res::Item(item_id)) => context
+            .resolve_udt_pure_ty(udt_pure_tys, *item_id)
+            .map_or(ContinuationSafety::Unknown, |pure_ty| {
+                continuation_safety_for_ty(&pure_ty, udt_pure_tys, context)
+            }),
+        Ty::Arrow(_) | Ty::Infer(_) | Ty::Param(_) | Ty::Prim(_) | Ty::Udt(_) | Ty::Err => {
+            ContinuationSafety::Safe
+        }
+    }
+}
+
+/// Returns true when a type's continuation value requires lazy suffix splitting.
+fn continuation_ty_requires_split(
+    ty: &Ty,
+    udt_pure_tys: &UdtPureTyCache,
+    context: &UdtResolutionContext<'_>,
+) -> bool {
+    continuation_safety_for_ty(ty, udt_pure_tys, context).requires_split()
+}
+
+/// Returns true when a local statement cannot be guarded eagerly after a return.
+///
+/// Non-defaultable initializers and quantum-containing local or initializer
+/// types are moved into a lazy continuation so they are never evaluated after
+/// `__has_returned` is set.
+fn local_initializer_requires_split_continuation(
+    package: &Package,
+    stmt_id: StmtId,
+    package_id: PackageId,
+    udt_pure_tys: &UdtPureTyCache,
+) -> bool {
+    if let StmtKind::Local(_, pat_id, init_expr_id) = package.get_stmt(stmt_id).kind {
+        let local_ty = &package.get_pat(pat_id).ty;
+        let init_ty = &package.get_expr(init_expr_id).ty;
+        let context = UdtResolutionContext::Package {
+            package_id,
+            package,
+        };
+
+        !can_create_guarded_local_default(init_ty, udt_pure_tys, &context)
+            || continuation_ty_requires_split(local_ty, udt_pure_tys, &context)
+            || continuation_ty_requires_split(init_ty, udt_pure_tys, &context)
+    } else {
+        false
+    }
+}
+
+/// Scans a statement suffix for locals that require lazy continuation splitting.
+fn continuation_suffix_requires_split(
+    package: &Package,
+    original_stmts: &[StmtId],
+    index: usize,
+    package_id: PackageId,
+    udt_pure_tys: &UdtPureTyCache,
+) -> bool {
+    original_stmts.get(index..).is_some_and(|suffix| {
+        suffix.iter().any(|&stmt_id| {
+            local_initializer_requires_split_continuation(
+                package,
+                stmt_id,
+                package_id,
+                udt_pure_tys,
+            )
+        })
+    })
+}
+
+/// Synthesis site used in unsupported-default contract diagnostics.
 #[derive(Clone, Copy, Debug)]
 enum UnsupportedDefaultSite {
+    /// Default needed for the synthesized `__ret_val` return slot.
     ReturnSlot,
+    /// Default needed when guarding a local initializer in place.
     GuardedLocalInitializer,
 }
 
 impl UnsupportedDefaultSite {
+    /// Human-readable description included in contract-violation panic messages.
     fn description(self) -> &'static str {
         match self {
             Self::ReturnSlot => "flag-strategy return-slot (__ret_val) initialization",
@@ -3655,7 +2758,7 @@ impl UnsupportedDefaultSite {
 ///
 /// **Note:** the known user-reachable case (Qubit-return-in-loop) is now
 /// caught earlier by [`can_create_classical_default`] in [`unify_returns`],
-/// which emits a user-facing [`Error::UnsupportedLoopReturnType`] diagnostic.
+/// which emits a user-facing unsupported-return-type diagnostic.
 /// This panic remains as a safety net for unforeseen cases.
 fn require_classical_default(
     package: &mut Package,
@@ -3663,9 +2766,18 @@ fn require_classical_default(
     package_id: PackageId,
     ty: &Ty,
     udt_pure_tys: &UdtPureTyCache,
+    arrow_default_cache: &mut ArrowDefaultCache,
     site: UnsupportedDefaultSite,
 ) -> ExprId {
-    create_default_value(package, assigner, package_id, ty, udt_pure_tys).unwrap_or_else(|| {
+    create_default_value(
+        package,
+        assigner,
+        package_id,
+        ty,
+        udt_pure_tys,
+        arrow_default_cache,
+    )
+    .unwrap_or_else(|| {
         panic!(
             "return_unify unsupported-default contract violation: {} requires a classical default, but `{ty}` has none",
             site.description(),
@@ -3704,8 +2816,16 @@ fn create_default_value(
     package_id: PackageId,
     ty: &Ty,
     udt_pure_tys: &UdtPureTyCache,
+    arrow_default_cache: &mut ArrowDefaultCache,
 ) -> Option<ExprId> {
-    let kind = create_default_value_kind(package, assigner, package_id, ty, udt_pure_tys)?;
+    let kind = create_default_value_kind(
+        package,
+        assigner,
+        package_id,
+        ty,
+        udt_pure_tys,
+        arrow_default_cache,
+    )?;
 
     let expr_id = assigner.next_expr();
     package.exprs.insert(
@@ -3729,25 +2849,24 @@ fn create_default_value(
 /// ```
 /// # After
 /// ```text
-/// ExprKind::{Lit(..), Tuple([defaults..]), Array([]), Var(Res::Item(nop), []), ...}
+/// ExprKind::{Lit(..), Tuple([defaults..]), Array([]), Var(Res::Item(fail_callable), []), ...}
 /// ```
 /// # Requires
 /// - `ty` is a type reachable from the callable's return type.
 /// - `udt_pure_tys` has been populated from the store.
 /// - `package_id` is the id of the package owning `package` — the synthesized
-///   nop callable for arrow types is inserted there and referenced through it.
+///   fail-bodied callable for arrow types is inserted there and referenced through it.
 ///
 /// # Ensures
 /// - Returns `None` when the type has no synthesizable classical default:
 ///   unresolved types (`Ty::Infer`, `Ty::Param`, `Ty::Err`), qubits
-///   (`Prim::Qubit`), UDTs whose pure-ty cache entry is
-///   missing or unresolved, and arrow types whose output type itself has no
-///   default.
+///   (`Prim::Qubit`), and UDTs whose pure-ty cache entry is
+///   missing or unresolved.
 /// - Returns `Some(kind)` whose zero value matches `ty` structurally.
-/// - For `Ty::Arrow`, `Some(Var(Res::Item(nop_item), vec![]))` references a
-///   newly synthesized nop callable of the same arrow signature; the nop's
-///   body returns the output type's default. Any later `Call` on the
-///   resulting `__ret_val` value resolves to that nop — correct behavior
+/// - For `Ty::Arrow`, `Some(Var(Res::Item(fail_item), vec![]))` references a
+///   synthesized fail-bodied callable of the same arrow signature; its body
+///   is `fail "callable init expr"`. Any later `Call` on the resulting
+///   `__ret_val` value resolves to that fail callable — correct behavior
 ///   because the flag guard ensures reads only occur when an explicit return
 ///   already overwrote `__ret_val` with the real callable.
 ///
@@ -3755,13 +2874,14 @@ fn create_default_value(
 /// - For `Ty::Tuple` and `Ty::Udt` composites, allocates nested default
 ///   `Expr` nodes through `assigner` via [`create_default_value`].
 /// - For `Ty::Arrow`, inserts a new `Item` (callable) into `package.items`
-///   and allocates its body `Pat`, `Block`, and trailing `Expr` / `Stmt`.
+///   via [`ArrowDefaultCache`] and allocates its body nodes.
 fn create_default_value_kind(
     package: &mut Package,
     assigner: &mut Assigner,
     package_id: PackageId,
     ty: &Ty,
     udt_pure_tys: &UdtPureTyCache,
+    arrow_default_cache: &mut ArrowDefaultCache,
 ) -> Option<ExprKind> {
     match ty {
         Ty::Prim(Prim::Bool) => Some(ExprKind::Lit(Lit::Bool(false))),
@@ -3776,18 +2896,52 @@ fn create_default_value_kind(
             let elem_exprs: Vec<ExprId> = elems
                 .iter()
                 .map(|elem_ty| {
-                    create_default_value(package, assigner, package_id, elem_ty, udt_pure_tys)
+                    create_default_value(
+                        package,
+                        assigner,
+                        package_id,
+                        elem_ty,
+                        udt_pure_tys,
+                        arrow_default_cache,
+                    )
                 })
                 .collect::<Option<_>>()?;
             Some(ExprKind::Tuple(elem_exprs))
         }
         Ty::Array(_) => Some(ExprKind::Array(Vec::new())),
         Ty::Udt(Res::Item(item_id)) => {
-            let pure_ty = udt_pure_tys.get(&(item_id.package, item_id.item))?.clone();
-            create_default_value_kind(package, assigner, package_id, &pure_ty, udt_pure_tys)
+            let pure_ty = udt_pure_tys.resolve_from_package(package_id, package, *item_id)?;
+            create_default_value_kind(
+                package,
+                assigner,
+                package_id,
+                &pure_ty,
+                udt_pure_tys,
+                arrow_default_cache,
+            )
         }
         Ty::Arrow(arrow) => {
-            create_nop_callable_var(package, assigner, package_id, arrow, udt_pure_tys)
+            // After monomorphization, non-Value functors should not appear in
+            // reachable return types; surface this as a missing default rather
+            // than a panic so the pass bails deterministically.
+            let qsc_fir::ty::FunctorSet::Value(functors) = arrow.functors else {
+                return None;
+            };
+            let item_id = arrow_default_cache.get_or_insert(
+                package,
+                assigner,
+                arrow.kind,
+                &arrow.input,
+                &arrow.output,
+                functors,
+            );
+            Some(ExprKind::Var(
+                Res::Item(ItemId {
+                    package: package_id,
+                    item: item_id,
+                }),
+                Vec::new(),
+            ))
         }
         Ty::Prim(Prim::Range | Prim::RangeFrom | Prim::RangeTo | Prim::RangeFull) => {
             Some(ExprKind::Range(None, None, None))
@@ -3798,35 +2952,283 @@ fn create_default_value_kind(
     }
 }
 
-/// Synthesize a nop callable matching `arrow`'s signature, insert it into
-/// `package`, and return a `Var(Res::Item(..))` expression referring to it.
+/// Read-only check whether `ty` has a synthesizable classical default.
 ///
-/// The synthesized callable's body is a single-statement block whose
-/// trailing expression is the default of the arrow's output type. The input
-/// pattern is a typed `Discard`. If the output type itself has no classical
-/// default the synthesis is abandoned and `None` is propagated.
+/// Mirrors the defaultability logic of [`create_default_value_kind`] without
+/// allocating any FIR nodes, so it can be called on `&Package`.
 ///
-/// # Ensures
-/// - Returns `Some(Var(Res::Item(ItemId { package: package_id, item: new_item_id }), vec![]))`.
-/// - Inserts exactly one new `Item` of kind `Callable` into `package.items`.
-/// - The new callable's arrow scheme (input/output/kind/functors) matches
-///   `arrow`.
-fn create_nop_callable_var(
+/// Arrow types are considered defaultable because the [`ArrowDefaultCache`]
+/// synthesizes a fail-bodied callable at the actual allocation site.
+fn is_type_defaultable(package: &Package, package_id: PackageId, ty: &Ty) -> bool {
+    match ty {
+        Ty::Prim(
+            Prim::Bool
+            | Prim::Int
+            | Prim::BigInt
+            | Prim::Double
+            | Prim::Pauli
+            | Prim::Result
+            | Prim::String
+            | Prim::Range
+            | Prim::RangeFrom
+            | Prim::RangeTo
+            | Prim::RangeFull,
+        ) => true,
+        Ty::Tuple(elems) => elems
+            .iter()
+            .all(|e| is_type_defaultable(package, package_id, e)),
+        Ty::Array(_) => true,
+        Ty::Arrow(_) => true,
+        Ty::Udt(Res::Item(item_id)) => {
+            if item_id.package != package_id {
+                return false;
+            }
+            let Some(item) = package.items.get(item_id.item) else {
+                return false;
+            };
+            let ItemKind::Ty(_, udt) = &item.kind else {
+                return false;
+            };
+            is_type_defaultable(package, package_id, &udt.get_pure_ty())
+        }
+        Ty::Prim(Prim::Qubit) | Ty::Infer(_) | Ty::Param(_) | Ty::Err | Ty::Udt(_) => false,
+    }
+}
+
+/// Pre-check whether the normalize phase can run without panicking on
+/// `block_id`.
+///
+/// Scans the reachable expression tree for two patterns that would cause
+/// the normalize phase to panic when it cannot synthesize a classical
+/// default:
+///
+/// 1. An `If` expression whose condition contains a `Return` and whose
+///    type is non-Unit and non-defaultable (would panic in
+///    [`normalize::hoist_in_cond`]).
+/// 2. A `Local` statement whose initializer contains a `Return` and whose
+///    pattern type is non-defaultable (would panic in
+///    [`normalize::replace_local_init_with_default_and_emit`]).
+///
+/// For each found, pushes [`Error::UnsupportedHoistContext`]. The caller
+/// skips normalize+transform when any non-warning error is emitted.
+fn check_normalize_supportable(
+    package: &Package,
+    package_id: PackageId,
+    block_id: BlockId,
+    errors: &mut Vec<Error>,
+) {
+    let mut seen = FxHashSet::default();
+    scan_block_for_unsupported_hoist(package, package_id, block_id, errors, &mut seen);
+}
+
+fn scan_block_for_unsupported_hoist(
+    package: &Package,
+    package_id: PackageId,
+    block_id: BlockId,
+    errors: &mut Vec<Error>,
+    seen: &mut FxHashSet<BlockId>,
+) {
+    if !seen.insert(block_id) {
+        return;
+    }
+    let block = package.get_block(block_id);
+    for &stmt_id in &block.stmts {
+        scan_stmt_for_unsupported_hoist(package, package_id, stmt_id, errors, seen);
+    }
+}
+
+fn scan_stmt_for_unsupported_hoist(
+    package: &Package,
+    package_id: PackageId,
+    stmt_id: StmtId,
+    errors: &mut Vec<Error>,
+    seen: &mut FxHashSet<BlockId>,
+) {
+    let stmt = package.get_stmt(stmt_id);
+    match &stmt.kind {
+        StmtKind::Expr(e) | StmtKind::Semi(e) => {
+            scan_expr_for_unsupported_hoist(package, package_id, *e, errors, seen);
+        }
+        StmtKind::Local(_, pat_id, init_id) => {
+            if detect::contains_return_in_expr(package, *init_id) {
+                let pat_ty = &package.get_pat(*pat_id).ty;
+                if !is_type_defaultable(package, package_id, pat_ty) {
+                    errors.push(Error::UnsupportedHoistContext {
+                        enclosing_ty: format!("{pat_ty}"),
+                        span: package.get_expr(*init_id).span,
+                    });
+                }
+            }
+            scan_expr_for_unsupported_hoist(package, package_id, *init_id, errors, seen);
+        }
+        StmtKind::Item(_) => {}
+    }
+}
+
+fn scan_expr_for_unsupported_hoist(
+    package: &Package,
+    package_id: PackageId,
+    expr_id: ExprId,
+    errors: &mut Vec<Error>,
+    seen: &mut FxHashSet<BlockId>,
+) {
+    let expr = package.get_expr(expr_id);
+    match &expr.kind {
+        ExprKind::If(cond, then_id, else_id) => {
+            if detect::contains_return_in_expr(package, *cond)
+                && expr.ty != Ty::UNIT
+                && !is_type_defaultable(package, package_id, &expr.ty)
+            {
+                errors.push(Error::UnsupportedHoistContext {
+                    enclosing_ty: format!("{}", expr.ty),
+                    span: expr.span,
+                });
+            }
+            scan_expr_for_unsupported_hoist(package, package_id, *cond, errors, seen);
+            scan_expr_for_unsupported_hoist(package, package_id, *then_id, errors, seen);
+            if let Some(else_id) = else_id {
+                scan_expr_for_unsupported_hoist(package, package_id, *else_id, errors, seen);
+            }
+        }
+        ExprKind::Block(block_id) => {
+            scan_block_for_unsupported_hoist(package, package_id, *block_id, errors, seen);
+        }
+        ExprKind::While(cond, body) => {
+            scan_expr_for_unsupported_hoist(package, package_id, *cond, errors, seen);
+            scan_block_for_unsupported_hoist(package, package_id, *body, errors, seen);
+        }
+        ExprKind::Return(inner) => {
+            scan_expr_for_unsupported_hoist(package, package_id, *inner, errors, seen);
+        }
+        ExprKind::Fail(e) | ExprKind::Field(e, _) | ExprKind::UnOp(_, e) => {
+            scan_expr_for_unsupported_hoist(package, package_id, *e, errors, seen);
+        }
+        ExprKind::ArrayRepeat(a, b)
+        | ExprKind::Assign(a, b)
+        | ExprKind::AssignOp(_, a, b)
+        | ExprKind::BinOp(_, a, b)
+        | ExprKind::Call(a, b)
+        | ExprKind::Index(a, b)
+        | ExprKind::AssignField(a, _, b)
+        | ExprKind::UpdateField(a, _, b) => {
+            scan_expr_for_unsupported_hoist(package, package_id, *a, errors, seen);
+            scan_expr_for_unsupported_hoist(package, package_id, *b, errors, seen);
+        }
+        ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
+            scan_expr_for_unsupported_hoist(package, package_id, *a, errors, seen);
+            scan_expr_for_unsupported_hoist(package, package_id, *b, errors, seen);
+            scan_expr_for_unsupported_hoist(package, package_id, *c, errors, seen);
+        }
+        ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
+            for &e in exprs {
+                scan_expr_for_unsupported_hoist(package, package_id, e, errors, seen);
+            }
+        }
+        ExprKind::Range(start, step, end) => {
+            for e in [start, step, end].into_iter().flatten() {
+                scan_expr_for_unsupported_hoist(package, package_id, *e, errors, seen);
+            }
+        }
+        ExprKind::Struct(_, copy, fields) => {
+            if let Some(c) = copy {
+                scan_expr_for_unsupported_hoist(package, package_id, *c, errors, seen);
+            }
+            for fa in fields {
+                scan_expr_for_unsupported_hoist(package, package_id, fa.value, errors, seen);
+            }
+        }
+        ExprKind::String(components) => {
+            for c in components {
+                if let StringComponent::Expr(e) = c {
+                    scan_expr_for_unsupported_hoist(package, package_id, *e, errors, seen);
+                }
+            }
+        }
+        ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
+    }
+}
+
+/// Cache key for synthesized fail-bodied callables.
+///
+/// `Ty` does not implement `Hash`, so the key uses a `String` representation
+/// of the arrow signature built from `Display` of the input and output types.
+/// Functors MUST be part of the key — an `is Adj` arrow and an `is Adj+Ctl`
+/// arrow are distinct types.
+type ArrowDefaultKey = (
+    qsc_fir::fir::CallableKind,
+    String,
+    qsc_fir::ty::FunctorSetValue,
+);
+
+/// Caches fail-bodied callables synthesized for arrow-typed default values.
+///
+/// Each unique arrow signature (kind × input × output × functors) maps to
+/// a single synthesized callable whose body is `fail "callable init expr"`.
+/// Re-using the same item across multiple default-value sites avoids
+/// inflating the package item table with duplicates.
+#[derive(Default)]
+pub(crate) struct ArrowDefaultCache {
+    items: FxHashMap<ArrowDefaultKey, LocalItemId>,
+}
+
+impl ArrowDefaultCache {
+    fn get_or_insert(
+        &mut self,
+        package: &mut Package,
+        assigner: &mut Assigner,
+        kind: qsc_fir::fir::CallableKind,
+        input_ty: &Ty,
+        output_ty: &Ty,
+        functors: qsc_fir::ty::FunctorSetValue,
+    ) -> LocalItemId {
+        let key = (kind, format!("{input_ty} -> {output_ty}"), functors);
+        if let Some(&id) = self.items.get(&key) {
+            return id;
+        }
+        let new_id =
+            synthesize_fail_callable(package, assigner, kind, input_ty, output_ty, functors);
+        self.items.insert(key, new_id);
+        new_id
+    }
+}
+
+/// Synthesize a fail-bodied callable matching an arrow signature.
+///
+/// The callable's body is `fail "callable init expr"` — it exists only to
+/// give the compiler a well-typed default value for arrow-typed return slots.
+/// The slot is never read before being overwritten, so the fail is
+/// unreachable at runtime. Later
+fn synthesize_fail_callable(
     package: &mut Package,
     assigner: &mut Assigner,
-    package_id: PackageId,
-    arrow: &qsc_fir::ty::Arrow,
-    udt_pure_tys: &UdtPureTyCache,
-) -> Option<ExprKind> {
-    // Build the nop body's default-of-output trailing expression.
-    let output_default =
-        create_default_value(package, assigner, package_id, &arrow.output, udt_pure_tys)?;
-    let trailing_stmt = alloc_expr_stmt(package, assigner, output_default, Span::default());
-    let body_block = {
-        let stmts = vec![trailing_stmt];
-        let ty: &Ty = &arrow.output;
-        alloc_block(package, assigner, stmts, ty.clone(), Span::default())
-    };
+    kind: qsc_fir::fir::CallableKind,
+    input_ty: &Ty,
+    output_ty: &Ty,
+    functors: qsc_fir::ty::FunctorSetValue,
+) -> LocalItemId {
+    // Build `fail "callable init expr"`
+    let msg_expr_id = alloc_expr(
+        package,
+        assigner,
+        Ty::Prim(Prim::String),
+        ExprKind::String(vec![StringComponent::Lit("callable init expr".into())]),
+        Span::default(),
+    );
+    let fail_expr_id = alloc_expr(
+        package,
+        assigner,
+        output_ty.clone(),
+        ExprKind::Fail(msg_expr_id),
+        Span::default(),
+    );
+    let trailing_stmt = alloc_expr_stmt(package, assigner, fail_expr_id, Span::default());
+    let body_block = alloc_block(
+        package,
+        assigner,
+        vec![trailing_stmt],
+        output_ty.clone(),
+        Span::default(),
+    );
 
     // Input pattern: a typed Discard matching the arrow's input type.
     let input_pat_id = assigner.next_pat();
@@ -3835,7 +3237,7 @@ fn create_nop_callable_var(
         Pat {
             id: input_pat_id,
             span: Span::default(),
-            ty: *arrow.input.clone(),
+            ty: input_ty.clone(),
             kind: PatKind::Discard,
         },
     );
@@ -3854,19 +3256,12 @@ fn create_nop_callable_var(
         ctl_adj: None,
     };
 
-    // After monomorphization, non-Value functors should not appear in
-    // reachable return types; surface this as a missing default rather
-    // than a panic so the pass bails deterministically.
-    let qsc_fir::ty::FunctorSet::Value(functors) = arrow.functors else {
-        return None;
-    };
-
     let new_item_id = assigner.next_item();
-    let callable_name: Rc<str> = Rc::from(format!("__return_unify_nop_{new_item_id}"));
+    let callable_name: Rc<str> = Rc::from(format!("__return_unify_fail_{new_item_id}"));
     let decl = CallableDecl {
         id: assigner.next_node(),
         span: Span::default(),
-        kind: arrow.kind,
+        kind,
         name: Ident {
             id: LocalVarId::from(0_u32),
             span: Span::default(),
@@ -3874,7 +3269,7 @@ fn create_nop_callable_var(
         },
         generics: Vec::new(),
         input: input_pat_id,
-        output: *arrow.output.clone(),
+        output: output_ty.clone(),
         functors,
         implementation: CallableImpl::Spec(body_impl),
         attrs: Vec::new(),
@@ -3891,13 +3286,7 @@ fn create_nop_callable_var(
     };
     package.items.insert(new_item_id, item);
 
-    Some(ExprKind::Var(
-        Res::Item(qsc_fir::fir::ItemId {
-            package: package_id,
-            item: new_item_id,
-        }),
-        Vec::new(),
-    ))
+    new_item_id
 }
 
 /// Create `not Var(__has_returned)`.

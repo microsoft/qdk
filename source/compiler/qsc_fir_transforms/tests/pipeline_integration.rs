@@ -293,6 +293,9 @@ fn terminal_result_block_shape_stays_valid_across_stage_boundaries() {
     ));
     assert_callable_body_terminal_expr_matches_block_type(&post_all_store, post_all_pkg_id, "Main");
 
+    // The Lowered shape is identical in both modes; the post-pipeline shape
+    // reflects the flag strategy prepending `__has_returned`/`__ret_val`
+    // bindings and emitting the merge as a `Var` read.
     let expected = concat!(
         "Lowered\n",
         "block_ty=Result\n",
@@ -304,16 +307,24 @@ fn terminal_result_block_shape_stays_valid_across_stage_boundaries() {
         "\n",
         "PostReturnUnify\n",
         "block_ty=Result\n",
-        "[0] Local pat_ty=Qubit init_ty=Qubit Call\n",
-        "[1] Local pat_ty=Result init_ty=Result Call\n",
-        "[2] Semi ty=Unit Call\n",
-        "[3] Expr ty=Result Block\n\n",
+        "[0] Local pat_ty=Bool init_ty=Bool Lit(Bool(false))\n",
+        "[1] Local pat_ty=Result init_ty=Result Lit(Result(Zero))\n",
+        "[2] Local pat_ty=Qubit init_ty=Qubit Call\n",
+        "[3] Local pat_ty=Result init_ty=Result Call\n",
+        "[4] Semi ty=Unit Call\n",
+        "[5] Semi ty=Unit Block\n",
+        "[6] Semi ty=Unit If\n",
+        "[7] Expr ty=Result Var\n\n",
         "PostAll\n",
         "block_ty=Result\n",
-        "[0] Local pat_ty=Qubit init_ty=Qubit Call\n",
-        "[1] Local pat_ty=Result init_ty=Result Call\n",
-        "[2] Semi ty=Unit Call\n",
-        "[3] Expr ty=Result Block"
+        "[0] Local pat_ty=Bool init_ty=Bool Lit(Bool(false))\n",
+        "[1] Local pat_ty=Result init_ty=Result Lit(Result(Zero))\n",
+        "[2] Local pat_ty=Qubit init_ty=Qubit Call\n",
+        "[3] Local pat_ty=Result init_ty=Result Call\n",
+        "[4] Semi ty=Unit Call\n",
+        "[5] Semi ty=Unit Block\n",
+        "[6] Semi ty=Unit If\n",
+        "[7] Expr ty=Result Var"
     );
     assert_eq!(snapshots.join("\n\n"), expected);
 }

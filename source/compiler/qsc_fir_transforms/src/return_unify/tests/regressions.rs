@@ -4,7 +4,7 @@
 use super::*;
 
 #[test]
-fn differential_triple_nested_if_return_known_bug() {
+fn triple_nested_if_return_with_else_return_value_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -224,25 +224,37 @@ fn if_both_return_release_suffix_before_after_qsharp() {
             // namespace Test
             operation Foo(flag : Bool) : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     let q : Qubit = __quantum__rt__qubit_allocate();
-                    if flag {
+                    let
+                    @generated_ident_65 : Unit = if flag {
                         {
                             let
                             @generated_ident_41 : Int = 1;
                             __quantum__rt__qubit_release(q);
-                            @generated_ident_41
-                        }
-
+                            {
+                                __ret_val =
+                                @generated_ident_41;
+                                __has_returned = true;
+                            };
+                        };
                     } else {
                         {
                             let
                             @generated_ident_53 : Int = 0;
                             __quantum__rt__qubit_release(q);
-                            @generated_ident_53
-                        }
-
-                    }
-
+                            {
+                                __ret_val =
+                                @generated_ident_53;
+                                __has_returned = true;
+                            };
+                        };
+                    };
+                    if not __has_returned {
+                        __quantum__rt__qubit_release(q);
+                    };
+                    __ret_val
                 }
             }
             operation Main() : Int {

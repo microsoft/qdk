@@ -154,8 +154,12 @@ fn while_condition_return_shape_snapshot() {
                         let _ : Int = 0;
                     }
 
-                    let __trailing_result : Int = 0;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            0
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -233,8 +237,12 @@ fn while_local_initializer_return_shape_snapshot() {
                         };
                     }
 
-                    let __trailing_result : Int = i + 5;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            i + 5
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry

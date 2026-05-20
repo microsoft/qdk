@@ -109,20 +109,37 @@ fn multiple_guard_clauses() {
             // namespace Test
             function Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     if true {
-                        1
-                    } else {
-                        if false {
-                            2
-                        } else {
-                            if true {
-                                3
-                            } else {
-                                0
-                            }
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    }
 
+                    if not __has_returned {
+                        if false {
+                            {
+                                __ret_val = 2;
+                                __has_returned = true;
+                            };
                         }
 
+                    };
+                    if not __has_returned {
+                        if true {
+                            {
+                                __ret_val = 3;
+                                __has_returned = true;
+                            };
+                        }
+
+                    };
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            0
+                        } else __ret_val
                     }
 
                 }
@@ -189,27 +206,39 @@ fn both_branches_return_with_qubit_scope() {
             // namespace Test
             operation Main() : Bool {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Bool = false;
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     let r : Result = M(q);
                     Reset(q);
-                    if r == One {
+                    let
+                    @generated_ident_67 : Unit = if r == One {
                         {
                             let
                             @generated_ident_43 : Bool = true;
                             __quantum__rt__qubit_release(q);
-                            @generated_ident_43
-                        }
-
+                            {
+                                __ret_val =
+                                @generated_ident_43;
+                                __has_returned = true;
+                            };
+                        };
                     } else {
                         {
                             let
                             @generated_ident_55 : Bool = false;
                             __quantum__rt__qubit_release(q);
-                            @generated_ident_55
-                        }
-
-                    }
-
+                            {
+                                __ret_val =
+                                @generated_ident_55;
+                                __has_returned = true;
+                            };
+                        };
+                    };
+                    if not __has_returned {
+                        __quantum__rt__qubit_release(q);
+                    };
+                    __ret_val
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -244,11 +273,21 @@ fn return_in_nested_block() {
             // namespace Test
             function Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     {
                         {
-                            10
+                            {
+                                __ret_val = 10;
+                                __has_returned = true;
+                            };
                         }
 
+                    };
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            5
+                        } else __ret_val
                     }
 
                 }
@@ -276,10 +315,15 @@ fn unit_returning_with_return() {
             // namespace Test
             function Main() : Unit {
                 body {
-                    if true {
-                        ()
-                    } else {}
-
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Unit = ();
+                    let __trailing_result : Unit = if true {
+                        {
+                            __ret_val = ();
+                            __has_returned = true;
+                        };
+                    };
+                    if __has_returned __ret_val else __trailing_result
                 }
             }
             // entry
@@ -377,8 +421,7 @@ fn simulatable_intrinsic_body_is_return_unified() {
                     [1] Local(Mutable, __ret_val: Int): Lit(Int(0))
                     [2] Local(Mutable, i: Int): Lit(Int(0))
                     [3] Expr While[ty=Unit]
-                    [4] Local(Immutable, __trailing_result: Int): UnOp(Neg)[ty=Int]
-                    [5] Expr If(cond=Var[ty=Bool], then=Var[ty=Int], else=Var[ty=Int])
+                    [4] Expr If(cond=Var[ty=Bool], then=Var[ty=Int], else=Block[ty=Int])
             callable Main: input_ty=Unit, output_ty=Int
                 body: block_ty=Int
                     [0] Expr Call[ty=Int]"#]],
@@ -476,10 +519,10 @@ fn return_in_else_branch_only() {
             // namespace Test
             function Main() : Int {
                 body {
-                    if not true {
-                        2
-                    } else {
+                    if true {
                         1
+                    } else {
+                        2
                     }
 
                 }
@@ -509,20 +552,33 @@ fn return_bool_in_dynamic_branch() {
             // namespace Test
             operation Main() : Bool {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Bool = false;
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     if M(q) == One {
                         {
                             let
                             @generated_ident_32 : Bool = true;
                             __quantum__rt__qubit_release(q);
-                            @generated_ident_32
-                        }
+                            {
+                                __ret_val =
+                                @generated_ident_32;
+                                __has_returned = true;
+                            };
+                        };
+                    }
 
-                    } else {
-                        let
-                        @generated_ident_44 : Bool = false;
+                    let
+                    @generated_ident_44 : Bool = {
+                        false
+                    };
+                    if not __has_returned {
                         __quantum__rt__qubit_release(q);
-                        @generated_ident_44
+                    };
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_44
+                        } else __ret_val
                     }
 
                 }
@@ -563,15 +619,28 @@ fn multiple_returns_in_helper_function() {
             // namespace Test
             function Classify(x : Int) : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     if x > 0 {
-                        1
-                    } else {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    }
+
+                    if not __has_returned {
                         if x < 0 {
-            -1
-                        } else {
-                            0
+                            {
+                                __ret_val = -1;
+                                __has_returned = true;
+                            };
                         }
 
+                    };
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            0
+                        } else __ret_val
                     }
 
                 }
@@ -607,6 +676,8 @@ fn return_unit_after_side_effects() {
             // namespace Test
             operation Main() : Unit {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Unit = ();
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     H(q);
                     if M(q) == One {
@@ -615,14 +686,21 @@ fn return_unit_after_side_effects() {
                             let
                             @generated_ident_42 : Unit = ();
                             __quantum__rt__qubit_release(q);
-                            @generated_ident_42
-                        }
-
-                    } else {
-                        Y(q);
-                        __quantum__rt__qubit_release(q);
+                            {
+                                __ret_val =
+                                @generated_ident_42;
+                                __has_returned = true;
+                            };
+                        };
                     }
 
+                    if not __has_returned {
+                        Y(q);
+                    };
+                    if not __has_returned {
+                        __quantum__rt__qubit_release(q);
+                    };
+                    if __has_returned __ret_val else ()
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -657,13 +735,38 @@ fn bare_return_with_dead_code() {
             // namespace Test
             operation Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     H(q);
                     {
                         let
                         @generated_ident_33 : Int = 42;
                         __quantum__rt__qubit_release(q);
-                        @generated_ident_33
+                        {
+                            __ret_val =
+                            @generated_ident_33;
+                            __has_returned = true;
+                        };
+                    };
+                    let x : Int = if not __has_returned {
+                        1
+                    } else {
+                        0
+                    };
+                    let
+                    @generated_ident_45 : Int = if not __has_returned {
+                        x + 2
+                    } else {
+                        0
+                    };
+                    if not __has_returned {
+                        __quantum__rt__qubit_release(q);
+                    };
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_45
+                        } else __ret_val
                     }
 
                 }
@@ -717,8 +820,12 @@ fn nested_if_with_returns_at_different_levels() {
                         };
                     }
 
-                    let __trailing_result : Int = 3;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            3
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -781,13 +888,21 @@ fn guard_clause_with_existing_else_and_remaining() {
             // namespace Test
             function Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     if true {
-                        1
-                    } else {
                         {
-                            let _ : Int = 0;
+                            __ret_val = 1;
+                            __has_returned = true;
                         };
-                        2
+                    } else {
+                        let _ : Int = 0;
+                    }
+
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            2
+                        } else __ret_val
                     }
 
                 }
@@ -832,8 +947,12 @@ fn deeply_nested_block_with_return() {
 
                         5
                     };
-                    let __trailing_result : Int = x;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            x
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -866,6 +985,8 @@ fn return_after_dynamic_branch_with_dead_code() {
             // namespace Test
             operation Main() : Unit {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Unit = ();
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     if M(q) == One {
                         X(q);
@@ -878,9 +999,19 @@ fn return_after_dynamic_branch_with_dead_code() {
                         let
                         @generated_ident_48 : Unit = ();
                         __quantum__rt__qubit_release(q);
-                        @generated_ident_48
-                    }
-
+                        {
+                            __ret_val =
+                            @generated_ident_48;
+                            __has_returned = true;
+                        };
+                    };
+                    if not __has_returned {
+                        Y(q);
+                    };
+                    if not __has_returned {
+                        __quantum__rt__qubit_release(q);
+                    };
+                    if __has_returned __ret_val else ()
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -955,8 +1086,12 @@ fn for_loop_with_early_return() {
 
                     }
 
-                    let __trailing_result : Int = -1;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+            -1
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -988,7 +1123,10 @@ fn nested_qubit_scope_return_updates_outer_block_type() {
         &expect![[r#"
             callable Main: input_ty=Unit, output_ty=Result
                 body: block_ty=Result
-                    [0] Expr Block[ty=Result]"#]],
+                    [0] Local(Mutable, __has_returned: Bool): Lit(Bool(false))
+                    [1] Local(Mutable, __ret_val: Result): Lit(Result(Zero))
+                    [2] Expr Block[ty=Unit]
+                    [3] Expr Var[ty=Result]"#]],
     );
 }
 
@@ -1090,8 +1228,12 @@ fn outer_return_wrapping_if_with_stmt_return_in_else_does_not_loop() {
         &expect![[r#"
             callable Main: input_ty=Unit, output_ty=Int
                 body: block_ty=Int
-                    [0] Local(Immutable, q: Qubit): Call[ty=Qubit]
-                    [1] Expr Block[ty=Int]"#]],
+                    [0] Local(Mutable, __has_returned: Bool): Lit(Bool(false))
+                    [1] Local(Mutable, __ret_val: Int): Lit(Int(0))
+                    [2] Local(Immutable, q: Qubit): Call[ty=Qubit]
+                    [3] Semi Block[ty=Unit]
+                    [4] Semi If(cond=UnOp(NotL)[ty=Bool], then=Block[ty=Unit])
+                    [5] Expr Var[ty=Int]"#]],
     );
 }
 
@@ -1177,13 +1319,19 @@ fn fail_and_return_in_same_control_flow() {
             // namespace Test
             function Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     let c : Bool = true;
                     if c {
-                        42
+                        {
+                            __ret_val = 42;
+                            __has_returned = true;
+                        };
                     } else {
                         fail $"unreachable";
                     }
 
+                    __ret_val
                 }
             }
             // entry
@@ -1239,6 +1387,11 @@ fn arrow_typed_return_in_structured_path() {
                     x * 2
                 }
             }
+            function __return_unify_fail_5(_ : Int) : Int {
+                body {
+                    fail $"callable init expr"
+                }
+            }
             // entry
             Main()
         "#]],
@@ -1271,16 +1424,18 @@ fn simple_if_expr_init_with_return_stays_structured() {
             // namespace Test
             function Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     if true {
                         10
                     } else {
                         if false {
-                            20
-                        } else {
-                            let x : Int = {
-                                30
+                            {
+                                __ret_val = 20;
+                                __has_returned = true;
                             };
-                            x
+                        } else {
+                            30
                         }
 
                     }

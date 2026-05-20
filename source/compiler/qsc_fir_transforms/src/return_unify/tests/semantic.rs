@@ -429,6 +429,208 @@ fn body_level_qubit_release_guarded_with_while_return_semantic() {
 }
 
 #[test]
+fn post_loop_qubit_allocation_skipped_after_early_return_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            operation Foo(early : Bool) : Int {
+                mutable i = 0;
+                while i < 1 {
+                    if early {
+                        return 7;
+                    }
+                    i += 1;
+                }
+                use q = Qubit();
+                if early {
+                    fail "post-loop qubit path should be skipped";
+                }
+                Reset(q);
+                11
+            }
+
+            @EntryPoint()
+            operation Main() : (Int, Int) {
+                (Foo(true), Foo(false))
+            }
+        }
+    "#});
+}
+
+#[test]
+fn recursive_while_body_qubit_suffix_skipped_after_return_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            operation MustNotRun() : Unit {
+                fail "recursive while suffix executed";
+            }
+
+            operation Main() : Int {
+                mutable i = 0;
+                while i < 1 {
+                    return 1;
+                    use q = Qubit();
+                    MustNotRun();
+                    Reset(q);
+                }
+                0
+            }
+        }
+    "#});
+}
+
+#[test]
+fn recursive_nested_block_qubit_suffix_skipped_after_return_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            operation MustNotRun() : Unit {
+                fail "recursive nested suffix executed";
+            }
+
+            operation Main() : Int {
+                mutable i = 0;
+                while i < 1 {
+                    {
+                        return 1;
+                        use q = Qubit();
+                        MustNotRun();
+                        Reset(q);
+                    };
+                    i += 1;
+                }
+                0
+            }
+        }
+    "#});
+}
+
+#[test]
+fn final_trailing_side_effect_skipped_after_flag_return_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            operation MustNotRun() : Int {
+                fail "final trailing expression executed";
+                0
+            }
+
+            operation Main() : Int {
+                mutable i = 0;
+                while i < 1 {
+                    return 1;
+                }
+                MustNotRun()
+            }
+        }
+    "#});
+}
+
+#[test]
+fn array_of_udt_wrapping_qubit_side_effecting_tail_skipped_after_return_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            newtype Wrapped = Qubit;
+
+            operation Observe(values : Wrapped[]) : Int {
+                fail "tail should not run after return";
+                0
+            }
+
+            operation Foo(q : Qubit) : Int {
+                mutable i = 0;
+                while i < 1 {
+                    return 1;
+                }
+                let values = [Wrapped(q)];
+                Observe(values)
+            }
+
+            operation Main() : Int {
+                use q = Qubit();
+                Foo(q)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn qubit_return_in_while_uses_array_backed_return_slot_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            import Std.Measurement.*;
+
+            operation Pick(q : Qubit) : Qubit {
+                mutable i = 0;
+                while i < 1 {
+                    return q;
+                }
+                q
+            }
+
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let returned = Pick(q);
+                X(returned);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn tuple_with_qubit_return_in_while_uses_array_backed_return_slot_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            import Std.Measurement.*;
+
+            operation Pick(q : Qubit) : (Qubit, Int) {
+                mutable i = 0;
+                while i < 1 {
+                    return (q, 7);
+                }
+                (q, 0)
+            }
+
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let (returned, tag) = Pick(q);
+                if tag == 7 {
+                    X(returned);
+                }
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn udt_wrapping_qubit_return_in_while_uses_array_backed_return_slot_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            import Std.Measurement.*;
+
+            newtype Wrapped = Qubit;
+
+            operation Pick(q : Qubit) : Wrapped {
+                mutable i = 0;
+                while i < 1 {
+                    return Wrapped(q);
+                }
+                Wrapped(q)
+            }
+
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let returned = Pick(q)!;
+                X(returned);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+#[test]
 fn if_expr_init_with_while_return_uses_flag_strategy_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
@@ -490,9 +692,7 @@ fn flag_strategy_guards_local_after_return_semantic() {
 // Error-contract tests (test panics/errors, not values):
 //   - guard_stmt_with_flag_rejects_non_unit_expr_stmt (#[should_panic])
 //   - flag_trailing_without_trailing_expr_rejects_non_unit_contract (#[should_panic])
-//   - unsupported_return_slot_default_in_flag_strategy_produces_error (expects error list)
-//   - unsupported_guarded_local_default_in_flag_strategy_is_explicit_contract (#[should_panic])
-//   - qubit_return_in_while_produces_error (expects error list)
+//   - unsupported_arrow_return_slot_in_flag_strategy_produces_error (expects error list)
 //
 // Specialization tests (Adj/Ctl, no single entry point output):
 //   - explicit_specialization_bodies_are_return_unified

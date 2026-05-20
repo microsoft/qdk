@@ -131,7 +131,7 @@ pub(crate) const EMPTY_EXEC_RANGE: std::ops::Range<ExecGraphIdx> = std::ops::Ran
 /// [`run_pipeline_to_with_diagnostics`], and other warning-aware result APIs.
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum PipelineError {
-    /// A return-unification error (e.g., unsupported return type inside a loop).
+    /// A return-unification error or warning (e.g., unsupported return type).
     #[error(transparent)]
     #[diagnostic(transparent)]
     ReturnUnify(#[from] return_unify::Error),
@@ -240,6 +240,7 @@ pub enum PipelineStage {
 ///
 /// In every fatal case the intermediate FIR intentionally violates downstream
 /// invariants, so running later passes would produce misleading failures.
+#[allow(clippy::too_many_lines)]
 fn run_pipeline_to_impl(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -267,8 +268,17 @@ fn run_pipeline_to_impl(
     }
 
     let ru_errors = return_unify::unify_returns(store, package_id, &mut assigner);
-    if !ru_errors.is_empty() {
-        result.errors = ru_errors.into_iter().map(PipelineError::from).collect();
+    let (ru_warnings, ru_fatal): (Vec<_>, Vec<_>) = ru_errors
+        .into_iter()
+        .partition(return_unify::Error::is_warning);
+    result
+        .warnings
+        .extend(ru_warnings.into_iter().map(PipelineError::from));
+    // If any non-warning errors were emitted, the affected callable(s) were
+    // intentionally left un-rewritten. Abort before check_no_returns would
+    // fail on the residual Return nodes.
+    if !ru_fatal.is_empty() {
+        result.errors = ru_fatal.into_iter().map(PipelineError::from).collect();
         return result;
     }
     invariants::check(

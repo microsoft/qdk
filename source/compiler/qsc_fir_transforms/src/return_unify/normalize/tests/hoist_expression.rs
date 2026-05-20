@@ -66,6 +66,7 @@ fn is_not_flag_expr(
     expr_reads_local(package, inner_expr_id, has_returned_var_id)
 }
 
+#[allow(clippy::too_many_lines)]
 fn assert_while_condition_return_flag_shape(source: &str, expected_ret_val: i64) {
     let (store, pkg_id) = compile_return_unified(source);
     let package = store.get(pkg_id);
@@ -127,14 +128,59 @@ fn assert_while_condition_return_flag_shape(source: &str, expected_ret_val: i64)
         expr_reads_local(package, then_expr_id, ret_val_var_id),
         "trailing merge then-branch should read __ret_val"
     );
-    // After bind-then-check fix, the else branch reads __trailing_result rather than
-    // the literal directly.
+    // After the simplifier catalogue's `let_folding` rule fires, the
+    // `__trailing_result` binding is inlined into the trailing merge.
+    // The pre-fold trailing initializer was a guarded
+    // `if not __has_returned { <tail> } else __ret_val`, which let_folding
+    // wraps in a `Block` (to keep the Q# pretty printer's `elif` rule
+    // legal). The else-branch is therefore now a Block containing the
+    // inlined guarded fallthrough.
+    let ExprKind::Block(else_block_id) = package.get_expr(else_expr_id).kind.clone() else {
+        panic!(
+            "post-let-folding trailing merge else-branch should be a Block wrapping the inlined initializer"
+        );
+    };
+    let else_block = package.get_block(else_block_id);
+    let [inner_stmt_id] = else_block.stmts.as_slice() else {
+        panic!("inlined-initializer block should contain exactly one statement");
+    };
+    let inner_stmt_kind = package.get_stmt(*inner_stmt_id).kind.clone();
+    let StmtKind::Expr(inner_expr_id) = inner_stmt_kind else {
+        panic!("inlined-initializer block statement should be an Expr stmt");
+    };
+    let inner_kind = package.get_expr(inner_expr_id).kind.clone();
+    let ExprKind::If(inner_cond_id, inner_then_id, Some(inner_else_id)) = inner_kind else {
+        panic!(
+            "inlined fallthrough initializer should still be `if not __has_returned ... else __ret_val`"
+        );
+    };
     assert!(
-        matches!(
-            package.get_expr(else_expr_id).kind,
-            ExprKind::Var(Res::Local(_), _)
-        ),
-        "trailing merge else-branch should read __trailing_result"
+        is_not_flag_expr(package, inner_cond_id, has_returned_var_id),
+        "inlined fallthrough should still be guarded by `not __has_returned`"
+    );
+    // The inlined then-arm carries the original trailing literal `0`,
+    // possibly wrapped in a single-stmt block by the pretty-print path.
+    let trailing_zero = matches!(
+        package.get_expr(inner_then_id).kind,
+        ExprKind::Lit(Lit::Int(0))
+    ) || matches!(&package.get_expr(inner_then_id).kind, ExprKind::Block(b)
+    if {
+        let block = package.get_block(*b);
+        matches!(block.stmts.as_slice(), [sid] if matches!(
+            &package.get_stmt(*sid).kind,
+            StmtKind::Expr(eid) if matches!(
+                package.get_expr(*eid).kind,
+                ExprKind::Lit(Lit::Int(0))
+            )
+        ))
+    });
+    assert!(
+        trailing_zero,
+        "inlined fallthrough's then-arm should be the original trailing literal 0"
+    );
+    assert!(
+        expr_reads_local(package, inner_else_id, ret_val_var_id),
+        "inlined fallthrough's else-arm should still read __ret_val"
     );
 
     let mut saw_ret_assignment = false;
@@ -226,6 +272,7 @@ fn hoist_return_in_tuple_middle() {
             function Main() : Int {
                 body {
                     let _ : Int = 1;
+                    let (a : Int, _ : Unit, _ : Int) = (0, (), 0);
                     2
                 }
             }
@@ -330,7 +377,9 @@ fn hoist_return_in_short_circuit_and_rhs() {
             // namespace Test
             function Main() : Bool {
                 body {
-                    if true true else false
+                    if true {
+                        true
+                    } else false
                 }
             }
             // entry
@@ -354,7 +403,7 @@ fn hoist_return_in_short_circuit_or_rhs() {
             // namespace Test
             function Main() : Bool {
                 body {
-                    if not false true else true
+                    true
                 }
             }
             // entry
@@ -405,7 +454,6 @@ fn hoist_return_in_index_expr() {
             // namespace Test
             function Main() : Int {
                 body {
-                    let arr : Int[] = [10, 20, 30];
                     0
                 }
             }
@@ -492,12 +540,204 @@ fn hoist_return_in_range_endpoint() {
             // namespace Test
             function Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     mutable sum : Int = 0;
                     {
                         let _ : Int = 0;
-                        5
+                        let
+                        @range_id_28 : Range = ...;
+                        {
+                            __ret_val = 5;
+                            __has_returned = true;
+                        };
+                        mutable
+                        @index_id_31 : Int = if not __has_returned {
+                            @range_id_28::Start
+                        } else {
+                            0
+                        };
+                        let
+                        @step_id_36 : Int = if not __has_returned {
+                            @range_id_28::Step
+                        } else {
+                            0
+                        };
+                        let
+                        @end_id_41 : Int = if not __has_returned {
+                            @range_id_28::End
+                        } else {
+                            0
+                        };
+                        if not __has_returned {
+                            while
+                            @step_id_36 > 0 and
+                            @index_id_31 <=
+                            @end_id_41 or
+                            @step_id_36 < 0 and
+                            @index_id_31 >=
+                            @end_id_41 {
+                                let i : Int =
+                                @index_id_31;
+                                sum += i;
+                                @index_id_31 +=
+                                @step_id_36;
+                            }
+
+                        };
                     }
 
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            sum
+                        } else __ret_val
+                    }
+
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn hoist_return_in_local_init_preserves_binding() {
+    // Regression: when a `Local`'s initializer contains a hoistable
+    // `Return`, the `Local`'s `Bind` pat may be read by sibling stmts in
+    // the enclosing block (loop_unification emits exactly this shape for
+    // `for i in start..(return v) { ... }`). The normalize hoist must
+    // preserve the original `Local` (with its init rewritten to a
+    // structural default of the pat's type) so the
+    // closure-immutable `LocalVarId` model still resolves those sibling
+    // reads and the post-return-unify `LocalVarId consistency` invariant
+    // does not fire.
+    //
+    // Three shapes exercise the helper:
+    //   * RangeShape — `Range` init (`for i in 0..(return 5)`): matches the
+    //     loop_unification reproducer; default is `0..1..0`.
+    //   * TupleShape — `Tuple` init (`let t = (compute(), return ());`):
+    //     default is `(0, ())`.
+    //   * CallShape  — `Call`  init (`let x = Identity(return 7);`):
+    //     default is `0`.
+    //
+    // The fixture relies on `check_no_returns_q` running through
+    // `PipelineStage::ReturnUnify`, which invokes
+    // `invariants::check(..., InvariantLevel::PostReturnUnify)`. Without
+    // the preserve-the-Local fix, the `LocalVarId consistency` invariant
+    // fires when the flag strategy runs; with the fix, all three shapes
+    // emit well-formed FIR.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            function Identity(x : Int) : Int { x }
+            function Compute() : Int { 1 }
+            function RangeShape() : Int {
+                mutable sum = 0;
+                for i in 0..(return 5) {
+                    sum += i;
+                }
+                sum
+            }
+            function TupleShape() : Int {
+                let (first, _) = (Compute(), return 11);
+                first
+            }
+            function CallShape() : Int {
+                let x = Identity(return 7);
+                x
+            }
+            function Main() : Int {
+                RangeShape() + TupleShape() + CallShape()
+            }
+        }
+    "#},
+        &expect![[r#"
+            // namespace Test
+            function Identity(x : Int) : Int {
+                body {
+                    x
+                }
+            }
+            function Compute() : Int {
+                body {
+                    1
+                }
+            }
+            function RangeShape() : Int {
+                body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    mutable sum : Int = 0;
+                    {
+                        let _ : Int = 0;
+                        let
+                        @range_id_92 : Range = ...;
+                        {
+                            __ret_val = 5;
+                            __has_returned = true;
+                        };
+                        mutable
+                        @index_id_95 : Int = if not __has_returned {
+                            @range_id_92::Start
+                        } else {
+                            0
+                        };
+                        let
+                        @step_id_100 : Int = if not __has_returned {
+                            @range_id_92::Step
+                        } else {
+                            0
+                        };
+                        let
+                        @end_id_105 : Int = if not __has_returned {
+                            @range_id_92::End
+                        } else {
+                            0
+                        };
+                        if not __has_returned {
+                            while
+                            @step_id_100 > 0 and
+                            @index_id_95 <=
+                            @end_id_105 or
+                            @step_id_100 < 0 and
+                            @index_id_95 >=
+                            @end_id_105 {
+                                let i : Int =
+                                @index_id_95;
+                                sum += i;
+                                @index_id_95 +=
+                                @step_id_100;
+                            }
+
+                        };
+                    }
+
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            sum
+                        } else __ret_val
+                    }
+
+                }
+            }
+            function TupleShape() : Int {
+                body {
+                    let _ : Int = Compute();
+                    let (first : Int, _ : Unit) = (0, ());
+                    11
+                }
+            }
+            function CallShape() : Int {
+                body {
+                    let _ : (Int -> Int) = Identity;
+                    7
+                }
+            }
+            function Main() : Int {
+                body {
+                    RangeShape() + TupleShape() + CallShape()
                 }
             }
             // entry
@@ -576,10 +816,16 @@ fn hoist_return_in_if_condition() {
             // namespace Test
             function Main() : Int {
                 body {
-                    {
-                        7
-                    }
-
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    let __trailing_result : Int = {
+                        {
+                            __ret_val = 7;
+                            __has_returned = true;
+                        };
+                        0
+                    };
+                    if __has_returned __ret_val else __trailing_result
                 }
             }
             // entry
