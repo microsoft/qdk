@@ -1919,3 +1919,216 @@ test("moveOperation: allows promoting a conditional to a strictly later top-leve
   const result = moveOperation(model, "0,0-1,0", "1,0", 0, 0, false, true);
   assert.ok(result, "move must succeed: strictly later outer column");
 });
+
+// ---------------------------------------------------------------------------
+// D4 Stage A: action-layer support for the right-edge trailing
+// inner-column dropzone of an expanded group. The dropzone layer
+// emits a dropzone at `data-dropzone-location="<prefix>-<N>,0"`
+// where `<N>` is the group's existing child-column count (i.e. one
+// past the rightmost existing column). The action layer must accept
+// that location string and synthesize the new column in the group's
+// `children` grid — without leaking the new op to the top level or
+// creating a duplicate.
+//
+// `_addOp`'s existing "create column if absent" branch is what makes
+// this work; these tests pin down the wire-format contract between
+// the dropzone layer and the action layer.
+// ---------------------------------------------------------------------------
+
+test("addOperation: dropping on a group's trailing inner-column slot adds the op as a child", () => {
+  // Foo spans wires 0-1 with one child column (a single H on wire 0).
+  // Trailing inner-column dropzone location is "0,0-1,0".
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Drop a Y onto Foo's trailing inner column at wire 0. `addOperation`
+  // sees a location with prefix "0,0" and colIndex=1 (one past the
+  // single existing inner column); `_addOp` synthesizes the new
+  // inner column.
+  const added = addOperation(
+    model,
+    { kind: "unitary", gate: "Y", targets: [{ qubit: 0 }] },
+    "0,0-1,0",
+    0,
+  );
+
+  assert.ok(added, "addOperation should return the new op");
+
+  // Top level is unchanged: still just Foo.
+  assert.equal(model.componentGrid.length, 1);
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  assert.equal(fooOp.gate, "Foo");
+
+  // Foo now has 2 inner columns: the original H, and the new Y.
+  assert.equal(
+    fooOp.children.length,
+    2,
+    "Foo's children grid should have grown by one column",
+  );
+  assert.equal(fooOp.children[0].components[0].gate, "H");
+  assert.equal(fooOp.children[1].components[0].gate, "Y");
+});
+
+test("moveOperation: moving an external gate to a group's trailing inner-column slot pulls it into the group", () => {
+  // Top-level layout:
+  //   col 0: Foo group on wires 0-1 with one child H on wire 0.
+  //   col 1: Y on wire 0 (the external gate we'll move into Foo).
+  // Trailing inner-column slot of Foo is "0,0-1,0".
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        components: [{ kind: "unitary", gate: "Y", targets: [{ qubit: 0 }] }],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Move Y from "1,0" to Foo's trailing inner slot "0,0-1,0", wire 0.
+  // `insertNewColumn=false` is what the trailing-band dropzones set
+  // (they're tagged `data-dropzone-inter-column="false"` — drop, not
+  // insert-between).
+  const moved = moveOperation(
+    model,
+    /* sourceLocation */ "1,0",
+    /* targetLocation */ "0,0-1,0",
+    /* sourceWire */ 0,
+    /* targetWire */ 0,
+    /* movingControl */ false,
+    /* insertNewColumn */ false,
+  );
+
+  assert.ok(moved, "move should return the moved op");
+
+  // Top level: just Foo. The external Y column is gone (its only op
+  // moved into Foo).
+  assert.equal(model.componentGrid.length, 1);
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  assert.equal(fooOp.gate, "Foo");
+
+  // Foo's children: [[H], [Y]].
+  assert.equal(fooOp.children.length, 2);
+  assert.equal(fooOp.children[0].components[0].gate, "H");
+  assert.equal(fooOp.children[1].components[0].gate, "Y");
+
+  // And there's no duplicate Y at top level.
+  /** @type {string[]} */
+  const topGates = [];
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      topGates.push(/** @type {any} */ (op).gate);
+    }
+  }
+  assert.deepEqual(topGates, ["Foo"], "Y must not remain at top level");
+});
+
+test("moveOperation: moving an internal gate to its group's trailing inner-column slot keeps it inside the group", () => {
+  // Foo spans wires 0-1 with two child columns:
+  //   inner col 0: H on wire 0
+  //   inner col 1: X on wire 1
+  // Move the H from "0,0-0,0" to Foo's trailing inner slot "0,0-2,0"
+  // (colIndex 2 = one past the existing inner colCount of 2). The
+  // gate should land in a new inner col 2, and the source inner col
+  // 0 should be cleaned up (now empty).
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+              {
+                components: [
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  const moved = moveOperation(
+    model,
+    /* sourceLocation */ "0,0-0,0",
+    /* targetLocation */ "0,0-2,0",
+    /* sourceWire */ 0,
+    /* targetWire */ 0,
+    /* movingControl */ false,
+    /* insertNewColumn */ false,
+  );
+
+  assert.ok(moved, "move should return the moved op");
+
+  // Top level: still just Foo (not dissolved — it still has X).
+  assert.equal(model.componentGrid.length, 1);
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  assert.equal(fooOp.gate, "Foo");
+
+  // Foo's children: collect the gate sequence column-by-column.
+  // The exact column count is an implementation detail (cleanup of
+  // the now-empty inner col 0 may or may not collapse it), but the
+  // gate sequence in order must be [X, H] — X was originally in
+  // inner col 1, and H landed in the new inner col 2.
+  /** @type {string[]} */
+  const innerGates = [];
+  for (const col of fooOp.children) {
+    for (const op of col.components) {
+      innerGates.push(/** @type {any} */ (op).gate);
+    }
+  }
+  assert.deepEqual(
+    innerGates,
+    ["X", "H"],
+    "H must land after X in the inner grid; no duplicate H, no stray",
+  );
+});

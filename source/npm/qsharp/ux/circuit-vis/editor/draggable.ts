@@ -403,7 +403,10 @@ const _dropzoneLayer = (context: Context) => {
 
   // Recurse from the top-level scope. Wire extent at top level covers
   // every wire in the circuit; nested scopes pass a tightened extent
-  // matching their parent group's [minTarget, maxTarget].
+  // matching their parent group's [minTarget, maxTarget]. The
+  // trailing-append column for each scope (top-level and each
+  // expanded group) is emitted by `_populateDropzonesForGrid` itself,
+  // so it stays in sync with whatever scope is being processed.
   _populateDropzonesForGrid(
     dropzoneLayer,
     layoutMap,
@@ -414,38 +417,51 @@ const _dropzoneLayer = (context: Context) => {
     wireData.length,
   );
 
-  // Trailing-append column — only at top level. Lets the user add a
-  // gate to a brand-new column past the rightmost existing one. No
-  // analogue inside a nested group; nested grids grow by inserting
-  // into existing columns.
-  _appendTrailingColumn(dropzoneLayer, layoutMap, wireData);
-
   return dropzoneLayer;
 };
 
 /**
- * Append the trailing-column dropzones (one per wire) past the
- * rightmost top-level column. Each is shaped like an inter-column
- * band but tagged `data-dropzone-inter-column="false"` so the
- * mouseup handler treats it as a normal drop target rather than an
- * insert-between-columns operation.
+ * Append a trailing-column band of dropzones (one per wire in
+ * `[minWire, maxWire)`) just past the rightmost column of a single
+ * scope — either the top-level grid or an expanded group's children
+ * grid.
+ *
+ * Each emitted dropzone is shaped like the existing left-edge
+ * inter-column band (so it visually reads as "I'm extending this
+ * scope to the right"), but tagged
+ * `data-dropzone-inter-column="false"` so the drop handler treats it
+ * as a normal drop. The `_addOp` action takes care of synthesizing the
+ * new column when the target column index is one past the rightmost.
+ *
+ * Stage A of D4 (see CIRCUIT_EDITOR_TODO.md) — together with the
+ * leading-column band that already falls out of the
+ * `_populateDropzonesForGrid` loop at `colIndex=0`, this gives every
+ * expanded group a one-column-of-reach extend-sideways gesture on both
+ * edges, no modifier required.
+ *
+ * Idempotent w.r.t. wire extent: at the top level, `[minWire, maxWire)`
+ * is `[0, wireData.length)`. For nested scopes it's the parent group's
+ * own wire span, so the trailing column can't escape the group's
+ * vertical bounds.
  */
-const _appendTrailingColumn = (
+const _appendTrailingColumnForScope = (
   dropzoneLayer: SVGElement,
-  layoutMap: LayoutMap,
+  scope: LayoutScope,
   wireData: number[],
+  minWire: number,
+  maxWire: number,
+  pathPrefix: string,
 ): void => {
-  const topScope = layoutMap.scopes.get("");
-  if (topScope == null) return;
-  const trailingColIndex = topScope.columnXOffsets.length;
-  for (let wireIndex = 0; wireIndex < wireData.length; wireIndex++) {
+  const trailingColIndex = scope.columnXOffsets.length;
+  for (let wireIndex = minWire; wireIndex < maxWire; wireIndex++) {
     const dropzone = makeDropzoneBox(
       trailingColIndex,
       0,
-      topScope,
+      scope,
       wireData,
       wireIndex,
       true,
+      pathPrefix,
     );
     dropzone.setAttribute("data-dropzone-inter-column", "false");
     dropzoneLayer.appendChild(dropzone);
@@ -620,6 +636,21 @@ const _populateDropzonesForGrid = (
       }
     });
   }
+
+  // Trailing-append column for this scope. At the top level this is
+  // the "add a brand-new column past the rightmost" affordance; for
+  // an expanded group it's the right-edge extend-sideways band that
+  // mirrors the leading-column band emitted at `colIndex=0` of the
+  // column loop above. Runs once per scope, after the column loop,
+  // so it sits at the same recursion depth as the children walk.
+  _appendTrailingColumnForScope(
+    dropzoneLayer,
+    scope,
+    wireData,
+    minWire,
+    maxWire,
+    pathPrefix,
+  );
 };
 
 /**

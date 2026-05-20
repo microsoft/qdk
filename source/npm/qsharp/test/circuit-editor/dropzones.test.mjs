@@ -1027,3 +1027,257 @@ test("trailing-append column lands past the rightmost gate", () => {
     );
   }
 });
+
+// ---------------------------------------------------------------------------
+// D4 Stage A: an expanded group should have a trailing inner-column
+// dropzone band on its right edge, mirroring the leading-column band
+// that already falls out of the column-loop at `colIndex=0`. This is
+// the "extend the group sideways to swallow one more column" gesture
+// — unconditional (no shift), one column of reach, and the dropzone
+// location string identifies the new column as belonging to the
+// group's own scope.
+//
+// Symptom if this regresses: dropping a gate just past the right edge
+// of an expanded group lands at top level next to the group instead
+// of becoming a child of the group.
+// ---------------------------------------------------------------------------
+
+test("expanded group emits a trailing inner-column dropzone band on its right edge", () => {
+  // `Foo` spans wires 0-1, contains a single H on wire 0. Foo's
+  // children grid therefore has one column (`0,0-0,…`). The trailing
+  // inner-column dropzones we're asserting should sit at the
+  // synthesized "past-end" column index `1`, prefixed by Foo's
+  // location `0,0` — i.e. `0,0-1,0`.
+  const group = singleCircuit({
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            dataAttributes: { expanded: "true" },
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+
+  const dropzones = renderAndCollectDropzones(group);
+
+  // Trailing inner-column dropzones are tagged
+  // `data-dropzone-inter-column="false"` (drop, don't insert-between)
+  // and live at colIndex == childrenColumnCount inside Foo's scope.
+  const innerTrailing = dropzones.filter(
+    (d) => d.location === "0,0-1,0" && !d.interColumn,
+  );
+  assert.equal(
+    innerTrailing.length,
+    2,
+    `expected one trailing inner-column dropzone per wire Foo spans (2),` +
+      ` got locations: ${JSON.stringify(
+        dropzones
+          .filter((d) => d.location.startsWith("0,0-"))
+          .map((d) => `${d.location}@w${d.wire}`),
+      )}`,
+  );
+
+  // Wires must be exactly Foo's span (0 and 1), no leakage to wire 2
+  // or above (defensive — no wire 2 in this fixture, but the clamp
+  // contract should hold).
+  const wires = innerTrailing.map((d) => d.wire).sort();
+  assert.deepEqual(
+    wires,
+    [0, 1],
+    "trailing inner-column dropzones must cover exactly Foo's wire span",
+  );
+});
+
+test("trailing inner-column dropzones are clipped to the group's wire extent", () => {
+  // Foo spans wires 0-1 only; a sibling X gate on wire 2 keeps that
+  // wire visible in the circuit. Foo's trailing inner-column band
+  // must not leak onto wire 2 — the wire-clamp contract that already
+  // applies to between-column dropzones must hold for the trailing
+  // band too.
+  const group = singleCircuit({
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            dataAttributes: { expanded: "true" },
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 2 }],
+          },
+        ],
+      },
+    ],
+  });
+
+  const dropzones = renderAndCollectDropzones(group);
+
+  // Anything in Foo's scope at the synthesized trailing column.
+  // Inner-trailing has !interColumn and location `0,0-1,0`.
+  const innerTrailing = dropzones.filter(
+    (d) => d.location === "0,0-1,0" && !d.interColumn,
+  );
+
+  // Must exist (otherwise the clipping assertion below is vacuously
+  // true and would hide a regression where the trailing band stopped
+  // being emitted for nested scopes entirely).
+  assert.ok(
+    innerTrailing.length > 0,
+    "expected trailing inner-column dropzones inside Foo to be emitted",
+  );
+
+  const leaked = innerTrailing.filter((d) => d.wire >= 2);
+  assert.deepEqual(
+    leaked,
+    [],
+    `trailing inner-column dropzones must be clipped to Foo's wire span;` +
+      ` leaked: ${JSON.stringify(leaked)}`,
+  );
+});
+
+test("collapsed group does NOT emit any inner trailing-column dropzones", () => {
+  // A collapsed group has no `LayoutMap` scope entry, so
+  // `_populateDropzonesForGrid` never recurses into it — and the
+  // trailing-column-for-scope helper only runs for scopes we recurse
+  // into. Result: no inner-scope dropzones should leak out for a
+  // collapsed Foo, trailing band included.
+  //
+  // Pin Foo collapsed by adding a sibling top-level op: the renderer's
+  // `expandIfSingleOperation` would otherwise auto-expand Foo when it's
+  // the only op at the top level, regardless of `renderDepth`.
+  const group = singleCircuit({
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            // No `dataAttributes.expanded` and the draw below uses
+            // renderDepth: 0; the sibling H below blocks the
+            // single-op auto-expansion path.
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        components: [{ kind: "unitary", gate: "X", targets: [{ qubit: 0 }] }],
+      },
+    ],
+  });
+
+  // Render with renderDepth: 0 so Foo stays collapsed. We can't use
+  // the helper (it forces renderDepth: 5), so inline the draw call.
+  const container = document.createElement("div");
+  container.className = "qs-circuit";
+  document.body.appendChild(container);
+  draw(group, container, {
+    editor: { editCallback: () => {} },
+    renderDepth: 0,
+  });
+
+  const dropzones = Array.from(
+    container.querySelectorAll(
+      "g.dropzone-layer rect.dropzone[data-dropzone-location]",
+    ),
+  ).map((rect) => ({
+    location: rect.getAttribute("data-dropzone-location") ?? "",
+  }));
+
+  const nested = dropzones.filter((d) => d.location.includes("-"));
+  assert.deepEqual(
+    nested,
+    [],
+    `collapsed Foo should not emit nested-location dropzones (trailing` +
+      ` band included), got: ${JSON.stringify(nested.map((d) => d.location))}`,
+  );
+});
+
+test("top-level trailing-column band is preserved by the refactor", () => {
+  // After D4 Stage A unified the trailing-column emission into
+  // `_populateDropzonesForGrid`, the top-level trailing band should
+  // still cover every wire (not just the wires of any group). A
+  // regression in the unification would manifest as a top-level
+  // trailing band that's wire-clamped to something other than
+  // `[0, wireData.length)`.
+  const group = singleCircuit({
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+          { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
+          { kind: "unitary", gate: "Y", targets: [{ qubit: 2 }] },
+        ],
+      },
+    ],
+  });
+
+  const dropzones = renderAndCollectDropzones(group);
+
+  // One column at top level, so trailing colIndex is 1. Location
+  // "1,0" is the trailing band's location (no prefix). The editor
+  // also renders a ghost-qubit row at wire index `wireData.length`
+  // for the add-a-qubit affordance, which `getWireData` picks up
+  // via its `.qubit-wire` selector — so the top-level trailing band
+  // covers `wireData.length + ghosts` wires. We assert wires
+  // {0, 1, 2} are present rather than nailing the exact count,
+  // because the ghost row is an orthogonal editor feature and
+  // shouldn't lock this test to its implementation detail.
+  const topTrailing = dropzones.filter(
+    (d) => d.location === "1,0" && !d.interColumn,
+  );
+  const wires = new Set(topTrailing.map((d) => d.wire));
+  for (const w of [0, 1, 2]) {
+    assert.ok(
+      wires.has(w),
+      `top-level trailing band must cover wire ${w}; got wires ${JSON.stringify(
+        [...wires].sort(),
+      )}`,
+    );
+  }
+});

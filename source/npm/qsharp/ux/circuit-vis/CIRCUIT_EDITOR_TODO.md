@@ -1211,7 +1211,7 @@ just makes the shift-semantics path match its design intent.
 
 ##### D4. Move-inside-group vs. promote-out-of-group disambiguation
 
-**Status: planned — Stage A ready to implement.**
+**Status: Stage A shipped (pending user-confirmation). Stage B planned.**
 
 A design pass reframed this. The original framing
 ("which of options a–d?") was too narrow; the actual gap is
@@ -1324,24 +1324,33 @@ pass; vertical extend is internal-source only.
 
 Two PRs, sequenced.
 
-- **Stage A: right-side trailing inner-column for groups.**
-  Self-contained. Mirror `_appendTrailingColumn`'s mechanics
-  into the per-group scope recursion in
-  [`_populateDropzonesForGrid`](editor/draggable.ts). One column
-  of reach past the group's rightmost column, on every wire the
-  group spans. Unconditional (no shift). Same styling as
-  existing inner-scope dropzones — geometry already reads
-  ("snug against the right edge of the group's box"). No
-  action-layer changes; existing `addOperation` /
-  `moveOperation` already do the right thing when handed an
-  inner-scope `data-dropzone-location`. Tests: dropzone
-  emission (one new test in
-  [test/circuit-editor/dropzones.test.mjs](../../test/circuit-editor/dropzones.test.mjs)),
-  drop behavior (external gate → group's new trailing column ⇒
-  added to group; internal gate → trailing column ⇒ stays in
-  group; round-trip in
-  [test/circuit-editor/circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)).
-  Ships and is verifiable on its own.
+- **Stage A: right-side trailing inner-column for groups. ✅ Shipped
+  (pending user-confirmation).** Unified the previously-top-level-only
+  `_appendTrailingColumn` into a per-scope helper
+  `_appendTrailingColumnForScope` in
+  [`draggable.ts`](editor/draggable.ts), called from inside
+  `_populateDropzonesForGrid` once per scope. Every expanded group
+  now gets a trailing inner-column band (one column past its
+  rightmost child column, clamped to the group's wire span) at the
+  same recursion depth as the inner-scope dropzones the loop
+  already emits. Top-level trailing band behavior is unchanged — it
+  now flows through the unified path instead of its own one-shot
+  call from `_dropzoneLayer`, but the emitted dropzones are
+  byte-for-byte identical (locked down by a regression test).
+  - No action-layer changes were needed; `_addOp`'s existing
+    "create column if absent" branch already accepts inner-scope
+    location strings whose colIndex is one past the rightmost.
+  - Same styling as existing inner-scope dropzones — geometry
+    reads ("snug against the right edge of the group's box")
+    without dedicated CSS work.
+  - Test coverage: 4 new tests in
+    [test/circuit-editor/dropzones.test.mjs](../../test/circuit-editor/dropzones.test.mjs)
+    (emission, wire-extent clipping, collapsed-group no-emission,
+    top-level trailing-band preservation) and 3 new tests in
+    [test/circuit-editor/circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+    (`addOperation` to a group's trailing inner slot, external
+    gate move into a group via the slot, internal gate move
+    within a group via the slot). 306 tests passing (up from 299).
 - **Stage B: shift-to-extend-vertically for internal sources.**
   Depends on Stage A's dropzone scaffolding.
   - Live shift tracking in
@@ -1380,13 +1389,13 @@ Two PRs, sequenced.
 
 ##### Roadmap & status
 
-| Item                                    | Severity               | Status                      |
-| --------------------------------------- | ---------------------- | --------------------------- |
-| D1: empty-group crash                   | Crash                  | ✅ Shipped (user-confirmed) |
-| D2: classical condition before producer | Logic error            | ✅ Shipped (user-confirmed) |
-| D3: multi-target semantics              | Design / documentation | ✅ Shipped (pending user)   |
-| D4: move-out vs. expand-group           | Design                 | Planned — Stage A ready     |
-| D5: dropzone overlapping rendered gate  | Bug                    | ✅ Shipped (user-confirmed) |
+| Item                                    | Severity               | Status                        |
+| --------------------------------------- | ---------------------- | ----------------------------- |
+| D1: empty-group crash                   | Crash                  | ✅ Shipped (user-confirmed)   |
+| D2: classical condition before producer | Logic error            | ✅ Shipped (user-confirmed)   |
+| D3: multi-target semantics              | Design / documentation | ✅ Shipped (pending user)     |
+| D4: move-out vs. expand-group           | Design                 | 🟡 Stage A shipped, B planned |
+| D5: dropzone overlapping rendered gate  | Bug                    | ✅ Shipped (user-confirmed)   |
 
 ---
 
