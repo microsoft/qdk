@@ -15,7 +15,7 @@ export class BrowserWorkerHost implements IWorkerHost {
     const bootstrap = `
       self.WorkerSelf = {
         postMessage(msg) { self.postMessage(msg); },
-        onMessage(handler) { self.addEventListener("message", handler); }
+        onMessage(handler) { self.onmessage = handler; }
       };
       importScripts("${scriptUrl}");
     `;
