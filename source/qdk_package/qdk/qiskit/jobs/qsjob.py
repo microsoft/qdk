@@ -29,8 +29,8 @@ class QsJob(JobV1, ABC):
     Abstract base class for Q# Qiskit jobs.
 
     Manages asynchronous execution of a quantum circuit via a callable submitted
-    to a thread pool. Concrete subclasses must implement ``result()`` and
-    ``_submit_duration()``.
+    to a thread pool. Concrete subclasses must implement :meth:`result` and
+    :meth:`_submit_duration`.
     """
 
     def __init__(

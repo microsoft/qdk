@@ -58,7 +58,7 @@ class ResourceEstimatorBackend(BackendBase):
         :param skip_transpilation: Skip Qiskit transpilation.
         :type skip_transpilation: bool
         :param **options: Default option overrides. These can also be overridden per-call via
-            ``run()``. Common options:
+            :meth:`run`. Common options:
 
             - ``params`` (EstimatorParams): Configuration values for resource estimation.
             - ``name`` (str): The name of the circuit used as the entry point. Defaults to the circuit name.

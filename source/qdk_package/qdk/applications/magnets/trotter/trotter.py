@@ -299,7 +299,7 @@ class TrotterExpansion:
     ``TrotterExpansion`` builds one step with ``trotter_method(model.terms, dt)``
     where ``dt = time / num_steps`` and then repeats it ``num_steps`` times.
 
-    Iteration via ``step()`` yields ``PauliString`` operators already scaled by
+    Iteration via :meth:`step` yields ``PauliString`` operators already scaled by
     the per-entry schedule time.
     """
 

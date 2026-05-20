@@ -29,7 +29,7 @@ class NeutralAtomCirqResult(cirq.ResultDict):
     entry per shot, in the native simulator output format (tuple, list, or
     scalar). This includes shots that contain qubit-loss markers.
 
-    Use ``raw_measurements()`` to retrieve the full per-shot data (including
+    Use :meth:`raw_measurements` to retrieve the full per-shot data (including
     loss markers) in the same ``{key: 2D-array (shots x bits)}`` format as
     ``measurements``, but with Unicode string dtype so that non-binary markers
     are preserved.
