@@ -36,7 +36,7 @@ Optional extras enable additional submodules:
 - ``qdk[qiskit]`` — Qiskit interoperability (:mod:`qdk.qiskit`).
 - ``qdk[cirq]`` — Cirq interoperability (:mod:`qdk.cirq`).
 - ``qdk[jupyter]`` — interactive Jupyter widgets and JupyterLab integration
-  (:mod:`qdk.widgets`).
+  (``qdk.widgets``).
 """
 
 from .telemetry_events import on_qdk_import
