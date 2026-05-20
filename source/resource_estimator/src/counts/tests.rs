@@ -447,7 +447,7 @@ fn post_selection_can_take_impossible_branch() {
 fn manual_memory_load_store() {
     let counts = run_logical_counts(indoc! {"
         operation Main() : Unit {
-            Std.ResourceEstimation.EnableMemoryComputeArchitecture(0, 2);
+            Std.ResourceEstimation.EnableManualMemoryComputeArchitecture();
 
             use qs = Qubit[2];
             Std.Memory.Store(qs[0]);
@@ -464,7 +464,7 @@ fn manual_memory_load_store() {
 fn manual_memory_complex_circuit_counts() {
     let counts = run_logical_counts(indoc! {"
         operation Main() : Unit {
-            Std.ResourceEstimation.EnableMemoryComputeArchitecture(0, 2);
+            Std.ResourceEstimation.EnableManualMemoryComputeArchitecture();
 
             use qs = Qubit[4];
 
@@ -501,7 +501,7 @@ fn manual_memory_rejects_gate_application() {
     let result = run_logical_counts_result(
         indoc! {"
                 operation Main() : Unit {
-                    Std.ResourceEstimation.EnableMemoryComputeArchitecture(0, 2);
+                    Std.ResourceEstimation.EnableManualMemoryComputeArchitecture();
 
                     use q = Qubit();
                     Std.Memory.Store(q);

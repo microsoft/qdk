@@ -188,7 +188,7 @@ operation RepeatEstimates(count : Int) : Unit is Adj {
 /// When using "Manual" strategy:
 /// - Qubits must be moved between memory and compute using
 ///   [Std.Memory.Load](xref:Qdk.Std.Memory.Load) and
-///   [Std.Memory.Save](xref:Qdk.Std.Memory.Save).
+///   [Std.Memory.Store](xref:Qdk.Std.Memory.Store).
 /// - All qubits are initially allocated as Compute qubits.
 /// - Capacity is ignored.
 /// - Applying a gate to or measuring a memory qubit will result in a runtime error.
@@ -219,6 +219,19 @@ function LeastFrequentlyUsed() : Int {
     return 1;
 }
 
+/// # Summary
+/// Enables manual memory/compute mode for resource estimation.
+///
+/// This is a convenience wrapper over
+/// `EnableMemoryComputeArchitecture(0, 2)` where strategy `2` is Manual.
+/// In this mode, users explicitly move qubits between memory and compute
+/// with [Std.Memory.Load](xref:Qdk.Std.Memory.Load) and
+/// [Std.Memory.Store](xref:Qdk.Std.Memory.Store). Call this operation if you
+/// want `Load`/`Store` annotations to affect reported resource estimates.
+operation EnableManualMemoryComputeArchitecture() : Unit {
+    EnableMemoryComputeArchitecture(0, 2);
+}
+
 export
     SingleVariant,
     BeginEstimateCaching,
@@ -235,5 +248,6 @@ export
     EndRepeatEstimates,
     RepeatEstimates,
     EnableMemoryComputeArchitecture,
+    EnableManualMemoryComputeArchitecture,
     LeastRecentlyUsed,
     LeastFrequentlyUsed;
