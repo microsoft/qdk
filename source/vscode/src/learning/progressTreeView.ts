@@ -9,6 +9,7 @@ import type {
   ActivityProgress,
 } from "./types.js";
 import type { LearningService } from "./service.js";
+import { LEARNING_TREE_VIEW_ID } from "./constants.js";
 
 /**
  * Wire up the QDK Learning progress panel, a `TreeView` of Unit → Activity
@@ -19,7 +20,7 @@ export function registerLearningProgressView(
   service: LearningService,
 ): void {
   const treeDataProvider = new LearningProgressTreeProvider();
-  const treeView = vscode.window.createTreeView("qsharp-vscode.learningTree", {
+  const treeView = vscode.window.createTreeView(LEARNING_TREE_VIEW_ID, {
     treeDataProvider,
     showCollapseAll: true,
   });
@@ -65,7 +66,7 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       );
       item.description = node.unitTitle;
       item.iconPath = iconContinue;
-      item.contextValue = "continue";
+      item.contextValue = node.kind;
       item.tooltip = `Continue learning — ${node.unitTitle}: ${node.activityTitle}`;
       item.id = "continue";
       return item;
@@ -84,7 +85,7 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
           ? `${unit.completed}/${unit.total}`
           : undefined;
       item.iconPath = unitIcon(unit);
-      item.contextValue = "unit";
+      item.contextValue = node.kind;
       item.tooltip = `${unit.title} — ${unit.completed}/${unit.total} activities complete`;
       // Vary the id by `isCurrent` so VS Code sees a new node when the active
       // unit changes and applies the collapsibleState we set above.

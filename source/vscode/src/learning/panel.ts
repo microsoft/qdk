@@ -9,7 +9,7 @@
 
 import * as vscode from "vscode";
 import { qsharpExtensionId } from "../common.js";
-import { LEARNING_FILE } from "./constants.js";
+import { LEARNING_FILE, LEARNING_TREE_VIEW_ID } from "./constants.js";
 import type { LearningService } from "./service.js";
 import type { TelemetrySource } from "./types.js";
 import type {
@@ -293,7 +293,7 @@ export class LessonPanelManager {
     }
 
     if (msg.command === "focusProgress") {
-      await vscode.commands.executeCommand("qsharp-vscode.learningTree.focus");
+      await vscode.commands.executeCommand(`${LEARNING_TREE_VIEW_ID}.focus`);
       return;
     }
 

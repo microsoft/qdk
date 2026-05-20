@@ -16,3 +16,6 @@ export const LEARNING_WORKSPACE_DETECTED_CONTEXT =
 
 /** Course ID for the built-in Quantum Katas. */
 export const KATAS_COURSE_ID = "katas";
+
+/** Tree view ID for the learning progress panel. */
+export const LEARNING_TREE_VIEW_ID = "qsharp-vscode.learningTree";
