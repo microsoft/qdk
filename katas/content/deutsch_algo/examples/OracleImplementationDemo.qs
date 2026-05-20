@@ -19,7 +19,7 @@ namespace Kata {
     operation OracleImplementationDemo() : Unit {
         use q = Qubit();
         Ry(2.0 * ArcCos(0.6), q);
-        Message("The qubit state before oracle application is 0.6|0⟩ + 0.8|0⟩:");
+        Message("The qubit state before oracle application is 0.6|0⟩ + 0.8|1⟩:");
         DumpMachine();
 
         // Apply the oracle.
