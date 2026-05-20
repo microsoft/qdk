@@ -329,6 +329,18 @@ export class LessonPanelManager {
           await this.checkSolutionAndSendResult("panel");
           break;
         }
+        case "reset": {
+          const confirmed = await vscode.window.showWarningMessage(
+            "Reset this exercise to the original placeholder code? Your current code will be lost.",
+            { modal: true },
+            "Reset",
+          );
+          if (confirmed === "Reset") {
+            await this.service.resetExercise();
+            this.sendState();
+          }
+          break;
+        }
         default:
           this.sendError(`Unknown action: ${action}`);
       }
