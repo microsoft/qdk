@@ -53,8 +53,12 @@ fn if_then_return_else_return_at_end_stays_structured() {
         &expect![[r#"
             callable Main: input_ty=Unit, output_ty=Int
                 body: block_ty=Int
-                    [0] Local(Immutable, q: Qubit): Call[ty=Qubit]
-                    [1] Expr If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Int], else=Block[ty=Int])"#]],
+                    [0] Local(Mutable, __has_returned: Bool): Lit(Bool(false))
+                    [1] Local(Mutable, __ret_val: Int): Lit(Int(0))
+                    [2] Local(Immutable, q: Qubit): Call[ty=Qubit]
+                    [3] Local(Immutable, @generated_ident_59: Unit): If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
+                    [4] Semi If(cond=UnOp(NotL)[ty=Bool], then=Block[ty=Unit])
+                    [5] Expr Var[ty=Int]"#]],
     );
 }
 
@@ -118,9 +122,12 @@ fn nested_while_inner_only_exit_is_return_terminates() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_56;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_56
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -243,9 +250,12 @@ fn nested_for_inner_body_hits_return() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_144;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_144
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -314,9 +324,12 @@ fn continuation_value_is_observed_when_inner_return_not_taken() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_53;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_53
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -394,9 +407,12 @@ fn four_level_if_if_if_if_return_deepest() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_71;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_71
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -499,9 +515,12 @@ fn four_level_while_while_while_while_return_deepest() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_100;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_100
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -609,9 +628,12 @@ fn four_level_if_while_for_if_return_deepest() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_123;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_123
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -679,9 +701,12 @@ fn use_scope_wraps_nested_if_return_deep() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_53;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_53
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -722,8 +747,13 @@ fn if_elseif_elseif_else_return_in_last_arm() {
             // namespace Test
             operation Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     let q : Qubit = __quantum__rt__qubit_allocate();
-                    if not M(q) == One if M(q) == Zero {
+                    let
+                    @generated_ident_66 : Int = if M(q) == One {
+                        1
+                    } elif M(q) == Zero {
                         2
                     } elif M(q) == One {
                         3
@@ -732,16 +762,20 @@ fn if_elseif_elseif_else_return_in_last_arm() {
                             let
                             @generated_ident_54 : Int = 4;
                             __quantum__rt__qubit_release(q);
-                            @generated_ident_54
-                        }
-
-                    } else {
-                        let
-                        @generated_ident_66 : Int = {
-                            1
+                            {
+                                __ret_val =
+                                @generated_ident_54;
+                                __has_returned = true;
+                            };
                         };
+                    };
+                    if not __has_returned {
                         __quantum__rt__qubit_release(q);
-                        @generated_ident_66
+                    };
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_66
+                        } else __ret_val
                     }
 
                 }
@@ -804,7 +838,9 @@ fn nested_use_scope_return_in_inner_body() {
                         if not __has_returned {
                             __quantum__rt__qubit_release(q1);
                         };
-                        @generated_ident_66
+                        if not __has_returned {
+                            @generated_ident_66
+                        };
                     }
 
                     let
@@ -814,9 +850,12 @@ fn nested_use_scope_return_in_inner_body() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q0);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_75;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_75
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {

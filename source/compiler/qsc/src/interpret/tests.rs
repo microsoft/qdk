@@ -1537,7 +1537,7 @@ mod given_interpreter {
                 "expected measurement comparisons to lower through read_result, got:\n{qir}"
             );
             assert!(
-                qir.contains("icmp eq i1 %var_4, %var_5"),
+                qir.contains("icmp eq i1 %var_5, %var_6"),
                 "expected result-to-result equality to lower to an i1 comparison, got:\n{qir}"
             );
         }

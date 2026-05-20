@@ -64,7 +64,7 @@ enum RenderMode {
 
 /// Renders the full FIR package as Q# source.
 ///
-/// Test-oriented helper: see the ["Public API"](self#public-api) section of
+/// Test-oriented helper: see the [`Public API`](self#public-api) section of
 /// the module doc for the snapshot-test contract and the constructs that
 /// render as comments or synthetic surface syntax.
 #[must_use]

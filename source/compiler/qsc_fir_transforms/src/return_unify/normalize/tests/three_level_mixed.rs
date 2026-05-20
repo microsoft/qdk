@@ -57,46 +57,53 @@ fn three_level_block_block_if_returns_at_each_level() {
                             };
                         }
 
-                        {
-                            if M(q) == Zero {
-                                {
-                                    let
-                                    @generated_ident_77 : Int = 2;
-                                    __quantum__rt__qubit_release(q);
-                                    {
-                                        __ret_val =
-                                        @generated_ident_77;
-                                        __has_returned = true;
-                                    };
-                                };
-                            }
-
+                        if not __has_returned {
                             {
-                                if M(q) == One {
+                                if M(q) == Zero {
                                     {
                                         let
-                                        @generated_ident_89 : Int = 3;
+                                        @generated_ident_77 : Int = 2;
                                         __quantum__rt__qubit_release(q);
                                         {
                                             __ret_val =
-                                            @generated_ident_89;
+                                            @generated_ident_77;
                                             __has_returned = true;
                                         };
                                     };
                                 }
 
-                                4
+                                if not __has_returned {
+                                    {
+                                        if M(q) == One {
+                                            {
+                                                let
+                                                @generated_ident_89 : Int = 3;
+                                                __quantum__rt__qubit_release(q);
+                                                {
+                                                    __ret_val =
+                                                    @generated_ident_89;
+                                                    __has_returned = true;
+                                                };
+                                            };
+                                        }
+
+                                        4
+                                    }
+
+                                } else __ret_val
                             }
 
-                        }
-
+                        } else __ret_val
                     };
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_101;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_101
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -166,12 +173,16 @@ fn three_level_qubit_scopes_with_deep_return() {
                             if not __has_returned {
                                 __quantum__rt__qubit_release(q2);
                             };
-                            @generated_ident_88
+                            if not __has_returned {
+                                @generated_ident_88
+                            };
                         };
                         if not __has_returned {
                             __quantum__rt__qubit_release(q1);
                         };
-                        @generated_ident_97
+                        if not __has_returned {
+                            @generated_ident_97
+                        };
                     }
 
                     let
@@ -181,9 +192,12 @@ fn three_level_qubit_scopes_with_deep_return() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q0);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_106;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_106
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -261,22 +275,24 @@ fn three_level_nested_returns_at_every_level() {
                                 };
                             }
 
-                            if M(q) == Zero {
-                                if M(q) == One {
-                                    {
-                                        let
-                                        @generated_ident_98 : Int = 3;
-                                        __quantum__rt__qubit_release(q);
+                            if not __has_returned {
+                                if M(q) == Zero {
+                                    if M(q) == One {
                                         {
-                                            __ret_val =
-                                            @generated_ident_98;
-                                            __has_returned = true;
+                                            let
+                                            @generated_ident_98 : Int = 3;
+                                            __quantum__rt__qubit_release(q);
+                                            {
+                                                __ret_val =
+                                                @generated_ident_98;
+                                                __has_returned = true;
+                                            };
                                         };
-                                    };
+                                    }
+
                                 }
 
-                            }
-
+                            };
                         }
 
                     };
@@ -287,9 +303,12 @@ fn three_level_nested_returns_at_every_level() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_110;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_110
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -388,8 +407,12 @@ fn three_level_hoist_return_in_call_arg_deep() {
 
                     }
 
-                    let __trailing_result : Int = total;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            total
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -429,37 +452,49 @@ fn three_level_outer_return_wraps_three_deep_block() {
             // namespace Test
             operation Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     {
-                        if M(q) == One {
+                        let
+                        @generated_ident_59 : Int = if M(q) == One {
                             if M(q) == Zero {
                                 if M(q) == One {
                                     {
                                         let
                                         @generated_ident_60 : Int = 1;
                                         __quantum__rt__qubit_release(q);
-                                        @generated_ident_60
-                                    }
-
-                                } else {
-                                    2
+                                        {
+                                            __ret_val =
+                                            @generated_ident_60;
+                                            __has_returned = true;
+                                        };
+                                    };
                                 }
 
+                                2
                             } else {
                                 3
                             }
 
                         } else {
-                            let
-                            @generated_ident_59 : Int = {
-                                4
-                            };
+                            4
+                        };
+                        if not __has_returned {
                             __quantum__rt__qubit_release(q);
-                            @generated_ident_59
-                        }
-
-                    }
-
+                        };
+                        if not __has_returned {
+                            {
+                                __ret_val =
+                                @generated_ident_59;
+                                __has_returned = true;
+                            };
+                        };
+                    };
+                    if not __has_returned {
+                        __quantum__rt__qubit_release(q);
+                    };
+                    __ret_val
                 }
             }
             function Length(a : Pauli[]) : Int {

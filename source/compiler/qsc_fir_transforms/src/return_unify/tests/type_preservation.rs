@@ -44,6 +44,30 @@ fn type_preservation_flag_strategy_int() {
 }
 
 #[test]
+fn type_preservation_array_backed_qubit_return() {
+    let (store, pkg_id) = compile_return_unified(indoc! {r#"
+        namespace Test {
+            operation Pick(q : Qubit) : Qubit {
+                mutable i = 0;
+                while i < 1 {
+                    return q;
+                }
+                q
+            }
+
+            operation Main() : Unit {
+                use q = Qubit();
+                let returned = Pick(q);
+                Reset(returned);
+            }
+        }
+    "#});
+    crate::test_utils::assert_callable_body_terminal_expr_matches_block_type(
+        &store, pkg_id, "Pick",
+    );
+}
+
+#[test]
 fn type_preservation_tuple_return() {
     // Tuple return type — invariant checked in pipeline.
     let (store, pkg_id) = compile_return_unified(indoc! {r#"

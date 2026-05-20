@@ -7,11 +7,11 @@
 
 mod contracts_and_errors;
 mod flag_strategy;
+mod general;
 mod idempotency;
 mod qubit_release;
 mod regressions;
 mod semantic;
-mod structured_strategy;
 mod type_preservation;
 
 use expect_test::{Expect, expect};
@@ -412,6 +412,45 @@ pub(crate) fn check_no_returns_q(source: &str, expect: &Expect) {
     let (store, pkg_id) = compile_return_unified(source);
     let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
     expect.assert_eq(&rendered);
+}
+
+/// Compile, run the pipeline through mono + return-unify-without-simplify,
+/// snapshot the pre-simplify FIR, apply the supplied simplifier rule to
+/// `callable_name`'s body block, snapshot the post-rule FIR, and pin both
+/// via `expect_test`.
+///
+/// Use this in per-rule simplify tests instead of hand-constructing FIR
+/// so the test inputs cannot drift from what the normalize +
+/// `transform_block_with_flags` lowering actually emits.
+///
+/// The snapshot format is
+/// `// before <rule_name> (fired=<bool>)\n<fir>\n// after <rule_name>\n<fir>`.
+/// The `fired` flag records the rule's return value (whether anything
+/// was rewritten), which lets the snapshot witness rule firing without
+/// a separate assertion.
+pub(crate) fn check_simplify_rule_q(
+    source: &str,
+    callable_name: &str,
+    rule_name: &str,
+    apply_rule: impl FnOnce(&mut Package, &mut Assigner, BlockId) -> bool,
+    expect: &Expect,
+) {
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
+    let mut assigner = Assigner::from_package(store.get(pkg_id));
+    let errors = super::unify_returns_without_simplify(&mut store, pkg_id, &mut assigner);
+    assert!(
+        errors.is_empty(),
+        "unify_returns_without_simplify produced errors: {errors:?}"
+    );
+
+    let before = crate::pretty::write_package_qsharp(&store, pkg_id);
+    let block_id = find_body_block_id(store.get(pkg_id), callable_name);
+    let fired = apply_rule(store.get_mut(pkg_id), &mut assigner, block_id);
+    let after = crate::pretty::write_package_qsharp(&store, pkg_id);
+
+    expect.assert_eq(&format!(
+        "// before {rule_name} (fired={fired})\n{before}\n// after {rule_name}\n{after}"
+    ));
 }
 
 fn check_pre_fir_transforms_to_return_unify_q(source: &str, expect: &Expect) {

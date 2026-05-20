@@ -228,6 +228,7 @@ fn while_body_with_call_arg_return() {
                     mutable i : Int = 0;
                     while not __has_returned and i < 3 {
                         let _ : ((Int, Int) -> Int) = Add;
+                        let _ : Int = 0;
                         {
                             __ret_val = 42;
                             __has_returned = true;
@@ -237,8 +238,12 @@ fn while_body_with_call_arg_return() {
                         };
                     }
 
-                    let __trailing_result : Int = -1;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+            -1
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -273,14 +278,22 @@ fn local_init_retype_in_call_arg_fix() {
             }
             function Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     let c : Bool = true;
-                    if c {
-                        1
+                    let x : Int = if c {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        }
+
                     } else {
-                        let x : Int = {
-                            0
-                        };
-                        Identity(x)
+                        0
+                    };
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            Identity(x)
+                        } else __ret_val
                     }
 
                 }
@@ -334,8 +347,12 @@ fn nested_block_middle_of_block_fix() {
                     } else {
                         0
                     };
-                    let __trailing_result : Int = y;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            y
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -348,10 +365,10 @@ fn nested_block_middle_of_block_fix() {
 fn flag_fallback_handles_arrow_return() {
     // A callable-valued Return inside a while body forces the flag-based
     // fallback to synthesize a default of arrow type. `create_default_value`
-    // handles this by synthesizing a nop callable item of matching
+    // handles this by synthesizing a fail-bodied callable item of matching
     // signature and using `Var(Res::Item(..))` as the `__ret_val` seed; the
-    // nop is never actually invoked because `__has_returned` guards every
-    // read of `__ret_val`.
+    // fail-bodied callable is never actually invoked because `__has_returned`
+    // guards every read of `__ret_val`.
     let source = indoc! {r#"
         namespace Test {
             function MakeAdder(n : Int) : (Int -> Int) {
@@ -379,7 +396,7 @@ fn flag_fallback_handles_arrow_return() {
             function MakeAdder(n : Int) : (Int -> Int) {
                 body {
                     mutable __has_returned : Bool = false;
-                    mutable __ret_val : (Int -> Int) = __return_unify_nop_5;
+                    mutable __ret_val : (Int -> Int) = __return_unify_fail_5;
                     mutable i : Int = 0;
                     while not __has_returned and i < 3 {
                         if i == n {
@@ -394,8 +411,12 @@ fn flag_fallback_handles_arrow_return() {
                         };
                     }
 
-                    let __trailing_result : (Int -> Int) = / * closure item = 4 captures = [] * / < lambda >;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            / * closure item = 4 captures = [] * / < lambda >
+                        } else __ret_val
+                    }
+
                 }
             }
             function Main() : Int {
@@ -414,9 +435,9 @@ fn flag_fallback_handles_arrow_return() {
                     x
                 }
             }
-            function __return_unify_nop_5(_ : Int) : Int {
+            function __return_unify_fail_5(_ : Int) : Int {
                 body {
-                    0
+                    fail $"callable init expr"
                 }
             }
             // entry
@@ -450,11 +471,14 @@ fn flag_fallback_supports_post_return_range_local_initializer() {
         rendered.contains("let r : Range = if not __has_returned {"),
         "post-return range local initializers should be guarded under the flag strategy",
     );
-    // After bind-then-check fix, the trailing expression is bound to __trailing_result
-    // before the flag check.
+    // After the simplifier catalogue's `let_folding` rule fires, the
+    // `__trailing_result` binding is inlined into the trailing merge.
+    // The bind-then-check pattern is preserved as
+    // `if __has_returned __ret_val else { if not __has_returned { <tail> } else __ret_val }`.
     assert!(
-        rendered.contains("let __trailing_result : Int =")
-            && rendered.contains("if __has_returned __ret_val else __trailing_result"),
-        "final trailing expression should use bind-then-check pattern",
+        rendered.contains(
+            "if __has_returned __ret_val else {\n            if not __has_returned {\n                0\n            } else __ret_val\n        }"
+        ),
+        "final trailing expression should preserve the bind-then-check pattern (now inlined into the trailing merge)\n{rendered}",
     );
 }

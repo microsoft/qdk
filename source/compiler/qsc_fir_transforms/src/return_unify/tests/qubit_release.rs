@@ -233,8 +233,12 @@ fn qubit_release_guarded_in_for_loop_with_early_return() {
 
                     }
 
-                    let __trailing_result : Int = result;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            result
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -301,10 +305,106 @@ fn body_level_qubit_release_guarded_with_while_return() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_64;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_64
+                        } else __ret_val
+                    }
+
                 }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn qubits_should_be_able_to_be_threaded_through_early_return() {
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            operation Main() : Int {
+                mutable i = 0;
+                while i < 1 { return 1; }
+                use q = Qubit();
+                0
+            }
+        }
+    "#},
+        &expect![[r#"
+            // namespace Test
+            operation Main() : Int {
+                body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    mutable i : Int = 0;
+                    while not __has_returned and i < 1 {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    }
+
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            let q : Qubit = __quantum__rt__qubit_allocate();
+                            let
+                            @generated_ident_33 : Int = 0;
+                            __quantum__rt__qubit_release(q);
+                            @generated_ident_33
+                        } else __ret_val
+                    }
+
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn qubit_arrays_should_be_able_to_be_threaded_through_early_return() {
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            operation Main() : Int {
+                mutable i = 0;
+                while i < 1 { return 1; }
+                use qs = Qubit[2];
+                0
+            }
+        }
+    "#},
+        &expect![[r#"
+            // namespace Test
+            operation Main() : Int {
+                body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    mutable i : Int = 0;
+                    while not __has_returned and i < 1 {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    }
+
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            let qs : Qubit[] = AllocateQubitArray(2);
+                            let
+                            @generated_ident_34 : Int = 0;
+                            ReleaseQubitArray(qs);
+                            @generated_ident_34
+                        } else __ret_val
+                    }
+
+                }
+            }
+            function Length(a : Qubit[]) : Int {
+                body intrinsic;
             }
             // entry
             Main()

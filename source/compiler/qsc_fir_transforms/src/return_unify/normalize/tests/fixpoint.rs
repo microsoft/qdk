@@ -38,27 +38,40 @@ fn hoist_outer_return_wraps_if_with_return_in_then_branch() {
             // namespace Test
             operation Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     {
-                        if M(q) == One {
+                        let
+                        @generated_ident_35 : Int = if M(q) == One {
                             {
                                 let
                                 @generated_ident_36 : Int = 1;
                                 __quantum__rt__qubit_release(q);
-                                @generated_ident_36
-                            }
-
-                        } else {
-                            let
-                            @generated_ident_35 : Int = {
-                                2
+                                {
+                                    __ret_val =
+                                    @generated_ident_36;
+                                    __has_returned = true;
+                                };
                             };
+                        } else {
+                            2
+                        };
+                        if not __has_returned {
                             __quantum__rt__qubit_release(q);
-                            @generated_ident_35
-                        }
-
-                    }
-
+                        };
+                        if not __has_returned {
+                            {
+                                __ret_val =
+                                @generated_ident_35;
+                                __has_returned = true;
+                            };
+                        };
+                    };
+                    if not __has_returned {
+                        __quantum__rt__qubit_release(q);
+                    };
+                    __ret_val
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -96,28 +109,49 @@ fn hoist_outer_return_wraps_if_with_returns_in_both_branches() {
             // namespace Test
             operation Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     {
-                        if M(q) == One {
+                        let
+                        @generated_ident_36 : Unit = if M(q) == One {
                             {
                                 let
                                 @generated_ident_37 : Int = 1;
                                 __quantum__rt__qubit_release(q);
-                                @generated_ident_37
-                            }
-
+                                {
+                                    __ret_val =
+                                    @generated_ident_37;
+                                    __has_returned = true;
+                                };
+                            };
                         } else {
                             {
                                 let
                                 @generated_ident_49 : Int = 2;
                                 __quantum__rt__qubit_release(q);
-                                @generated_ident_49
-                            }
-
-                        }
-
-                    }
-
+                                {
+                                    __ret_val =
+                                    @generated_ident_49;
+                                    __has_returned = true;
+                                };
+                            };
+                        };
+                        if not __has_returned {
+                            __quantum__rt__qubit_release(q);
+                        };
+                        if not __has_returned {
+                            {
+                                __ret_val =
+                                @generated_ident_36;
+                                __has_returned = true;
+                            };
+                        };
+                    };
+                    if not __has_returned {
+                        __quantum__rt__qubit_release(q);
+                    };
+                    __ret_val
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -157,6 +191,8 @@ fn hoist_outer_return_wraps_block_with_stmt_level_return() {
             // namespace Test
             operation Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     {
                         let
@@ -166,18 +202,31 @@ fn hoist_outer_return_wraps_block_with_stmt_level_return() {
                                     let
                                     @generated_ident_37 : Int = 1;
                                     __quantum__rt__qubit_release(q);
-                                    @generated_ident_37
-                                }
-
-                            } else {
-                                2
+                                    {
+                                        __ret_val =
+                                        @generated_ident_37;
+                                        __has_returned = true;
+                                    };
+                                };
                             }
 
+                            2
                         };
+                        if not __has_returned {
+                            __quantum__rt__qubit_release(q);
+                        };
+                        if not __has_returned {
+                            {
+                                __ret_val =
+                                @generated_ident_36;
+                                __has_returned = true;
+                            };
+                        };
+                    };
+                    if not __has_returned {
                         __quantum__rt__qubit_release(q);
-                        @generated_ident_36
-                    }
-
+                    };
+                    __ret_val
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -215,10 +264,22 @@ fn hoist_outer_return_wraps_if_whose_condition_has_return() {
             // namespace Test
             function Main() : Int {
                 body {
-                    {
-                        7
-                    }
-
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    let __ret_hoist : Int = {
+                        {
+                            __ret_val = 7;
+                            __has_returned = true;
+                        };
+                        0
+                    };
+                    if not __has_returned {
+                        {
+                            __ret_val = __ret_hoist;
+                            __has_returned = true;
+                        };
+                    };
+                    __ret_val
                 }
             }
             // entry
@@ -308,32 +369,44 @@ fn hoist_outer_return_wraps_nested_ifs_with_deep_stmt_return() {
             // namespace Test
             operation Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     {
-                        if M(q) == One {
+                        let
+                        @generated_ident_46 : Int = if M(q) == One {
                             if M(q) == Zero {
                                 {
                                     let
                                     @generated_ident_47 : Int = 1;
                                     __quantum__rt__qubit_release(q);
-                                    @generated_ident_47
-                                }
-
-                            } else {
-                                2
+                                    {
+                                        __ret_val =
+                                        @generated_ident_47;
+                                        __has_returned = true;
+                                    };
+                                };
                             }
 
+                            2
                         } else {
-                            let
-                            @generated_ident_46 : Int = {
-                                3
-                            };
+                            3
+                        };
+                        if not __has_returned {
                             __quantum__rt__qubit_release(q);
-                            @generated_ident_46
-                        }
-
-                    }
-
+                        };
+                        if not __has_returned {
+                            {
+                                __ret_val =
+                                @generated_ident_46;
+                                __has_returned = true;
+                            };
+                        };
+                    };
+                    if not __has_returned {
+                        __quantum__rt__qubit_release(q);
+                    };
+                    __ret_val
                 }
             }
             function Length(a : Pauli[]) : Int {

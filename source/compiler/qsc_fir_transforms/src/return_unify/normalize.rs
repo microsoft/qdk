@@ -61,59 +61,149 @@ use qsc_fir::{
         BinOp, Expr, ExprId, ExprKind, Ident, Mutability, Package, PackageId, PackageLookup, Pat,
         PatId, PatKind, Res, Stmt, StmtId, StmtKind, StringComponent,
     },
-    ty::Ty,
+    ty::{Prim, Ty},
 };
 
 use crate::{
     EMPTY_EXEC_RANGE,
-    fir_builder::{alloc_block, alloc_bool_lit, alloc_expr_stmt, alloc_semi_stmt},
+    fir_builder::{alloc_block, alloc_bool_lit, alloc_expr, alloc_expr_stmt, alloc_semi_stmt},
 };
 use qsc_data_structures::span::Span;
 use std::rc::Rc;
 
 use super::detect::contains_return_in_expr;
 
-/// Iteration bound for the fixpoint loop — each pass removes at least one
-/// compound-position `Return`, so the total expression count dominates.
-fn fixpoint_bound(package: &Package) -> usize {
-    package.exprs.iter().count() + package.stmts.iter().count() + 1
+/// Count `ExprKind::Return` nodes that sit in compound (non-statement)
+/// positions within the reachable sub-tree of `block_id`. Each
+/// `hoist_block_once` pass lifts at least one such node to a statement
+/// boundary, so this count is the convergence measure.
+fn count_compound_position_returns(package: &Package, block_id: qsc_fir::fir::BlockId) -> usize {
+    let blocks = collect_reachable_blocks(package, block_id);
+    let mut count = 0usize;
+    for b in blocks {
+        for &stmt_id in &package.get_block(b).stmts {
+            count += count_compound_returns_in_stmt(package, stmt_id);
+        }
+    }
+    count
+}
+
+/// Count compound-position Returns in a single statement.
+///
+/// A `Semi(Return(v))` or `Expr(Return(v))` is at the statement boundary —
+/// the outer Return is NOT compound, but Returns inside `v` ARE compound.
+/// A `Local(_, _, e)` where `e` contains a Return is always compound.
+fn count_compound_returns_in_stmt(package: &Package, stmt_id: StmtId) -> usize {
+    match &package.get_stmt(stmt_id).kind {
+        StmtKind::Expr(e) | StmtKind::Semi(e) => {
+            let expr = package.get_expr(*e);
+            if let ExprKind::Return(inner) = &expr.kind {
+                // The outer Return is at statement boundary (not compound).
+                // Only count Returns inside the inner value.
+                count_compound_returns_in_expr(package, *inner)
+            } else {
+                count_compound_returns_in_expr(package, *e)
+            }
+        }
+        StmtKind::Local(_, _, e) => count_compound_returns_in_expr(package, *e),
+        StmtKind::Item(_) => 0,
+    }
+}
+
+/// Count `ExprKind::Return` nodes inside an expression tree that are in
+/// compound (non-statement-carrying) positions.
+///
+/// Statement-carrying constructs (`Block`, `If`, `While`) are not descended
+/// into — Returns inside those are handled by the strategy pass, not the
+/// hoist pass. We only count Returns that `hoist_in_expr` would lift.
+fn count_compound_returns_in_expr(package: &Package, expr_id: ExprId) -> usize {
+    let expr = package.get_expr(expr_id);
+    match &expr.kind {
+        ExprKind::Return(inner) => {
+            // This Return is in a compound position. Count it, plus any
+            // nested compound Returns inside the inner value.
+            1 + count_compound_returns_in_expr(package, *inner)
+        }
+        // Statement-carrying constructs: the hoist pass does NOT descend
+        // into these (except for If-condition hoisting). For the purpose
+        // of this measure, only count If-condition Returns.
+        ExprKind::Block(_) => 0,
+        ExprKind::If(cond, _, _) => count_compound_returns_in_expr(package, *cond),
+        ExprKind::While(cond, _) => count_compound_returns_in_expr(package, *cond),
+        // Leaves
+        ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => 0,
+        // Unary
+        ExprKind::Fail(e) | ExprKind::Field(e, _) | ExprKind::UnOp(_, e) => {
+            count_compound_returns_in_expr(package, *e)
+        }
+        // Binary
+        ExprKind::ArrayRepeat(a, b)
+        | ExprKind::Assign(a, b)
+        | ExprKind::AssignOp(_, a, b)
+        | ExprKind::BinOp(_, a, b)
+        | ExprKind::Call(a, b)
+        | ExprKind::Index(a, b)
+        | ExprKind::AssignField(a, _, b)
+        | ExprKind::UpdateField(a, _, b) => {
+            count_compound_returns_in_expr(package, *a)
+                + count_compound_returns_in_expr(package, *b)
+        }
+        // Ternary
+        ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
+            count_compound_returns_in_expr(package, *a)
+                + count_compound_returns_in_expr(package, *b)
+                + count_compound_returns_in_expr(package, *c)
+        }
+        // Multi-element
+        ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => exprs
+            .iter()
+            .map(|&e| count_compound_returns_in_expr(package, e))
+            .sum(),
+        ExprKind::Range(start, step, end) => [start, step, end]
+            .into_iter()
+            .flatten()
+            .map(|&e| count_compound_returns_in_expr(package, e))
+            .sum(),
+        ExprKind::Struct(_, copy, fields) => {
+            let copy_count = copy
+                .map(|c| count_compound_returns_in_expr(package, c))
+                .unwrap_or(0);
+            let fields_count: usize = fields
+                .iter()
+                .map(|fa| count_compound_returns_in_expr(package, fa.value))
+                .sum();
+            copy_count + fields_count
+        }
+        ExprKind::String(components) => components
+            .iter()
+            .map(|c| match c {
+                StringComponent::Expr(e) => count_compound_returns_in_expr(package, *e),
+                StringComponent::Lit(_) => 0,
+            })
+            .sum(),
+    }
 }
 
 /// Hoist every compound-position `Return` to its enclosing statement boundary.
 ///
 /// Runs to fixpoint across `block_id` and all transitively reachable
-/// sub-blocks.
+/// sub-blocks. Uses a measure-based divergence detector: the count of
+/// compound-position `Return` nodes must strictly decrease on each
+/// `changed = true` iteration. A hard cap guards against unbounded looping.
 ///
-/// # Before
-/// ```text
-/// { let x = f(return v); rest }
-/// ```
-/// # After
-/// ```text
-/// { let _ = f; return v; }   // compound-position Return lifted to Semi
-/// ```
-/// # Requires
-/// - `block_id` is a valid block in `package`.
-///
-/// # Ensures
-/// - Returns `true` iff any statement was rewritten.
-/// - No `ExprKind::Return` remains in a compound (non-statement-carrying)
-///   position; surviving Returns sit only at statement boundaries or inside
-///   `Block`/`If`/`While` (which the strategy pass handles).
-/// - Panics when the fixpoint bound is exceeded.
-///
-/// # Mutations
-/// - Rewrites `Block.stmts` for each reachable block that hoists a Return.
-/// - Allocates fresh statements and expressions through `assigner`.
+/// On divergence or hard-cap exhaustion, pushes
+/// [`super::Error::FixpointNotReached`] and returns without panicking.
 pub(super) fn hoist_returns_to_statement_boundary(
     package: &mut Package,
     assigner: &mut Assigner,
     package_id: PackageId,
     block_id: qsc_fir::fir::BlockId,
+    errors: &mut Vec<super::Error>,
 ) -> bool {
-    let bound = fixpoint_bound(package);
+    let hard_cap = package.exprs.iter().count() + package.stmts.iter().count() + 1;
+    let mut prev_measure: Option<usize> = None;
     let mut changed_any = false;
-    for _ in 0..bound {
+    for _ in 0..hard_cap {
         let blocks = collect_reachable_blocks(package, block_id);
         let mut changed_this_iter = false;
         for b in blocks {
@@ -125,8 +215,22 @@ pub(super) fn hoist_returns_to_statement_boundary(
             return changed_any;
         }
         changed_any = true;
+        let measure = count_compound_position_returns(package, block_id);
+        if matches!(prev_measure, Some(prev) if measure >= prev) {
+            errors.push(super::Error::FixpointNotReached {
+                phase: "hoist",
+                block: block_id,
+            });
+            return changed_any;
+        }
+        prev_measure = Some(measure);
     }
-    panic!("hoist_returns_to_statement_boundary exceeded fixpoint bound");
+    // Hard cap reached without convergence.
+    errors.push(super::Error::FixpointNotReached {
+        phase: "hoist",
+        block: block_id,
+    });
+    changed_any
 }
 
 /// Collects every block transitively reachable from `root` without crossing
@@ -308,7 +412,41 @@ fn hoist_stmt(
         return Some(bind_inner_and_return(package, assigner, surface, inner));
     }
 
-    hoist_in_expr(package, assigner, package_id, surface)
+    let replacement = hoist_in_expr(package, assigner, package_id, surface)?;
+
+    // `StmtKind::Local`: the surface init contains a hoistable `Return`,
+    // but the pat's `Bind` may be read by sibling stmts in the enclosing
+    // block. Preserve the original Local (rewriting its init to a
+    // structural default of the pat's type) so the closure-immutable
+    // `LocalVarId` model still resolves those reads. `StmtKind::Expr` and
+    // `StmtKind::Semi` need no such preservation because their surface IS
+    // the entire stmt — no separate pat binding survives.
+    if matches!(package.get_stmt(stmt_id).kind, StmtKind::Local(_, _, _)) {
+        let mut pre_discards = replacement;
+        let hoisted_return_stmt_id = pre_discards
+            .pop()
+            .expect("hoist_in_expr post-condition: replacement is non-empty");
+        debug_assert!(
+            matches!(
+                &package.get_stmt(hoisted_return_stmt_id).kind,
+                StmtKind::Semi(e) if matches!(
+                    &package.get_expr(*e).kind,
+                    ExprKind::Return(_),
+                ),
+            ),
+            "hoist_in_expr post-condition: replacement ends in Semi(Return(..))"
+        );
+        return Some(replace_local_init_with_default_and_emit(
+            package,
+            assigner,
+            package_id,
+            stmt_id,
+            pre_discards,
+            hoisted_return_stmt_id,
+        ));
+    }
+
+    Some(replacement)
 }
 
 /// Hoist any compound-position `Return` out of `expr_id`.
@@ -514,6 +652,32 @@ fn hoist_short_circuit(
     None
 }
 
+/// Creates a `fail "message"` expression stamped with the given output type.
+/// `Fail` is bottom-typed in Q#/FIR, so this expression is well-typed at
+/// any output type — it serves as a universal dead-code placeholder when
+/// `create_default_value` returns `None` for non-defaultable types.
+fn create_typed_fail_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    output_ty: &Ty,
+    message: &str,
+) -> ExprId {
+    let msg_expr_id = alloc_expr(
+        package,
+        assigner,
+        Ty::Prim(Prim::String),
+        ExprKind::String(vec![StringComponent::Lit(Rc::from(message))]),
+        Span::default(),
+    );
+    alloc_expr(
+        package,
+        assigner,
+        output_ty.clone(),
+        ExprKind::Fail(msg_expr_id),
+        Span::default(),
+    )
+}
+
 /// Handler for `If` condition returns. If the condition expression holds a
 /// `Return`, rewrites the surrounding expression in place to a `Block`
 /// expression whose statements execute the hoisted return and whose
@@ -534,17 +698,28 @@ fn hoist_in_cond(
     let orig_ty = package.get_expr(expr_id).ty.clone();
     let mut block_stmts = stmts;
     if orig_ty != Ty::UNIT {
-        let default = super::create_default_value(
+        let dead_tail = match super::create_default_value(
             package,
             assigner,
             package_id,
             &orig_ty,
-            &rustc_hash::FxHashMap::default(),
-        )
-        .unwrap_or_else(|| {
-            panic!("return_unify: unsupported return type in hoisted condition: {orig_ty:?}")
-        });
-        block_stmts.push(alloc_expr_stmt(package, assigner, default, Span::default()));
+            &super::UdtPureTyCache::default(),
+            &mut super::ArrowDefaultCache::default(),
+        ) {
+            Some(d) => d,
+            None => create_typed_fail_expr(
+                package,
+                assigner,
+                &orig_ty,
+                "qsharp.return_unify: hoisted condition returned; block tail unreachable",
+            ),
+        };
+        block_stmts.push(alloc_expr_stmt(
+            package,
+            assigner,
+            dead_tail,
+            Span::default(),
+        ));
     }
     let block_id = {
         let ty: &Ty = &orig_ty;
@@ -625,7 +800,7 @@ fn bind_inner_and_return(
             kind: PatKind::Bind(Ident {
                 id: local_var_id,
                 span: Span::default(),
-                name: Rc::from("__ret_hoist"),
+                name: Rc::from(super::symbols::RET_HOIST),
             }),
         },
     );
@@ -662,4 +837,101 @@ fn bind_inner_and_return(
     let return_stmt_id = alloc_semi_stmt(package, assigner, return_expr, Span::default());
 
     vec![local_stmt_id, return_stmt_id]
+}
+
+/// Local-init companion to [`hoist_in_cond`]: when [`hoist_stmt`]'s
+/// `StmtKind::Local` arm receives a non-empty replacement vector, keep the
+/// original Local stmt alive (so its `Bind` pat continues to resolve sibling
+/// reads in the enclosing block) and rewrite its initializer to a
+/// structural default of the pat's type via [`super::create_default_value`].
+///
+/// The preserved Local sits between the hoisted return's pre-discard prefix
+/// and the bare `Semi(Return v)`. The pat, the pat's `LocalVarId`, and the
+/// outer `StmtId` are all reused — only the new default-init expression
+/// allocates an `ExprId` — so the closure-immutable `LocalVarId` model is
+/// preserved.
+///
+/// Defect this fixes: without preserving the Local, the flag-strategy emit
+/// (which does NOT truncate dead-after-return stmts) leaves sibling reads
+/// of the dropped `LocalVarId` dangling, tripping the post-return-unify
+/// `LocalVarId consistency` invariant check (invariants.rs:1604).
+///
+/// # Requires
+/// - `orig_stmt_id` refers to a `StmtKind::Local` in `package`.
+/// - `hoisted_return_stmt_id` is the bare `Semi(Return v)` produced by
+///   `hoist_in_expr`'s post-condition (the last element of its replacement
+///   vector).
+///
+/// # Ensures
+/// - Returns `[pre_discards..., orig_stmt_id, hoisted_return_stmt_id]`.
+/// - The original Local's pat is unchanged; the init expression is
+///   replaced with a freshly allocated default-value expression of the
+///   pat's type.
+///
+/// # Mutations
+/// - Allocates exactly one fresh `ExprId` (the default-init expression).
+/// - Rewrites the original Local's `init` field in place.
+/// - Does NOT allocate a new `Pat`, `Stmt`, or `LocalVarId`.
+///
+/// # Fallback
+/// When [`super::create_default_value`] returns `None` for the pat type
+/// (non-defaultable type), uses a typed-fail expression as the dead init
+/// and reorders statements so the hoisted return fires before the dead
+/// Local, ensuring the fail init is never evaluated at runtime.
+fn replace_local_init_with_default_and_emit(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    package_id: PackageId,
+    orig_stmt_id: StmtId,
+    pre_discards: Vec<StmtId>,
+    hoisted_return_stmt_id: StmtId,
+) -> Vec<StmtId> {
+    let (mutability, pat_id) = match &package.get_stmt(orig_stmt_id).kind {
+        StmtKind::Local(m, p, _) => (*m, *p),
+        _ => unreachable!(
+            "replace_local_init_with_default_and_emit requires a StmtKind::Local input"
+        ),
+    };
+    let pat_ty = package.get_pat(pat_id).ty.clone();
+    let (dead_init, reorder_after_return) = match super::create_default_value(
+        package,
+        assigner,
+        package_id,
+        &pat_ty,
+        &super::UdtPureTyCache::default(),
+        &mut super::ArrowDefaultCache::default(),
+    ) {
+        Some(d) => (d, false),
+        None => (
+            create_typed_fail_expr(
+                package,
+                assigner,
+                &pat_ty,
+                "qsharp.return_unify: hoisted local-init preserved past return; init unreachable",
+            ),
+            true,
+        ),
+    };
+
+    // Rewrite the original Local's init in place. The pat (and therefore
+    // the LocalVarId) is reused, so downstream reads remain bound.
+    let stmt = package
+        .stmts
+        .get_mut(orig_stmt_id)
+        .expect("local stmt not found");
+    stmt.kind = StmtKind::Local(mutability, pat_id, dead_init);
+
+    let mut out: Vec<StmtId> = Vec::with_capacity(pre_discards.len() + 2);
+    out.extend(pre_discards);
+    if reorder_after_return {
+        // Non-defaultable type: emit the return BEFORE the dead Local so
+        // the fail-init is never reached. The strategy pass wraps the dead
+        // Local under `if not __has_returned`.
+        out.push(hoisted_return_stmt_id);
+        out.push(orig_stmt_id);
+    } else {
+        out.push(orig_stmt_id);
+        out.push(hoisted_return_stmt_id);
+    }
+    out
 }

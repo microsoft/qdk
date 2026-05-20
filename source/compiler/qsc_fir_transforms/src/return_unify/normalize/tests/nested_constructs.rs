@@ -59,9 +59,12 @@ fn if_if_return_then_trailing() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_53;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_53
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -120,9 +123,12 @@ fn if_if_return_no_trailing_unit() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Unit =
-                    @generated_ident_51;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_51
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -193,9 +199,12 @@ fn if_if_return_sibling_stmt_before_if() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_63;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_63
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -265,9 +274,12 @@ fn if_if_return_inside_block_wrapper() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_56;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_56
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -309,29 +321,37 @@ fn if_elseif_if_return_deep() {
             // namespace Test
             operation Main() : Int {
                 body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
                     let q : Qubit = __quantum__rt__qubit_allocate();
-                    if not M(q) == One if M(q) == Zero {
+                    let
+                    @generated_ident_67 : Int = if M(q) == One {
+                        1
+                    } elif M(q) == Zero {
                         if M(q) == One {
                             {
                                 let
                                 @generated_ident_55 : Int = 2;
                                 __quantum__rt__qubit_release(q);
-                                @generated_ident_55
-                            }
-
-                        } else {
-                            3
+                                {
+                                    __ret_val =
+                                    @generated_ident_55;
+                                    __has_returned = true;
+                                };
+                            };
                         }
 
+                        3
                     } else {
                         4
-                    } else {
-                        let
-                        @generated_ident_67 : Int = {
-                            1
-                        };
+                    };
+                    if not __has_returned {
                         __quantum__rt__qubit_release(q);
-                        @generated_ident_67
+                    };
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_67
+                        } else __ret_val
                     }
 
                 }
@@ -416,9 +436,12 @@ fn while_while_return_deep() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_72;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_72
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -521,9 +544,12 @@ fn while_for_if_return_deep() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_114;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_114
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -600,9 +626,12 @@ fn while_inside_if_without_else_return() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_68;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_68
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {
@@ -699,9 +728,12 @@ fn for_inside_if_without_else_return() {
                     if not __has_returned {
                         __quantum__rt__qubit_release(q);
                     };
-                    let __trailing_result : Int =
-                    @generated_ident_105;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            @generated_ident_105
+                        } else __ret_val
+                    }
+
                 }
             }
             function Length(a : Pauli[]) : Int {

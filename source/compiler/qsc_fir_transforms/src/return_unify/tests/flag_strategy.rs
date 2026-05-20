@@ -42,8 +42,12 @@ fn return_inside_while_loop() {
                         };
                     }
 
-                    let __trailing_result : Int = -1;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+            -1
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -91,8 +95,12 @@ fn while_return_tuple_value_uses_flag_fallback() {
                         };
                     }
 
-                    let __trailing_result : (Int, Bool) = (-1, false);
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            (-1, false)
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -216,8 +224,12 @@ fn while_return_array_value_uses_flag_fallback() {
                         };
                     }
 
-                    let __trailing_result : Int[] = [];
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            []
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -243,6 +255,333 @@ fn while_return_array_value_uses_flag_fallback() {
     );
 }
 
+fn assert_empty_array_return_slot(
+    package: &Package,
+    callable_name: &str,
+    expected_slot_ty: &Ty,
+) -> (LocalVarId, LocalVarId) {
+    let (has_returned_pat, _) = find_local_init(package, callable_name, "__has_returned");
+    let has_returned_var_id = local_var_id_from_named_pat(has_returned_pat, "__has_returned");
+    let (ret_val_pat, ret_val_init) = find_local_init(package, callable_name, "__ret_val");
+    let ret_val_var_id = local_var_id_from_named_pat(ret_val_pat, "__ret_val");
+
+    assert_eq!(&ret_val_pat.ty, expected_slot_ty);
+    let ExprKind::Array(items) = &ret_val_init.kind else {
+        panic!(
+            "expected array-backed return slot initializer, got {:?}",
+            ret_val_init.kind
+        );
+    };
+    assert!(items.is_empty(), "return slot should initialize to []");
+
+    (ret_val_var_id, has_returned_var_id)
+}
+
+fn expr_indexes_return_slot_at_zero(
+    package: &Package,
+    expr_id: ExprId,
+    ret_val_var_id: LocalVarId,
+) -> bool {
+    let ExprKind::Index(array_expr_id, index_expr_id) = &package.get_expr(expr_id).kind else {
+        return false;
+    };
+    expr_reads_local(package, *array_expr_id, ret_val_var_id)
+        && matches!(
+            &package.get_expr(*index_expr_id).kind,
+            ExprKind::Lit(Lit::Int(0))
+        )
+}
+
+fn assert_singleton_return_slot_assignment(
+    package: &Package,
+    callable_name: &str,
+    ret_val_var_id: LocalVarId,
+    expected_slot_ty: &Ty,
+    expected_value_ty: &Ty,
+) {
+    let decl = find_callable_decl(package, callable_name);
+    let mut found = false;
+    for_each_expr_in_callable_impl(package, &decl.implementation, &mut |_expr_id, expr| {
+        let ExprKind::Assign(lhs_expr_id, rhs_expr_id) = &expr.kind else {
+            return;
+        };
+        if !expr_reads_local(package, *lhs_expr_id, ret_val_var_id) {
+            return;
+        }
+
+        let rhs_expr = package.get_expr(*rhs_expr_id);
+        let ExprKind::Array(items) = &rhs_expr.kind else {
+            return;
+        };
+        if items.len() == 1
+            && &rhs_expr.ty == expected_slot_ty
+            && &package.get_expr(items[0]).ty == expected_value_ty
+        {
+            found = true;
+        }
+    });
+
+    assert!(
+        found,
+        "expected `{callable_name}` to assign a singleton {expected_slot_ty} array to __ret_val"
+    );
+}
+
+fn assert_flag_guarded_index_read(
+    package: &Package,
+    callable_name: &str,
+    ret_val_var_id: LocalVarId,
+    has_returned_var_id: LocalVarId,
+) {
+    let decl = find_callable_decl(package, callable_name);
+    let mut found = false;
+    for_each_expr_in_callable_impl(package, &decl.implementation, &mut |_expr_id, expr| {
+        let ExprKind::If(flag_expr_id, then_expr_id, Some(_else_expr_id)) = &expr.kind else {
+            return;
+        };
+        if expr_reads_local(package, *flag_expr_id, has_returned_var_id)
+            && expr_indexes_return_slot_at_zero(package, *then_expr_id, ret_val_var_id)
+        {
+            found = true;
+        }
+    });
+
+    assert!(
+        found,
+        "expected `{callable_name}` to read __ret_val[0] only under __has_returned"
+    );
+}
+
+fn assert_no_return_slot_index_reads(
+    package: &Package,
+    callable_name: &str,
+    ret_val_var_id: LocalVarId,
+) {
+    let decl = find_callable_decl(package, callable_name);
+    let mut found = false;
+    for_each_expr_in_callable_impl(package, &decl.implementation, &mut |expr_id, _expr| {
+        found |= expr_indexes_return_slot_at_zero(package, expr_id, ret_val_var_id);
+    });
+
+    assert!(
+        !found,
+        "direct return slot for `{callable_name}` should not read __ret_val[0]"
+    );
+}
+
+fn assert_final_else_is_typed_fail(
+    package: &Package,
+    callable_name: &str,
+    ret_val_var_id: LocalVarId,
+    has_returned_var_id: LocalVarId,
+    expected_return_ty: &Ty,
+) {
+    let body_block_id = find_body_block_id(package, callable_name);
+    let body_block = package.get_block(body_block_id);
+    let trailing_stmt_id = *body_block
+        .stmts
+        .last()
+        .expect("expected rewritten callable body to have a trailing expression");
+    let StmtKind::Expr(trailing_expr_id) = &package.get_stmt(trailing_stmt_id).kind else {
+        panic!("expected rewritten callable body to end with Expr")
+    };
+    let ExprKind::If(flag_expr_id, then_expr_id, Some(else_expr_id)) =
+        &package.get_expr(*trailing_expr_id).kind
+    else {
+        panic!("expected final expression to be if __has_returned ...")
+    };
+
+    assert!(
+        expr_reads_local(package, *flag_expr_id, has_returned_var_id),
+        "final merge condition should read __has_returned"
+    );
+    assert!(
+        expr_indexes_return_slot_at_zero(package, *then_expr_id, ret_val_var_id),
+        "final merge should read __ret_val[0] in the returned branch"
+    );
+
+    let else_expr = package.get_expr(*else_expr_id);
+    assert_eq!(&else_expr.ty, expected_return_ty);
+    assert!(
+        matches!(else_expr.kind, ExprKind::Fail(_)),
+        "unwritten array-backed return slot fallback should be a typed fail, got {:?}",
+        else_expr.kind
+    );
+}
+
+#[test]
+fn qubit_return_in_while_uses_array_backed_return_slot() {
+    let source = indoc! {r#"
+        namespace Test {
+            operation Pick(q : Qubit) : Qubit {
+                mutable i = 0;
+                while i < 1 {
+                    return q;
+                }
+                q
+            }
+
+            operation Main() : Unit {
+                use q = Qubit();
+                let returned = Pick(q);
+                Reset(returned);
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let package = store.get(pkg_id);
+    let return_ty = Ty::Prim(Prim::Qubit);
+    let slot_ty = Ty::Array(Box::new(return_ty.clone()));
+    let (ret_val_var_id, has_returned_var_id) =
+        assert_empty_array_return_slot(package, "Pick", &slot_ty);
+
+    assert_singleton_return_slot_assignment(package, "Pick", ret_val_var_id, &slot_ty, &return_ty);
+    assert_flag_guarded_index_read(package, "Pick", ret_val_var_id, has_returned_var_id);
+}
+
+#[test]
+fn tuple_with_qubit_return_in_while_uses_array_backed_return_slot() {
+    let source = indoc! {r#"
+        namespace Test {
+            operation Pick(q : Qubit) : (Qubit, Int) {
+                mutable i = 0;
+                while i < 1 {
+                    return (q, 7);
+                }
+                (q, 0)
+            }
+
+            operation Main() : Unit {
+                use q = Qubit();
+                let _ = Pick(q);
+                Reset(q);
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let package = store.get(pkg_id);
+    let return_ty = Ty::Tuple(vec![Ty::Prim(Prim::Qubit), Ty::Prim(Prim::Int)]);
+    let slot_ty = Ty::Array(Box::new(return_ty.clone()));
+    let (ret_val_var_id, has_returned_var_id) =
+        assert_empty_array_return_slot(package, "Pick", &slot_ty);
+
+    assert_singleton_return_slot_assignment(package, "Pick", ret_val_var_id, &slot_ty, &return_ty);
+    assert_flag_guarded_index_read(package, "Pick", ret_val_var_id, has_returned_var_id);
+}
+
+#[test]
+fn udt_wrapping_qubit_return_in_while_uses_array_backed_return_slot() {
+    let source = indoc! {r#"
+        namespace Test {
+            newtype Wrapped = Qubit;
+
+            operation Pick(q : Qubit) : Wrapped {
+                mutable i = 0;
+                while i < 1 {
+                    return Wrapped(q);
+                }
+                Wrapped(q)
+            }
+
+            operation Main() : Unit {
+                use q = Qubit();
+                let _ = Pick(q);
+                Reset(q);
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let package = store.get(pkg_id);
+    let (ret_val_pat, _) = find_local_init(package, "Pick", "__ret_val");
+    let Ty::Array(return_ty) = &ret_val_pat.ty else {
+        panic!(
+            "expected UDT return slot to be an array, got {}",
+            ret_val_pat.ty
+        );
+    };
+    assert!(
+        matches!(return_ty.as_ref(), Ty::Udt(_)),
+        "array-backed UDT return slot should store Wrapped values, got {return_ty}"
+    );
+
+    let slot_ty = ret_val_pat.ty.clone();
+    let return_ty = return_ty.as_ref().clone();
+    let (ret_val_var_id, has_returned_var_id) =
+        assert_empty_array_return_slot(package, "Pick", &slot_ty);
+
+    assert_singleton_return_slot_assignment(package, "Pick", ret_val_var_id, &slot_ty, &return_ty);
+    assert_flag_guarded_index_read(package, "Pick", ret_val_var_id, has_returned_var_id);
+}
+
+#[test]
+fn qubit_array_return_in_while_stays_direct_return_slot() {
+    let source = indoc! {r#"
+        namespace Test {
+            operation Pick(qs : Qubit[]) : Qubit[] {
+                mutable i = 0;
+                while i < 1 {
+                    return qs;
+                }
+                qs
+            }
+
+            operation Main() : Unit {
+                use q = Qubit();
+                let _ = Pick([q]);
+                Reset(q);
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let package = store.get(pkg_id);
+    let slot_ty = Ty::Array(Box::new(Ty::Prim(Prim::Qubit)));
+    let (ret_val_var_id, _) = assert_empty_array_return_slot(package, "Pick", &slot_ty);
+
+    assert_no_return_slot_index_reads(package, "Pick", ret_val_var_id);
+}
+
+#[test]
+fn no_trailing_qubit_return_uses_typed_fail_for_unwritten_array_slot() {
+    let source = indoc! {r#"
+        namespace Test {
+            operation Pick(q : Qubit) : Qubit {
+                mutable i = 0;
+                while i < 1 {
+                    return q;
+                }
+                return q;
+            }
+
+            operation Main() : Unit {
+                use q = Qubit();
+                let returned = Pick(q);
+                Reset(returned);
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let package = store.get(pkg_id);
+    let return_ty = Ty::Prim(Prim::Qubit);
+    let slot_ty = Ty::Array(Box::new(return_ty.clone()));
+    let (ret_val_var_id, has_returned_var_id) =
+        assert_empty_array_return_slot(package, "Pick", &slot_ty);
+
+    assert_singleton_return_slot_assignment(package, "Pick", ret_val_var_id, &slot_ty, &return_ty);
+    assert_final_else_is_typed_fail(
+        package,
+        "Pick",
+        ret_val_var_id,
+        has_returned_var_id,
+        &return_ty,
+    );
+}
+
+#[allow(clippy::too_many_lines)]
 #[test]
 fn while_local_initializer_if_return_is_rewritten_by_flag_strategy() {
     let source = indoc! {r#"
@@ -331,14 +670,37 @@ fn while_local_initializer_if_return_is_rewritten_by_flag_strategy() {
         "trailing merge then-branch should read __ret_val"
     );
 
-    // After the bind-then-check fix, the else branch reads __trailing_result (a Var)
-    // rather than the original fallthrough expression directly.
+    // After the simplifier catalogue's `let_folding` rule fires, the
+    // `__trailing_result` binding is inlined into the trailing merge.
+    // The original initializer was an `If`, so let_folding wraps it in a
+    // `Block` (to keep the Q# pretty printer's `elif` rendering legal).
+    // The else-branch is now `{ if not __has_returned { i + 5 } else __ret_val }`.
+    let ExprKind::Block(else_block_id) = &package.get_expr(*else_expr_id).kind else {
+        panic!(
+            "post-let-folding trailing merge else-branch should be a Block wrapping the inlined initializer"
+        );
+    };
+    let else_block = package.get_block(*else_block_id);
+    let [inner_stmt_id] = else_block.stmts.as_slice() else {
+        panic!("inlined-initializer block should contain exactly one statement");
+    };
+    let StmtKind::Expr(inner_expr_id) = &package.get_stmt(*inner_stmt_id).kind else {
+        panic!("inlined-initializer block statement should be an Expr stmt");
+    };
+    let ExprKind::If(inner_cond_id, _inner_then_id, Some(inner_else_id)) =
+        &package.get_expr(*inner_expr_id).kind
+    else {
+        panic!(
+            "inlined fallthrough initializer should still be `if not __has_returned ... else __ret_val`"
+        );
+    };
     assert!(
-        matches!(
-            &package.get_expr(*else_expr_id).kind,
-            ExprKind::Var(Res::Local(_), _)
-        ),
-        "trailing merge else-branch should read __trailing_result"
+        is_not_flag_expr(package, *inner_cond_id, has_returned_var_id),
+        "inlined fallthrough should still be guarded by `not __has_returned`"
+    );
+    assert!(
+        expr_reads_local(package, *inner_else_id, ret_val_var_id),
+        "inlined fallthrough's else-arm should still read __ret_val"
     );
 }
 
@@ -418,7 +780,7 @@ fn while_local_initializer_if_else_return_preserves_fallthrough_tail() {
         assert_callable_assign_order(package, "Main", ret_val_var_id, has_returned_var_id);
     }
 
-    let (_tail_var_id, tail_init_expr_id) = body_block
+    let (tail_var_id, tail_init_expr_id) = body_block
         .stmts
         .iter()
         .find_map(|&stmt_id| {
@@ -487,14 +849,53 @@ fn while_local_initializer_if_else_return_preserves_fallthrough_tail() {
         "trailing merge then-branch should read __ret_val"
     );
 
-    // After the bind-then-check fix, the else branch reads __trailing_result rather than
-    // the `tail` local directly.
-    let (trailing_result_pat, _) = find_local_init(package, "Main", "__trailing_result");
-    let trailing_result_var_id =
-        local_var_id_from_named_pat(trailing_result_pat, "__trailing_result");
+    // After the simplifier catalogue's `let_folding` rule fires, the
+    // `__trailing_result` binding is inlined into the trailing merge.
+    // The original initializer was an `If`, so let_folding wraps it in a
+    // `Block`. The post-fold else-branch is therefore
+    // `{ if not __has_returned { tail } else __ret_val }`.
+    let ExprKind::Block(else_block_id) = &package.get_expr(*else_expr_id).kind else {
+        panic!(
+            "post-let-folding trailing merge else-branch should be a Block wrapping the inlined initializer"
+        );
+    };
+    let else_block = package.get_block(*else_block_id);
+    let [inner_stmt_id] = else_block.stmts.as_slice() else {
+        panic!("inlined-initializer block should contain exactly one statement");
+    };
+    let StmtKind::Expr(inner_expr_id) = &package.get_stmt(*inner_stmt_id).kind else {
+        panic!("inlined-initializer block statement should be an Expr stmt");
+    };
+    let ExprKind::If(inner_cond_id, inner_then_id, Some(inner_else_id)) =
+        &package.get_expr(*inner_expr_id).kind
+    else {
+        panic!(
+            "inlined fallthrough initializer should still be `if not __has_returned {{ tail }} else __ret_val`"
+        );
+    };
     assert!(
-        expr_reads_local(package, *else_expr_id, trailing_result_var_id),
-        "trailing merge else-branch should read __trailing_result"
+        is_not_flag_expr(package, *inner_cond_id, has_returned_var_id),
+        "inlined fallthrough should still be guarded by `not __has_returned`"
+    );
+    // The inlined `then` arm is rendered as `{ tail }` (a block holding the
+    // tail Var), matching the pre-fold initializer's block-bodied then arm.
+    let ExprKind::Block(then_block_id) = &package.get_expr(*inner_then_id).kind else {
+        panic!("inlined fallthrough's then-arm should be a Block wrapping the `tail` read");
+    };
+    let then_block = package.get_block(*then_block_id);
+    let [then_tail_stmt_id] = then_block.stmts.as_slice() else {
+        panic!("then-arm block should contain exactly one statement");
+    };
+    let StmtKind::Expr(then_tail_expr_id) = &package.get_stmt(*then_tail_stmt_id).kind else {
+        panic!("then-arm block's tail statement should be an Expr stmt");
+    };
+    assert!(
+        expr_reads_local(package, *then_tail_expr_id, tail_var_id),
+        "inlined fallthrough should preserve the read of the guarded `tail` local"
+    );
+    assert!(
+        expr_reads_local(package, *inner_else_id, ret_val_var_id),
+        "inlined fallthrough's else-arm should still read __ret_val"
     );
 }
 
@@ -781,65 +1182,449 @@ fn while_body_call_arg_return_keeps_loop_before_trailing_merge() {
                     [1] Local(Mutable, __ret_val: Int): Lit(Int(0))
                     [2] Local(Mutable, i: Int): Lit(Int(0))
                     [3] Expr While[ty=Unit]
-                    [4] Local(Immutable, __trailing_result: Int): UnOp(Neg)[ty=Int]
-                    [5] Expr If(cond=Var[ty=Bool], then=Var[ty=Int], else=Var[ty=Int])"#]],
+                    [4] Expr If(cond=Var[ty=Bool], then=Var[ty=Int], else=Block[ty=Int])"#]],
     );
 }
 
 #[test]
-fn nested_block_with_while_return_not_transformable_by_if_else() {
-    // For-loop desugaring wraps a While in a Block. When transform_block_if_else
-    // encounters this NestedBlock, the inner block contains a While-with-return
-    // that it can't handle (While falls to ReturnClass::None). The !changed
-    // guard must return false to prevent infinite recursion.
-    //
-    // This test calls transform_block_if_else directly (bypassing unify_returns
-    // which would route to the flag-based path) to exercise the guard.
-    let (mut store, pkg_id) = compile_and_run_pipeline_to(
+fn recursive_while_body_qubit_suffix_uses_lazy_continuation() {
+    check_no_returns_q(
         indoc! {r#"
-            namespace Test {
-                function Main() : Int {
-                    for i in 0..10 {
-                        if i == 5 {
-                            return i;
-                        }
+        namespace Test {
+            operation Main() : Int {
+                mutable i = 0;
+                while i < 1 {
+                    return 1;
+                    use q = Qubit();
+                    Reset(q);
+                    i += 1;
+                }
+                0
+            }
+        }
+    "#},
+        &expect![[r#"
+            // namespace Test
+            operation Main() : Int {
+                body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    mutable i : Int = 0;
+                    while not __has_returned and i < 1 {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                        if not __has_returned {
+                            let q : Qubit = __quantum__rt__qubit_allocate();
+                            Reset(q);
+                            i += 1;
+                            __quantum__rt__qubit_release(q);
+                        };
                     }
-                    -1
+
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            0
+                        } else __ret_val
+                    }
+
                 }
             }
-        "#},
-        PipelineStage::Mono,
+            // entry
+            Main()
+        "#]],
     );
+}
 
-    let package = store.get(pkg_id);
-    let reachable = collect_reachable_from_entry(&store, pkg_id);
-
-    // Find Main's body block and return type.
-    let (block_id, return_ty) = reachable
-        .iter()
-        .filter(|id| id.package == pkg_id)
-        .find_map(|id| {
-            let item = package.get_item(id.item);
-            if let ItemKind::Callable(decl) = &item.kind
-                && let CallableImpl::Spec(spec) = &decl.implementation
-            {
-                return Some((spec.body.block, decl.output.clone()));
+#[test]
+fn recursive_nested_block_qubit_suffix_uses_lazy_continuation() {
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            operation Main() : Int {
+                mutable i = 0;
+                while i < 1 {
+                    {
+                        return 1;
+                        use q = Qubit();
+                        Reset(q);
+                    };
+                    i += 1;
+                }
+                0
             }
-            None
-        })
-        .expect("Main callable not found");
+        }
+    "#},
+        &expect![[r#"
+            // namespace Test
+            operation Main() : Int {
+                body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    mutable i : Int = 0;
+                    while not __has_returned and i < 1 {
+                        {
+                            {
+                                __ret_val = 1;
+                                __has_returned = true;
+                            };
+                            if not __has_returned {
+                                let q : Qubit = __quantum__rt__qubit_allocate();
+                                Reset(q);
+                                __quantum__rt__qubit_release(q);
+                            };
+                        };
+                        if not __has_returned {
+                            i += 1;
+                        };
+                    }
 
-    let mut assigner = Assigner::from_package(package);
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            0
+                        } else __ret_val
+                    }
 
-    let package = store.get_mut(pkg_id);
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
 
-    // transform_block_if_else should return false because the nested block
-    // contains a while-with-return that requires the flag-based transform.
-    let changed =
-        super::super::transform_block_if_else(package, &mut assigner, block_id, &return_ty);
+#[test]
+fn recursive_qubit_suffix_after_defaultable_local_uses_single_lazy_continuation() {
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            operation Main() : Int {
+                mutable i = 0;
+                while i < 1 {
+                    return 1;
+                    let fallback = i + 1;
+                    use q = Qubit();
+                    Reset(q);
+                    i = fallback;
+                }
+                0
+            }
+        }
+    "#},
+        &expect![[r#"
+            // namespace Test
+            operation Main() : Int {
+                body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    mutable i : Int = 0;
+                    while not __has_returned and i < 1 {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                        if not __has_returned {
+                            let fallback : Int = i + 1;
+                            let q : Qubit = __quantum__rt__qubit_allocate();
+                            Reset(q);
+                            i = fallback;
+                            __quantum__rt__qubit_release(q);
+                        };
+                    }
+
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            0
+                        } else __ret_val
+                    }
+
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_lazy_suffix_reuses_flag_pair_for_returns_inside_suffix() {
+    let source = indoc! {r#"
+        namespace Test {
+            operation Main() : Int {
+                mutable i = 0;
+                while i < 2 {
+                    if i == 0 {
+                        return 1;
+                    }
+                    use q = Qubit();
+                    Reset(q);
+                    if i == 1 {
+                        return 2;
+                    }
+                    i += 1;
+                }
+                0
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
+
+    assert_eq!(
+        rendered.matches("mutable __has_returned : Bool").count(),
+        1,
+        "recursive suffix returns should reuse the existing flag variable\n{rendered}"
+    );
+    assert_eq!(
+        rendered.matches("mutable __ret_val : Int").count(),
+        1,
+        "recursive suffix returns should reuse the existing return slot\n{rendered}"
+    );
     assert!(
-        !changed,
-        "transform_block_if_else should return false for nested block containing while-with-return",
+        rendered.contains("let q : Qubit = __quantum__rt__qubit_allocate();"),
+        "lazy suffix should keep the post-return qubit allocation in the continuation\n{rendered}"
+    );
+    assert!(
+        rendered.contains("__ret_val = 1;")
+            && rendered.matches("__has_returned = true;").count() >= 2,
+        "both returns should be rewritten into assignments to the shared return slot\n{rendered}"
+    );
+}
+
+#[test]
+fn final_trailing_side_effect_after_flag_return_shape() {
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            operation MustNotRun() : Int {
+                fail "final trailing expression executed";
+                0
+            }
+
+            operation Main() : Int {
+                mutable i = 0;
+                while i < 1 {
+                    return 1;
+                }
+                MustNotRun()
+            }
+        }
+    "#},
+        &expect![[r#"
+            // namespace Test
+            operation MustNotRun() : Int {
+                body {
+                    fail $"final trailing expression executed";
+                    0
+                }
+            }
+            operation Main() : Int {
+                body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    mutable i : Int = 0;
+                    while not __has_returned and i < 1 {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    }
+
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            MustNotRun()
+                        } else __ret_val
+                    }
+
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn array_of_udt_wrapping_qubit_absent_from_outputs_uses_lazy_split() {
+    let source = indoc! {r#"
+        namespace Test {
+            newtype Wrapped = Qubit;
+
+            function CountWrapped(values : Wrapped[]) : Int {
+                Length(values)
+            }
+
+            operation Foo(q : Qubit) : Int {
+                mutable i = 0;
+                while i < 1 {
+                    return 1;
+                }
+                let values = [Wrapped(q)];
+                CountWrapped(values)
+            }
+
+            operation Main() : Int {
+                use q = Qubit();
+                Foo(q)
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
+
+    // After the simplifier catalogue's `let_folding` rule fires, the
+    // `__trailing_result` binding is inlined into the trailing merge.
+    // The lazy-continuation shape now appears inside the trailing merge's
+    // else-branch as `if __has_returned __ret_val else { if not __has_returned { <continuation> } else __ret_val }`.
+    assert!(
+        rendered
+            .contains("if __has_returned __ret_val else {\n            if not __has_returned {"),
+        "array-of-UDT suffix containing a qubit should be moved into a lazy continuation behind the trailing merge\n{rendered}"
+    );
+    assert!(
+        rendered.contains("let values : UDT < Item") && rendered.contains("= [Wrapped(q)];"),
+        "lazy continuation should contain the Wrapped[] local initializer\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("} else {\n            []\n        };"),
+        "quantum-containing UDT arrays should not use an empty-array fallback after return\n{rendered}"
+    );
+}
+
+#[test]
+fn array_of_udt_wrapping_qubit_present_in_output_still_uses_lazy_split() {
+    let source = indoc! {r#"
+        namespace Test {
+            newtype Wrapped = Qubit;
+
+            function MakeWrappedArray(q : Qubit) : Wrapped[] {
+                [Wrapped(q)]
+            }
+
+            function CountWrapped(values : Wrapped[]) : Int {
+                Length(values)
+            }
+
+            operation Foo(q : Qubit) : Int {
+                mutable i = 0;
+                while i < 1 {
+                    return 1;
+                }
+                let values = MakeWrappedArray(q);
+                CountWrapped(values)
+            }
+
+            operation Main() : Int {
+                use q = Qubit();
+                Foo(q)
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
+
+    // After let_folding, the lazy continuation now appears inside the
+    // trailing merge's else-branch (see
+    // `array_of_udt_wrapping_qubit_absent_from_outputs_uses_lazy_split` for the
+    // rationale).
+    assert!(
+        rendered
+            .contains("if __has_returned __ret_val else {\n            if not __has_returned {"),
+        "cache-populated Wrapped[] suffix should continue to use a lazy continuation behind the trailing merge\n{rendered}"
+    );
+    assert!(
+        rendered.contains("let values : UDT < Item") && rendered.contains("= MakeWrappedArray(q);"),
+        "lazy continuation should contain the cache-populated Wrapped[] initializer\n{rendered}"
+    );
+}
+
+#[test]
+fn direct_udt_wrapping_qubit_uses_lazy_split() {
+    let source = indoc! {r#"
+        namespace Test {
+            newtype Wrapped = Qubit;
+
+            function Consume(value : Wrapped) : Int {
+                0
+            }
+
+            operation Foo(q : Qubit) : Int {
+                mutable i = 0;
+                while i < 1 {
+                    return 1;
+                }
+                let value = Wrapped(q);
+                Consume(value)
+            }
+
+            operation Main() : Int {
+                use q = Qubit();
+                Foo(q)
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
+
+    // After let_folding, the lazy continuation now appears inside the
+    // trailing merge's else-branch (see
+    // `array_of_udt_wrapping_qubit_absent_from_outputs_uses_lazy_split` for the
+    // rationale).
+    assert!(
+        rendered
+            .contains("if __has_returned __ret_val else {\n            if not __has_returned {"),
+        "direct UDT suffix containing a qubit should use a lazy continuation behind the trailing merge\n{rendered}"
+    );
+    assert!(
+        rendered.contains("let value : UDT < Item") && rendered.contains("= Wrapped(q);"),
+        "lazy continuation should contain the direct Wrapped local initializer\n{rendered}"
+    );
+}
+
+#[test]
+fn classical_udt_array_after_flag_return_keeps_guarded_default() {
+    let source = indoc! {r#"
+        namespace Test {
+            newtype Classical = (Int, Bool);
+
+            function CountClassical(values : Classical[]) : Int {
+                Length(values)
+            }
+
+            function Foo() : Int {
+                mutable i = 0;
+                while i < 1 {
+                    return 1;
+                }
+                let values = [Classical((1, true))];
+                CountClassical(values)
+            }
+
+            function Main() : Int {
+                Foo()
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
+
+    assert!(
+        rendered.contains("let values : UDT < Item")
+            && rendered.contains("= if not __has_returned {\n            [Classical(1, true)]\n        } else {\n            []\n        };"),
+        "classical UDT arrays should keep the selected guarded empty-array default policy\n{rendered}"
+    );
+    // After let_folding, the gated final-tail no longer goes through a
+    // `__trailing_result` binding. Instead, the gating expression appears
+    // directly inside the trailing merge's else-branch.
+    assert!(
+        rendered.contains("if __has_returned __ret_val else {\n            if not __has_returned {\n                CountClassical(values)\n            } else __ret_val\n        }"),
+        "classical UDT array fallthrough should still use the gated final-tail policy (now inlined into the trailing merge)\n{rendered}"
     );
 }
 
@@ -912,8 +1697,12 @@ fn tuple_return_in_while_with_nested_if() {
                         };
                     }
 
-                    let __trailing_result : (Int, Bool) = (-1, false);
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            (-1, false)
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -996,8 +1785,12 @@ fn all_four_specializations_with_return_in_loop() {
                         };
                     }
 
-                    let __trailing_result : Unit = ();
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            ()
+                        } else __ret_val
+                    }
+
                 }
                 adjoint {
                     mutable __has_returned : Bool = false;
@@ -1016,8 +1809,12 @@ fn all_four_specializations_with_return_in_loop() {
                         };
                     }
 
-                    let __trailing_result : Unit = ();
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            ()
+                        } else __ret_val
+                    }
+
                 }
                 controlled {
                     mutable __has_returned : Bool = false;
@@ -1036,8 +1833,12 @@ fn all_four_specializations_with_return_in_loop() {
                         };
                     }
 
-                    let __trailing_result : Unit = ();
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            ()
+                        } else __ret_val
+                    }
+
                 }
                 controlled adjoint {
                     mutable __has_returned : Bool = false;
@@ -1056,8 +1857,12 @@ fn all_four_specializations_with_return_in_loop() {
                         };
                     }
 
-                    let __trailing_result : Unit = ();
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            ()
+                        } else __ret_val
+                    }
+
                 }
             }
             operation Main() : Unit {
@@ -1125,8 +1930,12 @@ fn qubit_alloc_scope_with_flag_strategy() {
                         };
                     }
 
-                    let __trailing_result : Int = -1;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+            -1
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -1186,8 +1995,12 @@ fn repeat_until_with_return() {
                         }
 
                     };
-                    let __trailing_result : Int = result;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            result
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -1240,8 +2053,12 @@ fn while_body_side_effect_guarded_after_return() {
                         };
                     }
 
-                    let __trailing_result : Int = sum;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            sum
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -1297,8 +2114,12 @@ fn if_expr_init_with_while_return_uses_flag_strategy() {
                     } else {
                         1
                     };
-                    let __trailing_result : Int = x;
-                    if __has_returned __ret_val else __trailing_result
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            x
+                        } else __ret_val
+                    }
+
                 }
             }
             // entry
@@ -1352,7 +2173,128 @@ fn flag_strategy_guards_local_after_return() {
                         };
                     }
 
-                    let __trailing_result : Int = -1;
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+            -1
+                        } else __ret_val
+                    }
+
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn split_suffix_includes_defaultable_local_before_qubit_local() {
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            operation Main() : Int {
+                mutable i = 0;
+                while i < 1 {
+                    return 1;
+                }
+                let y = i + 2;
+                use q = Qubit();
+                y
+            }
+        }
+    "#},
+        &expect![[r#"
+            // namespace Test
+            operation Main() : Int {
+                body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    mutable i : Int = 0;
+                    while not __has_returned and i < 1 {
+                        {
+                            __ret_val = 1;
+                            __has_returned = true;
+                        };
+                    }
+
+                    if __has_returned __ret_val else {
+                        if not __has_returned {
+                            let y : Int = i + 2;
+                            let q : Qubit = __quantum__rt__qubit_allocate();
+                            let
+                            @generated_ident_39 : Int = y;
+                            __quantum__rt__qubit_release(q);
+                            @generated_ident_39
+                        } else __ret_val
+                    }
+
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn split_suffix_return_rewrites_through_shared_flag_pair() {
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            operation Main() : Int {
+                mutable flag = false;
+                mutable i = 0;
+                while i < 1 {
+                    if flag {
+                        return 1;
+                    }
+                    i += 1;
+                }
+                if flag {
+                    return 2;
+                }
+                use q = Qubit();
+                3
+            }
+        }
+    "#},
+        &expect![[r#"
+            // namespace Test
+            operation Main() : Int {
+                body {
+                    mutable __has_returned : Bool = false;
+                    mutable __ret_val : Int = 0;
+                    mutable flag : Bool = false;
+                    mutable i : Int = 0;
+                    while not __has_returned and i < 1 {
+                        if flag {
+                            {
+                                __ret_val = 1;
+                                __has_returned = true;
+                            };
+                        }
+
+                        if not __has_returned {
+                            i += 1;
+                        };
+                    }
+
+                    let __trailing_result : Int = if not __has_returned {
+                        if flag {
+                            {
+                                __ret_val = 2;
+                                __has_returned = true;
+                            };
+                        }
+
+                        if not __has_returned {
+                            let q : Qubit = __quantum__rt__qubit_allocate();
+                            let
+                            @generated_ident_54 : Int = 3;
+                            __quantum__rt__qubit_release(q);
+                            @generated_ident_54
+                        } else __ret_val
+                    } else __ret_val;
                     if __has_returned __ret_val else __trailing_result
                 }
             }
