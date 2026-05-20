@@ -1211,7 +1211,7 @@ just makes the shift-semantics path match its design intent.
 
 ##### D4. Move-inside-group vs. promote-out-of-group disambiguation
 
-**Status: Stage A shipped (pending user-confirmation). Stage B planned.**
+**Status: Stage A shipped (user-confirmed). Stage B planned.**
 
 A design pass reframed this. The original framing
 ("which of options a–d?") was too narrow; the actual gap is
@@ -1325,7 +1325,7 @@ pass; vertical extend is internal-source only.
 Two PRs, sequenced.
 
 - **Stage A: right-side trailing inner-column for groups. ✅ Shipped
-  (pending user-confirmation).** Unified the previously-top-level-only
+  (user-confirmed).** Unified the previously-top-level-only
   `_appendTrailingColumn` into a per-scope helper
   `_appendTrailingColumnForScope` in
   [`draggable.ts`](editor/draggable.ts), called from inside
@@ -1389,13 +1389,13 @@ Two PRs, sequenced.
 
 ##### Roadmap & status
 
-| Item                                    | Severity               | Status                        |
-| --------------------------------------- | ---------------------- | ----------------------------- |
-| D1: empty-group crash                   | Crash                  | ✅ Shipped (user-confirmed)   |
-| D2: classical condition before producer | Logic error            | ✅ Shipped (user-confirmed)   |
-| D3: multi-target semantics              | Design / documentation | ✅ Shipped (pending user)     |
-| D4: move-out vs. expand-group           | Design                 | 🟡 Stage A shipped, B planned |
-| D5: dropzone overlapping rendered gate  | Bug                    | ✅ Shipped (user-confirmed)   |
+| Item                                    | Severity               | Status                      |
+| --------------------------------------- | ---------------------- | --------------------------- |
+| D1: empty-group crash                   | Crash                  | ✅ Shipped (user-confirmed) |
+| D2: classical condition before producer | Logic error            | ✅ Shipped (user-confirmed) |
+| D3: multi-target semantics              | Design / documentation | ✅ Shipped (pending user)   |
+| D4: move-out vs. expand-group           | Design                 | 🟡 Stage A done, B planned  |
+| D5: dropzone overlapping rendered gate  | Bug                    | ✅ Shipped (user-confirmed) |
 
 ---
 
