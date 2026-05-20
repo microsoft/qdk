@@ -88,7 +88,7 @@ export function runProgramInTerminal(
   }
 }
 
-const enum ProgramRunStatus {
+export enum ProgramRunStatus {
   AllShotsDone = "all shots done",
   Timeout = "timeout",
   Cancellation = "cancellation",
