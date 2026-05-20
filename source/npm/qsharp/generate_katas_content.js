@@ -449,10 +449,11 @@ function createExerciseSection(kataPath, properties, globalCodeSources) {
   // button instead of the embedded <details> blocks.
   const hintPattern =
     /<details>\s*<summary>[\s\S]*?Need a hint[\s\S]*?<\/summary>([\s\S]*?)<\/details>/gi;
-  let extractedHints;
+  /** @type {string[]} */
+  let hints = [];
   if (!emitHtml) {
     // Capture the inner content of each hint block before stripping.
-    extractedHints = [...descriptionMarkdown.matchAll(hintPattern)].map((m) =>
+    hints = [...descriptionMarkdown.matchAll(hintPattern)].map((m) =>
       m[1].trim(),
     );
     descriptionMarkdown = descriptionMarkdown.replace(hintPattern, "").trim();
@@ -498,9 +499,7 @@ function createExerciseSection(kataPath, properties, globalCodeSources) {
     sourceIds,
     placeholderCode,
     explainedSolution,
-    ...(extractedHints && extractedHints.length > 0
-      ? { hints: extractedHints }
-      : {}),
+    ...(hints.length > 0 ? { hints } : {}),
   };
 }
 

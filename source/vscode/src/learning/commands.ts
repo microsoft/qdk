@@ -75,7 +75,7 @@ export function registerLearningCommands(
           return;
         }
 
-        service.goTo(location, "tree");
+        await service.goTo(location, "tree");
         await panelManager.show();
       },
     ),

@@ -203,7 +203,7 @@ export class LearningService {
     };
   }
 
-  next(source: TelemetrySource): NavigationResult {
+  async next(source: TelemetrySource): Promise<NavigationResult> {
     const ws = this.requireWorkspace();
     const currentPos = ws.progressData.position;
     const nextPos = this.nextActivity(currentPos);
@@ -221,13 +221,13 @@ export class LearningService {
     }
 
     ws.progressData.position = nextPos;
-    this.saveProgress().catch(() => {});
+    await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     this.sendActivityActionTelemetry("navigate", source);
     return { moved: true };
   }
 
-  previous(source: TelemetrySource): NavigationResult {
+  async previous(source: TelemetrySource): Promise<NavigationResult> {
     const ws = this.requireWorkspace();
     const prevPos = this.previousActivity(ws.progressData.position);
     if (!prevPos) {
@@ -235,16 +235,16 @@ export class LearningService {
     }
 
     ws.progressData.position = prevPos;
-    this.saveProgress().catch(() => {});
+    await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     this.sendActivityActionTelemetry("navigate", source);
     return { moved: true };
   }
 
-  goTo(
+  async goTo(
     location: { unitId: string; activityId?: string },
     source?: TelemetrySource,
-  ): LearningState {
+  ): Promise<LearningState> {
     const ws = this.requireWorkspace();
     const unit = ws.catalog.units.find((u) => u.id === location.unitId);
     if (!unit || unit.activities.length === 0) {
@@ -263,7 +263,7 @@ export class LearningService {
       unitId: location.unitId,
       activityId: activity.id,
     };
-    this.saveProgress().catch(() => {});
+    await this.saveProgress();
     const state = this.getState();
     this._onDidChangeState.fire(state);
     if (source) {
@@ -402,9 +402,25 @@ export class LearningService {
   }
 
   async readUserCode(): Promise<string> {
-    const uri = this.getExerciseFileUri();
+    const uri = this.getCurrentCodeFileUri();
+    if (!uri) {
+      throw new Error(
+        "Current activity has no associated code file.",
+      );
+    }
+    await this.saveOpenDocument(uri);
     const bytes = await vscode.workspace.fs.readFile(uri);
     return new TextDecoder().decode(bytes);
+  }
+
+  /** Save the document to disk if it's open and has unsaved edits. */
+  private async saveOpenDocument(uri: vscode.Uri): Promise<void> {
+    const doc = vscode.workspace.textDocuments.find(
+      (d) => d.uri.toString() === uri.toString(),
+    );
+    if (doc?.isDirty) {
+      await doc.save();
+    }
   }
 
   async markExampleRun(): Promise<void> {
@@ -1013,6 +1029,8 @@ export class LearningService {
     }
     this.emitProgress();
   }
+
+
 
   async reloadProgress(): Promise<void> {
     const ws = this.requireWorkspace();

@@ -34,6 +34,12 @@ export interface SerializedLearningState {
 }
 
 /**
+ * Mixin carrying the current learning state snapshot.
+ * Intersected into every tool response type.
+ */
+export type StateSnapshot = { state: SerializedLearningState };
+
+/**
  * Wraps the shared {@link LearningService} singleton for use as
  * `vscode.lm` language model tools.
  */
@@ -102,7 +108,7 @@ export class LearningTools {
    */
   async getState(): Promise<
     | { initialized: false }
-    | { initialized: true; state: SerializedLearningState }
+    | ({ initialized: true } & StateSnapshot)
   > {
     if (!this.service.initialized) {
       const detected = await detectLearningWorkspace();
@@ -117,61 +123,40 @@ export class LearningTools {
   /**
    * Return the full per-kata progress breakdown.
    */
-  async getProgress(): Promise<{
-    progress: OverallProgress;
-    state: SerializedLearningState;
-  }> {
+  async getProgress(): Promise<{ progress: OverallProgress }> {
     await this.ensureInitialized();
     const progress = this.service.getProgress();
-    return {
-      progress,
-      state: this.serializeState(),
-    };
+    return { progress };
   }
 
   /**
    * List all available units with completion status.
    */
-  async listUnits(): Promise<{
-    units: UnitSummary[];
-    state: SerializedLearningState;
-  }> {
+  async listUnits(): Promise<{ units: UnitSummary[] }> {
     await this.ensureInitialized();
-    return {
-      units: this.service.listUnits(),
-      state: this.serializeState(),
-    };
+    return { units: this.service.listUnits() };
   }
 
   /**
    * Read the user's current Q# code at the active exercise or example.
    */
-  async readCode(): Promise<{
-    code: string;
-    filePath: string;
-    state: SerializedLearningState;
-  }> {
+  async readCode(): Promise<{ code: string; filePath: string }> {
     await this.ensureInitialized();
-    const uri = this.getCurrentFileUri();
-    const isExercise =
-      this.service.getCurrentActivity().content.type === "exercise";
-    const code = isExercise
-      ? await this.service.readUserCode()
-      : new TextDecoder().decode(await vscode.workspace.fs.readFile(uri));
-    return { code, filePath: uri.fsPath, state: this.serializeState() };
+    return this.invoke(async () => {
+      const uri = this.getCurrentFileUri();
+      const code = await this.service.readUserCode();
+      return { code, filePath: uri.fsPath };
+    });
   }
 
   /**
    * Return all built-in hints for the current exercise.
    */
-  async hint(): Promise<{
-    result: HintContext | null;
-    state: SerializedLearningState;
-  }> {
+  async hint(): Promise<{ result: HintContext | null }> {
     await this.ensureInitialized();
     return this.invoke(() => {
       const r = this.service.getHintContext("chat");
-      return { result: r.result, state: this.serializeState() };
+      return { result: r.result };
     });
   }
 
@@ -180,33 +165,36 @@ export class LearningTools {
   /**
    * Show the current learning activity.
    */
-  async show(): Promise<{ state: SerializedLearningState }> {
+  async show(): Promise<StateSnapshot> {
     await this.ensureInitialized();
-    await this.showActivity();
-    return { state: this.serializeState() };
+    return this.invoke(async () => {
+      await this.showActivity();
+      return { state: this.serializeState() };
+    });
   }
 
   /**
    * Move to the next item.
    */
-  async next(): Promise<{ moved: boolean; state: SerializedLearningState }> {
+  async next(): Promise<{ moved: boolean } & StateSnapshot> {
     await this.ensureInitialized();
-    const r = this.service.next("chat");
-    await this.showActivity();
-    return { moved: r.moved, state: this.serializeState() };
+    return this.invoke(async () => {
+      const r = await this.service.next("chat");
+      await this.showActivity();
+      return { moved: r.moved, state: this.serializeState() };
+    });
   }
 
   /**
    * Move to the previous item.
    */
-  async previous(): Promise<{
-    moved: boolean;
-    state: SerializedLearningState;
-  }> {
+  async previous(): Promise<{ moved: boolean } & StateSnapshot> {
     await this.ensureInitialized();
-    const r = this.service.previous("chat");
-    await this.showActivity();
-    return { moved: r.moved, state: this.serializeState() };
+    return this.invoke(async () => {
+      const r = await this.service.previous("chat");
+      await this.showActivity();
+      return { moved: r.moved, state: this.serializeState() };
+    });
   }
 
   /**
@@ -216,10 +204,10 @@ export class LearningTools {
     courseId?: string;
     unitId: string;
     activityId?: string;
-  }): Promise<{ state: SerializedLearningState }> {
+  }): Promise<StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
-      this.service.goTo(input, "chat");
+      await this.service.goTo(input, "chat");
       await this.showActivity();
       return { state: this.serializeState() };
     });
@@ -230,7 +218,7 @@ export class LearningTools {
    */
   async run(input: {
     shots?: number;
-  }): Promise<{ result: RunResult; state: SerializedLearningState }> {
+  }): Promise<{ result: RunResult } & StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const r = await this.service.run(input.shots ?? 1, "chat");
@@ -242,10 +230,7 @@ export class LearningTools {
   /**
    * Check the student's solution. Marks it complete on pass.
    */
-  async check(): Promise<{
-    result: SolutionCheckResult;
-    state: SerializedLearningState;
-  }> {
+  async check(): Promise<{ result: SolutionCheckResult } & StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const r = await this.service.checkSolution("chat");
@@ -258,7 +243,7 @@ export class LearningTools {
    * Reset the current exercise to its original placeholder code
    * and clear its completion status.
    */
-  async resetExercise(): Promise<{ state: SerializedLearningState }> {
+  async resetExercise(): Promise<StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
       await this.service.resetExercise("chat");
@@ -270,10 +255,7 @@ export class LearningTools {
   /**
    * Show the full reference solution code.
    */
-  async solution(): Promise<{
-    result: string;
-    state: SerializedLearningState;
-  }> {
+  async solution(): Promise<{ result: string } & StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const result = this.service.getFullSolution("chat");
