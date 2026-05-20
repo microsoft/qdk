@@ -88,17 +88,31 @@ export function registerLearningCommands(
           return;
         }
 
-        // Include #goto with precise IDs so the agent can call the
-        // tool without fuzzy matching.
-        const prompt = `/qdk-learning #goto ${location.unitId} ${location.activityId} — Go to this activity`;
+        // Navigate first so the panel shows the activity.
+        await service.goTo(location, "tree");
+        await panelManager.show();
+
+        // Open chat with a friendly prompt referencing the activity title.
+        const title = nodeToTitle(node);
+        const prompt = `/qdk-learning Let's work on the "${title}" exercise.`;
         await vscode.commands.executeCommand("workbench.action.chat.open", {
           query: prompt,
           isPartialQuery: false,
         });
-        // Navigation telemetry will fire when the chat agent calls goTo via LM tools.
       },
     ),
   );
+}
+
+function nodeToTitle(node: LearningProgressNode): string {
+  switch (node.kind) {
+    case "continue":
+      return node.activityTitle;
+    case "activity":
+      return node.activity.title;
+    case "unit":
+      return node.unit.title;
+  }
 }
 
 function nodeToLocation(
