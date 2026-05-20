@@ -63,7 +63,7 @@ def circuit(
     :kwtype search_path: str
 
     :return: The synthesized circuit.
-    :rtype: :class:`~qdk.qsharp.Circuit`
+    :rtype: Circuit
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
     :raises QSharpError: If there is an error evaluating or synthesizing the circuit.
     """

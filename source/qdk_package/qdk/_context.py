@@ -680,7 +680,7 @@ class Context:
         :param *args: The arguments to pass to the callable, if one is provided.
 
         :return: The compiled program. Use ``str()`` to get the QIR string.
-        :rtype: :class:`~qdk.qsharp.QirInputData`
+        :rtype: QirInputData
 
         Example:
 
@@ -766,7 +766,7 @@ class Context:
         :kwtype prune_classical_qubits: bool
 
         :return: The synthesized circuit.
-        :rtype: :class:`~qdk.qsharp.Circuit`
+        :rtype: Circuit
         :raises QSharpError: If there is an error synthesizing the circuit.
         """
         ipython_helper()
