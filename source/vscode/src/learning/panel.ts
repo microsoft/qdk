@@ -310,12 +310,12 @@ export class LessonPanelManager {
     try {
       switch (action) {
         case "next": {
-          const result = this.service.next("panel");
+          const result = await this.service.next("panel");
           this.sendResult("next", result);
           break;
         }
         case "back": {
-          const result = this.service.previous("panel");
+          const result = await this.service.previous("panel");
           this.sendResult("back", result);
           break;
         }
@@ -359,6 +359,7 @@ export class LessonPanelManager {
 
   private getWebviewContent(webview: vscode.Webview): string {
     const extensionUri = this.extensionUri;
+    const cspSource = webview.cspSource;
 
     function getUri(...parts: string[]): vscode.Uri {
       return webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, ...parts));
@@ -379,6 +380,8 @@ export class LessonPanelManager {
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src ${cspSource}; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource};" />
     <title>Lesson</title>
     <link rel="stylesheet" href="${katexCssUri}" />
     <link rel="stylesheet" href="${codiconCssUri}" />
