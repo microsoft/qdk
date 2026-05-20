@@ -72,10 +72,7 @@ export type Action =
   | "run"
   | "check"
   | "hint-chat"
-  | "explain-chat"
-  | "progress"
-  | "menu"
-  | "quit";
+  | "explain-chat";
 
 export interface ActionBinding {
   /** Keyboard shortcut key (single character like "b", or "space"). */

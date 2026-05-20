@@ -506,15 +506,12 @@ function ActionBar({
   return (
     <nav class="action-bar">
       {groups.map((group, gi) => {
-        const buttons = group.filter(
-          (b) => b.action !== "quit" && b.action !== "menu",
-        );
-        if (buttons.length === 0) {
+        if (group.length === 0) {
           return null;
         }
         return (
           <div class="action-group" key={gi}>
-            {buttons.map((binding) => {
+            {group.map((binding) => {
               let tip = binding.label;
               if (binding.key && binding.key !== "space") {
                 tip += " (" + binding.key.toUpperCase() + ")";
