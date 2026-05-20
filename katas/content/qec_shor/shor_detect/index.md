@@ -1,4 +1,4 @@
-**Input**: nine qubits that are either in the state $\ket{\psi_L} = \alpha \ket{0_L} + \beta \ket{0_L}$ (a valid code word of the Shor code) or the state that is a code word with $X$, $Y$, or $Z$ error occurring on one of the qubits.
+**Input**: nine qubits that are either in the state $\ket{\psi_L} = \alpha \ket{0_L} + \beta \ket{1_L}$ (a valid code word of the Shor code) or the state that is a code word with $X$, $Y$, or $Z$ error occurring on one of the qubits.
 
 **Goal**: determine whether an error has occurred, and if so, what type and on which qubit. 
 The return value is a tuple of two elements, describing the detected error as follows:
