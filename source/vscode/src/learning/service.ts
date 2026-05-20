@@ -404,9 +404,7 @@ export class LearningService {
   async readUserCode(): Promise<string> {
     const uri = this.getCurrentCodeFileUri();
     if (!uri) {
-      throw new Error(
-        "Current activity has no associated code file.",
-      );
+      throw new Error("Current activity has no associated code file.");
     }
     await this.saveOpenDocument(uri);
     const bytes = await vscode.workspace.fs.readFile(uri);
@@ -1029,8 +1027,6 @@ export class LearningService {
     }
     this.emitProgress();
   }
-
-
 
   async reloadProgress(): Promise<void> {
     const ws = this.requireWorkspace();
