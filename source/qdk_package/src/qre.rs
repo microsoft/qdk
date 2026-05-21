@@ -343,13 +343,13 @@ impl Instruction {
     }
 
     pub fn get_property<'py>(
-        self_: PyRef<'py, Self>,
+        &self,
+        py: Python<'py>,
         key: u64,
     ) -> PyResult<Option<Bound<'py, PyAny>>> {
-        self_.0.get_property(&key).map_or_else(
-            || Ok(None),
-            |value| property_to_py(self_.py(), value).map(Some),
-        )
+        self.0
+            .get_property(&key)
+            .map_or_else(|| Ok(None), |value| property_to_py(py, value).map(Some))
     }
 
     pub fn has_property(&self, key: u64) -> bool {
@@ -358,23 +358,21 @@ impl Instruction {
 
     #[pyo3(signature = (key, default))]
     pub fn get_property_or<'py>(
-        self_: PyRef<'py, Self>,
+        &self,
+        py: Python<'py>,
         key: u64,
         default: Bound<'py, PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        if let Some(value) = self_.0.get_property(&key) {
-            property_to_py(self_.py(), value)
+        if let Some(value) = self.0.get_property(&key) {
+            property_to_py(py, value)
         } else {
             Ok(default)
         }
     }
 
-    pub fn __getitem__<'py>(
-        self_: PyRef<'py, Self>,
-        key: u64,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        match self_.0.get_property(&key) {
-            Some(value) => property_to_py(self_.py(), value),
+    pub fn __getitem__<'py>(&self, py: Python<'py>, key: u64) -> PyResult<Bound<'py, PyAny>> {
+        match self.0.get_property(&key) {
+            Some(value) => property_to_py(py, value),
             None => Err(PyKeyError::new_err(format!(
                 "Property with key {key} not found"
             ))),
