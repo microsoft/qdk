@@ -59,6 +59,30 @@ fn poisoned_lock_err<T>(_: std::sync::PoisonError<T>) -> PyErr {
     PyRuntimeError::new_err("provenance graph lock poisoned")
 }
 
+/// Extract a `qre::Property` from a Python value (bool, int, float, or str).
+fn extract_property(value: &Bound<'_, PyAny>) -> PyResult<qre::Property> {
+    let property = if value.is_instance_of::<PyBool>() {
+        qre::Property::new_bool(value.extract()?)
+    } else if let Ok(i) = value.extract::<i64>() {
+        qre::Property::new_int(i)
+    } else if let Ok(f) = value.extract::<f64>() {
+        qre::Property::new_float(f)
+    } else {
+        qre::Property::new_str(value.to_string())
+    };
+    Ok(property)
+}
+
+/// Convert a `qre::Property` to a Python object.
+fn property_to_py<'py>(py: Python<'py>, value: &qre::Property) -> PyResult<Bound<'py, PyAny>> {
+    match value {
+        qre::Property::Bool(b) => PyBool::new(py, *b).into_bound_py_any(py),
+        qre::Property::Int(i) => PyInt::new(py, *i).into_bound_py_any(py),
+        qre::Property::Float(f) => PyFloat::new(py, *f).into_bound_py_any(py),
+        qre::Property::Str(s) => PyString::new(py, s).into_bound_py_any(py),
+    }
+}
+
 #[allow(clippy::upper_case_acronyms)]
 #[pyclass]
 pub struct ISA(qre::ISA);
@@ -313,12 +337,19 @@ impl Instruction {
         self.0.source()
     }
 
-    pub fn set_property(&mut self, key: u64, value: u64) {
-        self.0.set_property(key, value);
+    pub fn set_property(&mut self, key: u64, value: &Bound<'_, PyAny>) -> PyResult<()> {
+        self.0.set_property(key, extract_property(value)?);
+        Ok(())
     }
 
-    pub fn get_property(&self, key: u64) -> Option<u64> {
-        self.0.get_property(&key)
+    pub fn get_property<'py>(
+        self_: PyRef<'py, Self>,
+        key: u64,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
+        self_.0.get_property(&key).map_or_else(
+            || Ok(None),
+            |value| property_to_py(self_.py(), value).map(Some),
+        )
     }
 
     pub fn has_property(&self, key: u64) -> bool {
@@ -326,13 +357,24 @@ impl Instruction {
     }
 
     #[pyo3(signature = (key, default))]
-    pub fn get_property_or(&self, key: u64, default: u64) -> u64 {
-        self.0.get_property_or(&key, default)
+    pub fn get_property_or<'py>(
+        self_: PyRef<'py, Self>,
+        key: u64,
+        default: Bound<'py, PyAny>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        if let Some(value) = self_.0.get_property(&key) {
+            property_to_py(self_.py(), value)
+        } else {
+            Ok(default)
+        }
     }
 
-    pub fn __getitem__(&self, key: u64) -> PyResult<u64> {
-        match self.0.get_property(&key) {
-            Some(value) => Ok(value),
+    pub fn __getitem__<'py>(
+        self_: PyRef<'py, Self>,
+        key: u64,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        match self_.0.get_property(&key) {
+            Some(value) => property_to_py(self_.py(), value),
             None => Err(PyKeyError::new_err(format!(
                 "Property with key {key} not found"
             ))),
@@ -508,8 +550,7 @@ fn build_instruction(
                 qre::property_name_to_key(&key_str.to_ascii_uppercase()).ok_or_else(|| {
                     PyValueError::new_err(format!("Unknown property name: {key_str}"))
                 })?;
-            let prop_value: u64 = value.extract()?;
-            instr.set_property(prop_key, prop_value);
+            instr.set_property(prop_key, extract_property(&value)?);
         }
     }
 
@@ -1004,17 +1045,7 @@ impl EstimationResult {
     }
 
     pub fn set_property(&mut self, key: u64, value: &Bound<'_, PyAny>) -> PyResult<()> {
-        let property = if value.is_instance_of::<pyo3::types::PyBool>() {
-            qre::Property::new_bool(value.extract()?)
-        } else if let Ok(i) = value.extract::<i64>() {
-            qre::Property::new_int(i)
-        } else if let Ok(f) = value.extract::<f64>() {
-            qre::Property::new_float(f)
-        } else {
-            qre::Property::new_str(value.to_string())
-        };
-
-        self.0.set_property(key, property);
+        self.0.set_property(key, extract_property(value)?);
 
         Ok(())
     }
@@ -1100,41 +1131,17 @@ impl Trace {
     }
 
     pub fn set_property(&mut self, key: u64, value: &Bound<'_, PyAny>) -> PyResult<()> {
-        let property = if value.is_instance_of::<pyo3::types::PyBool>() {
-            qre::Property::new_bool(value.extract()?)
-        } else if let Ok(i) = value.extract::<i64>() {
-            qre::Property::new_int(i)
-        } else if let Ok(f) = value.extract::<f64>() {
-            qre::Property::new_float(f)
-        } else {
-            qre::Property::new_str(value.to_string())
-        };
-
-        self.0.set_property(key, property);
+        self.0.set_property(key, extract_property(value)?);
 
         Ok(())
     }
 
     #[allow(clippy::needless_pass_by_value)]
     pub fn get_property(self_: PyRef<'_, Self>, key: u64) -> Option<Bound<'_, PyAny>> {
-        if let Some(value) = self_.0.get_property(key) {
-            match value {
-                qre::Property::Bool(b) => PyBool::new(self_.py(), *b)
-                    .into_bound_py_any(self_.py())
-                    .ok(),
-                qre::Property::Int(i) => PyInt::new(self_.py(), *i)
-                    .into_bound_py_any(self_.py())
-                    .ok(),
-                qre::Property::Float(f) => PyFloat::new(self_.py(), *f)
-                    .into_bound_py_any(self_.py())
-                    .ok(),
-                qre::Property::Str(s) => PyString::new(self_.py(), s)
-                    .into_bound_py_any(self_.py())
-                    .ok(),
-            }
-        } else {
-            None
-        }
+        self_
+            .0
+            .get_property(key)
+            .and_then(|value| property_to_py(self_.py(), value).ok())
     }
 
     pub fn has_property(&self, key: u64) -> bool {

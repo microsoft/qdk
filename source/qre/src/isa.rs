@@ -12,6 +12,7 @@ use num_traits::FromPrimitive;
 use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
+use crate::Property;
 use crate::trace::instruction_ids::instruction_name;
 
 pub mod property_keys;
@@ -267,7 +268,7 @@ pub struct Instruction {
     encoding: Encoding,
     metrics: Metrics,
     source: usize,
-    properties: Option<FxHashMap<u64, u64>>,
+    properties: Option<FxHashMap<u64, Property>>,
 }
 
 impl Instruction {
@@ -418,7 +419,7 @@ impl Instruction {
         self.source
     }
 
-    pub fn set_property(&mut self, key: u64, value: u64) {
+    pub fn set_property(&mut self, key: u64, value: Property) {
         if let Some(ref mut properties) = self.properties {
             properties.insert(key, value);
         } else {
@@ -429,8 +430,8 @@ impl Instruction {
     }
 
     #[must_use]
-    pub fn get_property(&self, key: &u64) -> Option<u64> {
-        self.properties.as_ref()?.get(key).copied()
+    pub fn get_property(&self, key: &u64) -> Option<&Property> {
+        self.properties.as_ref()?.get(key)
     }
 
     #[must_use]
@@ -441,7 +442,7 @@ impl Instruction {
     }
 
     #[must_use]
-    pub fn get_property_or(&self, key: &u64, default: u64) -> u64 {
+    pub fn get_property_or<'a>(&'a self, key: &u64, default: &'a Property) -> &'a Property {
         self.get_property(key).unwrap_or(default)
     }
 }
