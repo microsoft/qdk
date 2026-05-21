@@ -31,6 +31,20 @@ import {
 /**
  * Move an operation in the circuit.
  *
+ * After the move settles, the destination's ancestor chain is
+ * walked innermost-out and each ancestor's derived `.targets` is
+ * re-built from its (post-move) children. The walk cascades upward
+ * — each ancestor whose `.targets` no longer encloses its
+ * (now-widened) child is also refreshed — and stops at the first
+ * ancestor that already encloses its child's new span. This keeps
+ * the invariant "an ancestor's `.targets` is always the union of
+ * its descendants' wires" intact, regardless of how the target
+ * location was chosen.
+ *
+ * The target location string carries the authoritative intent of
+ * which group the moved op lands in; the cascade is correctness,
+ * not opt-in policy.
+ *
  * @param model The circuit model to mutate.
  * @param sourceLocation The location string of the source operation.
  * @param targetLocation The location string of the target position.
@@ -82,6 +96,17 @@ const moveOperation = (
   // valid references even after `_moveX` splices columns around.
   // (See `_collectAncestorChain` for why this has to be pre-move.)
   const ancestorChain = _collectAncestorChain(model, sourceLocation);
+
+  // Capture the destination's ancestor chain pre-move too, for the
+  // dest-side cascade refresh below. Same reasoning as the source
+  // chain: post-move, `targetLocation` may name a different op
+  // (column splices, empty-prune cascades) and a string-based walk
+  // would land on the wrong tree. Object references stay valid.
+  // Empty array when there is no parent group (top-level drop).
+  const destAncestorChain: AncestorRung[] = _collectDestAncestorChain(
+    model,
+    targetLocation,
+  );
 
   // Safety net: refuse the move if it would place the source
   // before one of its external classical-register producers in
@@ -213,6 +238,21 @@ const moveOperation = (
   // `removeTrailingUnusedQubits` so those passes see the already-
   // cleaned tree.
   _pruneEmptyAncestors(ancestorChain);
+
+  // Cascading dest-side ancestor refresh. Each ancestor of the
+  // drop target whose `.targets` no longer encloses its child's
+  // (possibly widened) wire span gets its targets re-derived from
+  // its current children. Walks innermost-out; stops at the first
+  // ancestor whose span already encloses the child below it.
+  //
+  // Always-on because the target location string is authoritative:
+  // if the user dropped the source at a location inside group G,
+  // then G IS the source's new parent, and G's `.targets` MUST
+  // reflect that. No-op when the drop is top-level (empty chain)
+  // or when the dest group was pruned by the empty-prune pass —
+  // see `_extendDestAncestorsVertically` for the is-still-attached
+  // and span-already-encloses checks.
+  _extendDestAncestorsVertically(destAncestorChain);
 
   // Refresh per-wire `numResults` counters for every wire that
   // may have gained or lost a measurement. `_addOp` / `_removeOp`
@@ -603,6 +643,155 @@ const _collectAncestorChain = (
     loc = loc.parent();
   }
   return chain;
+};
+
+/**
+ * Collect the destination's ancestor chain, innermost-first, up to
+ * (but not including) the root grid. Used by the dest-side
+ * ancestor refresh cascade at the tail of `moveOperation`.
+ *
+ * `targetLocation` here addresses the *slot* the source is about
+ * to be inserted into (e.g. `"0,0-1,0"` = "put me in scope 0,0 at
+ * column 1, opIndex 0"). The innermost destination ancestor is the
+ * op the dropzone's scope belongs to — i.e. the op at the prefix
+ * before the last `-` (`"0,0"` in the example). We walk up from
+ * there.
+ *
+ * Same object-reference contract as `_collectAncestorChain`: post-
+ * move, `targetLocation` may name a different op (column splices,
+ * empty-prune cascades), so we lock in references now.
+ */
+const _collectDestAncestorChain = (
+  model: CircuitModel,
+  targetLocation: string,
+): AncestorRung[] => {
+  const chain: AncestorRung[] = [];
+  // Innermost destination ancestor = the scope op of the dropzone.
+  // `targetLocation`'s parent IS that scope op's location.
+  let loc = Location.parse(targetLocation).parent();
+  while (!loc.isRoot) {
+    const locStr = loc.toString();
+    const op = findOperation(model.componentGrid, locStr);
+    const containingArray = findParentArray(model.componentGrid, locStr);
+    if (op == null || containingArray == null) break;
+    chain.push({ op, containingArray });
+    loc = loc.parent();
+  }
+  return chain;
+};
+
+/**
+ * Cascading dest-side wire-span extension. Walks the destination's
+ * ancestor chain innermost-out and re-derives each ancestor's
+ * `.targets`/`.results` from its (post-move) children.
+ *
+ * Stops at the first ancestor whose pre-existing target span
+ * already encloses the child below it — once an ancestor visually
+ * encloses the widened branch, nothing above it needs to grow.
+ *
+ * Skips any ancestor whose `op` is no longer attached to its
+ * `containingArray`: the empty-prune pass may have removed the
+ * innermost ancestors (e.g. the B5 last-child shift-drag case),
+ * in which case there's nothing here to extend.
+ *
+ * Idempotent under the no-op case (called with `false`, with an
+ * empty chain, or against a chain whose every member is already
+ * pruned). Safe to call unconditionally.
+ */
+const _extendDestAncestorsVertically = (chain: AncestorRung[]): void => {
+  let prevSpan: [number, number] | null = null;
+  for (const { op, containingArray } of chain) {
+    // Skip ancestors that were pruned by the empty-prune pass.
+    let stillAttached = false;
+    for (const col of containingArray) {
+      if (col.components.indexOf(op) >= 0) {
+        stillAttached = true;
+        break;
+      }
+    }
+    if (!stillAttached) continue;
+
+    const [oldMin, oldMax] = _getMinMaxRegIdx(op);
+
+    // If a deeper ancestor's span is already enclosed by this
+    // ancestor's pre-existing span, this ancestor (and everything
+    // above it) doesn't need refreshing.
+    if (prevSpan != null && oldMin <= prevSpan[0] && oldMax >= prevSpan[1]) {
+      return;
+    }
+
+    _refreshDerivedTargets(op);
+    // Widening the span may have introduced a collision with a
+    // sibling in the same column. Resolve by pulling `op` into a
+    // fresh column ahead of the siblings — mirrors the
+    // commitAddControl split-and-shift pattern.
+    _resolveOverlapAfterExtend(op, containingArray);
+    prevSpan = _getMinMaxRegIdx(op);
+  }
+};
+
+/**
+ * Sibling-collision resolver for the extend cascade.
+ *
+ * After `_refreshDerivedTargets` widens `op`'s `.targets`, its
+ * register span may now overlap one or more siblings in the same
+ * column. The renderer can't draw two ops on the same column whose
+ * spans intersect, so we follow the existing
+ * [`commitAddControl`](../editor/controllers/dragController.ts)
+ * convention: splice `op` out of its current column and insert a
+ * brand-new column containing only `op` at the SAME column index.
+ * That pushes the old column (with the surviving siblings) one
+ * slot to the right of `op`, restoring a non-overlapping layout
+ * without disturbing any siblings' relative order.
+ *
+ * No-op when:
+ *   - the column has no siblings (nothing to overlap),
+ *   - no sibling actually overlaps `op`'s (possibly widened) span,
+ *   - `op` can't be located in `containingArray` (e.g. it was
+ *     already pruned upstream — defensive guard, shouldn't fire).
+ *
+ * Symmetric to `resolveOverlappingOperations` but operates on a
+ * single known op rather than scanning the whole grid: the cascade
+ * already knows which op was just widened and which array contains
+ * it, so a targeted resolve is cheaper than a full grid sweep.
+ */
+const _resolveOverlapAfterExtend = (
+  op: Operation,
+  containingArray: ComponentGrid,
+): void => {
+  // Locate `op` in `containingArray`.
+  let columnIndex = -1;
+  let position = -1;
+  for (let c = 0; c < containingArray.length; c++) {
+    const idx = containingArray[c].components.indexOf(op);
+    if (idx >= 0) {
+      columnIndex = c;
+      position = idx;
+      break;
+    }
+  }
+  if (columnIndex < 0) return;
+
+  const column = containingArray[columnIndex];
+  if (column.components.length <= 1) return;
+
+  const [opMin, opMax] = _getMinMaxRegIdx(op);
+  let collides = false;
+  for (let i = 0; i < column.components.length; i++) {
+    if (i === position) continue;
+    const [sMin, sMax] = _getMinMaxRegIdx(column.components[i]);
+    if (_doesOverlap([opMin, opMax], [sMin, sMax])) {
+      collides = true;
+      break;
+    }
+  }
+  if (!collides) return;
+
+  // Splice `op` out and insert a fresh column containing only `op`
+  // at the same index — this pushes the surviving siblings one
+  // column to the right of `op`.
+  column.components.splice(position, 1);
+  containingArray.splice(columnIndex, 0, { components: [op] });
 };
 
 /**

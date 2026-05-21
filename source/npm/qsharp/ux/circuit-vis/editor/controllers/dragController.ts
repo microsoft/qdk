@@ -14,6 +14,7 @@ import {
   createGateGhost,
   createWireDropzone,
   makeDropzoneBox,
+  makeShiftExtendGhost,
   removeAllWireDropzones,
 } from "../draggable.js";
 import {
@@ -22,6 +23,7 @@ import {
   trackTemporaryDropzone,
 } from "../../actions/interactionActions.js";
 import { InteractionContext } from "./interactionContext.js";
+import { LayoutScope } from "../../renderer/layoutMap.js";
 import { Location } from "../../data/location.js";
 import { promptForArguments } from "../contextMenu.js";
 import { QubitController } from "./qubitController.js";
@@ -59,6 +61,39 @@ import {
  *   `removeQubitLineWithConfirmation`.
  */
 export class DragController {
+  /**
+   * D4 Stage B — shift-extend context, populated by `onGateMouseDown`
+   * when the dragged source is internal to an expanded group, cleared
+   * by `tearDownShiftExtend` on container mouseup. Drives both the
+   * extra "extend vertically" dropzones and the ghost-border overlay.
+   * `null` whenever the current drag (if any) cannot extend a group —
+   * external source, top-level source, or no drag at all.
+   */
+  private _shiftExtendCtx: {
+    /** Hierarchical location of the immediate parent group G. */
+    parentLoc: string;
+    /** `[minWire, maxWire]` of G's current target span. */
+    parentMinWire: number;
+    parentMaxWire: number;
+    /** Geometry of G's children scope, from `LayoutMap.scopes`. */
+    parentScope: LayoutScope;
+  } | null = null;
+
+  /**
+   * Dropzones spawned by `spawnShiftExtendDropzones` (kept in our own
+   * list so shift-release can clear them ahead of container mouseup;
+   * the existing `temporaryDropzones` list is cleaned only at the
+   * mouseup boundary).
+   */
+  private _shiftExtendDropzones: SVGElement[] = [];
+
+  /** Ghost-border rect currently painted in the overlay, if any. */
+  private _ghostBorder: SVGElement | null = null;
+
+  /** Currently-installed shift keydown/keyup listeners, if any. */
+  private _onShiftDown: ((ev: KeyboardEvent) => void) | null = null;
+  private _onShiftUp: ((ev: KeyboardEvent) => void) | null = null;
+
   constructor(
     private readonly ctx: InteractionContext,
     private readonly qubitController: QubitController,
@@ -165,6 +200,11 @@ export class DragController {
       // next drag — including a toolbox drag, which never runs the
       // filter — inherits those stale marks.
       this.showAllDropzones();
+      // D4 Stage B teardown: clear shift-extend context, ditch any
+      // shift-extend dropzones still hanging around, remove the
+      // ghost border, and uninstall the document shift listeners.
+      // Pairs with `setupShiftExtend` in `onGateMouseDown`.
+      this.tearDownShiftExtend();
     });
 
     // Track whether the most recent mouseup landed on the circuit
@@ -322,6 +362,16 @@ export class DragController {
     // either semantically invalid or outright crashes the renderer.
     this.hideInvalidDropzones(selectedLocation);
 
+    // D4 Stage B: arm shift-extend if the source is internal to an
+    // expanded ancestor group. Sets up `_shiftExtendCtx` and installs
+    // document keydown/keyup listeners so the user can toggle the
+    // shift-extend dropzones + ghost-border on/off mid-drag. No-op
+    // for top-level sources (no ancestor group to extend) and for
+    // sources whose immediate parent's children scope isn't tracked
+    // by the LayoutMap (shouldn't happen for an expanded group, but
+    // skip silently if it does — see `setupShiftExtend`).
+    this.setupShiftExtend(selectedAddr);
+
     this.ctx.container.classList.add("moving");
     this.ctx.ghostQubitLayer.style.display = "block";
     this.ctx.dropzoneLayer.style.display = "block";
@@ -375,6 +425,16 @@ export class DragController {
     const sourceLocation = getGateLocationString(
       this.ctx.interaction.selectedOperation,
     );
+
+    // D4 Stage B: shift-extend dropzones (only emitted while shift
+    // is held during an internal-source drag) offer drop targets
+    // on wires outside the destination group's current span. The
+    // action layer treats the target location string as
+    // authoritative — it always re-derives ancestor `.targets`
+    // from the post-move children — so no special routing is
+    // needed here. The dropzone tag (`data-shift-extend`) only
+    // gated the ghost-border visual, which is cleared on mouseup
+    // by `tearDownShiftExtend`.
 
     if (sourceLocation == null) {
       // Source has no location → it's a fresh drop from the toolbox.
@@ -665,5 +725,186 @@ export class DragController {
     });
 
     this.ctx.renderFn();
+  }
+
+  /******************************
+   *   D4 Stage B: shift-extend  *
+   ******************************/
+
+  /**
+   * Arm the shift-extend pathway for a new internal-source drag.
+   * No-op if `selectedAddr` is top-level (no parent group to extend)
+   * or if the immediate parent's children scope wasn't tracked by
+   * the LayoutMap (defensive — every expanded group's scope should
+   * be present, but skip silently rather than throw).
+   *
+   * On the happy path: captures the parent group's wire span +
+   * scope, installs document keydown/keyup listeners on the shift
+   * key, and spawns initial dropzones if shift is already held at
+   * drag start (a power-user pattern — start dragging then press
+   * shift; the inverse "hold shift then click" pattern is harder
+   * to detect because the gate mousedown listener fires first).
+   */
+  private setupShiftExtend(selectedAddr: Location): void {
+    if (selectedAddr.depth < 2) return; // top-level source
+    const parentAddr = selectedAddr.parent();
+    const parentLoc = parentAddr.toString();
+    const parentScope = this.ctx.layoutMap.scopes.get(parentLoc);
+    if (parentScope == null) return;
+
+    const parentOp = findOperation(this.ctx.model.componentGrid, parentLoc);
+    if (parentOp == null) return;
+    const [parentMinWire, parentMaxWire] = getMinMaxRegIdx(parentOp);
+
+    this._shiftExtendCtx = {
+      parentLoc,
+      parentMinWire,
+      parentMaxWire,
+      parentScope,
+    };
+
+    // Install live shift tracking. Document-level because the user
+    // may shift+drag with the cursor outside the SVG (e.g. hovering
+    // the editor chrome on the way to the target wire).
+    this._onShiftDown = (ev) => {
+      if (ev.key !== "Shift") return;
+      this.spawnShiftExtendDropzones();
+    };
+    this._onShiftUp = (ev) => {
+      if (ev.key !== "Shift") return;
+      this.clearShiftExtendDropzones();
+      this.clearGhostBorder();
+    };
+    document.addEventListener("keydown", this._onShiftDown);
+    document.addEventListener("keyup", this._onShiftUp);
+  }
+
+  /**
+   * Tear down shift-extend state for the current (or just-ended)
+   * drag. Idempotent — safe to call when nothing was armed.
+   */
+  private tearDownShiftExtend(): void {
+    this.clearShiftExtendDropzones();
+    this.clearGhostBorder();
+    if (this._onShiftDown != null) {
+      document.removeEventListener("keydown", this._onShiftDown);
+      this._onShiftDown = null;
+    }
+    if (this._onShiftUp != null) {
+      document.removeEventListener("keyup", this._onShiftUp);
+      this._onShiftUp = null;
+    }
+    this._shiftExtendCtx = null;
+  }
+
+  /**
+   * Spawn the temporary "extend group vertically" dropzones for the
+   * currently-armed shift-extend context. Re-spawn-safe (clears
+   * existing first), idempotent for the same context.
+   *
+   * Emitted at every `(column, wire)` pair where:
+   *   - `column` is one of the parent group's existing inner columns
+   *     OR the trailing-append column past its rightmost child;
+   *   - `wire` is in `[0, wireData.length)` but NOT in the parent
+   *     group's `[minTarget, maxTarget]` span.
+   *
+   * Each dropzone is tagged `data-shift-extend="true"` so the
+   * mouseup handler can recognize a shift-extend release for
+   * visual cleanup (the ghost border). The action layer
+   * (`moveOperation`) always re-derives ancestor `.targets` from
+   * post-move children, so no special routing on the action call
+   * is needed \u2014 the location string of the dropzone is enough.
+   * Hover-enter paints the ghost border for that wire; hover-leave
+   * clears it.
+   */
+  private spawnShiftExtendDropzones(): void {
+    if (this._shiftExtendCtx == null) return;
+    this.clearShiftExtendDropzones();
+
+    const { parentScope, parentMinWire, parentMaxWire, parentLoc } =
+      this._shiftExtendCtx;
+    const realColCount = parentScope.columnXOffsets.length;
+    // +1 for the trailing-append column past the rightmost.
+    const totalCols = realColCount + 1;
+
+    for (let colIndex = 0; colIndex < totalCols; colIndex++) {
+      for (let wire = 0; wire < this.ctx.wireData.length; wire++) {
+        // Only emit for wires OUTSIDE the parent group's current
+        // span. Wires inside already have regular inner dropzones
+        // (from `_populateDropzonesForGrid` + Stage A's trailing
+        // band), and a shift-extend dropzone there would be
+        // semantically a no-op (wire is already enclosed).
+        if (wire >= parentMinWire && wire <= parentMaxWire) continue;
+
+        // opIndex = 0: append at the head of (or into a fresh)
+        // column. Wire is outside the parent's span so no existing
+        // op in this column shares the wire — `_addOp`'s overlap
+        // check passes and the op slots into the column without
+        // splicing a new one.
+        const dropzone = makeDropzoneBox(
+          colIndex,
+          0,
+          parentScope,
+          this.ctx.wireData,
+          wire,
+          false,
+          parentLoc,
+        );
+        dropzone.setAttribute("data-shift-extend", "true");
+        // Override `data-dropzone-inter-column="false"` for clarity
+        // — we want a normal drop (no new outer column), not an
+        // insert-between gesture.
+        dropzone.setAttribute("data-dropzone-inter-column", "false");
+        dropzone.addEventListener("mouseup", this.onDropzoneMouseUp);
+        dropzone.addEventListener("mouseenter", () => {
+          this.paintGhostBorder(wire, colIndex);
+        });
+        dropzone.addEventListener("mouseleave", () => {
+          this.clearGhostBorder();
+        });
+        this.ctx.dropzoneLayer.appendChild(dropzone);
+        this._shiftExtendDropzones.push(dropzone);
+      }
+    }
+  }
+
+  /**
+   * Remove every shift-extend dropzone from the layer. Fired on
+   * shift-up (so the dropzones disappear immediately) and on
+   * container mouseup (belt-and-suspenders). Idempotent.
+   */
+  private clearShiftExtendDropzones(): void {
+    for (const dz of this._shiftExtendDropzones) {
+      dz.parentNode?.removeChild(dz);
+    }
+    this._shiftExtendDropzones = [];
+  }
+
+  /**
+   * Paint the ghost-border overlay for the given hover wire and
+   * column. Replaces any existing ghost border (so moving between
+   * shift-extend dropzones updates the preview).
+   */
+  private paintGhostBorder(hoverWire: number, hoverCol: number): void {
+    if (this._shiftExtendCtx == null) return;
+    this.clearGhostBorder();
+    const { parentScope, parentMinWire, parentMaxWire } = this._shiftExtendCtx;
+    this._ghostBorder = makeShiftExtendGhost(
+      parentScope,
+      this.ctx.wireData,
+      parentMinWire,
+      parentMaxWire,
+      hoverWire,
+      hoverCol,
+    );
+    this.ctx.overlayLayer.appendChild(this._ghostBorder);
+  }
+
+  /** Remove the ghost-border overlay if one is painted. Idempotent. */
+  private clearGhostBorder(): void {
+    if (this._ghostBorder != null) {
+      this._ghostBorder.parentNode?.removeChild(this._ghostBorder);
+      this._ghostBorder = null;
+    }
   }
 }

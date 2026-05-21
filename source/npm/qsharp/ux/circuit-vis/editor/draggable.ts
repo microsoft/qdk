@@ -771,11 +771,79 @@ const makeDropzoneBox = (
   return dropzone;
 };
 
+/**
+ * Build the ghost-border `<rect>` that previews a group's extended
+ * bounding box during a D4 Stage B shift+drag.
+ *
+ * The rect covers:
+ *
+ * - Horizontally: from the group's leftmost column's start x to its
+ *   rightmost column's right edge. If `hoverColIndex` lies past the
+ *   last column (the trailing-append column), the rect extends right
+ *   to include that synthesized column too — so the user sees the
+ *   group's new horizontal footprint along with the new vertical
+ *   one when the drop is on the trailing column.
+ * - Vertically: from `min(top wire Y, hover wire Y)` to
+ *   `max(bottom wire Y, hover wire Y)`, padded by `DROPZONE_PADDING_Y`
+ *   on each side so the ghost reads as a generous halo around the
+ *   group's body rather than a tight stripe over the wires.
+ *
+ * Coordinates come entirely from `LayoutScope` + `wireData`, the
+ * same sources Stage A's dropzones use. No DOM lookup of the
+ * group's rendered `<rect>` — that would couple the overlay to
+ * `gateFormatter`'s internal structure.
+ *
+ * Caller appends the returned element to `overlayLayer` and removes
+ * it on hover-off / shift-release / mouseup.
+ */
+const makeShiftExtendGhost = (
+  scope: LayoutScope,
+  wireData: number[],
+  groupMinWire: number,
+  groupMaxWire: number,
+  hoverWireIndex: number,
+  hoverColIndex: number,
+): SVGElement => {
+  // Horizontal: leftmost column start → rightmost column right edge.
+  // The trailing-append case (hoverColIndex past the last real
+  // column) extends right via `columnGeometry`'s synthesized position
+  // so the hover column gets covered too.
+  const leftGeom = columnGeometry(scope, 0);
+  const lastRealColIndex = Math.max(scope.columnXOffsets.length - 1, 0);
+  const rightRealGeom = columnGeometry(scope, lastRealColIndex);
+  const rightRealEdge = rightRealGeom.colStartX + rightRealGeom.colWidth;
+  const rightTrailGeom = columnGeometry(scope, scope.columnXOffsets.length);
+  const rightEdge =
+    hoverColIndex >= scope.columnXOffsets.length
+      ? rightTrailGeom.colStartX + rightTrailGeom.colWidth
+      : rightRealEdge;
+
+  // Vertical: pull in the existing wire span plus the hovered wire,
+  // and pad. We index `wireData` defensively in case `hoverWireIndex`
+  // is the trailing ghost-qubit row (length == wireData.length); fall
+  // back to the last real wire if so, since extending onto the ghost
+  // row isn't a supported action.
+  const topWireY = wireData[groupMinWire] ?? wireData[0];
+  const bottomWireY = wireData[groupMaxWire] ?? wireData[wireData.length - 1];
+  const hoverWireY = wireData[hoverWireIndex] ?? wireData[wireData.length - 1];
+  const topY = Math.min(topWireY, hoverWireY) - DROPZONE_PADDING_Y;
+  const bottomY = Math.max(bottomWireY, hoverWireY) + DROPZONE_PADDING_Y;
+
+  return box(
+    leftGeom.colStartX - gatePadding,
+    topY,
+    rightEdge - leftGeom.colStartX + gatePadding * 2,
+    bottomY - topY,
+    "shift-extend-ghost",
+  );
+};
+
 export {
   createDropzones,
   createGateGhost,
   createQubitLabelGhost,
   createWireDropzone,
   makeDropzoneBox,
+  makeShiftExtendGhost,
   removeAllWireDropzones,
 };

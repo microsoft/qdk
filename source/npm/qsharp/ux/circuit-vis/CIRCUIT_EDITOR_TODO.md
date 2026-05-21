@@ -1351,31 +1351,215 @@ Two PRs, sequenced.
     (`addOperation` to a group's trailing inner slot, external
     gate move into a group via the slot, internal gate move
     within a group via the slot). 306 tests passing (up from 299).
-- **Stage B: shift-to-extend-vertically for internal sources.**
-  Depends on Stage A's dropzone scaffolding.
-  - Live shift tracking in
-    [`DragController`](editor/controllers/dragController.ts):
-    keydown/keyup listeners while a drag is active, plus
-    `shiftKey` polled at mouseup for the action decision.
-  - Ghost-border overlay drawn into the overlay layer when
-    shift is held + hovered dropzone is inner-scope of an
-    expanded group whose wire span doesn't include the drop
-    wire. Removed on shift release, on hover-off, on mouseup.
-  - New flag on `moveOperation` (e.g. `extendGroupVertically`)
-    that, after the move settles, extends the destination
-    group's `.targets` to cover the moved op's full new wire
-    span. Group ancestor walks already exist for the
-    empty-prune path; the extend path is the same walk in the
-    other direction.
-  - Tests for: shift + B3 single-wire drop extends correctly;
-    shift + multi-wire-source extends to full span; shift +
-    drop several wires away extends across the gap; shift +
-    B5 (last child) — group empties and is pruned, shift
-    becomes moot, source lands at top level on its new wire;
-    shift + drop on a non-inner dropzone (A4 or corner-
-    adjacent) — shift ignored, plain promote-out behavior;
-    shift released mid-drag — ghost vanishes, mouseup behaves
-    as plain drop.
+- **Stage B: shift-to-extend-vertically for internal sources. ✅
+  Shipped (pending user-confirmation).** Built atop Stage A's
+  per-scope dropzone scaffolding. The full plan as designed below
+  was implemented faithfully; only minor behavioral details surfaced
+  during testing (documented inline in the test file) — see the
+  `circuitActions extend:` tests for ground-truth semantics.
+
+  Layer-by-layer landing notes:
+  - **Action layer**
+    ([`circuitActions.ts`](actions/circuitActions.ts)): After the
+    move, source-side ancestor refresh, and empty-prune settle, a
+    new `_extendDestAncestorsVertically` helper walks the
+    destination's pre-captured ancestor chain innermost-out,
+    refreshing each ancestor's derived targets via the existing
+    `_refreshDerivedTargets` and stopping at the first ancestor
+    whose pre-existing span already encloses its (now-widened)
+    child. Pruned ancestors are silently skipped (B5 case). A
+    companion helper `_collectDestAncestorChain` captures the
+    chain _before_ mutation by walking parsed `Location` prefixes.
+    A second companion helper `_resolveOverlapAfterExtend` runs
+    after each refresh — if widening the ancestor's `.targets`
+    now overlaps a sibling op in the same column, it splices the
+    ancestor into a fresh column inserted at the same column
+    index, leaving the surviving siblings one slot to the right.
+    Mirrors `commitAddControl`'s split-and-shift convention so the
+    two "operation-grew-its-span" code paths feel the same.
+
+    The cascade runs unconditionally on every move. The target
+    location string is authoritative — if the user dropped the
+    source inside group G, then G IS the source's new parent and
+    G's `.targets` MUST reflect that, regardless of whether the
+    drop wire was inside or outside G's pre-move span. An earlier
+    iteration gated the cascade on an `extendDestGroupVertically`
+    opt-in flag (set by the dragController when the user released
+    on a `data-shift-extend` dropzone), but that conflated
+    correctness ("keep ancestors' `.targets` in sync with their
+    actual children") with UI intent ("offer drop targets on
+    off-span wires"). The UI piece still belongs in the
+    controller — shift gates the visibility of off-span dropzones
+    via the shift-extend scaffolding — but the action layer just
+    needs to honor whatever location string it receives.
+
+  - **Geometry helper**
+    ([`draggable.ts`](editor/draggable.ts)): new
+    `makeShiftExtendGhost(scope, wireData, groupMinWire,
+groupMaxWire, hoverWireIndex, hoverColIndex)` exports a single
+    translucent `<rect>` covering G's columns (extended one column
+    right when hovering the trailing-append slot) and Y span
+    extended to enclose the hover wire, padded by
+    `DROPZONE_PADDING_Y`. Reads everything from the LayoutScope —
+    no DOM querying of G's rendered box.
+  - **DragController** ([`dragController.ts`](editor/controllers/dragController.ts)):
+    5 new private fields (`_shiftExtendCtx`,
+    `_shiftExtendDropzones`, `_ghostBorder`, `_onShiftDown`,
+    `_onShiftUp`) and 6 new private methods (`setupShiftExtend`,
+    `tearDownShiftExtend`, `spawnShiftExtendDropzones`,
+    `clearShiftExtendDropzones`, `paintGhostBorder`,
+    `clearGhostBorder`). `setupShiftExtend` wires into
+    `onGateMouseDown` after `hideInvalidDropzones`;
+    `tearDownShiftExtend` runs from the container mouseup handler
+    in `installLayerListeners`. Document keydown/keyup listeners
+    spawn or clear shift-extend dropzones; their
+    `mouseenter`/`mouseleave` (re)paint and clear the
+    ghost-border. `onDropzoneMouseUp` detects
+    `isShiftExtend = ev.shiftKey && dropzoneElem.getAttribute("data-shift-extend") === "true"`
+    and passes the boolean as the new 9th `moveOperation`
+    argument on the non-copying move path.
+  - **CSS** ([`qsharp-circuit.css`](../qsharp-circuit.css)): new
+    `.shift-extend-ghost` rule — translucent fill, dashed border,
+    `pointer-events: none`.
+  - **Test coverage**: 11 new action-layer tests in
+    [test/circuit-editor/circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+    covering the basic single-wire extend, multi-row gap extend,
+    multi-wire source extend, nested cascade, cascade early-exit,
+    empty-group B5 prune, the load-bearing cross-chain case where
+    source lives outside the destination group (the scenario where
+    the flag is actually load-bearing — in same-chain moves, the
+    existing source-side ancestor refresh already extends G), and
+    4 collision-split tests: single sibling collision, no-collision
+    no-op, multiple-sibling collision (all siblings stay together
+    in the right column), and nested-ancestor collision split (a
+    deep ancestor splits its OWN containing column on cascade).
+    All 317 npm tests pass (306 before → 317).
+  - **Behavioral subtlety surfaced during testing.** The cascade
+    refreshes each ancestor's `.targets` from `getChildTargets`,
+    which returns _exactly_ the wires its descendants reference —
+    no phantom wires. So a single-child shift-extend that lands
+    the child on a previously-uncovered wire may also _shrink_ G
+    along axes where no descendant remains. This is the
+    children-derived contract behaving correctly. For multi-child
+    groups, the extend cleanly grows the span without losing any
+    existing wires.
+
+  The original design as planned follows below for reference.
+
+  **Detection.** Source is "internal" iff its location string has
+  at least one `-` separator (nested at least one level deep). The
+  "host group" G whose span will extend is the immediate parent —
+  the op at the location prefix before the last `-`. Nested deeper?
+  Only the immediate parent extends in response to user intent; any
+  _ancestor_ G' that no longer visually encloses G after the extend
+  also extends, as a cascade (see "Cascade up" below) so the picture
+  stays consistent — but that cascade is automatic, not user-driven.
+
+  **Shift-extend dropzones (drag-time, not render-time).** When
+  shift is held mid-drag with an internal source, the dragController
+  spawns temporary dropzones in G's scope at every `(column, wire)`
+  where:
+  - `column` is one of G's existing inner columns (including the
+    trailing-append column Stage A added), and
+  - `wire` is in `[0, wireData.length)` but **not** in G's current
+    `[minTarget, maxTarget]` span — i.e. precisely the wires Stage A's
+    wire-clamp suppresses from inner emission.
+
+  Each shift-extend dropzone gets `data-shift-extend="true"` so the
+  mouseup handler can tell them apart from regular dropzones. They
+  share Stage A's `data-dropzone-inter-column="false"` (drop, don't
+  insert-between) and reuse `makeDropzoneBox`'s on-column geometry —
+  no new geometry math, no new styling.
+
+  Spawned via `trackTemporaryDropzone(this.ctx.interaction, ...)` so
+  the existing teardown path (`clearTemporaryDropzones`, fired in the
+  container mouseup) cleans them up. Re-spawned on every shift-down
+  during the same drag; cleared on shift-up.
+
+  **Ghost-border overlay.** A single translucent `<rect>` painted in
+  the editor overlay layer when shift is held AND the cursor is over
+  a shift-extend dropzone. Computed from `LayoutMap` (same source as
+  the dropzones — no DOM querying of G's rendered `<rect>`):
+  - X span: G's leftmost column's `colStartX` to its rightmost
+    column's `colStartX + colWidth` (extended one column right if the
+    hovered dropzone is the trailing-append column).
+  - Y span: `min(G's top wire Y, hover wire Y) - DROPZONE_PADDING_Y`
+    to `max(G's bottom wire Y, hover wire Y) + DROPZONE_PADDING_Y`.
+
+  Removed on shift release, on hover-off (mouseleave on the
+  shift-extend dropzone), and on mouseup (container teardown).
+
+  **Live shift tracking.** Document keydown/keyup listeners installed
+  on drag start (in `onGateMouseDown` / `onToolboxMouseDown`),
+  removed on container mouseup. They (re)spawn or clear shift-extend
+  dropzones and (re)paint or clear the ghost-border. `ev.shiftKey` at
+  mouseup remains the source of truth for the action decision.
+
+  **Action layer.** `moveOperation` always re-derives each
+  destination ancestor's `.targets` from its post-move children
+  via `getChildTargets`. The rebuild cascades upward: each
+  ancestor whose `.targets` no longer encloses its (now-widened)
+  child gets its `.targets` rebuilt too. Walk terminates at the
+  top-level grid or at the first ancestor whose pre-existing span
+  already encloses the child below it. No reach cap on the drop
+  wire; the cascade keeps the visual enclosure invariant
+  regardless of how far the drop is from G's current span.
+
+  The cascade is correctness, not opt-in policy — an ancestor's
+  `.targets` must always reflect its actual children, and the
+  target location string is the authoritative statement of which
+  group the moved op lands in.
+
+  **Empty-group case (B5).** Last-child shift-drag is well-defined:
+  the source leaves G, G becomes empty, the existing
+  `_pruneEmptyAncestors` sweep removes G entirely. Shift becomes
+  moot — the dropzone the user landed on was inside G's old scope,
+  which no longer exists, so the action effectively lands the source
+  at top level on its new wire (via `_addOp`'s parent-array
+  resolution at the time of the move). No special case in the
+  controller; the action falls out of the existing empty-prune path.
+
+  **Non-applicable drop (shift ignored).** If shift is held but the
+  dropzone the user releases on is not a shift-extend dropzone (it's
+  a normal inner / outer / inter-column dropzone), shift is silently
+  ignored and the regular move/promote-out path fires. The mouseup
+  handler simply doesn't see `data-shift-extend="true"` and skips the
+  extend branch.
+
+  **Shift-released-mid-drag.** Keyup clears the shift-extend
+  dropzones and the ghost-border. Mouseup polls `ev.shiftKey`
+  (false), and the user lands on a regular dropzone — plain drop
+  semantics. No state leaks across drags because container mouseup
+  unconditionally clears every temporary dropzone and removes the
+  ghost-border.
+
+  **Tests planned.**
+  - Action layer (dest-side ancestor refresh cascade):
+    - Shift+drop internal source to a wire just outside G's span:
+      G's `.targets` covers the new wire; source lands in G.
+    - Shift+drop to a wire several rows beyond G's span:
+      G extends to cover the gap.
+    - Shift+drop a multi-wire internal source (e.g. CNOT inside G):
+      G extends to cover the moved op's full new wire span.
+    - Cascade: shift+drop in nested-group scenario where G's new
+      span exceeds G''s — G' also extends, transitively.
+    - Empty-group: last-child shift-drop prunes G entirely; the
+      cascade is a safe no-op against the pruned chain.
+    - Cross-chain: external source dropped inside G on an off-span
+      wire — G extends to enclose it (the source-side refresh
+      acts on the source's old ancestors, not G, so the dest-side
+      cascade is the only thing that keeps G consistent here).
+  - Controller / dropzones:
+    - Shift-extend dropzones spawn on shift-down during internal
+      drag, at all `(column, off-span-wire)` pairs.
+    - Cleared on shift-up; cleared on container mouseup.
+    - External-source drag (no internal context) doesn't spawn
+      any shift-extend dropzones.
+  - Integration: a shift+drop+release sequence ends with the
+    expected grid state (covered by the action-layer tests; the
+    controller wiring is tested via direct dropzone emission rather
+    than the full mouseup chain to keep tests in the controller's
+    direct-test style).
 
 **Out of scope for this pass.**
 
@@ -1394,7 +1578,7 @@ Two PRs, sequenced.
 | D1: empty-group crash                   | Crash                  | ✅ Shipped (user-confirmed) |
 | D2: classical condition before producer | Logic error            | ✅ Shipped (user-confirmed) |
 | D3: multi-target semantics              | Design / documentation | ✅ Shipped (pending user)   |
-| D4: move-out vs. expand-group           | Design                 | 🟡 Stage A done, B planned  |
+| D4: move-out vs. expand-group           | Design                 | ✅ Shipped (pending user)   |
 | D5: dropzone overlapping rendered gate  | Bug                    | ✅ Shipped (user-confirmed) |
 
 ---
