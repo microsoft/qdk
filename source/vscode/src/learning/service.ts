@@ -543,6 +543,7 @@ export class LearningService {
 
     const execResult = await this.executeProgram(programConfig, {
       entry: "Kata.Verification.CheckSolution()",
+      suppressResultOutput: true,
     });
 
     const passed = execResult.success && execResult.result === "true";
@@ -587,7 +588,7 @@ export class LearningService {
 
   private async executeProgram(
     programConfig: FullProgramConfig,
-    options?: { entry?: string; shots?: number },
+    options?: { entry?: string; shots?: number; suppressResultOutput?: boolean },
   ): Promise<RunResult> {
     const messages: string[] = [];
 
@@ -595,6 +596,7 @@ export class LearningService {
       const runResult = await runProgram(this.extensionUri, programConfig, {
         entry: options?.entry,
         shots: options?.shots ?? 1,
+        suppressResultOutput: options?.suppressResultOutput,
         onConsoleOut: (msg) => {
           messages.push(msg);
         },
