@@ -450,6 +450,17 @@ export class LearningService {
       uri,
       new TextEncoder().encode(exercise.placeholderCode),
     );
+    // Revert the open editor (if any) so it picks up the on-disk change
+    // instead of retaining stale in-memory content.
+    const doc = vscode.workspace.textDocuments.find(
+      (d) => d.uri.toString() === uri.toString(),
+    );
+    if (doc && doc.isDirty) {
+      await vscode.commands.executeCommand(
+        "workbench.action.files.revert",
+        uri,
+      );
+    }
     this.markIncomplete(this.requireWorkspace().progressData.position);
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
@@ -588,7 +599,11 @@ export class LearningService {
 
   private async executeProgram(
     programConfig: FullProgramConfig,
-    options?: { entry?: string; shots?: number; suppressResultOutput?: boolean },
+    options?: {
+      entry?: string;
+      shots?: number;
+      suppressResultOutput?: boolean;
+    },
   ): Promise<RunResult> {
     const messages: string[] = [];
 
@@ -782,7 +797,12 @@ export class LearningService {
       // When incomplete, offer a Hint button instead.
       const isComplete = this.isComplete(this.position);
       const extraGroups: ActionGroup[] = isComplete
-        ? [[{ key: "c", label: "Check", action: "check" }]]
+        ? [
+            [
+              { key: "c", label: "Check", action: "check" },
+              { key: "r", label: "Reset", action: "reset" },
+            ],
+          ]
         : [
             [
               {
@@ -791,6 +811,7 @@ export class LearningService {
                 action: "hint-chat",
                 codicon: "sparkle",
               },
+              { key: "r", label: "Reset", action: "reset" },
             ],
           ];
       return [primaryGroup, ...extraGroups, navGroup].filter(
