@@ -336,7 +336,7 @@ export class LessonPanelManager {
             "Reset",
           );
           if (confirmed === "Reset") {
-            await this.service.resetExercise();
+            await this.service.resetExercise("panel");
             this.sendState();
           }
           break;
