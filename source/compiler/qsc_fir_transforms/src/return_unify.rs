@@ -832,12 +832,30 @@ enum FinalTrailingExprStrategy {
     Lazy,
 }
 
-/// Output contract for recursively rewriting a statement sequence with an existing flag pair.
+/// Fallback to use for a value-producing nested expression when an earlier
+/// return has already fired and the value is statically unused.
 #[derive(Clone, Copy)]
+enum ValueFallback {
+    /// Synthesize a default value for the nested expression's type.
+    Default,
+    /// Use `false`; this is used for condition expressions so their branches
+    /// do not run after an early return in the condition.
+    BoolFalse,
+}
+
+/// Output contract for recursively rewriting a statement sequence with an existing flag pair.
+#[derive(Clone)]
 enum FlagBlockOutput {
     /// The sequence must produce the callable return value.
     ReturnValue {
         final_trailing_expr_strategy: FinalTrailingExprStrategy,
+    },
+    /// The sequence must preserve a nested expression value that is not the
+    /// callable return value (for example a `Bool` condition block).
+    Value {
+        value_ty: Ty,
+        final_trailing_expr_strategy: FinalTrailingExprStrategy,
+        fallback: ValueFallback,
     },
     /// The sequence is used only for side effects and has Unit type.
     Unit,
@@ -845,21 +863,32 @@ enum FlagBlockOutput {
 
 impl FlagBlockOutput {
     /// Returns the same output mode, forcing value-producing final tails to be lazy.
-    fn lazy(self) -> Self {
+    fn lazy(&self) -> Self {
         match self {
             Self::ReturnValue { .. } => Self::ReturnValue {
                 final_trailing_expr_strategy: FinalTrailingExprStrategy::Lazy,
+            },
+            Self::Value {
+                value_ty, fallback, ..
+            } => Self::Value {
+                value_ty: value_ty.clone(),
+                final_trailing_expr_strategy: FinalTrailingExprStrategy::Lazy,
+                fallback: *fallback,
             },
             Self::Unit => Self::Unit,
         }
     }
 
     /// Gets the final-tail strategy when the rewritten sequence is value-producing.
-    fn final_trailing_expr_strategy(self) -> Option<FinalTrailingExprStrategy> {
+    fn final_trailing_expr_strategy(&self) -> Option<FinalTrailingExprStrategy> {
         match self {
             Self::ReturnValue {
                 final_trailing_expr_strategy,
-            } => Some(final_trailing_expr_strategy),
+            }
+            | Self::Value {
+                final_trailing_expr_strategy,
+                ..
+            } => Some(*final_trailing_expr_strategy),
             Self::Unit => None,
         }
     }
@@ -1276,7 +1305,7 @@ fn transform_block_stmts_with_flags(
                 &original_stmts[index..],
                 flag_context,
                 arrow_default_cache,
-                output,
+                output.clone(),
             );
             new_stmts.push(lazy_continuation);
             break;
@@ -1294,7 +1323,7 @@ fn transform_block_stmts_with_flags(
                         &original_stmts[index..],
                         flag_context,
                         arrow_default_cache,
-                        output,
+                        output.clone(),
                     );
                     new_stmts.push(lazy_continuation);
                     break;
@@ -1306,7 +1335,7 @@ fn transform_block_stmts_with_flags(
                         &original_stmts[index..],
                         flag_context,
                         arrow_default_cache,
-                        output,
+                        output.clone(),
                     );
                     new_stmts.push(lazy_continuation);
                     break;
@@ -1386,10 +1415,10 @@ fn create_lazy_flag_continuation_stmt(
         continuation_stmts,
         flag_context,
         arrow_default_cache,
-        output,
+        output.clone(),
     );
     match output {
-        FlagBlockOutput::ReturnValue { .. } => {
+        FlagBlockOutput::ReturnValue { .. } | FlagBlockOutput::Value { .. } => {
             alloc_expr_stmt(package, assigner, lazy_continuation, Span::default())
         }
         FlagBlockOutput::Unit => {
@@ -1454,6 +1483,36 @@ fn create_lazy_flag_continuation_expr(
             );
             (flag_context.return_ty.clone(), Some(ret_var))
         }
+        FlagBlockOutput::Value {
+            value_ty, fallback, ..
+        } => {
+            if !has_value_trailing_stmt(package, &continuation_stmts, &value_ty) {
+                let missing_value = create_value_fallback_expr(
+                    package,
+                    assigner,
+                    flag_context,
+                    arrow_default_cache,
+                    &value_ty,
+                    fallback,
+                );
+                continuation_stmts.push(alloc_expr_stmt(
+                    package,
+                    assigner,
+                    missing_value,
+                    Span::default(),
+                ));
+            }
+
+            let else_expr = create_value_fallback_expr(
+                package,
+                assigner,
+                flag_context,
+                arrow_default_cache,
+                &value_ty,
+                fallback,
+            );
+            (value_ty, Some(else_expr))
+        }
         FlagBlockOutput::Unit => (Ty::UNIT, None),
     };
     let continuation_block = alloc_block(
@@ -1481,6 +1540,45 @@ fn create_lazy_flag_continuation_expr(
         continuation_ty,
         Span::default(),
     )
+}
+
+/// Creates a well-typed value for a nested expression whose result is
+/// unreachable because the shared return flag is already set.
+fn create_value_fallback_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
+    value_ty: &Ty,
+    fallback: ValueFallback,
+) -> ExprId {
+    match fallback {
+        ValueFallback::BoolFalse => alloc_bool_lit(package, assigner, false, Span::default()),
+        ValueFallback::Default if value_ty == flag_context.return_ty => {
+            create_return_slot_read_expr(
+                package,
+                assigner,
+                flag_context.return_slot,
+                flag_context.return_ty,
+            )
+        }
+        ValueFallback::Default => create_default_value(
+            package,
+            assigner,
+            flag_context.package_id,
+            value_ty,
+            flag_context.udt_pure_tys,
+            arrow_default_cache,
+        )
+        .unwrap_or_else(|| {
+            create_typed_fail_expr(
+                package,
+                assigner,
+                value_ty,
+                "return_unify nested value is unreachable after early return",
+            )
+        }),
+    }
 }
 
 /// Returns true when the statement sequence already ends with a value of `return_ty`.
@@ -1687,7 +1785,7 @@ fn replace_returns_in_block(
         &stmts,
         flag_context,
         arrow_default_cache,
-        output,
+        output.clone(),
     );
     let block = package.blocks.get_mut(block_id).expect("block not found");
     block.stmts = new_stmts;
@@ -1827,8 +1925,10 @@ fn replace_returns_in_expr(
             let output = if expr.ty == Ty::UNIT {
                 FlagBlockOutput::Unit
             } else {
-                FlagBlockOutput::ReturnValue {
+                FlagBlockOutput::Value {
+                    value_ty: expr.ty.clone(),
                     final_trailing_expr_strategy: FinalTrailingExprStrategy::Preserve,
+                    fallback: ValueFallback::Default,
                 }
             };
             replace_returns_in_block(
@@ -1841,9 +1941,23 @@ fn replace_returns_in_expr(
             );
             resync_expr_ty_from_children(package, expr_id);
         }
-        ExprKind::If(_, then_id, else_opt) => {
+        ExprKind::If(cond_id, then_id, else_opt) => {
+            let cond_id = *cond_id;
             let then_id = *then_id;
             let else_id = *else_opt;
+            let if_ty = expr.ty.clone();
+            let cond_had_return = contains_return_in_expr(package, cond_id);
+            if cond_had_return {
+                replace_returns_in_value_expr(
+                    package,
+                    assigner,
+                    cond_id,
+                    flag_context,
+                    arrow_default_cache,
+                    &Ty::Prim(Prim::Bool),
+                    ValueFallback::BoolFalse,
+                );
+            }
             replace_returns_in_expr(
                 package,
                 assigner,
@@ -1853,6 +1967,18 @@ fn replace_returns_in_expr(
             );
             if let Some(e) = else_id {
                 replace_returns_in_expr(package, assigner, e, flag_context, arrow_default_cache);
+            }
+            if cond_had_return {
+                guard_if_after_condition_return(
+                    package,
+                    assigner,
+                    expr_id,
+                    cond_id,
+                    else_id,
+                    flag_context,
+                    arrow_default_cache,
+                    &if_ty,
+                );
             }
             resync_expr_ty_from_children(package, expr_id);
         }
@@ -2287,6 +2413,227 @@ fn guard_stmt_with_flag(
         )
     };
     alloc_semi_stmt(package, assigner, if_expr, Span::default())
+}
+
+/// Rewrites returns inside an expression that must still produce `value_ty`
+/// when no callable return has fired.
+fn replace_returns_in_value_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    expr_id: ExprId,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
+    value_ty: &Ty,
+    fallback: ValueFallback,
+) {
+    let expr = package.get_expr(expr_id).clone();
+    match &expr.kind {
+        ExprKind::Return(inner_id) => {
+            let fallback_expr = create_value_fallback_expr(
+                package,
+                assigner,
+                flag_context,
+                arrow_default_cache,
+                value_ty,
+                fallback,
+            );
+            replace_return_with_flags_and_tail(
+                package,
+                assigner,
+                expr_id,
+                *inner_id,
+                flag_context,
+                fallback_expr,
+                value_ty,
+            );
+        }
+        ExprKind::Block(block_id) => {
+            let output = FlagBlockOutput::Value {
+                value_ty: expr.ty.clone(),
+                final_trailing_expr_strategy: FinalTrailingExprStrategy::Lazy,
+                fallback,
+            };
+            replace_returns_in_block(
+                package,
+                assigner,
+                *block_id,
+                flag_context,
+                arrow_default_cache,
+                output,
+            );
+            resync_expr_ty_from_children(package, expr_id);
+        }
+        ExprKind::If(cond_id, then_id, else_opt) => {
+            let cond_id = *cond_id;
+            let then_id = *then_id;
+            let else_id = *else_opt;
+            if contains_return_in_expr(package, cond_id) {
+                replace_returns_in_value_expr(
+                    package,
+                    assigner,
+                    cond_id,
+                    flag_context,
+                    arrow_default_cache,
+                    &Ty::Prim(Prim::Bool),
+                    ValueFallback::BoolFalse,
+                );
+                guard_if_after_condition_return(
+                    package,
+                    assigner,
+                    expr_id,
+                    cond_id,
+                    else_id,
+                    flag_context,
+                    arrow_default_cache,
+                    &expr.ty,
+                );
+            }
+            replace_returns_in_value_expr(
+                package,
+                assigner,
+                then_id,
+                flag_context,
+                arrow_default_cache,
+                value_ty,
+                fallback,
+            );
+            if let Some(else_id) = else_id {
+                replace_returns_in_value_expr(
+                    package,
+                    assigner,
+                    else_id,
+                    flag_context,
+                    arrow_default_cache,
+                    value_ty,
+                    fallback,
+                );
+            }
+            resync_expr_ty_from_children(package, expr_id);
+        }
+        _ => replace_returns_in_expr(
+            package,
+            assigner,
+            expr_id,
+            flag_context,
+            arrow_default_cache,
+        ),
+    }
+}
+
+fn replace_return_with_flags_and_tail(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    expr_id: ExprId,
+    returned_expr_id: ExprId,
+    flag_context: &FlagContext<'_>,
+    tail_expr_id: ExprId,
+    tail_ty: &Ty,
+) {
+    let span = package.get_expr(expr_id).span;
+    let assign_val = create_return_slot_write_expr(
+        package,
+        assigner,
+        flag_context.return_slot,
+        returned_expr_id,
+        flag_context.return_ty,
+    );
+    let assign_val_semi = alloc_semi_stmt(package, assigner, assign_val, Span::default());
+    let flag_true = alloc_bool_lit(package, assigner, true, Span::default());
+    let assign_flag = create_assign_expr(
+        package,
+        assigner,
+        flag_context.has_returned_var_id,
+        flag_true,
+        &Ty::Prim(Prim::Bool),
+    );
+    let assign_flag_semi = alloc_semi_stmt(package, assigner, assign_flag, Span::default());
+    let tail_stmt = alloc_expr_stmt(package, assigner, tail_expr_id, Span::default());
+    let block_id = alloc_block(
+        package,
+        assigner,
+        vec![assign_val_semi, assign_flag_semi, tail_stmt],
+        tail_ty.clone(),
+        Span::default(),
+    );
+    let replacement = alloc_block_expr(
+        package,
+        assigner,
+        block_id,
+        tail_ty.clone(),
+        Span::default(),
+    );
+    let replacement = package.get_expr(replacement).clone();
+    let expr = package.exprs.get_mut(expr_id).expect("expr not found");
+    *expr = Expr {
+        id: expr_id,
+        span,
+        ty: replacement.ty,
+        kind: replacement.kind,
+        exec_graph_range: EMPTY_EXEC_RANGE,
+    };
+}
+
+fn guard_if_after_condition_return(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    if_expr_id: ExprId,
+    cond_id: ExprId,
+    else_id: Option<ExprId>,
+    flag_context: &FlagContext<'_>,
+    arrow_default_cache: &mut ArrowDefaultCache,
+    if_ty: &Ty,
+) {
+    let not_flag = create_not_var_expr(package, assigner, flag_context.has_returned_var_id);
+    let guarded_cond = alloc_bin_op_expr(
+        package,
+        assigner,
+        BinOp::AndL,
+        not_flag,
+        cond_id,
+        Ty::Prim(Prim::Bool),
+        Span::default(),
+    );
+
+    let guarded_else = else_id.map(|else_expr| {
+        let flag = alloc_local_var_expr(
+            package,
+            assigner,
+            flag_context.has_returned_var_id,
+            Ty::Prim(Prim::Bool),
+            Span::default(),
+        );
+        let fallback = if if_ty == &Ty::UNIT {
+            alloc_unit_expr(package, assigner, Span::default())
+        } else {
+            create_value_fallback_expr(
+                package,
+                assigner,
+                flag_context,
+                arrow_default_cache,
+                if_ty,
+                ValueFallback::Default,
+            )
+        };
+        alloc_if_expr(
+            package,
+            assigner,
+            flag,
+            fallback,
+            Some(else_expr),
+            if_ty.clone(),
+            Span::default(),
+        )
+    });
+
+    if let ExprKind::If(cond, _, else_expr) = &mut package
+        .exprs
+        .get_mut(if_expr_id)
+        .expect("if expr not found")
+        .kind
+    {
+        *cond = guarded_cond;
+        *else_expr = guarded_else;
+    }
 }
 
 /// Synthesize the trailing expression that finalizes the flag-based

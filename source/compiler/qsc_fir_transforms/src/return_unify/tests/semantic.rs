@@ -231,6 +231,43 @@ fn deeply_nested_block_with_return_semantic() {
 }
 
 #[test]
+fn nested_block_tail_not_evaluated_after_return_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                let x = {
+                    if true {
+                        return 1;
+                    }
+                    fail "must not run";
+                };
+                x
+            }
+        }
+    "#});
+}
+
+#[test]
+fn block_expression_if_condition_return_short_circuits_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                if {
+                    if true {
+                        return 1;
+                    }
+                    true
+                } {
+                    fail "must not run";
+                } else {
+                    0
+                }
+            }
+        }
+    "#});
+}
+
+#[test]
 fn multiple_returns_in_helper_function_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
