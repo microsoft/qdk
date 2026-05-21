@@ -241,13 +241,11 @@ function App() {
 function Branding() {
   const mobiusUri = document.body.dataset.mobiusUri ?? "";
   return (
-    <div class="branding">
-      <img
+    <div class="branding" style={`--mobius-url: url('${mobiusUri}')`}>
+      <div
         class="branding-icon"
-        src={mobiusUri}
-        width="18"
-        height="18"
-        alt="Microsoft Quantum logo"
+        role="img"
+        aria-label="Microsoft Quantum logo"
       />
       <span class="branding-text">Microsoft Quantum Katas</span>
     </div>

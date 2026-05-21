@@ -80,11 +80,18 @@ export class LessonPanelManager {
       },
     );
 
-    this.panel.iconPath = vscode.Uri.joinPath(
-      this.extensionUri,
-      "resources",
-      "mobius.svg",
-    );
+    this.panel.iconPath = {
+      light: vscode.Uri.joinPath(
+        this.extensionUri,
+        "resources",
+        "mobius-light.svg",
+      ),
+      dark: vscode.Uri.joinPath(
+        this.extensionUri,
+        "resources",
+        "mobius-dark.svg",
+      ),
+    };
 
     // Generate and set HTML
     this.panel.webview.html = this.getWebviewContent(this.panel.webview);
