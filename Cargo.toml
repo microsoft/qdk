@@ -12,6 +12,7 @@ members = [
     "source/compiler/qsc_doc_gen",
     "source/compiler/qsc_eval",
     "source/compiler/qsc_fir",
+    "source/compiler/qsc_fir_transforms",
     "source/compiler/qsc_frontend",
     "source/compiler/qsc_hir",
     "source/compiler/qsc_openqasm_compiler",

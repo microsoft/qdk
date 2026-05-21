@@ -1125,6 +1125,7 @@ impl AstVisitor<'_> for With<'_> {
                 self.resolver.bind_pat(pat, stmt.span.hi);
             }
             ast::StmtKind::Qubit(_, pat, init, block) => {
+                self.visit_pat(pat);
                 ast_visit::walk_qubit_init(self, init);
                 if let Some(block) = block {
                     self.with_pat(block.span, ScopeKind::Block, pat, |visitor| {

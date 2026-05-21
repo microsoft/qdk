@@ -16,26 +16,26 @@ block_0:
   call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 0 to %Qubit*))
   call void @__quantum__qis__reset__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  %var_0 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
-  %var_2 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
-  %var_3 = icmp eq i1 %var_2, false
-  %var_4 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
-  %var_5 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
-  %var_6 = icmp eq i1 %var_4, %var_5
-  %var_7 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
-  %var_8 = icmp eq i1 %var_7, false
-  br i1 %var_8, label %block_1, label %block_2
+  %var_1 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+  %var_3 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
+  %var_4 = icmp eq i1 %var_3, false
+  %var_5 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+  %var_6 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 1 to %Result*))
+  %var_7 = icmp eq i1 %var_5, %var_6
+  %var_8 = call i1 @__quantum__rt__read_result(%Result* inttoptr (i64 0 to %Result*))
+  %var_9 = icmp eq i1 %var_8, false
+  br i1 %var_9, label %block_1, label %block_2
 block_1:
   br label %block_3
 block_2:
   br label %block_3
 block_3:
-  %var_10 = phi i1 [false, %block_1], [true, %block_2]
+  %var_11 = phi i1 [false, %block_1], [true, %block_2]
   call void @__quantum__rt__tuple_record_output(i64 4, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
-  call void @__quantum__rt__bool_record_output(i1 %var_0, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
-  call void @__quantum__rt__bool_record_output(i1 %var_3, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
-  call void @__quantum__rt__bool_record_output(i1 %var_6, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
-  call void @__quantum__rt__bool_record_output(i1 %var_10, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_1, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_4, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_7, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @3, i64 0, i64 0))
+  call void @__quantum__rt__bool_record_output(i1 %var_11, i8* getelementptr inbounds ([6 x i8], [6 x i8]* @4, i64 0, i64 0))
   ret i64 0
 }
 

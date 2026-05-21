@@ -16,7 +16,7 @@ pub mod v2;
 pub fn fir_to_rir(
     fir_store: &qsc_fir::fir::PackageStore,
     capabilities: TargetCapabilityFlags,
-    compute_properties: Option<PackageStoreComputeProperties>,
+    compute_properties: &PackageStoreComputeProperties,
     entry: &ProgramEntry,
     partial_eval_config: PartialEvalConfig,
 ) -> Result<(Program, Program), qsc_partial_eval::Error> {
@@ -36,7 +36,7 @@ pub fn fir_to_rir(
 pub fn fir_to_qir(
     fir_store: &qsc_fir::fir::PackageStore,
     capabilities: TargetCapabilityFlags,
-    compute_properties: Option<PackageStoreComputeProperties>,
+    compute_properties: &PackageStoreComputeProperties,
     entry: &ProgramEntry,
 ) -> Result<String, qsc_partial_eval::Error> {
     let mut program = get_rir_from_compilation(
@@ -60,18 +60,13 @@ pub fn fir_to_qir(
 pub fn fir_to_qir_from_callable(
     fir_store: &qsc_fir::fir::PackageStore,
     capabilities: TargetCapabilityFlags,
-    compute_properties: Option<PackageStoreComputeProperties>,
+    compute_properties: &PackageStoreComputeProperties,
     callable: qsc_fir::fir::StoreItemId,
     args: Value,
 ) -> Result<String, qsc_partial_eval::Error> {
-    let compute_properties = compute_properties.unwrap_or_else(|| {
-        let analyzer = qsc_rca::Analyzer::init(fir_store, capabilities);
-        analyzer.analyze_all()
-    });
-
     let mut program = partially_evaluate_call(
         fir_store,
-        &compute_properties,
+        compute_properties,
         callable,
         args,
         capabilities,
@@ -91,19 +86,14 @@ pub fn fir_to_qir_from_callable(
 pub fn fir_to_rir_from_callable(
     fir_store: &qsc_fir::fir::PackageStore,
     capabilities: TargetCapabilityFlags,
-    compute_properties: Option<PackageStoreComputeProperties>,
+    compute_properties: &PackageStoreComputeProperties,
     callable: qsc_fir::fir::StoreItemId,
     args: Value,
     partial_eval_config: PartialEvalConfig,
 ) -> Result<(Program, Program), qsc_partial_eval::Error> {
-    let compute_properties = compute_properties.unwrap_or_else(|| {
-        let analyzer = qsc_rca::Analyzer::init(fir_store, capabilities);
-        analyzer.analyze_all()
-    });
-
     let mut program = partially_evaluate_call(
         fir_store,
-        &compute_properties,
+        compute_properties,
         callable,
         args,
         capabilities,
@@ -116,19 +106,14 @@ pub fn fir_to_rir_from_callable(
 
 fn get_rir_from_compilation(
     fir_store: &qsc_fir::fir::PackageStore,
-    compute_properties: Option<PackageStoreComputeProperties>,
+    compute_properties: &PackageStoreComputeProperties,
     entry: &ProgramEntry,
     capabilities: TargetCapabilityFlags,
     partial_eval_config: PartialEvalConfig,
 ) -> Result<rir::Program, qsc_partial_eval::Error> {
-    let compute_properties = compute_properties.unwrap_or_else(|| {
-        let analyzer = qsc_rca::Analyzer::init(fir_store, capabilities);
-        analyzer.analyze_all()
-    });
-
     partially_evaluate(
         fir_store,
-        &compute_properties,
+        compute_properties,
         entry,
         capabilities,
         partial_eval_config,
