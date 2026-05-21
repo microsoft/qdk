@@ -143,8 +143,8 @@ update_file(
 
 update_file(
     os.path.join(source_dir, "pip/pyproject.toml"),
-    r"qdk==0.0.0",
-    r"qdk=={}".format(pip_version),
+    r"qdk>=0.0.0",
+    r"qdk>={}".format(pip_version),
 )
 update_file(
     qdk_pyproject,
