@@ -168,7 +168,7 @@ class ReJob(QsJob):
     A Qiskit job that runs the Q# Resource Estimator.
 
     Submits the circuit to the resource estimator and returns an
-    :class:`~qsharp.estimator.EstimatorResult` with the computed resource estimates.
+    :class:`~qdk.estimator.EstimatorResult` with the computed resource estimates.
     """
 
     def result(self, timeout: Optional[float] = None) -> EstimatorResult:

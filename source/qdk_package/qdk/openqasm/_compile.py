@@ -49,7 +49,7 @@ def compile(
     Example:
 
     .. code-block:: python
-        from qsharp.openqasm import compile
+        from qdk.openqasm import compile
         source = ...
         program = compile(source)
         with open('myfile.ll', 'w') as file:

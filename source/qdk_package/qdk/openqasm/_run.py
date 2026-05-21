@@ -58,10 +58,12 @@ def run(
     :type shots: int
     :param *args: The arguments to pass to the callable, if one is provided.
     :param on_result: A callback function that will be called with each result.
-        Only used when a callable is provided.
+        Only supported when a callable is provided; raises :class:`~qdk.openqasm.QasmError`
+        if used otherwise.
     :type on_result: Callable
     :param save_events: If true, the output of each shot will be saved. If false, they will be printed.
-        Only used when a callable is provided.
+        Only supported when a callable is provided; raises :class:`~qdk.openqasm.QasmError`
+        if used otherwise.
     :type save_events: bool
     :param noise: The noise to use in simulation.
     :type noise: Union[Tuple[float, float, float], PauliNoise, BitFlipNoise, PhaseFlipNoise, DepolarizingNoise, NoiseConfig]
