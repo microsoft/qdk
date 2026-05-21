@@ -27,6 +27,7 @@ Most of the core components are implemented in Rust. These components are packag
   - **qsc_doc_gen/**: Documentation generation tools
   - **qsc_eval/**: Runtime evaluation and simulation
   - **qsc_fir/**: Flat IR
+  - **qsc_fir_transforms/**: Flat IR transformation passes used before code generation and analysis
   - **qsc_formatter/**: Q# code formatter
   - **qsc_frontend/**: Compiler frontend components
   - **qsc_hir/**: High-level Intermediate Representation
