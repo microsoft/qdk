@@ -446,21 +446,14 @@ export class LearningService {
   async resetExercise(source?: TelemetrySource): Promise<void> {
     const exercise = this.resolveExercise();
     const uri = this.getExerciseFileUri();
+    // Save any unsaved edits first so the editor is clean, then overwrite
+    // the file on disk. The editor will pick up the change automatically
+    // because it's no longer dirty.
+    await this.saveOpenDocument(uri);
     await vscode.workspace.fs.writeFile(
       uri,
       new TextEncoder().encode(exercise.placeholderCode),
     );
-    // Revert the open editor (if any) so it picks up the on-disk change
-    // instead of retaining stale in-memory content.
-    const doc = vscode.workspace.textDocuments.find(
-      (d) => d.uri.toString() === uri.toString(),
-    );
-    if (doc && doc.isDirty) {
-      await vscode.commands.executeCommand(
-        "workbench.action.files.revert",
-        uri,
-      );
-    }
     this.markIncomplete(this.requireWorkspace().progressData.position);
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());

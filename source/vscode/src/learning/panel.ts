@@ -337,8 +337,8 @@ export class LessonPanelManager {
           );
           if (confirmed === "Reset") {
             await this.service.resetExercise("panel");
-            this.sendState();
           }
+          this.sendState();
           break;
         }
         default:
