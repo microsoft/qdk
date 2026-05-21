@@ -152,7 +152,7 @@ def suzuki_recursion(trotter: TrotterStep) -> TrotterStep:
 
         S_{k+2}(t) = S_{k}(p t) S_{k}(p t) S_{k}((1 - 4p) t) S_{k}(p t) S_{k}(p t)
 
-    where p = 1 / (4 - 4^{1/(2k+1)}).
+    where p = 1 / (4 - 4^{1/(k+1)}).
 
     The resulting step has improved accuracy: the error scales as O(t^{k+3}) instead
     of O(t^{k+1}), at the cost of 5x more exponential applications per step.
@@ -173,7 +173,7 @@ def suzuki_recursion(trotter: TrotterStep) -> TrotterStep:
     suzuki._order = trotter._order + 2
     suzuki._repr_string = f"SuzukiRecursion(order={suzuki._order}, time_step={suzuki._time_step}, num_terms={suzuki._nterms})"
 
-    p = 1 / (4 - 4 ** (1 / (2 * trotter.order + 1)))
+    p = 1 / (4 - 4 ** (1 / (trotter._order + 1)))
 
     suzuki.terms = [(p * time, term_index) for time, term_index in trotter.step()]
     suzuki.terms += [(p * time, term_index) for time, term_index in trotter.step()]
@@ -197,8 +197,8 @@ def yoshida_recursion(trotter: TrotterStep) -> TrotterStep:
         S_{k+2}(t) = S_{k}(w_1 t) S_{k}(w_0 t) S_{k}(w_1 t)
 
     where:
-        w_1 = 1 / (2 - 2^{1/(2k+1)})
-        w_0 = -2^{1/(2k+1)} / (2 - 2^{1/(2k+1)}) = 1 - 2 w_1
+        w_1 = 1 / (2 - 2^{1/(k+1)})
+        w_0 = -2^{1/(k+1)} / (2 - 2^{1/(k+1)}) = 1 - 2 w_1
 
     The resulting step has improved accuracy: the error scales as O(t^{k+3}) instead
     of O(t^{k+1}), at the cost of 3x more exponential applications per step.
@@ -219,9 +219,8 @@ def yoshida_recursion(trotter: TrotterStep) -> TrotterStep:
     yoshida._order = trotter._order + 2
     yoshida._repr_string = f"YoshidaRecursion(order={yoshida._order}, time_step={yoshida._time_step}, num_terms={yoshida._nterms})"
 
-    cube_root_2 = 2 ** (1 / (2 * trotter.order + 1))
-    w1 = 1 / (2 - cube_root_2)
-    w0 = 1 - 2 * w1  # equivalent to -cube_root_2 / (2 - cube_root_2)
+    w1 = 1 / (2 - 2 ** (1 / (trotter._order + 1)))
+    w0 = 1 - 2 * w1
 
     yoshida.terms = [(w1 * time, term_index) for time, term_index in trotter.step()]
     yoshida.terms += [(w0 * time, term_index) for time, term_index in trotter.step()]
@@ -288,7 +287,7 @@ def fourth_order_trotter_suzuki(terms: list[int], time: float) -> TrotterStep:
     .. code-block:: python
         >>> fourth_order = fourth_order_trotter_suzuki(terms=[0, 1, 2], time=0.5)
         >>> list(fourth_order.step())
-        [(0.1767766952966369, 0), (0.1767766952966369, 1), (0.1767766952966369, 2), (0.3535533905932738, 1), (0.3535533905932738, 0), (0.1767766952966369, 1), (0.1767766952966369, 2), (0.1767766952966369, 1), (0.1767766952966369, 0)]
+        [(0.10362269294859393, 0), (0.10362269294859393, 1), (0.20724538589718786, 2), (0.10362269294859393, 1), (0.20724538589718786, 0), (0.10362269294859393, 1), (0.20724538589718786, 2), (0.10362269294859393, 1), (-0.060868078845781784, 0), (-0.1644907717943757, 1), (-0.3289815435887514, 2), (-0.1644907717943757, 1), (-0.060868078845781784, 0), (0.10362269294859393, 1), (0.20724538589718786, 2), (0.10362269294859393, 1), (0.20724538589718786, 0), (0.10362269294859393, 1), (0.20724538589718786, 2), (0.10362269294859393, 1), (0.10362269294859393, 0)]
     """
     return suzuki_recursion(strang_splitting(terms, time))
 
