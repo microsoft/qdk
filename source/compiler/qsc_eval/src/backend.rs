@@ -1087,7 +1087,9 @@ impl Backend for SparseSim {
             | "AccountForEstimatesInternal"
             | "BeginRepeatEstimatesInternal"
             | "EndRepeatEstimatesInternal"
-            | "EnableMemoryComputeArchitecture" => Some(Ok(Value::unit())),
+            | "EnableMemoryComputeArchitecture"
+            | "Load"
+            | "Store" => Some(Ok(Value::unit())),
             "ConfigurePauliNoise" => {
                 let [xv, yv, zv] = &*arg.unwrap_tuple() else {
                     panic!("tuple arity for ConfigurePauliNoise intrinsic should be 3");
@@ -1416,7 +1418,9 @@ impl Backend for CliffordSim {
             | "AccountForEstimatesInternal"
             | "BeginRepeatEstimatesInternal"
             | "EndRepeatEstimatesInternal"
-            | "EnableMemoryComputeArchitecture" => Some(Ok(Value::unit())),
+            | "EnableMemoryComputeArchitecture"
+            | "Load"
+            | "Store" => Some(Ok(Value::unit())),
             "ConfigurePauliNoise" => Some(Err(
                 "dynamic noise configuration not supported in Clifford simulation".to_string(),
             )),
