@@ -71,6 +71,7 @@ export type Action =
   | "back"
   | "run"
   | "check"
+  | "reset"
   | "hint-chat"
   | "explain-chat";
 

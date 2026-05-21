@@ -168,15 +168,23 @@ export function runProgram(
      * A cancellation token to cancel the run.
      */
     cancellationToken?: vscode.CancellationToken;
+    /**
+     * If true, the program's return value will not be echoed to onConsoleOut.
+     */
+    suppressResultOutput?: boolean;
   },
 ): Promise<ProgramRunResult> {
   return new Promise<ProgramRunResult>(function executeRunProgram(
     resolve,
   ): void {
     let histogram: HistogramData | undefined;
-    const evtTarget = createDebugConsoleEventTarget((msg) => {
-      options.onConsoleOut?.(msg);
-    }, true /* captureEvents */);
+    const evtTarget = createDebugConsoleEventTarget(
+      (msg) => {
+        options.onConsoleOut?.(msg);
+      },
+      true /* captureEvents */,
+      { suppressResultOutput: options.suppressResultOutput },
+    );
 
     evtTarget.addEventListener("uiResultsRefresh", () => {
       const results = evtTarget.getResults();

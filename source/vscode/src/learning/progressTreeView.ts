@@ -69,6 +69,11 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       item.contextValue = node.kind;
       item.tooltip = `Continue learning — ${node.unitTitle}: ${node.activityTitle}`;
       item.id = "continue";
+      item.command = {
+        command: "qsharp-vscode.learningOpenActivity",
+        title: "Go to Activity",
+        arguments: [node],
+      };
       return item;
     }
 
@@ -90,6 +95,11 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       // Vary the id by `isCurrent` so VS Code sees a new node when the active
       // unit changes and applies the collapsibleState we set above.
       item.id = isCurrent ? `unit:${unit.id}:current` : `unit:${unit.id}`;
+      item.command = {
+        command: "qsharp-vscode.learningOpenActivity",
+        title: "Go to Activity",
+        arguments: [node],
+      };
       return item;
     }
 
@@ -103,9 +113,14 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
     item.tooltip = activity.isComplete
       ? `Completed${activity.completedAt ? ` \u00b7 ${new Date(activity.completedAt).toLocaleString()}` : ""}`
       : activity.type === "exercise"
-        ? "Exercise \u2014 click the action icon to open"
-        : "Lesson \u2014 click the action icon to open";
+        ? "Exercise"
+        : "Lesson";
     item.id = `activity:${unitId}:${activity.id}`;
+    item.command = {
+      command: "qsharp-vscode.learningOpenActivity",
+      title: "Go to Activity",
+      arguments: [node],
+    };
     return item;
   }
 

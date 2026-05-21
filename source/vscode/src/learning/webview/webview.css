@@ -110,12 +110,16 @@ body {
   flex-shrink: 0;
 }
 
-/* Logo image. */
+/* Logo icon rendered as a CSS mask so it inherits the current theme color. */
 .branding-icon {
   width: 18px;
   height: 18px;
   /* Don't let the logo shrink if the text beside it is long */
   flex-shrink: 0;
+  background-color: var(--fg);
+  mask-image: var(--mobius-url);
+  mask-size: contain;
+  mask-repeat: no-repeat;
 }
 
 /* Logo text label. */

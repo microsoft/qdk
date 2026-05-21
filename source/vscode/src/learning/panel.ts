@@ -80,11 +80,18 @@ export class LessonPanelManager {
       },
     );
 
-    this.panel.iconPath = vscode.Uri.joinPath(
-      this.extensionUri,
-      "resources",
-      "mobius.svg",
-    );
+    this.panel.iconPath = {
+      light: vscode.Uri.joinPath(
+        this.extensionUri,
+        "resources",
+        "mobius-light.svg",
+      ),
+      dark: vscode.Uri.joinPath(
+        this.extensionUri,
+        "resources",
+        "mobius-dark.svg",
+      ),
+    };
 
     // Generate and set HTML
     this.panel.webview.html = this.getWebviewContent(this.panel.webview);
@@ -327,6 +334,18 @@ export class LessonPanelManager {
         }
         case "check": {
           await this.checkSolutionAndSendResult("panel");
+          break;
+        }
+        case "reset": {
+          const confirmed = await vscode.window.showWarningMessage(
+            "Reset this exercise to the original placeholder code? Your current code will be lost.",
+            { modal: true },
+            "Reset",
+          );
+          if (confirmed === "Reset") {
+            await this.service.resetExercise("panel");
+          }
+          this.sendState();
           break;
         }
         default:

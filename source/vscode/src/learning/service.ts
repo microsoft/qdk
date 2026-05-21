@@ -446,6 +446,10 @@ export class LearningService {
   async resetExercise(source?: TelemetrySource): Promise<void> {
     const exercise = this.resolveExercise();
     const uri = this.getExerciseFileUri();
+    // Save any unsaved edits first so the editor is clean, then overwrite
+    // the file on disk. The editor will pick up the change automatically
+    // because it's no longer dirty.
+    await this.saveOpenDocument(uri);
     await vscode.workspace.fs.writeFile(
       uri,
       new TextEncoder().encode(exercise.placeholderCode),
@@ -543,6 +547,7 @@ export class LearningService {
 
     const execResult = await this.executeProgram(programConfig, {
       entry: "Kata.Verification.CheckSolution()",
+      suppressResultOutput: true,
     });
 
     const passed = execResult.success && execResult.result === "true";
@@ -587,7 +592,11 @@ export class LearningService {
 
   private async executeProgram(
     programConfig: FullProgramConfig,
-    options?: { entry?: string; shots?: number },
+    options?: {
+      entry?: string;
+      shots?: number;
+      suppressResultOutput?: boolean;
+    },
   ): Promise<RunResult> {
     const messages: string[] = [];
 
@@ -595,6 +604,7 @@ export class LearningService {
       const runResult = await runProgram(this.extensionUri, programConfig, {
         entry: options?.entry,
         shots: options?.shots ?? 1,
+        suppressResultOutput: options?.suppressResultOutput,
         onConsoleOut: (msg) => {
           messages.push(msg);
         },
@@ -780,7 +790,12 @@ export class LearningService {
       // When incomplete, offer a Hint button instead.
       const isComplete = this.isComplete(this.position);
       const extraGroups: ActionGroup[] = isComplete
-        ? [[{ key: "c", label: "Check", action: "check" }]]
+        ? [
+            [
+              { key: "c", label: "Check", action: "check" },
+              { key: "r", label: "Reset", action: "reset" },
+            ],
+          ]
         : [
             [
               {
@@ -789,6 +804,7 @@ export class LearningService {
                 action: "hint-chat",
                 codicon: "sparkle",
               },
+              { key: "r", label: "Reset", action: "reset" },
             ],
           ];
       return [primaryGroup, ...extraGroups, navGroup].filter(

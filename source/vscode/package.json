@@ -415,11 +415,6 @@
           "when": "view == quantum-workspaces && viewItem == workspace"
         },
         {
-          "command": "qsharp-vscode.learningOpenActivity",
-          "group": "inline",
-          "when": "view == qsharp-vscode.learningTree && (viewItem == continue || viewItem == unit || viewItem == lesson || viewItem == exercise || viewItem == example)"
-        },
-        {
           "command": "qsharp-vscode.learningAskInChat",
           "group": "inline",
           "when": "view == qsharp-vscode.learningTree && (viewItem == continue || viewItem == unit || viewItem == lesson || viewItem == exercise || viewItem == example)"
@@ -452,14 +447,14 @@
     "views": {
       "explorer": [
         {
-          "id": "quantum-workspaces",
+          "id": "quantum-workspaces-placeholder",
           "name": "Quantum Workspaces"
         }
       ],
       "qsharp-vscode-katas": [
         {
           "id": "qsharp-vscode.learningWelcome",
-          "name": "Welcome",
+          "name": "QDK Learning",
           "type": "webview",
           "when": "!qsharp-vscode.learningWorkspaceDetected"
         },
@@ -467,6 +462,11 @@
           "id": "qsharp-vscode.learningTree",
           "name": "Learning",
           "when": "qsharp-vscode.learningWorkspaceDetected"
+        },
+        {
+          "id": "quantum-workspaces",
+          "name": "Quantum Workspaces",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -474,6 +474,10 @@
       {
         "view": "quantum-workspaces",
         "contents": "Connect to Azure Quantum\n[Connect to an existing workspace](command:qsharp-vscode.workspacesAdd)\nNote: For the first workspace added there may be several consent prompts to grant VS Code access.\nFor more information about the QDK and Azure Quantum, visit [https://aka.ms/AQ/Documentation](https://aka.ms/AQ/Documentation)."
+      },
+      {
+        "view": "quantum-workspaces-placeholder",
+        "contents": "Looking for your Microsoft Quantum workspaces?\nThe Quantum Workspaces panel has moved to the Microsoft Quantum activity bar.\n[Open Microsoft Quantum panel](command:workbench.view.extension.qsharp-vscode-katas)"
       }
     ],
     "chatInstructions": [
