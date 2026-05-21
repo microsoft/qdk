@@ -453,12 +453,8 @@
       ],
       "qsharp-vscode-katas": [
         {
-          "id": "quantum-workspaces",
-          "name": "Azure Quantum"
-        },
-        {
           "id": "qsharp-vscode.learningWelcome",
-          "name": "Welcome",
+          "name": "QDK Learning",
           "type": "webview",
           "when": "!qsharp-vscode.learningWorkspaceDetected"
         },
@@ -466,6 +462,11 @@
           "id": "qsharp-vscode.learningTree",
           "name": "Learning",
           "when": "qsharp-vscode.learningWorkspaceDetected"
+        },
+        {
+          "id": "quantum-workspaces",
+          "name": "Quantum Workspaces",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -476,30 +477,30 @@
       },
       {
         "view": "quantum-workspaces-placeholder",
-        "contents": "The Quantum Workspaces panel has moved to the **Microsoft Quantum** activity bar.\n[Open Microsoft Quantum panel](command:workbench.view.extension.qsharp-vscode-katas)"
+        "contents": "Looking for your Microsoft Quantum workspaces?\nThe Quantum Workspaces panel has moved to the Microsoft Quantum activity bar.\n[Open Microsoft Quantum panel](command:workbench.view.extension.qsharp-vscode-katas)"
       }
     ],
     "chatInstructions": [
       {
-        "path": "./ai/qsharp.instructions.md"
+        "path": "./resources/chat-instructions/qsharp.instructions.md"
       },
       {
-        "path": "./ai/openqasm.instructions.md"
+        "path": "./resources/chat-instructions/openqasm.instructions.md"
       }
     ],
     "chatSkills": [
       {
-        "path": "./ai/qdk-programming/SKILL.md"
+        "path": "./skills/qdk-programming/SKILL.md"
       }
     ],
     "chatPromptFiles": [
       {
-        "path": "./ai/qdk-learning.prompt.md"
+        "path": "./prompts/qdk-learning.prompt.md"
       }
     ],
     "chatAgents": [
       {
-        "path": "./ai/qdk-learning.agent.md"
+        "path": "./agents/qdk-learning.agent.md"
       }
     ],
     "commands": [
