@@ -342,10 +342,10 @@ impl<K: Eq + Hash + Clone> LeastFrequentlyUsedPriorityQueue<K> {
 /// State of a qubit used for resource estimation with memory-compute architecture in
 /// Manual mode.
 /// Allowed transitions:
-///  * allocate: (not existing) -> `ComputeUnused``.
+///  * allocate: (not existing) -> `ComputeUnused`.
 ///  * release: (any state) -> (not existing).
 ///  * reset: `Compute`|`ComputeUnused`` -> `ComputeUnused`.
-///  * assert_compute_qubit: `Compute`|`ComputeUnused` -> `Compute``.
+///  * assert_compute_qubit: `Compute`|`ComputeUnused` -> `Compute`.
 ///  * store: `Compute`|`ComputeUnused` -> `Memory`.
 ///  * load: `Memory` -> `Compute`.
 enum QubitLocality {
