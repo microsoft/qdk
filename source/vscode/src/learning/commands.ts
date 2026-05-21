@@ -94,7 +94,7 @@ export function registerLearningCommands(
 
         // Open chat with a friendly prompt referencing the activity title.
         const title = nodeToTitle(node);
-        const prompt = `/qdk-learning Let's work on the "${title}" exercise.`;
+        const prompt = `/qdk-learning Let's work on "${title}".`;
         await vscode.commands.executeCommand("workbench.action.chat.open", {
           query: prompt,
           isPartialQuery: false,
