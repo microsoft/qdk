@@ -448,7 +448,8 @@
       "explorer": [
         {
           "id": "quantum-workspaces-placeholder",
-          "name": "Quantum Workspaces"
+          "name": "Quantum Workspaces",
+          "type": "webview"
         }
       ],
       "qsharp-vscode-katas": [
