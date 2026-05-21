@@ -103,6 +103,10 @@ class NeutralAtom(Architecture):
     atom_spacing: float = field(default=3.0)  # In units of microns.
     max_velocity: float = field(default=0.25)  # In units m/s.
     max_acceleration: float = field(default=5000.0)  # In units m/s^2.
+    # These properties can modify syndrome measurement in surface codes by
+    # assumining a larger depth required to perform 2-qubit and 1-qubit gates.
+    surface_code_two_qubit_time_factor: int = 1
+    surface_code_one_qubit_time_factor: int = 1
 
     def provided_isa(self, ctx: ISAContext) -> ISA:
         return ctx.make_isa(
@@ -126,6 +130,7 @@ class NeutralAtom(Architecture):
                 arity=1,
                 time=self.one_qubit_time,
                 error_rate=self.one_qubit_error,
+                surface_code_one_qubit_time_factor=self.surface_code_one_qubit_time_factor,
             ),
             ctx.add_instruction(
                 H,
@@ -133,6 +138,7 @@ class NeutralAtom(Architecture):
                 arity=1,
                 time=self.one_qubit_time,
                 error_rate=self.one_qubit_error,
+                surface_code_one_qubit_time_factor=self.surface_code_one_qubit_time_factor,
             ),
             ctx.add_instruction(
                 CZ,
@@ -140,6 +146,7 @@ class NeutralAtom(Architecture):
                 arity=2,
                 time=self.rydberg_time,
                 error_rate=self.rydberg_error,
+                surface_code_two_qubit_time_factor=self.surface_code_two_qubit_time_factor,
             ),
             ctx.add_instruction(
                 CNOT,
@@ -147,6 +154,7 @@ class NeutralAtom(Architecture):
                 arity=2,
                 time=self.rydberg_time + 2 * self.one_qubit_time,
                 error_rate=self.rydberg_error,
+                surface_code_two_qubit_time_factor=self.surface_code_two_qubit_time_factor,
             ),
             ctx.add_instruction(
                 MEAS_Z,
