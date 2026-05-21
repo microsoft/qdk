@@ -456,8 +456,8 @@ fn manual_memory_load_store() {
     "});
     assert_eq!(counts.write_to_memory_count, Some(1));
     assert_eq!(counts.read_from_memory_count, Some(1));
-    assert_eq!(counts.num_compute_qubits, Some(2));
-    assert_eq!(counts.num_qubits, 3);
+    assert_eq!(counts.num_compute_qubits, Some(1));
+    assert_eq!(counts.num_qubits, 2);
 }
 
 #[test]
@@ -491,8 +491,8 @@ fn manual_memory_complex_circuit_counts() {
 
     assert_eq!(counts.write_to_memory_count, Some(3));
     assert_eq!(counts.read_from_memory_count, Some(2));
-    assert_eq!(counts.num_compute_qubits, Some(4));
-    assert_eq!(counts.num_qubits, 6);
+    assert_eq!(counts.num_compute_qubits, Some(3));
+    assert_eq!(counts.num_qubits, 5);
     assert_eq!(counts.ccz_count, 1);
 }
 
@@ -514,6 +514,78 @@ fn manual_memory_rejects_gate_application() {
     let err = result.expect_err("expected gate application on memory qubit to fail");
     assert!(
         err.contains("cannot perform computation on memory qubit"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn manual_memory_ghz_sample() {
+    let counts = run_logical_counts(indoc! {"
+        operation PrepareGhzStateInMemory(qs: Qubit[]) : Unit {
+            let n = Length(qs);
+            H(qs[0]);
+            for i in 1..n-1 {
+                CNOT(qs[i-1], qs[i]);
+                Std.Memory.Store(qs[i-1]);
+            }
+            Std.Memory.Store(qs[n-1]);
+        }
+
+        operation Main() : Unit {
+            Std.ResourceEstimation.EnableManualMemoryComputeArchitecture();
+            use qs = Qubit[10];
+            PrepareGhzStateInMemory(qs);
+            for i in 0..9 {
+                Std.Memory.Load(qs[i]);
+                MResetZ(qs[i]);
+            }
+        }
+    "});
+    assert_eq!(counts.num_qubits, 12);
+    assert_eq!(counts.num_compute_qubits, Some(2));
+    assert_eq!(counts.read_from_memory_count, Some(10));
+    assert_eq!(counts.write_to_memory_count, Some(10));
+}
+
+#[test]
+fn manual_memory_rejects_store_on_memory_qubit() {
+    let result = run_logical_counts_result(
+        indoc! {"
+                operation Main() : Unit {
+                    Std.ResourceEstimation.EnableManualMemoryComputeArchitecture();
+
+                    use q = Qubit();
+                    Std.Memory.Store(q);
+                    Std.Memory.Store(q);
+                }
+            "},
+        None,
+    );
+
+    let err = result.expect_err("expected storing a memory qubit to fail");
+    assert!(
+        err.contains("cannot perform Store on memory qubit"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn manual_memory_rejects_load_on_compute_qubit() {
+    let result = run_logical_counts_result(
+        indoc! {"
+                operation Main() : Unit {
+                    Std.ResourceEstimation.EnableManualMemoryComputeArchitecture();
+
+                    use q = Qubit();
+                    Std.Memory.Load(q);
+                }
+            "},
+        None,
+    );
+
+    let err = result.expect_err("expected loading a compute qubit to fail");
+    assert!(
+        err.contains("cannot perform Load on compute qubit"),
         "unexpected error: {err}"
     );
 }

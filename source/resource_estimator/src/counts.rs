@@ -573,10 +573,17 @@ impl Backend for LogicalCounter {
     }
 
     fn mresetz(&mut self, q: usize) -> Result<BackendResult, String> {
-        self.m(q)
+        let result = self.m(q);
+        if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+            mc.reset(q)?;
+        }
+        result
     }
 
-    fn reset(&mut self, _q: usize) -> Result<(), String> {
+    fn reset(&mut self, q: usize) -> Result<(), String> {
+        if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+            mc.reset(q)?;
+        }
         Ok(())
     }
 
@@ -681,7 +688,7 @@ impl Backend for LogicalCounter {
         };
 
         if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
-            mc.move_to_compute(index);
+            mc.allocate(index);
         }
 
         Ok(index)
@@ -690,7 +697,7 @@ impl Backend for LogicalCounter {
     fn qubit_release(&mut self, q: usize) -> Result<bool, String> {
         self.free_list.push(q);
         if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
-            mc.release(q);
+            mc.release(q)?;
         }
         Ok(true)
     }
@@ -709,7 +716,7 @@ impl Backend for LogicalCounter {
             self.post_select_measurements.insert(q0, val);
         }
 
-        if let MemoryCompute::Manual(mc) = &self.memory_compute {
+        if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
             mc.assert_compute_qubits([q0, q1])?;
         }
 
@@ -778,17 +785,23 @@ impl Backend for LogicalCounter {
             }
             "Load" => {
                 if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
-                    let qid = arg.unwrap_qubit().deref().0;
-                    mc.move_to_compute(qid);
+                    Some(
+                        mc.load(arg.unwrap_qubit().deref().0)
+                            .map(|()| Value::unit()),
+                    )
+                } else {
+                    Some(Ok(Value::unit()))
                 }
-                Some(Ok(Value::unit()))
             }
             "Store" => {
                 if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
-                    let qid = arg.unwrap_qubit().deref().0;
-                    mc.move_to_memory(qid);
+                    Some(
+                        mc.store(arg.unwrap_qubit().deref().0)
+                            .map(|()| Value::unit()),
+                    )
+                } else {
+                    Some(Ok(Value::unit()))
                 }
-                Some(Ok(Value::unit()))
             }
             "GlobalPhase" | "ConfigurePauliNoise" | "ConfigureQubitLoss" | "ApplyIdleNoise" => {
                 Some(Ok(Value::unit()))

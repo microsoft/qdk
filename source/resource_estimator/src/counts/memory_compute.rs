@@ -339,13 +339,35 @@ impl<K: Eq + Hash + Clone> LeastFrequentlyUsedPriorityQueue<K> {
     }
 }
 
-/// For each qubit in use, stores whether it's Compute or Memory qubit.
+/// State of a qubit used for resource estimation with memory-compute architecture in
+/// Manual mode.
+/// Allowed transitions:
+///  * Allocate: (not existing) -> ComputeUnused.
+///  * Release: (any state) -> (not existing).
+///  * Reset: Compute|ComputeUnused -> ComputeUnused.
+///  * AssertComputeQubit: Compute|ComputeUnused -> Compute.
+///  * Store: Compute|ComputeUnused -> Memory.
+///  * Load: Memory -> Compute.
+enum QubitLocality {
+    /// Compute qubit - can perform operations.
+    Compute,
+    /// Compute qubits which have not been used by any operation since they were allocated
+    /// or reset.
+    /// This is needed to get better resource estimates, so we don't account for compute
+    /// qubit after it's allocated but before it's used.
+    ComputeUnused,
+    /// Memory qubit - cannot perform operations other than Load.
+    Memory,
+}
+
+/// For each qubit in use, stores its locality.
 /// Allows user to directly move qubits between "Memory" and "Compute" sets.
 /// Keeps track of maximal usage of compute and memory qubits.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ManualMemoryCompute {
-    compute_qubits: FxHashSet<usize>,
-    memory_qubits: FxHashSet<usize>,
+    qubits: FxHashMap<usize, QubitLocality>,
+    compute_qubits_count: usize,
+    memory_qubits_count: usize,
     pub(crate) max_memory_qubits_count: usize,
     pub(crate) max_compute_qubits_count: usize,
     pub(crate) reads_count: usize,
@@ -353,45 +375,98 @@ pub struct ManualMemoryCompute {
 }
 
 impl ManualMemoryCompute {
-    /// Moves this qubit to set of compute qubits.
-    /// If it was a memory qubit, records that as "read" operation.
-    pub fn move_to_compute(&mut self, qid: usize) {
-        if self.memory_qubits.contains(&qid) {
-            self.memory_qubits.remove(&qid);
-            self.reads_count += 1;
+    fn ensure_compute_or_unused(&self, qid: usize, error_message: &str) -> Result<(), String> {
+        if matches!(
+            self.qubits.get(&qid),
+            Some(QubitLocality::Compute | QubitLocality::ComputeUnused)
+        ) {
+            Ok(())
+        } else {
+            Err(error_message.to_string())
         }
-        self.compute_qubits.insert(qid);
-        self.max_compute_qubits_count =
-            max(self.max_compute_qubits_count, self.compute_qubits.len());
     }
 
-    /// Moves this qubit to set of memory qubits.
-    /// If it was a compute qubit, records that as "write" operation.
-    pub fn move_to_memory(&mut self, qid: usize) {
-        if self.compute_qubits.contains(&qid) {
-            self.compute_qubits.remove(&qid);
-            self.writes_count += 1;
+    fn change_qubit_locality(&mut self, qid: usize, new_locality: Option<QubitLocality>) {
+        match self.qubits.get(&qid) {
+            Some(QubitLocality::Compute) => {
+                self.compute_qubits_count -= 1;
+            }
+            Some(QubitLocality::Memory) => {
+                self.memory_qubits_count -= 1;
+            }
+            _ => (),
         }
-        self.memory_qubits.insert(qid);
-        self.max_memory_qubits_count = max(self.max_memory_qubits_count, self.memory_qubits.len());
+        match new_locality {
+            Some(QubitLocality::Compute) => {
+                self.compute_qubits_count += 1;
+                self.max_compute_qubits_count =
+                    max(self.max_compute_qubits_count, self.compute_qubits_count);
+            }
+            Some(QubitLocality::Memory) => {
+                self.memory_qubits_count += 1;
+                self.max_memory_qubits_count =
+                    max(self.max_memory_qubits_count, self.memory_qubits_count);
+            }
+            _ => (),
+        }
+        if let Some(l) = new_locality {
+            self.qubits.insert(qid, l);
+        } else {
+            self.qubits.remove(&qid);
+        }
     }
 
-    /// Releases the qubit.
-    pub fn release(&mut self, qid: usize) {
-        self.compute_qubits.remove(&qid);
-        self.memory_qubits.remove(&qid);
+    /// Called when the qubit is allocated.
+    pub fn allocate(&mut self, qid: usize) {
+        self.change_qubit_locality(qid, Some(QubitLocality::ComputeUnused));
     }
 
+    /// Called when qubit is released.
+    pub fn release(&mut self, qid: usize) -> Result<(), String> {
+        self.change_qubit_locality(qid, None);
+        Ok(())
+    }
+
+    /// Called when qubit is reset.
+    pub fn reset(&mut self, qid: usize) -> Result<(), String> {
+        self.ensure_compute_or_unused(qid, "cannot reset memory qubit")?;
+        self.change_qubit_locality(qid, Some(QubitLocality::ComputeUnused));
+        Ok(())
+    }
+
+    fn assert_compute_qubit(&mut self, qid: usize) -> Result<(), String> {
+        self.ensure_compute_or_unused(qid, "cannot perform computation on memory qubit")?;
+        self.change_qubit_locality(qid, Some(QubitLocality::Compute));
+        Ok(())
+    }
+
+    /// Called immediately before qubit is used in a gate or measurement.
     pub fn assert_compute_qubits(
-        &self,
+        &mut self,
         qubits: impl IntoIterator<Item = usize>,
     ) -> Result<(), String> {
         for qid in qubits {
-            if self.memory_qubits.contains(&qid) {
-                return Result::Err("cannot perform computation on memory qubit".to_string());
-            }
+            self.assert_compute_qubit(qid)?;
         }
-        Result::Ok(())
+        Ok(())
+    }
+
+    /// Called when qubit is stored to memory.
+    pub fn store(&mut self, qid: usize) -> Result<(), String> {
+        self.ensure_compute_or_unused(qid, "cannot perform Store on memory qubit")?;
+        self.change_qubit_locality(qid, Some(QubitLocality::Memory));
+        self.writes_count += 1;
+        Ok(())
+    }
+
+    /// Called when qubit is loaded from memory.
+    pub fn load(&mut self, qid: usize) -> Result<(), String> {
+        if !matches!(self.qubits.get(&qid), Some(QubitLocality::Memory)) {
+            return Err("cannot perform Load on compute qubit".to_string());
+        }
+        self.change_qubit_locality(qid, Some(QubitLocality::Compute));
+        self.reads_count += 1;
+        Ok(())
     }
 }
 
