@@ -121,7 +121,11 @@ class NeutralAtom(Architecture):
                 T,
                 encoding=Encoding.PHYSICAL,
                 arity=1,
-                time=0,
+                # NOTE: We assume a time of 0, however, some transforms may use
+                # the time in arithmetic expressions, which require its value to
+                # be non-zero.  Setting it to 1 leads to no or at most
+                # negligible contributions to the overall resource estimates.
+                time=1,
                 error_rate=0.00001,
             ),
             ctx.add_instruction(
