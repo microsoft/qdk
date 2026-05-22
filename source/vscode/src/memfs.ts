@@ -16,14 +16,24 @@ const playgroundReadme = `
 # Microsoft Quantum Playground
 
 Welcome to the Microsoft Quantum Development Kit playground! An online environment to
-safely learn and explore quantum computing with the Q# language.
+safely learn and explore quantum computing with Q# and OpenQASM.
 
 The 'Samples (Q#)' folder contains a set of common quantum algorithms written in Q#.
 The 'Samples (OpenQASM)' folder contains several quantum programs written in OpenQASM.
-You can run these samples by clicking the "Run" button in the top right corner
-of the editor when you have the file open. You can also set breakpoints and
-step through the code using the Debug button at the same location to see how the
-algorithm changes quantum state as it executes.
+
+**Try it out!**
+
+- Open a sample and click the **Run** button in the top right corner to simulate it
+- Click the **Debug** button to set breakpoints and step through the code
+- Click **Circuit** at the top of a file to see a circuit diagram for the program
+
+**Desktop-only features**
+
+The **Learning**, **GitHub Copilot**, and **Python** experiences are not available
+in the web-based playground. To use these features, install the desktop version of
+the QDK: <https://learn.microsoft.com/en-us/azure/quantum/install-overview-qdk>
+
+**Saving your work**
 
 This playground exists entirely in memory and is not persisted to disk. All changes
 will be lost when the editor window is closed. You should use the 'File: Save
