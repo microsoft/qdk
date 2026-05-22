@@ -471,6 +471,12 @@ pub trait PackageStoreLookup {
 #[derive(Debug, Default)]
 pub struct PackageStore(IndexMap<PackageId, Package>);
 
+impl Clone for PackageStore {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
 impl PackageStoreLookup for PackageStore {
     fn get_block(&self, id: StoreBlockId) -> &Block {
         self.get(id.package).get_block(id.block)
@@ -563,7 +569,7 @@ pub trait PackageLookup {
 /// within the containing node. Node ids are used to identify nodes within
 /// the package and require mapping from the HIR node id to the new FIR node id.
 /// `PackageId`s and `LocalItemId`s are 1:1 from the HIR and are not remapped.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Package {
     /// The items in the package.
     pub items: IndexMap<LocalItemId, Item>,

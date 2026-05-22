@@ -338,3 +338,40 @@ fn controlled_functor_count_saturates_without_overflow() {
         "#,
     );
 }
+
+#[test]
+fn newtype_ctor_callable_field_cleanup() {
+    // Pins the cleanup behavior for closures inside legacy-`newtype` UDT
+    // constructor argument subtrees. The UDT-ctor guard in
+    // `cleanup_consumed_closures` lets these closures be replaced after
+    // their specialized callable is produced, ensuring convergence.
+    //
+    // Uses both `Choose(true)` and `Choose(false)` so each conditional
+    // branch is specialized at least once; otherwise a literal-conditioned
+    // projection leaves the unused branch's closure as dead-code and
+    // convergence cannot succeed independently of the UDT-ctor guard.
+    check_invariants(
+        r#"
+        namespace Test {
+          newtype Choice = (F : Int -> Int, Offset : Int);
+
+          function Choose(flag : Bool) : Choice {
+            if flag {
+              Choice(x -> x + 1, 100)
+            } else {
+              Choice(x -> x * 2, 7)
+            }
+          }
+
+          @EntryPoint()
+          function Main() : Int {
+            let selectedT = Choose(true);
+            let selectedF = Choose(false);
+            let fT = selectedT::F;
+            let fF = selectedF::F;
+            fT(10) + fF(10) + selectedT::Offset + selectedF::Offset
+          }
+        }
+        "#,
+    );
+}

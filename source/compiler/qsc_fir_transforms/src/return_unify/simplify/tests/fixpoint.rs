@@ -267,7 +267,7 @@ fn unwrap_single_block_value(package: &Package, block_expr_id: ExprId) -> ExprId
 #[test]
 fn guard_clause_via_run_to_fixpoint() {
     // Q# input: `if true { return 1; } 2`. The lowerer emits the
-    // canonical guard-clause flag-strategy shape (guard set + lazy
+    // canonical guard-clause flag-lowering shape (guard set + lazy
     // continuation + trailing merge). After `run_to_fixpoint`,
     // `guard_clause` collapses the guard/cont/merge into a single
     // trailing `if` expression and `dead_local` drops the now-unused
@@ -330,7 +330,7 @@ fn guard_clause_via_run_to_fixpoint() {
 #[test]
 fn both_branches_via_run_to_fixpoint() {
     // Q# input: both arms `return`. The lowerer emits the canonical
-    // both-branches flag-strategy shape (if/else slot-set + trailing
+    // both-branches flag-lowering shape (if/else slot-set + trailing
     // merge). After `run_to_fixpoint`, `both_branches` collapses the
     // pair into a single trailing `if` expression and `dead_local`
     // drops the now-unused slot decls.
@@ -395,7 +395,7 @@ fn both_branches_via_run_to_fixpoint() {
 #[test]
 fn bare_return_via_run_to_fixpoint() {
     // Q# input: a single `return 42;` body. The lowerer emits the
-    // canonical bare-return flag-strategy shape (nested-block terminal
+    // canonical bare-return flag-lowering shape (nested-block terminal
     // pair + trailing merge). After `run_to_fixpoint`, `bare_return`
     // collapses the pair + merge into the lone slot RHS value and
     // `dead_local` drops the now-unused slot decls.
@@ -609,7 +609,7 @@ fn single_body_emit_shape_collapses_to_value() {
     // **no-trailing-expression** path.
     //
     // Q# input is a single `return 17;` body. The lowerer emits the
-    // canonical single-body flag-strategy shape:
+    // canonical single-body flag-lowering shape:
     //   * `Local(Mut, __has_returned : Bool = false)`
     //   * `Local(Mut, __ret_val : Int = 0)`
     //   * `Semi(Block([Semi(__ret_val = 17), Semi(__has_returned = true)]))`

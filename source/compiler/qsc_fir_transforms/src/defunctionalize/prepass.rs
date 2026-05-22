@@ -12,6 +12,9 @@
 //! - Run the single-use local promotion that replaces single-use immutable
 //!   callable locals with direct references to their initializer (via
 //!   [`promote_single_use_callable_locals`]).
+//! - Run the adjacent aggregate-alias promotion that replaces
+//!   `let pair = aggregate; let (...) = pair;` with direct aggregate
+//!   destructuring when `pair` has a callable-typed field and no other uses.
 //! - Run the identity-closure peephole that replaces `(args) => f(args)`
 //!   closures with direct references to `f` (via
 //!   [`identity_closure_peephole`]).
@@ -34,9 +37,146 @@ use rustc_hash::{FxHashMap, FxHashSet};
 pub(super) fn run(store: &mut PackageStore, package_id: PackageId, reachable_expr_ids: &[ExprId]) {
     // Before collecting call sites, runs pre-pass rewrites:
     // 1. Promotes single-use immutable callable locals to direct item references.
-    // 2. Replaces identity closures `(args) => f(args)` with direct references to `f`.
+    // 2. Promotes single-use aggregate callable aliases into tuple destructuring.
+    // 3. Replaces identity closures `(args) => f(args)` with direct references to `f`.
     promote_single_use_callable_locals(store, package_id, reachable_expr_ids);
+    promote_adjacent_aggregate_callable_aliases(store, package_id);
     identity_closure_peephole(store, package_id, reachable_expr_ids);
+}
+
+/// Promotes an adjacent, single-use aggregate local into a following tuple
+/// destructure. This preserves evaluation order because there is no intervening
+/// statement between the alias binding and its only use.
+fn promote_adjacent_aggregate_callable_aliases(store: &mut PackageStore, package_id: PackageId) {
+    let block_ids: Vec<_> = {
+        let pkg = store.get(package_id);
+        collect_promotion_scopes(pkg)
+            .into_iter()
+            .flat_map(|scope| scope.seen_blocks.into_iter())
+            .collect()
+    };
+
+    let pkg = store.get_mut(package_id);
+    for block_id in block_ids {
+        promote_adjacent_aggregate_callable_aliases_in_block(pkg, block_id);
+    }
+}
+
+fn promote_adjacent_aggregate_callable_aliases_in_block(pkg: &mut Package, block_id: BlockId) {
+    loop {
+        let stmt_ids = pkg.get_block(block_id).stmts.clone();
+        let mut retained = Vec::with_capacity(stmt_ids.len());
+        let mut changed = false;
+        let mut index = 0;
+
+        while index < stmt_ids.len() {
+            if index + 1 < stmt_ids.len()
+                && let Some(init_expr_id) = aggregate_alias_promotion_init(
+                    pkg,
+                    block_id,
+                    stmt_ids[index],
+                    stmt_ids[index + 1],
+                )
+            {
+                if let StmtKind::Local(_, _, expr_id) = &mut pkg
+                    .stmts
+                    .get_mut(stmt_ids[index + 1])
+                    .expect("statement should exist")
+                    .kind
+                {
+                    *expr_id = init_expr_id;
+                }
+                retained.push(stmt_ids[index + 1]);
+                changed = true;
+                index += 2;
+                continue;
+            }
+
+            retained.push(stmt_ids[index]);
+            index += 1;
+        }
+
+        pkg.blocks
+            .get_mut(block_id)
+            .expect("block should exist")
+            .stmts = retained;
+
+        if !changed {
+            break;
+        }
+    }
+}
+
+fn aggregate_alias_promotion_init(
+    pkg: &Package,
+    block_id: BlockId,
+    alias_stmt_id: StmtId,
+    use_stmt_id: StmtId,
+) -> Option<ExprId> {
+    let alias_stmt = pkg.get_stmt(alias_stmt_id);
+    let StmtKind::Local(Mutability::Immutable, alias_pat_id, alias_init_expr_id) = alias_stmt.kind
+    else {
+        return None;
+    };
+    let alias_pat = pkg.get_pat(alias_pat_id);
+    let PatKind::Bind(alias_ident) = &alias_pat.kind else {
+        return None;
+    };
+    if !ty_contains_arrow(&alias_pat.ty) {
+        return None;
+    }
+
+    let use_stmt = pkg.get_stmt(use_stmt_id);
+    let StmtKind::Local(_, use_pat_id, use_expr_id) = use_stmt.kind else {
+        return None;
+    };
+    if !matches!(pkg.get_pat(use_pat_id).kind, PatKind::Tuple(_)) {
+        return None;
+    }
+    if !matches!(pkg.get_expr(use_expr_id).kind, ExprKind::Var(Res::Local(var), _) if var == alias_ident.id)
+    {
+        return None;
+    }
+
+    if local_has_exactly_one_use_in_block(pkg, block_id, alias_ident.id, use_expr_id) {
+        Some(alias_init_expr_id)
+    } else {
+        None
+    }
+}
+
+fn local_has_exactly_one_use_in_block(
+    pkg: &Package,
+    block_id: BlockId,
+    local_id: LocalVarId,
+    expected_use_expr_id: ExprId,
+) -> bool {
+    let mut use_count = 0;
+    let mut saw_expected_use = false;
+    crate::walk_utils::for_each_expr_in_block(
+        pkg,
+        block_id,
+        &mut |expr_id, expr| match &expr.kind {
+            ExprKind::Var(Res::Local(var), _) if *var == local_id => {
+                use_count += 1;
+                saw_expected_use |= expr_id == expected_use_expr_id;
+            }
+            ExprKind::Closure(captures, _) if captures.contains(&local_id) => {
+                use_count += 1;
+            }
+            _ => {}
+        },
+    );
+
+    use_count == 1 && saw_expected_use
+}
+
+fn ty_contains_arrow(ty: &Ty) -> bool {
+    match ty {
+        Ty::Arrow(_) => true,
+        Ty::Tuple(items) => items.iter().any(ty_contains_arrow),
+        _ => false,
+    }
 }
 
 /// Promotes single-use immutable callable locals whose initializer is a simple

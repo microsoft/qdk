@@ -426,7 +426,7 @@ fn udt_field_closure_value() {
 }
 
 #[test]
-fn udt_field_from_parameter_dynamic() {
+fn udt_field_from_parameter() {
     check_analysis(
         r#"
         struct Config { Op : Qubit => Unit }
@@ -446,7 +446,7 @@ fn udt_field_from_parameter_dynamic() {
             callable_params: 1
               param: callable_id=6, path=[0], ty=(Qubit => Unit)
             call_sites: 1
-              site: hof=ApplyOp<Empty>, arg=Dynamic"#]],
+              site: hof=ApplyOp<Empty>, arg=Global(H, Body)"#]],
     );
 }
 

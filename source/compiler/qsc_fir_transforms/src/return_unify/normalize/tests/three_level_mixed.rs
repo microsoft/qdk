@@ -121,7 +121,7 @@ fn three_level_block_block_if_returns_at_each_level() {
 #[test]
 fn three_level_qubit_scopes_with_deep_return() {
     // Three nested qubit allocation scopes; return deep inside the innermost
-    // scope. The strategy pass must preserve the release order of all three
+    // scope. Flag lowering must preserve the release order of all three
     // qubit scopes on the return path.
     check_no_returns_q(
         indoc! {r#"
@@ -214,7 +214,7 @@ fn three_level_qubit_scopes_with_deep_return() {
 
 #[test]
 fn three_level_nested_returns_at_every_level() {
-    // Each level has its own return on its own branch; the strategy pass
+    // Each level has its own return on its own branch; flag lowering
     // must flatten all three into a single post-unification control flow.
     check_no_returns_q(
         indoc! {r#"
@@ -327,7 +327,7 @@ fn three_level_nested_returns_at_every_level() {
 fn three_level_hoist_return_in_call_arg_deep() {
     // Compound-position return three constructs deep: the inner `Return`
     // sits inside a `Call` argument inside an `if` inside a `while` inside
-    // a `for`. Exercises the hoist pre-pass driving the strategy pass at
+    // a `for`. Exercises the hoist pre-pass driving flag lowering at
     // depth.
     check_no_returns_q(
         indoc! {r#"

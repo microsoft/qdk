@@ -139,6 +139,7 @@ struct CallableSpecs {
 /// Panics if reachable bodies still contain FIR variants eliminated by earlier
 /// transforms, such as `ExprKind::Struct`, `ExprKind::Closure`, or
 /// `ExprKind::Hole`.
+#[cfg(test)]
 pub fn rebuild_exec_graphs(
     store: &mut PackageStore,
     package_id: PackageId,

@@ -23,8 +23,8 @@
 //! }
 //! ```
 //!
-//! Subsumes the structured-strategy [`super::super::apply_if_then_return`]
-//! helper for shapes lowered through the flag pipeline.
+//! Provides guard-clause structured recovery for shapes lowered through the
+//! flag pipeline.
 //!
 //! # Slot identification
 //!
@@ -154,7 +154,7 @@ fn try_apply_once(package: &mut Package, assigner: &mut Assigner, block_id: Bloc
 /// Identifies an `if c { __ret_val = v; __has_returned = true; }` statement.
 ///
 /// Accepts the canonical flag-strategy shape produced by
-/// [`super::super::replace_returns_in_expr`], where the original
+/// `replace_returns_in_expr`, where the original
 /// `Return(v)` is mutated to a Unit-typed block whose body contains the
 /// two slot/flag assignments. The wrapping `if`'s then-arm is therefore a
 /// `Block` containing a single `Semi(Block(...))` statement. The
@@ -198,8 +198,8 @@ fn identify_guard_set(
 /// `not`-wrap rewrite preserves semantics without composing the
 /// original then-arm content into the continuation. Non-trivial
 /// then-arms (e.g. `if c { x(); } else { return v }`) are out of scope:
-/// the simpler rewrite cannot express the required composition, and
-/// the structured strategy already covers those shapes today.
+/// the simpler rewrite cannot express the required composition without a
+/// dedicated continuation-splicing rule.
 fn identify_guard_else_arm(
     package: &Package,
     stmt_id: StmtId,
@@ -247,7 +247,7 @@ fn then_arm_is_unit_noop(package: &Package, then_expr_id: ExprId) -> bool {
 ///
 /// * The bare `Semi(If(not __has_returned, rest_block, _))` statement.
 /// * The `let __trailing_result : T = if not __has_returned { ... } else __ret_val;`
-///   binding emitted by [`super::super::create_flag_trailing_expr_for_slot`],
+///   binding emitted by `create_flag_trailing_expr_for_slot`,
 ///   where the lazy continuation is the let-bound initializer. The bound
 ///   local is read by the trailing merge in the canonical shape, so
 ///   discarding the binding alongside the merge is safe.

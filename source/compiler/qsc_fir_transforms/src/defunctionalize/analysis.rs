@@ -48,6 +48,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 pub(super) struct LocalState {
     callable: FxHashMap<LocalVarId, CalleeLattice>,
     exprs: FxHashMap<LocalVarId, ExprId>,
+    condition_substitutions: FxHashMap<LocalVarId, ExprId>,
 }
 
 /// Maximum recursion depth when resolving callee expressions to prevent
@@ -243,6 +244,7 @@ fn collect_call_sites(
         let mut locals = LocalState {
             callable: FxHashMap::default(),
             exprs: FxHashMap::default(),
+            condition_substitutions: FxHashMap::default(),
         };
         analyze_expr_flow(package, store, entry_expr_id, &mut locals, package_id);
         crate::walk_utils::for_each_expr(package, entry_expr_id, &mut |expr_id, expr| {
@@ -706,6 +708,7 @@ fn resolve_callee(
                         locals,
                         item_id,
                         *args_expr_id,
+                        &[],
                         depth + 1,
                         allow_scoped_capture_exprs,
                         scoped_capture_vars,
@@ -753,38 +756,71 @@ fn resolve_callee(
                 CalleeLattice::Dynamic
             }
         }
+        // For a bare callable result, literal-folding `cond` is safe: the
+        // selected branch yields a single concrete callable and the
+        // unselected branch contributes no further targets that need
+        // specialization. The sibling projection arm in
+        // `resolve_callee_projection` deliberately does NOT fold, because
+        // when the callable is projected out of an aggregate (e.g. a UDT
+        // ctor whose args carry closure candidates in both branches),
+        // dropping the unselected branch would leave its closure target
+        // unregistered for specialization and its `ExprKind::Closure` node
+        // could not be neutralized during cleanup, breaking convergence.
         ExprKind::If(cond, body, otherwise) => {
-            let true_res = resolve_callee(
-                pkg,
-                store,
-                locals,
-                *body,
-                depth + 1,
-                allow_scoped_capture_exprs,
-                scoped_capture_vars,
-                package_id,
-            );
-            let false_res = if let Some(else_id) = otherwise {
-                resolve_callee(
+            if let Some(condition_value) = resolve_condition_literal(pkg, locals, *cond, 0) {
+                let selected_expr_id = if condition_value {
+                    Some(*body)
+                } else {
+                    *otherwise
+                };
+                if let Some(selected_expr_id) = selected_expr_id {
+                    resolve_callee(
+                        pkg,
+                        store,
+                        locals,
+                        selected_expr_id,
+                        depth + 1,
+                        allow_scoped_capture_exprs,
+                        scoped_capture_vars,
+                        package_id,
+                    )
+                } else {
+                    CalleeLattice::Dynamic
+                }
+            } else {
+                let true_res = resolve_callee(
                     pkg,
                     store,
                     locals,
-                    *else_id,
+                    *body,
                     depth + 1,
                     allow_scoped_capture_exprs,
                     scoped_capture_vars,
                     package_id,
-                )
-            } else {
-                CalleeLattice::Dynamic
-            };
-            true_res.join_with_condition(false_res, *cond)
+                );
+                let false_res = if let Some(else_id) = otherwise {
+                    resolve_callee(
+                        pkg,
+                        store,
+                        locals,
+                        *else_id,
+                        depth + 1,
+                        allow_scoped_capture_exprs,
+                        scoped_capture_vars,
+                        package_id,
+                    )
+                } else {
+                    CalleeLattice::Dynamic
+                };
+                true_res.join_with_condition(false_res, remap_condition_expr(pkg, locals, *cond))
+            }
         }
         ExprKind::Block(block_id) => {
             let block = pkg.get_block(*block_id);
             let mut block_state = LocalState {
                 callable: locals.callable.clone(),
                 exprs: locals.exprs.clone(),
+                condition_substitutions: locals.condition_substitutions.clone(),
             };
             analyze_block_flow(pkg, store, *block_id, &mut block_state, package_id);
             let block_scoped_vars = if allow_scoped_capture_exprs {
@@ -828,7 +864,17 @@ fn resolve_callee(
                     package_id,
                 )
             } else {
-                CalleeLattice::Dynamic
+                resolve_callee_projection(
+                    pkg,
+                    store,
+                    locals,
+                    *inner_expr_id,
+                    &path.indices,
+                    depth + 1,
+                    allow_scoped_capture_exprs,
+                    scoped_capture_vars,
+                    package_id,
+                )
             }
         }
         _ => CalleeLattice::Dynamic,
@@ -836,6 +882,289 @@ fn resolve_callee(
 
     // Compose the outer functor (from peeling) with the base's functor.
     apply_outer_functor_lattice(base_resolved, outer_functor)
+}
+
+/// Resolves a callable nested at `path` inside an aggregate expression.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn resolve_callee_projection(
+    pkg: &Package,
+    store: &PackageStore,
+    locals: &LocalState,
+    expr_id: ExprId,
+    path: &[usize],
+    depth: usize,
+    allow_scoped_capture_exprs: bool,
+    scoped_capture_vars: &FxHashSet<LocalVarId>,
+    package_id: PackageId,
+) -> CalleeLattice {
+    if depth > MAX_RESOLVE_DEPTH {
+        return CalleeLattice::Dynamic;
+    }
+
+    if path.is_empty() {
+        return resolve_callee(
+            pkg,
+            store,
+            locals,
+            expr_id,
+            depth + 1,
+            allow_scoped_capture_exprs,
+            scoped_capture_vars,
+            package_id,
+        );
+    }
+
+    let expr = pkg.get_expr(expr_id);
+    match &expr.kind {
+        ExprKind::Tuple(elements) => {
+            let Some((&field_index, rest)) = path.split_first() else {
+                return CalleeLattice::Dynamic;
+            };
+            let Some(&field_expr_id) = elements.get(field_index) else {
+                return CalleeLattice::Dynamic;
+            };
+            resolve_callee_projection(
+                pkg,
+                store,
+                locals,
+                field_expr_id,
+                rest,
+                depth + 1,
+                allow_scoped_capture_exprs,
+                scoped_capture_vars,
+                package_id,
+            )
+        }
+        ExprKind::Var(Res::Local(var), _) => {
+            if let Some(&init_expr_id) = locals.exprs.get(var) {
+                resolve_callee_projection(
+                    pkg,
+                    store,
+                    locals,
+                    init_expr_id,
+                    path,
+                    depth + 1,
+                    allow_scoped_capture_exprs,
+                    scoped_capture_vars,
+                    package_id,
+                )
+            } else {
+                CalleeLattice::Dynamic
+            }
+        }
+        ExprKind::Return(inner_expr_id) => resolve_callee_projection(
+            pkg,
+            store,
+            locals,
+            *inner_expr_id,
+            path,
+            depth + 1,
+            allow_scoped_capture_exprs,
+            scoped_capture_vars,
+            package_id,
+        ),
+        ExprKind::Block(block_id) => {
+            let block = pkg.get_block(*block_id);
+            let mut block_state = LocalState {
+                callable: locals.callable.clone(),
+                exprs: locals.exprs.clone(),
+                condition_substitutions: locals.condition_substitutions.clone(),
+            };
+            analyze_block_flow(pkg, store, *block_id, &mut block_state, package_id);
+            let block_scoped_vars = if allow_scoped_capture_exprs {
+                let mut vars = scoped_capture_vars.clone();
+                collect_block_local_bindings(pkg, *block_id, &mut vars);
+                vars
+            } else {
+                scoped_capture_vars.clone()
+            };
+            if let Some(&last_stmt_id) = block.stmts.last() {
+                let stmt = pkg.get_stmt(last_stmt_id);
+                match &stmt.kind {
+                    StmtKind::Expr(e) | StmtKind::Semi(e) => resolve_callee_projection(
+                        pkg,
+                        store,
+                        &block_state,
+                        *e,
+                        path,
+                        depth + 1,
+                        allow_scoped_capture_exprs,
+                        &block_scoped_vars,
+                        package_id,
+                    ),
+                    _ => CalleeLattice::Dynamic,
+                }
+            } else {
+                CalleeLattice::Dynamic
+            }
+        }
+        ExprKind::If(cond, body, otherwise) => {
+            // Unlike `resolve_callee`'s If arm at the bare-callable site, we
+            // deliberately do NOT literal-fold `cond` here. When projecting a
+            // callable out of an aggregate returned from a same-package
+            // callable (e.g. a UDT ctor `Call` whose args carry two closure
+            // candidates), short-circuiting to one branch would leave the
+            // other branch's closure target unregistered for specialization;
+            // `cleanup_consumed_closures` would then be unable to neutralize
+            // the surviving `ExprKind::Closure` node and convergence would
+            // fail. The join below produces a `CalleeLattice::Multi`
+            // that `branch_split_direct_call_rewrite` materializes as a
+            // constant-conditioned dispatch in the caller.
+            let true_res = resolve_callee_projection(
+                pkg,
+                store,
+                locals,
+                *body,
+                path,
+                depth + 1,
+                allow_scoped_capture_exprs,
+                scoped_capture_vars,
+                package_id,
+            );
+            let false_res = if let Some(else_id) = otherwise {
+                resolve_callee_projection(
+                    pkg,
+                    store,
+                    locals,
+                    *else_id,
+                    path,
+                    depth + 1,
+                    allow_scoped_capture_exprs,
+                    scoped_capture_vars,
+                    package_id,
+                )
+            } else {
+                CalleeLattice::Dynamic
+            };
+            true_res.join_with_condition(false_res, remap_condition_expr(pkg, locals, *cond))
+        }
+        ExprKind::Call(callee_expr_id, args_expr_id) => {
+            let callee_lattice = resolve_callee(
+                pkg,
+                store,
+                locals,
+                *callee_expr_id,
+                depth + 1,
+                allow_scoped_capture_exprs,
+                scoped_capture_vars,
+                package_id,
+            );
+
+            match callee_lattice {
+                CalleeLattice::Single(ConcreteCallable::Global { item_id, functor })
+                    if item_id.package == package_id && functor == FunctorApp::default() =>
+                {
+                    let target_item = pkg.get_item(item_id.item);
+                    match &target_item.kind {
+                        ItemKind::Callable(_) => resolve_same_package_callable_return(
+                            pkg,
+                            store,
+                            locals,
+                            item_id,
+                            *args_expr_id,
+                            path,
+                            depth + 1,
+                            allow_scoped_capture_exprs,
+                            scoped_capture_vars,
+                            package_id,
+                        ),
+                        ItemKind::Ty(_, _) => resolve_callee_projection(
+                            pkg,
+                            store,
+                            locals,
+                            *args_expr_id,
+                            path,
+                            depth + 1,
+                            allow_scoped_capture_exprs,
+                            scoped_capture_vars,
+                            package_id,
+                        ),
+                        _ => CalleeLattice::Dynamic,
+                    }
+                }
+                _ => CalleeLattice::Dynamic,
+            }
+        }
+        ExprKind::UnOp(UnOp::Unwrap, inner_expr_id) => resolve_callee_projection(
+            pkg,
+            store,
+            locals,
+            *inner_expr_id,
+            path,
+            depth + 1,
+            allow_scoped_capture_exprs,
+            scoped_capture_vars,
+            package_id,
+        ),
+        ExprKind::Struct(_, _, fields) => {
+            let Some((&field_index, rest)) = path.split_first() else {
+                return CalleeLattice::Dynamic;
+            };
+            let mut found: Option<ExprId> = None;
+            for fa in fields {
+                if let Field::Path(fa_path) = &fa.field
+                    && fa_path.indices.first() == Some(&field_index)
+                {
+                    found = Some(fa.value);
+                    break;
+                }
+            }
+            if let Some(field_expr_id) = found {
+                resolve_callee_projection(
+                    pkg,
+                    store,
+                    locals,
+                    field_expr_id,
+                    rest,
+                    depth + 1,
+                    allow_scoped_capture_exprs,
+                    scoped_capture_vars,
+                    package_id,
+                )
+            } else {
+                CalleeLattice::Dynamic
+            }
+        }
+        ExprKind::Field(inner_expr_id, Field::Path(field_path)) => {
+            let mut composed: Vec<usize> = field_path.indices.clone();
+            composed.extend_from_slice(path);
+            resolve_callee_projection(
+                pkg,
+                store,
+                locals,
+                *inner_expr_id,
+                &composed,
+                depth + 1,
+                allow_scoped_capture_exprs,
+                scoped_capture_vars,
+                package_id,
+            )
+        }
+        _ => CalleeLattice::Dynamic,
+    }
+}
+
+fn output_path_resolves_to_arrow(store: &PackageStore, ty: &Ty, path: &[usize]) -> bool {
+    match ty {
+        Ty::Arrow(_) => path.is_empty(),
+        Ty::Tuple(items) => {
+            let Some((&field_index, rest)) = path.split_first() else {
+                return false;
+            };
+            items
+                .get(field_index)
+                .is_some_and(|item_ty| output_path_resolves_to_arrow(store, item_ty, rest))
+        }
+        Ty::Udt(Res::Item(item_id)) => {
+            let package = store.get(item_id.package);
+            let item = package.get_item(item_id.item);
+            let ItemKind::Ty(_, udt) = &item.kind else {
+                return false;
+            };
+            output_path_resolves_to_arrow(store, &udt.get_pure_ty(), path)
+        }
+        _ => false,
+    }
 }
 
 /// Attempts to resolve a callable-returning call whose target lives in the
@@ -849,6 +1178,7 @@ fn resolve_same_package_callable_return(
     caller_locals: &LocalState,
     item_id: ItemId,
     args_expr_id: ExprId,
+    output_path: &[usize],
     depth: usize,
     allow_scoped_capture_exprs: bool,
     scoped_capture_vars: &FxHashSet<LocalVarId>,
@@ -859,7 +1189,7 @@ fn resolve_same_package_callable_return(
         return CalleeLattice::Dynamic;
     };
 
-    if !matches!(decl.output, Ty::Arrow(_)) {
+    if !output_path_resolves_to_arrow(store, &decl.output, output_path) {
         return CalleeLattice::Dynamic;
     }
 
@@ -877,6 +1207,7 @@ fn resolve_same_package_callable_return(
     let mut state = LocalState {
         callable: FxHashMap::default(),
         exprs: FxHashMap::default(),
+        condition_substitutions: FxHashMap::default(),
     };
     seed_param_bindings_from_call(
         pkg,
@@ -908,17 +1239,77 @@ fn resolve_same_package_callable_return(
     materialize_capture_exprs_from_state(
         pkg,
         &state,
-        resolve_callee(
+        resolve_callee_projection(
             pkg,
             store,
             &state,
             return_expr_id,
+            output_path,
             depth + 1,
             allow_scoped_capture_exprs,
             scoped_capture_vars,
             package_id,
         ),
     )
+}
+
+fn resolve_condition_literal(
+    pkg: &Package,
+    locals: &LocalState,
+    expr_id: ExprId,
+    depth: usize,
+) -> Option<bool> {
+    if depth > MAX_RESOLVE_DEPTH {
+        return None;
+    }
+
+    let expr = pkg.get_expr(expr_id);
+    match &expr.kind {
+        ExprKind::Var(Res::Local(var), _) => {
+            locals
+                .condition_substitutions
+                .get(var)
+                .and_then(|&expr_id| {
+                    resolve_condition_substitution_literal(pkg, locals, expr_id, depth + 1)
+                })
+        }
+        _ => None,
+    }
+}
+
+fn resolve_condition_substitution_literal(
+    pkg: &Package,
+    locals: &LocalState,
+    expr_id: ExprId,
+    depth: usize,
+) -> Option<bool> {
+    if depth > MAX_RESOLVE_DEPTH {
+        return None;
+    }
+
+    let expr = pkg.get_expr(expr_id);
+    match &expr.kind {
+        ExprKind::Lit(Lit::Bool(value)) => Some(*value),
+        ExprKind::Var(Res::Local(var), _) => locals
+            .condition_substitutions
+            .get(var)
+            .or_else(|| locals.exprs.get(var))
+            .and_then(|&expr_id| {
+                resolve_condition_substitution_literal(pkg, locals, expr_id, depth + 1)
+            }),
+        _ => None,
+    }
+}
+
+fn remap_condition_expr(pkg: &Package, locals: &LocalState, expr_id: ExprId) -> ExprId {
+    let expr = pkg.get_expr(expr_id);
+    if let ExprKind::Var(Res::Local(var), _) = &expr.kind
+        && let Some(&replacement_expr_id) = locals.condition_substitutions.get(var)
+    {
+        replacement_expr_id
+    } else {
+        expr_id
+    }
 }
 
 /// Materializes `CapturedVar::expr` fields for each capture appearing in a
@@ -1020,6 +1411,7 @@ fn seed_param_bindings_from_call(
     match &pat.kind {
         PatKind::Bind(ident) => {
             state.exprs.insert(ident.id, arg_expr_id);
+            state.condition_substitutions.insert(ident.id, arg_expr_id);
             if matches!(pat.ty, Ty::Arrow(_)) {
                 let lattice = resolve_callee(
                     pkg,
@@ -1491,6 +1883,7 @@ fn build_callable_flow_state(
     let mut state = LocalState {
         callable: FxHashMap::default(),
         exprs: FxHashMap::default(),
+        condition_substitutions: FxHashMap::default(),
     };
     match callable_impl {
         CallableImpl::Intrinsic => {}
@@ -1623,7 +2016,66 @@ fn bind_callable_pat(
                         *array_expr_id,
                         package_id,
                     );
+                } else {
+                    let mut path = Vec::new();
+                    bind_callable_pat_projections(
+                        pkg,
+                        store,
+                        state,
+                        pat_id,
+                        init_expr_id,
+                        &mut path,
+                        package_id,
+                    );
                 }
+            }
+        }
+        PatKind::Discard => {}
+    }
+}
+
+fn bind_callable_pat_projections(
+    pkg: &Package,
+    store: &PackageStore,
+    state: &mut LocalState,
+    pat_id: PatId,
+    init_expr_id: ExprId,
+    path: &mut Vec<usize>,
+    package_id: PackageId,
+) {
+    let pat = pkg.get_pat(pat_id);
+    match &pat.kind {
+        PatKind::Bind(ident) => {
+            if matches!(pat.ty, Ty::Arrow(_)) {
+                let lattice = resolve_callee_projection(
+                    pkg,
+                    store,
+                    state,
+                    init_expr_id,
+                    path,
+                    0,
+                    true,
+                    &FxHashSet::default(),
+                    package_id,
+                );
+                if !matches!(lattice, CalleeLattice::Bottom | CalleeLattice::Dynamic) {
+                    state.callable.insert(ident.id, lattice);
+                }
+            }
+        }
+        PatKind::Tuple(sub_pats) => {
+            for (index, &sub_pat_id) in sub_pats.iter().enumerate() {
+                path.push(index);
+                bind_callable_pat_projections(
+                    pkg,
+                    store,
+                    state,
+                    sub_pat_id,
+                    init_expr_id,
+                    path,
+                    package_id,
+                );
+                path.pop();
             }
         }
         PatKind::Discard => {}

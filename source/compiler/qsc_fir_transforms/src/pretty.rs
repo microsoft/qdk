@@ -85,36 +85,6 @@ pub(crate) fn write_package_qsharp_parseable(
     format_str(&emitter.output)
 }
 
-/// Renders a single callable item as Q# source.
-///
-/// Test-oriented helper: see [`write_package_qsharp`] and the module doc.
-#[must_use]
-pub fn write_callable_qsharp(
-    store: &PackageStore,
-    package_id: PackageId,
-    item: LocalItemId,
-) -> String {
-    let mut emitter = FirQSharpGen::new(store, package_id);
-    let decl = match &emitter.package().get_item(item).kind {
-        ItemKind::Callable(decl) => Some((**decl).clone()),
-        _ => None,
-    };
-    if let Some(decl) = decl {
-        emitter.emit_callable_decl(&decl);
-    }
-    format_str(&emitter.output)
-}
-
-/// Renders a single block as Q# source.
-///
-/// Test-oriented helper: see [`write_package_qsharp`] and the module doc.
-#[must_use]
-pub fn write_block_qsharp(store: &PackageStore, package_id: PackageId, block: BlockId) -> String {
-    let mut emitter = FirQSharpGen::new(store, package_id);
-    emitter.emit_block(block);
-    format_str(&emitter.output)
-}
-
 /// Renders a single expression as Q# source.
 ///
 /// Test-oriented helper: see [`write_package_qsharp`] and the module doc.
@@ -122,16 +92,6 @@ pub fn write_block_qsharp(store: &PackageStore, package_id: PackageId, block: Bl
 pub fn write_expr_qsharp(store: &PackageStore, package_id: PackageId, expr: ExprId) -> String {
     let mut emitter = FirQSharpGen::new(store, package_id);
     emitter.emit_expr(expr);
-    format_str(&emitter.output)
-}
-
-/// Renders a single statement as Q# source.
-///
-/// Test-oriented helper: see [`write_package_qsharp`] and the module doc.
-#[must_use]
-pub fn write_stmt_qsharp(store: &PackageStore, package_id: PackageId, stmt: StmtId) -> String {
-    let mut emitter = FirQSharpGen::new(store, package_id);
-    emitter.emit_stmt(stmt);
     format_str(&emitter.output)
 }
 

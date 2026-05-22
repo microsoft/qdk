@@ -5,7 +5,7 @@ use super::*;
 
 #[test]
 fn idempotency_no_return() {
-    // No returns at all — structured strategy not triggered.
+    // No returns at all — return-unify is a no-op.
     check_idempotency(indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -17,7 +17,7 @@ fn idempotency_no_return() {
 
 #[test]
 fn idempotency_simple_guard_clause() {
-    // Single guard clause — structured (if-else) strategy.
+    // Single guard clause — flag lowering plus guard-clause simplification.
     check_idempotency(indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -32,7 +32,7 @@ fn idempotency_simple_guard_clause() {
 
 #[test]
 fn idempotency_nested_if_else_returns() {
-    // Multiple branches with returns — structured strategy.
+    // Multiple branches with returns — flag lowering plus simplification.
     check_idempotency(indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -50,7 +50,7 @@ fn idempotency_nested_if_else_returns() {
 
 #[test]
 fn idempotency_while_loop_return() {
-    // Return inside while loop — flag strategy.
+    // Return inside while loop — semantic flag lowering.
     check_idempotency(indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -69,7 +69,7 @@ fn idempotency_while_loop_return() {
 
 #[test]
 fn idempotency_for_loop_return() {
-    // Return inside for loop — flag strategy.
+    // Return inside for loop — semantic flag lowering.
     check_idempotency(indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -118,7 +118,7 @@ fn idempotency_unit_return() {
 
 #[test]
 fn idempotency_tuple_return() {
-    // Tuple-typed return — structured strategy.
+    // Tuple-typed return — flag lowering plus simplification.
     check_idempotency(indoc! {r#"
         namespace Test {
             function Main() : (Int, Bool) {
@@ -132,8 +132,8 @@ fn idempotency_tuple_return() {
 }
 
 #[test]
-fn idempotency_string_return_flag_strategy() {
-    // String-typed return in while loop — flag strategy.
+fn idempotency_string_return_flag_lowering() {
+    // String-typed return in while loop — semantic flag lowering.
     check_idempotency(indoc! {r#"
         namespace Test {
             function Main() : String {
@@ -151,8 +151,8 @@ fn idempotency_string_return_flag_strategy() {
 }
 
 #[test]
-fn idempotency_leaky_if_flag_strategy() {
-    // Leaky nested-if pattern — flag strategy with non-trivial guarding.
+fn idempotency_leaky_if_flag_lowering() {
+    // Leaky nested-if pattern — semantic flag lowering with non-trivial guarding.
     check_idempotency(indoc! {r#"
         namespace Test {
             function Main() : Int {

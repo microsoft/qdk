@@ -16,7 +16,7 @@ use super::*;
 #[test]
 fn hoist_outer_return_wraps_if_with_return_in_then_branch() {
     // `return if c { return X; } else { Y }` — the outer return wraps an
-    // `If` whose then-branch is a statement-level return. The strategy pass
+    // `If` whose then-branch is a statement-level return. Flag lowering
     // handles the inner return; the outer statement must stay fixed so the
     // hoist fixpoint terminates.
     check_no_returns_q(

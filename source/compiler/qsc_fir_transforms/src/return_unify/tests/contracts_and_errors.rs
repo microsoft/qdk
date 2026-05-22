@@ -34,7 +34,7 @@ fn empty_udt_pure_tys() -> super::super::UdtPureTyCache {
     super::super::UdtPureTyCache::new(FxHashMap::default())
 }
 
-fn assert_no_array_backed_strategy(
+fn assert_no_array_backed_slot(
     ty: &Ty,
     udt_pure_tys: &super::super::UdtPureTyCache,
     context: &super::super::UdtResolutionContext<'_>,
@@ -46,7 +46,7 @@ fn assert_no_array_backed_strategy(
     assert_ne!(
         super::super::select_return_slot_strategy(ty, udt_pure_tys, context),
         Some(super::super::ReturnSlotStrategy::ArrayBacked),
-        "strategy selection should not choose array-backed mode for `{ty}`"
+        "return-slot selection should not choose array-backed mode for `{ty}`"
     );
 }
 
@@ -137,8 +137,8 @@ fn flag_trailing_without_trailing_expr_uses_return_slot_fallback() {
 #[test]
 fn arrow_return_with_non_defaultable_output_uses_fail_bodied_default() {
     // After the fail-bodied callable change, (Qubit => Qubit) is now
-    // handled via Direct strategy with a synthesized fail-bodied callable
-    // as the default. This previously produced an error.
+    // handled via the Direct return-slot representation with a synthesized
+    // fail-bodied callable as the default. This previously produced an error.
     let source = indoc! {r#"
         namespace Test {
             operation Identity(q : Qubit) : Qubit {
@@ -170,7 +170,7 @@ fn arrow_return_with_non_defaultable_output_uses_fail_bodied_default() {
 }
 
 #[test]
-fn defaultable_arrow_return_slot_stays_direct_strategy() {
+fn defaultable_arrow_return_slot_stays_direct() {
     let store = PackageStore::new();
     let udt_pure_tys = empty_udt_pure_tys();
     let context = super::super::UdtResolutionContext::Store(&store);
@@ -180,19 +180,19 @@ fn defaultable_arrow_return_slot_stays_direct_strategy() {
         super::super::select_return_slot_strategy(&ty, &udt_pure_tys, &context),
         Some(super::super::ReturnSlotStrategy::Direct)
     );
-    assert_no_array_backed_strategy(&ty, &udt_pure_tys, &context);
+    assert_no_array_backed_slot(&ty, &udt_pure_tys, &context);
 }
 
 #[test]
-fn bare_arrow_type_with_non_defaultable_output_uses_direct_strategy() {
+fn bare_arrow_type_with_non_defaultable_output_uses_direct_slot() {
     // With fail-bodied callables, all arrow types (as long as functors are
-    // Value) are defaultable, so they get Direct strategy.
+    // Value) are defaultable, so they use the Direct return-slot representation.
     let store = PackageStore::new();
     let udt_pure_tys = empty_udt_pure_tys();
     let context = super::super::UdtResolutionContext::Store(&store);
     let ty = operation_arrow_ty(Ty::Prim(Prim::Qubit), Ty::Prim(Prim::Qubit));
 
-    assert_no_array_backed_strategy(&ty, &udt_pure_tys, &context);
+    assert_no_array_backed_slot(&ty, &udt_pure_tys, &context);
     assert_eq!(
         super::super::select_return_slot_strategy(&ty, &udt_pure_tys, &context),
         Some(super::super::ReturnSlotStrategy::Direct)
@@ -213,7 +213,7 @@ fn array_backed_return_slot_rejects_array_of_arrow_type() {
         super::super::select_return_slot_strategy(&ty, &udt_pure_tys, &context),
         Some(super::super::ReturnSlotStrategy::Direct)
     );
-    assert_no_array_backed_strategy(&ty, &udt_pure_tys, &context);
+    assert_no_array_backed_slot(&ty, &udt_pure_tys, &context);
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn array_backed_return_slot_accepts_udt_containing_arrow_type() {
     };
     let mut pure_tys = FxHashMap::default();
     pure_tys.insert(
-        (udt_id.package, udt_id.item),
+        (udt_id.package, udt_id.item).into(),
         Ty::Tuple(vec![
             Ty::Prim(Prim::Qubit),
             function_arrow_ty(Ty::Prim(Prim::Int), Ty::Prim(Prim::Int)),
@@ -286,7 +286,7 @@ fn array_backed_return_slot_rejects_unresolved_udt_type() {
         item: LocalItemId::from(usize::MAX),
     }));
 
-    assert_no_array_backed_strategy(&ty, &udt_pure_tys, &context);
+    assert_no_array_backed_slot(&ty, &udt_pure_tys, &context);
     assert_eq!(
         super::super::select_return_slot_strategy(&ty, &udt_pure_tys, &context),
         None
@@ -294,7 +294,7 @@ fn array_backed_return_slot_rejects_unresolved_udt_type() {
 }
 
 #[test]
-fn guarded_qubit_local_after_flag_strategy_return_is_supported() {
+fn guarded_qubit_local_after_flag_lowering_return_is_supported() {
     let source = indoc! {r#"
         namespace Test {
             operation Main() : Int {
@@ -519,8 +519,8 @@ fn arrow_return_with_nested_non_defaultable_output_uses_fail_bodied_default() {
 #[test]
 fn mixed_qubit_arrow_return_type_succeeds_via_array_backed() {
     // A type like (Qubit, (Int => Unit)) mixes a non-defaultable data type
-    // (Qubit) with an arrow. With the relaxed ArrowScan gate, this is now
-    // handled by the ArrayBacked return-slot strategy. The fail-bodied
+    // (Qubit) with an arrow. Because the tuple's structure is resolvable, it
+    // is handled by the ArrayBacked return-slot representation. The fail-bodied
     // default callable provides the bottom-typed fallback for the array read.
     let source = indoc! {r#"
         namespace Test {
@@ -546,7 +546,7 @@ fn mixed_qubit_arrow_return_type_succeeds_via_array_backed() {
 
     assert!(
         result.errors.is_empty(),
-        "mixed qubit+arrow type should succeed via array-backed strategy, got: {:?}",
+        "mixed qubit+arrow type should succeed via array-backed return-slot representation, got: {:?}",
         result.errors
     );
 }
@@ -633,7 +633,7 @@ fn recursive_udt_early_return_fails_before_return_unify() {
 #[test]
 fn array_backed_slot_for_mixed_qubit_arrow_tuple_return_type() {
     // A function returning (Qubit, (Int -> Int)) with early return in a loop.
-    // With the relaxed ArrowScan gate, this is handled via ArrayBacked.
+    // Because the tuple's structure is resolvable, this is handled via ArrayBacked.
     let source = indoc! {r#"
         namespace Test {
             function Inc(n : Int) : Int { n + 1 }
@@ -658,16 +658,16 @@ fn array_backed_slot_for_mixed_qubit_arrow_tuple_return_type() {
 
     assert!(
         result.errors.is_empty(),
-        "mixed qubit+function-arrow tuple should compile via array-backed strategy, got: {:?}",
+        "mixed qubit+function-arrow tuple should compile via array-backed return-slot representation, got: {:?}",
         result.errors
     );
 }
 
 #[test]
-fn array_backed_slot_for_pure_arrow_return_type() {
+fn direct_slot_for_pure_arrow_return_type() {
     // A callable returning a bare arrow type (Int => Unit) with early return
-    // in a loop. The arrow type is non-defaultable but the array-backed
-    // strategy with fail-bodied default handles it.
+    // in a loop. Bare arrow types are defaultable via synthesized fail-bodied
+    // callables, so the Direct return-slot representation handles them.
     let source = indoc! {r#"
         namespace Test {
             operation NoOp(n : Int) : Unit {}
@@ -692,15 +692,16 @@ fn array_backed_slot_for_pure_arrow_return_type() {
 
     assert!(
         result.errors.is_empty(),
-        "pure arrow return type should compile via array-backed strategy, got: {:?}",
+        "pure arrow return type should compile via direct return-slot representation, got: {:?}",
         result.errors
     );
 }
 
 #[test]
-fn array_backed_slot_for_nested_arrow_in_tuple_return_type() {
+fn direct_slot_for_nested_arrow_in_defaultable_tuple_return_type() {
     // A deeply nested arrow: (Int, (Bool, (String => Double))).
-    // The ArrowScan gate relaxation lets this through to ArrayBacked.
+    // The surrounding tuple is defaultable because the arrow leaf gets a
+    // synthesized fail-bodied callable default, so Direct return-slot representation handles it.
     let source = indoc! {r#"
         namespace Test {
             function Parse(_s : String) : Double { 0.0 }
@@ -725,7 +726,7 @@ fn array_backed_slot_for_nested_arrow_in_tuple_return_type() {
 
     assert!(
         result.errors.is_empty(),
-        "nested arrow in tuple should compile via array-backed strategy, got: {:?}",
+        "nested arrow in defaultable tuple should compile via direct return-slot representation, got: {:?}",
         result.errors
     );
 }
@@ -739,8 +740,8 @@ fn array_backed_slot_for_nested_arrow_in_tuple_return_type() {
 #[test]
 fn non_defaultable_qubit_return_in_loop_succeeds() {
     // Qubit is non-defaultable. Early return from a loop should succeed
-    // via Direct or ArrayBacked strategy without triggering the normalize
-    // panic paths (now replaced by typed-fail).
+    // via the ArrayBacked return-slot representation without triggering the
+    // normalize typed-fail paths.
     let source = indoc! {r#"
         namespace Test {
             operation Foo(q : Qubit) : Qubit {
@@ -809,8 +810,9 @@ fn non_defaultable_tuple_with_qubit_return_succeeds() {
 
 #[test]
 fn arrow_return_type_with_early_return_does_not_panic() {
-    // Pure arrow return types are non-defaultable. Verify no panic occurs
-    // during return unification (handled by Direct strategy or typed-fail).
+    // Pure arrow return types are defaultable through synthesized
+    // fail-bodied callables. Verify no panic occurs during return
+    // unification (handled by the Direct return-slot representation).
     let source = indoc! {r#"
         namespace Test {
             function Id(x : Int) : Int { x }

@@ -26,8 +26,8 @@
 //!   These shapes are not reachable from user-written Q# via a single
 //!   `dead_flag::apply` because the merge has not yet been collapsed
 //!   at that point in the pipeline. The end-to-end Q# →
-//!   return-unified output for the flag strategy is covered by the
-//!   larger [`crate::return_unify::tests::flag_strategy`] suite.
+//!   return-unified flag-lowering output is covered by the larger
+//!   [`crate::return_unify::tests::flag_lowering`] suite.
 //!
 //! MANUAL-FIR positive cases (rule must fire):
 //!
@@ -621,7 +621,7 @@ mod q_driven {
     #[test]
     fn both_arms_return_shape_keeps_flag_live() {
         // `if c { return a; } else { return b; }` lowers to the
-        // both-arms-return flag-strategy shape whose trailing merge
+        // both-arms-return flag-lowering shape whose trailing merge
         // cond reads `__has_returned`. Same reasoning as above —
         // `fired=false`.
         check_simplify_rule_q(

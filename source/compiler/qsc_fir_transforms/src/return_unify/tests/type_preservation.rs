@@ -4,8 +4,9 @@
 use super::*;
 
 #[test]
-fn type_preservation_structured_strategy() {
-    // Structured strategy rewrites block tails — invariant checked in pipeline.
+fn type_preservation_guard_clause_simplification() {
+    // Guard-clause simplification recovers the block tail; the pipeline checks
+    // the type invariant.
     let (store, pkg_id) = compile_return_unified(indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -22,8 +23,8 @@ fn type_preservation_structured_strategy() {
 }
 
 #[test]
-fn type_preservation_flag_strategy_int() {
-    // Flag strategy with Int return — invariant checked in pipeline.
+fn type_preservation_flag_lowering_int() {
+    // Flag lowering with Int return — invariant checked in pipeline.
     let (store, pkg_id) = compile_return_unified(indoc! {r#"
         namespace Test {
             function Main() : Int {

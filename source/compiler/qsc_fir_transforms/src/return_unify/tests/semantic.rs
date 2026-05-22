@@ -321,10 +321,10 @@ fn tuple_return_in_while_with_nested_if_semantic() {
     "#});
 }
 
-// All 4 specializations with flag strategy (for-loop desugar)
+// All 4 specializations with flag lowering (for-loop desugar)
 
 #[test]
-fn qubit_alloc_scope_with_flag_strategy_semantic() {
+fn qubit_alloc_scope_with_flag_lowering_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
             operation Main() : Int {
@@ -386,7 +386,7 @@ fn while_body_side_effect_guarded_after_return_semantic() {
     "#});
 }
 
-// Qubit alloc scope + flag strategy — release continuations are guarded
+// Qubit alloc scope + flag lowering — release continuations are guarded
 
 #[test]
 fn qubit_release_guarded_in_for_loop_with_early_return_semantic() {
@@ -631,7 +631,7 @@ fn udt_wrapping_qubit_return_in_while_uses_array_backed_return_slot_semantic() {
 }
 
 #[test]
-fn if_expr_init_with_while_return_uses_flag_strategy_semantic() {
+fn if_expr_init_with_while_return_uses_flag_lowering_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -654,7 +654,7 @@ fn if_expr_init_with_while_return_uses_flag_strategy_semantic() {
 }
 
 #[test]
-fn simple_if_expr_init_with_return_stays_structured_semantic() {
+fn simple_if_expr_init_with_return_recovers_structured_branch_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -669,7 +669,7 @@ fn simple_if_expr_init_with_return_stays_structured_semantic() {
 }
 
 #[test]
-fn flag_strategy_guards_local_after_return_semantic() {
+fn flag_lowering_guards_local_after_return_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -692,15 +692,12 @@ fn flag_strategy_guards_local_after_return_semantic() {
 // Error-contract tests (test panics/errors, not values):
 //   - guard_stmt_with_flag_rejects_non_unit_expr_stmt (#[should_panic])
 //   - flag_trailing_without_trailing_expr_rejects_non_unit_contract (#[should_panic])
-//   - unsupported_arrow_return_slot_in_flag_strategy_produces_error (expects error list)
+//   - recursive_udt_early_return_fails_before_return_unify (expects error list)
 //
 // Specialization tests (Adj/Ctl, no single entry point output):
 //   - explicit_specialization_bodies_are_return_unified
 //   - simulatable_intrinsic_body_is_return_unified
 //   - all_four_specializations_with_return_in_loop
-//
-// Arrow-typed return tests (blocked by defunctionalization limitation):
-//   - arrow_typed_return_in_structured_path
 //
 // No-return or identity tests (no transform to validate):
 //   - no_op_function_without_returns
@@ -713,6 +710,137 @@ fn flag_strategy_guards_local_after_return_semantic() {
 //
 // Structural comparison only (compares two sources, not runtime values):
 //   - classify_semi_return_and_expr_return_produce_same_shape
+
+#[test]
+fn arrow_typed_return_simplifies_to_if_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Choose(flag : Bool) : (Int -> Int) {
+                if flag {
+                    return x -> x + 1;
+                }
+                x -> x * 2
+            }
+
+            function Main() : Int {
+                let f = Choose(true);
+                f(10)
+            }
+        }
+    "#});
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Choose(flag : Bool) : (Int -> Int) {
+                if flag {
+                    return x -> x + 1;
+                }
+                x -> x * 2
+            }
+
+            function Main() : Int {
+                let f = Choose(false);
+                f(10)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn aggregate_arrow_typed_return_simplifies_to_if_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Choose(flag : Bool) : ((Int -> Int), Int) {
+                if flag {
+                    return (x -> x + 1, 100);
+                }
+                (x -> x * 2, 7)
+            }
+
+            function Main() : (Int, Int) {
+                let (trueF, trueOffset) = Choose(true);
+                let (falseF, falseOffset) = Choose(false);
+                (trueF(10) + trueOffset, falseF(10) + falseOffset)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn aggregate_arrow_typed_return_local_indirection_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Choose(flag : Bool) : ((Int -> Int), Int) {
+                if flag {
+                    return (x -> x + 1, 100);
+                }
+                (x -> x * 2, 7)
+            }
+
+            function Main() : (Int, Int) {
+                let pair = Choose(true);
+                let (trueF, trueOffset) = pair;
+                let otherPair = Choose(false);
+                let (falseF, falseOffset) = otherPair;
+                (trueF(10) + trueOffset, falseF(10) + falseOffset)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn aggregate_arrow_typed_return_nested_path_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Choose(flag : Bool) : (Int, ((Int -> Int), Int)) {
+                if flag {
+                    return (0, (x -> x + 1, 100));
+                }
+                (0, (x -> x * 2, 7))
+            }
+
+            function Main() : (Int, Int) {
+                let (_, (trueF, trueOffset)) = Choose(true);
+                let (_, (falseF, falseOffset)) = Choose(false);
+                (trueF(10) + trueOffset, falseF(10) + falseOffset)
+            }
+        }
+    "#});
+}
+
+#[test]
+fn aggregate_arrow_typed_return_udt_field_access_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            newtype Choice = (F : Int -> Int, Offset : Int);
+            function Choose(flag : Bool) : Choice {
+                if flag { return Choice(x -> x + 1, 100); }
+                Choice(x -> x * 2, 7)
+            }
+            function Main() : Int {
+                let selected = Choose(true);
+                let f = selected::F;
+                f(10) + selected::Offset
+            }
+        }
+    "#});
+}
+
+#[test]
+fn aggregate_arrow_typed_return_bang_deconstruction_semantic() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            newtype Choice = (F : Int -> Int, Offset : Int);
+            function Choose(flag : Bool) : Choice {
+                if flag { return Choice(x -> x + 1, 100); }
+                Choice(x -> x * 2, 7)
+            }
+            function Main() : Int {
+                let (f, offset) = Choose(true)!;
+                f(10) + offset
+            }
+        }
+    "#});
+}
 
 #[test]
 fn single_trailing_return_semantic() {
@@ -845,7 +973,7 @@ fn while_return_array_value_uses_flag_fallback_semantic() {
 }
 
 #[test]
-fn while_local_initializer_if_return_is_rewritten_by_flag_strategy_semantic() {
+fn while_local_initializer_if_return_is_rewritten_by_flag_lowering_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
             function Add(a : Int, b : Int) : Int { a + b }
@@ -970,7 +1098,7 @@ fn return_in_else_branch_only_semantic() {
 }
 
 #[test]
-fn range_return_default_in_flag_strategy_is_supported_semantic() {
+fn range_return_default_in_flag_lowering_is_supported_semantic() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
             function Main() : Range {

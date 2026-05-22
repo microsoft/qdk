@@ -62,26 +62,6 @@ pub mod qir {
         }
     }
 
-    fn clone_fir_package(package: &Package) -> Package {
-        Package {
-            items: package.items.clone(),
-            entry: package.entry,
-            entry_exec_graph: package.entry_exec_graph.clone(),
-            blocks: package.blocks.clone(),
-            exprs: package.exprs.clone(),
-            pats: package.pats.clone(),
-            stmts: package.stmts.clone(),
-        }
-    }
-
-    fn clone_fir_store(fir_store: &qsc_fir::fir::PackageStore) -> qsc_fir::fir::PackageStore {
-        let mut cloned_store = qsc_fir::fir::PackageStore::new();
-        for (package_id, package) in fir_store {
-            cloned_store.insert(package_id, clone_fir_package(package));
-        }
-        cloned_store
-    }
-
     fn lower_to_fir(
         package_store: &PackageStore,
         package_id: qsc_hir::hir::PackageId,
@@ -1301,7 +1281,7 @@ pub mod qir {
         prepare_codegen_fir_from_lowered_store(
             package_store,
             package_id,
-            clone_fir_store(fir_store),
+            fir_store.clone(),
             fir_package_id,
             capabilities,
         )

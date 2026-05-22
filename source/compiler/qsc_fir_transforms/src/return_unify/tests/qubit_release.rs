@@ -106,7 +106,7 @@ fn no_release_hoist_path_local_release_qubit_arrays_stay_path_local() {
 }
 
 #[test]
-fn no_release_hoist_flag_strategy_guards_loop_scope_release_continuation() {
+fn no_release_hoist_flag_lowering_guards_loop_scope_release_continuation() {
     let source = indoc! {r#"
         namespace Test {
             @EntryPoint()
@@ -130,7 +130,7 @@ fn no_release_hoist_flag_strategy_guards_loop_scope_release_continuation() {
 }
 
 #[test]
-fn no_release_hoist_flag_strategy_guards_body_scope_release_continuation() {
+fn no_release_hoist_flag_lowering_guards_body_scope_release_continuation() {
     let source = indoc! {r#"
         namespace Test {
             @EntryPoint()

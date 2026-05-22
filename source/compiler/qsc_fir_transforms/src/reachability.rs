@@ -148,21 +148,6 @@ pub fn collect_reachable_package_closure<'a>(
     packages
 }
 
-/// Convenience wrapper around [`collect_reachable_from_entry`] and
-/// [`collect_reachable_package_closure`].
-///
-/// # Panics
-///
-/// Panics if the package has no entry expression.
-#[must_use]
-pub fn collect_reachable_package_closure_from_entry(
-    store: &PackageStore,
-    package_id: PackageId,
-) -> FxHashSet<PackageId> {
-    let reachable = collect_reachable_from_entry(store, package_id);
-    collect_reachable_package_closure(package_id, &reachable)
-}
-
 /// Walks the bodies of a callable implementation, enqueueing every referenced
 /// item onto `worklist`. Closures enqueue `(pkg_id, local_item_id)` because
 /// `ExprKind::Closure` always resolves within the containing package.

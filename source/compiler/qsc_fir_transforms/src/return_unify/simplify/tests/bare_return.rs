@@ -9,7 +9,7 @@
 //! to the named callable's body block, and the post-rule FIR is
 //! snapshotted. This pins the rule's effect against what the lowerer
 //! actually emits, so the test inputs cannot drift from the canonical
-//! flag-strategy output shape.
+//! flag-lowering output shape.
 //!
 //! Negative cases stay as direct-FIR construction. These pin matcher
 //! discipline against shapes that normalize + `transform_block_with_flags`

@@ -717,7 +717,7 @@ fn return_unit_after_side_effects() {
 
 #[test]
 fn bare_return_with_dead_code() {
-    // `return x; dead_code;` — apply_bare_return must truncate statements
+    // `return x; dead_code;` — bare-return simplification must truncate statements
     // after the return.
     check_no_returns_q(
         indoc! {r#"
@@ -837,7 +837,7 @@ fn nested_if_with_returns_at_different_levels() {
 #[test]
 fn return_tuple_value() {
     // Return of a compound (tuple) type exercises type propagation
-    // through strip_returns_from_expr.
+    // through flag lowering and simplification.
     check_no_returns_q(
         indoc! {r#"
         namespace Test {
@@ -870,7 +870,7 @@ fn return_tuple_value() {
 #[test]
 fn guard_clause_with_existing_else_and_remaining() {
     // if-return with an existing else body AND remaining statements after
-    // the if — exercises apply_if_then_return's else prepend path.
+    // the if — exercises guard-clause lowering with an else continuation.
     check_no_returns_q(
         indoc! {r#"
         namespace Test {
@@ -1340,10 +1340,10 @@ fn fail_and_return_in_same_control_flow() {
     );
 }
 
-// Arrow-typed return in structured path
+// Arrow-typed return recovered to a structured conditional.
 
 #[test]
-fn arrow_typed_return_in_structured_path() {
+fn arrow_typed_return_simplifies_to_if() {
     check_no_returns_q(
         indoc! {r#"
         namespace Test {
@@ -1398,16 +1398,11 @@ fn arrow_typed_return_in_structured_path() {
     );
 }
 
-// semantic test omitted: the program returns callable values which
-// trigger a defunctionalization convergence failure in the full pipeline.
-// The structural test above validates that return_unify handles this pattern.
-
-// Qubit return + while — triggers the error path
-
 #[test]
-fn simple_if_expr_init_with_return_stays_structured() {
-    // Simple return directly in an if-branch initializer — the structured
-    // strategy handles this via strip_returns_from_expr without flags.
+fn simple_if_expr_init_with_return_recovers_structured_branch() {
+    // Simple return directly in an if-branch initializer is recovered by
+    // simplification while the nested initializer return still lowers through
+    // the flag/slot model.
     check_no_returns_q(
         indoc! {r#"
         namespace Test {
