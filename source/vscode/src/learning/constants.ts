@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 /** Well-known workspace folder name for katas exercise/example files. */
-export const LEARNING_WORKSPACE_FOLDER = "qdk-learning-ws";
+export const LEARNING_WORKSPACE_FOLDER = "qdk-learning";
 
 /** Relative path form of {@link LEARNING_WORKSPACE_FOLDER}, for use in URI joins. */
 export const LEARNING_WORKSPACE_RELATIVE_PATH = `./${LEARNING_WORKSPACE_FOLDER}`;
