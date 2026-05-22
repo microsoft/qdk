@@ -203,7 +203,7 @@ def _make_instruction(
     space: int | _IntFunction | None,
     length: int | _IntFunction | None,
     error_rate: float | _FloatFunction,
-    properties: dict[str, bool | int | float | str],
+    properties: dict[str, int],
 ) -> Instruction:
     """Build an ``Instruction`` from keyword arguments."""
     if arity is not None:

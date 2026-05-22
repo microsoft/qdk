@@ -196,7 +196,7 @@ def test_qualitative_properties_on_instruction():
         None,
         1e-8,
         {
-            "assumptions": "ideal qubits, no leakage",
+            "assumptions": 42,
             "feasibility": 4,
             "target_year": 2030,
         },
@@ -206,7 +206,7 @@ def test_qualitative_properties_on_instruction():
     assert instr.has_property(FEASIBILITY) is True
     assert instr.has_property(TARGET_YEAR) is True
 
-    assert instr.get_property(ASSUMPTIONS) == "ideal qubits, no leakage"
+    assert instr.get_property(ASSUMPTIONS) == 42
     assert instr.get_property(FEASIBILITY) == 4
     assert instr.get_property(TARGET_YEAR) == 2030
 
