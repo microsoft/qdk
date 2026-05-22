@@ -9,7 +9,7 @@
 //! on the named callable's body block, and the post-rule FIR is
 //! snapshotted. The before/after snapshots pin the rule's effect
 //! against what the lowerer actually emits, so the test inputs cannot
-//! drift from the canonical flag-strategy output shape.
+//! drift from the canonical flag-lowering output shape.
 //!
 //! The snapshot header records `fired=<bool>` so each case witnesses
 //! whether the single-rule pass mutated the block. Three flavors of
@@ -406,7 +406,7 @@ fn both_branches_return_shape_not_collapsed_by_guard_clause_rule() {
 //     named callable's body block, so the Q#-driven helper cannot
 //     express the contract;
 //   * the two negatives build unnatural shapes (asymmetric slot-set
-//     sequence, foreign stmt between sets) that the flag-strategy
+//     sequence, foreign stmt between sets) that the flag-lowering
 //     lowering would not produce, but that pin the matcher's discipline
 //     against future drift.
 // ---------------------------------------------------------------------------
@@ -940,7 +940,7 @@ mod inverted_orientation {
         // inverted-shape input — the else-arm contains only the slot
         // assignment, missing the flag set. `match_slot_set_arm`
         // requires exactly two Semi statements; the matcher must
-        // refuse. The flag-strategy lowering never emits this shape,
+        // refuse. Flag lowering never emits this shape,
         // so it isn't reachable from Q#; direct construction is the
         // only way to feed the matcher a malformed slot-set sequence.
         let mut package = Package::default();
@@ -1030,7 +1030,7 @@ mod inverted_orientation {
         // statements (`__ret_val = v; <foreign>; __has_returned =
         // true;`). `match_slot_set_arm` requires exactly two
         // statements; the foreign middle stmt makes the matcher
-        // refuse. The flag-strategy lowering never emits this shape,
+        // refuse. Flag lowering never emits this shape,
         // so it isn't reachable from Q#; direct construction is the
         // only way to feed the matcher a slot-set sequence with a
         // foreign interloper.

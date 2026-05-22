@@ -327,6 +327,42 @@ fn assert_singleton_return_slot_assignment(
     );
 }
 
+fn assert_singleton_return_slot_assignment_count(
+    package: &Package,
+    callable_name: &str,
+    ret_val_var_id: LocalVarId,
+    expected_slot_ty: &Ty,
+    expected_value_ty: &Ty,
+    expected_count: usize,
+) {
+    let decl = find_callable_decl(package, callable_name);
+    let mut actual_count = 0;
+    for_each_expr_in_callable_impl(package, &decl.implementation, &mut |_expr_id, expr| {
+        let ExprKind::Assign(lhs_expr_id, rhs_expr_id) = &expr.kind else {
+            return;
+        };
+        if !expr_reads_local(package, *lhs_expr_id, ret_val_var_id) {
+            return;
+        }
+
+        let rhs_expr = package.get_expr(*rhs_expr_id);
+        let ExprKind::Array(items) = &rhs_expr.kind else {
+            return;
+        };
+        if items.len() == 1
+            && &rhs_expr.ty == expected_slot_ty
+            && &package.get_expr(items[0]).ty == expected_value_ty
+        {
+            actual_count += 1;
+        }
+    });
+
+    assert_eq!(
+        actual_count, expected_count,
+        "expected `{callable_name}` to assign {expected_count} singleton {expected_slot_ty} arrays to __ret_val"
+    );
+}
+
 fn assert_flag_guarded_index_read(
     package: &Package,
     callable_name: &str,
@@ -517,6 +553,85 @@ fn udt_wrapping_qubit_return_in_while_uses_array_backed_return_slot() {
 }
 
 #[test]
+fn return_unify_non_loop_qubit_guard_clause_uses_array_backed_return_slot() {
+    let source = indoc! {r#"
+        namespace Test {
+            operation Pick(useLeft : Bool, left : Qubit, right : Qubit) : Qubit {
+                if useLeft {
+                    return left;
+                }
+                right
+            }
+
+            operation Main() : Unit {
+                use left = Qubit();
+                use right = Qubit();
+                let returned = Pick(true, left, right);
+                Reset(returned);
+                Reset(right);
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let package = store.get(pkg_id);
+    let return_ty = Ty::Prim(Prim::Qubit);
+    let slot_ty = Ty::Array(Box::new(return_ty.clone()));
+    let (ret_val_var_id, has_returned_var_id) =
+        assert_empty_array_return_slot(package, "Pick", &slot_ty);
+
+    assert_singleton_return_slot_assignment_count(
+        package,
+        "Pick",
+        ret_val_var_id,
+        &slot_ty,
+        &return_ty,
+        1,
+    );
+    assert_flag_guarded_index_read(package, "Pick", ret_val_var_id, has_returned_var_id);
+}
+
+#[test]
+fn return_unify_non_loop_qubit_both_branches_use_array_backed_return_slot() {
+    let source = indoc! {r#"
+        namespace Test {
+            operation Pick(useLeft : Bool, left : Qubit, right : Qubit) : Qubit {
+                if useLeft {
+                    return left;
+                } else {
+                    return right;
+                }
+            }
+
+            operation Main() : Unit {
+                use left = Qubit();
+                use right = Qubit();
+                let returned = Pick(true, left, right);
+                Reset(returned);
+                Reset(right);
+            }
+        }
+    "#};
+
+    let (store, pkg_id) = compile_return_unified(source);
+    let package = store.get(pkg_id);
+    let return_ty = Ty::Prim(Prim::Qubit);
+    let slot_ty = Ty::Array(Box::new(return_ty.clone()));
+    let (ret_val_var_id, has_returned_var_id) =
+        assert_empty_array_return_slot(package, "Pick", &slot_ty);
+
+    assert_singleton_return_slot_assignment_count(
+        package,
+        "Pick",
+        ret_val_var_id,
+        &slot_ty,
+        &return_ty,
+        2,
+    );
+    assert_flag_guarded_index_read(package, "Pick", ret_val_var_id, has_returned_var_id);
+}
+
+#[test]
 fn qubit_array_return_in_while_stays_direct_return_slot() {
     let source = indoc! {r#"
         namespace Test {
@@ -583,7 +698,7 @@ fn no_trailing_qubit_return_uses_typed_fail_for_unwritten_array_slot() {
 
 #[allow(clippy::too_many_lines)]
 #[test]
-fn while_local_initializer_if_return_is_rewritten_by_flag_strategy() {
+fn while_local_initializer_if_return_is_rewritten_by_flag_lowering() {
     let source = indoc! {r#"
         namespace Test {
             function Add(a : Int, b : Int) : Int { a + b }
@@ -1629,7 +1744,7 @@ fn classical_udt_array_after_flag_return_keeps_guarded_default() {
 }
 
 #[test]
-fn range_return_default_in_flag_strategy_is_supported() {
+fn range_return_default_in_flag_lowering_is_supported() {
     let source = indoc! {r#"
         namespace Test {
             function Main() : Range {
@@ -1647,7 +1762,7 @@ fn range_return_default_in_flag_strategy_is_supported() {
 
     assert!(
         rendered.contains("mutable __ret_val : Range ="),
-        "flag strategy should synthesize a default Range return slot",
+        "flag lowering should synthesize a default Range return slot",
     );
     assert!(
         rendered.contains("if __has_returned __ret_val else"),
@@ -1880,10 +1995,10 @@ fn all_four_specializations_with_return_in_loop() {
     );
 }
 
-// Qubit alloc scope + flag strategy
+// Qubit alloc scope + flag lowering
 
 #[test]
-fn qubit_alloc_scope_with_flag_strategy() {
+fn qubit_alloc_scope_with_flag_lowering() {
     check_no_returns_q(
         indoc! {r#"
         namespace Test {
@@ -2068,7 +2183,7 @@ fn while_body_side_effect_guarded_after_return() {
 }
 
 #[test]
-fn if_expr_init_with_while_return_uses_flag_strategy() {
+fn if_expr_init_with_while_return_uses_flag_lowering() {
     check_no_returns_q(
         indoc! {r#"
         namespace Test {
@@ -2129,7 +2244,7 @@ fn if_expr_init_with_while_return_uses_flag_strategy() {
 }
 
 #[test]
-fn flag_strategy_guards_local_after_return() {
+fn flag_lowering_guards_local_after_return() {
     // A Local statement following a return-bearing statement must be
     // guarded by rewriting the initializer, not wrapping the whole Local.
     check_no_returns_q(

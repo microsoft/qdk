@@ -6,12 +6,12 @@
 
 use super::*;
 
-// Predicate-boundary: trivially-structured shapes stay structured
+// Predicate-boundary: trivial exits avoid unnecessary flag/slot scaffolding.
 
 #[test]
-fn single_bare_return_at_end_stays_structured() {
-    // A single trailing `return` should NOT trigger the flag strategy.
-    // The structured path rewrites it into the trailing value with no
+fn single_bare_return_at_end_normalizes_to_trailing_value() {
+    // A single trailing `return` is already at the callable exit boundary.
+    // Normalization rewrites it into the trailing value with no
     // `__has_returned` / `__ret_val` locals.
     check_structure(
         indoc! {r#"
@@ -31,9 +31,10 @@ fn single_bare_return_at_end_stays_structured() {
 }
 
 #[test]
-fn if_then_return_else_return_at_end_stays_structured() {
-    // `if c { return a; } else { return b; }` should also stay structured:
-    // both branches return so the flag strategy is unnecessary.
+fn if_then_return_else_return_at_end_records_flag_lowered_shape() {
+    // `if c { return a; } else { return b; }` lowers through the current
+    // flag/slot model in this normalization fixture; later simplification
+    // is responsible for recovering structured output when applicable.
     check_structure(
         indoc! {r#"
             namespace Test {

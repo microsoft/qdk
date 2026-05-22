@@ -4,12 +4,12 @@
 //! Post-flag-transform simplifier catalogue.
 //!
 //! After [`super::transform_block_with_flags`] lowers a return-bearing
-//! block through the flag strategy, this module recovers structured-IR
+//! block through the flag/slot model, this module recovers structured-IR
 //! code quality where unambiguously safe. It models the Erosa-Hendren
 //! named rewrite catalogue pattern (cf. Erosa–Hendren 1994,
 //! Ramshaw 1988) and the LLVM
 //! `UnifyFunctionExitNodes` + `SimplifyCFG` precedent: lower once with
-//! the flag strategy, then fold the canonical flag-output shapes back
+//! flag/slot lowering, then fold the canonical flag-output shapes back
 //! into structured form with named, individually-tested rewrite rules.
 //!
 //! # Architecture
@@ -489,7 +489,7 @@ pub(super) fn extract_local_read(
 /// * A `Block` containing exactly one `Expr(Var(Res::Local(_), _))`
 ///   statement of type `return_ty` (the legacy "split" shape).
 /// * A bare `Var(Res::Local(_), _)` expression of type `return_ty` (the
-///   shape emitted by [`super::create_flag_trailing_expr_for_slot`], which
+///   shape emitted by `create_flag_trailing_expr_for_slot`, which
 ///   wraps the slot read directly inside the merge `If`).
 pub(super) fn extract_then_arm_slot_read(
     package: &Package,

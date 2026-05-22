@@ -4,7 +4,7 @@
 //! Trailing-result let-folding simplifier rule.
 //!
 //! Folds the canonical `__trailing_result` binding emitted by
-//! [`super::super::create_flag_trailing_expr_for_slot`] into the
+//! `create_flag_trailing_expr_for_slot` into the
 //! immediately following merge expression:
 //!
 //! ```text
@@ -28,7 +28,7 @@
 //! between the structural rules' anchor shapes and the trailing merge.
 //! Inlining the binding restores contiguity so
 //! [`super::guard_clause`] and [`super::both_branches`] can recognize
-//! the flag strategy's output. This rule therefore runs **before** the
+//! the flag-lowering output. This rule therefore runs **before** the
 //! structural rules in [`super::run_to_fixpoint`].
 //!
 //! # Why this rewrite is safe

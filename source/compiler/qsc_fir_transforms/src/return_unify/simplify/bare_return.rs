@@ -55,8 +55,8 @@
 //! `mutable __ret_val : T` declarations elsewhere in the block, the
 //! same fallback strategy [`super::dead_flag`] uses.
 //!
-//! Subsumes the structured-strategy [`super::super::apply_bare_return`]
-//! helper for shapes lowered through the flag pipeline.
+//! Provides bare-return structured recovery for shapes lowered through the
+//! flag pipeline.
 //!
 //! # Why this rewrite is safe
 //!

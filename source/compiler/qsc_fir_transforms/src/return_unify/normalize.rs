@@ -13,8 +13,8 @@
 //! * a branch of `ExprKind::If`, or
 //! * the body of `ExprKind::While`.
 //!
-//! The downstream strategy pass (`transform_block_if_else` /
-//! `transform_block_with_flags`) consumes that statement-level shape.
+//! The downstream flag-lowering pass (`transform_block_with_flags`) consumes
+//! that statement-level shape.
 //!
 //! ## Match exhaustiveness
 //!
@@ -26,7 +26,7 @@
 //!
 //! The logical `and` / `or` operators evaluate their right-hand side
 //! conditionally. A Return in the RHS is handled by rewriting the `BinOp`
-//! in place to an equivalent `if` that the strategy pass consumes:
+//! in place to an equivalent `if` that the flag-lowering pass consumes:
 //!
 //! ```text
 //! a and (return v)  →  if a { return v } else { false }
@@ -114,7 +114,7 @@ fn count_compound_returns_in_stmt(package: &Package, stmt_id: StmtId) -> usize {
 /// compound (non-statement-carrying) positions.
 ///
 /// Statement-carrying constructs (`Block`, `If`, `While`) are not descended
-/// into — Returns inside those are handled by the strategy pass, not the
+/// into — Returns inside those are handled by flag lowering, not the
 /// hoist pass. We only count Returns that `hoist_in_expr` would lift.
 fn count_compound_returns_in_expr(package: &Package, expr_id: ExprId) -> usize {
     let expr = package.get_expr(expr_id);
@@ -390,9 +390,9 @@ fn hoist_stmt(
     // If `inner` is a statement-carrying construct (`Block`/`If`/`While`)
     // whose internal Returns sit at statement boundaries, `hoist_in_expr`
     // returns `None` even though `inner` still contains Returns. The
-    // strategy pass cannot consume Returns sitting under a Return wrapper,
+    // flag lowering cannot consume Returns sitting under a Return wrapper,
     // so pin `inner` to a fresh `let __ret_hoist = inner;` binding and
-    // return the bound value. The strategy pass then rewrites the Local's
+    // return the bound value. Flag lowering then rewrites the Local's
     // initializer through its `LocalInit` handling, and the trailing
     // `Semi(Return(Var))` is canonical.
     //
@@ -466,7 +466,7 @@ fn hoist_stmt(
 /// - Returns `Some(stmts)` ending in `Semi(Return(..))` when a Return was lifted.
 /// - Returns `None` when the subtree is return-free or the only Returns sit
 ///   behind a statement-carrying construct (`Block`, `If`, `While`) which the
-///   downstream strategy pass handles.
+///   downstream flag lowering handles.
 /// - Preserves left-to-right evaluation order of earlier operands via
 ///   discard-`let` bindings; operands after the hoist point are dropped
 ///   because their results are dead.
@@ -498,10 +498,10 @@ fn hoist_in_expr(
             Some(vec![stmt])
         }
 
-        // Statement-carrying Block: leave to the strategy pass.
+        // Statement-carrying Block: leave to flag lowering.
         ExprKind::Block(_) => None,
 
-        // If: the strategy pass handles Return in branches, but we must
+        // If: flag lowering handles Return in branches, but we must
         // hoist any Return sitting in the *condition* slot because a
         // condition-Return fires before either branch evaluates. Rewrite
         // the whole If in place to a `Block` expression whose statements
@@ -520,7 +520,7 @@ fn hoist_in_expr(
         // Short-circuit logical operators: rewrite `a and/or b` in place to
         // an equivalent `if` when the RHS (short-circuited operand) holds
         // the Return, so the Return ends up in a branch of an If that the
-        // strategy pass consumes while the BinOp's `Bool` type is preserved.
+        // flag lowering consumes while the BinOp's `Bool` type is preserved.
         ExprKind::BinOp(BinOp::AndL, a, b) => {
             hoist_short_circuit(package, assigner, package_id, expr_id, a, b, true)
         }
@@ -623,7 +623,7 @@ fn hoist_n_ary(
 ///   a or  b  →  if a { true } else { b }
 ///   ```
 ///
-///   The Return now sits in a branch of an `If`, which the strategy pass
+///   The Return now sits in a branch of an `If`, which flag lowering
 ///   consumes, so the hoist itself does not need to emit statements.
 fn hoist_short_circuit(
     package: &mut Package,
@@ -698,7 +698,7 @@ fn hoist_in_cond(
     let orig_ty = package.get_expr(expr_id).ty.clone();
     let mut block_stmts = stmts;
     if orig_ty != Ty::UNIT {
-        let dead_tail = match super::create_default_value(
+        let dead_tail = match super::slot::create_default_value(
             package,
             assigner,
             package_id,
@@ -769,10 +769,10 @@ fn create_discard_let_stmt(
 /// replacement for the original `Semi(Return(inner))`.
 ///
 /// # Why
-/// The strategy pass cannot rewrite Returns that sit under a `Return`
-/// wrapper (its classifier peeks at the top-level stmt expression kind and
-/// stops). Binding `inner` to a Local instead exposes those Returns through
-/// the `LocalInit` path, which the strategy pass does know how to rewrite.
+/// Flag lowering cannot rewrite Returns that sit under a `Return` wrapper:
+/// it consumes statement-boundary Returns rather than descending through the
+/// value being returned. Binding `inner` to a Local instead exposes those
+/// Returns through the `LocalInit` path, which flag lowering does rewrite.
 ///
 /// # Mutations
 /// - Allocates a fresh `LocalVarId`, `PatId`, `StmtId`, and a `Var` `ExprId`.
@@ -893,7 +893,7 @@ fn replace_local_init_with_default_and_emit(
         ),
     };
     let pat_ty = package.get_pat(pat_id).ty.clone();
-    let (dead_init, reorder_after_return) = match super::create_default_value(
+    let (dead_init, reorder_after_return) = match super::slot::create_default_value(
         package,
         assigner,
         package_id,
@@ -925,7 +925,7 @@ fn replace_local_init_with_default_and_emit(
     out.extend(pre_discards);
     if reorder_after_return {
         // Non-defaultable type: emit the return BEFORE the dead Local so
-        // the fail-init is never reached. The strategy pass wraps the dead
+        // the fail-init is never reached. Flag lowering wraps the dead
         // Local under `if not __has_returned`.
         out.push(hoisted_return_stmt_id);
         out.push(orig_stmt_id);

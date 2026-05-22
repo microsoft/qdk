@@ -29,8 +29,8 @@
 //! }
 //! ```
 //!
-//! Subsumes the structured-strategy [`super::super::apply_if_both_return`]
-//! helper for shapes lowered through the flag pipeline.
+//! Provides both-branches structured recovery for shapes lowered through the
+//! flag pipeline.
 //!
 //! # Distinctions from [`super::guard_clause`]
 //!
@@ -153,8 +153,7 @@ fn identify_both_branches_set(
 
 /// Build `if cond { v1 } else { v2 }` and return its `ExprId`. Wraps
 /// `v1`/`v2` in single-statement blocks so the new `if` is syntactically
-/// well-formed (matches what the structured strategy emits and keeps
-/// snapshots stable).
+/// well-formed and snapshots stay stable.
 fn build_replacement_if(
     package: &mut Package,
     assigner: &mut Assigner,

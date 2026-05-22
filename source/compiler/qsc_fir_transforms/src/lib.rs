@@ -57,23 +57,24 @@
 //!   fatal error list is empty. Non-fatal warnings are preserved by
 //!   [`PipelineResult`] and do not block successful output.
 
-pub mod cloner;
+pub(crate) mod cloner;
 pub(crate) mod fir_builder;
 pub mod invariants;
-pub mod pretty;
+#[cfg(test)]
+pub(crate) mod pretty;
 pub mod reachability;
 
-pub mod arg_promote;
+pub(crate) mod arg_promote;
 pub mod defunctionalize;
-pub mod exec_graph_rebuild;
-pub mod gc_unreachable;
-pub mod intrinsic_precheck;
-pub mod item_dce;
-pub mod monomorphize;
-pub mod return_unify;
-pub mod sroa;
-pub mod tuple_compare_lower;
-pub mod udt_erase;
+pub(crate) mod exec_graph_rebuild;
+pub(crate) mod gc_unreachable;
+pub(crate) mod intrinsic_precheck;
+pub(crate) mod item_dce;
+pub(crate) mod monomorphize;
+pub(crate) mod return_unify;
+pub(crate) mod sroa;
+pub(crate) mod tuple_compare_lower;
+pub(crate) mod udt_erase;
 
 #[cfg(any(test, feature = "testutil"))]
 pub mod test_utils;
@@ -87,24 +88,24 @@ use thiserror::Error;
 
 /// Identifies a specific callable specialization within a package store item.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct CallableSpecId {
+pub(crate) struct CallableSpecId {
     /// The callable item that owns the specialization.
-    pub callable: StoreItemId,
+    pub(crate) callable: StoreItemId,
     /// The specialization kind on the callable.
-    pub kind: CallableSpecKind,
+    pub(crate) kind: CallableSpecKind,
 }
 
 impl CallableSpecId {
     /// Creates a callable specialization identifier.
     #[must_use]
-    pub fn new(callable: StoreItemId, kind: CallableSpecKind) -> Self {
+    pub(crate) fn new(callable: StoreItemId, kind: CallableSpecKind) -> Self {
         Self { callable, kind }
     }
 }
 
 /// Kinds of callable specializations that carry execution graphs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum CallableSpecKind {
+pub(crate) enum CallableSpecKind {
     /// The default callable body implementation.
     Body,
     /// The adjoint specialization.

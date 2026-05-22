@@ -143,27 +143,27 @@ impl Assigner {
         let mut assigner = Self::new();
 
         // BlockId
-        let max_block = package.blocks.iter().map(|(id, _)| u32::from(id)).max();
-        if let Some(max) = max_block {
-            assigner.set_next_block(BlockId::from(max + 1));
+        let max_block = package.blocks.iter().next_back();
+        if let Some((max, _)) = max_block {
+            assigner.set_next_block(max.successor());
         }
 
         // ExprId
-        let max_expr = package.exprs.iter().map(|(id, _)| u32::from(id)).max();
-        if let Some(max) = max_expr {
-            assigner.set_next_expr(ExprId::from(max + 1));
+        let max_expr = package.exprs.iter().next_back();
+        if let Some((max, _)) = max_expr {
+            assigner.set_next_expr(max.successor());
         }
 
         // PatId
-        let max_pat = package.pats.iter().map(|(id, _)| u32::from(id)).max();
-        if let Some(max) = max_pat {
-            assigner.set_next_pat(PatId::from(max + 1));
+        let max_pat = package.pats.iter().next_back();
+        if let Some((max, _)) = max_pat {
+            assigner.set_next_pat(max.successor());
         }
 
         // StmtId
-        let max_stmt = package.stmts.iter().map(|(id, _)| u32::from(id)).max();
-        if let Some(max) = max_stmt {
-            assigner.set_next_stmt(StmtId::from(max + 1));
+        let max_stmt = package.stmts.iter().next_back();
+        if let Some((max, _)) = max_stmt {
+            assigner.set_next_stmt(max.successor());
         }
 
         // NodeId — scan callable and spec decls

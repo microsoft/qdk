@@ -18,8 +18,8 @@
 //!   future lowering bugs that emit malformed FIR are still rejected
 //!   by the rule, and so the rule's safety nets are exercised
 //!   independent of the dispatch oracle. The end-to-end Q# →
-//!   return-unified output for the flag strategy is covered by the
-//!   larger [`crate::return_unify::tests::flag_strategy`] suite.
+//!   return-unified flag-lowering output is covered by the larger
+//!   [`crate::return_unify::tests::flag_lowering`] suite.
 //!
 //! MANUAL-FIR positive cases (rule must fire):
 //!
@@ -35,7 +35,7 @@
 //! 2. The `__trailing_result` local appears twice inside the trailing
 //!    merge (e.g. once in the cond and once in the else arm).
 //! 3. The init expression writes one of the merge slots (e.g. the
-//!    flag-strategy's both-branches-return shape, where each arm sets
+//!    flag lowering's both-branches-return shape, where each arm sets
 //!    `__has_returned`). Folding would let the merge read the slot
 //!    before the init's writes commit.
 
@@ -630,7 +630,7 @@ mod q_driven {
     #[test]
     fn both_arms_return_shape_has_no_let_trailing() {
         // `if c { return a; } else { return b; }` lowers to the
-        // flag-strategy shape *without* a `let __trailing_result`
+        // flag-lowering shape *without* a `let __trailing_result`
         // binding — the trailing merge directly reads `__ret_val` on
         // both arms. `let_folding` records `fired=false` because the
         // canonical `let __trailing_result` anchor is absent.

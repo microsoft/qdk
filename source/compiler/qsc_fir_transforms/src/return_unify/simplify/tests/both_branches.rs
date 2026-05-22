@@ -9,7 +9,7 @@
 //! on the named callable's body block, and the post-rule FIR is
 //! snapshotted. The before/after snapshots pin the rule's effect
 //! against what the lowerer actually emits, so the test inputs cannot
-//! drift from the canonical flag-strategy output shape.
+//! drift from the canonical flag-lowering output shape.
 //!
 //! The snapshot header records `fired=<bool>` so each case witnesses
 //! whether the single-rule pass mutated the block. `fired=false`
@@ -35,7 +35,7 @@ use crate::return_unify::tests::check_simplify_rule_q;
 #[test]
 fn simple_both_branches_collapses_to_if_else() {
     // Canonical `if c { return a; } else { return b; }`. The lowerer
-    // emits the flag-strategy shape with terminal slot-writes in both
+    // emits the flag-lowering shape with terminal slot-writes in both
     // arms; the single-pass `both_branches` rule collapses the outer
     // if into an `if c { a } else { b }` value expression.
     check_simplify_rule_q(

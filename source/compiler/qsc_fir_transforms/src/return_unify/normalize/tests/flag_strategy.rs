@@ -469,7 +469,7 @@ fn flag_fallback_supports_post_return_range_local_initializer() {
 
     assert!(
         rendered.contains("let r : Range = if not __has_returned {"),
-        "post-return range local initializers should be guarded under the flag strategy",
+        "post-return range local initializers should be guarded by flag-lowering",
     );
     // After the simplifier catalogue's `let_folding` rule fires, the
     // `__trailing_result` binding is inlined into the trailing merge.

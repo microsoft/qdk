@@ -626,7 +626,7 @@ fn hoist_return_in_local_init_preserves_binding() {
     // `PipelineStage::ReturnUnify`, which invokes
     // `invariants::check(..., InvariantLevel::PostReturnUnify)`. Without
     // the preserve-the-Local fix, the `LocalVarId consistency` invariant
-    // fires when the flag strategy runs; with the fix, all three shapes
+    // fires when flag lowering runs; with the fix, all three shapes
     // emit well-formed FIR.
     check_no_returns_q(
         indoc! {r#"

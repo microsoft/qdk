@@ -7,10 +7,10 @@ use super::*;
 
 // The following tests nest block-bearing constructs three levels deep with
 // `return`s placed at a variety of positions. They exercise the interaction
-// between the hoist pre-pass and the strategy pass when rewrites must reach
+// between the hoist pre-pass and flag lowering when rewrites must reach
 // into deeply nested `Block`/`If`/`While`/`for` bodies. The outer callable
 // uses `@EntryPoint() operation Main() : Int` so that any dynamic branch
-// (driven by `M(q)`) is legal at the strategy-pass level.
+// (driven by `M(q)`) is legal during flag lowering.
 
 #[test]
 fn three_level_if_if_if_return_in_deepest_then() {

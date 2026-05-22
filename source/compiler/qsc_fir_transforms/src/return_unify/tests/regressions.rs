@@ -99,10 +99,8 @@ fn triple_nested_if_return_with_else_return() {
     );
 }
 
-/// Semantic companion for `triple_nested_if_return_with_else_return`.
-
 #[test]
-fn structured_strategy_preserves_releases_on_all_paths() {
+fn guard_clause_simplification_preserves_releases_on_all_paths() {
     let source = indoc! {r#"
         namespace Test {
             operation Foo(flag : Bool) : Int {
@@ -137,7 +135,7 @@ fn structured_strategy_preserves_releases_on_all_paths() {
         .collect::<Vec<_>>();
     assert!(
         release_indices.is_empty(),
-        "structured strategy should not keep a top-level release suffix after path-local releases"
+        "return-unify simplification should not keep a top-level release suffix after path-local releases"
     );
 
     let has_path_local_release = body_block.stmts.iter().any(|&stmt_id| {
@@ -145,7 +143,7 @@ fn structured_strategy_preserves_releases_on_all_paths() {
     });
     assert!(
         has_path_local_release,
-        "structured strategy must preserve release calls inside value-producing paths"
+        "return-unify simplification must preserve release calls inside value-producing paths"
     );
 
     let trailing_stmt_id = *body_block

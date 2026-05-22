@@ -94,9 +94,9 @@ use qsc_fir::ty::{Arrow, Ty};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-/// Maps `(PackageId, LocalItemId)` → pure `Ty` for every UDT definition
+/// Maps `StoreItemId` → pure `Ty` for every UDT definition
 /// in the store.
-type UdtCache = FxHashMap<(PackageId, LocalItemId), Ty>;
+type UdtCache = FxHashMap<StoreItemId, Ty>;
 
 /// Erases UDT types and UDT-shaped expressions in the target package's
 /// reachable package closure, while resolving UDT definitions from the
@@ -452,7 +452,7 @@ fn eliminate_udt_constructor_call(
     let ExprKind::Var(Res::Item(item_id), _) = &callee.kind else {
         return false;
     };
-    let Some(pure_ty) = udt_cache.get(&(item_id.package, item_id.item)) else {
+    let Some(pure_ty) = udt_cache.get(&(item_id.package, item_id.item).into()) else {
         return false;
     };
     let resolved_pure = resolve_ty(udt_cache, pure_ty);
@@ -740,7 +740,7 @@ fn lower_scalar_field_read(
     false
 }
 
-/// Builds a `(PackageId, LocalItemId) → pure Ty` cache for every UDT
+/// Builds a `StoreItemId → pure Ty` cache for every UDT
 /// definition in the package store so [`resolve_ty`] can perform O(1)
 /// cross-package lookups.
 fn build_udt_cache(store: &PackageStore) -> UdtCache {
@@ -748,7 +748,7 @@ fn build_udt_cache(store: &PackageStore) -> UdtCache {
     for (pkg_id, package) in store {
         for (item_id, item) in &package.items {
             if let ItemKind::Ty(_, udt) = &item.kind {
-                cache.insert((pkg_id, item_id), udt.get_pure_ty());
+                cache.insert((pkg_id, item_id).into(), udt.get_pure_ty());
             }
         }
     }
@@ -928,7 +928,7 @@ fn alloc_field_expr(
 fn resolve_ty(cache: &UdtCache, ty: &Ty) -> Ty {
     match ty {
         Ty::Udt(Res::Item(item_id)) => {
-            let key = (item_id.package, item_id.item);
+            let key = (item_id.package, item_id.item).into();
             if let Some(pure) = cache.get(&key) {
                 // The pure type itself may contain Ty::Udt (nested UDTs),
                 // so recurse.

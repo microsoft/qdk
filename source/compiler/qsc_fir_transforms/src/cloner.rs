@@ -93,6 +93,7 @@ impl FirCloner {
     /// Use this when inlining a callee body into a caller: set `local_offset`
     /// to one past the caller's maximum `LocalVarId` so the inlined locals do
     /// not shadow the caller's variables.
+    #[cfg(test)]
     #[must_use]
     pub fn with_local_offset(package: &Package, local_offset: LocalVarId) -> Self {
         let assigner = Assigner::from_package(package);

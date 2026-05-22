@@ -203,6 +203,7 @@ pub fn defunctionalize(
         );
         cleanup_consumed_closures(
             package,
+            package_id,
             &specialized_closure_targets,
             &specialized_items,
             &local_item_ids,
@@ -272,8 +273,8 @@ fn run_specialization(
     spec_map
 }
 
-/// Records which closure targets were consumed by specialization in this
-/// iteration.
+/// Records which closure targets were consumed by specialization or direct-call
+/// rewrite in this iteration.
 fn track_specialized_closures(
     analysis: &AnalysisResult,
     spec_map: &FxHashMap<SpecKey, LocalItemId>,
@@ -285,6 +286,11 @@ fn track_specialized_closures(
         if spec_map.contains_key(&spec_key)
             && let ConcreteCallable::Closure { target, .. } = &cs.callable_arg
         {
+            specialized_closure_targets.insert(*target);
+        }
+    }
+    for direct_call_site in &analysis.direct_call_sites {
+        if let ConcreteCallable::Closure { target, .. } = &direct_call_site.callable {
             specialized_closure_targets.insert(*target);
         }
     }
@@ -363,6 +369,12 @@ fn emit_fixpoint_error(
 /// call expression (e.g., in a multi-param HOF where only one param has been
 /// specialized so far) must survive to the next iteration.
 ///
+/// UDT-constructor `Call`s are an exception: their argument subtree is a
+/// structural wrapper, not a live HOF argument, so closures inside it remain
+/// eligible for cleanup. This mirrors the precedent in
+/// `resolve_callee_projection`'s Call arm that already discriminates
+/// `ItemKind::Ty` callees as transparent projections.
+///
 /// # Before
 /// ```text
 /// Closure([captures], consumed_target) : Arrow
@@ -377,6 +389,7 @@ fn emit_fixpoint_error(
 ///   for consumed closure expressions outside call-argument subtrees.
 fn cleanup_consumed_closures(
     package: &mut Package,
+    package_id: PackageId,
     specialized_targets: &FxHashSet<LocalItemId>,
     skip_items: &FxHashSet<LocalItemId>,
     reachable_item_ids: &[LocalItemId],
@@ -387,6 +400,8 @@ fn cleanup_consumed_closures(
 
     // First pass: collect the ExprIds of all call argument subtrees.
     // Closures inside these subtrees are still live as HOF arguments.
+    // UDT-constructor Calls are skipped: their argument is a structural
+    // wrapper, not a live HOF argument.
     let mut call_arg_exprs: FxHashSet<ExprId> = FxHashSet::default();
     for &item_id in reachable_item_ids {
         if skip_items.contains(&item_id) {
@@ -398,7 +413,9 @@ fn cleanup_consumed_closures(
                 package,
                 &decl.implementation,
                 &mut |_expr_id, expr| {
-                    if let ExprKind::Call(_, args_id) = &expr.kind {
+                    if let ExprKind::Call(callee_id, args_id) = &expr.kind
+                        && !is_udt_ctor_call(package, package_id, *callee_id)
+                    {
                         collect_all_expr_ids(package, *args_id, &mut call_arg_exprs);
                     }
                 },
@@ -407,7 +424,9 @@ fn cleanup_consumed_closures(
     }
     if let Some(entry_id) = package.entry {
         crate::walk_utils::for_each_expr(package, entry_id, &mut |_expr_id, expr| {
-            if let ExprKind::Call(_, args_id) = &expr.kind {
+            if let ExprKind::Call(callee_id, args_id) = &expr.kind
+                && !is_udt_ctor_call(package, package_id, *callee_id)
+            {
                 collect_all_expr_ids(package, *args_id, &mut call_arg_exprs);
             }
         });
@@ -456,6 +475,20 @@ fn cleanup_consumed_closures(
     }
 
     count
+}
+
+/// Returns true when the given callee expression resolves to a same-package
+/// UDT constructor (i.e. an `ItemKind::Ty`). Conservative: returns false for
+/// cross-package callees and any non-`Var(Res::Item(_))` callee shape.
+fn is_udt_ctor_call(package: &Package, package_id: PackageId, callee_id: ExprId) -> bool {
+    let callee = package.get_expr(callee_id);
+    if let ExprKind::Var(Res::Item(item_id), _) = &callee.kind
+        && item_id.package == package_id
+    {
+        matches!(package.get_item(item_id.item).kind, ItemKind::Ty(_, _))
+    } else {
+        false
+    }
 }
 
 /// Recursively collects all `ExprId`s reachable from an expression node.
