@@ -70,7 +70,7 @@ Histogram(results)
 
 Submodules:
 
-- `qdk.qsharp` – Q# interpreter functions: `init`, `eval`, `run`, `compile`, `circuit`, `estimate`, and related types.
+- `qdk.qsharp` – Q# interpreter functions: `init`, `eval`, `run`, `compile`, `circuit`, `estimate`, `dump_machine`, `dump_circuit`, `dump_operation`, and related types.
 - `qdk.openqasm` – OpenQASM compilation and execution.
 - `qdk.estimator` – resource estimation utilities.
 - `qdk.simulation` – noise-aware simulation utilities: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types.
@@ -86,21 +86,22 @@ Submodules:
 
 For convenience, the following helpers and types are also importable directly from the `qdk` root (e.g. `from qdk import code, Result`). Algorithm execution APIs (like `run` / `estimate`) remain under `qdk.qsharp` or `qdk.openqasm`.
 
-| Symbol               | Type     | Origin                      | Description                                                         |
-| -------------------- | -------- | --------------------------- | ------------------------------------------------------------------- |
-| `code`               | module   | `qsharp.code`               | Exposes operations defined in Q\# or OpenQASM                       |
-| `init`               | function | `qsharp.init`               | Initialize/configure the QDK interpreter (target profile, options). |
-| `set_quantum_seed`   | function | `qsharp.set_quantum_seed`   | Deterministic seed for quantum randomness (simulators).             |
-| `set_classical_seed` | function | `qsharp.set_classical_seed` | Deterministic seed for classical host RNG.                          |
-| `dump_machine`       | function | `qsharp.dump_machine`       | Emit a structured dump of full quantum state (simulator dependent). |
-| `Result`             | class    | `qsharp.Result`             | Measurement result token.                                           |
-| `TargetProfile`      | class    | `qsharp.TargetProfile`      | Target capability / profile descriptor.                             |
-| `StateDump`          | class    | `qsharp.StateDump`          | Structured state dump object.                                       |
-| `ShotResult`         | class    | `qsharp.ShotResult`         | Multi-shot execution results container.                             |
-| `PauliNoise`         | class    | `qsharp.PauliNoise`         | Pauli channel noise model spec.                                     |
-| `DepolarizingNoise`  | class    | `qsharp.DepolarizingNoise`  | Depolarizing noise model spec.                                      |
-| `BitFlipNoise`       | class    | `qsharp.BitFlipNoise`       | Bit-flip noise model spec.                                          |
-| `PhaseFlipNoise`     | class    | `qsharp.PhaseFlipNoise`     | Phase-flip noise model spec.                                        |
+| Symbol               | Type     | Origin                          | Description                                                         |
+| -------------------- | -------- | ------------------------------- | ------------------------------------------------------------------- |
+| `code`               | module   | `qdk.code`                      | Exposes operations defined in Q\# or OpenQASM                       |
+| `init`               | function | `qdk.qsharp.init`               | Initialize/configure the QDK interpreter (target profile, options). |
+| `set_quantum_seed`   | function | `qdk.qsharp.set_quantum_seed`   | Deterministic seed for quantum randomness (simulators).             |
+| `set_classical_seed` | function | `qdk.qsharp.set_classical_seed` | Deterministic seed for classical host RNG.                          |
+| `dump_machine`       | function | `qdk.qsharp.dump_machine`       | Emit a structured dump of full quantum state (simulator dependent). |
+| `Result`             | class    | `qdk.qsharp.Result`             | Measurement result token.                                           |
+| `TargetProfile`      | class    | `qdk.qsharp.TargetProfile`      | Target capability / profile descriptor.                             |
+| `StateDump`          | class    | `qdk.qsharp.StateDump`          | Structured state dump object.                                       |
+| `ShotResult`         | class    | `qdk.qsharp.ShotResult`         | Multi-shot execution results container.                             |
+| `PauliNoise`         | class    | `qdk.qsharp.PauliNoise`         | Pauli channel noise model spec.                                     |
+| `DepolarizingNoise`  | class    | `qdk.qsharp.DepolarizingNoise`  | Depolarizing noise model spec.                                      |
+| `BitFlipNoise`       | class    | `qdk.qsharp.BitFlipNoise`       | Bit-flip noise model spec.                                          |
+| `PhaseFlipNoise`     | class    | `qdk.qsharp.PhaseFlipNoise`     | Phase-flip noise model spec.                                        |
+| `Context`            | class    | `qdk.Context`                   | Isolated Q# interpreter context for independent sessions.           |
 
 ## Telemetry
 
