@@ -2,33 +2,61 @@
 
 ## v1.29.0
 
-### Katas + Copilot learning experience
+### QDK Learning experience
 
-TODO: Overview, images, etc. (maybe even a brief video)
+This release introduces a new learning experience that tightly integrates the QDK developer tools with GitHub Copilot.
 
-### New QDK icon in the VS Code activity bar
+By bringing learning content into the same rich environment used to develop quantum programs, and combining that with the latest AI models and editor integration from VS Code and GitHub Copilot, you can rapidly switch between learning, experimenting, and developing.
 
-TODO: Outline how the Quantum Workspaces container is in here now also
+To get started, navigate to the new _Microsoft Quantum_ icon on the activity bar (see next section), and click on _Start learning_. Copilot will then create a folder structure in your current workspace to track progress, bring up a list of lessons to work through, and help guide you through exercises, answer questions, or explore concepts further.
+
+<video src="https://raw.githubusercontent.com/microsoft/qdk/main/media/kata.mp4" autoplay loop muted playsinline></video>
+
+If you need help getting GitHub Copilot configured in VS Code, see the docs at <https://code.visualstudio.com/docs/copilot/setup>.
+
+This is a new feature and we will continue iterating on the experience. As always, if you have any suggestions or encounter any issues, please log them at <https://github.com/microsoft/qdk/issues> .
+
+### New Microsoft Quantum icon in the VS Code activity bar
+
+In this release we have added a _Microsoft Quantum_ area to the VS Code Activity Bar, identified by the Möbius strip icon. This area contains the new _QDK Learning_ experience outlined above, and is the new home for the _Quantum Workspaces_ container for connecting to Azure Quantum that previously lived in the _Explorer_ view.
+
+<img width="668" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/activity-bar.webp" />
 
 ### Deprecation of the qsharp Python package
 
-TODO: Outline how all logic has moved into the `qdk` package, and importing directly from `qsharp` will now give a warning.
+With this release we have moved the Python implementation out of the `qsharp` package and into the `qdk` package, and marked the `qsharp` package as deprecated. If you import directly from the `qsharp` package in Python you will get a warning to use the `qdk` package and its submodules instead.
+
+Besides the warning, there should be no change in functionality during the transition. We encourage you to update any code that imports directly from `qsharp` to use this new pattern, as the deprecated package will stop shipping in a future release.
 
 ### Clifford simulation
 
-TODO: Outline how `qdk.qsharp.run` and `qdk.openqasm.run` now support `type="clifford"`
+When using the Python APIs `qdk.qsharp.run` or `qdk.openqasm.run` to run a quantum simulation, you may now pass a `type="clifford"` argument to indicate that the simulation should run on the Clifford simulator rather than the default sparse simulator.
+
+Clifford simulation scales to a much higher number of qubits, but only supports a restricted set of quantum operations. See the page at <https://learn.microsoft.com/en-us/azure/quantum/simulators-overview-qdk> for more details.
 
 ### Isolated Python context
 
-TODO: Outline the new `qdk.Context` API for creating isolated QDK iterpreter state in Python
+Previously when evaluating or running Q# or QASM code in a Python environment, all interactions occurred in a single global interpreter. This reliance on global state was less than ideal for code that expected a clean environment. This release includes a new `qdk.Context` API to create a separate quantum interpreter from the global one. The returned context has an API similar to the top level API, e.g.
+
+```python
+import qdk
+
+ctx = qdk.Context()
+ctx.eval("operation Main() : Result { use q = Qubit(); X(q); MResetZ(q) }")
+assert ctx.run("Main()", 2) == [qdk.Result.One, qdk.Result.One]
+```
+
+See the PR at [3208](https://github.com/microsoft/qdk/pull/3208) for more details.
 
 ### Custom parameters for job submission via VS Code
 
-TODO: Outline how to attach custom params for targets by using VS Code settings.
+The Python API to submit jobs to the Azure Quantum service has always had the ability to attach custom parameters with job submission. With this release, we've added the ability to set per-target custom parameters in VS Code, which will then be attached to any job submitted via the Quantum Workspaces tree view or GitHub Copilot tools.
+
+See the PR at [3222](https://github.com/microsoft/qdk/pull/3222) for more details.
 
 ### Update Python API documentation
 
-TODO: Call out the improvements to Python API docs and where to find them on learn.microsoft.com (as well as signature help)
+The Python API documentation has been cleaned up and refreshed for this release. The improvements should be noticeable both in the Python code editor via IntelliSense, as well as the online documentation at <https://learn.microsoft.com/en-us/python/qdk/qdk>
 
 ## Other notable changes
 
