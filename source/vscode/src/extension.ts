@@ -101,8 +101,10 @@ export async function activate(
   registerWebViewCommands(context);
   await initFileSystem(context);
   await initProjectCreator(context);
-  const learningService = initLearning(context);
-  registerLanguageModelTools(context, learningService);
+  if (vscode.env.uiKind !== vscode.UIKind.Web) {
+    const learningService = initLearning(context);
+    registerLanguageModelTools(context, learningService);
+  }
   // fire-and-forget
   removeDeprecatedCopilotInstructions(context);
 

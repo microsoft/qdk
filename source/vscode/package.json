@@ -456,12 +456,12 @@
           "id": "qsharp-vscode.learningWelcome",
           "name": "QDK Learning",
           "type": "webview",
-          "when": "!qsharp-vscode.learningWorkspaceDetected"
+          "when": "!isWeb && !qsharp-vscode.learningWorkspaceDetected"
         },
         {
           "id": "qsharp-vscode.learningTree",
           "name": "Learning",
-          "when": "qsharp-vscode.learningWorkspaceDetected"
+          "when": "!isWeb && qsharp-vscode.learningWorkspaceDetected"
         },
         {
           "id": "quantum-workspaces",
