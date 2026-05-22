@@ -20,7 +20,7 @@ This is a new feature and we will continue iterating on the experience. As alway
 
 In this release we have added a _Microsoft Quantum_ area to the VS Code Activity Bar, identified by the Möbius strip icon. This area contains the new _QDK Learning_ experience outlined above, and is the new home for the _Quantum Workspaces_ container for connecting to Azure Quantum that previously lived in the _Explorer_ view.
 
-<img width="668" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/activity-bar.webp" />
+<img width="360" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/activity-bar.webp" />
 
 ### Deprecation of the qsharp Python package
 
