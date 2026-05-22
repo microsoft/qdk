@@ -1,4 +1,4 @@
-# qsharp (compatibility shim)
+# `qsharp` (compatibility shim)
 
 > **Deprecated.** The `qsharp` package is a thin compatibility shim that
 > re-exports the [`qdk`](https://pypi.org/project/qdk/) public API.
