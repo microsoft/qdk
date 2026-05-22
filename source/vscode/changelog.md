@@ -6,7 +6,7 @@
 
 This release introduces a new learning experience that tightly integrates the QDK developer tools with GitHub Copilot.
 
-By bringing learning content into the same rich environment used to develop quantum programs, and combining that with the latest AI models and editor integration from VS Code and GitHub Copilot, you can rapidly switch between learning, experimenting, and developing.
+With learning content now in the same rich environment used to develop quantum programs, backed by the latest AI models and editor integration from VS Code and GitHub Copilot, you can rapidly switch between learning, experimenting, and developing.
 
 To get started, navigate to the new _Microsoft Quantum_ icon on the activity bar (see next section), and click on _Start learning_. Copilot will then create a folder structure in your current workspace to track progress, bring up a list of lessons to work through, and help guide you through exercises, answer questions, or explore concepts further.
 
