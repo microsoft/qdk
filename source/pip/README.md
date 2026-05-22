@@ -71,5 +71,5 @@ For more information about the Microsoft Quantum Development Kit, visit
 
 ## Contributing
 
-Visit the Q# GitHub repository at [https://github.com/microsoft/qdk](https://github.com/microsoft/qdk)
+Visit the Quantum Development Kit GitHub repository at [https://github.com/microsoft/qdk](https://github.com/microsoft/qdk)
 to find out more about the project.
