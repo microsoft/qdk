@@ -1,5 +1,65 @@
 # QDK Changelog
 
+## v1.29.0
+
+### Katas + Copilot learning experience
+
+TODO: Overview, images, etc. (maybe even a brief video)
+
+### New QDK icon in the VS Code activity bar
+
+TODO: Outline how the Quantum Workspaces container is in here now also
+
+### Deprecation of the qsharp Python package
+
+TODO: Outline how all logic has moved into the `qdk` package, and importing directly from `qsharp` will now give a warning.
+
+### Clifford simulation
+
+TODO: Outline how `qdk.qsharp.run` and `qdk.openqasm.run` now support `type="clifford"`
+
+### Isolated Python context
+
+TODO: Outline the new `qdk.Context` API for creating isolated QDK iterpreter state in Python
+
+### Custom parameters for job submission via VS Code
+
+TODO: Outline how to attach custom params for targets by using VS Code settings.
+
+### Update Python API documentation
+
+TODO: Call out the improvements to Python API docs and where to find them on learn.microsoft.com (as well as signature help)
+
+## Other notable changes
+
+- Provide lhs_span to binop errors when necessary by @joao-boechat in [3185](https://github.com/microsoft/qdk/pull/3185)
+- Enable Clifford simulation in `qsharp.run` by @swernli in [3164](https://github.com/microsoft/qdk/pull/3164)
+- Optimize H/Rx/Ry in sparse sim by @swernli in [3196](https://github.com/microsoft/qdk/pull/3196)
+- Fix azure error logging by @joao-boechat in [3197](https://github.com/microsoft/qdk/pull/3197)
+- Fix debugger error formatting in circuit panel by @joao-boechat in [3191](https://github.com/microsoft/qdk/pull/3191)
+- Move contents of `qsharp` python package to `qdk` python package by @ScottCarda-MS in [3192](https://github.com/microsoft/qdk/pull/3192)
+- Compute runtime of a trace by @msoeken in [3209](https://github.com/microsoft/qdk/pull/3209)
+- QREv3 neutral atom models by @msoeken in [3211](https://github.com/microsoft/qdk/pull/3211)
+- Replace deprecated Microsoft.Quantum._ namespace references with Std._ in library tests by @Copilot in [3161](https://github.com/microsoft/qdk/pull/3161)
+- Added 8T->CCX and cultivation models by @msoeken in [3212](https://github.com/microsoft/qdk/pull/3212)
+- Add Context API by @fedimser in [3208](https://github.com/microsoft/qdk/pull/3208)
+- Add array support to QIR bytecode by @orpuente-MS in [3219](https://github.com/microsoft/qdk/pull/3219)
+- Custom Job Params for Targets by @ScottCarda-MS in [3222](https://github.com/microsoft/qdk/pull/3222)
+- Improve performance of `OutputRecordingPass` when processing QIR simulation results by @swernli in [3235](https://github.com/microsoft/qdk/pull/3235)
+- Make prereqs.py specific about rust version by @amcasey in [3231](https://github.com/microsoft/qdk/pull/3231)
+- Fix output processing on failed simulation by @swernli in [3237](https://github.com/microsoft/qdk/pull/3237)
+- Add interactive Quantum Katas learning experience to VS Code extension by @minestarks in [3228](https://github.com/microsoft/qdk/pull/3228)
+- Manual Memory-Compute qubits by @fedimser in [3204](https://github.com/microsoft/qdk/pull/3204)
+- Learning panel: click-to-navigate, exercise reset, and layout cleanup by @minestarks in [3249](https://github.com/microsoft/qdk/pull/3249)
+- Updated source, docstrings, and tests for qdk.magnets.trotter by @brad-lackey in [3226](https://github.com/microsoft/qdk/pull/3226)
+- Update Python API Doc Strings by @ScottCarda-MS in [3225](https://github.com/microsoft/qdk/pull/3225)
+
+## New Contributors
+
+- @amcasey made their first contribution in https://github.com/microsoft/qdk/pull/3231
+
+**Full Changelog**: <https://github.com/microsoft/qdk/compare/v1.28.0...v1.29.0>
+
 ## v1.28.0
 
 Below are some of the highlights for the 1.28 release of the QDK.
