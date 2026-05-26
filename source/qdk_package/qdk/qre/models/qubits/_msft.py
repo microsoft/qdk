@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 from dataclasses import KW_ONLY, dataclass, field
+from typing import cast, Optional
 
 from ..._architecture import Architecture, ISAContext
 from ...instruction_ids import (
@@ -54,15 +55,22 @@ class Majorana(Architecture):
     _: KW_ONLY
     error_rate: float = field(default=1e-5, metadata={"domain": [1e-4, 1e-5, 1e-6]})
     time: int = 1_000
+    t_error_rate: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        if self.t_error_rate is None:
+            if abs(self.error_rate - 1e-4) <= 1e-8:
+                self.t_error_rate = 0.05
+            elif abs(self.error_rate - 1e-5) <= 1e-8:
+                self.t_error_rate = 0.015
+            elif abs(self.error_rate - 1e-6) <= 1e-8:
+                self.t_error_rate = 0.01
+            else:
+                raise ValueError(
+                    "Invalid error_rate value. Must be one of [1e-4, 1e-5, 1e-6]."
+                )
 
     def provided_isa(self, ctx: ISAContext) -> ISA:
-        if abs(self.error_rate - 1e-4) <= 1e-8:
-            t_error_rate = 0.05
-        elif abs(self.error_rate - 1e-5) <= 1e-8:
-            t_error_rate = 0.015
-        elif abs(self.error_rate - 1e-6) <= 1e-8:
-            t_error_rate = 0.01
-
         return ctx.make_isa(
             ctx.add_instruction(PREP_X, time=self.time, error_rate=self.error_rate),
             ctx.add_instruction(PREP_Z, time=self.time, error_rate=self.error_rate),
@@ -74,5 +82,9 @@ class Majorana(Architecture):
             ),
             ctx.add_instruction(MEAS_X, time=self.time, error_rate=self.error_rate),
             ctx.add_instruction(MEAS_Z, time=self.time, error_rate=self.error_rate),
-            ctx.add_instruction(T, time=self.time, error_rate=t_error_rate),
+            # NOTE From __post_init__, t_error_rate is guaranteed to be non-None
+            # if error_rate is valid, so we can safely cast it to float here.
+            ctx.add_instruction(
+                T, time=self.time, error_rate=cast(float, self.t_error_rate)
+            ),
         )
