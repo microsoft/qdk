@@ -96,6 +96,19 @@ fn compile_and_defunctionalize(source: &str) -> (fir::PackageStore, fir::Package
     (fir_store, fir_pkg_id)
 }
 
+/// Compiles Q# source and snapshots the pretty-printed FIR before and after
+/// defunctionalization, so the visual effect of the pass on the user package
+/// can be reviewed directly in the test snapshot.
+fn check_rewrite(source: &str, expect: &Expect) {
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+    let before = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
+    let mut assigner = qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_pkg_id));
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigner);
+    assert_no_defunctionalization_errors("defunctionalization", &errors);
+    let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
+    expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
+}
+
 fn callable_decl<'a>(package: &'a fir::Package, callable_name: &str) -> &'a fir::CallableDecl {
     package
         .items
