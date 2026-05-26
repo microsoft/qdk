@@ -514,6 +514,21 @@ if build_pip:
         build_wheel(python_bin, pip_src, env=pip_env)
     step_end()
 
+    if run_tests and build_qdk:
+        step_start("Running tests for the qsharp compatibility shim")
+        # Use the qdk environment where qdk and test deps are already installed.
+        python_bin, pip_env = use_python_env(qdk_python_src)
+
+        if not args.editable:
+            install_from_wheels(python_bin, "qsharp", cwd=pip_src)
+
+        run_python_tests(
+            os.path.join(qdk_python_src, "tests", "reexports"),
+            python_bin,
+            pip_env,
+        )
+        step_end()
+
 
 if build_widgets:
     step_start("Building the Python widgets")
