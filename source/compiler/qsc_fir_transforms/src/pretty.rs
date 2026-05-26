@@ -180,7 +180,7 @@ impl<'a> FirQSharpGen<'a> {
             CallableKind::Operation => self.write("operation "),
         }
         self.write(&self.render_ident(&decl.name.name));
-        if !decl.generics.is_empty() {
+        if !decl.generics.is_empty() && self.mode != RenderMode::Parseable {
             self.write("<");
             for (i, g) in decl.generics.iter().enumerate() {
                 if i > 0 {
@@ -922,8 +922,8 @@ impl<'a> FirQSharpGen<'a> {
     fn callable_name_for(&self, item: LocalItemId) -> String {
         let pkg = self.package();
         match &pkg.get_item(item).kind {
-            ItemKind::Callable(decl) => decl.name.name.to_string(),
-            ItemKind::Ty(name, _) => name.name.to_string(),
+            ItemKind::Callable(decl) => self.render_ident(&decl.name.name),
+            ItemKind::Ty(name, _) => self.render_ident(&name.name),
             _ => format!("Item({item})"),
         }
     }
@@ -937,8 +937,8 @@ impl<'a> FirQSharpGen<'a> {
                 item: item_id.item,
             };
             match &self.store.get_item(store_id).kind {
-                ItemKind::Callable(decl) => decl.name.name.to_string(),
-                ItemKind::Ty(name, _) => name.name.to_string(),
+                ItemKind::Callable(decl) => self.render_ident(&decl.name.name),
+                ItemKind::Ty(name, _) => self.render_ident(&name.name),
                 _ => format!("{item_id}"),
             }
         }
@@ -991,7 +991,12 @@ impl<'a> FirQSharpGen<'a> {
     }
 
     fn emit_ty(&mut self, ty: &Ty) {
-        self.write(&ty_as_qsharp(ty));
+        let rendered = ty_as_qsharp(ty);
+        if self.mode == RenderMode::Parseable {
+            self.write(&sanitize_ty_for_parseable(&rendered));
+        } else {
+            self.write(&rendered);
+        }
     }
 
     fn emit_generic_arg(&mut self, arg: &GenericArg) {
@@ -1001,10 +1006,18 @@ impl<'a> FirQSharpGen<'a> {
                 self.write(functor_set_value_as_str(*fsv));
             }
             GenericArg::Functor(FunctorSet::Param(p)) => {
-                self.write(&format!("functor<{p}>"));
+                if self.mode == RenderMode::Parseable {
+                    self.write(&format!("__functor_{p}"));
+                } else {
+                    self.write(&format!("functor<{p}>"));
+                }
             }
             GenericArg::Functor(FunctorSet::Infer(_)) => {
-                self.write("functor<?>");
+                if self.mode == RenderMode::Parseable {
+                    self.write("__functor_infer");
+                } else {
+                    self.write("functor<?>");
+                }
             }
         }
     }
@@ -1116,6 +1129,48 @@ fn type_parameter_name(p: &TypeParameter) -> String {
         TypeParameter::Ty { name, .. } => format!("'{name}"),
         TypeParameter::Functor(fsv) => format!("functor<{}>", functor_set_value_as_str(*fsv)),
     }
+}
+
+/// Rewrites a Q# type string so that synthetic constructs from `ty_as_qsharp`
+/// (functor-set type parameters, UDT placeholders, the `is functor<...>`
+/// arrow annotation) become valid identifiers / valid Q# in parseable mode.
+/// The formatter would otherwise treat `<` and `>` as binary operators and
+/// inject spaces, mangling decl signatures.
+fn sanitize_ty_for_parseable(ty: &str) -> String {
+    let mut out = String::with_capacity(ty.len());
+    let mut rest = ty;
+    while !rest.is_empty() {
+        if let Some(stripped) = rest.strip_prefix(" is functor<")
+            && let Some(end) = stripped.find('>')
+        {
+            rest = &stripped[end + 1..];
+            continue;
+        }
+        let mut matched = false;
+        for prefix in ["functor<", "UDT<"] {
+            if let Some(stripped) = rest.strip_prefix(prefix)
+                && let Some(end) = stripped.find('>')
+            {
+                let inner = &stripped[..end];
+                let sanitized: String = inner
+                    .chars()
+                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                    .collect();
+                let tag = prefix.trim_end_matches('<');
+                out.push_str(&format!("__{tag}_{sanitized}"));
+                rest = &stripped[end + 1..];
+                matched = true;
+                break;
+            }
+        }
+        if matched {
+            continue;
+        }
+        let ch = rest.chars().next().expect("non-empty");
+        out.push(ch);
+        rest = &rest[ch.len_utf8()..];
+    }
+    out
 }
 
 fn udt_field_name(udt: &Udt, path: &FieldPath) -> Option<Rc<str>> {
