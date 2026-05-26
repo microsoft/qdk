@@ -12,6 +12,7 @@ import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  getChildTargets,
   parseWireYs,
   pickClosestWireIndex,
 } from "../../dist/ux/circuit-vis/utils.js";
@@ -143,4 +144,158 @@ test("parseWireYs: non-array JSON returns []", () => {
   assert.deepEqual(parseWireYs(makeElem("42")), []);
   assert.deepEqual(parseWireYs(makeElem('"40"')), []);
   assert.deepEqual(parseWireYs(makeElem("{}")), []);
+});
+
+// ============================================================
+// getChildTargets
+// ============================================================
+
+// Helper: wrap a list of children into the single-column shape
+// `Operation.children` expects.
+const group = (gate, targets, children) => ({
+  kind: "unitary",
+  gate,
+  targets,
+  children: [{ components: children }],
+});
+const u = (gate, targets, controls) => {
+  /** @type {any} */
+  const op = { kind: "unitary", gate, targets };
+  if (controls != null) op.controls = controls;
+  return op;
+};
+const m = (qubits, results) => ({
+  kind: "measurement",
+  gate: "Measure",
+  qubits,
+  results,
+});
+
+test("getChildTargets: returns [] when op has no children", () => {
+  // Leaf ops aren't groups; the action-layer cascade only calls
+  // `getChildTargets` on ops that have a `children` grid. The
+  // `[]` return models that contract.
+  const leaf = u("H", [{ qubit: 0 }]);
+  assert.deepEqual(getChildTargets(leaf), []);
+});
+
+test("getChildTargets: dedupes overlapping bare-qubit refs", () => {
+  // The classical case from the original doc comment: Foo
+  // contains H on wire 1 and RX on wires 1, 2. The union is
+  // {1, 2} — wire 1 must appear exactly once, not twice.
+  const foo = group(
+    "Foo",
+    [{ qubit: 1 }, { qubit: 2 }],
+    [u("H", [{ qubit: 1 }]), u("RX", [{ qubit: 1 }, { qubit: 2 }])],
+  );
+  assert.deepEqual(getChildTargets(foo), [{ qubit: 1 }, { qubit: 2 }]);
+});
+
+test("getChildTargets: walks into nested groups", () => {
+  // Wire union must cross group boundaries — the cascade refresh
+  // assigns `getChildTargets(outer)` straight into
+  // `outer.targets`, and the outer span has to enclose every
+  // descendant wire no matter how deep.
+  const inner = group("Inner", [{ qubit: 2 }], [u("H", [{ qubit: 2 }])]);
+  const outer = group(
+    "Outer",
+    [{ qubit: 0 }, { qubit: 1 }, { qubit: 2 }],
+    [u("H", [{ qubit: 0 }]), inner],
+  );
+  assert.deepEqual(getChildTargets(outer), [{ qubit: 0 }, { qubit: 2 }]);
+});
+
+test("getChildTargets: preserves measurement result registers as distinct entries", () => {
+  // Regression test for the strip-`result` bug. A child
+  // measurement on wire 0 produces classical result 0; the
+  // measurement contributes BOTH `{qubit:0}` (the quantum input,
+  // pushed from `operation.qubits`) AND `{qubit:0, result:0}`
+  // (the classical output, pushed from `operation.results`).
+  // The dedup pass previously keyed on `qubit` alone and rebuilt
+  // output as `{qubit}` only — silently dropping `result` and
+  // collapsing the two distinct registers into one bare qubit.
+  const foo = group(
+    "Foo",
+    [{ qubit: 0 }],
+    [m([{ qubit: 0 }], [{ qubit: 0, result: 0 }])],
+  );
+  const out = getChildTargets(foo);
+  // Order: measurement.qubits comes before measurement.results
+  // in the recursion's push order, so the bare-qubit entry comes
+  // first.
+  assert.deepEqual(out, [{ qubit: 0 }, { qubit: 0, result: 0 }]);
+});
+
+test("getChildTargets: preserves classical-control refs from classically-conditional unitaries", () => {
+  // Classically-conditional unitaries record their classical
+  // dependency in BOTH `controls` and `targets` (the `targets`
+  // entries are visual-extent claims that draw the line down to
+  // the classical register box — see `_shiftAllRegisters` in
+  // circuitActions.ts). If a group contains such a unitary, the
+  // group's refreshed `.targets` MUST carry the classical ref
+  // through, or the renderer drops the line.
+  const cond = u(
+    "X",
+    [{ qubit: 1 }, { qubit: 0, result: 0 }],
+    [{ qubit: 0, result: 0 }],
+  );
+  const foo = group("Foo", [{ qubit: 0 }, { qubit: 1 }], [cond]);
+  const out = getChildTargets(foo);
+  // The bare-qubit target `{qubit:1}` and the classical ref
+  // `{qubit:0, result:0}` are both present. The classical ref
+  // appears once even though it was pushed twice (from `targets`
+  // and from `controls`).
+  assert.ok(
+    out.some((r) => r.qubit === 1 && r.result === undefined),
+    `expected bare-qubit {qubit:1}, got ${JSON.stringify(out)}`,
+  );
+  assert.ok(
+    out.some((r) => r.qubit === 0 && r.result === 0),
+    `expected classical-ref {qubit:0, result:0}, got ${JSON.stringify(out)}`,
+  );
+  assert.equal(
+    out.filter((r) => r.qubit === 0 && r.result === 0).length,
+    1,
+    "classical ref should be deduped to a single entry",
+  );
+});
+
+test("getChildTargets: keeps bare-qubit and classical-ref on the same qubit as distinct entries", () => {
+  // The key invariant: `{qubit:0}` and `{qubit:0, result:0}` are
+  // two different register identities (a wire vs. a classical
+  // bit), and both must survive into the output. Dedup must key
+  // on `(qubit, result)`, not on `qubit`.
+  const wireOp = u("H", [{ qubit: 0 }]);
+  const condOp = u("Z", [{ qubit: 1 }], [{ qubit: 0, result: 0 }]);
+  const foo = group("Foo", [{ qubit: 0 }, { qubit: 1 }], [wireOp, condOp]);
+  const out = getChildTargets(foo);
+  assert.ok(
+    out.some((r) => r.qubit === 0 && r.result === undefined),
+    `expected bare-qubit {qubit:0}, got ${JSON.stringify(out)}`,
+  );
+  assert.ok(
+    out.some((r) => r.qubit === 0 && r.result === 0),
+    `expected classical-ref {qubit:0, result:0}, got ${JSON.stringify(out)}`,
+  );
+});
+
+test("getChildTargets: returns fresh register objects, not aliases of child registers", () => {
+  // Callers assign the returned array straight into
+  // `parent.targets` / `parent.results`. If the entries aliased
+  // the child's own register objects, a later in-place edit on
+  // the child's register (e.g. `_shiftAllRegisters` bumping
+  // `qubit`) would silently mutate the parent's cached extent
+  // too.
+  const childTargets = [{ qubit: 0 }];
+  const foo = group("Foo", [{ qubit: 0 }], [u("H", childTargets)]);
+  const out = getChildTargets(foo);
+  assert.notEqual(
+    out[0],
+    childTargets[0],
+    "returned register must be a fresh object, not a reference to the child's register",
+  );
+  // Belt-and-suspenders: mutate the returned entry and confirm the
+  // child's register is unchanged.
+  out[0].qubit = 999;
+  assert.equal(childTargets[0].qubit, 0, "child register must be untouched");
 });

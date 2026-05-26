@@ -2976,3 +2976,626 @@ test("moveOperation extend: nested ancestor splits its own containing column on 
     `Z must remain in the (now-shifted-right) old inner column; got ${JSON.stringify(innerCol1Gates)}`,
   );
 });
+
+// -------- addOperation / removeOperation: ancestor refresh ---------
+//
+// Both paths mutate a group's children, so the group's eager
+// `.targets` cache must be refreshed afterwards (same contract
+// `moveOperation` already honors via `refreshAncestorTargets`).
+// These tests lock that contract down for the add and remove
+// paths. The UI today never invokes `addOperation` directly into
+// a group (the toolbox-drop path always lands at top level), but
+// the action-layer API does, and the cache must stay coherent
+// regardless of who calls it.
+
+test("addOperation: adding a child to a group on a wire outside its span extends the group's targets", () => {
+  // Foo spans wires 0-1 with a single H on wire 0 in its only
+  // inner column. Adding a Y on wire 2 into Foo's trailing
+  // inner-column slot must widen Foo's `.targets` to include
+  // wire 2 — otherwise the renderer's bracket clips above the
+  // newly-added child and subsequent reads of `Foo.targets`
+  // (e.g. `getMinMaxRegIdx`) miss wire 2.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  const added = addOperation(
+    model,
+    { kind: "unitary", gate: "Y", targets: [{ qubit: 0 }] },
+    "0,0-1,2",
+    2,
+  );
+  assert.ok(added, "addOperation should return the new op");
+
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const fooQubits = fooOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+
+  assert.ok(
+    fooQubits.includes(2),
+    `Foo must enclose wire 2 after addOperation; got ${JSON.stringify(fooQubits)}`,
+  );
+});
+
+test("addOperation: cascade — adding deep into a nested group extends both inner and outer ancestors", () => {
+  // Outer (wires 0-1) contains Inner (wires 0-1) contains H (wire 0).
+  // Add a Y on wire 2 into Inner's trailing inner-column slot. The
+  // refresh must cascade: Inner extends to include wire 2, and
+  // Outer (whose old span 0-1 no longer encloses Inner's new span)
+  // also extends. This mirrors the existing extend-cascade
+  // moveOperation test, but exercised via the add path.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Outer",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "Inner",
+                    targets: [{ qubit: 0 }, { qubit: 1 }],
+                    children: [
+                      {
+                        components: [
+                          {
+                            kind: "unitary",
+                            gate: "H",
+                            targets: [{ qubit: 0 }],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  const added = addOperation(
+    model,
+    { kind: "unitary", gate: "Y", targets: [{ qubit: 0 }] },
+    "0,0-0,0-1,2",
+    2,
+  );
+  assert.ok(added);
+
+  const outerOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const innerOp = /** @type {any} */ (outerOp.children[0].components[0]);
+
+  const innerQubits = innerOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  const outerQubits = outerOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+
+  assert.ok(
+    innerQubits.includes(2),
+    `Inner must enclose wire 2 after addOperation; got ${JSON.stringify(innerQubits)}`,
+  );
+  for (const q of innerQubits) {
+    assert.ok(
+      outerQubits.includes(q),
+      `Outer must enclose Inner's wire ${q} after cascade; got Outer=${JSON.stringify(outerQubits)}`,
+    );
+  }
+});
+
+test("removeOperation: removing the only child on a wire narrows the group's targets", () => {
+  // Foo spans wires 0-1 with two children: H on wire 0 and Y on
+  // wire 1, in separate inner columns. Removing Y leaves only H,
+  // so Foo's `.targets` must shrink to just [wire 0]. Otherwise
+  // the bracket still claims wire 1 even though nothing inside
+  // touches it.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+              {
+                components: [
+                  { kind: "unitary", gate: "Y", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Y lives at "0,0-1,0" (Foo at top-level "0,0"; Y at col 1
+  // op 0 of Foo's children).
+  removeOperation(model, "0,0-1,0");
+
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const fooQubits = fooOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+
+  assert.deepEqual(
+    fooQubits,
+    [0],
+    `Foo must narrow to just wire 0 after removing Y; got ${JSON.stringify(fooQubits)}`,
+  );
+});
+
+test("removeOperation: cascade — removing a deep child narrows nested ancestors", () => {
+  // Outer (wires 0-2) contains Inner (wires 0-2) contains
+  // H (wire 0), X (wire 1), Y (wire 2), each in their own inner
+  // column. Removing Y narrows Inner to wires 0-1, and Outer's
+  // span (which derives from Inner) must narrow in lockstep.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Outer",
+            targets: [{ qubit: 0 }, { qubit: 1 }, { qubit: 2 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "Inner",
+                    targets: [{ qubit: 0 }, { qubit: 1 }, { qubit: 2 }],
+                    children: [
+                      {
+                        components: [
+                          {
+                            kind: "unitary",
+                            gate: "H",
+                            targets: [{ qubit: 0 }],
+                          },
+                        ],
+                      },
+                      {
+                        components: [
+                          {
+                            kind: "unitary",
+                            gate: "X",
+                            targets: [{ qubit: 1 }],
+                          },
+                        ],
+                      },
+                      {
+                        components: [
+                          {
+                            kind: "unitary",
+                            gate: "Y",
+                            targets: [{ qubit: 2 }],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Y at "0,0-0,0-2,0" (Outer "0,0", Inner "0,0-0,0", Y at col 2
+  // op 0 of Inner's children).
+  removeOperation(model, "0,0-0,0-2,0");
+
+  const outerOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const innerOp = /** @type {any} */ (outerOp.children[0].components[0]);
+
+  const innerQubits = innerOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  const outerQubits = outerOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+
+  assert.deepEqual(
+    innerQubits,
+    [0, 1],
+    `Inner must narrow to wires [0,1] after removing Y; got ${JSON.stringify(innerQubits)}`,
+  );
+  assert.deepEqual(
+    outerQubits,
+    [0, 1],
+    `Outer must cascade-narrow to wires [0,1]; got ${JSON.stringify(outerQubits)}`,
+  );
+});
+
+// -------- addControl / removeControl: ancestor refresh ---------
+//
+// Adding/removing a control on an op nested inside a group widens
+// or narrows the op's wire span, which must propagate into every
+// ancestor group's eager `.targets` cache.
+
+test("addControl: adding a control to a child op on a wire outside the group's span extends the group's targets", () => {
+  // Foo spans wire 0 with a single H on wire 0. Adding a control
+  // on wire 2 to that H widens H's span to wires 0+2, and Foo's
+  // `.targets` must extend to enclose wire 2.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const hOp = /** @type {any} */ (fooOp.children[0].components[0]);
+
+  const added = addControl(model, hOp, 2);
+  assert.ok(added, "addControl should return true on a fresh wire");
+
+  const fooQubits = fooOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.ok(
+    fooQubits.includes(2),
+    `Foo must enclose wire 2 after addControl; got ${JSON.stringify(fooQubits)}`,
+  );
+});
+
+test("addControl: cascade — adding a control deep inside a nested group extends both ancestors", () => {
+  // Outer (wire 0) contains Inner (wire 0) contains H (wire 0).
+  // Adding a control on wire 2 to H widens H's span — Inner must
+  // extend, and Outer must cascade-extend in lockstep.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Outer",
+            targets: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "Inner",
+                    targets: [{ qubit: 0 }],
+                    children: [
+                      {
+                        components: [
+                          {
+                            kind: "unitary",
+                            gate: "H",
+                            targets: [{ qubit: 0 }],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  const outerOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const innerOp = /** @type {any} */ (outerOp.children[0].components[0]);
+  const hOp = /** @type {any} */ (innerOp.children[0].components[0]);
+
+  addControl(model, hOp, 2);
+
+  const innerQubits = innerOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  const outerQubits = outerOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+
+  assert.ok(
+    innerQubits.includes(2),
+    `Inner must enclose wire 2; got ${JSON.stringify(innerQubits)}`,
+  );
+  assert.ok(
+    outerQubits.includes(2),
+    `Outer must cascade-enclose wire 2; got ${JSON.stringify(outerQubits)}`,
+  );
+});
+
+test("removeControl: removing the only control extending a group's span narrows the group's targets", () => {
+  // Foo spans wires 0-2 with a single H on wire 0 that has a control
+  // on wire 2 (the only thing reaching wire 2 inside Foo). Removing
+  // that control narrows H's span to just wire 0, and Foo's `.targets`
+  // must narrow accordingly.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 2 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 0 }],
+                    controls: [{ qubit: 2 }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const hOp = /** @type {any} */ (fooOp.children[0].components[0]);
+
+  const removed = removeControl(model, hOp, 2);
+  assert.ok(removed, "removeControl should return true when control existed");
+
+  const fooQubits = fooOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.deepEqual(
+    fooQubits,
+    [0],
+    `Foo must narrow to just wire 0; got ${JSON.stringify(fooQubits)}`,
+  );
+});
+
+// -------- removeQubit: recurses into nested groups ---------
+
+test("removeQubit: shifts wire indices on ops nested inside groups", () => {
+  // Foo (wires 1-2) contains H on wire 2. Removing wire 0 shifts
+  // every >0 wire down by one, including the H inside Foo (2 → 1)
+  // and Foo's own cached targets (1,2 → 0,1).
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 1 }, { qubit: 2 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 2 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  removeQubit(model, 0);
+
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const hOp = /** @type {any} */ (fooOp.children[0].components[0]);
+
+  assert.equal(
+    hOp.targets[0].qubit,
+    1,
+    `Nested H must shift from wire 2 to wire 1; got ${hOp.targets[0].qubit}`,
+  );
+  const fooQubits = fooOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.deepEqual(
+    fooQubits,
+    [0, 1],
+    `Foo's cached targets must shift to [0,1]; got ${JSON.stringify(fooQubits)}`,
+  );
+});
+
+// -------- findAndRemoveOperations: deep refresh of ancestors ---------
+
+test("findAndRemoveOperations: removing a deep child narrows the group's targets", () => {
+  // Foo spans wires 0-1 with H on wire 0 and Y on wire 1. Predicate-
+  // remove Y; Foo's cached targets must narrow to just [wire 0].
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+              {
+                components: [
+                  { kind: "unitary", gate: "Y", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  findAndRemoveOperations(model, (/** @type {any} */ op) => op.gate === "Y");
+
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const fooQubits = fooOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.deepEqual(
+    fooQubits,
+    [0],
+    `Foo must narrow to [0] after removing Y; got ${JSON.stringify(fooQubits)}`,
+  );
+});
+
+test("findAndRemoveOperations: cascade — removing across multiple nested groups narrows every ancestor", () => {
+  // Outer (wires 0-2) contains Inner (wires 0-2) with H on 0, X on
+  // 1, Y on 2 — one per inner column. Predicate-remove Y. Inner
+  // narrows to [0,1] and Outer cascade-narrows in lockstep.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Outer",
+            targets: [{ qubit: 0 }, { qubit: 1 }, { qubit: 2 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "Inner",
+                    targets: [{ qubit: 0 }, { qubit: 1 }, { qubit: 2 }],
+                    children: [
+                      {
+                        components: [
+                          {
+                            kind: "unitary",
+                            gate: "H",
+                            targets: [{ qubit: 0 }],
+                          },
+                        ],
+                      },
+                      {
+                        components: [
+                          {
+                            kind: "unitary",
+                            gate: "X",
+                            targets: [{ qubit: 1 }],
+                          },
+                        ],
+                      },
+                      {
+                        components: [
+                          {
+                            kind: "unitary",
+                            gate: "Y",
+                            targets: [{ qubit: 2 }],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  findAndRemoveOperations(model, (/** @type {any} */ op) => op.gate === "Y");
+
+  const outerOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const innerOp = /** @type {any} */ (outerOp.children[0].components[0]);
+
+  const innerQubits = innerOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  const outerQubits = outerOp.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+
+  assert.deepEqual(
+    innerQubits,
+    [0, 1],
+    `Inner must narrow to [0,1]; got ${JSON.stringify(innerQubits)}`,
+  );
+  assert.deepEqual(
+    outerQubits,
+    [0, 1],
+    `Outer must cascade-narrow to [0,1]; got ${JSON.stringify(outerQubits)}`,
+  );
+});

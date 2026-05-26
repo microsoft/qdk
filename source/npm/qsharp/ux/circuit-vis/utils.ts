@@ -147,18 +147,50 @@ const _getStringWidth = (
 
 /**
  * Find targets of an operation's children by recursively walking
- * through all of its children's controls and targets.
- * Note that this intentionally ignores the direct targets of the
- * operation itself.
+ * through all of its children's controls, targets, and (for
+ * measurements) qubits + results. Note that this intentionally
+ * ignores the direct targets of `operation` itself; it's the
+ * union of the *descendants'* register sets.
  *
- * Example:
- * Gate Foo contains gate H and gate RX.
- * qIds of Gate H is 1
- * qIds of Gate RX are 1, 2
- * This should return [{qId: 1}, {qId: 2}]
+ * Used by the action layer to refresh a group's eagerly-cached
+ * `.targets`/`.results` field after the group's children have
+ * been mutated (see the cascade in `moveOperation` and
+ * `_pruneEmptyAncestors` in
+ * [`actions/circuitActions.ts`](actions/circuitActions.ts)).
+ *
+ * # Dedup contract
+ *
+ * Output registers are deduplicated by **full register identity**
+ * — i.e. by the `(qubit, result)` tuple — not by `qubit` alone.
+ * A bare-qubit reference `{qubit: 0}` and a classical-register
+ * reference `{qubit: 0, result: 0}` are distinct register
+ * identities and BOTH survive into the output if both appear
+ * among the descendants.
+ *
+ * Preserving `result` matters: classically-conditional unitaries
+ * record their classical-register dependencies in BOTH `controls`
+ * AND `targets` (the `targets` entries are visual-extent claims
+ * that draw the line from the gate down to the classical
+ * register box — see `_shiftAllRegisters` in
+ * [`actions/circuitActions.ts`](actions/circuitActions.ts)). A
+ * dedup-by-qubit-only sweep would silently downgrade
+ * `{qubit:0, result:0}` to `{qubit:0}` on every ancestor refresh,
+ * causing classically-controlled gates inside a refreshed group
+ * to lose their visual-extent line.
+ *
+ * # Example
+ *
+ * Gate Foo contains gate H on wire 1 and gate RX on wires 1, 2.
+ * Returns `[{qubit: 1}, {qubit: 2}]`.
+ *
+ * If Foo also contains a measurement of wire 0 producing result 0,
+ * the return includes `{qubit: 0}` (the measurement's quantum
+ * input) AND `{qubit: 0, result: 0}` (the classical output) as
+ * two distinct entries.
  *
  * @param operation The operation to find targets for.
- * @returns An array of registers with unique qIds.
+ * @returns An array of registers with unique `(qubit, result)`
+ *   identities; `result` is preserved when present.
  */
 const getChildTargets = (operation: Operation): Register[] | [] => {
   const _recurse = (operation: Operation) => {
@@ -198,14 +230,32 @@ const getChildTargets = (operation: Operation): Register[] | [] => {
     }),
   );
 
-  // Extract qIds from array of object
-  // i.e. [{qId: 0}, {qId: 1}, {qId: 1}] -> [0, 1, 1]
-  const qIds = registers.map((register) => register.qubit);
-  const uniqueQIds = Array.from(new Set(qIds));
-
-  // Transform array of numbers into array of qId object
-  // i.e. [0, 1] -> [{qId: 0}, {qId: 1}]
-  return uniqueQIds.map((qId) => ({ qubit: qId }));
+  // Dedup by full register identity (qubit + result). `undefined`
+  // result and an explicit result are distinct register kinds (see
+  // dedup contract in the doc comment); we use a unique sentinel
+  // in the key to avoid collisions like
+  // `qubit=0, result=undefined` vs `qubit=0:undefined-as-string`.
+  const seen = new Set<string>();
+  const out: Register[] = [];
+  for (const reg of registers) {
+    const key =
+      reg.result === undefined
+        ? `${reg.qubit}:q`
+        : `${reg.qubit}:c${reg.result}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    // Rebuild fresh objects rather than aliasing the descendants'
+    // own register references — callers assign the returned array
+    // straight into `parent.targets`/`.results`, and we don't want
+    // a later mutation on a child's register to mutate the parent's
+    // cached extent.
+    out.push(
+      reg.result === undefined
+        ? { qubit: reg.qubit }
+        : { qubit: reg.qubit, result: reg.result },
+    );
+  }
+  return out;
 };
 
 /**
@@ -223,7 +273,6 @@ const getGateLocationString = (operation: Operation): string | null => {
  * Get the minimum and maximum register indices for a given operation.
  *
  * @param operation The operation for which to get the register indices.
- * @param numQubits The number of qubits in the circuit.
  * @returns A tuple containing the minimum and maximum register indices.
  */
 function getMinMaxRegIdx(operation: Operation): [number, number] {

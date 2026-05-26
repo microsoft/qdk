@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { getOperationRegisters } from "../utils.js";
 import { Column, ComponentGrid, Operation, Unitary } from "../data/circuit.js";
 import { CircuitModel } from "../data/circuitModel.js";
 import { Location } from "../data/location.js";
@@ -9,8 +8,7 @@ import { Register } from "../data/register.js";
 import {
   findOperation,
   findParentArray,
-  findParentOperation,
-  getChildTargets,
+  getOperationRegisters,
 } from "../utils.js";
 
 /*
@@ -31,15 +29,17 @@ import {
 /**
  * Move an operation in the circuit.
  *
- * After the move settles, the destination's ancestor chain is
- * walked innermost-out and each ancestor's derived `.targets` is
- * re-built from its (post-move) children. The walk cascades upward
- * — each ancestor whose `.targets` no longer encloses its
- * (now-widened) child is also refreshed — and stops at the first
- * ancestor that already encloses its child's new span. This keeps
- * the invariant "an ancestor's `.targets` is always the union of
- * its descendants' wires" intact, regardless of how the target
- * location was chosen.
+ * After the move settles, both the source-side and dest-side
+ * ancestor chains are walked innermost-out by
+ * [`refreshAncestorTargets`](#) and each still-attached
+ * ancestor's derived `.targets`/`.results` is re-built from its
+ * (post-move) children. The walks cascade upward — refreshing
+ * each rung whose pre-existing span no longer encloses the
+ * deeper subtree's new span — and stop at the first rung that
+ * already does. This keeps the invariant "an ancestor's
+ * `.targets` is the union of its descendants' wires (plus any
+ * classical-control refs the group itself carries)" intact for
+ * arbitrary drop locations.
  *
  * The target location string carries the authoritative intent of
  * which group the moved op lands in; the cascade is correctness,
@@ -86,10 +86,6 @@ const moveOperation = (
     sourceLocation,
   );
   if (sourceOperationParent == null) return null;
-  const sourceParentOperation = findParentOperation(
-    model.componentGrid,
-    sourceLocation,
-  );
 
   // Capture the full ancestor chain BEFORE any mutation so the
   // empty-group cleanup at the tail of this function still has
@@ -202,57 +198,46 @@ const moveOperation = (
 
   _removeOp(model, originalOperation, sourceOperationParent);
 
-  // Refresh the source's old parent's derived `targets`/`results`
-  // AFTER the removal has settled the children grid. Doing this
-  // earlier (the previous behavior, inside `_moveY`) would read the
-  // children grid while it still contained the original op, so the
-  // parent would keep claiming the departed child's wires — visible
-  // to the user as a group whose render extent stretched to wires
-  // it no longer had content on.
+  // Source-side cleanup: prune any ancestor groups whose
+  // children just collapsed to empty (cascades upward) and then
+  // refresh the surviving ancestors' derived `.targets`. The two
+  // sweeps used to be interleaved inside `_pruneEmptyAncestors`
+  // (with a separate inline refresh on the source's direct
+  // parent ahead of it); D7 folded both into the single
+  // `refreshAncestorTargets` utility, which handles the
+  // narrowing case (a child went away) symmetrically with the
+  // widening case on the dest side below.
   //
-  // Note: rewriting the parent's `.targets`/`.results` here does NOT
-  // adjust `qubitUseCounts`. The drift is tolerable because
-  // `removeTrailingUnusedQubits` (called below) walks the tree to
-  // decide what to drop — it does not consult `qubitUseCounts`.
-  if (sourceParentOperation != null) {
-    if (sourceParentOperation.kind === "measurement") {
-      // Note: this is very confusing with measurements. Maybe the right thing to do
-      // will become more apparent if we implement expandable measurements.
-      sourceParentOperation.results = getChildTargets(sourceParentOperation);
-    } else if (
-      sourceParentOperation.kind === "unitary" ||
-      sourceParentOperation.kind === "ket"
-    ) {
-      sourceParentOperation.targets = getChildTargets(sourceParentOperation);
-    }
-  }
-
-  // Prune any ancestor groups whose children just became empty.
-  // Cascades upward — removing one empty ancestor may empty its
-  // grandparent. See `_pruneEmptyAncestors` for the full rationale;
-  // briefly: empty groups have no semantic meaning, render
-  // incorrectly (zero-wire), and trip downstream sweeps if left
-  // in place.
+  // Order matters: prune first, refresh second. `_isOperationEmpty`
+  // reads `children`, not `.targets`, so refreshing a rung that's
+  // about to be deleted is wasted work. Pruning first also lets
+  // the refresh walk skip already-detached rungs via the same
+  // `stillAttached` check that the dest side uses.
   //
   // Runs BEFORE the measurement-line sweep and
   // `removeTrailingUnusedQubits` so those passes see the already-
   // cleaned tree.
-  _pruneEmptyAncestors(ancestorChain);
+  const survivedSourceChain = _pruneEmptyAncestors(ancestorChain);
+  refreshAncestorTargets(survivedSourceChain);
 
-  // Cascading dest-side ancestor refresh. Each ancestor of the
-  // drop target whose `.targets` no longer encloses its child's
-  // (possibly widened) wire span gets its targets re-derived from
-  // its current children. Walks innermost-out; stops at the first
-  // ancestor whose span already encloses the child below it.
+  // Dest-side cascading refresh. Each ancestor of the drop target
+  // whose `.targets` no longer encloses its child's (possibly
+  // widened) wire span gets re-derived; the per-rung
+  // `onAfterRefresh` hook resolves any sibling-column overlap the
+  // widening just introduced (split-and-shift, mirroring the
+  // `commitAddControl` pattern).
   //
   // Always-on because the target location string is authoritative:
   // if the user dropped the source at a location inside group G,
   // then G IS the source's new parent, and G's `.targets` MUST
   // reflect that. No-op when the drop is top-level (empty chain)
-  // or when the dest group was pruned by the empty-prune pass —
-  // see `_extendDestAncestorsVertically` for the is-still-attached
-  // and span-already-encloses checks.
-  _extendDestAncestorsVertically(destAncestorChain);
+  // or when every dest ancestor was pruned by the source-side
+  // sweep above — see `refreshAncestorTargets`'s `stillAttached`
+  // check.
+  refreshAncestorTargets(destAncestorChain, {
+    onAfterRefresh: ({ op, containingArray }) =>
+      _resolveOverlapAfterExtend(op, containingArray),
+  });
 
   // Refresh per-wire `numResults` counters for every wire that
   // may have gained or lost a measurement. `_addOp` / `_removeOp`
@@ -681,52 +666,67 @@ const _collectDestAncestorChain = (
 };
 
 /**
- * Cascading dest-side wire-span extension. Walks the destination's
- * ancestor chain innermost-out and re-derives each ancestor's
- * `.targets`/`.results` from its (post-move) children.
+ * Walk the circuit tree and collect the ancestor chain (innermost-
+ * first, up to but not including the root grid) that leads to the
+ * specified `target` op — comparing by object identity, not by
+ * location string. Used by mutators like
+ * [`addControl`](#)/[`removeControl`](#) that receive an `Operation`
+ * reference but no location.
  *
- * Stops at the first ancestor whose pre-existing target span
- * already encloses the child below it — once an ancestor visually
- * encloses the widened branch, nothing above it needs to grow.
- *
- * Skips any ancestor whose `op` is no longer attached to its
- * `containingArray`: the empty-prune pass may have removed the
- * innermost ancestors (e.g. the B5 last-child shift-drag case),
- * in which case there's nothing here to extend.
- *
- * Idempotent under the no-op case (called with `false`, with an
- * empty chain, or against a chain whose every member is already
- * pruned). Safe to call unconditionally.
+ * Returns `[]` if `target` is a top-level op (or not found at all
+ * — callers should treat "not found" identically to "top-level":
+ * either way, there are no ancestors to refresh).
  */
-const _extendDestAncestorsVertically = (chain: AncestorRung[]): void => {
-  let prevSpan: [number, number] | null = null;
-  for (const { op, containingArray } of chain) {
-    // Skip ancestors that were pruned by the empty-prune pass.
-    let stillAttached = false;
-    for (const col of containingArray) {
-      if (col.components.indexOf(op) >= 0) {
-        stillAttached = true;
-        break;
+const _findAncestorChainForOp = (
+  model: CircuitModel,
+  target: Operation,
+): AncestorRung[] => {
+  const walk = (
+    grid: ComponentGrid,
+    chain: AncestorRung[],
+  ): AncestorRung[] | null => {
+    for (const col of grid) {
+      for (const op of col.components) {
+        if (op === target) return chain;
+        if (op.children != null) {
+          const found = walk(op.children, [
+            { op, containingArray: grid },
+            ...chain,
+          ]);
+          if (found != null) return found;
+        }
       }
     }
-    if (!stillAttached) continue;
+    return null;
+  };
+  return walk(model.componentGrid, []) ?? [];
+};
 
-    const [oldMin, oldMax] = _getMinMaxRegIdx(op);
-
-    // If a deeper ancestor's span is already enclosed by this
-    // ancestor's pre-existing span, this ancestor (and everything
-    // above it) doesn't need refreshing.
-    if (prevSpan != null && oldMin <= prevSpan[0] && oldMax >= prevSpan[1]) {
-      return;
+/**
+ * Post-order deep refresh of every group's derived `.targets` /
+ * `.results` in `grid`. Used by batch mutators like
+ * [`findAndRemoveOperations`](#) that may have stripped ops from
+ * many different ancestor chains in one pass — too many separate
+ * chains to track individually, so we just re-derive every
+ * group's cache in a single bottom-up sweep.
+ *
+ * Post-order is essential: a parent's cache is recomputed from
+ * its immediate children's `.targets`, which must already reflect
+ * the post-mutation state. Walking bottom-up ensures children are
+ * refreshed before any parent reads them.
+ *
+ * Narrowing-only — no overlap-resolver pass. Batch removal can
+ * only shrink ancestor spans, never widen them, so no new
+ * sibling-column collisions can appear.
+ */
+const _deepRefreshDerivedTargets = (grid: ComponentGrid): void => {
+  for (const col of grid) {
+    for (const op of col.components) {
+      if (op.children != null) {
+        _deepRefreshDerivedTargets(op.children);
+        _refreshDerivedTargets(op);
+      }
     }
-
-    _refreshDerivedTargets(op);
-    // Widening the span may have introduced a collision with a
-    // sibling in the same column. Resolve by pulling `op` into a
-    // fresh column ahead of the siblings — mirrors the
-    // commitAddControl split-and-shift pattern.
-    _resolveOverlapAfterExtend(op, containingArray);
-    prevSpan = _getMinMaxRegIdx(op);
   }
 };
 
@@ -808,15 +808,212 @@ const _isOperationEmpty = (op: Operation): boolean => {
 };
 
 /**
- * Refresh the derived `targets`/`results` of `op` from its current
- * children. Mirrors the inline switch in `moveOperation`'s
- * source-parent refresh.
+ * Dedup a `Register[]` by full `(qubit, result)` identity,
+ * returning fresh `Register` objects.
+ *
+ * Bare-qubit `{qubit:N}` and classical-ref `{qubit:N, result:M}`
+ * are distinct register identities; both survive deduplication.
+ * Output entries are fresh objects (not aliases of inputs) so
+ * callers can write them straight into `op.targets` /
+ * `op.results` without worrying about a later in-place edit on
+ * a child's register propagating to the parent's cache.
+ *
+ * Order is input-order of the first occurrence of each unique
+ * identity — that's stable across no-op refreshes (same input
+ * order → same output order), which lets
+ * `_registerListsEqual` use a positional compare instead of a
+ * set compare.
  */
-const _refreshDerivedTargets = (op: Operation): void => {
+const _dedupRegistersByIdentity = (registers: Register[]): Register[] => {
+  const seen = new Set<string>();
+  const out: Register[] = [];
+  for (const reg of registers) {
+    const key =
+      reg.result === undefined
+        ? `${reg.qubit}:q`
+        : `${reg.qubit}:c${reg.result}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(
+      reg.result === undefined
+        ? { qubit: reg.qubit }
+        : { qubit: reg.qubit, result: reg.result },
+    );
+  }
+  return out;
+};
+
+/**
+ * Compute `op`'s derived `.targets` (or `.results`) from the
+ * union of its **immediate children's** contributions.
+ *
+ * Each child contributes the union of its own register-bearing
+ * fields (`getOperationRegisters`: targets + controls for
+ * unitaries, qubits + results for measurements, targets for
+ * kets). Because every group's `.targets` is itself the eager
+ * cache of its own subtree, taking only the immediate children
+ * here gives the same answer as recursively walking the
+ * subtree — but without paying the recursion cost at every
+ * ancestor level.
+ *
+ * Returns `[]` when `op` has no children grid; callers should
+ * not invoke this on leaf ops.
+ */
+const _computeDerivedTargets = (op: Operation): Register[] => {
+  if (op.children == null) return [];
+  const registers: Register[] = [];
+  for (const col of op.children) {
+    for (const child of col.components) {
+      registers.push(...getOperationRegisters(child));
+    }
+  }
+  return _dedupRegistersByIdentity(registers);
+};
+
+/**
+ * Order-sensitive equality on `Register[]`. Used by the
+ * ancestor cascade to decide whether a refresh actually changed
+ * the cached value — positional compare is safe because
+ * `_computeDerivedTargets` produces stable child-iteration-order
+ * output.
+ */
+const _registerListsEqual = (a: Register[], b: Register[]): boolean => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].qubit !== b[i].qubit) return false;
+    if (a[i].result !== b[i].result) return false;
+  }
+  return true;
+};
+
+/**
+ * Refresh the derived `.targets` / `.results` of `op` from its
+ * immediate children. Returns `true` iff the cached value
+ * actually changed — the ancestor cascade in
+ * `refreshAncestorTargets` uses this signal to terminate.
+ *
+ * No-op (returns `false`) for ops with no `children` grid;
+ * those are leaf ops whose `.targets` is explicit, not derived.
+ */
+const _refreshDerivedTargets = (op: Operation): boolean => {
+  if (op.children == null) return false;
+  const newValue = _computeDerivedTargets(op);
   if (op.kind === "measurement") {
-    op.results = getChildTargets(op);
-  } else if (op.kind === "unitary" || op.kind === "ket") {
-    op.targets = getChildTargets(op);
+    if (_registerListsEqual(op.results, newValue)) return false;
+    op.results = newValue;
+    return true;
+  }
+  if (op.kind === "unitary" || op.kind === "ket") {
+    if (_registerListsEqual(op.targets, newValue)) return false;
+    op.targets = newValue;
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Walk an ancestor chain innermost-out and refresh each
+ * still-attached ancestor's derived `.targets` / `.results`
+ * from its immediate children. Stops at the first ancestor
+ * whose cached value didn't actually change — at that point
+ * nothing higher up can change either, because every higher
+ * ancestor's cache depends only on its own immediate
+ * children's caches.
+ *
+ * This is the **single centralized mechanism** for keeping the
+ * eager `.targets` cache in sync with the children, used by
+ * both the source-side post-prune refresh and the dest-side
+ * post-insert refresh in `moveOperation`. See D7 in
+ * [`CIRCUIT_EDITOR_TODO.md`](../CIRCUIT_EDITOR_TODO.md) for the
+ * rationale and the per-call-site history this replaces.
+ *
+ * # Why immediate children only
+ *
+ * Each child's `.targets` is **already** the correct eager
+ * cache of its own subtree — every prior refresh maintained
+ * that invariant. So a parent's union is just the union of its
+ * immediate children's contributions, no recursion needed. The
+ * naive alternative (`getChildTargets` walks the whole subtree
+ * top-down on every ancestor) costs O(subtree-size) per
+ * ancestor, which compounds to O(depth × subtree) across the
+ * chain — wasted work, because each level repeats what the
+ * level below it already finished.
+ *
+ * # Contract
+ *
+ *   - `chain` is innermost-first: index 0 is the deepest
+ *     ancestor, last index is closest to the root grid.
+ *   - Rungs whose `op` is no longer attached to its captured
+ *     `containingArray` are silently skipped — the empty-prune
+ *     pass may have removed them between capture and refresh.
+ *     The walk continues to the next-attached rung (whose
+ *     children list changed because the detached rung was
+ *     removed).
+ *   - Refresh is **deterministic and idempotent**: calling this
+ *     twice in a row on the same chain has no observable effect
+ *     on the second call (every refresh on the second pass
+ *     returns "unchanged" immediately).
+ *   - The walk does **no DOM work, no column reshape, no
+ *     model-level structural edits**. Callers that need to
+ *     react to a widened span — e.g. split a column when an
+ *     ancestor's new span now overlaps a sibling — pass
+ *     `onAfterRefresh` to compose that on top. The hook fires
+ *     on **every** visited still-attached rung, regardless of
+ *     whether the refresh changed `.targets`: a shared
+ *     ancestor between source and dest chains can have its
+ *     value written by the first cascade to reach it, leaving
+ *     the second to see "no change" — but the span still
+ *     widened relative to pre-mutation state, so the hook
+ *     (e.g. overlap resolver) must still run. The hook is
+ *     expected to be idempotent under that no-op case.
+ *
+ * # Why the chain is captured before mutation
+ *
+ * Callers (`_collectAncestorChain` / `_collectDestAncestorChain`)
+ * walk `Location` strings during capture, then hold the resulting
+ * `(op, containingArray)` object references for the duration of
+ * the mutation. Hierarchical location strings can be invalidated
+ * by mid-move column splices or empty-prune cascades; object
+ * references survive those shifts because they identify the
+ * actual array and op without traversing the tree.
+ *
+ * # Termination is symmetric across widening and narrowing
+ *
+ * Works for both narrowing (source-side: a child was removed,
+ * so spans may shrink) and widening (dest-side: a child was
+ * inserted, so spans may grow) refreshes. The
+ * cache-value-unchanged check fires whenever this ancestor's
+ * recomputed value matches its prior cache — that's the
+ * "nothing higher up can change" stop condition for both
+ * directions, since every higher ancestor reads only its own
+ * immediate children's `.targets`.
+ */
+const refreshAncestorTargets = (
+  chain: AncestorRung[],
+  options: { onAfterRefresh?: (rung: AncestorRung) => void } = {},
+): void => {
+  for (const rung of chain) {
+    const { op, containingArray } = rung;
+
+    // Skip rungs that were detached between capture and refresh
+    // (e.g. the empty-prune pass spliced them out). Keep walking —
+    // the next-attached ancestor's children list changed because
+    // the detached rung was removed, so it still needs refreshing.
+    let stillAttached = false;
+    for (const col of containingArray) {
+      if (col.components.indexOf(op) >= 0) {
+        stillAttached = true;
+        break;
+      }
+    }
+    if (!stillAttached) continue;
+
+    const changed = _refreshDerivedTargets(op);
+    // Hook fires on every visited still-attached rung — see
+    // the "shared ancestor" note in the doc comment for why
+    // this can't be gated on `changed`.
+    options.onAfterRefresh?.(rung);
+    if (!changed) return;
   }
 };
 
@@ -836,50 +1033,55 @@ const _refreshDerivedTargets = (op: Operation): void => {
  * what users intuitively expect when they "move the last thing
  * out of" a group.
  *
- * The walk respects an existing-refresh signal: the innermost
- * ancestor's targets are already refreshed by the call site
- * (because it's the source op's direct parent), so we skip
- * refreshing it. Any ancestor we delete demands that the NEXT
- * ancestor's targets be re-derived because it just lost a child.
+ * Returns the surviving (still-attached) rungs of the chain in
+ * innermost-first order. The caller hands this back to
+ * `refreshAncestorTargets` so the first non-empty ancestor — and
+ * any higher ancestors whose span still doesn't enclose what's
+ * below it — get their derived `.targets` updated to reflect the
+ * post-prune child set.
  *
  * Note on `qubitUseCounts` drift. We don't adjust use-counts when
  * deleting an empty group because the group itself contributed no
  * use-count entries (the count is per leaf-op, and the empty group
  * has no leaves). `removeTrailingUnusedQubits` is the safety net.
  */
-const _pruneEmptyAncestors = (chain: AncestorRung[]): void => {
-  // Innermost ancestor's targets are already refreshed by the
-  // caller; only ancestors we modify here need a re-derivation
-  // when the *next* iteration runs.
-  let needsRefresh = false;
-  for (const { op, containingArray } of chain) {
-    if (needsRefresh) {
-      _refreshDerivedTargets(op);
+const _pruneEmptyAncestors = (chain: AncestorRung[]): AncestorRung[] => {
+  const survived: AncestorRung[] = [];
+  let stillPruning = true;
+  for (const rung of chain) {
+    if (!stillPruning) {
+      // Above the first non-empty ancestor — nothing here can
+      // have been emptied by our move, but keep these rungs
+      // around so the post-prune refresh walk can early-exit
+      // through them cleanly.
+      survived.push(rung);
+      continue;
     }
-    if (!_isOperationEmpty(op)) {
-      // First non-empty ancestor terminates the walk: anything
-      // above this is fully populated and can't have been emptied
-      // by our move.
-      break;
+    if (!_isOperationEmpty(rung.op)) {
+      // First non-empty rung terminates the prune phase. It
+      // survives (its children changed; refresh handles its
+      // .targets) and so does everything above it.
+      stillPruning = false;
+      survived.push(rung);
+      continue;
     }
-    // Splice `op` out of its containing array. Mirror the column-
-    // cleanup convention from `_removeOp`: if the column that held
-    // `op` is now empty, drop the column too.
-    for (let colIdx = 0; colIdx < containingArray.length; colIdx++) {
-      const col = containingArray[colIdx];
-      const opIdx = col.components.indexOf(op);
+    // Splice rung.op out of its containing array. Mirror the
+    // column-cleanup convention from `_removeOp`: if the column
+    // that held `op` is now empty, drop the column too.
+    for (let colIdx = 0; colIdx < rung.containingArray.length; colIdx++) {
+      const col = rung.containingArray[colIdx];
+      const opIdx = col.components.indexOf(rung.op);
       if (opIdx >= 0) {
         col.components.splice(opIdx, 1);
         if (col.components.length === 0) {
-          containingArray.splice(colIdx, 1);
+          rung.containingArray.splice(colIdx, 1);
         }
         break;
       }
     }
-    // We just removed a child from the NEXT ancestor in the chain;
-    // it needs to re-derive its targets on the next iteration.
-    needsRefresh = true;
+    // Don't push the deleted rung to `survived`.
   }
+  return survived;
 };
 
 /**
@@ -1051,6 +1253,14 @@ const addOperation = (
 
   model.ensureQubitCount(targetWire);
 
+  // Capture the dest ancestor chain BEFORE _addOp so the rung
+  // references survive any column splices `_addOp` may perform.
+  // Empty when targetLocation is top-level (parent is root).
+  const destAncestorChain: AncestorRung[] = _collectDestAncestorChain(
+    model,
+    targetLocation,
+  );
+
   _addOp(
     model,
     newSourceOperation,
@@ -1058,6 +1268,17 @@ const addOperation = (
     targetLastIndex,
     insertNewColumn,
   );
+
+  // After mutating the parent group's children, its derived
+  // `.targets` (and every ancestor above it) must be re-derived
+  // from the children. Cascade up, with the same overlap-resolver
+  // hook `moveOperation` uses on its dest side: a widened ancestor
+  // can collide with a sibling in its containing column, and the
+  // resolver splits the column to keep layout legal.
+  refreshAncestorTargets(destAncestorChain, {
+    onAfterRefresh: ({ op, containingArray }) =>
+      _resolveOverlapAfterExtend(op, containingArray),
+  });
 
   return newSourceOperation;
 };
@@ -1074,7 +1295,20 @@ const removeOperation = (model: CircuitModel, sourceLocation: string) => {
 
   if (sourceOperation == null || sourceOperationParent == null) return null;
 
+  // Capture the source ancestor chain BEFORE _removeOp so the rung
+  // references survive the splice (and any column collapse that
+  // follows when the source was the last op in its column).
+  const ancestorChain = _collectAncestorChain(model, sourceLocation);
+
   _removeOp(model, sourceOperation, sourceOperationParent);
+
+  // After mutating the parent group's children, its derived
+  // `.targets` (and every ancestor above it) must be re-derived
+  // from the surviving children. Narrowing-only cascade: no
+  // overlap-resolver hook needed because shrinking an ancestor's
+  // span can't introduce new sibling collisions.
+  refreshAncestorTargets(ancestorChain);
+
   model.removeTrailingUnusedQubits();
 };
 
@@ -1111,6 +1345,11 @@ const findAndRemoveOperations = (
   };
 
   inPlaceFilter(model.componentGrid);
+
+  // Batch removal may have stripped ops from many different ancestor
+  // chains — too many to track individually — so re-derive every
+  // group's cache in a single bottom-up sweep. Narrowing-only.
+  _deepRefreshDerivedTargets(model.componentGrid);
 };
 
 /**
@@ -1130,10 +1369,23 @@ const addControl = (
     (control) => control.qubit === wireIndex,
   );
   if (!existingControl) {
+    // Capture ancestors before mutating so the rung references
+    // survive any column splices the overlap-resolver may perform.
+    const ancestorChain = _findAncestorChainForOp(model, op);
+
     op.controls.push({ qubit: wireIndex });
     op.controls.sort((a, b) => a.qubit - b.qubit);
     model.ensureQubitCount(wireIndex);
     model.qubitUseCounts[wireIndex]++;
+
+    // Adding a control on a wire outside the op's existing span
+    // widens it, which propagates into every ancestor group's
+    // derived `.targets`. Overlap-resolver hook handles any new
+    // sibling-column collisions the widening introduces.
+    refreshAncestorTargets(ancestorChain, {
+      onAfterRefresh: ({ op: ancestorOp, containingArray }) =>
+        _resolveOverlapAfterExtend(ancestorOp, containingArray),
+    });
     return true;
   }
   return false;
@@ -1154,11 +1406,19 @@ const removeControl = (
       (control) => control.qubit === wireIndex,
     );
     if (controlIndex !== -1) {
+      // Capture ancestors before mutating; even though narrowing
+      // can't trigger column splices, we follow the same pattern
+      // as the other mutators for consistency.
+      const ancestorChain = _findAncestorChainForOp(model, op);
+
       op.controls.splice(controlIndex, 1);
       model.qubitUseCounts[wireIndex]--;
       if (wireIndex === model.qubits.length - 1) {
         model.removeTrailingUnusedQubits();
       }
+
+      // Narrowing only — no overlap-resolver hook needed.
+      refreshAncestorTargets(ancestorChain);
       return true;
     }
   }
@@ -1268,14 +1528,23 @@ const removeQubit = (model: CircuitModel, qubitIdx: number): void => {
   model.qubitUseCounts.splice(qubitIdx, 1);
   model.removeTrailingUnusedQubits();
 
-  // Update all remaining operation references
-  for (const column of model.componentGrid) {
-    for (const op of column.components) {
-      getOperationRegisters(op).forEach((reg) => {
-        if (reg.qubit > qubitIdx) reg.qubit -= 1;
-      });
+  // Update all operation references throughout the tree — including
+  // ops nested inside groups, AND the eager `.targets` / `.results`
+  // caches on those groups (which hold their own Register objects
+  // independent of descendant ops). Walking recursively keeps both
+  // child refs and cached refs in lockstep, so the uniform shift
+  // preserves cache coherence without needing a separate refresh.
+  const shiftRefsInGrid = (grid: ComponentGrid): void => {
+    for (const column of grid) {
+      for (const op of column.components) {
+        getOperationRegisters(op).forEach((reg) => {
+          if (reg.qubit > qubitIdx) reg.qubit -= 1;
+        });
+        if (op.children != null) shiftRefsInGrid(op.children);
+      }
     }
-  }
+  };
+  shiftRefsInGrid(model.componentGrid);
 
   // Update qubit ids to match their new positions
   model.qubits.forEach((q, idx) => {

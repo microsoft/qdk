@@ -1066,6 +1066,11 @@ test("expanded group emits a trailing inner-column dropzone band on its right ed
                     gate: "H",
                     targets: [{ qubit: 0 }],
                   },
+                  {
+                    kind: "unitary",
+                    gate: "Y",
+                    targets: [{ qubit: 1 }],
+                  },
                 ],
               },
             ],

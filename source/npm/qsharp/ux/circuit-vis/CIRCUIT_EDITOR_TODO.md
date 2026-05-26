@@ -1573,13 +1573,248 @@ groupMaxWire, hoverWireIndex, hoverColIndex)` exports a single
 
 ##### Roadmap & status
 
-| Item                                    | Severity               | Status                      |
-| --------------------------------------- | ---------------------- | --------------------------- |
-| D1: empty-group crash                   | Crash                  | ✅ Shipped (user-confirmed) |
-| D2: classical condition before producer | Logic error            | ✅ Shipped (user-confirmed) |
-| D3: multi-target semantics              | Design / documentation | ✅ Shipped (pending user)   |
-| D4: move-out vs. expand-group           | Design                 | ✅ Shipped (pending user)   |
-| D5: dropzone overlapping rendered gate  | Bug                    | ✅ Shipped (user-confirmed) |
+| Item                                     | Severity               | Status                      |
+| ---------------------------------------- | ---------------------- | --------------------------- |
+| D1: empty-group crash                    | Crash                  | ✅ Shipped (user-confirmed) |
+| D2: classical condition before producer  | Logic error            | ✅ Shipped (user-confirmed) |
+| D3: multi-target semantics               | Design / documentation | ✅ Shipped (pending user)   |
+| D4: move-out vs. expand-group            | Design                 | ✅ Shipped (pending user)   |
+| D5: dropzone overlapping rendered gate   | Bug                    | ✅ Shipped (user-confirmed) |
+| D6: pure-derived group `.targets`        | Refactor               | ❌ Investigated, rejected   |
+| D7: centralized ancestor-targets utility | Refactor               | ✅ Shipped (pending user)   |
+
+---
+
+### D6 — Pure-derived group `.targets` (investigated, rejected)
+
+**Context.** D4 Stage B's dest-side ancestor refresh, plus the
+source-side parent refresh inside `moveOperation`, plus the
+per-rung refresh in `_pruneEmptyAncestors`, made the action layer
+responsible for keeping a group's `.targets` in lockstep with its
+children. That's an eager-cache design: `.targets` on a group is a
+denormalized union of descendant wires, maintained by every
+mutator. A cleaner-looking alternative is **pure-derived** —
+group ops have no authoritative `.targets`; readers
+(`getMinMaxRegIdx`) descend children at read time. The user's
+framing: "a group's targets should always be determined by
+their children."
+
+**Outcome: rejected.** A full implementation built end-to-end
+(action-layer cleanup, subtree-walking `getMinMaxRegIdx`,
+save-time recompute in `Sqore.minimizeOperation`, 318/318 tests
+green, snapshots byte-identical), benchmarked, and reviewed.
+Decision after review: **keep the eager cache**. Reasons:
+
+1. **Performance cost is real.** Benchmark in
+   [circuitTargets.bench.md](../../test/circuit-editor/circuitTargets.bench.md):
+   render 1.7×–2.5× slower, mutate 1.4×–3.3× slower vs.
+   baseline-eager across six scenarios. The renderer/resolver
+   hot paths previously O(1) (read cached `.targets`) become
+   O(descendant count). Renders run on every keystroke during
+   drag/drop; the slowdown isn't invisible.
+2. **Semantic clarity got worse, not better.** Pure-derived
+   leaves `.targets` populated in the JSON schema, populated in
+   the file format, populated on every op in memory — **and
+   ignored by the runtime**. The first reader who hits
+   `op.targets` and trusts it gets a surprise. The save-time
+   recompute inside `Sqore.minimizeOperation` is a fragile
+   invariant — easy to forget when adding a new save path.
+3. **The motivating bugs were fixable in the eager model.** The
+   investigation precisely diagnosed them, and none required
+   redesigning the data model: cascade refresh ordering
+   (refresh-before-mutate vs. refresh-after-mutate), the
+   `getChildTargets` strip-`result` bug that silently dropped
+   classical refs, and empty-prune needing to run before parent
+   refresh.
+
+**What we keep from the experiment.** The work isn't wasted —
+several artifacts ship as standalone improvements:
+
+- **`getChildTargets` `result`-preservation fix.** Reuse the
+  same fix on the eager-cache side; it's a one-line correctness
+  bug that exists regardless of the data model choice.
+- **Snapshot harness.** The new
+  [if-else.qs.snapshot.html](../../test/circuits-cases/if-else.qs.snapshot.html)
+  and
+  [conditionals.qs.snapshot.html](../../test/circuits-cases/conditionals.qs.snapshot.html)
+  baselines (plus the harness that produces them) catch
+  rendering regressions for classically-controlled groups —
+  which were previously uncovered.
+- **Benchmark + `bench.md`.** Becomes the artifact that
+  justifies the eager-cache choice; the next contributor who
+  asks "why not pure-derived?" sees the numbers and doesn't
+  re-litigate.
+- **The semantic contract written into the
+  [`getMinMaxRegIdx`](utils.ts) doc comment.** Port it back,
+  reframed as "`.targets` IS authoritative; this matches what
+  the Rust builder seeds via `new_group` + `merge_inputs`." The
+  comment is independently valuable.
+- **New test scenarios** (12 in
+  [circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+  - [dropzones.test.mjs](../../test/circuit-editor/dropzones.test.mjs))
+    lock down extend cascade and overlap-split behavior. Rewrite
+    the assertions back to direct `.targets` checks (which IS the
+    contract under eager cache); the scenarios stay.
+- **Action-layer hygiene** that didn't depend on the data-model
+  change: empty-prune ordering relative to parent refresh, the
+  `_isOperationEmpty` extraction, the
+  `_pruneEmptyAncestors` structure improvements.
+
+**Hybrid we explicitly chose not to take.** Per-render
+memoization on a pure-derived field claws back some render
+perf but adds yet another invariant ("cache valid for the
+duration of one draw") and doesn't help mutate at all. More
+moving parts to reason about for less benefit than keeping the
+cache authoritative.
+
+**Next:** revert the pure-derived edits in
+[utils.ts](utils.ts),
+[actions/circuitActions.ts](actions/circuitActions.ts), and
+[sqore.ts](sqore.ts); cherry-pick the keep-list above onto the
+eager-cache baseline; then take **D7** (below) to make the
+cache maintenance itself less error-prone.
+
+---
+
+### D7 — Centralized bottom-up ancestor `.targets` refresh utility
+
+**Status: shipped.** The three scattered refresh sites are now a
+single [`refreshAncestorTargets`](actions/circuitActions.ts)
+walk; `getChildTargets` no longer strips the `result` field
+during dedup (see the D6 keep-list item, fixed alongside this
+work). 325 npm tests pass — the same 318 from before D6 plus 7
+new direct-on-`getChildTargets` tests in
+[utils.test.mjs](../../test/circuit-editor/utils.test.mjs) that
+lock down the strip-`result` regression.
+
+**Context (before).** D6 confirmed that the eager-cache design
+wins on balance, but the **mechanism** by which `moveOperation`
+kept a group's `.targets` in sync with its children was spread
+across three call sites that each walked the ancestor chain
+slightly differently:
+
+1. An inline source-parent refresh inside `moveOperation`
+   (`sourceParentOperation.targets = getChildTargets(...)`).
+2. `_extendDestAncestorsVertically` — the dest-side cascade
+   added by D4 Stage B (innermost-out, span-enclosure
+   early-exit, paired with `_resolveOverlapAfterExtend`).
+3. The per-rung refresh inside `_pruneEmptyAncestors` (a
+   `needsRefresh` flag that ran `_refreshDerivedTargets` on
+   whichever rung followed a freshly-deleted ancestor).
+
+Plus the underlying `getChildTargets` itself, which had a silent
+bug (strips `result` field from `Register`s, losing
+classical-control refs on any refresh).
+
+Each call site re-implemented "find this op's parent, recompute
+its `.targets`, decide whether to keep walking up." That was the
+shape of a bug factory.
+
+**Delivered.**
+
+1. New private
+   [`refreshAncestorTargets(chain, options)`](actions/circuitActions.ts)
+   utility — bottom-up walk over a pre-captured `AncestorRung[]`
+   that calls `_refreshDerivedTargets` on each still-attached
+   ancestor and early-exits at the first rung whose recomputed
+   `.targets` matches its old value. Pure data mutation: no DOM,
+   no column reshape. Sibling-collision resolution is composed
+   via a per-rung `onAfterRefresh` hook, which keeps the utility
+   focused on `.targets` and leaves the
+   `_resolveOverlapAfterExtend` split-and-shift as the dest-side
+   caller's concern.
+
+   The refresh itself is
+   [`_computeDerivedTargets`](actions/circuitActions.ts) →
+   immediate children only (`getOperationRegisters` on each
+   direct child, then dedup), not a full subtree walk. Valid
+   because each child's `.targets` is itself the eager cache of
+   its subtree, so unioning the immediate children's already-
+   correct caches reproduces the full subtree union without
+   re-walking it. Termination via change-detection: when a rung's
+   recomputed value equals its current cache, no parent above it
+   can have changed either, so the walk stops.
+
+   **Shared-ancestor caveat.** `onAfterRefresh` fires on every
+   visited still-attached rung regardless of whether the refresh
+   produced a change. This is required when source and dest
+   chains share an ancestor: the first cascade to reach the
+   shared rung writes its new `.targets`; the second cascade then
+   sees "unchanged" but the span has still widened relative to
+   pre-mutation, and the overlap-resolver hook must still get a
+   chance to split a collided sibling column. Termination on
+   `!changed` happens AFTER the hook fires on that rung.
+
+2. `_pruneEmptyAncestors` refactored to **prune-only**, returning
+   the surviving (still-attached) portion of the chain. The
+   inline `needsRefresh` flag is gone; the post-prune refresh is
+   now the same `refreshAncestorTargets` call the dest side uses.
+3. `moveOperation`'s tail is now a clean two-step:
+   ```ts
+   const survivedSourceChain = _pruneEmptyAncestors(ancestorChain);
+   refreshAncestorTargets(survivedSourceChain);
+   refreshAncestorTargets(destAncestorChain, {
+     onAfterRefresh: ({ op, containingArray }) =>
+       _resolveOverlapAfterExtend(op, containingArray),
+   });
+   ```
+   The inline source-parent refresh + `findParentOperation`
+   lookup are removed; the source-side post-prune refresh walk
+   covers the same case (and more — it cascades upward when an
+   ancestor's span narrows, which the inline single-rung refresh
+   could not).
+4. `getChildTargets` strip-`result` fix (landed as the D6
+   keep-list item just before this work) — dedup is now keyed on
+   `(qubit, result)` rather than `qubit` alone, so
+   classical-control refs survive every refresh.
+
+**Resolved design questions.**
+
+- **Capture-before-mutate vs. parse-after.** Picked
+  capture-before-mutate uniformly. Both source and dest chains
+  are captured via `_collectAncestorChain` /
+  `_collectDestAncestorChain` at the top of `moveOperation`, and
+  the captured `(op, containingArray)` object references survive
+  any mid-move column splices or prune cascades that would
+  invalidate hierarchical location strings. The
+  `stillAttached` check inside `refreshAncestorTargets` handles
+  the case where a captured rung was pruned away between
+  capture and refresh.
+- **Coupling to the overlap-resolver.** The utility itself stays
+  pure (`.targets` refresh only). Callers compose
+  `_resolveOverlapAfterExtend` via the `onAfterRefresh` hook —
+  needed on the dest side because widening can introduce a
+  sibling-column collision, not needed on the source side
+  because narrowing can't.
+- **Idempotency contract.** Refresh is deterministic
+  (`_computeDerivedTargets` produces the same array twice in a
+  row) and the change-detection early-exit fires immediately on
+  the second call (every ancestor's recomputed value equals its
+  cache). Documented on the utility's doc comment.
+
+**Tests.** All 12 D6-era assertions in
+[circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+continue to pass — they exercise exactly the
+cascade-and-refresh behavior the utility now owns. The
+end-to-end coverage is sufficient; no separate unit-level test
+file for the private utility (its observable behavior IS the
+end-to-end behavior). 325/325 tests pass after the
+immediate-children optimization, including the three
+extend-cascade-with-sibling-split tests (105, 107, 108) that
+exercise the shared-ancestor hook-firing contract.
+
+**What didn't change.**
+
+- The on-disk shape: `.targets` / `.results` field semantics,
+  the `kind` discriminator's switch, the JSON schema — all
+  identical. The refactor is purely about WHO writes those
+  fields and WHEN, not what they contain.
+- Reader-side perf: `getMinMaxRegIdx` still does an O(1) cache
+  read. No per-render memoization (out of scope; see D6's
+  hybrid-rejected note).
+- The Rust builder. The Rust side already produces correct
+  `.targets` on disk; this work was purely about how the npm
+  package's action layer maintains them after edits.
 
 ---
 
