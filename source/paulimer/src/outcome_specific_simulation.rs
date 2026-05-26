@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use rand::{thread_rng, Rng};
+use rand::RngExt;
 
 use crate::{
     bits::{Bitwise, IndexSet},
@@ -141,7 +141,7 @@ pub fn allocate_random_bit(simulation: &mut OutcomeSpecificSimulation) {
     simulation.outcome_vector.push(if simulation.use_all_zeros {
         false
     } else {
-        thread_rng().gen()
+        rand::rng().random()
     });
     simulation.random_outcome_indicator.push(true);
     simulation.num_random_bits += 1;

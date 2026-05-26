@@ -6,7 +6,7 @@ __pycache__/
 .vscode/
 .vscode-test-web/
 .vscode-test/
-.venv/
+.venv*/
 /katas/**/*.md
 /library/
 /source/allocator/

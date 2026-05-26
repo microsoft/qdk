@@ -13,7 +13,6 @@ use paulimer::{
     },
 };
 use proptest::prelude::*;
-use rand::thread_rng;
 
 proptest! {
     #[test]
@@ -150,7 +149,7 @@ prop_compose! {
 }
 
 fn arbitrary_pauli_of_length(length: usize) -> PauliUnitary<Vec<bool>, u8> {
-    paulimer::pauli::pauli_random(length, &mut thread_rng())
+    paulimer::pauli::pauli_random(length, &mut rand::rng())
 }
 
 #[test]

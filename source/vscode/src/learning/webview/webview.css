@@ -164,12 +164,6 @@ body {
   color: var(--fg);
 }
 
-/* Badge variant: incomplete exercise — accented to signal "needs action". */
-.header .badge.exercise {
-  background: var(--vscode-badge-background, var(--accent));
-  color: var(--vscode-badge-foreground, #fff);
-}
-
 /* Badge variant: completed exercise — green "done" state. */
 .header .badge.complete {
   background: var(--success);

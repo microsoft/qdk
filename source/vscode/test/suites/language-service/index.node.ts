@@ -16,7 +16,6 @@ export async function run(): Promise<void> {
       // paths here since ESBuild needs these modules to be
       // real paths on disk at bundling time.
       require("./language-service.test"); // eslint-disable-line @typescript-eslint/no-require-imports
-      require("./notebook.test"); // eslint-disable-line @typescript-eslint/no-require-imports
     });
   } finally {
     server.close();

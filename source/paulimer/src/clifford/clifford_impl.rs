@@ -2096,7 +2096,7 @@ pub fn random_clifford_via_operations_sampling<CliffordLike: Clifford + Clifford
 ) -> CliffordLike {
     let mut random_clifford = CliffordLike::identity(qubit_count);
     for _ in 0..num_random_generators {
-        let (unitary_operation, support) = &operations[rand::random::<usize>() % operations.len()];
+        let (unitary_operation, support) = &operations[rand::random_range(0..operations.len())];
         random_clifford.left_mul(*unitary_operation, support);
     }
     random_clifford

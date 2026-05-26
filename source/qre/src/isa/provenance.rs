@@ -126,18 +126,20 @@ impl ProvenanceGraph {
         let mut pareto_index = FxHashMap::default();
         for (id, node_indices) in groups {
             // Sub-partition by encoding and property keys to avoid comparing
-            // incompatible instructions (Risk R2 mitigation). Property values
-            // are compared via their `Display` representation, which is stable
-            // across all Property variants.
+            // incompatible instructions (Risk R2 mitigation)
             #[allow(clippy::type_complexity)]
-            let mut sub_groups: FxHashMap<(Encoding, Vec<(u64, String)>), Vec<usize>> =
+            let mut sub_groups: FxHashMap<(Encoding, Vec<(u64, u64)>), Vec<usize>> =
                 FxHashMap::default();
             for &idx in &node_indices {
                 let instr = &self.nodes[idx].instruction;
-                let mut prop_vec: Vec<(u64, String)> = instr
+                let mut prop_vec: Vec<(u64, u64)> = instr
                     .properties
                     .as_ref()
-                    .map(|p| p.iter().map(|(&k, v)| (k, v.to_string())).collect())
+                    .map(|p| {
+                        let mut v: Vec<_> = p.iter().map(|(&k, &v)| (k, v)).collect();
+                        v.sort_unstable();
+                        v
+                    })
                     .unwrap_or_default();
                 prop_vec.sort_unstable();
                 sub_groups
