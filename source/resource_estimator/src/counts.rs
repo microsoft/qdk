@@ -278,7 +278,7 @@ impl LogicalCounter {
         self.repeats.push(RepeatEntry {
             count: count
                 .try_into()
-                .map_err(|_| format!("Estimate count {count} is too large to fit in a usize.",))?,
+                .map_err(|_| format!("Estimate count {count} is too large to fit in a usize."))?,
             start_depth,
             m_count: self.m_count,
             wtm_count: self.wtm_count(),
@@ -386,7 +386,7 @@ impl LogicalCounter {
             }
             let count: usize = (*count)
                 .try_into()
-                .map_err(|_| format!("Estimate count {count} is too large to fit in a usize.",))?;
+                .map_err(|_| format!("Estimate count {count} is too large to fit in a usize."))?;
             match *kind {
                 0 => aux_qubit_count += count,
                 1 => t_count += count,
@@ -810,7 +810,7 @@ impl Backend for LogicalCounter {
                 let values = arg.unwrap_tuple();
                 let [result, qubit] = array::from_fn(|i| values[i].clone());
                 let Value::Result(BackendResult::Val(val)) = result else {
-                    panic!("first argument to PostSelectZ should be a measurement result",);
+                    panic!("first argument to PostSelectZ should be a measurement result");
                 };
                 let qubit = qubit.unwrap_qubit().deref().0;
                 self.post_select_measurements.insert(qubit, val);

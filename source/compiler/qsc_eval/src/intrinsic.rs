@@ -469,7 +469,7 @@ pub fn qubit_relabel(
     // Start with a mapping of each qubit to itself.
     let mut mappings: FxHashMap<usize, usize> =
         left.iter().copied().zip(left.iter().copied()).collect();
-    for (l, r) in left.into_iter().zip(right.into_iter()) {
+    for (l, r) in left.into_iter().zip(right) {
         // Trivial case where the qubit is already mapped to itself in the relabel, which can be short circuited.
         if l == r {
             continue;

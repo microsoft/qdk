@@ -288,15 +288,13 @@ impl<'a> Lexer<'a> {
         // We need to check that the character following the fragment isn't an
         // underscore or an alphanumeric character, else it is an identifier.
         let first = self.first();
-        if c == 's'
-            && (first.is_none() || first.is_some_and(|c1| c1 != '_' && !c1.is_alphanumeric()))
-        {
+        if c == 's' && first.is_none_or(|c1| c1 != '_' && !c1.is_alphanumeric()) {
             return Some(TokenKind::LiteralFragment(LiteralFragmentKind::S));
         }
 
         let second = self.second();
         if let Some(c1) = first
-            && (second.is_none() || second.is_some_and(|c1| c1 != '_' && !c1.is_alphanumeric()))
+            && second.is_none_or(|c1| c1 != '_' && !c1.is_alphanumeric())
         {
             let fragment = match (c, c1) {
                 ('i', 'm') => Some(TokenKind::LiteralFragment(LiteralFragmentKind::Imag)),

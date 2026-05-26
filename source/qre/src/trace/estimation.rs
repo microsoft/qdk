@@ -47,9 +47,7 @@ pub fn estimate_parallel<'a>(
     collection.set_total_jobs(total_jobs);
 
     std::thread::scope(|scope| {
-        let num_threads = std::thread::available_parallelism()
-            .map(std::num::NonZero::get)
-            .unwrap_or(1);
+        let num_threads = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
 
         // Bounded channel so each worker can send its batch of results back
         // to the main thread without unbounded buffering.
@@ -103,7 +101,7 @@ pub fn estimate_parallel<'a>(
                 }
             }
             successful += local_results.len();
-            collection.extend(local_results.into_iter());
+            collection.extend(local_results);
         }
         collection.set_successful_estimates(successful);
     });
@@ -410,9 +408,7 @@ pub fn estimate_with_graph(
     collection.set_total_jobs(total_jobs);
 
     std::thread::scope(|scope| {
-        let num_threads = std::thread::available_parallelism()
-            .map(std::num::NonZero::get)
-            .unwrap_or(1);
+        let num_threads = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
 
         let (tx, rx) = std::sync::mpsc::sync_channel(num_threads);
 
@@ -479,7 +475,7 @@ pub fn estimate_with_graph(
                 }
             }
             successful += local_results.len();
-            collection.extend(local_results.into_iter());
+            collection.extend(local_results);
         }
         collection.set_successful_estimates(successful);
     });

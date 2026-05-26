@@ -481,7 +481,7 @@ impl NoiseTable {
         }
         let additional = paulis.len().saturating_sub(self.pauli_noise.len());
         self.pauli_noise.reserve(additional);
-        for (pauli, value) in paulis.into_iter().zip(probs.into_iter()) {
+        for (pauli, value) in paulis.into_iter().zip(probs) {
             // SAFETY: we validated all the pauli strings and probabilities above.
             unsafe {
                 self.set_pauli_noise_elt_unchecked(pauli.as_ref(), value);

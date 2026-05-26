@@ -87,7 +87,7 @@ impl FromIterator<Global> for Table {
         let mut callables: FxHashMap<_, FxHashMap<_, _>> = FxHashMap::default();
         let mut namespaces = NamespaceTreeRoot::default();
         for global in iter {
-            let namespace = namespaces.insert_or_find_namespace(global.namespace.into_iter());
+            let namespace = namespaces.insert_or_find_namespace(global.namespace);
             match global.kind {
                 Kind::Ty(ty) => {
                     tys.entry(namespace).or_default().insert(global.name, ty);

@@ -1839,8 +1839,8 @@ fn check_scoped_resolutions(
         provided_symbol_name,
         scope
             .opens
-            .iter()
-            .flat_map(|(_, open)| open)
+            .values()
+            .flatten()
             .map(|open @ Open { namespace, .. }| (*namespace, open)),
         &aliases,
     );

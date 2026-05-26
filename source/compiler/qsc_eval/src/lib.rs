@@ -1485,7 +1485,7 @@ impl State {
             field_vals.len() == field_indexes.len(),
             "number of given field values should match the number of given struct fields"
         );
-        for (i, val) in field_indexes.iter().zip(field_vals.into_iter()) {
+        for (i, val) in field_indexes.iter().zip(field_vals) {
             strct[*i] = val;
         }
 

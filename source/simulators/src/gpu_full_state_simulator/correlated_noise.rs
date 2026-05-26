@@ -111,7 +111,7 @@ impl NoiseTables {
 
         // Sort intrinsics by id.
         // The NoiseConfig API guarantees that the ids will be non-skiping numbers starting from zero.
-        intrinsics_ref.sort_by(|a, b| a.0.cmp(&b.0));
+        intrinsics_ref.sort_by_key(|a| a.0);
 
         for (_, noise_table) in intrinsics_ref {
             self.load_from_noise_table(noise_table);

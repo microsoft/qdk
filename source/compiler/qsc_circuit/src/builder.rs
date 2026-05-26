@@ -1602,7 +1602,7 @@ pub(crate) fn add_scoped_op(
     };
 
     let Some(relative_stack) = strip_scope_stack_prefix(op_call_stack, current_scope_stack) else {
-        panic!("op_call_stack should be a child of current_scope_stack",);
+        panic!("op_call_stack should be a child of current_scope_stack");
     };
 
     if !relative_stack.0.is_empty() {

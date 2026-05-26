@@ -678,7 +678,7 @@ impl CompilationState {
         trace!("document: {uri} compilation_uri: {compilation_uri}");
 
         Some(&self.compilations.get(compilation_uri).unwrap_or_else(|| {
-            panic!("document associated with compilation that hasn't been initialized ({compilation_uri})" ,)
+            panic!("document associated with compilation that hasn't been initialized ({compilation_uri})")
         }).0)
     }
 }
@@ -733,20 +733,16 @@ fn merge_configurations(
                 (
                     LintOrGroupConfig::Lint(lint_config),
                     LintOrGroupConfig::Lint(lint_config_override),
-                ) => {
-                    if lint_config.kind == lint_config_override.kind {
-                        lint_config.level = lint_config_override.level;
-                        return false;
-                    }
+                ) if lint_config.kind == lint_config_override.kind => {
+                    lint_config.level = lint_config_override.level;
+                    return false;
                 }
                 (
                     LintOrGroupConfig::Group(group_config),
                     LintOrGroupConfig::Group(group_config_override),
-                ) => {
-                    if group_config.lint_group == group_config_override.lint_group {
-                        group_config.level = group_config_override.level;
-                        return false;
-                    }
+                ) if group_config.lint_group == group_config_override.lint_group => {
+                    group_config.level = group_config_override.level;
+                    return false;
                 }
                 _ => (),
             }
