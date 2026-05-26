@@ -115,7 +115,11 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       : activity.type === "exercise"
         ? "Exercise"
         : "Lesson";
-    item.id = `activity:${unitId}:${activity.id}`;
+    // Vary the id by `isCurrent` so VS Code drops the stale selection when the
+    // active activity changes (e.g. after pressing Next in the lesson panel).
+    item.id = isCurrent
+      ? `activity:${unitId}:${activity.id}:current`
+      : `activity:${unitId}:${activity.id}`;
     item.command = {
       command: "qsharp-vscode.learningOpenActivity",
       title: "Go to Activity",
