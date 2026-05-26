@@ -375,7 +375,12 @@ export class LearningService {
     if (source) {
       this.sendActivityActionTelemetry("solution", source);
     }
-    return exercise.solutionCode;
+    return exercise.solutionCodes[0] ?? "";
+  }
+
+  getAllSolutions(): string[] {
+    const exercise = this.resolveExercise();
+    return exercise.solutionCodes;
   }
 
   getExerciseFileUri(): vscode.Uri {
@@ -852,6 +857,7 @@ export class LearningService {
         description: activity.description,
         filePath: fileUri.toString(),
         isComplete: this.isComplete(location),
+        hasAlternatives: activity.solutionCodes.length > 1,
       } satisfies ExerciseContent;
     }
 

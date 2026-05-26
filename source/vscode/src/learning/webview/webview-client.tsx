@@ -231,7 +231,16 @@ function App() {
         content={learning.position.content}
         activityKey={locationKey(learning.position.location)}
       />
-      {output ? <OutputPanel output={output} onDismiss={onDismiss} /> : null}
+      {output ? (
+        <OutputPanel
+          output={output}
+          onDismiss={onDismiss}
+          hasAlternatives={
+            learning.position.content.type === "exercise" &&
+            learning.position.content.hasAlternatives
+          }
+        />
+      ) : null}
       <ActionBar groups={learning.actions} busy={busy} onAction={onAction} />
       <ProgressBar progress={learning.progress} />
     </>
@@ -377,9 +386,11 @@ function FilePathNote({
 function OutputPanel({
   output: out,
   onDismiss,
+  hasAlternatives,
 }: {
   output: OutputState;
   onDismiss: () => void;
+  hasAlternatives: boolean;
 }) {
   const className = "output" + (out.variant ? " " + out.variant : "");
   const label = out.variant ? "Result" : "Output";
@@ -395,12 +406,18 @@ function OutputPanel({
         ×
       </button>
       <div class="out-label">{label}</div>
-      <OutputBody output={out} />
+      <OutputBody output={out} hasAlternatives={hasAlternatives} />
     </div>
   );
 }
 
-function OutputBody({ output: out }: { output: OutputState }) {
+function OutputBody({
+  output: out,
+  hasAlternatives,
+}: {
+  output: OutputState;
+  hasAlternatives: boolean;
+}) {
   switch (out.type) {
     case "loading":
       return <div class="loading">Working…</div>;
@@ -414,11 +431,19 @@ function OutputBody({ output: out }: { output: OutputState }) {
       return <div class={cls}>{out.text}</div>;
     }
     case "check":
-      return <SolutionResult result={out.result} />;
+      return (
+        <SolutionResult result={out.result} hasAlternatives={hasAlternatives} />
+      );
   }
 }
 
-function SolutionResult({ result }: { result: SolutionCheckResult }) {
+function SolutionResult({
+  result,
+  hasAlternatives,
+}: {
+  result: SolutionCheckResult;
+  hasAlternatives: boolean;
+}) {
   return (
     <>
       {result.passed ? (
@@ -434,6 +459,16 @@ function SolutionResult({ result }: { result: SolutionCheckResult }) {
           onClick={() => openChat("Help me understand why my solution failed")}
         >
           <span class="codicon codicon-sparkle" /> What went wrong?
+        </span>
+      )}
+      {result.passed && hasAlternatives && (
+        <span
+          class="chat-link"
+          onClick={() =>
+            openChat("Show me alternative approaches to this exercise")
+          }
+        >
+          <span class="codicon codicon-sparkle" /> See alternative approaches
         </span>
       )}
     </>
