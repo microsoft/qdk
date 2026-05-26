@@ -15,7 +15,7 @@ use qdk_simulators::noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable};
 use qdk_simulators::stabilizer_simulator::{self, StabilizerSimulator};
 use qdk_simulators::{MeasurementResult, NearlyZero, Simulator as _, SparseStateSim};
 use qsc_data_structures::index_map::IndexMap;
-use rand::{Rng, RngCore};
+use rand::{Rng, RngExt};
 use rand::{SeedableRng, rngs::StdRng};
 
 #[cfg(test)]
@@ -586,7 +586,7 @@ impl SparseSim {
             noise: PauliNoise::default(),
             loss: f64::zero(),
             lost_qubits: BigUint::zero(),
-            rng: Some(StdRng::from_entropy()),
+            rng: Some(StdRng::from_rng(&mut rand::rng())),
         }
     }
 
@@ -595,7 +595,7 @@ impl SparseSim {
         if noise.is_noiseless() && self.loss.is_zero() {
             self.rng = None;
         } else {
-            self.rng = Some(StdRng::from_entropy());
+            self.rng = Some(StdRng::from_rng(&mut rand::rng()));
         }
     }
 
@@ -604,7 +604,7 @@ impl SparseSim {
         if loss.is_zero() && self.noise.is_noiseless() {
             self.rng = None;
         } else {
-            self.rng = Some(StdRng::from_entropy());
+            self.rng = Some(StdRng::from_rng(&mut rand::rng()));
         }
     }
 
@@ -645,7 +645,7 @@ impl SparseSim {
                     .rng
                     .as_mut()
                     .expect("RNG should be present")
-                    .gen_range(0.0..1.0);
+                    .random_range(0.0..1.0);
                 if p < noise_table.loss {
                     // The qubit is lost, so we reset it.
                     // It is not safe to release the qubit here, as that may
@@ -694,7 +694,7 @@ impl SparseSim {
         }
         if let Some(rng) = &mut self.rng {
             // First, check for loss.
-            let p = rng.gen_range(0.0..1.0);
+            let p = rng.random_range(0.0..1.0);
             if p < self.loss {
                 // The qubit is lost, so we reset it.
                 // It is not safe to release the qubit here, as that may
@@ -709,7 +709,7 @@ impl SparseSim {
             }
 
             // Apply noise with a probability distribution defined in `self.noise`.
-            let p = rng.gen_range(0.0..1.0);
+            let p = rng.random_range(0.0..1.0);
             if p >= self.noise.distribution[2] {
                 // In the most common case we don't apply noise
             } else if p < self.noise.distribution[0] {
@@ -1087,7 +1087,9 @@ impl Backend for SparseSim {
             | "AccountForEstimatesInternal"
             | "BeginRepeatEstimatesInternal"
             | "EndRepeatEstimatesInternal"
-            | "EnableMemoryComputeArchitecture" => Some(Ok(Value::unit())),
+            | "EnableMemoryComputeArchitecture"
+            | "Load"
+            | "Store" => Some(Ok(Value::unit())),
             "ConfigurePauliNoise" => {
                 let [xv, yv, zv] = &*arg.unwrap_tuple() else {
                     panic!("tuple arity for ConfigurePauliNoise intrinsic should be 3");
@@ -1170,9 +1172,9 @@ impl Backend for SparseSim {
             self.sim.set_rng_seed(seed);
         } else {
             if !self.is_noiseless() {
-                self.rng = Some(StdRng::from_entropy());
+                self.rng = Some(StdRng::from_rng(&mut rand::rng()));
             }
-            self.sim.set_rng_seed(rand::thread_rng().next_u64());
+            self.sim.set_rng_seed(rand::rng().next_u64());
         }
     }
 }
@@ -1188,7 +1190,7 @@ pub struct CliffordSim {
 impl CliffordSim {
     #[must_use]
     pub fn new(num_qubits: usize) -> Self {
-        let seed = rand::thread_rng().next_u32();
+        let seed = rand::rng().next_u32();
         Self {
             sim: StabilizerSimulator::new(
                 num_qubits,
@@ -1207,7 +1209,7 @@ impl CliffordSim {
         num_qubits: usize,
         noise_config: CumulativeNoiseConfig<stabilizer_simulator::Fault>,
     ) -> Self {
-        let seed = rand::thread_rng().next_u32();
+        let seed = rand::rng().next_u32();
         Self {
             sim: StabilizerSimulator::new(num_qubits, 1, seed, noise_config.into()),
             num_qubits,
@@ -1416,7 +1418,9 @@ impl Backend for CliffordSim {
             | "AccountForEstimatesInternal"
             | "BeginRepeatEstimatesInternal"
             | "EndRepeatEstimatesInternal"
-            | "EnableMemoryComputeArchitecture" => Some(Ok(Value::unit())),
+            | "EnableMemoryComputeArchitecture"
+            | "Load"
+            | "Store" => Some(Ok(Value::unit())),
             "ConfigurePauliNoise" => Some(Err(
                 "dynamic noise configuration not supported in Clifford simulation".to_string(),
             )),
@@ -1440,7 +1444,7 @@ impl Backend for CliffordSim {
         if let Some(seed) = seed {
             self.sim.set_seed(seed);
         } else {
-            self.sim.set_seed(rand::thread_rng().next_u64());
+            self.sim.set_seed(rand::rng().next_u64());
         }
     }
 }

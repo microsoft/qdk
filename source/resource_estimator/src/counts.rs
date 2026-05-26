@@ -9,12 +9,12 @@ mod memory_compute;
 use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc::{Backend, BackendResult, interpret::Value};
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rustc_hash::FxHashMap;
 use std::{array, cell::RefCell, f64::consts::PI, fmt::Debug, iter::Sum};
 
 use crate::{counts::memory_compute::CachingStrategy, system::LogicalResourceCounts};
-use memory_compute::MemoryComputeInfo;
+use memory_compute::{ManualMemoryCompute, MemoryCompute, MemoryComputeInfo};
 
 /// Resource counter implementation
 ///
@@ -47,7 +47,7 @@ pub struct LogicalCounter {
     /// Repeating
     repeats: Vec<RepeatEntry>,
     /// Memory/Compute architecture
-    memory_compute: Option<MemoryComputeInfo>,
+    memory_compute: MemoryCompute,
     /// Random number generator
     rnd: RefCell<StdRng>,
     /// Map to track any post-select measurements by their associated qubit.
@@ -70,7 +70,7 @@ impl Default for LogicalCounter {
             caching_stack: vec![],
             caching_layers: FxHashMap::default(),
             repeats: vec![],
-            memory_compute: None,
+            memory_compute: MemoryCompute::None,
             rnd: RefCell::new(StdRng::seed_from_u64(0)),
             post_select_measurements: FxHashMap::default(),
         }
@@ -81,18 +81,26 @@ impl LogicalCounter {
     #[must_use]
     pub fn logical_resources(&self) -> LogicalResourceCounts {
         let (num_compute_qubits, read_from_memory_count, write_to_memory_count) =
-            if let Some(memory_compute) = &self.memory_compute {
-                (
+            match &self.memory_compute {
+                MemoryCompute::Auto(memory_compute) => (
                     Some(memory_compute.compute_size() as u64),
                     Some(memory_compute.read_from_memory_count() as u64),
                     Some(memory_compute.write_to_memory_count() as u64),
-                )
-            } else {
-                (None, None, None)
+                ),
+                MemoryCompute::Manual(memory_compute) => (
+                    Some(memory_compute.max_compute_qubits_count as u64),
+                    Some(memory_compute.reads_count as u64),
+                    Some(memory_compute.writes_count as u64),
+                ),
+                MemoryCompute::None => (None, None, None),
             };
+        let num_qubits = match &self.memory_compute {
+            MemoryCompute::Manual(mc) => mc.max_compute_qubits_count + mc.max_memory_qubits_count,
+            _ => self.next_free,
+        };
 
         LogicalResourceCounts {
-            num_qubits: self.next_free as _,
+            num_qubits: num_qubits as _,
             t_count: self.t_count as _,
             rotation_count: self.r_count as _,
             rotation_depth: self.layers.iter().filter(|layer| layer.r != 0).count() as _,
@@ -192,9 +200,16 @@ impl LogicalCounter {
             self.r_count += combined_layer.r;
             self.ccz_count += combined_layer.ccz;
             self.m_count += *m_count;
-            if let Some(memory_compute) = &mut self.memory_compute {
-                memory_compute.increase_write_to_memory_count(*wtm_count);
-                memory_compute.increase_read_from_memory_count(*rfm_count);
+            match &mut self.memory_compute {
+                MemoryCompute::Auto(memory_compute) => {
+                    memory_compute.increase_write_to_memory_count(*wtm_count);
+                    memory_compute.increase_read_from_memory_count(*rfm_count);
+                }
+                MemoryCompute::Manual(memory_compute) => {
+                    memory_compute.writes_count += wtm_count;
+                    memory_compute.reads_count += rfm_count;
+                }
+                MemoryCompute::None => (),
             }
 
             false
@@ -325,13 +340,22 @@ impl LogicalCounter {
             self.ccz_count += combined_ccz_count;
             self.m_count += combined_m_count;
 
-            if let Some(memory_compute) = &mut self.memory_compute {
-                memory_compute.increase_write_to_memory_count(
-                    (memory_compute.write_to_memory_count() - wtm_count) * (count - 1),
-                );
-                memory_compute.increase_read_from_memory_count(
-                    (memory_compute.read_from_memory_count() - rfm_count) * (count - 1),
-                );
+            match &mut self.memory_compute {
+                MemoryCompute::Auto(memory_compute) => {
+                    memory_compute.increase_write_to_memory_count(
+                        (memory_compute.write_to_memory_count() - wtm_count) * (count - 1),
+                    );
+                    memory_compute.increase_read_from_memory_count(
+                        (memory_compute.read_from_memory_count() - rfm_count) * (count - 1),
+                    );
+                }
+                MemoryCompute::Manual(memory_compute) => {
+                    memory_compute.writes_count +=
+                        (memory_compute.writes_count - wtm_count) * (count - 1);
+                    memory_compute.reads_count +=
+                        (memory_compute.reads_count - rfm_count) * (count - 1);
+                }
+                MemoryCompute::None => (),
             }
 
             self.global_barrier();
@@ -456,37 +480,54 @@ impl LogicalCounter {
         let compute_capacity: usize = compute_capacity
             .try_into()
             .expect("compute capacity is too large to fit in a usize");
-        if self.memory_compute.is_none() {
-            self.memory_compute = Some(MemoryComputeInfo::new(if strategy == 0 {
-                CachingStrategy::least_recently_used(compute_capacity)
-            } else {
-                CachingStrategy::least_frequently_used(compute_capacity)
-            }));
+        if matches!(self.memory_compute, MemoryCompute::None) {
+            self.memory_compute = match strategy {
+                0 => MemoryCompute::Auto(MemoryComputeInfo::new(
+                    CachingStrategy::least_recently_used(compute_capacity),
+                )),
+                1 => MemoryCompute::Auto(MemoryComputeInfo::new(
+                    CachingStrategy::least_frequently_used(compute_capacity),
+                )),
+                2 => MemoryCompute::Manual(ManualMemoryCompute::default()),
+                _ => MemoryCompute::None,
+            };
         }
     }
 
-    fn assert_compute_qubits(&mut self, qubits: impl IntoIterator<Item = usize>) {
-        if let Some(memory_compute) = &mut self.memory_compute {
-            memory_compute.assert_compute_qubits(qubits);
+    fn assert_compute_qubits(
+        &mut self,
+        qubits: impl IntoIterator<Item = usize>,
+    ) -> Result<(), String> {
+        match &mut self.memory_compute {
+            MemoryCompute::Auto(memory_compute) => {
+                memory_compute.assert_compute_qubits(qubits);
+                Ok(())
+            }
+            MemoryCompute::Manual(memory_compute) => memory_compute.assert_compute_qubits(qubits),
+            MemoryCompute::None => Ok(()),
         }
     }
 
     fn wtm_count(&self) -> usize {
-        self.memory_compute
-            .as_ref()
-            .map_or(0, memory_compute::MemoryComputeInfo::write_to_memory_count)
+        match &self.memory_compute {
+            MemoryCompute::Auto(mc) => mc.write_to_memory_count(),
+            MemoryCompute::Manual(mc) => mc.writes_count,
+            MemoryCompute::None => 0,
+        }
     }
 
     fn rfm_count(&self) -> usize {
-        self.memory_compute
-            .as_ref()
-            .map_or(0, memory_compute::MemoryComputeInfo::read_from_memory_count)
+        match &self.memory_compute {
+            MemoryCompute::Auto(mc) => mc.read_from_memory_count(),
+            MemoryCompute::Manual(mc) => mc.reads_count,
+            MemoryCompute::None => 0,
+        }
     }
 }
 
 impl Backend for LogicalCounter {
     fn ccx(&mut self, ctl0: usize, ctl1: usize, q: usize) -> Result<(), String> {
-        self.assert_compute_qubits([ctl0, ctl1, q]);
+        self.assert_compute_qubits([ctl0, ctl1, q])?;
 
         self.ccz_count += 1;
         self.schedule_ccz(ctl0, ctl1, q);
@@ -494,48 +535,55 @@ impl Backend for LogicalCounter {
     }
 
     fn cx(&mut self, ctl: usize, q: usize) -> Result<(), String> {
-        self.assert_compute_qubits([ctl, q]);
+        self.assert_compute_qubits([ctl, q])?;
 
         self.schedule_two_qubit_clifford(ctl, q);
         Ok(())
     }
 
     fn cy(&mut self, ctl: usize, q: usize) -> Result<(), String> {
-        self.assert_compute_qubits([ctl, q]);
+        self.assert_compute_qubits([ctl, q])?;
 
         self.schedule_two_qubit_clifford(ctl, q);
         Ok(())
     }
 
     fn cz(&mut self, ctl: usize, q: usize) -> Result<(), String> {
-        self.assert_compute_qubits([ctl, q]);
+        self.assert_compute_qubits([ctl, q])?;
 
         self.schedule_two_qubit_clifford(ctl, q);
         Ok(())
     }
 
     fn h(&mut self, q: usize) -> Result<(), String> {
-        self.assert_compute_qubits([q]);
+        self.assert_compute_qubits([q])?;
         Ok(())
     }
 
     fn m(&mut self, q: usize) -> Result<BackendResult, String> {
-        self.assert_compute_qubits([q]);
+        self.assert_compute_qubits([q])?;
 
         self.m_count += 1;
 
         if let Some(val) = self.post_select_measurements.remove(&q) {
             Ok(val.into())
         } else {
-            Ok(self.rnd.borrow_mut().gen_bool(0.5).into())
+            Ok(self.rnd.borrow_mut().random_bool(0.5).into())
         }
     }
 
     fn mresetz(&mut self, q: usize) -> Result<BackendResult, String> {
-        self.m(q)
+        let result = self.m(q);
+        if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+            mc.reset(q)?;
+        }
+        result
     }
 
-    fn reset(&mut self, _q: usize) -> Result<(), String> {
+    fn reset(&mut self, q: usize) -> Result<(), String> {
+        if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+            mc.reset(q)?;
+        }
         Ok(())
     }
 
@@ -556,7 +604,7 @@ impl Backend for LogicalCounter {
     }
 
     fn rz(&mut self, theta: f64, q: usize) -> Result<(), String> {
-        self.assert_compute_qubits([q]);
+        self.assert_compute_qubits([q])?;
 
         let multiple = (theta / (PI / 4.0)).round();
         if ((multiple * (PI / 4.0)) - theta).abs() <= f64::EPSILON {
@@ -578,28 +626,28 @@ impl Backend for LogicalCounter {
     }
 
     fn sadj(&mut self, q: usize) -> Result<(), String> {
-        self.assert_compute_qubits([q]);
+        self.assert_compute_qubits([q])?;
         Ok(())
     }
 
     fn s(&mut self, q: usize) -> Result<(), String> {
-        self.assert_compute_qubits([q]);
+        self.assert_compute_qubits([q])?;
         Ok(())
     }
 
     fn sx(&mut self, q: usize) -> Result<(), String> {
-        self.assert_compute_qubits([q]);
+        self.assert_compute_qubits([q])?;
         Ok(())
     }
 
     fn swap(&mut self, q0: usize, q1: usize) -> Result<(), String> {
-        self.assert_compute_qubits([q0, q1]);
+        self.assert_compute_qubits([q0, q1])?;
         self.schedule_two_qubit_clifford(q0, q1);
         Ok(())
     }
 
     fn tadj(&mut self, q: usize) -> Result<(), String> {
-        self.assert_compute_qubits([q]);
+        self.assert_compute_qubits([q])?;
 
         self.t_count += 1;
         self.schedule_t(q);
@@ -607,38 +655,50 @@ impl Backend for LogicalCounter {
     }
 
     fn t(&mut self, q: usize) -> Result<(), String> {
-        self.assert_compute_qubits([q]);
+        self.assert_compute_qubits([q])?;
 
         self.t_count += 1;
         self.schedule_t(q);
         Ok(())
     }
 
-    fn x(&mut self, _q: usize) -> Result<(), String> {
+    fn x(&mut self, q: usize) -> Result<(), String> {
+        self.assert_compute_qubits([q])?;
         Ok(())
     }
 
-    fn y(&mut self, _q: usize) -> Result<(), String> {
+    fn y(&mut self, q: usize) -> Result<(), String> {
+        self.assert_compute_qubits([q])?;
         Ok(())
     }
 
-    fn z(&mut self, _q: usize) -> Result<(), String> {
+    fn z(&mut self, q: usize) -> Result<(), String> {
+        self.assert_compute_qubits([q])?;
         Ok(())
     }
 
     fn qubit_allocate(&mut self) -> Result<usize, String> {
-        if let Some(index) = self.free_list.pop() {
-            Ok(index)
+        let index = if let Some(index) = self.free_list.pop() {
+            index
         } else {
             let index = self.next_free;
             self.next_free += 1;
             self.max_layer.push(self.allocation_barrier);
-            Ok(index)
+            index
+        };
+
+        if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+            mc.allocate(index);
         }
+
+        Ok(index)
     }
 
     fn qubit_release(&mut self, q: usize) -> Result<bool, String> {
         self.free_list.push(q);
+        if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+            mc.release(q)?;
+        }
         Ok(true)
     }
 
@@ -655,6 +715,11 @@ impl Backend for LogicalCounter {
         if let Some(val) = q1_post_select {
             self.post_select_measurements.insert(q0, val);
         }
+
+        if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+            mc.assert_compute_qubits([q0, q1])?;
+        }
+
         Ok(())
     }
 
@@ -686,7 +751,7 @@ impl Backend for LogicalCounter {
                 Some(Ok(Value::unit()))
             }
             "AccountForEstimatesInternal" => {
-                let values = arg.unwrap_tuple();
+                let values: std::rc::Rc<[Value]> = arg.unwrap_tuple();
                 let [estimates, layout, qubits] = array::from_fn(|i| values[i].clone());
                 let estimates = estimates
                     .unwrap_array()
@@ -717,6 +782,26 @@ impl Backend for LogicalCounter {
                 let strategy = strategy.unwrap_int();
                 self.enable_memory_compute(compute_capacity, strategy);
                 Some(Ok(Value::unit()))
+            }
+            "Load" => {
+                if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+                    Some(
+                        mc.load(arg.unwrap_qubit().deref().0)
+                            .map(|()| Value::unit()),
+                    )
+                } else {
+                    Some(Ok(Value::unit()))
+                }
+            }
+            "Store" => {
+                if let MemoryCompute::Manual(mc) = &mut self.memory_compute {
+                    Some(
+                        mc.store(arg.unwrap_qubit().deref().0)
+                            .map(|()| Value::unit()),
+                    )
+                } else {
+                    Some(Ok(Value::unit()))
+                }
             }
             "GlobalPhase" | "ConfigurePauliNoise" | "ConfigureQubitLoss" | "ApplyIdleNoise" => {
                 Some(Ok(Value::unit()))

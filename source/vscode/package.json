@@ -313,6 +313,34 @@
         {
           "command": "qsharp-vscode.addProjectReference",
           "when": "resourceFilename == qsharp.json"
+        },
+        {
+          "command": "qsharp-vscode.learningOpenActivity",
+          "when": "false"
+        },
+        {
+          "command": "qsharp-vscode.learningCheckSolution",
+          "when": "false"
+        },
+        {
+          "command": "qsharp-vscode.learningResetExercise",
+          "when": "false"
+        },
+        {
+          "command": "qsharp-vscode.learningShowActivity",
+          "when": "false"
+        },
+        {
+          "command": "qsharp-vscode.learningRefresh",
+          "when": "false"
+        },
+        {
+          "command": "qsharp-vscode.learningContinue",
+          "when": "false"
+        },
+        {
+          "command": "qsharp-vscode.learningAskInChat",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -324,6 +352,21 @@
         {
           "command": "qsharp-vscode.workspacesAdd",
           "when": "view == quantum-workspaces",
+          "group": "navigation"
+        },
+        {
+          "command": "qsharp-vscode.learningRefresh",
+          "when": "view == qsharp-vscode.learningTree",
+          "group": "navigation"
+        },
+        {
+          "command": "qsharp-vscode.learningContinue",
+          "when": "view == qsharp-vscode.learningTree",
+          "group": "navigation"
+        },
+        {
+          "command": "qsharp-vscode.learningShowActivity",
+          "when": "view == qsharp-vscode.learningTree",
           "group": "navigation"
         }
       ],
@@ -370,6 +413,11 @@
         {
           "command": "qsharp-vscode.workspacePythonCode",
           "when": "view == quantum-workspaces && viewItem == workspace"
+        },
+        {
+          "command": "qsharp-vscode.learningAskInChat",
+          "group": "inline",
+          "when": "view == qsharp-vscode.learningTree && (viewItem == continue || viewItem == unit || viewItem == lesson || viewItem == exercise || viewItem == example)"
         }
       ],
       "explorer/context": [
@@ -387,12 +435,38 @@
         }
       ]
     },
-    "viewsContainers": {},
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "qsharp-vscode-katas",
+          "title": "Microsoft Quantum",
+          "icon": "./resources/mobius.svg"
+        }
+      ]
+    },
     "views": {
       "explorer": [
         {
-          "id": "quantum-workspaces",
+          "id": "quantum-workspaces-placeholder",
           "name": "Quantum Workspaces"
+        }
+      ],
+      "qsharp-vscode-katas": [
+        {
+          "id": "qsharp-vscode.learningWelcome",
+          "name": "QDK Learning",
+          "type": "webview",
+          "when": "!isWeb && !qsharp-vscode.learningWorkspaceDetected"
+        },
+        {
+          "id": "qsharp-vscode.learningTree",
+          "name": "Learning",
+          "when": "!isWeb && qsharp-vscode.learningWorkspaceDetected"
+        },
+        {
+          "id": "quantum-workspaces",
+          "name": "Quantum Workspaces",
+          "visibility": "collapsed"
         }
       ]
     },
@@ -400,6 +474,10 @@
       {
         "view": "quantum-workspaces",
         "contents": "Connect to Azure Quantum\n[Connect to an existing workspace](command:qsharp-vscode.workspacesAdd)\nNote: For the first workspace added there may be several consent prompts to grant VS Code access.\nFor more information about the QDK and Azure Quantum, visit [https://aka.ms/AQ/Documentation](https://aka.ms/AQ/Documentation)."
+      },
+      {
+        "view": "quantum-workspaces-placeholder",
+        "contents": "Looking for your Microsoft Quantum workspaces?\nThe Quantum Workspaces panel has moved to the Microsoft Quantum activity bar.\n[Open Microsoft Quantum panel](command:workbench.view.extension.qsharp-vscode-katas)"
       }
     ],
     "chatInstructions": [
@@ -413,6 +491,16 @@
     "chatSkills": [
       {
         "path": "./skills/qdk-programming/SKILL.md"
+      }
+    ],
+    "chatPromptFiles": [
+      {
+        "path": "./prompts/qdk-learning.prompt.md"
+      }
+    ],
+    "chatAgents": [
+      {
+        "path": "./agents/qdk-learning.agent.md"
       }
     ],
     "commands": [
@@ -569,6 +657,48 @@
         "command": "qsharp-vscode.showChangelog",
         "title": "Show Changelog",
         "category": "QDK"
+      },
+      {
+        "command": "qsharp-vscode.learningRefresh",
+        "title": "Refresh Learning Progress",
+        "category": "QDK Learning",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "qsharp-vscode.learningContinue",
+        "title": "Continue Learning",
+        "category": "QDK Learning",
+        "icon": "$(chat-sparkle)"
+      },
+      {
+        "command": "qsharp-vscode.learningOpenActivity",
+        "title": "Go to Activity",
+        "category": "QDK Learning",
+        "icon": "$(forward)"
+      },
+      {
+        "command": "qsharp-vscode.learningAskInChat",
+        "title": "Ask in Chat",
+        "category": "QDK Learning",
+        "icon": "$(comment-discussion-sparkle)"
+      },
+      {
+        "command": "qsharp-vscode.learningCheckSolution",
+        "title": "Check Solution",
+        "category": "QDK Learning",
+        "icon": "$(pass)"
+      },
+      {
+        "command": "qsharp-vscode.learningResetExercise",
+        "title": "Reset Exercise",
+        "category": "QDK Learning",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "qsharp-vscode.learningShowActivity",
+        "title": "Show Current Activity",
+        "category": "QDK Learning",
+        "icon": "$(mortar-board)"
       }
     ],
     "breakpoints": [
@@ -1087,6 +1217,274 @@
           "required": [],
           "additionalProperties": false
         }
+      },
+      {
+        "name": "qdk-learning-show",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningShow",
+        "displayName": "QDK Learning: Show Activity",
+        "modelDescription": "Show the current learning activity. Opens the interactive Katas panel for lessons and exercises. Use to start or resume a learning session.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-get-state",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningGetState",
+        "displayName": "QDK Learning: Get State",
+        "modelDescription": "Read the current learning position and progress without opening the panel or requiring initialization. Returns { initialized: false } if the workspace is not yet set up. Use at startup to check status before calling show.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-get-progress",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningGetProgress",
+        "displayName": "QDK Learning: Get Progress",
+        "modelDescription": "Return the full per-unit progress breakdown with activity-level completion status.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-list-units",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningListUnits",
+        "displayName": "QDK Learning: List Units",
+        "modelDescription": "List all available units with completion status.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-next",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningNext",
+        "displayName": "QDK Learning: Next",
+        "modelDescription": "Move to the next part in the learning sequence. The panel updates automatically.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-previous",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningPrevious",
+        "displayName": "QDK Learning: Previous",
+        "modelDescription": "Move to the previous part in the learning sequence. The panel updates automatically.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-goto",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningGoto",
+        "displayName": "QDK Learning: Go To",
+        "modelDescription": "Jump to a specific course, unit, and optionally an activity. Use courseId + unitId from list-units or get-state. courseId defaults to 'katas' (Quantum Katas).",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "courseId": {
+              "type": "string",
+              "description": "ID of the course. Defaults to 'katas' (built-in Quantum Katas)."
+            },
+            "unitId": {
+              "type": "string",
+              "description": "ID of the unit (e.g. 'getting_started')"
+            },
+            "activityId": {
+              "type": "string",
+              "description": "Activity ID within the unit. Omit to jump to the first activity."
+            }
+          },
+          "required": [
+            "unitId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-run",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningRun",
+        "displayName": "QDK Learning: Run",
+        "modelDescription": "Run the Q# code at the current position (examples only). Returns execution events and result.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "shots": {
+              "type": "number",
+              "description": "Number of times to run the program. Defaults to 1.",
+              "default": 1
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-read-code",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningReadCode",
+        "displayName": "QDK Learning: Read Code",
+        "modelDescription": "Read the user's current Q# code for the active exercise or example. Returns code text and file path without opening the panel.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-check",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningCheck",
+        "displayName": "QDK Learning: Check",
+        "modelDescription": "Check the student's solution against the test harness. Marks the exercise complete on pass. Only valid on exercises.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-hint",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningHint",
+        "displayName": "QDK Learning: Hint",
+        "modelDescription": "Return the built-in hints and solution explanation for the current exercise. Only valid on exercises.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-solution",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningSolution",
+        "displayName": "QDK Learning: Solution",
+        "modelDescription": "Return the full reference solution code for the current exercise. Only valid on exercises.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-reset",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningReset",
+        "displayName": "QDK Learning: Reset",
+        "modelDescription": "Reset the current exercise to its placeholder code and clear its completion. Destructive — requires confirmation. Only valid on exercises.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
       }
     ]
   },
@@ -1098,7 +1496,8 @@
     "pretest": "npm exec --no playwright install chromium && node ./test/buildTests.mjs",
     "tsc:check:main": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json",
     "tsc:check:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json",
-    "tsc:check": "npm run tsc:check:main && npm run tsc:check:view",
+    "tsc:check:learning": "node ../../node_modules/typescript/bin/tsc -p ./src/learning/webview/tsconfig.json",
+    "tsc:check": "npm run tsc:check:main && npm run tsc:check:view && npm run tsc:check:learning",
     "tsc:watch": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json --watch --preserveWatchOutput",
     "tsc:watch:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput"
   },

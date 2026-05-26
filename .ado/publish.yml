@@ -34,7 +34,7 @@ parameters:
     default:
       - name: linux_x86_64
         poolName: "Azure-Pipelines-DevTools-GPU"
-        imageName: "1es-pt-dsvm-ubuntu-2204"
+        imageName: "ubuntu-2204-qdk-gpu"
         os: linux
         arch: x86_64
         envVars:

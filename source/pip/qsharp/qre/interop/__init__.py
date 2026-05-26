@@ -1,4 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
-# Deprecation shim – delegates to qdk.qre.interop
+
+"""Deprecated. Use :mod:`qdk.qre.interop` instead."""
+
 from qdk.qre.interop import *

@@ -52,8 +52,9 @@ pub trait IndexAssignable: Bitwise {
     fn negate_index(&mut self, index: usize);
     fn clear_bits(&mut self);
     fn set_random(&mut self, num_bits: usize, random_number_generator: &mut impl rand::Rng) {
+        use rand::RngExt;
         for j in 0..num_bits {
-            self.assign_index(j, random_number_generator.gen());
+            self.assign_index(j, random_number_generator.random());
         }
     }
 }

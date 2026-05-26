@@ -1641,6 +1641,9 @@ fn add_property_keys(m: &Bound<'_, PyModule>) -> PyResult<()> {
         LOSS,
         LOGICAL_CYCLE_TIME,
         CODE_CYCLE_TIME,
+        ASSUMPTIONS,
+        FEASIBILITY,
+        TARGET_YEAR,
     );
 
     m.add_submodule(&property_keys)?;

@@ -170,8 +170,7 @@ class Context:
 
         :keyword target_profile: Setting the target profile allows the Q#
             interpreter to generate programs that are compatible
-            with a specific target. See :class:`TargetProfile`.
-
+            with a specific target. See :class:`~qdk.qsharp.TargetProfile`.
         :keyword target_name: An optional name of the target machine to use for
             inferring the compatible target_profile setting.
 
@@ -741,14 +740,14 @@ class Context:
         :kwtype operation: str
 
         :keyword generation_method: The method to use for circuit generation.
-            :attr:`~qsharp.CircuitGenerationMethod.ClassicalEval` evaluates classical
+            :attr:`~qdk.qsharp.CircuitGenerationMethod.ClassicalEval` evaluates classical
             control flow at circuit generation time.
-            :attr:`~qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
+            :attr:`~qdk.qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
             trace the circuit.
-            :attr:`~qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
+            :attr:`~qdk.qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
             requires a non-``Unrestricted`` target profile. Defaults to ``None`` which
             auto-selects the generation method.
-        :kwtype generation_method: :class:`~qsharp.CircuitGenerationMethod`
+        :kwtype generation_method: :class:`~qdk.qsharp.CircuitGenerationMethod`
 
         :keyword max_operations: The maximum number of operations to include in the
             circuit. Defaults to ``None`` which means no limit.
@@ -767,7 +766,7 @@ class Context:
         :kwtype prune_classical_qubits: bool
 
         :return: The synthesized circuit.
-        :rtype: :class:`~qsharp._native.Circuit`
+        :rtype: Circuit
         :raises QSharpError: If there is an error synthesizing the circuit.
         """
         ipython_helper()

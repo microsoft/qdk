@@ -31,14 +31,14 @@ def circuit(
     :param *args: The arguments to pass to the callable, if one is provided.
 
     :keyword generation_method: The method to use for circuit generation.
-        :attr:`~qsharp.CircuitGenerationMethod.ClassicalEval` evaluates classical
+        :attr:`~qdk.qsharp.CircuitGenerationMethod.ClassicalEval` evaluates classical
         control flow at circuit generation time.
-        :attr:`~qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
+        :attr:`~qdk.qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
         trace the circuit.
-        :attr:`~qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
+        :attr:`~qdk.qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
         requires a non-``Unrestricted`` target profile. Defaults to ``None`` which
         auto-selects the generation method.
-    :kwtype generation_method: :class:`~qsharp.CircuitGenerationMethod`
+    :kwtype generation_method: :class:`~qdk.qsharp.CircuitGenerationMethod`
 
     :keyword max_operations: The maximum number of operations to include in the circuit.
         Defaults to ``None`` which means no limit.
@@ -63,7 +63,7 @@ def circuit(
     :kwtype search_path: str
 
     :return: The synthesized circuit.
-    :rtype: :class:`~qsharp._native.Circuit`
+    :rtype: Circuit
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
     :raises QSharpError: If there is an error evaluating or synthesizing the circuit.
     """

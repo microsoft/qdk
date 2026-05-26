@@ -1,55 +1,75 @@
-# Q# Language Support for Python
+# `qsharp` (compatibility shim)
 
-> **Note:** The `qsharp` package is deprecated. Please use the [`qdk`](https://pypi.org/project/qdk/) package instead. This package is a thin compatibility shim that re-exports the `qdk` public API so that existing code continues to work.
-
-Q# is an open-source, high-level programming language for developing and running quantum algorithms.
-The `qsharp` package for Python provides interoperability with the Q# interpreter, making it easy
-to simulate Q# programs within Python.
+> **Deprecated.** The `qsharp` package is a thin compatibility shim that
+> re-exports the [`qdk`](https://pypi.org/project/qdk/) public API.
+> New projects should use `qdk` directly.
 
 ## Installation
+
+```bash
+pip install qsharp
+```
+
+This installs the `qdk` package as a dependency. For new projects, consider
+installing `qdk` directly instead:
 
 ```bash
 pip install qdk
 ```
 
-For backward compatibility, `pip install qsharp` also works and will install `qdk` as a dependency.
+## Migration
 
-## Usage
+Replace:
 
 ```python
-from qdk import qsharp
+import qsharp
+qsharp.init()
+qsharp.eval("...")
 ```
 
-Then, use the `%%qsharp` cell magic to run Q# directly in Jupyter notebook cells:
+With:
 
-```qsharp
-%%qsharp
-
-import Std.Diagnostics.*;
-
-@EntryPoint()
-operation BellState() : Unit {
-    use qs = Qubit[2];
-    H(qs[0]);
-    CNOT(qs[0], qs[1]);
-    DumpMachine();
-    ResetAll(qs);
-}
-
-BellState()
+```python
+import qdk
+qdk.init()
 ```
+
+Optional extras previously installed via `qsharp[…]` are now available as
+`qdk[…]`:
+
+| Old extra              | New extra        |
+| ---------------------- | ---------------- |
+| `qsharp[jupyterlab]`   | `qdk[jupyter]`   |
+| `qsharp[widgets]`      | `qdk[jupyter]`   |
+| `qsharp[qiskit]`       | `qdk[qiskit]`    |
+| `qsharp[cirq]`         | `qdk[cirq]`      |
+
+## What this package provides
+
+When imported, the `qsharp` shim:
+
+1. Emits a `DeprecationWarning` directing users to migrate to `qdk`.
+2. Re-exports the core Q# interpreter API (`init`, `eval`, `run`, `compile`,
+   `circuit`, `estimate`, `dump_machine`, `dump_circuit`, `dump_operation`,
+   `set_quantum_seed`, `set_classical_seed`, etc.) from `qdk.qsharp`.
+3. Re-exports key types: `Result`, `Pauli`, `QSharpError`, `TargetProfile`,
+   `StateDump`, `ShotResult`, `PauliNoise`, `DepolarizingNoise`,
+   `BitFlipNoise`, `PhaseFlipNoise`, `CircuitGenerationMethod`.
+
+Submodules such as `qsharp.estimator`, `qsharp.openqasm`, and
+`qsharp.code` similarly re-export from their `qdk` counterparts.
 
 ## Telemetry
 
-This library sends telemetry. Minimal anonymous data is collected to help measure feature usage and performance.
-All telemetry events can be seen in the source file [telemetry_events.py](https://github.com/microsoft/qdk/tree/main/source/qdk_package/qdk/telemetry_events.py).
-
-To disable sending telemetry from this package, set the environment variable `QDK_PYTHON_TELEMETRY=none`
+This library sends telemetry via the `qdk` package. To disable it, set
+the environment variable `QDK_PYTHON_TELEMETRY=none`.
 
 ## Support
 
-For more information about the Microsoft Quantum Development Kit, visit [https://aka.ms/qdk](https://aka.ms/qdk).
+For more information about the Microsoft Quantum Development Kit, visit
+[https://aka.ms/qdk](https://aka.ms/qdk).
 
 ## Contributing
 
-Q# welcomes your contributions! Visit the Q# GitHub repository at [https://github.com/microsoft/qdk] to find out more about the project.
+Visit the Quantum Development Kit GitHub repository at [https://github.com/microsoft/qdk](https://github.com/microsoft/qdk)
+to find out more about the project.

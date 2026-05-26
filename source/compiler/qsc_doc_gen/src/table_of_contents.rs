@@ -22,6 +22,7 @@ The Q# standard library contains the following namespaces:
 | [`Std.Logical`](xref:Qdk.Std.Logical-toc)                       | Boolean Logic functions.                                             |
 | [`Std.Math`](xref:Qdk.Std.Math-toc)                             | Items for classical math operations.                                 |
 | [`Std.Measurement`](xref:Qdk.Std.Measurement-toc)               | Items for measuring quantum results.                                 |
+| [`Std.Memory`](xref:Qdk.Std.Memory-toc)                         | Items for managing memory qubits.                                    |
 | [`Std.Random`](xref:Qdk.Std.Random-toc)                         | Items for creating random values.                                    |
 | [`Std.Range`](xref:Qdk.Std.Range-toc)                           | Items for working with ranges.                                       |
 | [`Std.ResourceEstimation`](xref:Qdk.Std.ResourceEstimation-toc) | Items for working with the Microsoft Quantum Resource Estimator.     |

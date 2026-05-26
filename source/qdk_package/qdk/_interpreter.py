@@ -4,15 +4,15 @@
 """Q# interpreter lifecycle and core operations.
 
 This module manages the singleton Q# interpreter instance and exposes the
-public functions that drive it: :func:`init`, :func:`eval`, :func:`run`,
-:func:`compile`, :func:`circuit`, :func:`estimate`, :func:`logical_counts`,
-:func:`set_quantum_seed`, :func:`set_classical_seed`, :func:`dump_machine`,
-and :func:`dump_circuit`.
+public functions that drive it: :func:`~qdk.qsharp.init`, :func:`~qdk.qsharp.eval`,
+:func:`~qdk.qsharp.run`, :func:`~qdk.qsharp.compile`, :func:`~qdk.qsharp.circuit`,
+:func:`~qdk.qsharp.estimate`, :func:`~qdk.qsharp.logical_counts`,
+:func:`~qdk.qsharp.set_quantum_seed`, :func:`~qdk.qsharp.set_classical_seed`,
+:func:`~qdk.qsharp.dump_machine`, and :func:`~qdk.qsharp.dump_circuit`.
 
-Internal helpers such as :func:`get_interpreter`, :func:`ipython_helper`,
-:func:`python_args_to_interpreter_args`, and
-:func:`qsharp_value_to_python_value` are also defined here for use by other
-submodules.
+Internal helpers such as ``get_interpreter``, ``ipython_helper``,
+``python_args_to_interpreter_args``, and ``qsharp_value_to_python_value`` are
+also defined here for use by other submodules.
 """
 
 import warnings
@@ -107,8 +107,7 @@ def init(
 
     :keyword target_profile: Setting the target profile allows the Q#
         interpreter to generate programs that are compatible
-        with a specific target. See :class:`TargetProfile`.
-
+        with a specific target. See :class:`~qdk.qsharp.TargetProfile`.
     :keyword target_name: An optional name of the target machine to use for inferring the compatible
         target_profile setting.
 
@@ -280,7 +279,7 @@ def compile(
     Example:
 
     .. code-block:: python
-        program = qsharp.compile("...")
+        program = qdk.qsharp.compile("...")
         with open('myfile.ll', 'w') as file:
             file.write(str(program))
     """
@@ -313,14 +312,14 @@ def circuit(
     :kwtype operation: str
 
     :keyword generation_method: The method to use for circuit generation.
-        :attr:`~qsharp.CircuitGenerationMethod.ClassicalEval` evaluates classical
+        :attr:`~qdk.qsharp.CircuitGenerationMethod.ClassicalEval` evaluates classical
         control flow at circuit generation time.
-        :attr:`~qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
+        :attr:`~qdk.qsharp.CircuitGenerationMethod.Simulate` runs a full simulation to
         trace the circuit.
-        :attr:`~qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
+        :attr:`~qdk.qsharp.CircuitGenerationMethod.Static` uses partial evaluation and
         requires a non-``Unrestricted`` target profile. Defaults to ``None`` which
         auto-selects the generation method.
-    :kwtype generation_method: :class:`~qsharp.CircuitGenerationMethod`
+    :kwtype generation_method: :class:`~qdk.qsharp.CircuitGenerationMethod`
 
     :keyword max_operations: The maximum number of operations to include in the circuit.
         Defaults to ``None`` which means no limit.
@@ -337,7 +336,7 @@ def circuit(
     :kwtype prune_classical_qubits: bool
 
     :return: The synthesized circuit.
-    :rtype: :class:`~qsharp._native.Circuit`
+    :rtype: Circuit
     :raises QSharpError: If there is an error synthesizing the circuit.
     """
     return _get_default_context().circuit(
@@ -364,9 +363,14 @@ def estimate(
     :param entry_expr: The entry expression. Alternatively, a callable can be provided,
         which must be a Q# callable.
     :param params: The parameters to configure physical estimation.
+    :param *args: The arguments to pass to the callable, if one is provided.
 
     :return: The estimated resources.
     :rtype: EstimatorResult
+
+    .. deprecated::
+        This function uses the legacy Resource Estimator API. Use
+        ``qdk.qre`` instead.
     """
 
     ipython_helper()

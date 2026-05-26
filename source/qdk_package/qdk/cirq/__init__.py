@@ -3,14 +3,14 @@
 
 """Cirq interoperability for the Q# ecosystem.
 
-This module provides a :class:`~qsharp.interop.cirq.NeutralAtomSampler` — a standard
+This module provides a :class:`~qdk.cirq.NeutralAtomSampler` — a standard
 ``cirq.Sampler`` that runs Cirq circuits on the local NeutralAtomDevice
 simulator.
 
 Usage:
 
     import cirq
-    from qsharp.interop.cirq import NeutralAtomSampler
+    from qdk.cirq import NeutralAtomSampler
 
     q0, q1 = cirq.LineQubit.range(2)
     circuit = cirq.Circuit([

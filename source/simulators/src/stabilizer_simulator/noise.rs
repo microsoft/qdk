@@ -3,6 +3,7 @@
 
 use crate::noise_config::{self, CumulativeNoiseConfig, decode_pauli, is_pauli_identity};
 use paulimer::quantum_core::{self, PauliObservable};
+use rand::RngExt;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Fault {
@@ -51,7 +52,7 @@ impl CumulativeNoiseConfig<Fault> {
     /// `X`, `Y`, `Z`, `S` based on the provided noise table.
     #[must_use]
     pub fn gen_idle_fault(&self, rng: &mut impl rand::Rng, idle_steps: u32) -> Fault {
-        let sample: f32 = rng.gen_range(0.0..1.0);
+        let sample: f32 = rng.random_range(0.0..1.0);
         if sample < self.idle.s_probability(idle_steps) {
             Fault::S
         } else {

@@ -5,7 +5,7 @@
     "title": "Overview"
 })
 
-Superdense coding protocol allows us to transmit two bits of classical information by sending just one qubit using previously shared quantum entanglement. We are asssuming that Alice is the sender and Bob is the receiver.
+Superdense coding protocol allows us to transmit two bits of classical information by sending just one qubit using previously shared quantum entanglement. We are assuming that Alice is the sender and Bob is the receiver.
 
 - A good description can be found in [the Wikipedia article](https://en.wikipedia.org/wiki/Superdense_coding).
 - A great interactive demonstration can be found [on the Wolfram Demonstrations Project](https://demonstrations.wolfram.com/SuperdenseCoding/).

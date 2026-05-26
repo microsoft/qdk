@@ -15,7 +15,15 @@ from qdk.qre._qre import _ProvenanceGraph
 from qdk.qre.models import SurfaceCode, GateBased
 from qdk.qre._architecture import _make_instruction
 from qdk.qre.instruction_ids import CCX, CCZ, LATTICE_SURGERY, T
-from qdk.qre.property_keys import ACCELERATION, ATOM_SPACING, DISTANCE, VELOCITY
+from qdk.qre.property_keys import (
+    ACCELERATION,
+    ASSUMPTIONS,
+    ATOM_SPACING,
+    DISTANCE,
+    FEASIBILITY,
+    TARGET_YEAR,
+    VELOCITY,
+)
 
 
 def test_isa():
@@ -151,6 +159,56 @@ def test_property_names():
     assert property_name_to_key("acceleration") == ACCELERATION
     assert property_name_to_key("atom_spacing") == ATOM_SPACING
     assert property_name_to_key("velocity") == VELOCITY
+
+
+def test_qualitative_property_keys():
+    """Test the qualitative property keys (assumptions, feasibility, target year)."""
+    # The integer qualitative keys are registered and have unique values.
+    keys = {ASSUMPTIONS, FEASIBILITY, TARGET_YEAR}
+    assert len(keys) == 3
+    assert ASSUMPTIONS != DISTANCE
+    assert FEASIBILITY != DISTANCE
+    assert TARGET_YEAR != DISTANCE
+
+    # Round-trip name <-> key lookups.
+    assert property_name(ASSUMPTIONS) == "ASSUMPTIONS"
+    assert property_name(FEASIBILITY) == "FEASIBILITY"
+    assert property_name(TARGET_YEAR) == "TARGET_YEAR"
+
+    assert property_name_to_key("ASSUMPTIONS") == ASSUMPTIONS
+    assert property_name_to_key("FEASIBILITY") == FEASIBILITY
+    assert property_name_to_key("TARGET_YEAR") == TARGET_YEAR
+
+    # Case-insensitive lookup.
+    assert property_name_to_key("assumptions") == ASSUMPTIONS
+    assert property_name_to_key("feasibility") == FEASIBILITY
+    assert property_name_to_key("target_year") == TARGET_YEAR
+
+
+def test_qualitative_properties_on_instruction():
+    """Test setting and retrieving qualitative properties on instructions."""
+    instr = _make_instruction(
+        T,
+        1,
+        1,
+        1000,
+        None,
+        None,
+        1e-8,
+        {
+            "assumptions": 42,
+            "feasibility": 4,
+            "target_year": 2030,
+        },
+    )
+
+    assert instr.has_property(ASSUMPTIONS) is True
+    assert instr.has_property(FEASIBILITY) is True
+    assert instr.has_property(TARGET_YEAR) is True
+
+    assert instr.get_property(ASSUMPTIONS) == 42
+    assert instr.get_property(FEASIBILITY) == 4
+    assert instr.get_property(TARGET_YEAR) == 2030
 
 
 def test_block_linear_function():

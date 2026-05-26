@@ -12,7 +12,7 @@ use crate::{
     instrument::Instrument, kernel::apply_kernel, operation::Operation,
 };
 use num_complex::Complex;
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 /// A vectorized density matrix.
 #[derive(Debug, Clone)]
@@ -221,7 +221,7 @@ impl NoisySimulator for DensityMatrixSimulator {
         Self {
             state: Ok(density_matrix),
             dimension,
-            rng: StdRng::from_entropy(),
+            rng: StdRng::from_rng(&mut rand::rng()),
         }
     }
 
@@ -258,7 +258,7 @@ impl NoisySimulator for DensityMatrixSimulator {
         instrument: &Instrument,
         qubits: &[usize],
     ) -> Result<usize, Error> {
-        let sample = self.rng.r#gen();
+        let sample = self.rng.random();
         self.sample_instrument_with_distribution(instrument, qubits, sample)
     }
 

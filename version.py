@@ -8,7 +8,7 @@ import re
 import sys
 
 # To be updated every time we start a new major.minor version.
-major_minor = "1.28"
+major_minor = "1.29"
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
 source_dir = os.path.join(root_dir, "source")
@@ -143,8 +143,8 @@ update_file(
 
 update_file(
     os.path.join(source_dir, "pip/pyproject.toml"),
-    r"qdk==0.0.0",
-    r"qdk=={}".format(pip_version),
+    r"qdk>=0.0.0",
+    r"qdk>={}".format(pip_version),
 )
 update_file(
     qdk_pyproject,

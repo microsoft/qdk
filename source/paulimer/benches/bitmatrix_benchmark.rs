@@ -42,7 +42,7 @@ criterion_main!(benches);
 
 fn random_bitmatrix(rowcount: usize, columncount: usize, sparsity: f64) -> BitMatrix {
     let mut matrix = BitMatrix::with_shape(rowcount, columncount);
-    let mut bits = std::iter::from_fn(move || Some(thread_rng().gen_bool(sparsity)));
+    let mut bits = std::iter::from_fn(move || Some(rand::rng().random_bool(sparsity)));
     for row_index in 0..rowcount {
         for column_index in 0..columncount {
             matrix.set((row_index, column_index), bits.next().expect("boom"));
