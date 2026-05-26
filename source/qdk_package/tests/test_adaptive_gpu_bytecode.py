@@ -791,6 +791,11 @@ FLOAT_ARITH_PARAMS = [
     ("fsub", 3.0, 10.0, -7.0),
     ("fmul", 6.0, 7.0, 42.0),
     ("fdiv", 8.0, 2.0, 4.0),
+    ("frem", 8.0, 2.0, 0.0),
+    ("frem", 7.0, 3.0, 1.0),
+    ("frem", 10.5, 3.0, 1.5),
+    ("frem", 10.5, -3.0, 1.5),  # remainder has the same sign as dividend
+    ("frem", -10.5, 3.0, -1.5),  # remainder has the same sign as dividend
 ]
 
 
@@ -998,6 +1003,88 @@ SITOFP_QIR = """
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_sitofp():
     check_arith_result(SITOFP_QIR, "1")
+
+
+# =========================================================================
+# OP_FPTOUI — float to unsigned int
+# =========================================================================
+
+FPTOUI_QIR = """
+  ; fptoui 3.7 → 3 (truncation toward zero), check 3 == 3 → true
+  %i = fptoui double 3.7 to i64
+  %flag = icmp eq i64 %i, 3
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_fptoui():
+    check_arith_result(FPTOUI_QIR, "1")
+
+
+FPTOUI_ZERO_QIR = """
+  ; fptoui 0.0 → 0
+  %i = fptoui double 0.0 to i64
+  %flag = icmp eq i64 %i, 0
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_fptoui_zero():
+    check_arith_result(FPTOUI_ZERO_QIR, "1")
+
+
+FPTOUI_LARGE_QIR = """
+  ; fptoui 255.9 → 255
+  %i = fptoui double 255.9 to i64
+  %flag = icmp eq i64 %i, 255
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_fptoui_large():
+    check_arith_result(FPTOUI_LARGE_QIR, "1")
+
+
+# =========================================================================
+# OP_UITOFP — unsigned int to float
+# =========================================================================
+
+UITOFP_QIR = """
+  ; uitofp 5 → 5.0, then 5.0 > 4.0 → true
+  %f = uitofp i64 5 to double
+  %flag = fcmp ogt double %f, 4.0
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_uitofp():
+    check_arith_result(UITOFP_QIR, "1")
+
+
+UITOFP_ZERO_QIR = """
+  ; uitofp 0 → 0.0
+  %f = uitofp i64 0 to double
+  %flag = fcmp oeq double %f, 0.0
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_uitofp_zero():
+    check_arith_result(UITOFP_ZERO_QIR, "1")
+
+
+UITOFP_ROUNDTRIP_QIR = """
+  ; uitofp 42 → 42.0, then fptoui 42.0 → 42
+  %f = uitofp i64 42 to double
+  %i = fptoui double %f to i64
+  %flag = icmp eq i64 %i, 42
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_uitofp_fptoui_roundtrip():
+    """Round-trip: uitofp then fptoui must recover the original value."""
+    check_arith_result(UITOFP_ROUNDTRIP_QIR, "1")
 
 
 # #########################################################################
