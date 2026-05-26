@@ -375,6 +375,9 @@ body {
 
 /* Base button style (secondary appearance by default). */
 .action-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font: inherit; /* buttons don't inherit font by default */
   font-size: var(--font-sm);
   background: var(--btn-secondary-bg);

@@ -530,7 +530,7 @@ function ActionBar({
                   {binding.codicon && (
                     <span class={`codicon codicon-${binding.codicon}`} />
                   )}
-                  {binding.codicon ? " " + binding.label : binding.label}
+                  {binding.label}
                 </button>
               );
             })}
