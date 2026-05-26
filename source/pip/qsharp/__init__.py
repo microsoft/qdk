@@ -48,6 +48,11 @@ from qdk.qsharp import (  # noqa: F401
     CircuitGenerationMethod,
 )
 
+# Re-export submodules that were previously loaded as side effects
+# (e.g. ``_qsharp.py`` did ``from . import code``) so that attribute
+# access like ``qsharp.code`` keeps working after a bare ``import qsharp``.
+from . import code, estimator  # noqa: F401
+
 from qdk import telemetry_events
 
 telemetry_events.on_import()
