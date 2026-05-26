@@ -370,16 +370,11 @@ export class LearningService {
     };
   }
 
-  getFullSolution(source?: TelemetrySource): string {
+  getAllSolutions(source?: TelemetrySource): string[] {
     const exercise = this.resolveExercise();
     if (source) {
       this.sendActivityActionTelemetry("solution", source);
     }
-    return exercise.solutionCodes[0] ?? "";
-  }
-
-  getAllSolutions(): string[] {
-    const exercise = this.resolveExercise();
     return exercise.solutionCodes;
   }
 

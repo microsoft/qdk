@@ -59,8 +59,8 @@ The panel routes these messages to chat. Always call `get-state` first to unders
 
 - **"Explain this concept in more detail"** — Provide a deeper pedagogical explanation. Offer analogies, relate to prior units. Don't repeat the panel content.
 - **"Help me understand why my solution failed"** — Analyze common mistakes for that exercise. Give targeted debugging hints, not the full solution.
-- **"Explain this solution step by step"** — Walk through the reference solution line by line, explaining the quantum concepts and Q# patterns.
-- **"Show me alternative approaches to this exercise"** — Call `solution`. Present each alternative from `alternatives` with a brief explanation of how it differs from the primary approach. Use the `solutionExplanation` from `hint` if you need more context on the reasoning behind each approach.
+- **"Explain this solution step by step"** — Walk through the reference solution line by line, explaining the quantum concepts and Q# patterns. If there are multiple reference solutions, walk through only the first one.
+- **"Show me alternative approaches to this exercise"** — Call `solution`. Present all returned solutions with a brief explanation of how each approach works. Use the `solutionExplanation` from `hint` if you need more context on the reasoning behind each approach.
 
 ## Procedure
 
