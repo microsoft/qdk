@@ -6,6 +6,7 @@ mod tests;
 pub(crate) mod uq1_63;
 
 use num_traits::{ConstZero, Float};
+use rand::RngExt;
 use rustc_hash::FxHashMap;
 use std::hash::BuildHasherDefault;
 
@@ -272,7 +273,7 @@ where
     /// Samples loss using the loss probability in the noise table.
     #[must_use]
     pub fn sample_loss(&self, rng: &mut impl rand::Rng) -> F {
-        if rng.gen_range(0.0..1.0) < self.loss {
+        if rng.random_range(0.0..1.0) < self.loss {
             F::loss()
         } else {
             F::none()
@@ -344,7 +345,7 @@ impl<F: Fault + Clone> CorrelatedNoiseSampler<F> {
 
     #[must_use]
     pub fn sample(&self, rng: &mut impl rand::Rng) -> F {
-        let distr = rand::distributions::Uniform::new(0, uq1_63::ONE);
+        let distr = rand::distr::Uniform::new(0, uq1_63::ONE).expect("valid range");
         let random_sample: u64 = rng.sample(distr);
         self.sample_with_value(random_sample)
     }

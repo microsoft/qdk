@@ -615,7 +615,7 @@ impl State {
     ) -> Self {
         let rng = match classical_seed {
             Some(seed) => RefCell::new(StdRng::seed_from_u64(seed)),
-            None => RefCell::new(StdRng::from_entropy()),
+            None => RefCell::new(StdRng::from_rng(&mut rand::rng())),
         };
         Self {
             exec_graph_stack: vec![exec_graph.select(exec_graph_config)],

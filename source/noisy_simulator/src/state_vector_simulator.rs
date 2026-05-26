@@ -7,7 +7,7 @@
 #[cfg(test)]
 mod tests;
 
-use rand::{Rng, SeedableRng, rngs::StdRng};
+use rand::{RngExt, SeedableRng, rngs::StdRng};
 
 use crate::{
     ComplexVector, Error, NoisySimulator, SquareMatrix, TOLERANCE, eq_with_tolerance, handle_error,
@@ -273,7 +273,7 @@ impl StateVectorSimulator {
             instrument.non_selective_kraus_operators(),
             qubits,
             renormalization_factor,
-            self.rng.r#gen(),
+            self.rng.random(),
         ) {
             Ok(choice) => Ok(choice),
             Err(err) => handle_error!(self, err),
@@ -291,7 +291,7 @@ impl NoisySimulator for StateVectorSimulator {
         Self {
             state: Ok(state_vector),
             dimension,
-            rng: StdRng::from_entropy(),
+            rng: StdRng::from_rng(&mut rand::rng()),
         }
     }
 
@@ -320,7 +320,7 @@ impl NoisySimulator for StateVectorSimulator {
             operation.kraus_operators(),
             qubits,
             renormalization_factor,
-            self.rng.r#gen(),
+            self.rng.random(),
         ) {
             handle_error!(self, err);
         }
@@ -337,7 +337,7 @@ impl NoisySimulator for StateVectorSimulator {
         instrument: &Instrument,
         qubits: &[usize],
     ) -> Result<usize, Error> {
-        let sample = self.rng.r#gen();
+        let sample = self.rng.random();
         self.sample_instrument_with_distribution(instrument, qubits, sample)
     }
 
