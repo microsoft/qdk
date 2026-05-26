@@ -74,7 +74,6 @@ parameters:
 # - BUILD_TYPE
 # - cratesIoFeedOverride
 # - OwnerPersonalAlias
-# - PAT
 # - toolchainFeed
 
 extends:
@@ -474,21 +473,27 @@ extends:
                 condition: succeeded()
                 displayName: Reconfirming signature verification before publishing
 
-              - script: |
-                  echo "Command: vsce publish --pre-release --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
-                  vsce publish --pre-release --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
+              - task: AzureCLI@2
                 condition: and(succeeded(), eq(variables['BUILD_TYPE'], 'dev'))
                 displayName: Publish pre-release VSCode Extension
-                env:
-                  VSCE_PAT: $(PAT)
+                inputs:
+                  azureSubscription: QDK Publish Connection
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  inlineScript: |
+                    echo "Command: vsce publish --pre-release --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                    vsce publish --pre-release --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
 
-              - script: |
-                  echo "Command: vsce publish --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
-                  vsce publish --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
+              - task: AzureCLI@2
                 condition: and(succeeded(), ne(variables['BUILD_TYPE'], 'dev'))
                 displayName: Publish VSCode Extension
-                env:
-                  VSCE_PAT: $(PAT)
+                inputs:
+                  azureSubscription: QDK Publish Connection
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  inlineScript: |
+                    echo "Command: vsce publish --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                    vsce publish --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
 
               - script: |
                   dir
