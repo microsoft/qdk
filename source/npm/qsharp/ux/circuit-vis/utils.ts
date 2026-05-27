@@ -301,6 +301,32 @@ function getMinMaxRegIdx(operation: Operation): [number, number] {
 }
 
 /**
+ * Like `getMinMaxRegIdx`, but excludes classical-control registers
+ * (those whose `.result` is set). The qubit field of a classical
+ * control points at the producing measurement's qubit wire, which
+ * isn't really "part of" the consumer op's body — it's just a
+ * back-reference used to draw the connector down to the classical
+ * wire row.
+ *
+ * Use this for any decision about which wires belong to an op's
+ * editable scope: child-drop scope of an expanded group, shift-
+ * extend reach of a parent group, multi-leg drop targets for a
+ * selected op. Using `getMinMaxRegIdx` for those would wrongly
+ * sweep in the producing measurement's qubit wire.
+ *
+ * Returns `[-1, -1]` if the op has no quantum-only registers
+ * (shouldn't happen for any valid op, but defensive).
+ */
+const getQuantumWireRange = (operation: Operation): [number, number] => {
+  const qRegs = getOperationRegisters(operation).filter(
+    ({ result }) => result === undefined,
+  );
+  if (qRegs.length === 0) return [-1, -1];
+  const qRegIdxList = qRegs.map(({ qubit }) => qubit);
+  return [Math.min(...qRegIdxList), Math.max(...qRegIdxList)];
+};
+
+/**
  * Get every `Register` referenced by an operation, including both
  * its controls and its targets/qubits/results. Returned references
  * are the live objects on the operation, so callers may mutate
@@ -633,6 +659,7 @@ export {
   getGateLocationString,
   getMinMaxRegIdx,
   getOperationRegisters,
+  getQuantumWireRange,
   findGateElem,
   findParentOperation,
   findParentArray,

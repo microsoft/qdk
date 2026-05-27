@@ -1818,6 +1818,221 @@ exercise the shared-ancestor hook-firing contract.
 
 ---
 
+## Bug fixes — open
+
+Bugs discovered in editor flows that don't yet have an owner above.
+Tracked separately from the design D-items in the drag-and-drop
+section because these are reproducible regressions in shipped
+behavior, not in-progress design work.
+
+Listed in rough severity order (crashes first). Each entry has a
+"open question" line where the right fix isn't obvious; settle the
+question before writing code.
+
+### B1. Classical-control indicators always show `C_null`
+
+**Symptom.** The circle/label next to a classically-controlled
+group's control wire reads `C_null` regardless of which classical
+register the conditional actually depends on. Should show the
+producing register's id (e.g. `C_0`, `C_1`).
+
+**Likely cause.** `renderData.classicalControlIds` in
+[process.ts](renderer/process.ts) is built by looking up each
+control's `(qubit, result)` pair inside
+`op.metadata?.controlResultIds`. If the metadata array isn't
+populated for the op (or the lookup misses), the slot is `null`
+and the renderer falls back to `null`-stringified output.
+
+**Fix direction.** Either (a) ensure the compiler / circuit builder
+emits `controlResultIds` for every conditional, or (b) have the
+renderer fall back to a synthesized id derived from the
+`(qubit, result)` pair when the metadata lookup misses. Option (b)
+is the safer immediate fix; (a) is the proper long-term resolution.
+
+**Open question.** Are there cases where the metadata is
+intentionally absent (e.g. for hand-authored `.qsc` files), or
+should every classically-controlled op always carry it?
+
+### B2. Moving / deleting an M that later gates depend on crashes
+
+**Symptom.** Drag an M gate that is the producer of a classical
+register consumed by a later gate (typically a classically-
+controlled group), or delete it via the context menu. The next
+render throws.
+
+**Likely cause.** The consumer's `controls: [{ qubit, result }]`
+still references a producer that no longer exists at any earlier
+column. The renderer's `_getRegY` (or the layout pass) can't
+resolve the register and either throws or returns `NaN`, cascading
+into downstream geometry math.
+
+**Fix direction.** Mirror D2's approach in reverse — the action
+layer's `moveOperation` and `removeOperation` should detect when
+an M's classical outputs are consumed downstream and either:
+
+- refuse the move/delete (with a dropzone-filter equivalent
+  hiding invalid target columns), or
+- automatically delete every dependent consumer in the same
+  action (cascade-delete).
+
+Refuse is the safer default; the user can manually delete the
+consumers first if they actually want to.
+
+**Open question.** Cascade-delete or refuse? Cascade is
+destructive but matches what "move the M" probably means
+semantically ("I want the consumers gone too, this is no
+longer a measurement").
+
+### B3. Moving qubits around an M that later gates depend on crashes
+
+**Symptom.** Reorder qubit wires (drag a qubit label up or
+down) such that an M's producer wire ends up after a consumer's
+column. Crash on next render.
+
+**Likely cause.** Same family as B2 — register references
+become invalid because the column-order invariant
+("producer's column strictly precedes consumer's column") is
+violated by the wire reorder, but the consuming op's
+`controls` weren't rewritten or moved.
+
+**Fix direction.** `moveQubit` should run the same column-order
+validation as D2 (`Location.inEarlierColumnThan` on every
+external producer→consumer pair) and either refuse the reorder
+or restructure to preserve the invariant. The dropzone-filter
+side of D2's solution doesn't directly apply (qubit reorders
+don't go through gate dropzones), but the action-layer refusal
+does.
+
+**Open question.** Should qubit-reorder refuse, or auto-shift
+the consuming ops rightward to restore the invariant? Auto-shift
+is more user-friendly but harder to reason about (every column
+shift may collide with other ops).
+
+### B4. Removing an M doesn't update later classical wire positions
+
+inside collapsed groups
+
+**Symptom.** Delete an M whose results are referenced by gates
+inside a later collapsed group. The visible classical sub-wire
+positions on subsequent qubits stay where they were, leaving
+ghost gaps or misaligned wires until something forces a full
+re-layout.
+
+**Likely cause.** When an M is removed, the producing qubit's
+classical register count should drop — but the consumers inside
+the collapsed group still hold references and the row-height
+computation (in [sqore.ts](sqore.ts)'s `getRowHeights`) doesn't
+re-walk the collapsed children to discover the now-orphaned
+classical refs. The view caches stale heights.
+
+**Fix direction.** Couples to B2 — if removing an M with
+live consumers is refused (or cascade-deletes the consumers),
+the orphaned-ref state never arises. If kept independent, the
+row-height pass needs to descend into collapsed groups when
+counting classical references.
+
+**Open question.** Is the right fix at the row-height layer
+(walk collapsed children) or at the data layer (refuse / cascade
+on M removal)? Probably the latter — orphaned classical refs
+shouldn't exist in the model at all.
+
+### B5. Adding / removing classical control qubits doesn't work when the target is an external qubit with an M the group depends on
+
+**Symptom.** A classically-controlled group consumes an M on
+qubit X. Try to add or remove a control on a different external
+qubit Y via the context menu. Operation either silently fails or
+corrupts the group's controls list.
+
+**Likely cause.** `addControl` / `removeControl` in
+[circuitActions.ts](actions/circuitActions.ts) assume the op's
+`controls` are simple wire references. Classically-controlled
+groups have classical refs (`{qubit, result}`) mixed in;
+indexing / dedup logic that treats `controls` as a flat
+qubit-only list mis-handles them.
+
+**Fix direction.** Audit every `controls`-touching site in
+the action layer for the classical-vs-pure distinction. Likely
+needs a helper analogous to `getChildTargets`'s `result`-
+preservation (the D6 keep-list item).
+
+**Open question.** Is "adding a quantum control to a
+classically-controlled group" semantically meaningful, or
+should it be refused entirely until the user converts the
+group? If allowed, the renderer needs to draw both kinds of
+control indicators on the same group.
+
+### B6. Shift+expand-group downward doesn't move vertically adjacent groups
+
+**Symptom.** Shift-drag a group's expand chevron downward to
+extend the group's wire span. A vertically adjacent group below
+it should be pushed down to make room but stays put, causing the
+expanded group to overlap it.
+
+**Likely cause.** D4 Stage B's `_resolveOverlapAfterExtend` only
+handles _sibling_ collisions within the same column — when
+extending a group's span widens its wire range and a different
+op now overlaps its rectangle, the splitter only checks the same
+column. Vertical extension into another group's territory in a
+_different_ column isn't checked.
+
+**Fix direction.** Extend the overlap resolver to consider
+_every_ column the expanded group spans, not just the column its
+own root sits in. For each column in the expanded group's range,
+find any op whose wire range now intersects the extended span
+and split-and-shift it the same way sibling-column collisions
+are handled today.
+
+**Open question.** Same-column siblings are split into a new
+column to the right; what's the right placement for cross-column
+displacements? Pushing every overlapped op rightward by one
+column may cascade into yet more collisions.
+
+### B7. Qubit rearrangement doesn't update group contents correctly
+
+**Symptom.** Drag a qubit label to reorder wires. Ops whose
+references should follow their wire end up referencing the new
+wire index in the wrong way — e.g. an op inside a group that
+previously addressed wire 2 now silently addresses wire 3, or
+the group's `.targets` cache doesn't get refreshed.
+
+**Likely cause.** `moveQubit` in
+[circuitActions.ts](actions/circuitActions.ts) renumbers the
+top-level grid's register references but doesn't descend into
+group children — or descends inconsistently. The D7 ancestor-
+targets refresh utility handles `.targets` after a _move-op_,
+but doesn't fire on `moveQubit`.
+
+**Fix direction.** Two parts:
+
+1. `moveQubit` must recursively walk every op's `controls` /
+   `targets` / `qubits` / `results` arrays, including inside
+   children, and apply the wire-index remap consistently.
+2. After the remap, run a `refreshAncestorTargets`-equivalent
+   pass over the entire grid (or at minimum over every group
+   ancestor of every remapped op) so cached `.targets` reflect
+   the new register references.
+
+**Open question.** Is there value in a "snapshot every op's
+register set, remap top-to-bottom, then re-derive ancestor
+caches" approach (one sweep, simple to reason about) vs. the
+targeted "walk the touched ops" approach? The former is
+O(grid size) regardless of move scope but bulletproof; the
+latter is faster but easier to leave a stale reference behind.
+
+### Roadmap & status
+
+| Item                                                 | Severity         | Status  |
+| ---------------------------------------------------- | ---------------- | ------- |
+| B1: classical-control indicators show `C_null`       | Display bug      | ❌ Open |
+| B2: moving / deleting M with downstream deps crashes | Crash            | ❌ Open |
+| B3: qubit reorder around dependent M crashes         | Crash            | ❌ Open |
+| B4: M removal leaves stale classical wire layout     | Layout bug       | ❌ Open |
+| B5: add/remove control fails on classical groups     | Logic error      | ❌ Open |
+| B6: shift-extend doesn't push adjacent groups        | Layout bug       | ❌ Open |
+| B7: qubit reorder doesn't update group contents      | Data consistency | ❌ Open |
+
+---
+
 ## Planned (in priority order)
 
 ### 1. Persistent view state across re-renders — ✅ in-memory done; host persistence deferred
@@ -2099,6 +2314,24 @@ emitter regressions that don't surface as compile errors.
 **Goal:** Surface the editor-parity work to users. Should mention
 custom-gate extraction, the live preview, the Save-as-Circuit bridge,
 and the divergence banner.
+
+### 10. Comment audit across circuit-editor files
+
+**Goal:** Trim verbose comments throughout the circuit editor and
+renderer code. The current style accumulated long historical
+narrative (past bugs, prior implementations, "why we changed X")
+that makes files larger and harder to read/review.
+
+**Rules:**
+
+- Describe the code as it is, not past states or fixed bugs.
+- Brief — prefer one line over a paragraph; drop a comment entirely
+  when the code is self-evident.
+- Keep JSDoc on public/exported symbols and on non-obvious
+  invariants; cut redundant "what" narration.
+
+**Scope:** `ux/circuit-vis/**` — actions, data, editor, renderer,
+and the editor test files' inline narration.
 
 ---
 

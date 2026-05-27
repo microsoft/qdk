@@ -1,0 +1,56 @@
+{
+  "_comment": "Classically-controlled group whose producer (q0) is above its body (q1, q2). The group is NOT on the top qubit wire. Exercises: (a) `heightAboveFirstClassical` reserving room for the label / top dashed border in the gap between q0's wire and its classical sub-wire; (b) `heightAboveWire` on the producer's qubit MUST NOT be bumped — otherwise toggling expand/collapse on this group would shift the entire circuit vertically.",
+  "circuits": [
+    {
+      "qubits": [
+        { "id": 0, "numResults": 1 },
+        { "id": 1, "numResults": 0 },
+        { "id": 2, "numResults": 0 }
+      ],
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "measurement",
+              "gate": "Measure",
+              "qubits": [{ "qubit": 0 }],
+              "results": [{ "qubit": 0, "result": 0 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "if",
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "H",
+                      "targets": [{ "qubit": 1 }]
+                    }
+                  ]
+                },
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "X",
+                      "targets": [{ "qubit": 2 }]
+                    }
+                  ]
+                }
+              ],
+              "targets": [{ "qubit": 1 }, { "qubit": 2 }],
+              "controls": [{ "qubit": 0, "result": 0 }],
+              "isConditional": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

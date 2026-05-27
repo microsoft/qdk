@@ -3599,3 +3599,69 @@ test("findAndRemoveOperations: cascade — removing across multiple nested group
     `Outer must cascade-narrow to [0,1]; got ${JSON.stringify(outerQubits)}`,
   );
 });
+
+// Refreshed group targets must be in canonical `(qubit, result)`
+// order — qubit-only refs before their classical-result siblings —
+// regardless of child iteration order. Renderer consumers
+// (`_splitTargetsY`, `_unitary` box geometry) depend on this.
+
+test("ancestor refresh: produces canonical (qubit, result) target order even when a classically-controlled child appears before the measurement that produces the result", () => {
+  // Foo has `if(c_0) H q1` before `M q0 → c_0`, so child-iteration
+  // order would yield [c_0, q1, q0]. Adding a control on wire 2
+  // triggers an ancestor refresh; result must be canonically sorted.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            // Empty: refresh repopulates from scratch.
+            targets: [],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 1 }],
+                    controls: [{ qubit: 0, result: 0 }],
+                    isConditional: true,
+                  },
+                ],
+              },
+              {
+                components: [
+                  {
+                    kind: "measurement",
+                    gate: "M",
+                    qubits: [{ qubit: 0 }],
+                    results: [{ qubit: 0, result: 0 }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const ifOp = /** @type {any} */ (fooOp.children[0].components[0]);
+
+  addControl(model, ifOp, 2);
+
+  const keys = fooOp.targets.map((/** @type {any} */ r) =>
+    r.result === undefined ? `q${r.qubit}` : `c${r.qubit}.${r.result}`,
+  );
+
+  assert.deepEqual(
+    keys,
+    ["q0", "c0.0", "q1", "q2"],
+    `Foo.targets must be canonically sorted (qubit, result); got ${JSON.stringify(keys)}`,
+  );
+});

@@ -2,7 +2,11 @@
 // Licensed under the MIT license.
 
 import { Qubit, SourceLocation } from "../../data/circuit.js";
-import { RegisterType, RegisterMap, RegisterRenderData } from "../../data/register.js";
+import {
+  RegisterType,
+  RegisterMap,
+  RegisterRenderData,
+} from "../../data/register.js";
 import {
   leftPadding,
   startY,
@@ -30,6 +34,8 @@ const formatInputs = (
     [qubitIndex: number]: {
       heightAboveWire: number;
       heightBelowWire: number;
+      heightAboveFirstClassical: number;
+      bottomBordersAboveFirstClassical: number;
     };
   },
   renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
@@ -52,9 +58,16 @@ const formatInputs = (
   //             └╌╌╌╌╌╌╌┘
 
   qubits.forEach(({ id, numResults, declarations }, wireIndex) => {
-    const { heightAboveWire, heightBelowWire } = rowHeights[wireIndex] || {
+    const {
+      heightAboveWire,
+      heightBelowWire,
+      heightAboveFirstClassical,
+      bottomBordersAboveFirstClassical,
+    } = rowHeights[wireIndex] || {
       heightAboveWire: 0,
       heightBelowWire: 0,
+      heightAboveFirstClassical: 0,
+      bottomBordersAboveFirstClassical: 0,
     };
     currY += heightAboveWire * groupTopPadding;
 
@@ -113,6 +126,30 @@ const formatInputs = (
     //             └╌╌╌╌╌╌╌┘
 
     // Increment current height by classical register height for attached classical registers
+
+    // Reserve room above the first classical sub-wire for any
+    // classically-controlled group whose box top *or* box bottom
+    // sits in the gap between this qubit's wire and its first
+    // classical sub-wire.
+    //
+    // Two distinct stacking rates apply:
+    //   - Top borders carry the group label and stack at
+    //     `groupTopPadding` (= `groupBottomPadding` + label
+    //     height + label padding) per nested level. (`controlY`
+    //     for these groups is the classical sub-wire; the label
+    //     and dashed top border live just above `controlY` and
+    //     would otherwise land on top of the producing M gate
+    //     body.)
+    //   - Bottom borders have no label and stack at
+    //     `groupBottomPadding` per nested level (set by
+    //     `_processChildren`'s `bottomPadding` chain). They occur
+    //     when a group's `maxQubit` is a pure qubit ref and that
+    //     qubit has classical sub-wires; without reserving space
+    //     here the box bottom would cross through the qubit's
+    //     classical sub-wire.
+    currY +=
+      heightAboveFirstClassical * groupTopPadding +
+      bottomBordersAboveFirstClassical * groupBottomPadding;
 
     // Add classical wires
     registers[id].children = Array.from(Array(numResults ?? 0), () => {

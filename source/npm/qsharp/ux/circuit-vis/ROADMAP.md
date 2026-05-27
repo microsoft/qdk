@@ -63,6 +63,28 @@ Captured from the GroupSplittingTest bug bash.
 
 ---
 
+## [Bug fixes — open](CIRCUIT_EDITOR_TODO.md#bug-fixes--open)
+
+Reproducible regressions from recent editor flows. Listed by
+severity (crashes first).
+
+|                                                                                                                                                           |                                                   | Status |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------ |
+| [B1](CIRCUIT_EDITOR_TODO.md#b1-classical-control-indicators-always-show-c_null)                                                                           | Classical-control indicators always show `C_null` | ❌     |
+| [B2](CIRCUIT_EDITOR_TODO.md#b2-moving--deleting-an-m-that-later-gates-depend-on-crashes)                                                                  | Moving / deleting M with downstream deps crashes  | ❌     |
+| [B3](CIRCUIT_EDITOR_TODO.md#b3-moving-qubits-around-an-m-that-later-gates-depend-on-crashes)                                                              | Qubit reorder around dependent M crashes          | ❌     |
+| [B4](CIRCUIT_EDITOR_TODO.md#b4-removing-an-m-doesnt-update-later-classical-wire-positions-inside-collapsed-groups)                                        | M removal leaves stale classical wire layout      | ❌     |
+| [B5](CIRCUIT_EDITOR_TODO.md#b5-adding--removing-classical-control-qubits-doesnt-work-when-the-target-is-an-external-qubit-with-an-m-the-group-depends-on) | Add/remove control fails on classical groups      | ❌     |
+| [B6](CIRCUIT_EDITOR_TODO.md#b6-shiftexpand-group-downward-doesnt-move-vertically-adjacent-groups)                                                         | Shift-extend doesn't push adjacent groups         | ❌     |
+| [B7](CIRCUIT_EDITOR_TODO.md#b7-qubit-rearrangement-doesnt-update-group-contents-correctly)                                                                | Qubit reorder doesn't update group contents       | ❌     |
+
+B2-B4 are the same family (classical-register reference integrity);
+B5 is closely related. B6 extends D4 Stage B's overlap resolver to
+cross-column collisions. B7 wants a `refreshAncestorTargets`-style
+sweep after `moveQubit`.
+
+---
+
 ## [Planned features (in priority order)](CIRCUIT_EDITOR_TODO.md#planned-in-priority-order)
 
 |                                                                                                                     | Feature                                                              | Status                                                                                                                                                                                                 |
@@ -76,6 +98,7 @@ Captured from the GroupSplittingTest bug bash.
 | **[7](CIRCUIT_EDITOR_TODO.md#7-vs-code-integration-tests-for-the-preview-pipeline)**                                | **VS Code integration tests for preview pipeline**                   | 📋 Today's coverage is heavy Rust-side, light VS Code-side                                                                                                                                             |
 | **[8](CIRCUIT_EDITOR_TODO.md#8-round-trip-validation-qs--qsc--preview-q-matches-qs)**                               | **Round-trip validation: `.qs` → `.qsc` → preview Q# matches `.qs`** | 📋 Each direction tested independently today; full loop missing                                                                                                                                        |
 | **[9](CIRCUIT_EDITOR_TODO.md#9-changelog--release-notes)**                                                          | **CHANGELOG / release notes**                                        | 📋 Surface the editor-parity work to users                                                                                                                                                             |
+| **[10](CIRCUIT_EDITOR_TODO.md#10-comment-audit-across-circuit-editor-files)**                                       | **Comment audit across circuit-editor files**                        | 📋 Trim historical / narrative comments throughout `ux/circuit-vis/**`; describe code as-is, not past states                                                                                           |
 
 ---
 

@@ -24,7 +24,7 @@ import {
   svgNS,
 } from "./renderer/constants.js";
 import { installEditor } from "./editor/installEditor.js";
-import { getMinMaxRegIdx } from "./utils.js";
+import { getOperationRegisters } from "./utils.js";
 import type { StateColumn } from "./state-viz/stateViz.js";
 import type { PrepareStateVizOptions } from "./state-viz/worker/stateVizPrep.js";
 
@@ -687,6 +687,11 @@ export class Sqore {
  *
  * The resulting `heightAboveWire` and `heightBelowWire` values per qubit are
  * later used by `formatInputs` to leave sufficient space between qubit wires.
+ * `heightAboveFirstClassical` is similar but applies to the gap between a
+ * qubit's wire and its first classical sub-wire — used to reserve room for
+ * the label of any classically-controlled group whose box top sits in that
+ * gap (the producing measurement's classical sub-wire is the group's
+ * `controlY`, and the label lives just above it).
  *
  * @param qubits Array of qubits in the circuit.
  * @param componentGrid Grid of circuit components to traverse.
@@ -700,28 +705,40 @@ function getRowHeights(
   [qubitIndex: number]: {
     heightAboveWire: number;
     heightBelowWire: number;
+    heightAboveFirstClassical: number;
+    bottomBordersAboveFirstClassical: number;
   };
 } {
   const rowHeights: {
     [qubitIndex: number]: {
       currentGroupBordersAboveWire: number;
       currentGroupBordersBelowWire: number;
+      currentClassicalGroupsAboveFirstClassical: number;
+      currentBottomBordersAboveFirstClassical: number;
       heightAboveWire: number;
       heightBelowWire: number;
+      heightAboveFirstClassical: number;
+      bottomBordersAboveFirstClassical: number;
     };
   } = {};
 
+  const numResultsByQubit: { [qubitIndex: number]: number } = {};
   for (const q of qubits) {
     const { id } = q;
     rowHeights[id] = {
       currentGroupBordersBelowWire: 0,
       currentGroupBordersAboveWire: 0,
+      currentClassicalGroupsAboveFirstClassical: 0,
+      currentBottomBordersAboveFirstClassical: 0,
       heightBelowWire: 0,
       heightAboveWire: 0,
+      heightAboveFirstClassical: 0,
+      bottomBordersAboveFirstClassical: 0,
     };
+    numResultsByQubit[id] = q.numResults ?? 0;
   }
 
-  updateRowHeights(componentGrid, rowHeights, qubits.length);
+  updateRowHeights(componentGrid, rowHeights, numResultsByQubit);
   return rowHeights;
 }
 
@@ -731,41 +748,141 @@ function updateRowHeights(
     [qubitIndex: number]: {
       currentGroupBordersAboveWire: number;
       currentGroupBordersBelowWire: number;
+      currentClassicalGroupsAboveFirstClassical: number;
+      currentBottomBordersAboveFirstClassical: number;
       heightAboveWire: number;
       heightBelowWire: number;
+      heightAboveFirstClassical: number;
+      bottomBordersAboveFirstClassical: number;
     };
   },
-  numQubits: number,
+  numResultsByQubit: { [qubitIndex: number]: number },
 ) {
   for (const col of componentGrid) {
     for (const component of col.components) {
       if (isExpandedGroup(component)) {
-        // We're in an expanded group. There is a dashed border above
-        // the top qubit, and below the bottom qubit.
-        const [topQubit, bottomQubit] = getMinMaxRegIdx(component);
+        // The group's dashed box top is anchored at the topmost
+        // reg's y (over targets ∪ controls), and the bottom at
+        // the bottommost reg's y. Decide which row-height counter
+        // each border should bump by asking *what kind of layout
+        // row that y lands in*. The same geometric rule applies
+        // to both top and bottom:
+        //
+        //   - Anchor is a pure qubit ref `{q}` AND q has no
+        //     classical sub-wires → border lives in the gap
+        //     immediately above (or below) q's wire →
+        //     `heightAboveWire[q]` / `heightBelowWire[q]`.
+        //   - Anchor is a pure qubit ref `{q}` AND q has
+        //     classical sub-wires → for the TOP, border is above
+        //     q's wire (`heightAboveWire`); for the BOTTOM,
+        //     border lives just below q's wire which lands in
+        //     the gap between q's wire and its first classical
+        //     sub-wire → `bottomBordersAboveFirstClassical[q]`.
+        //   - Anchor is a classical sub-wire ref `{q, r}` → for
+        //     the TOP, border is between q's wire and its first
+        //     classical sub-wire → `heightAboveFirstClassical[q]`;
+        //     for the BOTTOM, border is after all of q's
+        //     classical sub-wires → `heightBelowWire[q]`.
+        //
+        // Note the two distinct counters for the "above first
+        // classical" gap: top borders carry labels and stack at
+        // `groupTopPadding` (26 px) per level, while bottom
+        // borders have no label and stack at `groupBottomPadding`
+        // (10 px) per level (set by `_processChildren`'s padding
+        // chain). The formatter applies the two with their own
+        // multipliers.
+        const regs = getOperationRegisters(component);
+        if (regs.length === 0) continue;
 
-        // Increment the current count of dashed group borders for
-        // the top and bottom rows for this operation.
-        // If the max height for this row has been exceeded above or below the wire,
-        // update it.
-        rowHeights[topQubit].currentGroupBordersAboveWire++;
-        rowHeights[topQubit].heightAboveWire = Math.max(
-          rowHeights[topQubit].heightAboveWire,
-          rowHeights[topQubit].currentGroupBordersAboveWire,
+        const qubits = regs.map((r) => r.qubit);
+        const minQubit = Math.min(...qubits);
+        const maxQubit = Math.max(...qubits);
+
+        // For minQubit: the *topmost* anchor ref is a pure qubit
+        // ref if one exists on minQubit (pure refs sit above any
+        // classical sub-wires); otherwise it's a classical ref.
+        const minQubitHasPureRef = regs.some(
+          (r) => r.qubit === minQubit && r.result == null,
         );
 
-        rowHeights[bottomQubit].currentGroupBordersBelowWire++;
-        rowHeights[bottomQubit].heightBelowWire = Math.max(
-          rowHeights[bottomQubit].heightBelowWire,
-          rowHeights[bottomQubit].currentGroupBordersBelowWire,
+        // For maxQubit: the *bottommost* anchor ref is a classical
+        // ref if any exist on maxQubit (classical sub-wires sit
+        // below the qubit wire); otherwise it's the pure qubit ref.
+        const maxQubitHasClassicalRef = regs.some(
+          (r) => r.qubit === maxQubit && r.result != null,
         );
+
+        // Track which counters we bumped so we can decrement
+        // after recursion.
+        let bumpedAboveWireQ: number | null = null;
+        let bumpedTopFirstClassicalQ: number | null = null;
+        let bumpedBottomFirstClassicalQ: number | null = null;
+        let bumpedBelowWireQ: number | null = null;
+
+        // Top border placement
+        if (minQubitHasPureRef) {
+          rowHeights[minQubit].currentGroupBordersAboveWire++;
+          rowHeights[minQubit].heightAboveWire = Math.max(
+            rowHeights[minQubit].heightAboveWire,
+            rowHeights[minQubit].currentGroupBordersAboveWire,
+          );
+          bumpedAboveWireQ = minQubit;
+        } else {
+          rowHeights[minQubit].currentClassicalGroupsAboveFirstClassical++;
+          rowHeights[minQubit].heightAboveFirstClassical = Math.max(
+            rowHeights[minQubit].heightAboveFirstClassical,
+            rowHeights[minQubit].currentClassicalGroupsAboveFirstClassical,
+          );
+          bumpedTopFirstClassicalQ = minQubit;
+        }
+
+        // Bottom border placement
+        if (
+          !maxQubitHasClassicalRef &&
+          (numResultsByQubit[maxQubit] ?? 0) > 0
+        ) {
+          // Bottom anchor is a pure qubit ref on a qubit that has
+          // classical sub-wires below it. The border y sits in
+          // the gap between maxQubit's wire and its first
+          // classical sub-wire, but unlike top borders has no
+          // label, so it uses the smaller bottom-border counter.
+          rowHeights[maxQubit].currentBottomBordersAboveFirstClassical++;
+          rowHeights[maxQubit].bottomBordersAboveFirstClassical = Math.max(
+            rowHeights[maxQubit].bottomBordersAboveFirstClassical,
+            rowHeights[maxQubit].currentBottomBordersAboveFirstClassical,
+          );
+          bumpedBottomFirstClassicalQ = maxQubit;
+        } else {
+          rowHeights[maxQubit].currentGroupBordersBelowWire++;
+          rowHeights[maxQubit].heightBelowWire = Math.max(
+            rowHeights[maxQubit].heightBelowWire,
+            rowHeights[maxQubit].currentGroupBordersBelowWire,
+          );
+          bumpedBelowWireQ = maxQubit;
+        }
 
         // recurse
-        updateRowHeights(component.children || [], rowHeights, numQubits);
+        updateRowHeights(
+          component.children || [],
+          rowHeights,
+          numResultsByQubit,
+        );
 
-        // decrement
-        rowHeights[topQubit].currentGroupBordersAboveWire--;
-        rowHeights[bottomQubit].currentGroupBordersBelowWire--;
+        // decrement (mirror the bumps above)
+        if (bumpedAboveWireQ != null) {
+          rowHeights[bumpedAboveWireQ].currentGroupBordersAboveWire--;
+        }
+        if (bumpedTopFirstClassicalQ != null) {
+          rowHeights[bumpedTopFirstClassicalQ]
+            .currentClassicalGroupsAboveFirstClassical--;
+        }
+        if (bumpedBottomFirstClassicalQ != null) {
+          rowHeights[bumpedBottomFirstClassicalQ]
+            .currentBottomBordersAboveFirstClassical--;
+        }
+        if (bumpedBelowWireQ != null) {
+          rowHeights[bumpedBelowWireQ].currentGroupBordersBelowWire--;
+        }
       }
     }
   }

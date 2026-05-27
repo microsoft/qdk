@@ -18,7 +18,7 @@ import { toRenderData } from "./standaloneRenderData.js";
 import { Sqore } from "../sqore.js";
 import {
   getHostElems,
-  getMinMaxRegIdx,
+  getQuantumWireRange,
   getToolboxElems,
   getWireData,
 } from "../utils.js";
@@ -544,10 +544,17 @@ const _populateDropzonesForGrid = (
     // (overlapping ops in one column shouldn't occur — the action
     // layer's `_addOp` splits them into separate columns — but
     // defensive anyway).
+    //
+    // Quantum-only span: a classically-controlled op back-references
+    // the producing measurement's qubit via `.controls`, but doesn't
+    // render any body on that wire (only a small classical-control
+    // circle sits on the row). Treating that wire as occupied would
+    // suppress the central dropzone there, leaving the visually-empty
+    // area at the group's column un-droppable for top-level inserts.
     const occupiedWires = new Set<number>();
     const wireOwnerOpIndex = new Map<number, number>();
     columnOps.components.forEach((op, opIndex) => {
-      const [minT, maxT] = getMinMaxRegIdx(op);
+      const [minT, maxT] = getQuantumWireRange(op);
       for (let w = minT; w <= maxT; w++) {
         occupiedWires.add(w);
         if (!wireOwnerOpIndex.has(w)) {
@@ -623,7 +630,14 @@ const _populateDropzonesForGrid = (
     columnOps.components.forEach((op, opIndex) => {
       const childKey = composeLocation(pathPrefix, colIndex, opIndex);
       if (op.children != null && layoutMap.scopes.has(childKey)) {
-        const [minTarget, maxTarget] = getMinMaxRegIdx(op);
+        // Quantum-only span: a classically-controlled group's
+        // `.controls` carries the producing measurement's qubit as
+        // a back-reference, but that qubit isn't a member wire of
+        // the group. Including it here would make drops onto that
+        // qubit (and adds from the toolbox) silently land inside
+        // the group; the user has to shift-drag to extend the group
+        // to a new wire.
+        const [minTarget, maxTarget] = getQuantumWireRange(op);
         _populateDropzonesForGrid(
           dropzoneLayer,
           layoutMap,

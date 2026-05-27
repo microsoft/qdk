@@ -36,6 +36,7 @@ import {
   getGateElems,
   getGateLocationString,
   getMinMaxRegIdx,
+  getQuantumWireRange,
   getToolboxElems,
 } from "../../utils.js";
 
@@ -313,7 +314,11 @@ export class DragController {
     // The scope that *contains* the selected op is the parent of its
     // location: e.g. an op at "0,0-1,2" lives in the "0,0" scope, an
     // op at "1,0" lives in the top-level "" scope.
-    const [minTarget, maxTarget] = getMinMaxRegIdx(
+    //
+    // Quantum-only span: a classically-controlled op's `.controls`
+    // back-references the producing measurement's qubit, but that
+    // qubit isn't a draggable leg of this op.
+    const [minTarget, maxTarget] = getQuantumWireRange(
       this.ctx.interaction.selectedOperation,
     );
     const selectedAddr = Location.parse(selectedLocation);
@@ -754,7 +759,10 @@ export class DragController {
 
     const parentOp = findOperation(this.ctx.model.componentGrid, parentLoc);
     if (parentOp == null) return;
-    const [parentMinWire, parentMaxWire] = getMinMaxRegIdx(parentOp);
+    // Quantum-only span: shift-extend reach mirrors the group's
+    // editable wire scope, not its visual span including any
+    // classical-control back-references.
+    const [parentMinWire, parentMaxWire] = getQuantumWireRange(parentOp);
 
     this._shiftExtendCtx = {
       parentLoc,

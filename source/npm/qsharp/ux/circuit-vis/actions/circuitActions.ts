@@ -9,6 +9,7 @@ import {
   findOperation,
   findParentArray,
   getOperationRegisters,
+  getQuantumWireRange,
 } from "../utils.js";
 
 /*
@@ -808,21 +809,14 @@ const _isOperationEmpty = (op: Operation): boolean => {
 };
 
 /**
- * Dedup a `Register[]` by full `(qubit, result)` identity,
- * returning fresh `Register` objects.
+ * Dedup a `Register[]` by full `(qubit, result)` identity, returning
+ * fresh `Register` objects in canonical `(qubit, result)` order:
+ * qubit-only refs (`result === undefined`) sort before that qubit's
+ * classical-result refs, then classical refs by ascending `result`.
  *
- * Bare-qubit `{qubit:N}` and classical-ref `{qubit:N, result:M}`
- * are distinct register identities; both survive deduplication.
- * Output entries are fresh objects (not aliases of inputs) so
- * callers can write them straight into `op.targets` /
- * `op.results` without worrying about a later in-place edit on
- * a child's register propagating to the parent's cache.
- *
- * Order is input-order of the first occurrence of each unique
- * identity — that's stable across no-op refreshes (same input
- * order → same output order), which lets
- * `_registerListsEqual` use a positional compare instead of a
- * set compare.
+ * Bare-qubit `{qubit:N}` and classical-ref `{qubit:N, result:M}` are
+ * distinct identities; both survive. Outputs are fresh objects so
+ * callers can assign directly into `op.targets` / `op.results`.
  */
 const _dedupRegistersByIdentity = (registers: Register[]): Register[] => {
   const seen = new Set<string>();
@@ -840,6 +834,13 @@ const _dedupRegistersByIdentity = (registers: Register[]): Register[] => {
         : { qubit: reg.qubit, result: reg.result },
     );
   }
+  out.sort((a, b) => {
+    if (a.qubit !== b.qubit) return a.qubit - b.qubit;
+    if (a.result === undefined && b.result === undefined) return 0;
+    if (a.result === undefined) return -1;
+    if (b.result === undefined) return 1;
+    return a.result - b.result;
+  });
   return out;
 };
 
@@ -1674,18 +1675,8 @@ const _addOp = (
  * Get the minimum and maximum register indices for a given operation.
  * Based on getMinMaxRegIdx in process.ts, but without the numQubits.
  */
-const _getMinMaxRegIdx = (operation: Operation): [number, number] => {
-  const qRegs: Register[] = getOperationRegisters(operation).filter(
-    ({ result }) => result === undefined,
-  );
-  if (qRegs.length === 0) return [-1, -1];
-  const qRegIdxList: number[] = qRegs.map(({ qubit }) => qubit);
-  // Pad the contiguous range of registers that it covers.
-  const minRegIdx: number = Math.min(...qRegIdxList);
-  const maxRegIdx: number = Math.max(...qRegIdxList);
-
-  return [minRegIdx, maxRegIdx];
-};
+const _getMinMaxRegIdx = (operation: Operation): [number, number] =>
+  getQuantumWireRange(operation);
 
 /** Check if an operation is classically controlled. */
 const _isClassicallyControlled = (operation: Operation): boolean => {

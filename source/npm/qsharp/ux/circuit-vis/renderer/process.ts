@@ -111,6 +111,22 @@ const processOperations = (
             targets = op.targets;
             break;
         }
+
+        // For ops with own classical controls, include those control
+        // wires in the body-geometry input. `_classicalControls` draws
+        // a short L-connector from each control circle to the body
+        // box; for that connector to land on the box (rather than in
+        // empty space below the body), the body must extend down to
+        // include the classical control wire's y.
+        if (op.kind === "unitary" && op.controls) {
+          const ownClassicalControls = op.controls.filter(
+            (r) => r.result != null,
+          );
+          if (ownClassicalControls.length > 0) {
+            targets = [...targets, ...ownClassicalControls];
+          }
+        }
+
         const minTargetY = Math.min(...(renderData.targetsY as number[]));
         const maxTargetY = Math.max(...(renderData.targetsY as number[]));
 
@@ -337,6 +353,32 @@ const _opToRenderData = (
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
   renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
 
+  // For classically-controlled ops, include the classical-control
+  // sub-wires in `targetsY` so the wire span this op claims for layout
+  // purposes matches the actual bounding-box span drawn by
+  // `_gateBoundingBox` (which already merges `targetsY` with
+  // `controlsY` for its min/max). Without this, a parent group's
+  // `_processChildren` `topY === minTargetY` check fails for nested
+  // classically-controlled children (the child's `targetsY` excludes
+  // the classical control wire, so its `minTargetY` doesn't reach the
+  // parent's `topY`), and the child's `topPadding` doesn't propagate
+  // up. That is what causes stacked nested conditionals to render box
+  // tops and labels at the same y. Mirroring the wire span into
+  // `targetsY` here lets the existing regular-group layout logic
+  // handle nested classically-controlled groups the same way it
+  // handles nested regular groups.
+  if (op.kind === "unitary" && op.controls) {
+    const ownClassicalControlYs = op.controls
+      .filter((r) => r.result != null)
+      .map((reg) => _getRegY(reg, registers));
+    if (ownClassicalControlYs.length > 0) {
+      renderData.targetsY = [
+        ...(renderData.targetsY as number[]),
+        ...ownClassicalControlYs,
+      ];
+    }
+  }
+
   if (hasClassicalControls) {
     // Classically-controlled operations.
     // These are treated as composite/group operations when they have children.
@@ -517,13 +559,16 @@ const _splitTargetsY = (
   const qIdPosition: { [qId: number]: number } = {};
   orderedQIds.forEach((qId, i) => (qIdPosition[qId] = i));
 
-  // Sort targets and classicalRegY by ascending y value
+  // Sort targets by ascending y: qubit position, then qubit-only
+  // refs before their classical results, then by `result` index.
   targets = targets.slice();
   targets.sort((a, b) => {
     const posDiff: number = qIdPosition[a.qubit] - qIdPosition[b.qubit];
-    if (posDiff === 0 && a.result != null && b.result != null)
-      return a.result - b.result;
-    else return posDiff;
+    if (posDiff !== 0) return posDiff;
+    if (a.result == null && b.result == null) return 0;
+    if (a.result == null) return -1;
+    if (b.result == null) return 1;
+    return a.result - b.result;
   });
   classicalRegY = classicalRegY.slice();
   classicalRegY.sort((a, b) => a - b);
