@@ -72,6 +72,7 @@ OP_FADD = 0x38
 OP_FSUB = 0x39
 OP_FMUL = 0x3A
 OP_FDIV = 0x3B
+OP_FREM = 0x3C
 
 # ── Type Conversion ──────────────────────────────────────────────────────────
 OP_ZEXT = 0x40
@@ -82,6 +83,8 @@ OP_FPTRUNC = 0x44
 OP_INTTOPTR = 0x45
 OP_FPTOSI = 0x46
 OP_SITOFP = 0x47
+OP_FPTOUI = 0x48
+OP_UITOFP = 0x49
 
 # ── SSA / Data Movement ─────────────────────────────────────────────────────
 OP_PHI = 0x50
