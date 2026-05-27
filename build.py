@@ -514,20 +514,38 @@ if build_pip:
         build_wheel(python_bin, pip_src, env=pip_env)
     step_end()
 
-    if run_tests and build_qdk:
-        step_start("Running tests for the qsharp compatibility shim")
-        # Use the qdk environment where qdk and test deps are already installed.
-        python_bin, pip_env = use_python_env(qdk_python_src)
+    if run_tests:
+        # The qsharp shim tests require qdk (with its native extension) to be
+        # installed.  If qdk was built in this run it is already available;
+        # otherwise check the environment.
+        qdk_available = build_qdk
+        if not qdk_available:
+            python_bin_check, _ = use_python_env(qdk_python_src)
+            result = subprocess.run(
+                [python_bin_check, "-c", "import qdk"],
+                capture_output=True,
+            )
+            qdk_available = result.returncode == 0
 
-        if not args.editable:
-            install_from_wheels(python_bin, "qsharp", cwd=pip_src)
+        if qdk_available:
+            step_start("Running tests for the qsharp compatibility shim")
+            # Use the qdk environment where qdk and test deps are already installed.
+            python_bin, pip_env = use_python_env(qdk_python_src)
 
-        run_python_tests(
-            os.path.join(qdk_python_src, "tests", "reexports"),
-            python_bin,
-            pip_env,
-        )
-        step_end()
+            if not args.editable:
+                install_from_wheels(python_bin, "qsharp", cwd=pip_src)
+
+            run_python_tests(
+                os.path.join(pip_src, "tests"),
+                python_bin,
+                pip_env,
+            )
+            step_end()
+        else:
+            print(
+                "Skipping qsharp shim tests: qdk is not installed. "
+                "Run with --qdk or install qdk first."
+            )
 
 
 if build_widgets:

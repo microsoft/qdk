@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Tests for the ``qsharp`` compatibility shim (source/pip).
+"""Tests for the ``qsharp`` compatibility shim.
 
 The ``qsharp`` package is a thin deprecation wrapper that re-exports the
 public API from ``qdk``.  These tests verify that the expected symbols and
