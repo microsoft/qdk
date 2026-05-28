@@ -1950,6 +1950,7 @@ struct DelayedQubitReleaseLayer {
     available_qubits: VecDeque<Qubit>,
     used_qubits: FxHashSet<Qubit>,
     limit: Option<usize>,
+    allocated: usize,
 }
 
 #[derive(Debug, Default)]
@@ -2039,10 +2040,15 @@ impl DelayedQubitReleaseStack {
     /// returns false so the caller can handle the qubit release immediately.
     pub fn delay_release_qubit(&mut self, qubit: Qubit) -> bool {
         if let Some(DelayedQubitReleaseLayer {
-            released_qubits, ..
+            released_qubits,
+            used_qubits,
+            allocated,
+            ..
         }) = self.layers.last_mut()
         {
+            *allocated -= 1;
             released_qubits.push(qubit);
+            used_qubits.insert(qubit);
             true
         } else {
             false
@@ -2050,8 +2056,8 @@ impl DelayedQubitReleaseStack {
     }
 
     /// Allocate a qubit from the current delayed release layer, if available.
-    /// If the layer has a limit and the number of released qubits exceeds the limit,
-    /// the available qubits will be replenished from the released qubits.
+    /// If the layer has a limit and the number of allocated and deferred release qubits
+    /// exceeds the limit, the available qubits will be replenished from the released qubits.
     /// If there is no configured delayed release layer or no available qubits, the
     /// function returns None so the caller can perform a fresh qubit allocation.
     pub fn allocate_delayed_qubit(&mut self) -> Option<Qubit> {
@@ -2060,10 +2066,12 @@ impl DelayedQubitReleaseStack {
             released_qubits,
             used_qubits,
             limit,
+            allocated,
         }) = self.layers.last_mut()
         {
+            *allocated += 1;
             if let Some(limit) = limit
-                && released_qubits.len() >= *limit
+                && released_qubits.len() + *allocated > *limit
             {
                 let mut qubits = take(released_qubits);
                 qubits.extend(take(available_qubits));
