@@ -491,12 +491,18 @@ export class DragController {
             insertNewColumn,
           );
         } else {
+          // Pass `selectedWire` as the source wire so a group /
+          // multi-target clone shifts every register by the same
+          // delta. Without this, `addOperation` clobbers the
+          // top-level `targets` to a single-wire stub and strands
+          // the children on their original wires.
           addOperation(
             this.ctx.model,
             this.ctx.interaction.selectedOperation,
             targetLoc,
             targetWire,
             insertNewColumn,
+            this.ctx.interaction.selectedWire,
           );
         }
       } else {

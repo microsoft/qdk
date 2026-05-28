@@ -3468,7 +3468,131 @@ test("removeQubit: shifts wire indices on ops nested inside groups", () => {
   );
 });
 
-// -------- findAndRemoveOperations: deep refresh of ancestors ---------
+// -------- moveQubit: recurses into nested groups ---------
+
+test("moveQubit: swaps wire indices on ops nested inside groups", () => {
+  // Foo spans wires 0-1, containing H on wire 0 and X on wire 1.
+  // Swapping wires 0 and 1 at the top level must propagate into the
+  // nested ops so H now targets wire 1 and X targets wire 0.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  moveQubit(model, 0, 1, false);
+
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const innerOps = fooOp.children[0].components;
+  // Nested column re-sorted by lowest-numbered register: X (wire 0)
+  // now comes before H (wire 1).
+  assert.equal(innerOps[0].gate, "X");
+  assert.equal(innerOps[0].targets[0].qubit, 0);
+  assert.equal(innerOps[1].gate, "H");
+  assert.equal(innerOps[1].targets[0].qubit, 1);
+});
+
+test("moveQubit: refreshes group `.targets` cache after wire swap", () => {
+  // Foo spans wires 0-1 with a single H on wire 0. Swap wires 0
+  // and 1; H now targets wire 1, and Foo's cached `.targets` must
+  // be re-derived from the (still single-child) cache rather than
+  // left as a stale `[{q:0}, {q:1}]`.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  moveQubit(model, 0, 1, false);
+
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  const hOp = /** @type {any} */ (fooOp.children[0].components[0]);
+  assert.equal(hOp.targets[0].qubit, 1);
+  assert.equal(
+    fooOp.targets.length,
+    1,
+    `Foo's cached targets must have one entry; got ${JSON.stringify(fooOp.targets)}`,
+  );
+  assert.equal(fooOp.targets[0].qubit, 1);
+});
+
+test("moveQubit: resolves nested-group overlaps introduced by widening", () => {
+  // Foo spans wires 0-1 with children H@wire0 and X@wire1 in the
+  // same nested column. Swapping wires 0 and 1 keeps the H/X span
+  // non-overlapping (each owns its own wire), so the nested column
+  // stays as a single column. The smoke-test value is that we don't
+  // throw and don't corrupt the children.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  moveQubit(model, 0, 1, false);
+
+  const fooOp = /** @type {any} */ (model.componentGrid[0].components[0]);
+  // Both children still live in a single nested column (no overlap
+  // was introduced — each child still owns its own wire after the
+  // swap).
+  assert.equal(fooOp.children.length, 1);
+  assert.equal(fooOp.children[0].components.length, 2);
+});
 
 test("findAndRemoveOperations: removing a deep child narrows the group's targets", () => {
   // Foo spans wires 0-1 with H on wire 0 and Y on wire 1. Predicate-
@@ -3664,4 +3788,315 @@ test("ancestor refresh: produces canonical (qubit, result) target order even whe
     ["q0", "c0.0", "q1", "q2"],
     `Foo.targets must be canonically sorted (qubit, result); got ${JSON.stringify(keys)}`,
   );
+});
+
+// -------- addOperation: clone-copy of a group preserves shape ----------
+//
+// Bug B8: Ctrl-drag (clone) of a multi-wire group from its top-most
+// box used to clobber the group's `.targets` to a single-wire stub
+// and strand the children on their original wires. The fix mirrors
+// `moveOperation`'s `_moveAsUnit` path — every register in the
+// cloned subtree shifts by the same `targetWire - sourceWire` delta.
+
+test("addOperation: clone-copy of a group with delta>0 shifts every nested register", () => {
+  // Foo spans wires 0-1 with H@wire0 and X@wire1. Clone the whole
+  // group, grabbing it on wire 0, drop on wire 2 (delta = +2).
+  // Expected: cloned Foo spans wires 2-3, with H@wire2 and X@wire3.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const sourceFoo = model.componentGrid[0].components[0];
+
+  // Clone-drop in a fresh trailing column, grabbing on wire 0,
+  // dropping on wire 2.
+  const cloned = addOperation(
+    model,
+    /** @type {any} */ (sourceFoo),
+    "1,0",
+    /* targetWire */ 2,
+    /* insertNewColumn */ false,
+    /* sourceWire */ 0,
+  );
+
+  assert.ok(cloned, "clone returned an op");
+  const clonedAny = /** @type {any} */ (cloned);
+  // Cloned group's cached .targets reflect the post-shift wires.
+  const clonedQubits = clonedAny.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.deepEqual(
+    clonedQubits,
+    [2, 3],
+    `cloned Foo must span [2,3]; got ${JSON.stringify(clonedQubits)}`,
+  );
+  // Children shifted in lockstep.
+  const innerOps = clonedAny.children[0].components;
+  assert.equal(innerOps[0].gate, "H");
+  assert.equal(innerOps[0].targets[0].qubit, 2);
+  assert.equal(innerOps[1].gate, "X");
+  assert.equal(innerOps[1].targets[0].qubit, 3);
+
+  // Original Foo is untouched (clone, not move).
+  const origFoo = /** @type {any} */ (model.componentGrid[0].components[0]);
+  assert.equal(origFoo.children[0].components[0].targets[0].qubit, 0);
+  assert.equal(origFoo.children[0].components[1].targets[0].qubit, 1);
+});
+
+test("addOperation: clone-copy of a group with delta=0 preserves all children on their original wires", () => {
+  // Clone a group dropping on the same wire it was grabbed from
+  // (different column). Children should land on the same wires
+  // they came from — no shift, no clobber.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const sourceFoo = model.componentGrid[0].components[0];
+
+  const cloned = addOperation(
+    model,
+    /** @type {any} */ (sourceFoo),
+    "1,0",
+    /* targetWire */ 0,
+    /* insertNewColumn */ false,
+    /* sourceWire */ 0,
+  );
+
+  assert.ok(cloned, "clone returned an op");
+  const clonedAny = /** @type {any} */ (cloned);
+  const clonedQubits = clonedAny.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.deepEqual(
+    clonedQubits,
+    [0, 1],
+    `cloned Foo must still span [0,1]; got ${JSON.stringify(clonedQubits)}`,
+  );
+  const innerOps = clonedAny.children[0].components;
+  assert.equal(innerOps[0].targets[0].qubit, 0);
+  assert.equal(innerOps[1].targets[0].qubit, 1);
+});
+
+test("addOperation: clone-copy of a multi-target gate preserves every leg", () => {
+  // SWAP is multi-target. Without the fix, the clone path would
+  // collapse its `targets` to `[{qubit: targetWire}]` — destroying
+  // one leg of the swap.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "SWAP",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const sourceSwap = model.componentGrid[0].components[0];
+
+  const cloned = addOperation(
+    model,
+    /** @type {any} */ (sourceSwap),
+    "1,0",
+    /* targetWire */ 2,
+    /* insertNewColumn */ false,
+    /* sourceWire */ 0,
+  );
+
+  assert.ok(cloned, "clone returned an op");
+  const clonedAny = /** @type {any} */ (cloned);
+  const clonedQubits = clonedAny.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort((/** @type {number} */ a, /** @type {number} */ b) => a - b);
+  assert.deepEqual(
+    clonedQubits,
+    [2, 3],
+    `cloned SWAP must span [2,3]; got ${JSON.stringify(clonedQubits)}`,
+  );
+});
+
+test("addOperation: clone-copy of a group containing an internal classical control shifts the classical ref in lockstep", () => {
+  // Foo contains `M q0 → c_0` followed by `if (c_0) H q1`. Cloning
+  // Foo with delta=+2 should produce a copy where the inner M is on
+  // q2 producing c_2.0, and the inner conditional H is on q3 reading
+  // c_2.0 (NOT c_0.0 — that's the original's classical, which still
+  // belongs to the original).
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  {
+                    kind: "measurement",
+                    gate: "M",
+                    qubits: [{ qubit: 0 }],
+                    results: [{ qubit: 0, result: 0 }],
+                  },
+                ],
+              },
+              {
+                components: [
+                  {
+                    kind: "unitary",
+                    gate: "H",
+                    targets: [{ qubit: 1 }],
+                    controls: [{ qubit: 0, result: 0 }],
+                    isConditional: true,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const sourceFoo = model.componentGrid[0].components[0];
+
+  const cloned = addOperation(
+    model,
+    /** @type {any} */ (sourceFoo),
+    "1,0",
+    /* targetWire */ 2,
+    /* insertNewColumn */ false,
+    /* sourceWire */ 0,
+  );
+
+  assert.ok(cloned, "clone returned an op");
+  const clonedAny = /** @type {any} */ (cloned);
+  const m = clonedAny.children[0].components[0];
+  const condH = clonedAny.children[1].components[0];
+  // Measurement shifted to wire 2.
+  assert.equal(m.qubits[0].qubit, 2);
+  assert.equal(m.results[0].qubit, 2);
+  // Conditional H's target shifted to wire 3; its classical control
+  // ref shifted to wire 2 (the cloned producer), NOT anchored at
+  // wire 0 (which would point at the original producer).
+  assert.equal(condH.targets[0].qubit, 3);
+  assert.equal(condH.controls[0].qubit, 2);
+  assert.equal(condH.controls[0].result, 0);
+});
+
+test("addOperation: clone-copy that would push a wire below 0 returns null", () => {
+  // Grab Foo (spans wires 1-2) on wire 1, try to drop below wire 0.
+  // The unit-shift would compute delta = -2, pushing wire 1 → -1.
+  // Returns null (the drag controller treats null as no-op).
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 1 }, { qubit: 2 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 2 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const sourceFoo = model.componentGrid[0].components[0];
+  const before = JSON.stringify(model.componentGrid);
+
+  // sourceWire=1, targetWire would land Foo's wire-1 child at -1.
+  // Pick targetWire = -1 to force delta = -2.
+  const result = addOperation(
+    model,
+    /** @type {any} */ (sourceFoo),
+    "1,0",
+    /* targetWire */ -1,
+    /* insertNewColumn */ false,
+    /* sourceWire */ 1,
+  );
+
+  assert.equal(result, null, "expected null when shift would underflow");
+  // Model is unchanged.
+  assert.equal(JSON.stringify(model.componentGrid), before);
+});
+
+test("addOperation: omitting sourceWire keeps the legacy single-leg behavior (toolbox drops)", () => {
+  // The dragController doesn't pass sourceWire for fresh toolbox
+  // drops. Verify that omitting it still rewrites a single-target
+  // template's `targets` to the requested wire — no regression.
+  const model = new CircuitModel(emptyCircuit(3));
+
+  const added = addOperation(
+    model,
+    /** @type {any} */ ({
+      kind: "unitary",
+      gate: "H",
+      targets: [{ qubit: 0 }],
+    }),
+    "0,0",
+    /* targetWire */ 2,
+    /* insertNewColumn */ false,
+    // sourceWire intentionally omitted
+  );
+
+  assert.ok(added, "toolbox drop returned an op");
+  assert.equal(/** @type {any} */ (added).targets[0].qubit, 2);
 });

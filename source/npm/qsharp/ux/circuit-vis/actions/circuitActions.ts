@@ -1221,6 +1221,14 @@ const _moveY = (
 /**
  * Add an operation into the circuit.
  *
+ * @param sourceWire The wire the source op was "grabbed" on. Only
+ *   meaningful when the source is a group or multi-target op being
+ *   clone-dropped: the whole subtree is shifted by
+ *   `targetWire - sourceWire` so the clone keeps its shape on the
+ *   new wires (mirrors `moveOperation`'s `_moveAsUnit` path).
+ *   Omit for fresh toolbox drops (single-target templates) — the
+ *   single-leg rewrite below handles those.
+ *
  * @returns The added operation or null if the addition was unsuccessful.
  */
 const addOperation = (
@@ -1229,6 +1237,7 @@ const addOperation = (
   targetLocation: string,
   targetWire: number,
   insertNewColumn: boolean = false,
+  sourceWire?: number,
 ): Operation | null => {
   const targetOperationParent = findParentArray(
     model.componentGrid,
@@ -1242,17 +1251,43 @@ const addOperation = (
     JSON.stringify(sourceOperation),
   );
 
-  if (newSourceOperation.kind === "measurement") {
-    newSourceOperation.qubits = [{ qubit: targetWire }];
-    // The measurement result is updated later in the _updateMeasurementLines function
-  } else if (
-    newSourceOperation.kind === "unitary" ||
-    newSourceOperation.kind === "ket"
-  ) {
-    newSourceOperation.targets = [{ qubit: targetWire }];
-  }
+  // Decide whether this clone needs the rigid unit-shift treatment.
+  // Same predicate as `moveOperation` uses on its move path — a
+  // group or multi-target gate must shift every register by the
+  // same delta or its structure is destroyed (children stranded on
+  // the old wires, multi-target gates collapsed to a single leg).
+  // `movingControl` is always false here because the
+  // dragController routes clone-of-a-control through addControl +
+  // moveOperation, not addOperation.
+  const cloneAsUnit =
+    sourceWire !== undefined && _moveAsUnit(newSourceOperation, false);
 
-  model.ensureQubitCount(targetWire);
+  if (cloneAsUnit) {
+    // Mirror `moveOperation`'s unit-shift block: refuse the clone
+    // if it would push any wire below 0, then grow the model to
+    // accommodate the highest wire the post-shift subtree lands on.
+    const delta = targetWire - sourceWire;
+    const [minOrigWire, maxOrigWire] =
+      _getSubtreeMinMaxWire(newSourceOperation);
+    if (minOrigWire >= 0 && minOrigWire + delta < 0) {
+      return null;
+    }
+    model.ensureQubitCount(Math.max(targetWire, maxOrigWire + delta));
+    if (delta !== 0) _shiftAllRegisters(newSourceOperation, delta);
+  } else {
+    // Single-leg rewrite (toolbox drop, single-target clone): the
+    // op gets re-pinned to `targetWire`. Same behavior as before.
+    if (newSourceOperation.kind === "measurement") {
+      newSourceOperation.qubits = [{ qubit: targetWire }];
+      // The measurement result is updated later in the _updateMeasurementLines function
+    } else if (
+      newSourceOperation.kind === "unitary" ||
+      newSourceOperation.kind === "ket"
+    ) {
+      newSourceOperation.targets = [{ qubit: targetWire }];
+    }
+    model.ensureQubitCount(targetWire);
+  }
 
   // Capture the dest ancestor chain BEFORE _addOp so the rung
   // references survive any column splices `_addOp` may perform.
@@ -1269,6 +1304,22 @@ const addOperation = (
     targetLastIndex,
     insertNewColumn,
   );
+
+  // Unit-shift clones can drop a whole subtree's worth of nested
+  // measurements onto wires the model has never seen before. `_addOp`
+  // only refreshes measurement lines for TOP-LEVEL measurement ops,
+  // so refresh each touched wire explicitly here. Single-leg drops
+  // skip this because `_addOp` already handled the only possible
+  // measurement (a top-level one).
+  if (cloneAsUnit) {
+    const affectedMeasurementWires = new Set<number>();
+    _collectMeasurementWires(newSourceOperation, affectedMeasurementWires);
+    for (const wire of affectedMeasurementWires) {
+      if (wire >= 0 && wire < model.qubits.length) {
+        _updateMeasurementLines(model, wire);
+      }
+    }
+  }
 
   // After mutating the parent group's children, its derived
   // `.targets` (and every ancestor above it) must be re-derived
@@ -1432,9 +1483,14 @@ const removeControl = (
  *   - `isBetween: true`  — insert before `targetWire` (drop "between" wires).
  *   - `isBetween: false` — swap with `targetWire`.
  *
- * Updates qubit IDs, every operation's register references, sorts each
- * column by lowest-numbered register, and re-resolves any overlaps that
- * the rewire produced.
+ * Updates qubit IDs and every operation's register references —
+ * including ops nested inside group `children` and the cached
+ * `.targets` arrays on group ops. After the remap, refreshes
+ * every group's derived `.targets` (the remap can both widen and
+ * narrow group spans, so caches go stale either way) and runs the
+ * overlap resolver recursively across the whole tree (widening can
+ * introduce new sibling-column collisions inside groups, not just
+ * at top level).
  *
  * No-op if `sourceWire === targetWire` or either is null/undefined.
  */
@@ -1472,46 +1528,87 @@ const moveQubit = (
     q.id = idx;
   });
 
-  // Update all operations in componentGrid to reflect new qubit order
-  for (const column of model.componentGrid) {
-    for (const op of column.components) {
-      getOperationRegisters(op).forEach((reg) => {
-        if (isBetween) {
-          // Move: update qubit indices
-          if (reg.qubit === sourceWire) {
-            reg.qubit = sourceWire < targetWire ? targetWire - 1 : targetWire;
-          } else if (
-            sourceWire < targetWire &&
-            reg.qubit > sourceWire &&
-            reg.qubit < targetWire
-          ) {
-            reg.qubit -= 1;
-          } else if (
-            sourceWire > targetWire &&
-            reg.qubit >= targetWire &&
-            reg.qubit < sourceWire
-          ) {
-            reg.qubit += 1;
-          }
-        } else {
-          // Swap: swap indices
-          if (reg.qubit === sourceWire) reg.qubit = targetWire;
-          else if (reg.qubit === targetWire) reg.qubit = sourceWire;
-        }
+  // Compute the wire-index remap once and apply it to every
+  // register reference in the tree — including ops nested inside
+  // group children AND each group op's own cached `.targets` /
+  // `.results` arrays (which are independent `Register` objects,
+  // not shared references with descendants).
+  const remapWire = (oldWire: number): number => {
+    if (isBetween) {
+      if (oldWire === sourceWire) {
+        return sourceWire < targetWire ? targetWire - 1 : targetWire;
+      } else if (
+        sourceWire < targetWire &&
+        oldWire > sourceWire &&
+        oldWire < targetWire
+      ) {
+        return oldWire - 1;
+      } else if (
+        sourceWire > targetWire &&
+        oldWire >= targetWire &&
+        oldWire < sourceWire
+      ) {
+        return oldWire + 1;
+      }
+      return oldWire;
+    } else {
+      if (oldWire === sourceWire) return targetWire;
+      if (oldWire === targetWire) return sourceWire;
+      return oldWire;
+    }
+  };
+  const remapRefsInGrid = (grid: ComponentGrid): void => {
+    for (const column of grid) {
+      for (const op of column.components) {
+        getOperationRegisters(op).forEach((reg) => {
+          reg.qubit = remapWire(reg.qubit);
+        });
+        if (op.children != null) remapRefsInGrid(op.children);
+      }
+      // Sort operations in this column by their lowest-numbered register
+      column.components.sort((a, b) => {
+        const aRegs = getOperationRegisters(a);
+        const bRegs = getOperationRegisters(b);
+        const aMin = Math.min(...aRegs.map((r) => r.qubit));
+        const bMin = Math.min(...bRegs.map((r) => r.qubit));
+        return aMin - bMin;
       });
     }
-    // Sort operations in this column by their lowest-numbered register
-    column.components.sort((a, b) => {
-      const aRegs = getOperationRegisters(a);
-      const bRegs = getOperationRegisters(b);
-      const aMin = Math.min(...aRegs.map((r) => r.qubit));
-      const bMin = Math.min(...bRegs.map((r) => r.qubit));
-      return aMin - bMin;
-    });
-  }
+  };
+  remapRefsInGrid(model.componentGrid);
 
-  resolveOverlappingOperations(model.componentGrid);
+  // Group `.targets` caches were remapped in-place above, but the
+  // remap may have introduced duplicate refs (e.g. a group whose
+  // `.targets` were `[{q:0}, {q:1}]` and the swap mapped both to
+  // overlapping wires) or stale ordering. The deep refresh
+  // re-derives each group's `.targets` from its children's caches
+  // bottom-up, which is the canonical source of truth.
+  _deepRefreshDerivedTargets(model.componentGrid);
+
+  // Resolve overlaps in every column at every nesting level. The
+  // top-level call from before only fixed top-level columns;
+  // widening of a group's span via the remap can also introduce
+  // sibling-column collisions inside that group.
+  resolveOverlappingOperationsRecursive(model.componentGrid);
+
   model.removeTrailingUnusedQubits();
+};
+
+/**
+ * Recursive variant of `resolveOverlappingOperations` — resolves
+ * overlaps in every column at every nesting level of the grid.
+ * Used by `moveQubit`, which can widen group spans anywhere in the
+ * tree.
+ */
+const resolveOverlappingOperationsRecursive = (grid: ComponentGrid): void => {
+  resolveOverlappingOperations(grid);
+  for (const col of grid) {
+    for (const op of col.components) {
+      if (op.children != null) {
+        resolveOverlappingOperationsRecursive(op.children);
+      }
+    }
+  }
 };
 
 /**

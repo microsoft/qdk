@@ -2013,7 +2013,7 @@ column to the right; what's the right placement for cross-column
 displacements? Pushing every overlapped op rightward by one
 column may cascade into yet more collisions.
 
-### B7. Qubit rearrangement doesn't update group contents correctly
+### B7. Qubit rearrangement doesn't update group contents correctly — ✅ shipped
 
 **Symptom.** Drag a qubit label to reorder wires. Ops whose
 references should follow their wire end up referencing the new
@@ -2021,41 +2021,122 @@ wire index in the wrong way — e.g. an op inside a group that
 previously addressed wire 2 now silently addresses wire 3, or
 the group's `.targets` cache doesn't get refreshed.
 
-**Likely cause.** `moveQubit` in
-[circuitActions.ts](actions/circuitActions.ts) renumbers the
-top-level grid's register references but doesn't descend into
-group children — or descends inconsistently. The D7 ancestor-
-targets refresh utility handles `.targets` after a _move-op_,
-but doesn't fire on `moveQubit`.
+**Root cause.** `moveQubit` in
+[circuitActions.ts](actions/circuitActions.ts) was iterating only
+`model.componentGrid`'s top-level columns. Two consequences:
 
-**Fix direction.** Two parts:
+1. Wire-index remap never reached ops nested inside group
+   `children`. Those ops kept their old wire indices and the
+   renderer drew them on the wrong rows.
+2. The post-mutation pass to refresh group `.targets` caches and
+   resolve any newly-introduced overlaps only ran at the top
+   level. Group `.targets` arrays touched by the in-place remap
+   went stale (the remap could introduce duplicate refs, lose
+   ordering, or both); sibling-column collisions inside groups
+   went unresolved.
 
-1. `moveQubit` must recursively walk every op's `controls` /
-   `targets` / `qubits` / `results` arrays, including inside
-   children, and apply the wire-index remap consistently.
-2. After the remap, run a `refreshAncestorTargets`-equivalent
-   pass over the entire grid (or at minimum over every group
-   ancestor of every remapped op) so cached `.targets` reflect
-   the new register references.
+Compare `removeQubit` in the same file, which already had a
+recursive `shiftRefsInGrid` helper — a uniform shift kept caches
+in lockstep without needing a refresh, but the precedent for
+walking children was already there.
 
-**Open question.** Is there value in a "snapshot every op's
-register set, remap top-to-bottom, then re-derive ancestor
-caches" approach (one sweep, simple to reason about) vs. the
-targeted "walk the touched ops" approach? The former is
-O(grid size) regardless of move scope but bulletproof; the
-latter is faster but easier to leave a stale reference behind.
+**Fix (shipped).** Three changes in
+[circuitActions.ts](actions/circuitActions.ts):
+
+1. Extracted the wire-index remap into a pure `remapWire(old)`
+   function, then applied it via a recursive `remapRefsInGrid`
+   helper that walks `op.children` — same shape as
+   `removeQubit`'s `shiftRefsInGrid`. Group ops' own cached
+   `.targets` / `.results` arrays are remapped in-place as part
+   of the walk (they're independent `Register` objects, not
+   shared references with descendants).
+2. Followed the remap with a call to
+   [`_deepRefreshDerivedTargets`](actions/circuitActions.ts) to
+   re-derive every group's `.targets` from its children's
+   already-correct caches. The remap can both widen AND narrow
+   group spans (the existing `_deepRefreshDerivedTargets` doc
+   notes "narrowing-only" but it actually re-derives from
+   immediate children either way; the contract note refers to
+   not running the overlap resolver, which we handle separately
+   in step 3).
+3. Added a new private
+   `resolveOverlappingOperationsRecursive(grid)` that calls
+   the existing single-grid resolver at every nesting level.
+   Replaces the old top-level-only
+   `resolveOverlappingOperations(model.componentGrid)` call.
+
+**Tests.** 3 new tests in
+[test/circuit-editor/circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs)
+under "moveQubit: recurses into nested groups":
+
+- swap wires propagates into nested op `.targets`
+- swap wires refreshes the parent group's cached `.targets`
+- swap wires doesn't corrupt nested children when no overlap is
+  introduced
+
+343/343 tests pass (was 340 before B7).
+
+**Out of scope / deferred.** Validation that the remap doesn't
+violate classical-register dependencies (producer M must remain
+in an earlier column than its consumer) is covered separately by
+B3. B7 is purely about getting the data structure right after
+the move; B3 will add the refusal check that prevents reorders
+from putting the model into an unrenderable state in the first
+place.
+
+### B8. Clone-move of a multi-wire group rewrites `.targets` to a single-wire stub — ✅ Shipped (pending user-confirmation)
+
+**Symptom.** Ctrl+drag (clone) of a multi-wire group dropped the
+copy with a single-wire `.targets` (just `[{qubit: targetWire}]`)
+and stranded the nested children on their original wires. Visible
+worst on split groups grabbed from the top-most box, but the
+underlying bug affected every group / multi-target clone.
+
+**Root cause.** `addOperation` in
+[circuitActions.ts](actions/circuitActions.ts) unconditionally
+rewrote `.targets` (or `.qubits` for measurements) to
+`[{qubit: targetWire}]` on the deep-copied source. This is fine
+for toolbox drops (single-target templates) but wrong for any op
+where `_moveAsUnit` returns true — groups and multi-target /
+multi-qubit gates. `moveOperation`'s unit-move path shifts every
+register by the same delta; the clone path had no equivalent.
+
+**Fix.** Extended `addOperation` with an optional `sourceWire`
+parameter. When provided AND `_moveAsUnit(op, false)` returns
+true, the deep-copied subtree is shifted by
+`targetWire - sourceWire` via the same `_shiftAllRegisters`
+helper `_moveY` uses on its unit branch — including internal
+classical-register lockstep handling. The drag controller's
+clone path in
+[dragController.ts](editor/controllers/dragController.ts) now
+passes `selectedWire` as `sourceWire`. Toolbox drops continue to
+omit it and keep the legacy single-leg rewrite (no regression).
+
+Underflow protection (refuse the clone if any wire would shift
+below 0) and post-add `_updateMeasurementLines` refresh for every
+wire the cloned subtree touched both mirror `moveOperation`'s
+unit-move tail.
+
+**Tests.** Six new tests in
+[test/circuit-editor/circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs):
+group clone with delta>0, group clone with delta=0, multi-target
+(SWAP) clone, group-with-internal-classical-control clone (the
+classical ref shifts in lockstep with the cloned producer),
+underflow refusal, and legacy single-leg behavior preserved when
+`sourceWire` is omitted.
 
 ### Roadmap & status
 
-| Item                                                 | Severity         | Status                                                                                              |
-| ---------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------- |
-| B1: classical-control indicators show `C_null`       | Display bug      | ⚠️ Partial (immediate symptom fixed; architectural fix deferred to future editor-authoring feature) |
-| B2: moving / deleting M with downstream deps crashes | Crash            | ❌ Open                                                                                             |
-| B3: qubit reorder around dependent M crashes         | Crash            | ❌ Open                                                                                             |
-| B4: M removal leaves stale classical wire layout     | Layout bug       | ❌ Open                                                                                             |
-| B5: add/remove control fails on classical groups     | Logic error      | ❌ Open                                                                                             |
-| B6: shift-extend doesn't push adjacent groups        | Layout bug       | ❌ Open                                                                                             |
-| B7: qubit reorder doesn't update group contents      | Data consistency | ❌ Open                                                                                             |
+| Item                                                         | Severity         | Status                                                                                              |
+| ------------------------------------------------------------ | ---------------- | --------------------------------------------------------------------------------------------------- |
+| B1: classical-control indicators show `C_null`               | Display bug      | ⚠️ Partial (immediate symptom fixed; architectural fix deferred to future editor-authoring feature) |
+| B2: moving / deleting M with downstream deps crashes         | Crash            | ❌ Open                                                                                             |
+| B3: qubit reorder around dependent M crashes                 | Crash            | ❌ Open                                                                                             |
+| B4: M removal leaves stale classical wire layout             | Layout bug       | ❌ Open                                                                                             |
+| B5: add/remove control fails on classical groups             | Logic error      | ❌ Open                                                                                             |
+| B6: shift-extend doesn't push adjacent groups                | Layout bug       | ❌ Open                                                                                             |
+| B7: qubit reorder doesn't update group contents              | Data consistency | ✅ Shipped (pending user-confirmation)                                                              |
+| B8: clone-move of a group rewrites `.targets` to single wire | Data consistency | ✅ Shipped (pending user-confirmation)                                                              |
 
 ---
 
