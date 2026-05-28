@@ -387,15 +387,21 @@ const _opToRenderData = (
     renderData.label = gate;
 
     // Fill in the ID to be displayed in each control wire's circle.
+    // Prefer the global id from `metadata.controlResultIds` (the
+    // trace-builder populates these so two M's on different qubits
+    // get distinct labels like `c_0` and `c_1`). When the metadata
+    // is missing (hand-authored `.qsc` files, programmatically
+    // built circuits), fall back to the control register's local
+    // `result` index — still meaningful info shown next to the
+    // correct sub-wire visually, even if two M's on different
+    // qubits both display `c_0`.
     renderData.classicalControlIds =
-      controls
-        ?.map(
-          (reg) =>
-            op.metadata?.controlResultIds?.find(
-              (e) => e[0].qubit === reg.qubit && e[0].result === reg.result,
-            )?.[1],
-        )
-        .map((id) => id ?? null) || [];
+      controls?.map((reg) => {
+        const globalId = op.metadata?.controlResultIds?.find(
+          (e) => e[0].qubit === reg.qubit && e[0].result === reg.result,
+        )?.[1];
+        return globalId ?? reg.result ?? null;
+      }) || [];
 
     if (hasChildren) {
       renderData.type = GateType.Group;

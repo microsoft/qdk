@@ -1829,29 +1829,55 @@ Listed in rough severity order (crashes first). Each entry has a
 "open question" line where the right fix isn't obvious; settle the
 question before writing code.
 
-### B1. Classical-control indicators always show `C_null`
+### B1. Classical-control indicators always show `C_null` — ⚠️ partial
 
 **Symptom.** The circle/label next to a classically-controlled
 group's control wire reads `C_null` regardless of which classical
 register the conditional actually depends on. Should show the
 producing register's id (e.g. `C_0`, `C_1`).
 
-**Likely cause.** `renderData.classicalControlIds` in
-[process.ts](renderer/process.ts) is built by looking up each
-control's `(qubit, result)` pair inside
-`op.metadata?.controlResultIds`. If the metadata array isn't
-populated for the op (or the lookup misses), the slot is `null`
-and the renderer falls back to `null`-stringified output.
+**Root cause.** `renderData.classicalControlIds` in
+[process.ts](renderer/process.ts) was built solely from
+`op.metadata?.controlResultIds` — the global numeric registry the
+Rust trace builder populates via [`new_group`](../../../compiler/qsc_circuit/src/builder.rs).
+When that metadata is missing (hand-authored `.qsc` files,
+programmatically built circuits, future editor-authored classical
+controls), the lookup returned `undefined` and the renderer
+stringified it as `"null"`.
 
-**Fix direction.** Either (a) ensure the compiler / circuit builder
-emits `controlResultIds` for every conditional, or (b) have the
-renderer fall back to a synthesized id derived from the
-`(qubit, result)` pair when the metadata lookup misses. Option (b)
-is the safer immediate fix; (a) is the proper long-term resolution.
+**Investigation findings.** All 12 trace-built `.qs` snapshots are
+clean — the Rust builder always populates `controlResultIds`. The
+only failing paths today are `.qsc` files that don't carry the
+metadata. The deeper invariant ("every classically-controlled op
+must carry `controlResultIds`") is fragile, but only one producer
+exists today (the trace builder) and it gets it right.
 
-**Open question.** Are there cases where the metadata is
-intentionally absent (e.g. for hand-authored `.qsc` files), or
-should every classically-controlled op always carry it?
+**Immediate fix (shipped).** Added a fallback in
+[process.ts](renderer/process.ts) — when the metadata lookup
+misses, use the control register's local `result` field. The label
+still renders next to the right wire visually; two M's on
+different qubits both displaying `c_0` is acceptable until the
+proper global-id story lands.
+
+**Deferred — punted to the future "editor authoring of classical
+controls" feature.** When we add a UI path to create a classically-
+controlled group from scratch in the editor (currently impossible
+— `addControl` only emits pure quantum controls), we'll need to
+decide whether to:
+
+- (a) make `controlResultIds` derivable at render time by walking
+  the grid once and globally numbering M results in document
+  order, making the metadata an optional cache rather than a
+  required input, or
+- (b) require every producer (trace builder, editor authoring path,
+  future tooling) to populate `controlResultIds` and enforce that
+  via schema.
+
+Option (a) is the architecturally clean answer; Option (b) keeps
+metadata as the source of truth but adds a new invariant to
+maintain. Designing this in isolation today is premature; revisit
+when the editor-authoring feature gives a second concrete producer
+to anchor the design.
 
 ### B2. Moving / deleting an M that later gates depend on crashes
 
@@ -2021,15 +2047,15 @@ latter is faster but easier to leave a stale reference behind.
 
 ### Roadmap & status
 
-| Item                                                 | Severity         | Status  |
-| ---------------------------------------------------- | ---------------- | ------- |
-| B1: classical-control indicators show `C_null`       | Display bug      | ❌ Open |
-| B2: moving / deleting M with downstream deps crashes | Crash            | ❌ Open |
-| B3: qubit reorder around dependent M crashes         | Crash            | ❌ Open |
-| B4: M removal leaves stale classical wire layout     | Layout bug       | ❌ Open |
-| B5: add/remove control fails on classical groups     | Logic error      | ❌ Open |
-| B6: shift-extend doesn't push adjacent groups        | Layout bug       | ❌ Open |
-| B7: qubit reorder doesn't update group contents      | Data consistency | ❌ Open |
+| Item                                                 | Severity         | Status                                                                                              |
+| ---------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------- |
+| B1: classical-control indicators show `C_null`       | Display bug      | ⚠️ Partial (immediate symptom fixed; architectural fix deferred to future editor-authoring feature) |
+| B2: moving / deleting M with downstream deps crashes | Crash            | ❌ Open                                                                                             |
+| B3: qubit reorder around dependent M crashes         | Crash            | ❌ Open                                                                                             |
+| B4: M removal leaves stale classical wire layout     | Layout bug       | ❌ Open                                                                                             |
+| B5: add/remove control fails on classical groups     | Logic error      | ❌ Open                                                                                             |
+| B6: shift-extend doesn't push adjacent groups        | Layout bug       | ❌ Open                                                                                             |
+| B7: qubit reorder doesn't update group contents      | Data consistency | ❌ Open                                                                                             |
 
 ---
 
