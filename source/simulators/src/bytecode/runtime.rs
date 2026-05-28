@@ -93,6 +93,12 @@ const OP_SELECT: u8 = 0x51;
 const OP_MOV: u8 = 0x52;
 const OP_CONST: u8 = 0x53;
 
+// Memory operations
+const OP_ALLOCA: u8 = 0x60;
+const OP_LOAD: u8 = 0x61;
+const OP_STORE: u8 = 0x62;
+const OP_GEP: u8 = 0x63;
+
 // ICmp condition codes (sub-opcode)
 const ICMP_EQ: u8 = 0;
 const ICMP_NE: u8 = 1;
@@ -160,10 +166,13 @@ struct Runtime {
     exit_code: u64,
     registers: Vec<u64>,
     call_stack: Vec<CallStackFrame>,
+    memory: Vec<u64>,
 }
 
 impl Runtime {
-    fn new(num_registers: u32, entry_block: u64, entry_pc: u64) -> Self {
+    fn new(num_registers: u32, entry_block: u64, entry_pc: u64, constant_data: &[u64]) -> Self {
+        let mut memory = Vec::with_capacity(constant_data.len() + 256);
+        memory.extend_from_slice(constant_data);
         Self {
             pc: entry_pc,
             current_block_id: entry_block,
@@ -171,6 +180,7 @@ impl Runtime {
             exit_code: 0,
             registers: vec![0; num_registers as usize],
             call_stack: Vec::with_capacity(128),
+            memory,
         }
     }
 
@@ -210,6 +220,18 @@ impl Runtime {
 
     fn write_f64(&mut self, reg: u64, val: f64) {
         self.write_reg(reg, val.to_bits());
+    }
+
+    fn read_memory(&self, addr: u64) -> u64 {
+        self.memory[addr as usize]
+    }
+
+    fn write_memory(&mut self, addr: u64, val: u64) {
+        let idx = addr as usize;
+        if idx >= self.memory.len() {
+            self.memory.resize(idx + 1, 0);
+        }
+        self.memory[idx] = val;
     }
 }
 
@@ -309,7 +331,12 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
     const MAX_STEPS: u64 = 10_000_000;
 
     let entry_pc = program.block_table[program.entry_block as usize].instr_offset;
-    let mut rt = Runtime::new(program.num_registers, program.entry_block, entry_pc);
+    let mut rt = Runtime::new(
+        program.num_registers,
+        program.entry_block,
+        entry_pc,
+        &program.constant_data,
+    );
 
     for _ in 0..MAX_STEPS {
         let instr = program.instructions[rt.pc as usize];
@@ -690,6 +717,41 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) {
 
             OP_CONST => {
                 rt.write_reg(instr.dst, instr.src0);
+                rt.pc += 1;
+            }
+
+            // ----- Memory operations -----
+            OP_ALLOCA => {
+                let num_words = rt.resolve_u64(instr.src0, flags, 0);
+                let addr = rt.resolve_u64(instr.src1, flags, 1);
+                let end = (addr + num_words) as usize;
+                if end > rt.memory.len() {
+                    rt.memory.resize(end, 0);
+                }
+                rt.write_reg(instr.dst, addr);
+                rt.pc += 1;
+            }
+
+            OP_LOAD => {
+                let addr = rt.resolve_u64(instr.src0, flags, 0);
+                let val = rt.read_memory(addr);
+                rt.write_reg(instr.dst, val);
+                rt.pc += 1;
+            }
+
+            OP_STORE => {
+                let val = rt.resolve_u64(instr.src0, flags, 0);
+                let addr = rt.resolve_u64(instr.src1, flags, 1);
+                rt.write_memory(addr, val);
+                rt.pc += 1;
+            }
+
+            OP_GEP => {
+                let base = rt.resolve_u64(instr.src0, flags, 0);
+                let index = rt.resolve_u64(instr.src1, flags, 1);
+                let elem_size = rt.resolve_u64(instr.aux0, flags, 3);
+                let addr = base.wrapping_add(index.wrapping_mul(elem_size));
+                rt.write_reg(instr.dst, addr);
                 rt.pc += 1;
             }
 

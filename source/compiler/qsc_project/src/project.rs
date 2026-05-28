@@ -538,7 +538,7 @@ pub trait FileSystemAsync {
             })
             .unwrap_or_default();
 
-        let manifest_path = format!("{path_trimmed_seps}/qsharp.json",);
+        let manifest_path = format!("{path_trimmed_seps}/qsharp.json");
         let manifest_content = self
             .fetch_github(&dep.owner, &dep.repo, &dep.r#ref, &manifest_path)
             .await

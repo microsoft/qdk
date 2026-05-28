@@ -285,7 +285,7 @@ pub struct CallableComputeProperties {
 impl Display for CallableComputeProperties {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "CallableComputeProperties:",)?;
+        write!(indent, "CallableComputeProperties:")?;
         indent = set_indentation(indent, 1);
         write!(indent, "\nbody: {}", self.body)?;
         match &self.adj {
@@ -328,7 +328,7 @@ impl Default for ApplicationGeneratorSet {
 impl Display for ApplicationGeneratorSet {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "ApplicationsGeneratorSet:",)?;
+        write!(indent, "ApplicationsGeneratorSet:")?;
         indent = set_indentation(indent, 1);
         write!(indent, "\ninherent: {}", self.inherent)?;
         write!(indent, "\ndynamic_param_applications:")?;
@@ -421,7 +421,7 @@ pub struct ArrayParamApplication {
 impl Display for ArrayParamApplication {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "ArrayParamApplication:",)?;
+        write!(indent, "ArrayParamApplication:")?;
         indent = set_indentation(indent, 1);
         write!(indent, "\nstatic_size: {}", self.static_size)?;
         write!(indent, "\ndynamic_size: {}", self.dynamic_size)?;
@@ -456,7 +456,7 @@ impl Display for ComputeKind {
                 value_kind,
             } => {
                 let mut indent = set_indentation(indented(f), 0);
-                write!(indent, "Dynamic:",)?;
+                write!(indent, "Dynamic:")?;
                 indent = set_indentation(indent, 1);
                 write!(indent, "\nruntime_features: {runtime_features:?}")?;
                 write!(indent, "\nvalue_kind: {value_kind}")?;

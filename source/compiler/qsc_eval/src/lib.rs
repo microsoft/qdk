@@ -615,7 +615,7 @@ impl State {
     ) -> Self {
         let rng = match classical_seed {
             Some(seed) => RefCell::new(StdRng::seed_from_u64(seed)),
-            None => RefCell::new(StdRng::from_entropy()),
+            None => RefCell::new(StdRng::from_rng(&mut rand::rng())),
         };
         Self {
             exec_graph_stack: vec![exec_graph.select(exec_graph_config)],
@@ -1485,7 +1485,7 @@ impl State {
             field_vals.len() == field_indexes.len(),
             "number of given field values should match the number of given struct fields"
         );
-        for (i, val) in field_indexes.iter().zip(field_vals.into_iter()) {
+        for (i, val) in field_indexes.iter().zip(field_vals) {
             strct[*i] = val;
         }
 

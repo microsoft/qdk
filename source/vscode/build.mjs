@@ -29,10 +29,12 @@ const platformBuildOptions = {
   ui: {
     ...commonBuildOptions,
     platform: "browser",
-    outdir: join(thisDir, "out", "webview"),
+    outbase: join(thisDir, "src"),
+    outdir: join(thisDir, "out"),
     entryPoints: [
       join(thisDir, "src", "webview/webview.tsx"),
       join(thisDir, "src", "webview/editor.tsx"),
+      join(thisDir, "src", "learning/webview/webview-client.tsx"),
     ],
     define: {
       "import.meta.url": "undefined",

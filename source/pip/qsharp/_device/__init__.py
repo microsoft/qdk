@@ -1,8 +1,5 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from ._device import Device
-
-__all__ = [
-    "Device",
-]
+# Deprecated: use qdk._device instead.
+from qdk._device import *  # noqa: F401,F403

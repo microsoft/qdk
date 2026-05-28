@@ -507,6 +507,7 @@ impl GpuResources {
                 &MAX_QUBITS_PER_WORKGROUP.to_string(),
             )
             .replace("{{MAX_REGISTERS}}", &params.num_registers.to_string())
+            .replace("{{MAX_MEMORY}}", &params.max_memory.to_string())
             .replace(
                 "{{INSTRUCTIONS_SIZE}}",
                 &params.num_instructions.to_string(),
@@ -519,6 +520,10 @@ impl GpuResources {
                 &params.num_switch_cases.to_string(),
             )
             .replace("{{CALL_ARGS_SIZE}}", &params.num_call_args.to_string())
+            .replace(
+                "{{CONSTANT_DATA_SIZE}}",
+                &params.num_constant_data.to_string(),
+            )
             .replace(
                 "{{NOISE_TABLE_COUNT}}",
                 &params.noise_table_count.to_string(),

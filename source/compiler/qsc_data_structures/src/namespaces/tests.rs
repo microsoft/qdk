@@ -14,9 +14,10 @@ fn test_tree_construction() {
     let mut root = NamespaceTreeRoot::default();
     for i in 0..3 {
         for j in 'a'..'d' {
-            let _ = root.insert_or_find_namespace(
-                vec![Rc::from(format!("ns{i}")), Rc::from(format!("ns{j}"))].into_iter(),
-            );
+            let _ = root.insert_or_find_namespace(vec![
+                Rc::from(format!("ns{i}")),
+                Rc::from(format!("ns{j}")),
+            ]);
         }
     }
     expect![[r#"
@@ -57,11 +58,12 @@ fn test_find_id() {
     let mut id_buf = vec![];
     for i in 0..3 {
         for j in 'a'..'d' {
-            id_buf.push(root.insert_or_find_namespace(
-                vec![Rc::from(format!("ns{i}")), Rc::from(format!("ns{j}"))].into_iter(),
-            ));
+            id_buf.push(root.insert_or_find_namespace(vec![
+                Rc::from(format!("ns{i}")),
+                Rc::from(format!("ns{j}")),
+            ]));
         }
-        id_buf.push(root.insert_or_find_namespace(vec![Rc::from(format!("ns{i}"))].into_iter()));
+        id_buf.push(root.insert_or_find_namespace(vec![Rc::from(format!("ns{i}"))]));
     }
     let mut result_buf = vec![];
     for id in id_buf {
@@ -203,9 +205,10 @@ fn test_insert_or_find_namespace() {
     let mut ids: Vec<usize> = vec![];
     for i in 0..3 {
         for j in 'a'..'d' {
-            let id = root.insert_or_find_namespace(
-                vec![Rc::from(format!("ns{i}")), Rc::from(format!("ns{j}"))].into_iter(),
-            );
+            let id = root.insert_or_find_namespace(vec![
+                Rc::from(format!("ns{i}")),
+                Rc::from(format!("ns{j}")),
+            ]);
             ids.push(id.into());
         }
     }
@@ -322,9 +325,10 @@ fn test_tree_iter() {
     let mut root = NamespaceTreeRoot::default();
     for i in 0..3 {
         for j in 'a'..'d' {
-            let _ = root.insert_or_find_namespace(
-                vec![Rc::from(format!("ns{i}")), Rc::from(format!("ns{j}"))].into_iter(),
-            );
+            let _ = root.insert_or_find_namespace(vec![
+                Rc::from(format!("ns{i}")),
+                Rc::from(format!("ns{j}")),
+            ]);
         }
     }
 

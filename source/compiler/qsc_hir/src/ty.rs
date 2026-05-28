@@ -369,7 +369,7 @@ impl Display for TypeParameter {
                 if bounds.0.is_empty() {
                     String::new()
                 } else {
-                    format!(" bounds: {bounds}",)
+                    format!(" bounds: {bounds}")
                 }
             ),
             TypeParameter::Functor(min) => write!(f, "functor ({min})"),

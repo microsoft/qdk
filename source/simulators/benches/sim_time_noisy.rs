@@ -15,7 +15,7 @@ use qdk_simulators::{
         operation::{Operation, cz, h, id, mov, mz, s, x, y, z},
     },
 };
-use rand::{SeedableRng, distributions::Uniform, prelude::Distribution, rngs::StdRng};
+use rand::{SeedableRng, distr::Uniform, prelude::Distribution, rngs::StdRng};
 use std::{hint::black_box, sync::Arc};
 
 const SEED: u32 = 1000;
@@ -53,12 +53,12 @@ const NOISE_CONFIG: NoiseConfig<f64, f64> = NoiseConfig {
 };
 
 fn random_qubit(rng: &mut StdRng) -> QubitID {
-    let distr = Uniform::new(0, usize::MAX);
+    let distr = Uniform::new(0, usize::MAX).expect("valid range");
     distr.sample(rng) % NUM_QUBITS
 }
 
 fn gate(rng: &mut StdRng) -> Operation {
-    let distr = Uniform::new(0, usize::MAX);
+    let distr = Uniform::new(0, usize::MAX).expect("valid range");
     let gate = distr.sample(rng) % 8;
 
     match gate {

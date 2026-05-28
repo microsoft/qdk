@@ -651,7 +651,7 @@ impl ToQir<String> for rir::Callable {
             input_type.is_empty(),
             "entry point should not have an input"
         );
-        format!("define {output_type} @ENTRYPOINT__main() #0 {{\n{body}}}",)
+        format!("define {output_type} @ENTRYPOINT__main() #0 {{\n{body}}}")
     }
 }
 

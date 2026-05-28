@@ -1,28 +1,86 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-# flake8: noqa F403
-# pyright: ignore[reportWildcardImportFromLibrary]
+from ._application import Application
+from ._architecture import Architecture, ISAContext
+from ._estimation import estimate
+from ._instruction import (
+    LOGICAL,
+    PHYSICAL,
+    Encoding,
+    ISATransform,
+    constraint,
+    InstructionSource,
+)
+from ._isa_enumeration import ISAQuery, ISARefNode, ISA_ROOT
+from ._qre import (
+    ISA,
+    InstructionFrontier,
+    Constraint,
+    ConstraintBound,
+    EstimationResult,
+    FactoryResult,
+    ISARequirements,
+    Block,
+    Trace,
+    block_linear_function,
+    constant_function,
+    generic_function,
+    linear_function,
+    instruction_name,
+    property_name,
+    property_name_to_key,
+)
+from ._results import (
+    EstimationTable,
+    EstimationTableColumn,
+    EstimationTableEntry,
+    plot_estimates,
+)
+from ._trace import LatticeSurgery, PSSPC, TraceQuery, TraceTransform
 
-"""Quantum Resource Estimator (QRE) for the Q# ecosystem.
+# Extend Rust Python types with additional Python-side functionality
+from ._instruction import _isa_as_frame, _requirements_as_frame
 
-This module re-exports all public symbols from [qsharp.qre](:mod:`qsharp.qre`),
-making them available under the ``qdk.qre`` namespace. It provides tools for
-estimating the resources required to run quantum applications on specific
-hardware architectures.
+ISA.as_frame = _isa_as_frame
+ISARequirements.as_frame = _requirements_as_frame
 
-Example:
-
-    from qdk import qre
-    results = qre.estimate(app, arch, isa_query)
-
-Requires the ``qre`` extra: ``pip install qdk[qre]``.
-"""
-
-try:
-    # Re-export the top-level qsharp.qre names.
-    from qsharp.qre import *
-except Exception as ex:
-    raise ImportError(
-        "qdk.qre requires the qre extra. Install with 'pip install qdk[qre]'."
-    ) from ex
+__all__ = [
+    "block_linear_function",
+    "constant_function",
+    "constraint",
+    "estimate",
+    "linear_function",
+    "plot_estimates",
+    "Application",
+    "Architecture",
+    "Block",
+    "Constraint",
+    "ConstraintBound",
+    "Encoding",
+    "EstimationResult",
+    "EstimationTable",
+    "EstimationTableColumn",
+    "EstimationTableEntry",
+    "FactoryResult",
+    "generic_function",
+    "instruction_name",
+    "InstructionFrontier",
+    "InstructionSource",
+    "ISA",
+    "ISA_ROOT",
+    "ISAContext",
+    "ISAQuery",
+    "ISARefNode",
+    "ISARequirements",
+    "ISATransform",
+    "LatticeSurgery",
+    "PSSPC",
+    "property_name",
+    "property_name_to_key",
+    "Trace",
+    "TraceQuery",
+    "TraceTransform",
+    "LOGICAL",
+    "PHYSICAL",
+]

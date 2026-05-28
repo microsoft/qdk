@@ -510,10 +510,7 @@ impl<'a> Lexer<'a> {
                     TokenKind::WSlash
                 }
             }
-            ident => ident
-                .parse()
-                .map(TokenKind::Keyword)
-                .unwrap_or(TokenKind::Ident),
+            ident => ident.parse().map_or(TokenKind::Ident, TokenKind::Keyword),
         }
     }
 }

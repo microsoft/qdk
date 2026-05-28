@@ -9,5 +9,5 @@
 
 <details>
   <summary><b>Need a hint?</b></summary>
-  You can do this by allocating exactly two qubits and calling <code>Controlled U<\code> exactly once.
+  You can do this by allocating exactly two qubits and calling <code>Controlled U</code> exactly once.
 </details>

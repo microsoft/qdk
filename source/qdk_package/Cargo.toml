@@ -1,0 +1,62 @@
+[package]
+name = "qdk"
+description = "QDK Python Bindings"
+
+version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+memchr = { workspace = true }
+noisy_simulator = { path = "../noisy_simulator" }
+num-bigint = { workspace = true }
+num-complex = { workspace = true }
+num-traits = { workspace = true }
+qsc = { path = "../compiler/qsc" }
+qdk_simulators = { path = "../simulators" }
+resource_estimator = { path = "../resource_estimator" }
+qre = { path = "../qre" }
+miette = { workspace = true, features = ["fancy"] }
+rustc-hash = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+rayon = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+expect-test = { workspace = true }
+
+[lints]
+workspace = true
+
+[target.'cfg(not(any(target_family = "wasm")))'.dependencies]
+allocator = { path = "../allocator" }
+
+[target.'cfg(not(any(target_os = "windows")))'.dependencies]
+pyo3 = { workspace = true, features = [
+    "abi3-py310",
+    "extension-module",
+    "num-bigint",
+    "num-complex",
+] }
+
+[target.'cfg(any(target_os = "windows"))'.dependencies]
+# generate-import-lib: skip requiring Python 3 distribution
+# files to be present on the (cross-)compile host system.
+pyo3 = { workspace = true, features = [
+    "abi3-py310",
+    "extension-module",
+    "generate-import-lib",
+    "num-bigint",
+    "num-complex",
+] }
+
+[lib]
+crate-type = ["cdylib"]
+doctest = false
+
+[package.metadata.maturin]
+name = "qdk._native"

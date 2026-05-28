@@ -61,6 +61,9 @@ export enum EventType {
   RemoveOldCopilotInstructions = "Qsharp.RemoveOldCopilotInstructions",
   ChangelogPromptStart = "Qsharp.ChangelogPromptStart",
   ChangelogPromptEnd = "Qsharp.ChangelogPromptEnd",
+  LearningSessionStarted = "Qsharp.LearningSessionStarted",
+  LearningActivityAction = "Qsharp.LearningActivityAction",
+  LearningExerciseCompleted = "Qsharp.LearningExerciseCompleted",
 }
 
 type Empty = { [K in any]: never };
@@ -329,6 +332,27 @@ type EventTypes = {
       action: "showChangelog" | "suppressChangelog";
     };
     measurements: Empty;
+  };
+  [EventType.LearningSessionStarted]: {
+    properties: {
+      isFirstTime: "true" | "false";
+    };
+    measurements: Empty;
+  };
+  [EventType.LearningActivityAction]: {
+    properties: {
+      action: "navigate" | "run" | "check" | "hint" | "solution" | "reset";
+      activityType: "lesson" | "exercise";
+      source: "panel" | "chat" | "tree";
+    };
+    measurements: Empty;
+  };
+  [EventType.LearningExerciseCompleted]: {
+    properties: Empty;
+    measurements: {
+      exerciseNumber: number;
+      totalExercises: number;
+    };
   };
 };
 

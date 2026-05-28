@@ -216,10 +216,8 @@ impl<'a> Visitor<'a> for AssignmentCheck {
 impl AssignmentCheck {
     fn check_assign(&mut self, expr: &Expr) {
         match &expr.kind {
-            ExprKind::Var(Res::Local(id), _) => {
-                if self.used.contains(id) {
-                    self.errors.push(Error::ApplyAssign(expr.span));
-                }
+            ExprKind::Var(Res::Local(id), _) if self.used.contains(id) => {
+                self.errors.push(Error::ApplyAssign(expr.span));
             }
             ExprKind::Tuple(var_tup) => {
                 for expr in var_tup {

@@ -91,6 +91,12 @@ parser.add_argument(
     help="Include optional dependencies (default is --optional-dependencies)",
 )
 
+parser.add_argument(
+    "--editable",
+    action="store_true",
+    help="Install Python packages in editable mode (pip install -e) instead of building wheels",
+)
+
 args = parser.parse_args()
 
 
@@ -175,17 +181,53 @@ QISKIT_VERSION_MATRIX = [
 ]
 
 
-def install_build_package(cwd, interpreter):
-    # Ensure that the 'build' package is installed in the given interpreter
-    command_args = [
-        interpreter,
-        "-m",
-        "pip",
-        "install",
-        "build",
-        "-v",
-    ]
-    subprocess.run(command_args, check=True, text=True, cwd=cwd)
+def run(cmd, cwd, env=None):
+    subprocess.run(cmd, check=True, text=True, cwd=cwd, env=env)
+
+
+def pip_install(python_bin, *positional_args, cwd, env=None, extra_args=()):
+    run(
+        [python_bin, "-m", "pip", "install", *extra_args, *positional_args],
+        cwd=cwd,
+        env=env,
+    )
+
+
+def editable_install(python_bin, src, env=None, no_deps=True, no_build_isolation=False):
+    extra = []
+    if no_build_isolation:
+        extra.append("--no-build-isolation")
+    if no_deps:
+        extra.append("--no-deps")
+    pip_install(python_bin, "-e", src, cwd=src, env=env, extra_args=extra)
+
+
+def build_wheel(python_bin, src, env=None, outdir=None, maturin=False):
+    if outdir is None:
+        outdir = raw_wheels_dir if maturin else wheels_dir
+    args = [python_bin, "-m", "build", "--wheel", "-v"]
+    if maturin:
+        args.append("--no-isolation")
+        # On Linux, add the --compatibility flag to ensure manylinux wheels are built.
+        if platform.system() == "Linux":
+            args.append("--config-setting=build-args='--compatibility'")
+    args.extend(["--outdir", outdir, src])
+    run(args, cwd=src, env=env)
+
+
+def install_from_wheels(python_bin, *positional_args, cwd, env=None):
+    pip_install(
+        python_bin,
+        *positional_args,
+        cwd=cwd,
+        env=env,
+        extra_args=(
+            "--force-reinstall",
+            "--no-deps",
+            "--no-index",
+            "--find-links=" + wheels_dir,
+        ),
+    )
 
 
 def use_python_env(folder):
@@ -221,7 +263,8 @@ def use_python_env(folder):
         # Already in a virtual environment, use current Python
         python_bin = sys.executable
 
-    install_build_package(qdk_python_src, python_bin)
+    # Ensure that the 'build' package is installed in the chosen interpreter
+    pip_install(python_bin, "build", cwd=qdk_python_src, extra_args=("-v",))
 
     return (python_bin, pip_env)
 
@@ -300,20 +343,6 @@ if build_cli:
         step_end()
 
 
-def install_qsharp_python_package(cwd, wheelhouse, interpreter):
-    command_args = [
-        interpreter,
-        "-m",
-        "pip",
-        "install",
-        "--force-reinstall",
-        "--no-index",
-        "--find-links=" + wheelhouse,
-        "qsharp",
-    ]
-    subprocess.run(command_args, check=True, text=True, cwd=cwd)
-
-
 # If any package fails to install when using a requirements file, the entire
 # process will fail with unpredicatable state of installed packages. To avoid
 # this, we install each package individually from the requirements file.
@@ -344,39 +373,6 @@ def install_python_test_requirements(cwd, interpreter, check: bool = True):
             "pyqir",
         ]
         subprocess.run(command_args, check=check, text=True, cwd=cwd)
-
-
-def build_qsharp_wheel(cwd, interpreter, pip_env):
-    # Read the build dependencies out of the pyproject.toml and install them first.
-    with open(os.path.join(cwd, "pyproject.toml"), "rb") as f:
-        requires = tomllib.load(f)["build-system"]["requires"]
-
-    command_args = [interpreter, "-m", "pip", "install", *requires]
-    subprocess.run(command_args, check=True, text=True, cwd=cwd, env=pip_env)
-
-    command_args = [
-        interpreter,
-        "-m",
-        "build",
-        "--no-isolation",
-        "--wheel",
-        "-v",
-    ]
-
-    # On Linux, add the --compatibility flag to ensure manylinux wheels are built
-    if platform.system() == "Linux":
-        command_args.append("--config-setting=build-args='--compatibility'")
-
-    # maturin will build into this folder and copy it to target/wheels.
-    # setting out --outdir to target/wheels will cause the build to fail
-    # as the input and output path will be the same when maturin tries
-    # to copy the built wheel after processing. So we build into a raw_wheels folder
-    command_args.append("--outdir")
-    command_args.append(raw_wheels_dir)
-
-    command_args.append(cwd)
-
-    subprocess.run(command_args, check=True, text=True, cwd=cwd, env=pip_env)
 
 
 def run_python_tests(cwd, interpreter, pip_env):
@@ -438,32 +434,56 @@ def run_ci_historic_benchmark():
             f.write(result.stdout)
 
 
-if build_pip:
-    step_start("Building the pip package")
+if build_qdk:
+    step_start("Building the qdk python package")
 
-    (python_bin, pip_env) = use_python_env(pip_src)
+    # Reuse (or create) the pip environment so qdk wheel can be built/installed consistently.
+    python_bin, pip_env = use_python_env(qdk_python_src)
 
-    build_qsharp_wheel(pip_src, python_bin, pip_env)
+    # Read the build dependencies out of the pyproject.toml and install them first so
+    # both the wheel build and editable install can use --no-build-isolation.
+    with open(os.path.join(qdk_python_src, "pyproject.toml"), "rb") as f:
+        requires = tomllib.load(f)["build-system"]["requires"]
+    pip_install(python_bin, *requires, cwd=qdk_python_src, env=pip_env)
+
+    if args.editable:
+        # Install qdk in editable mode using the pre-installed build deps.
+        editable_install(
+            python_bin, qdk_python_src, env=pip_env, no_build_isolation=True
+        )
+    else:
+        # Build the qdk wheel with maturin (it now owns the native extension).
+        # maturin builds into raw_wheels_dir and copies into wheels_dir; using
+        # wheels_dir as --outdir directly would clash with maturin's own copy step.
+        build_wheel(python_bin, qdk_python_src, env=pip_env, maturin=True)
     step_end()
 
     if run_tests:
-        step_start("Running tests for the pip package")
+        step_start("Running tests for the qdk python package")
+        # Install per-package test requirements (pytest, etc.)
+        install_python_test_requirements(qdk_python_src, python_bin)
 
-        install_python_test_requirements(pip_src, python_bin)
-        install_qsharp_python_package(pip_src, wheels_dir, python_bin)
-        run_python_tests(os.path.join(pip_src, "tests"), python_bin, pip_env)
+        if not args.editable:
+            # Install qdk from the freshly built wheel. Dependencies (pyqir, etc.)
+            # come from test_requirements; --no-index can't resolve them from PyPI.
+            install_from_wheels(python_bin, "qdk", cwd=qdk_python_src)
 
+        # Run its test suite
+        run_python_tests(os.path.join(qdk_python_src, "tests"), python_bin, pip_env)
         step_end()
 
     if args.integration_tests:
-        step_start("Setting up for integration tests for the pip package")
-        test_dir = os.path.join(pip_src, "tests-integration")
+        step_start("Setting up for integration tests for the qdk package")
+        test_dir = os.path.join(qdk_python_src, "tests-integration")
         install_python_test_requirements(test_dir, python_bin, check=False)
+
+        if not args.editable:
+            install_from_wheels(python_bin, "qdk", cwd=test_dir)
         step_end()
 
         for version in QISKIT_VERSION_MATRIX:
             step_start(
-                f"Running integration tests for the pip package ({version['label']})"
+                f"Running integration tests for the qdk package ({version['label']})"
             )
 
             version_install_args = [
@@ -477,76 +497,66 @@ if build_pip:
             ] + version["requirements"]
             subprocess.run(version_install_args, check=True, text=True, cwd=test_dir)
 
-            install_qsharp_python_package(pip_src, wheels_dir, python_bin)
-
             run_python_integration_tests(test_dir, python_bin)
 
             step_end()
 
+if build_pip:
+    step_start("Building the pip package")
 
-if build_qdk:
-    step_start("Building the qdk python package")
+    python_bin, pip_env = use_python_env(pip_src)
 
-    # Reuse (or create) the pip environment so qsharp wheel can be built/installed consistently.
-    (python_bin, pip_env) = use_python_env(qdk_python_src)
-
-    # Build the qdk wheel (no dependency build needed; it's a thin meta-package)
-    qdk_build_args = [
-        python_bin,
-        "-m",
-        "build",
-        "--wheel",
-        "-v",
-        "--outdir",
-        wheels_dir,
-        qdk_python_src,
-    ]
-    subprocess.run(qdk_build_args, check=True, text=True, cwd=qdk_python_src)
+    if args.editable:
+        editable_install(python_bin, pip_src, env=pip_env)
+    else:
+        # qsharp is now a pure-Python shim depending on qdk.
+        # Build with setuptools (no maturin needed).
+        build_wheel(python_bin, pip_src, env=pip_env)
     step_end()
 
     if run_tests:
-        step_start("Running tests for the qdk python package")
-        # Install per-package test requirements (pytest, etc.)
-        install_python_test_requirements(qdk_python_src, python_bin)
+        # The qsharp shim tests require qdk (with its native extension) to be
+        # installed.  If qdk was built in this run it is already available;
+        # otherwise check the environment.
+        qdk_available = build_qdk
+        if not qdk_available:
+            python_bin_check, _ = use_python_env(qdk_python_src)
+            result = subprocess.run(
+                [python_bin_check, "-c", "import qdk"],
+                capture_output=True,
+            )
+            qdk_available = result.returncode == 0
 
-        # Install qsharp wheel first so dependency resolution is offline & version-synced.
-        install_qsharp_python_package(qdk_python_src, wheels_dir, python_bin)
+        if qdk_available:
+            step_start("Running tests for the qsharp compatibility shim")
+            # Use the qdk environment where qdk and test deps are already installed.
+            python_bin, pip_env = use_python_env(qdk_python_src)
 
-        # Install qdk itself from the freshly built wheel (force to ensure isolation)
-        install_args = [
-            python_bin,
-            "-m",
-            "pip",
-            "install",
-            "--force-reinstall",
-            "--no-index",
-            "--no-deps",
-            "--find-links=" + wheels_dir,
-            "qdk",
-            "qsharp",
-        ]
-        subprocess.run(install_args, check=True, text=True, cwd=qdk_python_src)
+            if not args.editable:
+                install_from_wheels(python_bin, "qsharp", cwd=pip_src)
 
-        # Run its test suite
-        run_python_tests(os.path.join(qdk_python_src, "tests"), python_bin, pip_env)
-        step_end()
+            run_python_tests(
+                os.path.join(pip_src, "tests"),
+                python_bin,
+                pip_env,
+            )
+            step_end()
+        else:
+            print(
+                "Skipping qsharp shim tests: qdk is not installed. "
+                "Run with --qdk or install qdk first."
+            )
+
 
 if build_widgets:
     step_start("Building the Python widgets")
 
-    (python_bin, _) = use_python_env(qdk_python_src)
+    python_bin, _ = use_python_env(qdk_python_src)
 
-    widgets_build_args = [
-        python_bin,
-        "-m",
-        "build",
-        "--wheel",
-        "-v",
-        "--outdir",
-        wheels_dir,
-        widgets_src,
-    ]
-    subprocess.run(widgets_build_args, check=True, text=True, cwd=widgets_src)
+    if args.editable:
+        editable_install(python_bin, widgets_src, no_deps=False)
+    else:
+        build_wheel(python_bin, widgets_src)
 
     step_end()
 
@@ -660,85 +670,57 @@ if build_vscode:
 if build_jupyterlab:
     step_start("Building the JupyterLab extension")
 
-    (python_bin, _) = use_python_env(jupyterlab_src)
+    python_bin, _ = use_python_env(jupyterlab_src)
 
-    pip_build_args = [
-        python_bin,
-        "-m",
-        "build",
-        "--wheel",
-        "-v",
-        "--outdir",
-        wheels_dir,
-        jupyterlab_src,
-    ]
-    subprocess.run(pip_build_args, check=True, text=True, cwd=jupyterlab_src)
+    if args.editable:
+        editable_install(python_bin, jupyterlab_src, no_deps=False)
+    else:
+        build_wheel(python_bin, jupyterlab_src)
     step_end()
 
 if build_pip and build_widgets and build_qdk and args.integration_tests:
     step_start("Running notebook samples integration tests")
     # Find all notebooks in the samples directory. Skip some of the samples since these won't run.
+    SKIP_NOTEBOOK_PREFIXES = (
+        "sample.",
+        "azure_submission.",
+        "circuits.",
+        "iterative_phase_estimation.",
+        "repeat_until_success.",
+        "cirq_submission_to_azure.",
+        "neutral_atom_simulator.",
+        "qir_circuit_submission_to_azure.",
+        "qiskit_submission_to_azure",
+        "pennylane_submission_to_azure.",
+        "benzene.",
+    )
     notebook_files = [
         os.path.join(dp, f)
         for dp, _, filenames in os.walk(samples_src)
         for f in filenames
-        if f.endswith(".ipynb")
-        and not (
-            f.startswith("sample.")
-            or f.startswith("azure_submission.")
-            or f.startswith("circuits.")
-            or f.startswith("iterative_phase_estimation.")
-            or f.startswith("repeat_until_success.")
-            or f.startswith("cirq_submission_to_azure.")
-            or f.startswith("neutral_atom_simulator.")
-            or f.startswith("qir_circuit_submission_to_azure.")
-            or f.startswith("qiskit_submission_to_azure")
-            or f.startswith("pennylane_submission_to_azure.")
-            or f.startswith("benzene.")
-        )
+        if f.endswith(".ipynb") and not f.startswith(SKIP_NOTEBOOK_PREFIXES)
     ]
-    (python_bin, pip_env) = use_python_env(samples_src)
+    python_bin, pip_env = use_python_env(samples_src)
 
-    # Install the qsharp package
-    pip_install_args = [
-        python_bin,
-        "-m",
-        "pip",
-        "install",
-        "--force-reinstall",
-        "--no-index",
-        "--no-deps",
-        "--find-links=" + wheels_dir,
-        "qdk",
-        "qsharp",
-    ]
-    subprocess.run(pip_install_args, check=True, text=True, cwd=pip_src, env=pip_env)
+    # skip when editable - as the editable install will already be present
+    if not args.editable:
+        # Install the qsharp package
+        install_from_wheels(python_bin, "qdk", "qsharp", cwd=pip_src, env=pip_env)
 
-    # Install the widgets package from the folder so dependencies are installed properly
-    pip_install_args = [
-        python_bin,
-        "-m",
-        "pip",
-        "install",
-        widgets_src,
-    ]
-    subprocess.run(
-        pip_install_args, check=True, text=True, cwd=widgets_src, env=pip_env
-    )
+        # Install the widgets package from the folder so dependencies are installed properly
+        pip_install(python_bin, widgets_src, cwd=widgets_src, env=pip_env)
 
     # Install other dependencies
-    pip_install_args = [
+    pip_install(
         python_bin,
-        "-m",
-        "pip",
-        "install",
         "ipykernel",
         "nbconvert",
         "pandas",
         "qutip",
         "pyqir",
-    ]
-    subprocess.run(pip_install_args, check=True, text=True, cwd=root_dir, env=pip_env)
+        cwd=root_dir,
+        env=pip_env,
+    )
 
     qiskit_notebooks = [
         notebook
@@ -814,7 +796,7 @@ if build_pip and build_widgets and build_qdk and args.integration_tests:
         dir for dir, _, _ in project_directories if dir.find("testing") != -1
     ]
 
-    install_python_test_requirements(pip_src, python_bin)
+    install_python_test_requirements(os.path.join(samples_src, "testing"), python_bin)
     for test_project_dir in test_projects_directories:
         run_python_tests(test_project_dir, python_bin, pip_env)
     step_end()

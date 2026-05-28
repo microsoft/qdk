@@ -439,10 +439,26 @@ function createExerciseSection(kataPath, properties, globalCodeSources) {
   const exercisePath = join(kataPath, properties.path);
   // Generate the object using the macro properties.
   // Get the description from the index.md file in the exercise folder.
-  const descriptionMarkdown = tryReadFile(
+  let descriptionMarkdown = tryReadFile(
     join(exercisePath, "index.md"),
     `Could not read index.md file for exercise ${properties.id}`,
   );
+
+  // Strip inline hint blocks from exercise descriptions when requested.
+  // The VS Code extension provides hints through a separate AI-powered
+  // button instead of the embedded <details> blocks.
+  const hintPattern =
+    /<details>\s*<summary>[\s\S]*?Need a hint[\s\S]*?<\/summary>([\s\S]*?)<\/details>/gi;
+  /** @type {string[]} */
+  let hints = [];
+  if (!emitHtml) {
+    // Capture the inner content of each hint block before stripping.
+    hints = [...descriptionMarkdown.matchAll(hintPattern)].map((m) =>
+      m[1].trim(),
+    );
+    descriptionMarkdown = descriptionMarkdown.replace(hintPattern, "").trim();
+  }
+
   const description = createTextContent(descriptionMarkdown);
 
   // Aggregate the exercise sources. The verification source file is Verification.qs.
@@ -483,6 +499,7 @@ function createExerciseSection(kataPath, properties, globalCodeSources) {
     sourceIds,
     placeholderCode,
     explainedSolution,
+    ...(hints.length > 0 ? { hints } : {}),
   };
 }
 

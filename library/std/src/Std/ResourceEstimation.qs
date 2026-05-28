@@ -185,6 +185,14 @@ operation RepeatEstimates(count : Int) : Unit is Adj {
 /// automatically move qubits from and back into the memory such that never
 /// more than `computeCapacity` qubits are used to compute at any time.
 ///
+/// When using "Manual" strategy:
+/// - Qubits must be moved between memory and compute using
+///   [Std.Memory.Load](xref:Qdk.Std.Memory.Load) and
+///   [Std.Memory.Store](xref:Qdk.Std.Memory.Store).
+/// - All qubits are initially allocated as Compute qubits.
+/// - Capacity is ignored.
+/// - Applying a gate to or measuring a memory qubit will result in a runtime error.
+///
 /// # Input
 /// ## computeCapacity
 /// The maximum number of compute qubits which can be used to perform
@@ -192,8 +200,8 @@ operation RepeatEstimates(count : Int) : Unit is Adj {
 /// ## strategy
 /// The strategy applied when evicting qubits from the compute qubits in case
 /// of maximum capacity: 0 = LRU (least recently used), 1 = LFU (least
-/// frequently used)
-function EnableMemoryComputeArchitecture(computeCapacity : Int, strategy : Int) : Unit {
+/// frequently used), 2 = Manual.
+operation EnableMemoryComputeArchitecture(computeCapacity : Int, strategy : Int) : Unit {
     body intrinsic;
 }
 
@@ -209,6 +217,19 @@ function LeastRecentlyUsed() : Int {
 /// `EnableMemoryComputeArchitecture`.
 function LeastFrequentlyUsed() : Int {
     return 1;
+}
+
+/// # Summary
+/// Enables manual memory/compute mode for resource estimation.
+///
+/// This is a convenience wrapper over
+/// `EnableMemoryComputeArchitecture(0, 2)` where strategy `2` is Manual.
+/// In this mode, users explicitly move qubits between memory and compute
+/// with [Std.Memory.Load](xref:Qdk.Std.Memory.Load) and
+/// [Std.Memory.Store](xref:Qdk.Std.Memory.Store). Call this operation if you
+/// want `Load`/`Store` annotations to affect reported resource estimates.
+operation EnableManualMemoryComputeArchitecture() : Unit {
+    EnableMemoryComputeArchitecture(0, 2);
 }
 
 export
@@ -227,5 +248,6 @@ export
     EndRepeatEstimates,
     RepeatEstimates,
     EnableMemoryComputeArchitecture,
+    EnableManualMemoryComputeArchitecture,
     LeastRecentlyUsed,
     LeastFrequentlyUsed;

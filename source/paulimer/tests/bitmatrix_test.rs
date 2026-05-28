@@ -6,7 +6,6 @@ use paulimer::bits::tiny_matrix::{tiny_matrix_from_bitmatrix, tiny_matrix_rref};
 use paulimer::bits::{BitMatrix, BitVec, Bitwise, BitwiseBinaryOps, WORD_COUNT_DEFAULT};
 use proptest::prelude::*;
 use rand::prelude::*;
-use rand::Rng;
 use rustc_hash::FxHashSet;
 use sorted_iter::assume::AssumeSortedByItemExt;
 use sorted_iter::SortedIterator;
@@ -225,15 +224,15 @@ prop_compose! {
    fn invertible_bitmatrix(max_dimension: usize)(dimension in 1..=max_dimension) -> BitMatrix {
        let mut matrix = BitMatrix::identity(dimension);
        for _ in 0..dimension^2 {
-            let from_index = thread_rng().gen_range(0..dimension);
-            let to_index = thread_rng().gen_range(0..dimension);
+            let from_index = rand::rng().random_range(0..dimension);
+            let to_index = rand::rng().random_range(0..dimension);
             if from_index != to_index {
                 matrix.add_into_row(to_index, from_index);
             }
        }
        for _ in 0..dimension.pow(2) {
-            let from_index = thread_rng().gen_range(0..dimension);
-            let to_index = thread_rng().gen_range(0..dimension);
+            let from_index = rand::rng().random_range(0..dimension);
+            let to_index = rand::rng().random_range(0..dimension);
             matrix.swap_rows(from_index, to_index);
        }
        matrix
@@ -408,15 +407,15 @@ fn fast_profile_of(matrix: &BitMatrix) -> Vec<usize> {
 
 fn random_bitmatrix(rowcount: usize, columncount: usize) -> BitMatrix {
     let mut matrix = BitMatrix::with_shape(rowcount, columncount);
-    let mut bits = std::iter::from_fn(move || Some(thread_rng().gen::<bool>()));
+    let mut bits = std::iter::from_fn(move || Some(rand::rng().random::<bool>()));
     for row_index in 0..rowcount {
         for column_index in 0..columncount {
             matrix.set((row_index, column_index), bits.next().expect("boom"));
         }
     }
     for _ in 0..rowcount {
-        let from_index = thread_rng().gen_range(0..rowcount);
-        let to_index = thread_rng().gen_range(0..rowcount);
+        let from_index = rand::rng().random_range(0..rowcount);
+        let to_index = rand::rng().random_range(0..rowcount);
         matrix.swap_rows(from_index, to_index);
     }
     matrix

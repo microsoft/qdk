@@ -37,6 +37,11 @@ export type Exercise = {
   sourceIds: string[];
   placeholderCode: string;
   explainedSolution: ExplainedSolution;
+  /**
+   * Hints extracted from index.md <details> blocks.
+   *  Only populated in the Markdown bundle (used by VS Code); undefined in the HTML bundle (playground).
+   */
+  hints?: string[];
 };
 
 export type Answer = {

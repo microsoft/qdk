@@ -2678,7 +2678,7 @@ impl Display for DiagnosticUpdate {
             errors,
         } = self;
 
-        write!(f, "uri: {uri:?} version: {version:?} errors: [",)?;
+        write!(f, "uri: {uri:?} version: {version:?} errors: [")?;
         // Formatting loosely taken from compiler/qsc/src/interpret/tests.rs
         for error in errors {
             write!(f, "\n    {error}")?;

@@ -10,7 +10,7 @@ All internal source code for the compiler and related tooling has been moved und
 
 Most of the core components are implemented in Rust. These components are packaged in two ways:
 
-1. Compiled as a native Python module and packaged into the `qsharp` Python package
+1. Compiled as a native Python module and packaged into the `qdk` Python package
 2. Compiled into WebAssembly and packaged into the `qsharp-lang` npm package
 
 ## Repo Contents
@@ -52,7 +52,8 @@ Most of the core components are implemented in Rust. These components are packag
 
 **Python**
 
-- **pip/**: The `qsharp` Python package
+- **qdk_package/**: The `qdk` Python package (core package with native Rust extension)
+- **pip/**: The `qsharp` Python package (thin deprecation shim that re-exports from `qdk`)
 - **jupyterlab/**: JupyterLab extension for Q#
 - **widgets/**: Q# Jupyter widgets
 
@@ -82,7 +83,8 @@ Most of the core components are implemented in Rust. These components are packag
 
 - `./build.py` runs full CI checks, including lints and unit tests.
 - `./build.py --wasm --npm --vscode` only builds the VS Code extension, including its dependencies the WASM module and the `qsharp-lang` npm package.
-- `./build.py --pip` only builds the `qsharp` Python package, including its native dependencies.
+- `./build.py --qdk` only builds the `qdk` Python package, including its native dependencies.
+- `./build.py --pip` only builds the `qsharp` shim package (requires `qdk` to be built first).
 - Pass `--no-check` to `./build.py`, in combination with any other command line options, to skip the lints and formatting checks.
 - When working in Rust parts of the codebase, using `cargo` commands is usually more efficient than building via `./build.py`.
   - Many lints can be auto-fixed via `cargo clippy --fix`.

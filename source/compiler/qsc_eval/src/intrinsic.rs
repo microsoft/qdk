@@ -15,7 +15,7 @@ use crate::{
     val::{self, Value, unwrap_tuple},
 };
 use num_bigint::BigInt;
-use rand::{Rng, rngs::StdRng};
+use rand::{RngExt, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::convert::TryFrom;
 
@@ -149,7 +149,7 @@ pub(crate) fn call<B: Backend>(
             if lo > hi {
                 Err(Error::EmptyRange(arg_span))
             } else {
-                Ok(Value::Int(rng.gen_range(lo..=hi)))
+                Ok(Value::Int(rng.random_range(lo..=hi)))
             }
         }
         "DrawRandomDouble" => {
@@ -159,12 +159,12 @@ pub(crate) fn call<B: Backend>(
             if lo > hi {
                 Err(Error::EmptyRange(arg_span))
             } else {
-                Ok(Value::Double(rng.gen_range(lo..=hi)))
+                Ok(Value::Double(rng.random_range(lo..=hi)))
             }
         }
         "DrawRandomBool" => {
             let p = arg.unwrap_double();
-            Ok(Value::Bool(rng.gen_bool(p)))
+            Ok(Value::Bool(rng.random_bool(p)))
         }
         #[allow(clippy::cast_possible_truncation)]
         "Truncate" => Ok(Value::Int(arg.unwrap_double() as i64)),
@@ -469,7 +469,7 @@ pub fn qubit_relabel(
     // Start with a mapping of each qubit to itself.
     let mut mappings: FxHashMap<usize, usize> =
         left.iter().copied().zip(left.iter().copied()).collect();
-    for (l, r) in left.into_iter().zip(right.into_iter()) {
+    for (l, r) in left.into_iter().zip(right) {
         // Trivial case where the qubit is already mapped to itself in the relabel, which can be short circuited.
         if l == r {
             continue;

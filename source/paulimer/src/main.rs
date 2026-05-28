@@ -11,7 +11,7 @@ fn main() {
 
 fn random_bitmatrix(rowcount: usize, columncount: usize) -> BitMatrix {
     let mut matrix = BitMatrix::with_shape(rowcount, columncount);
-    let mut bits = std::iter::from_fn(move || Some(thread_rng().gen::<bool>()));
+    let mut bits = std::iter::from_fn(move || Some(rand::rng().random::<bool>()));
     for row_index in 0..rowcount {
         for column_index in 0..columncount {
             matrix.set((row_index, column_index), bits.next().expect("boom"));
