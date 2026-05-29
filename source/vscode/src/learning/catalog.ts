@@ -20,9 +20,9 @@ export async function loadKatasCourse(): Promise<CatalogCourse> {
     title: kata.title,
     activities: kata.sections.map<CatalogActivity>((s) => {
       if (s.type === "exercise") {
-        const solutionItem = s.explainedSolution.items.find(
-          (i) => i.type === "solution",
-        );
+        const solutionCodes = s.explainedSolution.items
+          .filter((i) => i.type === "solution")
+          .map((i) => i.code);
         const solutionExplanation = s.explainedSolution.items
           .filter((i) => i.type === "text-content")
           .map((i) => i.content)
@@ -35,7 +35,7 @@ export async function loadKatasCourse(): Promise<CatalogCourse> {
           placeholderCode: s.placeholderCode,
           sourceIds: s.sourceIds,
           hints: s.hints ?? [],
-          solutionCode: solutionItem?.code ?? "",
+          solutionCodes,
           solutionExplanation,
         } satisfies CatalogExercise;
       }
