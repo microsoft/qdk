@@ -28,6 +28,10 @@ export function Nav(props: {
         </div>
       ))}
 
+      <div class="nav-1 nav-selectable" onClick={() => onSelected("bloch")}>
+        Bloch sphere
+      </div>
+
       <div class="nav-1">Tutorials</div>
       {props.katas.map((name) => (
         <div

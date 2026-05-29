@@ -535,6 +535,12 @@ modern-normalize (see https://mattbrictson.com/blog/css-normalize-and-reset for 
   color: red;
 }
 
+.qs-gate-buttons button {
+  margin-top: 8px;
+  width: 50px;
+  height: 25px;
+}
+
 .qs-estimatesOverview-saveIcon {
   cursor: pointer;
   width: 3em;

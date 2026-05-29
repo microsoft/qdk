@@ -47,7 +47,7 @@ import {
 // Set up the Markdown renderer with KaTeX support
 import mk from "@vscode/markdown-it-katex";
 import markdownIt from "markdown-it";
-import { setRenderer } from "qsharp-lang/ux";
+import { setRenderer, BlochSphere } from "qsharp-lang/ux";
 
 const md = markdownIt("commonmark");
 md.use((mk as any).default, {
@@ -101,7 +101,11 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
   });
 
   const [currentNavItem, setCurrentNavItem] = useState(
-    props.linkedCode ? "linked" : "sample-Minimal",
+    props.linkedCode
+      ? "linked"
+      : window.location.hash === "#bloch"
+        ? "bloch"
+        : "sample-Minimal",
   );
   const [shotError, setShotError] = useState<VSDiagnostic | undefined>(
     undefined,
@@ -209,10 +213,13 @@ function App(props: { katas: Kata[]; linkedCode?: string }) {
           languageService={languageService}
         ></Katas>
       ) : (
-        <DocumentationDisplay
-          currentNamespace={currentNavItem}
-          documentation={documentation}
-        ></DocumentationDisplay>
+        <>
+          <BlochSphere />
+          <DocumentationDisplay
+            currentNamespace={currentNavItem}
+            documentation={documentation}
+          ></DocumentationDisplay>
+        </>
       )}
       <div id="popup"></div>
     </>
