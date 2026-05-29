@@ -209,11 +209,21 @@ workspace = Workspace(
 
 /**
  * Parses a connection string into a WorkspaceConnection, or returns undefined
- * if any required fields are missing. Does not validate the connection against
- * the service — call getTokenForWorkspace / azureRequest to validate.
+ * if any required fields are missing or the authentication fields are invalid.
+ * Does not validate the connection against the service — call
+ * getTokenForWorkspace / azureRequest to validate.
  *
- * Expected format:
- *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<serviceUri>
+ * Required fields: SubscriptionId, ResourceGroupName, WorkspaceName, QuantumEndpoint
+ * Authentication (exactly one must be provided):
+ *   - ApiKey:   use API key authentication
+ *   - TenantId: use Entra ID (AAD) authentication; VS Code will prompt the user
+ *               to sign in interactively if not already authenticated to this tenant
+ *
+ * API key format:
+ *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<https://...>
+ *
+ * Entra ID format:
+ *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;TenantId=<tenant-guid>;QuantumEndpoint=<https://...>
  */
 export function parseConnectionString(
   connStr: string,
@@ -225,12 +235,20 @@ export function parseConnectionString(
     partsMap.set(part.substring(0, eq).toLowerCase(), part.substring(eq + 1));
   });
 
+  const hasRequiredFields =
+    partsMap.has("subscriptionid") &&
+    partsMap.has("resourcegroupname") &&
+    partsMap.has("workspacename") &&
+    partsMap.has("quantumendpoint");
+
+  const hasApiKey = partsMap.has("apikey");
+  const hasTenantId = partsMap.has("tenantid");
+
+  // Exactly one authentication method must be provided
   if (
-    !partsMap.has("subscriptionid") ||
-    !partsMap.has("resourcegroupname") ||
-    !partsMap.has("workspacename") ||
-    !partsMap.has("apikey") ||
-    !partsMap.has("quantumendpoint")
+    !hasRequiredFields ||
+    (!hasApiKey && !hasTenantId) ||
+    (hasApiKey && hasTenantId)
   ) {
     return undefined;
   }
@@ -244,7 +262,7 @@ export function parseConnectionString(
     id: workspaceId,
     name: partsMap.get("workspacename")!,
     endpointUri: partsMap.get("quantumendpoint")!,
-    tenantId: "", // Blank means not authenticated via a token
+    tenantId: partsMap.get("tenantid") ?? "", // Non-empty triggers Entra ID auth in getTokenForWorkspace
     subscriptionId: partsMap.get("subscriptionid"),
     apiKey: partsMap.get("apikey"),
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
@@ -259,7 +277,7 @@ async function getWorkspaceWithConnectionString(
     const connStr = await vscode.window.showInputBox({
       prompt: "Enter the connection string",
       placeHolder:
-        "SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<serviceUri>;",
+        "SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<serviceUri> (or replace ApiKey with TenantId=<tenant-guid> for Entra ID auth)",
     });
     if (!connStr) {
       endEventProperties.reason = "no connection string entered";
@@ -323,12 +341,18 @@ async function getWorkspaceWithConnectionString(
       }
     }
 
-    // Discover and populate the tenant ID from the subscription.
-    const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)/;
-    const subscriptionId = workspace.id.match(idRegex)?.groups?.subscriptionId;
-    if (subscriptionId) {
-      workspace.tenantId =
-        (await getTenantIdForSubscription(subscriptionId)) ?? "";
+    // For API key connections, discover and populate the tenant ID from the
+    // subscription so that Entra ID auth can be used in subsequent requests
+    // (e.g. if the API key is later rotated). Skip this if the tenant ID was
+    // already explicitly provided in the connection string.
+    if (!workspace.tenantId) {
+      const idRegex = /\/subscriptions\/(?<subscriptionId>[^/]+)/;
+      const subscriptionId =
+        workspace.id.match(idRegex)?.groups?.subscriptionId;
+      if (subscriptionId) {
+        workspace.tenantId =
+          (await getTenantIdForSubscription(subscriptionId)) ?? "";
+      }
     }
 
     return workspace;
