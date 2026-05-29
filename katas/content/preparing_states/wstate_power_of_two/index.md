@@ -4,7 +4,6 @@
 
 For example, for $N = 4$ the required state is $\frac{1}{2}\big(\ket{1000} + \ket{0100} + \ket{0010} + \ket{0001}\big)$.
 
-<details>
-  <summary><b>Need a hint?</b></summary>
-  You can use <code>Controlled</code> modifier to perform arbitrary controlled gates.
-</details>
+:::hint
+You can use <code>Controlled</code> modifier to perform arbitrary controlled gates.
+:::

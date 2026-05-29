@@ -20,7 +20,6 @@ except for $\ket{00...0}$ (the all zero state).
 </details>
 
 <br/>
-<details>
-  <summary><b>Need a hint?</b></summary>
-  You need to flip the state of $\ket{y}$ for every input except $\ket{00...0}$, or, alternatively, flip it unconditionally and then flip it for the $\ket{00...0}$ state.   You may find the Q# library function <code>ApplyControlledOnInt</code> useful in your implementation.
-</details>
+:::hint
+You need to flip the state of $\ket{y}$ for every input except $\ket{00...0}$, or, alternatively, flip it unconditionally and then flip it for the $\ket{00...0}$ state.   You may find the Q# library function <code>ApplyControlledOnInt</code> useful in your implementation.
+:::

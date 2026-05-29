@@ -4,9 +4,6 @@
 
 $$\begin{bmatrix} 1 & 2 \\ 3 & 4 \end{bmatrix}$$
 
-<details>
-  <summary><b>Need a hint?</b></summary>
-  
+:::hint
 You can check out [this Wikipedia article](https://en.wikipedia.org/wiki/Invertible_matrix#Inversion_of_2_%C3%97_2_matrices) about invertible matrices.
-
-</details>
+:::

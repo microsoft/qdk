@@ -12,12 +12,10 @@ Return the product of $x$ and $y$ as a complex polar number $x \cdot y = r_{3}e^
 * $\theta_3$ should be between $-\pi$ and $\pi$: $-\pi < \theta_3 \leq \pi$
 * Try to avoid converting the numbers into their Cartesian form.
 
-<details>
-  <summary><b>Need a hint?</b></summary>
-  
-  Remember, a number written in polar form already involves multiplication. What is $r_1e^{i\theta_1} \cdot r_2e^{i\theta_2}$?
+:::hint
+Remember, a number written in polar form already involves multiplication. What is $r_1e^{i\theta_1} \cdot r_2e^{i\theta_2}$?
 
   Is the value of $\theta$ in the product incorrect? Remember you might have to check your boundaries and adjust it to be in the range requested.
-</details>
+:::
 
 > Q# function `TimesCP` from `Std.Math` namespace multiplies two complex numbers, but it doesn't normalize the argument of the resulting number. For educational purposes, try to do this task by hand.

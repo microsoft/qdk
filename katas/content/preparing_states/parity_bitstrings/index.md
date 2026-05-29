@@ -8,7 +8,6 @@
 
 > For example, for $N = 2$ the required state is $\frac{1}{\sqrt{2}}\big(\ket{00} + \ket{11}\big)$ if `parity = 0`, or $\frac{1}{\sqrt{2}}\big(\ket{01} + \ket{10}\big)$ if `parity = 1`.
 
-<details>
-  <summary><b>Need a hint?</b></summary>
-  Remember that you can call the solution recursively.
-</details>
+:::hint
+Remember that you can call the solution recursively.
+:::

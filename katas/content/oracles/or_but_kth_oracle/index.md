@@ -19,9 +19,8 @@ Flip the sign of the basis state $\ket{x}$ if any of the bits of $x$ (not consid
     This is a phase oracle, because you're changing the phase of the input state $\ket{x}$ based on the value of the function $f(x)$.
 </details>
 
-<details>
-  <summary><b>Need a hint?</b></summary>
-  You can use the previously implemented oracles if needed by copying the code.
-  <br/>
-  You can use <a href="https://learn.microsoft.com/azure/quantum/user-guide/language/expressions/itemaccessexpressions#array-item-access-and-array-slicing" target="_blank">array slicing</a> to get parts of the array before and after the $k$-th element.
-</details>
+:::hint
+You can use the previously implemented oracles if needed by copying the code.
+<br/>
+You can use <a href="https://learn.microsoft.com/azure/quantum/user-guide/language/expressions/itemaccessexpressions#array-item-access-and-array-slicing" target="_blank">array slicing</a> to get parts of the array before and after the $k$-th element.
+:::

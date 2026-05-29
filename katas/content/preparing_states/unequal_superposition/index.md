@@ -5,8 +5,7 @@
 
 **Goal**: Change the state of the qubit to $\cos{α} \ket{0} + \sin{α} \ket{1}$.
 
-<details>
-  <summary><b>Need a hint?</b></summary>
-  Experiment with rotation gates you learned about in the Single-Qubit Gates kata.
+:::hint
+Experiment with rotation gates you learned about in the Single-Qubit Gates kata.
   Note that all rotation operators rotate the state by <i>half</i> of its angle argument.
-</details>
+:::

@@ -12,7 +12,6 @@ In other words, for each basis state $\ket{x}$, flip the state of the target qub
 Leave the qubits in the input register in the same state they started in. 
 Your solution should work on inputs in superposition, and not use any measurements.
 
-<details>
-<summary><strong>Need a hint?</strong></summary>
+:::hint
 Since each addition is done modulo $2$, you can evaluate the effect of each term independently.
-</details>
+:::
