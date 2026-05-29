@@ -5,26 +5,23 @@ into the main product. Items are not ordered by priority.
 
 ## Dependencies
 
-- [ ] **Update `three.js` to a current release.** The original branch pinned
-      `three@^0.161.0` / `@types/three@^0.161.2` (Feb 2024). Current is ~0.171.
-      Verify the widget still builds and renders correctly after the bump.
+- [x] **Update `three.js` to a current release.** Bumped from `three@^0.161.0` /
+      `@types/three@^0.161.2` (Feb 2024) to `three@^0.184.0` /
+      `@types/three@^0.184.1` (latest). Builds, lints, and 26 bloch unit tests
+      all pass clean against the new version. Visual verification at
+      <http://localhost:5555/#bloch> still pending.
 
 ## Asset / bundling cleanup
 
-- [ ] **Drop the playground font assets and the `FontLoader` code path.**
-      Today we ship ~125 KB of helvetiker JSON fonts under
-      `source/playground/public/fonts/` just to render "x"/"y"/"z" axis labels as
-      3D extruded text. The runtime fetch silently 404s in the VS Code webview, so
-      labels don't even render there. Replace with one of:
-  - `Sprite` + `CanvasTexture` (render "x"/"y"/"z" into an offscreen canvas
-    once, wrap as a sprite). ~10 lines, no asset, no fetch, no third-party
-    font license to track. Recommended.
-  - Plain HTML overlay positioned from projected 3D coords. Cleaner DOM story
-    but more layout work.
-  - Drop axis labels entirely (many canonical Bloch sphere renderings only
-    label the poles `|0⟩` / `|1⟩`).
-- [ ] Remove the unused `helvetiker_bold.typeface.json` either way (dead
-      weight from the original branch — only `_regular` is actually loaded).
+- [x] **Drop the playground font assets and the `FontLoader` code path.**
+      Replaced 3D extruded `TextGeometry` labels with `Sprite` + `CanvasTexture`
+      labels rendered via a tiny offscreen `<canvas>`. No font asset, no
+      runtime fetch, no `three/examples/jsm` Font/Text imports, no VS Code
+      build wiring needed. Works in both playground and VS Code webview.
+      Removed `source/playground/public/fonts/` and the `.prettierignore`
+      entry that excluded it.
+- [x] Remove the unused `helvetiker_bold.typeface.json` — gone along with
+      the whole fonts directory.
 
 ## Code organization
 

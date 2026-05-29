@@ -6,7 +6,6 @@
 /* TODO:
 
 - Draw the equator (z plane line)
-- VS Code doesn't show the fonts/axis labelsk
 - VS Code doesn't render property in dark theme
 - Show the equations from state vector to bloch angles
 - Calculate the T / H gates for an arbitrary point
@@ -26,6 +25,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 
 import {
   BoxGeometry,
+  CanvasTexture,
   ConeGeometry,
   CylinderGeometry,
   DirectionalLight,
@@ -38,14 +38,14 @@ import {
   PerspectiveCamera,
   Scene,
   SphereGeometry,
+  Sprite,
+  SpriteMaterial,
   Vector3,
   WebGLRenderer,
   WireframeGeometry,
 } from "three";
 
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
-import { TextGeometry } from "three/examples/jsm/geometries/TextGeometry.js";
 
 import {
   AppliedGate,
@@ -133,50 +133,46 @@ function hueToRgb(p: number, q: number, t: number) {
   return p;
 }
 
-function createText(scene: Scene, done: () => void) {
-  const loader = new FontLoader();
-  const fontMat = new MeshBasicMaterial({ color: 0x606080, opacity: 1 });
-  loader.load("fonts/helvetiker_regular.typeface.json", (font) => {
-    const fontProps = {
-      font,
-      size: 0.6,
-      height: 0.01,
-      bevelThickness: 0.075,
-      bevelSize: 0.01,
-      bevelEnabled: true,
-    };
-    const xGeo = new TextGeometry("x", fontProps);
-    const yGeo = new TextGeometry("y", fontProps);
-    const zGeo = new TextGeometry("z", fontProps);
+function makeLabelSprite(text: string): Sprite {
+  // Render the label into an offscreen canvas and use it as a sprite texture.
+  // Sprites always face the camera, so labels stay legible as the user
+  // orbits the sphere. No font asset, no async load, no extra three.js
+  // example modules required.
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  ctx.font = "bold 96px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#606080";
+  ctx.fillText(text, size / 2, size / 2);
 
-    const xMesh = new Mesh(xGeo, fontMat);
-    const yMesh = new Mesh(yGeo, fontMat);
-    const zMesh = new Mesh(zGeo, fontMat);
-    xGeo.computeBoundingBox();
-    yGeo.computeBoundingBox();
-    zGeo.computeBoundingBox();
+  const texture = new CanvasTexture(canvas);
+  const material = new SpriteMaterial({ map: texture, transparent: true });
+  const sprite = new Sprite(material);
+  // Scale chosen to roughly match the visual size of the previous 3D text
+  // (size: 0.6 extrusion with bevel).
+  sprite.scale.set(1.2, 1.2, 1);
+  return sprite;
+}
 
-    xMesh.position.set(
-      -0.5 * (xGeo.boundingBox!.max.x - xGeo.boundingBox!.min.x),
-      -0.5 * (xGeo.boundingBox!.max.y - xGeo.boundingBox!.min.y),
-      6.4,
-    );
-    yMesh.position.set(
-      6.4,
-      -0.5 * (xGeo.boundingBox!.max.y - xGeo.boundingBox!.min.y),
-      0,
-    );
+function createText(scene: Scene) {
+  // Positions preserved verbatim from the original FontLoader/TextGeometry
+  // implementation so the labels land in exactly the same spots.
+  const xLabel = makeLabelSprite("x");
+  xLabel.position.set(0, 0, 6.4);
 
-    zMesh.position.set(
-      -0.5 * (zGeo.boundingBox!.max.x - zGeo.boundingBox!.min.x),
-      6.4,
-      0,
-    );
-    scene.add(xMesh);
-    scene.add(yMesh);
-    scene.add(zMesh);
-    done();
-  });
+  const yLabel = makeLabelSprite("y");
+  yLabel.position.set(6.4, 0, 0);
+
+  const zLabel = makeLabelSprite("z");
+  zLabel.position.set(0, 6.4, 0);
+
+  scene.add(xLabel);
+  scene.add(yLabel);
+  scene.add(zLabel);
 }
 
 const rotationTimeMs = 100;
@@ -341,8 +337,9 @@ class BlochRenderer {
     this.qubit = qubit;
     this.trail = trail;
 
-    // Initial render after text is ready
-    createText(scene, () => this.render());
+    // Labels are now synchronous, so just create them and render once.
+    createText(scene);
+    this.render();
   }
 
   queueGate(gate: AppliedGate) {

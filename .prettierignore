@@ -25,7 +25,6 @@ __pycache__/
 /source/qdk_package/
 /source/qdk_package/src/**/*.html
 /source/playground/public/libs/
-/source/playground/public/fonts/
 /source/vscode/out/
 /source/vscode/test/out/
 /source/vscode/test/**/test-workspace/
