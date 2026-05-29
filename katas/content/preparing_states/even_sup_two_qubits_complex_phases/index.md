@@ -3,7 +3,6 @@
 **Goal:** Change the state of the qubits to $\frac{1}{2} \big(\ket{00} + i\ket{01} - \ket{10} - i\ket{11}\big)$.
 
 <br/>
-<details>
-  <summary><b>Need a hint? Click here</b></summary>
-  Is this state separable?
-</details>
+:::hint
+Is this state separable?
+:::

@@ -21,7 +21,6 @@ represented by `pattern`.
 </details>
 
 <br/>
-<details>
-  <summary><b>Need a hint?</b></summary>
-  You need to flip the state of $\ket{y}$ if $\ket{x}$ matches the given pattern.  You may find the Q# library operation <code>ApplyControlledOnBitString</code> useful in your implementation.
-</details>
+:::hint
+You need to flip the state of $\ket{y}$ if $\ket{x}$ matches the given pattern.  You may find the Q# library operation <code>ApplyControlledOnBitString</code> useful in your implementation.
+:::

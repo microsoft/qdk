@@ -447,8 +447,7 @@ function createExerciseSection(kataPath, properties, globalCodeSources) {
   // Strip inline hint blocks from exercise descriptions when requested.
   // The VS Code extension provides hints through a separate AI-powered
   // button instead of the embedded <details> blocks.
-  const hintPattern =
-    /<details>\s*<summary>[\s\S]*?Need a hint[\s\S]*?<\/summary>([\s\S]*?)<\/details>/gi;
+  const hintPattern = /^:::hint\s*\n([\s\S]*?)^:::\s*$/gm;
   /** @type {string[]} */
   let hints = [];
   if (!emitHtml) {

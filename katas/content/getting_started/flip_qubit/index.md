@@ -4,7 +4,6 @@ Exercises are problems that you have to solve by writing Q# code. In each exerci
 
 **Goal:** Apply the X gate to the qubit, that is, perform a "bit flip" to set the qubit into the $\ket{1}$ state.
 
-<details>
-<summary><strong>Need a hint?</strong></summary>
+:::hint
 For some problems a hint will be provided to help you if you are stuck. For this exercise, read line number 3 in the code below.
-</details>
+:::

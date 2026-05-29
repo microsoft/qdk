@@ -11,7 +11,6 @@ In other words, for each basis state $\ket{x}$, flip the state of the target qub
 Leave the qubits in the input register in the same state they started in. 
 Your solution should work on inputs in superposition, and not use any measurements.
 
-<details>
-<summary><strong>Need a hint?</strong></summary>
+:::hint
 $f(x)$ can be represented as $x_0 \oplus x_1 \oplus ... \oplus x_{N-1}$.
-</details>
+:::

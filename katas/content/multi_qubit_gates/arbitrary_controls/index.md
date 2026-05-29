@@ -8,7 +8,6 @@
 
 > For example, if `controlBits = [true, false, true]`, the controlled $X$ gate should only be applied if the control qubits are in state $\ket{101}$.
 
-<details>
-    <summary><strong>Need a hint?</strong></summary>
-    <p>Consider using a library operation for this task. If you want to do it without a library operation, don't forget to reset the qubits back to the state they were originally in.</p>
-</details>
+:::hint
+<p>Consider using a library operation for this task. If you want to do it without a library operation, don't forget to reset the qubits back to the state they were originally in.</p>
+:::
