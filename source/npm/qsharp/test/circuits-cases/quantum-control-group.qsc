@@ -1,0 +1,106 @@
+{
+  "_comment": "Quantum control on a group (gate-vis bug fix). Three side-by-side scenarios for the new `_renderQuantumGroupControls` path in gateFormatter._groupedOperations: (a) Foo spans q1+q2, with a quantum control on q0 ABOVE the body — expect a control dot on q0 connected to the dashed box's top edge; (b) Bar spans q1+q2, with a quantum control on q3 BELOW the body — expect a control dot on q3 connected to the box's bottom edge; (c) Baz spans q0+q3 (gap qubits q1, q2 between the children), with a quantum control on q2 INSIDE the box's y range — expect a dot on q2 with no extra connector (the wire already crosses the box).",
+  "circuits": [
+    {
+      "qubits": [
+        { "id": 0, "numResults": 0 },
+        { "id": 1, "numResults": 0 },
+        { "id": 2, "numResults": 0 },
+        { "id": 3, "numResults": 0 }
+      ],
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Foo",
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "H",
+                      "targets": [{ "qubit": 1 }]
+                    }
+                  ]
+                },
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "X",
+                      "targets": [{ "qubit": 2 }]
+                    }
+                  ]
+                }
+              ],
+              "targets": [{ "qubit": 1 }, { "qubit": 2 }],
+              "controls": [{ "qubit": 0 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Bar",
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "Y",
+                      "targets": [{ "qubit": 1 }]
+                    }
+                  ]
+                },
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "Z",
+                      "targets": [{ "qubit": 2 }]
+                    }
+                  ]
+                }
+              ],
+              "targets": [{ "qubit": 1 }, { "qubit": 2 }],
+              "controls": [{ "qubit": 3 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Baz",
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "H",
+                      "targets": [{ "qubit": 0 }]
+                    }
+                  ]
+                },
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "X",
+                      "targets": [{ "qubit": 3 }]
+                    }
+                  ]
+                }
+              ],
+              "targets": [{ "qubit": 0 }, { "qubit": 3 }],
+              "controls": [{ "qubit": 2 }]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

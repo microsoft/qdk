@@ -381,3 +381,137 @@ test("dispose() removes document listeners so subsequent mouseup is a no-op", ()
   assert.equal(model.componentGrid.length, 1);
   assert.equal(renderCalls, 0);
 });
+
+// ---------------------------------------------------------------
+// B11a regression — onGateMouseDown on an expanded group's
+// control dot.
+//
+// An expanded group renders as `<g class="gate" data-expanded="true">`
+// with control dots as direct children. The pre-B11 early return
+// on `data-expanded === "true"` left `selectedOperation` null even
+// when the click was on a control dot, blocking the drag entirely.
+// The fix carves out a `movingControl` exception so the control-
+// drag flow can start. See B11 in CIRCUIT_EDITOR_TODO.md.
+// ---------------------------------------------------------------
+
+test("onGateMouseDown on an expanded group's control dot sets selectedOperation when movingControl is true", () => {
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 1 }, { qubit: 2 }],
+            controls: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Build the gate elem BEFORE constructing the controller — gate
+  // listeners are wired once, at construction, by `getGateElems`.
+  const gateElem = document.createElementNS(SVG_NS, "g");
+  gateElem.setAttribute("class", "gate");
+  gateElem.setAttribute("data-expanded", "true");
+  gateElem.setAttribute("data-location", "0,0");
+  // The control dot lives directly under the expanded group's `<g>`,
+  // not inside a nested `.gate` wrapper. (Nested child gates have
+  // their own `.gate` wrappers; only top-level controls of the group
+  // bubble up to this one.)
+  const controlDot = document.createElementNS(SVG_NS, "circle");
+  controlDot.setAttribute("class", "control-dot");
+  controlDot.setAttribute("data-wire", "0");
+  gateElem.appendChild(controlDot);
+  fixture.svg.appendChild(gateElem);
+
+  const { interaction, dragController } = makeController(fixture, model);
+
+  // Simulate the selectionController's effect (it runs first on the
+  // control-dot host element and sets these before the gate handler
+  // sees the bubbled event).
+  interaction.movingControl = true;
+  interaction.selectedWire = 0;
+
+  dispatchMouseDown(gateElem);
+
+  assert.ok(
+    interaction.selectedOperation,
+    "selectedOperation must be set so the drag flow can proceed",
+  );
+  assert.equal(
+    /** @type {any} */ (interaction.selectedOperation).gate,
+    "Foo",
+    "selectedOperation resolves to the expanded group itself",
+  );
+
+  dragController.dispose();
+});
+
+test("onGateMouseDown on an expanded group WITHOUT movingControl still no-ops (no regression)", () => {
+  // The carve-out is `movingControl`-gated; ordinary clicks on the
+  // expanded group's dashed box / label area must still leave
+  // `selectedOperation` untouched so the user can't grab the group
+  // as a whole when it's expanded.
+  const fixture = buildFixture();
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 0 }, { qubit: 1 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 0 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  const gateElem = document.createElementNS(SVG_NS, "g");
+  gateElem.setAttribute("class", "gate");
+  gateElem.setAttribute("data-expanded", "true");
+  gateElem.setAttribute("data-location", "0,0");
+  const dashedBox = document.createElementNS(SVG_NS, "rect");
+  dashedBox.setAttribute("class", "gate-unitary");
+  gateElem.appendChild(dashedBox);
+  fixture.svg.appendChild(gateElem);
+
+  const { interaction, dragController } = makeController(fixture, model);
+
+  // `movingControl` is the default-false; no selectionController
+  // emulation here.
+  interaction.selectedWire = 0;
+
+  dispatchMouseDown(gateElem);
+
+  assert.equal(
+    interaction.selectedOperation,
+    null,
+    "expanded-group mousedown without movingControl must NOT set selectedOperation",
+  );
+
+  dragController.dispose();
+});

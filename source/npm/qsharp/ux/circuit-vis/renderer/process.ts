@@ -395,8 +395,17 @@ const _opToRenderData = (
     // `result` index — still meaningful info shown next to the
     // correct sub-wire visually, even if two M's on different
     // qubits both display `c_0`.
+    //
+    // QUANTUM controls mixed in alongside classical refs (a
+    // post-B5 possibility when the editor adds a quantum control
+    // to a classically-controlled op) get `undefined` so the
+    // formatter can route them through the standard control-dot
+    // path instead of drawing them as classical circles. `null`
+    // stays reserved for classical refs whose id couldn't be
+    // resolved (B1).
     renderData.classicalControlIds =
       controls?.map((reg) => {
+        if (reg.result == null) return undefined;
         const globalId = op.metadata?.controlResultIds?.find(
           (e) => e[0].qubit === reg.qubit && e[0].result === reg.result,
         )?.[1];

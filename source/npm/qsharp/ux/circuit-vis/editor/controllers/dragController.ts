@@ -121,11 +121,19 @@ export class DragController {
     this.ctx.ghostQubitLayer.style.display = "block";
 
     for (let wireIndex = 0; wireIndex < this.ctx.wireData.length; wireIndex++) {
+      // Only PURE-QUANTUM target/control entries (`result === undefined`)
+      // disqualify a wire from getting an add-control dropzone. A
+      // classically-controlled group carries a classical-ref entry
+      // `{qubit: Y, result: 0}` in BOTH `.targets` (visual-extent claim)
+      // AND `.controls` (the conditional dependency) on the M-owning
+      // wire Y; that entry doesn't make Y a quantum target or control,
+      // so the user can still legitimately add a quantum control on Y.
       const isTarget = this.ctx.interaction.selectedOperation?.targets.some(
-        (target) => target.qubit === wireIndex,
+        (target) => target.qubit === wireIndex && target.result === undefined,
       );
       const isControl = this.ctx.interaction.selectedOperation?.controls?.some(
-        (control) => control.qubit === wireIndex,
+        (control) =>
+          control.qubit === wireIndex && control.result === undefined,
       );
       if (isTarget || isControl) continue;
 
@@ -153,6 +161,13 @@ export class DragController {
     this.ctx.container.classList.add("removing-control");
 
     this.ctx.interaction.selectedOperation.controls?.forEach((control) => {
+      // Skip classical-ref controls. A `{qubit, result}` control is the
+      // group's classical-condition dependency on a producing M; it has
+      // no quantum control-dot to click and removing it isn't a
+      // "remove control" operation — that's a separate semantic
+      // (convert classically-conditional to unconditional) deferred
+      // to the editor-authoring feature.
+      if (control.result !== undefined) return;
       const dropzone = createWireDropzone(
         this.ctx.circuitSvg,
         this.ctx.wireData,
@@ -291,9 +306,23 @@ export class DragController {
     }
 
     let selectedLocation = null;
-    if (elem.getAttribute("data-expanded") !== "true") {
+    if (
+      elem.getAttribute("data-expanded") !== "true" ||
+      this.ctx.interaction.movingControl
+    ) {
       // Looked up via `findOperation` against the model so subsequent
       // edits operate on the live op, not a stale snapshot.
+      //
+      // The `movingControl` carve-out covers an otherwise-blocked case:
+      // an expanded group is its own outer `<g class="gate" data-expanded="true">`
+      // node, and its control dots are DIRECT children of that node
+      // (children's gate elems live in their own nested `.gate` wrappers,
+      // which catch the event first and stopPropagation). When the user
+      // grabs a control dot on the expanded group, `selectionController`
+      // has just set `movingControl = true` on the bubble path; without
+      // this condition, the early-return below would leave
+      // `selectedOperation` null and the drag would never start.
+      // See [B11](../../CIRCUIT_EDITOR_TODO.md).
       selectedLocation = elem.getAttribute("data-location");
       this.ctx.interaction.selectedOperation = findOperation(
         this.ctx.model.componentGrid,

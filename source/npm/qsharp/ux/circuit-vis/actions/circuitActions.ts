@@ -143,6 +143,26 @@ const moveOperation = (
     JSON.stringify(originalOperation),
   );
 
+  // Stamp the new op with a one-shot "previous location" marker so
+  // [`Sqore.rebaseViewState`](../sqore.ts) can transfer the user's
+  // expand/collapse state across this move. Object identity is lost
+  // through the JSON deep-clone above — `newSourceOperation` is a
+  // distinct reference from the one in `lastLocationMap` — so the
+  // identity lookup in `rebaseViewState` will miss and naively map
+  // the old location to `null`, dropping the ViewState entry. The
+  // visible symptom is most striking on classically-controlled
+  // groups: when no ViewState entry exists, the renderer's default
+  // `hasClassicalControls && hasChildren` kicks back in, re-expanding
+  // groups the user had explicitly collapsed. The stamp lets the
+  // rebase find this op by its pre-move location as a fallback;
+  // it's consumed (deleted) on the very next rebase so it never
+  // leaks into the rendered SVG as a `data-*` attribute or
+  // accumulates across edits. See [B11](../CIRCUIT_EDITOR_TODO.md).
+  if (newSourceOperation.dataAttributes == null) {
+    newSourceOperation.dataAttributes = {};
+  }
+  newSourceOperation.dataAttributes["sqore-prev-location"] = sourceLocation;
+
   // Capture pre-move measurement wires from the live source. Used
   // after the move to refresh per-wire `numResults` counters for
   // any wire whose measurement set may have changed (see the
@@ -309,10 +329,18 @@ const _moveX = (
  * cases (one target + N controls) so the user can drag the target
  * or any one control independently — that's the established
  * "rewire one leg of a CNOT" interaction.
+ *
+ * `movingControl` takes precedence over the group check: a control
+ * on a group is still a single leg (rewire just the control),
+ * matching the established "drag a control to move only that
+ * control" interaction. Without this short-circuit, dragging a
+ * control on a group would shift the entire group as a unit and
+ * the user's drop wire becomes the new group home — destroying
+ * the intent of the gesture.
  */
 const _moveAsUnit = (op: Operation, movingControl: boolean): boolean => {
-  if (op.children != null) return true;
   if (movingControl) return false;
+  if (op.children != null) return true;
   switch (op.kind) {
     case "unitary":
     case "ket":
@@ -423,6 +451,40 @@ const _doShift = (
     for (const col of op.children) {
       for (const child of col.components) {
         _doShift(child, delta, internalProducers);
+      }
+    }
+  }
+};
+
+/**
+ * Swap every register reference on `wireA` with every reference on
+ * `wireB` throughout `op`'s subtree (top-level + recursively into
+ * children). Used by the group + `movingControl` branch in
+ * `_moveY` to implement the "drop the control onto a body wire to
+ * swap them" gesture: callers pass `op.children` directly so the
+ * top-level group's own controls/targets are left for the caller
+ * to update explicitly afterward.
+ *
+ * Classical-register entries (`{qubit, result}`) get the same
+ * `qubit` swap as quantum ones — for the body-swap gesture, a
+ * classical reference whose producer wire is itself being swapped
+ * needs to move with it. (The external-producer "anchor in place"
+ * rule from `_doShift` doesn't apply here because we're swapping
+ * specific wires, not delta-shifting.)
+ */
+const _swapWiresInSubtree = (
+  op: Operation,
+  wireA: number,
+  wireB: number,
+): void => {
+  for (const reg of getOperationRegisters(op)) {
+    if (reg.qubit === wireA) reg.qubit = wireB;
+    else if (reg.qubit === wireB) reg.qubit = wireA;
+  }
+  if (op.children) {
+    for (const col of op.children) {
+      for (const child of col.components) {
+        _swapWiresInSubtree(child, wireA, wireB);
       }
     }
   }
@@ -1187,6 +1249,17 @@ const _moveY = (
     return;
   }
 
+  // For groups + control move, capture body occupancy BEFORE the
+  // `unlikeRegisters` mutation below — that mutation rewrites the
+  // group's derived `.targets` cache entry that matched
+  // `targetWire`, so a post-mutation read would miss it and skip
+  // the children-subtree swap.
+  const groupBodyIncludesTargetWire =
+    movingControl &&
+    sourceOperation.kind === "unitary" &&
+    sourceOperation.children != null &&
+    sourceOperation.targets.some((t) => t.qubit === targetWire);
+
   // If a different kind of register already exists, swap the control and target
   if (unlikeRegisters.find((reg) => reg.qubit === targetWire)) {
     const index = unlikeRegisters.findIndex((reg) => reg.qubit === targetWire);
@@ -1196,6 +1269,22 @@ const _moveY = (
   switch (sourceOperation.kind) {
     case "unitary":
       if (movingControl) {
+        // Group + control move: dragging a control on a group
+        // changes only the control's wire (body stays put).
+        // Exception — if the drop wire is occupied by a body wire
+        // (a child's quantum register reference on `targetWire`),
+        // swap source ↔ target inside the children subtree so the
+        // body wire and control trade places. The `unlikeRegisters`
+        // mutation above also rewrote one entry of the group's
+        // derived `.targets` cache; that gets overwritten by the
+        // re-derive below, so it's harmless.
+        if (sourceOperation.children != null && groupBodyIncludesTargetWire) {
+          for (const col of sourceOperation.children) {
+            for (const child of col.components) {
+              _swapWiresInSubtree(child, sourceWire, targetWire);
+            }
+          }
+        }
         sourceOperation.controls?.forEach((control) => {
           if (control.qubit === sourceWire) {
             control.qubit = targetWire;
@@ -1204,6 +1293,14 @@ const _moveY = (
         sourceOperation.controls = sourceOperation.controls?.sort(
           (a, b) => a.qubit - b.qubit,
         );
+        // Re-derive the moved group's own `.targets` from its
+        // (possibly-swapped) children. `refreshAncestorTargets`
+        // (called later in `moveOperation`) walks ANCESTORS only,
+        // so for the moved op itself this is the canonical spot
+        // to keep the eager cache in sync.
+        if (sourceOperation.children != null) {
+          _refreshDerivedTargets(sourceOperation);
+        }
       } else {
         sourceOperation.targets = [{ qubit: targetWire }];
       }
@@ -1417,8 +1514,12 @@ const addControl = (
   if (!op.controls) {
     op.controls = [];
   }
+  // Match only PURE-QUANTUM controls when checking for duplicates.
+  // A classical-ref `{qubit: wireIndex, result: N}` on the same
+  // wire is a different register identity (the conditional
+  // dependency) and must not block adding a new quantum control.
   const existingControl = op.controls.find(
-    (control) => control.qubit === wireIndex,
+    (control) => control.qubit === wireIndex && control.result === undefined,
   );
   if (!existingControl) {
     // Capture ancestors before mutating so the rung references
@@ -1454,8 +1555,13 @@ const removeControl = (
   wireIndex: number,
 ): boolean => {
   if (op.controls) {
+    // Match only PURE-QUANTUM controls. If both `{qubit: wireIndex}`
+    // and `{qubit: wireIndex, result: N}` exist on the same wire,
+    // "remove control" targets the quantum one; the classical-ref
+    // entry is the group's conditional dependency, not a removable
+    // control dot.
     const controlIndex = op.controls.findIndex(
-      (control) => control.qubit === wireIndex,
+      (control) => control.qubit === wireIndex && control.result === undefined,
     );
     if (controlIndex !== -1) {
       // Capture ancestors before mutating; even though narrowing

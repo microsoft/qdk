@@ -63,8 +63,19 @@ export interface GateRenderData {
   dataAttributes?: DataAttributes;
   /** Link href and title for clickable gate. */
   link?: { href: string; title: string };
-  /** Labels for the classical control registers (when present, this group is rendered with classical controls). */
-  classicalControlIds?: (number | null)[];
+  /**
+   * Labels for the classical control registers (when present, this op
+   * has at least one classical control). Aligned with `controlsY` by
+   * index: a numeric entry is a classical control with a known id, a
+   * `null` entry is a classical control whose id couldn't be resolved
+   * (B1), and an `undefined` entry marks a QUANTUM control that
+   * happens to share the op's `controls` array with classical refs
+   * (possible after B5's add-control-on-classical-op fix). The
+   * formatter uses the `undefined` entries to route those controls
+   * through the standard control-dot render path instead of the
+   * classical-circle path.
+   */
+  classicalControlIds?: (number | null | undefined)[];
   /**
    * Classical control registers used by this operation or any descendant.
    * Used by processOperations to decide which classical wires may pass through

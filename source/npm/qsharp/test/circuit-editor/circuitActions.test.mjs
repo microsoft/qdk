@@ -4100,3 +4100,579 @@ test("addOperation: omitting sourceWire keeps the legacy single-leg behavior (to
   assert.ok(added, "toolbox drop returned an op");
   assert.equal(/** @type {any} */ (added).targets[0].qubit, 2);
 });
+
+// -------- addControl / removeControl: classical-ref entries don't shadow quantum controls ----------
+//
+// Bug B5: A classically-controlled op carries a classical-ref
+// `{qubit: Y, result: N}` in BOTH `.targets` (visual extent claim)
+// AND `.controls` (the conditional dependency). The add/remove
+// control action layer used to match controls by `qubit` only,
+// which meant:
+//   - addControl on wire Y would return false (treating the
+//     classical-ref entry as an existing control)
+//   - removeControl on wire Y would remove the classical-ref entry
+//     instead of (or in addition to) the quantum control
+// Both lookups now filter to pure-quantum entries
+// (`result === undefined`).
+
+test("addControl: adding a quantum control on a wire that already has a classical-ref control succeeds", () => {
+  // M on wire 0 produces c_0.0. Conditional X on wire 1 reads c_0.0
+  // (its `.controls` is `[{qubit:0, result:0}]`). Adding a quantum
+  // control on wire 0 should succeed — the existing entry is the
+  // classical conditional, not a quantum control.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0, numResults: 1 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "measurement",
+            gate: "M",
+            qubits: [{ qubit: 0 }],
+            results: [{ qubit: 0, result: 0 }],
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 1 }],
+            controls: [{ qubit: 0, result: 0 }],
+            isConditional: true,
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const condX = /** @type {any} */ (model.componentGrid[1].components[0]);
+
+  const ok = addControl(model, condX, 0);
+
+  assert.equal(ok, true, "addControl must succeed on the classical-owner wire");
+  // Both entries should now be in .controls: the classical-ref AND
+  // the new pure-quantum entry. Sort key in the action is by qubit
+  // ascending; the order between two same-qubit entries is
+  // insertion-stable (no full canonical sort needed for B5).
+  const qubits = condX.controls.map((/** @type {any} */ c) => c.qubit);
+  assert.deepEqual(
+    qubits.sort(),
+    [0, 0],
+    `controls must have two entries on q0; got ${JSON.stringify(condX.controls)}`,
+  );
+  const hasQuantum = condX.controls.some(
+    (/** @type {any} */ c) => c.qubit === 0 && c.result === undefined,
+  );
+  const hasClassical = condX.controls.some(
+    (/** @type {any} */ c) => c.qubit === 0 && c.result === 0,
+  );
+  assert.ok(hasQuantum, "pure-quantum control on q0 must exist");
+  assert.ok(hasClassical, "classical-ref control on q0 must still exist");
+});
+
+test("addControl: re-adding a pure quantum control on the same wire returns false (no duplicate)", () => {
+  // Sanity check: the result-filter doesn't break the existing
+  // dedup contract for pure-quantum controls.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 1 }],
+            controls: [{ qubit: 0 }],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const cx = /** @type {any} */ (model.componentGrid[0].components[0]);
+
+  assert.equal(addControl(model, cx, 0), false);
+  assert.equal(cx.controls.length, 1);
+});
+
+test("removeControl: removing a quantum control on a wire that also has a classical-ref control leaves the classical ref intact", () => {
+  // M on wire 0 produces c_0.0. Conditional X on wire 2 reads c_0.0
+  // AND has a quantum control on wire 0. Removing the control on
+  // wire 0 must remove ONLY the quantum entry, leaving the
+  // classical-ref intact (the gate stays classically-conditional).
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "measurement",
+            gate: "M",
+            qubits: [{ qubit: 0 }],
+            results: [{ qubit: 0, result: 0 }],
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 2 }],
+            controls: [{ qubit: 0 }, { qubit: 0, result: 0 }],
+            isConditional: true,
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const condX = /** @type {any} */ (model.componentGrid[1].components[0]);
+
+  const ok = removeControl(model, condX, 0);
+
+  assert.equal(ok, true);
+  // Only the classical-ref entry survives.
+  assert.equal(condX.controls.length, 1);
+  assert.equal(condX.controls[0].qubit, 0);
+  assert.equal(condX.controls[0].result, 0);
+});
+
+test("removeControl: removing a control on a wire that only has a classical-ref returns false (no-op)", () => {
+  // The classical-ref control is the conditional dependency, not a
+  // removable quantum control. removeControl must NOT touch it.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0, numResults: 1 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "measurement",
+            gate: "M",
+            qubits: [{ qubit: 0 }],
+            results: [{ qubit: 0, result: 0 }],
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "X",
+            targets: [{ qubit: 1 }],
+            controls: [{ qubit: 0, result: 0 }],
+            isConditional: true,
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const condX = /** @type {any} */ (model.componentGrid[1].components[0]);
+
+  const ok = removeControl(model, condX, 0);
+
+  assert.equal(
+    ok,
+    false,
+    "removeControl must refuse to remove a classical-ref",
+  );
+  assert.equal(condX.controls.length, 1, "classical-ref must still be present");
+  assert.equal(condX.controls[0].result, 0);
+});
+
+test("addControl: adding a quantum control on a classically-controlled GROUP succeeds even when the wire is in the group's visual-extent .targets", () => {
+  // The wider B5 case: a classically-controlled GROUP carries a
+  // classical-ref entry in BOTH .targets (visual extent) AND
+  // .controls (conditional dep) on the M-owning wire. Adding a
+  // quantum control on a DIFFERENT external wire must succeed
+  // without being blocked by either entry.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0, numResults: 1 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "measurement",
+            gate: "M",
+            qubits: [{ qubit: 0 }],
+            results: [{ qubit: 0, result: 0 }],
+          },
+        ],
+      },
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "CondGroup",
+            // Visual extent: q1, q2 (the group's quantum content),
+            // PLUS the classical-ref claim on q0 (the M-owner).
+            targets: [{ qubit: 0, result: 0 }, { qubit: 1 }, { qubit: 2 }],
+            // Conditional on c_0.0.
+            controls: [{ qubit: 0, result: 0 }],
+            isConditional: true,
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 2 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const group = /** @type {any} */ (model.componentGrid[1].components[0]);
+
+  // Add a quantum control on wire 3 (a fresh wire, not part of the
+  // group's existing references). The pre-fix bug would have
+  // succeeded here too — wire 3 was never matched by qubit only —
+  // so check the trickier case: add on wire 0 (the M-owner), which
+  // pre-fix would have been blocked by the classical-ref entry.
+  const ok = addControl(model, group, 0);
+
+  assert.equal(
+    ok,
+    true,
+    "addControl must succeed on q0 even though group already references q0 via a classical ref",
+  );
+  // The group now has a quantum control on q0.
+  const hasQuantumQ0 = group.controls.some(
+    (/** @type {any} */ c) => c.qubit === 0 && c.result === undefined,
+  );
+  assert.ok(hasQuantumQ0, "group must now have a quantum control on q0");
+});
+
+// ---------------------------------------------------------------
+// Group + control move (B10).
+//
+// Before the fix, `_moveAsUnit` short-circuited on `op.children`
+// before checking `movingControl`, so dragging a quantum control
+// on a group shifted the ENTIRE group as a unit instead of
+// rewiring just the one control. With the fix, controls on groups
+// behave the same as controls on non-group ops: vertical drag
+// rewires only the control (body stays put), and dropping the
+// control on a body wire swaps the two.
+// ---------------------------------------------------------------
+
+test("moveOperation: vertical control drag on a group rewires only the control, leaving body untouched", () => {
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 1 }, { qubit: 2 }],
+            controls: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 2 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Drag the control from wire 0 to wire 3 (above the group body).
+  // Pre-fix: every register would shift by +3, ending up with
+  // children on q4, q5 and control on q3. With the fix: only the
+  // control moves; children stay on q1, q2.
+  const moved = moveOperation(model, "0,0", "0,0", 0, 3, true, false);
+
+  assert.ok(moved);
+  const movedAny = /** @type {any} */ (moved);
+  assert.equal(movedAny.controls.length, 1);
+  assert.equal(movedAny.controls[0].qubit, 3, "control follows the drag");
+  // Children stay put.
+  const children = movedAny.children[0].components;
+  assert.equal(children[0].targets[0].qubit, 1, "H stays on q1");
+  assert.equal(children[1].targets[0].qubit, 2, "X stays on q2");
+  // Group's derived `.targets` still reflects the children's span.
+  const targetWires = movedAny.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort();
+  assert.deepEqual(
+    targetWires,
+    [1, 2],
+    "group .targets must remain pinned to the children's wires",
+  );
+});
+
+test("moveOperation: dropping a group control onto a body wire swaps the control with that body wire", () => {
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 1 }, { qubit: 2 }],
+            controls: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 2 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Drag the control from wire 0 onto wire 2 (a body wire — the X).
+  // Expected swap: control goes to wire 2; the X (previously on
+  // wire 2) moves to wire 0. H stays on wire 1.
+  const moved = moveOperation(model, "0,0", "0,0", 0, 2, true, false);
+
+  assert.ok(moved);
+  const movedAny = /** @type {any} */ (moved);
+  assert.equal(movedAny.controls.length, 1);
+  assert.equal(movedAny.controls[0].qubit, 2, "control moves to wire 2");
+  const children = movedAny.children[0].components;
+  // Find H and X by gate label so the test isn't sensitive to
+  // child reordering (sort-by-min-wire in any future sweep).
+  const h = children.find((/** @type {any} */ c) => c.gate === "H");
+  const x = children.find((/** @type {any} */ c) => c.gate === "X");
+  assert.equal(h.targets[0].qubit, 1, "H stays on wire 1");
+  assert.equal(
+    x.targets[0].qubit,
+    0,
+    "X swaps from wire 2 to wire 0 (the control's old wire)",
+  );
+  // Derived `.targets` reflects the swapped body wires.
+  const targetWires = movedAny.targets
+    .map((/** @type {any} */ t) => t.qubit)
+    .sort();
+  assert.deepEqual(
+    targetWires,
+    [0, 1],
+    "group .targets must re-derive from the swapped children",
+  );
+});
+
+test("moveOperation: dropping a group control onto a wire already occupied by another control is a no-op", () => {
+  // The like-register guard from the single-leg path must still
+  // apply to groups: a quantum control on wire 1, dragged to wire 2
+  // where another quantum control already lives, refuses the move.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 3 }],
+            controls: [{ qubit: 1 }, { qubit: 2 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 3 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Drag control on wire 1 to wire 2 (already a control). No-op.
+  const moved = moveOperation(model, "0,0", "0,0", 1, 2, true, false);
+  assert.ok(moved);
+  const movedAny = /** @type {any} */ (moved);
+  const controlWires = movedAny.controls
+    .map((/** @type {any} */ c) => c.qubit)
+    .sort();
+  assert.deepEqual(
+    controlWires,
+    [1, 2],
+    "both controls must remain on their original wires",
+  );
+});
+
+test("moveOperation: horizontal control drag on a group moves the whole op to the new column", () => {
+  // Horizontal drag (targetWire === sourceWire, targetLocation in
+  // a different column) is the regular column-move flow: the
+  // entire op relocates to the new column. The leg-only `_moveY`
+  // path with sourceWire === targetWire is a no-op (delta = 0,
+  // like-register guard returns); `_moveX` does the actual move.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 1 }, { qubit: 2 }],
+            controls: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 2 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+      // Empty target column reserved for the move destination.
+      { components: [{ kind: "unitary", gate: "Z", targets: [{ qubit: 2 }] }] },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  // Horizontal control drag: target column "1,0", same wire 0.
+  const moved = moveOperation(model, "0,0", "1,0", 0, 0, true, false);
+  assert.ok(moved);
+  const movedAny = /** @type {any} */ (moved);
+  // Control + children all stayed on their original wires.
+  assert.equal(movedAny.controls[0].qubit, 0);
+  const children = movedAny.children[0].components;
+  assert.equal(children[0].targets[0].qubit, 1);
+  assert.equal(children[1].targets[0].qubit, 2);
+});
+
+// ---------------------------------------------------------------
+// B11b regression — `sqore-prev-location` stamp contract.
+//
+// `moveOperation` deep-clones the source op, so the returned op
+// has a different identity than the one in `Sqore.lastLocationMap`.
+// A naive identity-keyed rebase in `Sqore.rebaseViewState` would
+// drop the ViewState entry for the moved op, causing user-set
+// expand/collapse choices to be lost. The most visible symptom
+// is on classically-controlled groups: when no ViewState entry
+// exists, the renderer's `hasClassicalControls && hasChildren`
+// default re-expands groups the user had explicitly collapsed.
+//
+// Fix: `moveOperation` stamps `dataAttributes["sqore-prev-location"]`
+// on the new op with the pre-move location. Sqore consumes the
+// stamp as a fallback during rebase. These tests pin the stamp
+// contract at the action layer.
+// ---------------------------------------------------------------
+
+test("moveOperation: returned op carries sqore-prev-location stamp with the source location", () => {
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }],
+      },
+      {
+        components: [{ kind: "unitary", gate: "X", targets: [{ qubit: 1 }] }],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+
+  const moved = moveOperation(model, "0,0", "1,0", 0, 1, false, false);
+  assert.ok(moved);
+  const movedAny = /** @type {any} */ (moved);
+  assert.equal(
+    movedAny.dataAttributes?.["sqore-prev-location"],
+    "0,0",
+    "stamp must hold the PRE-move source location so Sqore can recover the ViewState entry",
+  );
+});
+
+test("moveOperation: stamp survives the deep-clone roundtrip even when source had no prior dataAttributes", () => {
+  // The source op has NO dataAttributes object before the move
+  // (common for freshly-edited ops between renders). The stamp
+  // contract has to lazily create the object — it can't depend on
+  // a pre-existing dataAttributes.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }],
+    componentGrid: [
+      {
+        components: [{ kind: "unitary", gate: "H", targets: [{ qubit: 0 }] }],
+      },
+      {
+        components: [{ kind: "unitary", gate: "X", targets: [{ qubit: 1 }] }],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  // Verify the precondition the test is built around: no dataAttributes
+  // on the source op going in.
+  assert.equal(
+    /** @type {any} */ (model.componentGrid[0].components[0]).dataAttributes,
+    undefined,
+  );
+
+  const moved = moveOperation(model, "0,0", "1,0", 0, 1, false, false);
+  assert.ok(moved);
+  const movedAny = /** @type {any} */ (moved);
+  assert.equal(movedAny.dataAttributes?.["sqore-prev-location"], "0,0");
+});
+
+test("moveOperation: stamp persists for a control-leg move on a group (B10 + B11 interaction)", () => {
+  // Verifies the stamp is set regardless of which branch of `_moveY`
+  // ran. The control-on-group leg-move path (B10) creates a new op
+  // identity too, so the ViewState transfer must still work for
+  // exactly the case that triggered B11.
+  /** @type {any} */
+  const circuit = {
+    qubits: [{ id: 0 }, { id: 1 }, { id: 2 }, { id: 3 }],
+    componentGrid: [
+      {
+        components: [
+          {
+            kind: "unitary",
+            gate: "Foo",
+            targets: [{ qubit: 1 }, { qubit: 2 }],
+            controls: [{ qubit: 0 }],
+            children: [
+              {
+                components: [
+                  { kind: "unitary", gate: "H", targets: [{ qubit: 1 }] },
+                  { kind: "unitary", gate: "X", targets: [{ qubit: 2 }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const model = new CircuitModel(circuit);
+  const moved = moveOperation(model, "0,0", "0,0", 0, 3, true, false);
+  assert.ok(moved);
+  const movedAny = /** @type {any} */ (moved);
+  assert.equal(
+    movedAny.dataAttributes?.["sqore-prev-location"],
+    "0,0",
+    "control-leg move on a group must still stamp the prev-location for ViewState transfer",
+  );
+});

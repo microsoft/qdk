@@ -389,12 +389,33 @@ export class Sqore {
     const prev = this.lastLocationMap;
     if (prev == null) return;
     const next = this.buildLiveLocationMap(this.circuit.componentGrid);
+
+    // Build a (prev-location → new-location) fallback map from any
+    // ops that carry a `sqore-prev-location` stamp. The stamp is
+    // set by [`moveOperation`](actions/circuitActions.ts) when it
+    // deep-clones the source op — that clone has a new object
+    // identity so the identity lookup against `next` below would
+    // miss, naively dropping the ViewState entry. The stamp lets
+    // us recover the user's expand/collapse choice by matching on
+    // the pre-move location instead. Consumed (deleted) here so
+    // the stamp never leaks into the rendered SVG and doesn't
+    // re-trigger on subsequent rebases. See B11 in
+    // [CIRCUIT_EDITOR_TODO.md](CIRCUIT_EDITOR_TODO.md).
+    const prevLocationFallback = new Map<string, string>();
+    for (const [op, newLoc] of next) {
+      const stamp = op.dataAttributes?.["sqore-prev-location"];
+      if (typeof stamp === "string") {
+        prevLocationFallback.set(stamp, newLoc);
+        delete op.dataAttributes!["sqore-prev-location"];
+      }
+    }
+
     // For every op we tracked at the last render, compute its old
     // and new location. Build the (oldLoc → newLoc | null) remap
     // that `ViewState.rebase` consumes.
     const remap = new Map<string, string | null>();
     for (const [op, oldLoc] of prev) {
-      const newLoc = next.get(op);
+      const newLoc = next.get(op) ?? prevLocationFallback.get(oldLoc);
       remap.set(oldLoc, newLoc ?? null);
     }
     this.viewState.rebase(remap);

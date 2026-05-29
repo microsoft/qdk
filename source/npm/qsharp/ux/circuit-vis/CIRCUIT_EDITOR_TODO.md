@@ -1818,6 +1818,144 @@ exercise the shared-ancestor hook-firing contract.
 
 ---
 
+### Controls on groups — feature
+
+**Why this is a feature, not a bug.** "Add a control to a group"
+sounds like a one-liner — model has `op.controls`, renderer has
+`controlsY`, done. In practice the gesture cuts across every layer
+of the editor (data model, action layer, dropzone filters, hit
+testing, renderer, ViewState rebase, drag controller, default-
+expansion logic) and each layer had assumptions that quietly only
+worked for the historical "single-op + controls" shape (CNOT-style
+1 target + N controls). Trying to land the feature surfaced a
+chain of latent issues that look like bugs in isolation but are
+really gaps in a feature that was never fully designed. This
+section consolidates the campaign so the open work can be scoped
+as design + implementation rather than triaged one-symptom-at-a-time.
+
+**Surface area touched (cumulative).**
+
+- Data: `op.controls` `(qubit, result?)` entries on group ops.
+- Action: `addControl` / `removeControl` dedup; `_moveAsUnit`
+  branch selection; `_moveY` leg-vs-unit semantics; `moveOperation`
+  identity loss across deep-clone.
+- View / hit: `dragController.onGateMouseDown` early-return for
+  expanded groups; `selectionController.movingControl` flag.
+- Renderer: `gateFormatter._groupedOperations`; `_classicalControls`;
+  per-control id resolution in `process.classicalControlIds`.
+- View state: `Sqore.rebaseViewState` identity-keyed remap;
+  default-expansion rule for classically-controlled groups.
+
+#### Shipped milestones
+
+Each milestone is a self-contained ship with tests. The
+detailed root-cause + fix writeups live in the
+[`B`-numbered bug-fix entries](#bug-fixes--open) below — kept there
+as engineering archaeology rather than re-inlined here.
+
+| #   | Detail                                                                                                                                                 | One-line summary                                                                                                                      |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| M1  | [B5](#b5-add--remove-control-on-a-classically-controlled-op-blocked-by-classical-ref-entries---shipped-pending-user-confirmation)                      | Add / remove control on classically-controlled ops (incl. groups): filter four dedup / dropzone sites for pure-quantum entries.       |
+| M2  | [B9](#b9-quantum-controls-on-a-group-are-never-drawn---shipped-pending-user-confirmation)                                                              | Rendering: pure-quantum controls on groups draw a `controlDot` + connector to the nearest dashed-box edge; mixed-controls render too. |
+| M3  | [B10](#b10-control-drag-on-a-group-moves-the-whole-group-instead-of-just-the-control---shipped-pending-user-confirmation)                              | Drag semantics: control-leg drag rewires just the leg (not the whole group); drop on body wire swaps via `_swapWiresInSubtree`.       |
+| M4  | [B11](#b11-control-drag-on-a-group-expanded-groups-blocked--classically-controlled-groups-re-expand-on-every-move---shipped-pending-user-confirmation) | Drag init on expanded groups + ViewState transfer across `moveOperation`'s deep-clone via `sqore-prev-location` stamp.                |
+
+(B8 — clone-move of a multi-wire group rewriting `.targets` —
+shipped in parallel but isn't gated on having controls; it's a
+general group-cloning fix and stays in the bug-fixes section.)
+
+#### Known open issues
+
+These have a clear symptom or invariant violation but no fix has
+landed. Some are flagged out-of-scope in shipped milestones above.
+
+- **`qubitUseCounts` not refreshed on single-leg control rewire.**
+  Flagged out-of-scope by M3. `_moveY`'s leg path doesn't decrement
+  / increment per-wire use counts, so `removeTrailingUnusedQubits`
+  can underflow in edge cases where the rewired control wire had
+  no other uses. Currently invisible because the children's body
+  keeps the wire's count above zero; adding a control-only op
+  would expose it.
+- **Editing / removing the classical condition itself on a
+  classically-controlled group.** Out-of-scope flagged by M1 (and
+  B1 before it). There is no UI today to convert a
+  classically-controlled group back to unconditional, or to swap
+  which classical register it depends on. Deferred to the broader
+  "editor-authoring" work that also owns B1's architectural fix.
+- **Toolbox-drop of a control onto a group is not supported.**
+  Add Control is context-menu-only. A toolbox "control" element
+  (analogous to the toolbox "H gate") doesn't exist. May or may
+  not be desirable — see Design questions.
+- **Clone (Ctrl+drag) of a control on a group is undefined.**
+  M3 + M4 fix the move path; the clone path on a control dot
+  hasn't been audited. Likely silently degrades to one of:
+  whole-group clone, no-op, or model-corrupting partial copy.
+- **Drag-extend a group via a control dot is undefined.** The
+  shift-extend gesture (D4 in the drag-and-drop overhaul) is
+  designed around target wires. Whether a control drop outside
+  the group's body span should extend `.targets` like a child
+  drop does is unresolved; today the control just rewires onto
+  the new wire and `.targets` is recomputed from children only
+  (the control wire does not extend the visual box).
+
+#### Design questions worth re-examining
+
+- **Should "control" be a first-class toolbox element?** Currently
+  the only way to add a control is to right-click an existing op
+  and use the context menu. Making control a draggable toolbox
+  item would close the symmetry with gates, but raises new
+  questions about drop targets (every gate would gain
+  control-receiving dropzones) and clutter.
+- **What's the right gesture when the user drops a control on a
+  body wire of the same group?** M3 implements a swap (control ↔
+  body wire); an alternative is to refuse the drop entirely
+  ("you can't put a control on a wire the group already operates
+  on"). Swap is currently shipped; the alternative may be more
+  legible. Need usability data.
+- **Click semantics on a control dot of a group.** Today clicking
+  a control dot sets `selectedOperation = group` AND `movingControl
+= true`, so the gesture has dual intent. Should the control dot
+  have its own context menu separate from the group's? Should
+  Delete-key on a control dot remove just the control vs. the
+  whole group?
+- **Visual differentiation.** Mixed-controls groups (quantum +
+  classical) render a solid control dot for the quantum control
+  and a dashed circle for the classical condition (M2). Whether
+  the quantum dot should be visually distinguished from a CNOT
+  control (e.g. labeled with the group name or color-coded) is
+  open. Today they're identical to ordinary controls.
+- **Default-expansion interaction.** Classically-controlled groups
+  default-expand (`hasClassicalControls && hasChildren` in
+  `process.ts`). When the user adds a pure-quantum control to such
+  a group, should the default change? M4 made the stored
+  collapse-choice survive moves; the underlying default rule is
+  unchanged.
+- **Keyboard accessibility.** None of M1–M4 wired keyboard
+  equivalents for add/remove/drag of controls on groups.
+- **Selection / multi-select.** No story for selecting "the control
+  on q0 of group X" as a first-class selectable unit.
+
+#### Roadmap
+
+| Item                                   | Status                         |
+| -------------------------------------- | ------------------------------ |
+| M1: add / remove control plumbing      | ✅ Shipped (pending confirm)   |
+| M2: render quantum controls on groups  | ✅ Shipped (pending confirm)   |
+| M3: control-leg drag semantics         | ✅ Shipped (pending confirm)   |
+| M4: drag init + ViewState across moves | ✅ Shipped (pending confirm)   |
+| `qubitUseCounts` on single-leg rewire  | ❌ Open                        |
+| Classical-condition editing            | ❌ Deferred (editor-authoring) |
+| Toolbox control element                | ❌ Open (design TBD)           |
+| Control clone-on-group audit           | ❌ Open                        |
+| Drag-extend via control dot            | ❌ Open (design TBD)           |
+| Click / select / delete semantics      | ❌ Open (design TBD)           |
+| Visual differentiation                 | ❌ Open (design TBD)           |
+| Default-expansion interaction          | ❌ Open (design TBD)           |
+| Keyboard accessibility                 | ❌ Open                        |
+| Control as selectable unit             | ❌ Open (design TBD)           |
+
+---
+
 ## Bug fixes — open
 
 Bugs discovered in editor flows that don't yet have an owner above.
@@ -1962,30 +2100,61 @@ counting classical references.
 on M removal)? Probably the latter — orphaned classical refs
 shouldn't exist in the model at all.
 
-### B5. Adding / removing classical control qubits doesn't work when the target is an external qubit with an M the group depends on
+### B5. Add / remove control on a classically-controlled op blocked by classical-ref entries — ✅ Shipped (pending user-confirmation)
 
 **Symptom.** A classically-controlled group consumes an M on
-qubit X. Try to add or remove a control on a different external
-qubit Y via the context menu. Operation either silently fails or
-corrupts the group's controls list.
+qubit Y. Try to add or remove a quantum control on Y (or, for
+groups, on any wire — the group's `.targets` carried a
+classical-ref entry on Y that fooled the dropzone visibility
+check). The context-menu "Add control" wire-pick either showed
+no dropzone on Y, or the action silently failed because
+`addControl`'s dedup matched the classical-ref entry.
 
-**Likely cause.** `addControl` / `removeControl` in
-[circuitActions.ts](actions/circuitActions.ts) assume the op's
-`controls` are simple wire references. Classically-controlled
-groups have classical refs (`{qubit, result}`) mixed in;
-indexing / dedup logic that treats `controls` as a flat
-qubit-only list mis-handles them.
+**Root cause.** A classically-conditional op records its
+classical-register dependency as a `{qubit: Y, result: N}` entry
+in BOTH `.controls` (the conditional dependency) AND `.targets`
+(the visual-extent claim that draws the gate down to the
+classical-register box on Y). Four sites treated `.controls` /
+`.targets` as flat qubit-only lists, with no distinction between
+pure-quantum entries (`result === undefined`) and classical refs:
 
-**Fix direction.** Audit every `controls`-touching site in
-the action layer for the classical-vs-pure distinction. Likely
-needs a helper analogous to `getChildTargets`'s `result`-
-preservation (the D6 keep-list item).
+1. [`startAddingControl`](editor/controllers/dragController.ts)'s
+   dropzone-visibility filter — `isTarget` / `isControl` matched
+   by `qubit` only, so wire Y was treated as "already a target"
+   and got no dropzone.
+2. [`startRemovingControl`](editor/controllers/dragController.ts)'s
+   `.controls?.forEach` — created a remove-control dropzone for
+   the classical-ref entry too, even though it has no control-
+   dot to click and shouldn't be removable as a quantum control.
+3. [`addControl`](actions/circuitActions.ts)'s `existingControl`
+   lookup — a classical-ref `{qubit: Y, result: N}` blocked
+   adding a new pure-quantum control on Y (returned false).
+4. [`removeControl`](actions/circuitActions.ts)'s `findIndex`
+   lookup — would have matched the classical-ref entry instead
+   of (or in addition to) the quantum entry on Y.
 
-**Open question.** Is "adding a quantum control to a
-classically-controlled group" semantically meaningful, or
-should it be refused entirely until the user converts the
-group? If allowed, the renderer needs to draw both kinds of
-control indicators on the same group.
+**Fix.** All four sites now filter for pure-quantum entries
+(`result === undefined`), following the same pattern
+[`getQuantumWireRange`](utils.ts) and the use-count helpers
+([`CircuitModel.incrementQubitUseCountForOp`](data/circuitModel.ts))
+established for editor-scope decisions.
+
+**Out of scope (deferred to editor-authoring feature).**
+Removing / editing the classical condition itself — "convert
+classically-controlled to unconditional" — is a separate
+semantic from "remove a quantum control". B5 only addresses the
+quantum-control half; classical-condition editing waits for the
+broader editor-authoring work that B1 also defers to.
+
+**Tests.** Five new tests in
+[test/circuit-editor/circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs):
+add quantum control on the classical-owner wire of a conditional
+gate succeeds (both entries survive in `.controls`); legacy
+duplicate-quantum-control dedup still returns false; remove
+quantum control on a wire that also has a classical-ref leaves
+the classical ref intact; remove on a wire that ONLY has a
+classical-ref returns false (no-op); add quantum control on the
+M-owner wire of a classically-controlled GROUP succeeds.
 
 ### B6. Shift+expand-group downward doesn't move vertically adjacent groups
 
@@ -2125,18 +2294,275 @@ classical ref shifts in lockstep with the cloned producer),
 underflow refusal, and legacy single-leg behavior preserved when
 `sourceWire` is omitted.
 
+### B9. Quantum controls on a group are never drawn — ✅ Shipped (pending user-confirmation)
+
+**Symptom.** Adding a pure-quantum control to a group via the
+context-menu "Add Control" wire-pick mutates the model correctly
+(`op.controls` gets the new entry; B5 ensures the
+dedup/lookup behave right) but produces no visible change. No
+control dot, no connector — the dashed box looks identical
+before and after.
+
+A second variant, surfaced after the initial fix: adding a
+quantum control to a CLASSICALLY-CONTROLLED group (the M-owner
+case from B5) drew the new control as a stray classical-circle
+"c_null" indicator on the qubit wire, instead of as a standard
+control dot. Same root cause as B1 surfacing through a
+per-control rendering bug rather than a missing-id bug.
+
+**Root cause.** Two layers.
+
+1. [`_groupedOperations`](renderer/formatters/gateFormatter.ts)
+   rendered the dashed box, the children, and the label, but
+   never looked at `renderData.controlsY` for the pure-quantum
+   case. The classically-controlled branch had its own dedicated
+   `_classicalControls` path; the quantum-only path simply had
+   no render code. So adding a quantum control to a pure-quantum
+   group was a silently-rendered no-op.
+
+2. `_classicalControls` iterated EVERY entry in `controlsY` and
+   drew it as a classical dashed-circle indicator, regardless of
+   whether the underlying control register was a classical ref
+   (`{qubit, result}`) or a pure-quantum control (`{qubit}`).
+   For a classically-controlled group with a mixed quantum
+   control (post-B5), the quantum control wire got a "c_null"
+   circle slapped on it — visually wrong, conceptually wrong.
+
+**Fix.** Three coordinated changes.
+
+1. [`process.ts`](renderer/process.ts) `classicalControlIds` now
+   returns `undefined` for quantum-control entries (was `null`).
+   `null` stays reserved for classical refs whose id couldn't be
+   resolved (the B1 case). The `(number | null | undefined)[]`
+   type makes the three-way distinction explicit.
+
+2. [`_classicalControls`](renderer/formatters/gateFormatter.ts)
+   skips entries where the id is `undefined`. Per-control
+   routing is now driven by per-control type rather than the
+   op's overall control flavor.
+
+3. New
+   [`_renderQuantumGroupControls`](renderer/formatters/gateFormatter.ts)
+   helper emits a `controlDot` on each quantum control wire (at
+   the group's center x) plus a thin `control-line` connector
+   to the nearest dashed-box edge — top edge if above, bottom
+   edge if below, no connector if the wire crosses the box.
+   `_getQuantumControlYs` filters `controlsY` to just the
+   quantum entries (using `classicalControlIds[i] === undefined`).
+   Wired into both branches of `_groupedOperations` and into the
+   `GateType.Unitary` case in `formatGate` so a classically-
+   controlled single-op Unitary with a mixed quantum control
+   also renders correctly.
+
+The expanded-group dashed-box geometry is now always derived
+from `targetsY` alone — which already includes classical-control
+wires via the `_opToRenderData` patch — so the box still extends
+to the classical wire (needed for `_classicalControls` to attach
+its dashed connector) but never extends to a pure-quantum
+control wire (the design call "dots outside, box unchanged"
+holds for pure, classical-only, and mixed cases uniformly).
+
+**Out of scope.** None — mixed controls now render correctly
+end-to-end. The editor-authoring feature (B1's deferred
+architectural work) remains the home for editing/removing the
+classical condition itself.
+
+**Tests.** Three snapshot cases in
+[test/circuits-cases/](../../test/circuits-cases/):
+[quantum-control-group.qsc](../../test/circuits-cases/quantum-control-group.qsc)
+covers expanded pure-quantum-control groups with
+control-above, control-below, and control-inside-body scenarios.
+[quantum-control-group-collapsed.qsc](../../test/circuits-cases/quantum-control-group-collapsed.qsc)
+documents the collapsed-branch input (the harness force-expands
+via `renderDepth`, so this exercises the same code paths as the
+expanded fixtures but with a single-summary-box layout shape).
+[quantum-control-classical-group.qsc](../../test/circuits-cases/quantum-control-classical-group.qsc)
+covers the mixed-controls regression: a classically-controlled
+group with an additional quantum control renders the dashed
+`c_0` circle on the classical wire AND a solid control dot on
+the quantum wire — not two classical circles.
+
+### B10. Control drag on a group moves the whole group instead of just the control — ✅ Shipped (pending user-confirmation)
+
+**Symptom.** With B5+B9 shipped, controls on groups now exist
+and render correctly, but interacting with them feels broken:
+
+- Dragging a control vertically (e.g. from q0 to q3) shifts the
+  ENTIRE group up by 3 wires instead of just rewiring the control.
+- Dropping a control onto a body wire of the group doesn't swap
+  them — the body just slides out of place.
+
+The horizontal-drag and like-register-guard behaviors that work
+correctly for non-group ops (CNOT-style 1 target + N controls)
+all silently degrade for groups.
+
+**Root cause.**
+[`_moveAsUnit`](actions/circuitActions.ts) decided the move
+strategy by checking `op.children != null` BEFORE checking
+`movingControl`. Group + movingControl therefore short-circuited
+into the unit-shift path (`_shiftAllRegisters` with delta =
+`targetWire - sourceWire`), which is correct for whole-group
+relocation but completely wrong for the "drag a single leg" intent
+the control-dot grab signals.
+
+**Fix.** Three coordinated changes in
+[circuitActions.ts](actions/circuitActions.ts):
+
+1. `_moveAsUnit` now checks `movingControl` first. A control move
+   on any op — group or not — falls through to the single-leg
+   path, matching the long-established CNOT-style "drag a control
+   to rewire just that leg" interaction.
+
+2. New `_swapWiresInSubtree` helper recursively swaps every
+   register reference on `wireA` with every reference on `wireB`
+   throughout an op's subtree. Used by the group + control branch
+   below to implement the "drop control onto body wire to swap"
+   gesture.
+
+3. `_moveY`'s `unitary + movingControl` branch now detects when
+   the group's body occupies the drop wire (`groupBodyIncludesTargetWire`,
+   captured BEFORE the `unlikeRegisters` mutation that would
+   otherwise hide it in the derived `.targets` cache). When true,
+   it walks the children and swaps source ↔ target; either way it
+   rewires the control to `targetWire`, then re-derives the
+   moved group's own `.targets` from its (possibly-swapped)
+   children via `_refreshDerivedTargets`.
+
+The horizontal-drag case "just worked" once `_moveAsUnit` was
+fixed: `_moveY` with sourceWire === targetWire is a no-op via the
+like-register guard (delta = 0, control already on targetWire),
+and `_moveX` handles the column relocation independently.
+
+**Tests.** Four new cases in
+[circuitActions.test.mjs](../../test/circuit-editor/circuitActions.test.mjs):
+vertical control drag on a group rewires only the control;
+dropping a control onto a body wire swaps with that body wire and
+re-derives `.targets`; dropping onto a wire already occupied by
+another control is a no-op (like-register guard still applies);
+horizontal control drag moves the whole op to the new column.
+
+**Out of scope.** `qubitUseCounts` per-wire bookkeeping isn't
+updated by the single-leg control-rewire path — pre-existing
+limitation shared with the non-group CNOT case. The model still
+renders correctly because `removeTrailingUnusedQubits` is the
+only consumer of stale-low counts, and the wire counts don't
+underflow from a control-only move (the wire still has uses
+from the children body).
+
+### B11. Control drag on a group: expanded groups blocked + classically-controlled groups re-expand on every move — ✅ Shipped (pending user-confirmation)
+
+**Symptoms.** Two interaction bugs surfaced once B10 made
+controls on groups draggable:
+
+1. **Expanded groups can't be control-dragged at all.** Clicking
+   the control dot on an expanded group did nothing — the drag
+   never started. Collapsed groups worked fine.
+2. **Classically-controlled groups always re-expand when their
+   control is moved.** Even a same-wire (no-op) horizontal control
+   drag silently re-expanded a group the user had explicitly
+   collapsed.
+
+**Root cause #1 (drag-blocking).**
+[`DragController.onGateMouseDown`](editor/controllers/dragController.ts)
+early-returned without setting `selectedOperation` whenever the
+gate elem had `data-expanded="true"` — the intent being to
+prevent the user from grabbing an expanded group as a whole. But
+an expanded group's control dots are DIRECT children of its outer
+`<g class="gate" data-expanded="true">` node (children's gate
+wrappers catch their own events and stop propagation; only the
+top-level controls bubble up). The control-dot mousedown went to
+`selectionController` first (which set `movingControl = true`),
+then bubbled to the gate handler, which short-circuited before
+resolving `selectedOperation`. The null check three lines later
+exited and no drag ever started.
+
+**Root cause #2 (ViewState lost).**
+[`moveOperation`](actions/circuitActions.ts) deep-clones the
+source op via `JSON.parse(JSON.stringify(...))` (line 142) so the
+new op has a different object identity than the original.
+[`Sqore.rebaseViewState`](../sqore.ts) is identity-keyed: it
+walks `lastLocationMap` (`Map<Operation, string>`) and looks up
+each op in the post-mutation `next` map by object reference. The
+deep clone isn't found in `next` → maps to `null` → ViewState
+entry dropped. On the next render, defaults kick back in; the
+`hasClassicalControls && hasChildren` default-expansion rule in
+[`process.ts`](renderer/process.ts) re-expands the group. Pure
+quantum groups have the bug too but it's invisible because their
+default IS collapsed.
+
+**Fixes.** Two coordinated changes:
+
+1. **`DragController.onGateMouseDown`** now extends the
+   selectedOperation-resolution condition to also run when
+   `this.ctx.interaction.movingControl === true`. The
+   `movingControl` flag is only set by `selectionController` when
+   the mousedown host was a `.control-dot`, so the carve-out is
+   precise: ordinary clicks on an expanded group's dashed box
+   still no-op (preserving the "no grabbing expanded groups as a
+   whole" behavior), but clicks on its direct-child control dots
+   correctly resolve the group as the drag target.
+
+2. **`moveOperation` + `Sqore.rebaseViewState` cooperate via a
+   one-shot stamp.** After the deep-clone, `moveOperation` writes
+   `dataAttributes["sqore-prev-location"] = sourceLocation` on
+   the new op. `rebaseViewState` builds a
+   (prev-location → new-location) fallback map from any ops
+   carrying the stamp, consumes (deletes) each stamp on read, and
+   falls back to that map when the identity lookup misses. The
+   stamp is gone before the next render's deep-copy step, so it
+   never leaks into the rendered SVG as a `data-*` attribute or
+   accumulates across edits.
+
+**Why the stamp instead of preserving identity in
+`moveOperation`?** A no-clone refactor of `moveOperation` would
+have wider blast radius — `_addOp` is shared with `_moveX` and
+expects the source it inserts is a separate reference from the
+one `_removeOp` later strips out (the "removed" marker pattern
+relies on this). The stamp is a minimal, surgical contract change
+that keeps `moveOperation`'s deep-clone invariant intact.
+
+**Tests.**
+[`dragController.test.mjs`](../../test/circuit-editor/dragController.test.mjs)
+gains two cases:
+
+- `onGateMouseDown` on an expanded group's control dot DOES set
+  `selectedOperation` when `movingControl` is true (the new
+  carve-out path).
+- `onGateMouseDown` on an expanded group WITHOUT `movingControl`
+  still no-ops (no regression on the original
+  "can't grab an expanded group" guard).
+
+[`circuitActions.test.mjs`](../../test/circuit-editor/circuitActions.test.mjs)
+gains three cases pinning the stamp contract:
+
+- A plain `moveOperation` stamps `sqore-prev-location` on the
+  returned op with the pre-move source location.
+- The stamp is set even when the source op had no
+  `dataAttributes` going in (lazy-create path).
+- The stamp is set on the control-leg move on a group (the exact
+  scenario that triggered B11 in the wild).
+
 ### Roadmap & status
 
-| Item                                                         | Severity         | Status                                                                                              |
-| ------------------------------------------------------------ | ---------------- | --------------------------------------------------------------------------------------------------- |
-| B1: classical-control indicators show `C_null`               | Display bug      | ⚠️ Partial (immediate symptom fixed; architectural fix deferred to future editor-authoring feature) |
-| B2: moving / deleting M with downstream deps crashes         | Crash            | ❌ Open                                                                                             |
-| B3: qubit reorder around dependent M crashes                 | Crash            | ❌ Open                                                                                             |
-| B4: M removal leaves stale classical wire layout             | Layout bug       | ❌ Open                                                                                             |
-| B5: add/remove control fails on classical groups             | Logic error      | ❌ Open                                                                                             |
-| B6: shift-extend doesn't push adjacent groups                | Layout bug       | ❌ Open                                                                                             |
-| B7: qubit reorder doesn't update group contents              | Data consistency | ✅ Shipped (pending user-confirmation)                                                              |
-| B8: clone-move of a group rewrites `.targets` to single wire | Data consistency | ✅ Shipped (pending user-confirmation)                                                              |
+> B5, B9, B10, B11 are also milestones M1–M4 in the
+> [Controls on groups](#controls-on-groups--feature) feature
+> section above. The detailed bug entries below remain as
+> engineering archaeology; the feature section is the right
+> place to scope further work in that area.
+
+| Item                                                             | Severity         | Status                                                                                              |
+| ---------------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------------------- |
+| B1: classical-control indicators show `C_null`                   | Display bug      | ⚠️ Partial (immediate symptom fixed; architectural fix deferred to future editor-authoring feature) |
+| B2: moving / deleting M with downstream deps crashes             | Crash            | ❌ Open                                                                                             |
+| B3: qubit reorder around dependent M crashes                     | Crash            | ❌ Open                                                                                             |
+| B4: M removal leaves stale classical wire layout                 | Layout bug       | ❌ Open                                                                                             |
+| B5: add/remove control fails on classical groups _(M1)_          | Logic error      | ✅ Shipped (pending user-confirmation)                                                              |
+| B6: shift-extend doesn't push adjacent groups                    | Layout bug       | ❌ Open                                                                                             |
+| B7: qubit reorder doesn't update group contents                  | Data consistency | ✅ Shipped (pending user-confirmation)                                                              |
+| B8: clone-move of a group rewrites `.targets` to single wire     | Data consistency | ✅ Shipped (pending user-confirmation)                                                              |
+| B9: quantum controls on a group are never drawn _(M2)_           | Display bug      | ✅ Shipped (pending user-confirmation)                                                              |
+| B10: control drag on a group moves the whole group _(M3)_        | Interaction bug  | ✅ Shipped (pending user-confirmation)                                                              |
+| B11: expanded-group control drag blocked + ViewState lost _(M4)_ | Interaction bug  | ✅ Shipped (pending user-confirmation)                                                              |
 
 ---
 
