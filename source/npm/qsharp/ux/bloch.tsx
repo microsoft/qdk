@@ -456,7 +456,20 @@ class BlochRenderer {
   }
 }
 
-export function BlochSphere() {
+export interface BlochSphereProps {
+  /** Sequence of single-character gate codes to replay on mount. Each
+   * character must be one of the gate keys understood by `rotate` (X, Y, Z,
+   * H, S, s, T, t). Typically populated from a URL parameter so that a
+   * shared link reproduces the same sphere state. */
+  initialGates?: string;
+  /** Called whenever the applied-gate sequence changes (gate applied, gates
+   * applied in bulk via Run, or reset). The argument is the full sequence
+   * of single-character gate codes applied so far. Parents can use this to
+   * keep a URL or other external state in sync. */
+  onGatesChanged?: (gates: string) => void;
+}
+
+export function BlochSphere(props: BlochSphereProps = {}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderer = useRef<BlochRenderer | null>(null);
 
@@ -464,10 +477,22 @@ export function BlochSphere() {
   const [state, setState] = useState(Ket0);
   const [rzAngle, setRzAngle] = useState(0);
   let newState = state;
+  // Tracks the raw single-character gate codes actually applied to the
+  // sphere, in order. `gateArray` above stores LaTeX strings for display
+  // and isn't suitable for round-tripping through a URL.
+  const appliedGatesRef = useRef<string>("");
 
   useEffect(() => {
     if (canvasRef.current) {
       renderer.current = new BlochRenderer(canvasRef.current);
+      // Replay any gates supplied via the URL on initial mount. We just call
+      // the regular `rotate` so the renderer animations, state vector, and
+      // history pane all stay in sync with the rest of the UI.
+      if (props.initialGates) {
+        for (const ch of props.initialGates) {
+          rotate(ch);
+        }
+      }
     }
   }, []);
 
@@ -584,10 +609,13 @@ export function BlochSphere() {
           break;
         default:
           console.error("Unknown gate: " + gate);
+          return;
       }
     }
     setState(newState);
     setGateArray([...gateArray]);
+    appliedGatesRef.current += gate;
+    props.onGatesChanged?.(appliedGatesRef.current);
   }
 
   function reset() {
@@ -596,6 +624,8 @@ export function BlochSphere() {
     if (renderer.current) {
       renderer.current.reset();
     }
+    appliedGatesRef.current = "";
+    props.onGatesChanged?.("");
   }
 
   function applyGates(e: Event) {

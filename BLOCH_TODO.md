@@ -36,11 +36,18 @@ into the main product. Items are not ordered by priority.
 
 ## Integration polish
 
-- [ ] **Decide where the Bloch view belongs in the playground nav.** Currently
-      added as a top-level "Bloch sphere" link via the `#bloch` URL hash hack in
-      [`source/playground/src/main.tsx`](source/playground/src/main.tsx) and
-      [`source/playground/src/nav.tsx`](source/playground/src/nav.tsx). Probably
-      wants to be a proper route, or grouped under "Tools" / "Visualizations".
+- [x] **Decide where the Bloch view belongs in the playground nav.** Moved
+      under a new "Tools" `nav-1` header between Samples and Tutorials, styled
+      as a `nav-2 nav-selectable` entry with `nav-current` highlighting like
+      every other nav item.
+- [x] **Replace the `#bloch` URL-hash hack with a proper deep-link.** Switched
+      to `?view=bloch` (matches the existing `?code=` pattern). The URL is
+      kept in sync with the nav selection via `history.pushState`, and a small
+      share-link icon in the corner of the Bloch view copies the current URL
+      to the clipboard (mirrors the editor's `onGetLink` behavior).
+- [x] **Fix render bug** where `<BlochSphere />` was showing on top of every
+      Documentation namespace because of a missing conditional branch in
+      `App`. Bloch now renders only when `currentNavItem === "bloch"`.
 - [ ] **Consider linking it from a Q# state-result, not just as a standalone
       page.** The widget today is a sandboxed gate-toy. The real product win would
       be wiring it to actual simulator state so users can see the Bloch vector

@@ -28,7 +28,14 @@ export function Nav(props: {
         </div>
       ))}
 
-      <div class="nav-1 nav-selectable" onClick={() => onSelected("bloch")}>
+      <div class="nav-1">Tools</div>
+      <div
+        class={
+          "nav-2 nav-selectable" +
+          (props.selected === "bloch" ? " nav-current" : "")
+        }
+        onClick={() => onSelected("bloch")}
+      >
         Bloch sphere
       </div>
 
